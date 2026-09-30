@@ -57,16 +57,16 @@ public final class ArtPy {
           if (c <= 0) break;
           bos.write(buf, 0, c);
         }
-        if (!procAlive(proc)) break;
+        if (!proc.isAlive()) break;
         Thread.sleep(40);
       }
-      if (procAlive(proc)) {
-        proc.destroy();
+      if (proc.isAlive()) {
+        proc.destroyForcibly();
         bos.write("\nTimed out (20s).".getBytes(StandardCharsets.UTF_8));
       }
       int c;
       while ((c = in.read(buf)) > 0) bos.write(buf, 0, c);
-      int code = procAlive(proc) ? 124 : proc.exitValue();
+      int code = proc.isAlive() ? 124 : proc.exitValue();
       List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();
       StringBuilder saved = new StringBuilder();
       File[] kids = work.listFiles();
@@ -106,8 +106,8 @@ public final class ArtPy {
   private static boolean works(String... cmd) {
     try {
       Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-      if (!procWait(p, 4000L)) {
-        p.destroy();
+      if (!p.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)) {
+        p.destroyForcibly();
         return false;
       }
       return p.exitValue() == 0;
@@ -180,25 +180,5 @@ public final class ArtPy {
 
   private static JavaRun.Result fail(String msg) {
     return new JavaRun.Result(msg, new ArrayList<JavaRun.FileOut>(), 1);
-  }
-
-  // API 24-safe process helpers: Process.isAlive(), destroyForcibly() and
-  // waitFor(long, TimeUnit) only exist on Android from API 26.
-  private static boolean procAlive(Process p) {
-    try {
-      p.exitValue();
-      return false;
-    } catch (IllegalThreadStateException ex) {
-      return true;
-    }
-  }
-
-  private static boolean procWait(Process p, long ms) throws InterruptedException {
-    long deadline = System.currentTimeMillis() + ms;
-    while (procAlive(p)) {
-      if (System.currentTimeMillis() >= deadline) return false;
-      Thread.sleep(25);
-    }
-    return true;
   }
 }

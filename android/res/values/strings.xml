@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="app_name">Pulsekit</string>
+  <string name="prompt_inserter">Types a PyJav prompt into Grok after a reference file is shared.</string>
 </resources>

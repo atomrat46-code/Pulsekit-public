@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -578,16 +579,16 @@ public final class JavaRun {
         if (n <= 0) break;
         bos.write(buf, 0, n);
       }
-      if (!procAlive(proc)) break;
+      if (!proc.isAlive()) break;
       Thread.sleep(40);
     }
-    if (procAlive(proc)) {
-      proc.destroy();
+    if (proc.isAlive()) {
+      proc.destroyForcibly();
       bos.write("\nTimed out (120s).".getBytes(StandardCharsets.UTF_8));
     }
     int n;
     while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
-    int code = procAlive(proc) ? 124 : proc.exitValue();
+    int code = proc.isAlive() ? 124 : proc.exitValue();
     List<FileOut> files = new ArrayList<FileOut>();
     File[] kids = dir.listFiles();
     if (kids != null) {
@@ -616,8 +617,8 @@ public final class JavaRun {
       List<String> all = new ArrayList<String>();
       Collections.addAll(all, cmd);
       Process p = new ProcessBuilder(all).redirectErrorStream(true).start();
-      if (!procWait(p, 4000L)) {
-        p.destroy();
+      if (!p.waitFor(4, TimeUnit.SECONDS)) {
+        p.destroyForcibly();
         return false;
       }
       return p.exitValue() == 0;
@@ -669,25 +670,5 @@ public final class JavaRun {
     } finally {
       in.close();
     }
-  }
-
-  // API 24-safe process helpers: Process.isAlive(), destroyForcibly() and
-  // waitFor(long, TimeUnit) only exist on Android from API 26.
-  private static boolean procAlive(Process p) {
-    try {
-      p.exitValue();
-      return false;
-    } catch (IllegalThreadStateException ex) {
-      return true;
-    }
-  }
-
-  private static boolean procWait(Process p, long ms) throws InterruptedException {
-    long deadline = System.currentTimeMillis() + ms;
-    while (procAlive(p)) {
-      if (System.currentTimeMillis() >= deadline) return false;
-      Thread.sleep(25);
-    }
-    return true;
   }
 }

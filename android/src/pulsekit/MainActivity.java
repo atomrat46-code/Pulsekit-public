@@ -116,18 +116,18 @@ import pulsekit.FlowLayout;
 
 public class MainActivity
 extends Activity {
-    static final int BG = Color.parseColor((String)"#0A0B0C");
-    static final int SURFACE = Color.parseColor((String)"#131416");
-    static final int ELEV = Color.parseColor((String)"#1B1D1F");
-    static final int FG = Color.parseColor((String)"#ECEBE6");
-    static final int MUTED = Color.parseColor((String)"#8A8B86");
-    static final int SUBTLE = Color.parseColor((String)"#5C5D59");
-    static final int HIT = Color.parseColor((String)"#9AAB9C");
-    static final int BORDER = Color.parseColor((String)"#2A2B2C");
-    static final int VEL_HI = Color.parseColor((String)"#6F7D71");
-    static final int VEL_LO = Color.parseColor((String)"#3A3C3A");
-    static final int ACCENT = Color.parseColor((String)"#D9A441");
-    static final int ACC_CELL = Color.parseColor((String)"#3A3220");
+    private static final int BG = Color.parseColor((String)"#0A0B0C");
+    private static final int SURFACE = Color.parseColor((String)"#131416");
+    private static final int ELEV = Color.parseColor((String)"#1B1D1F");
+    private static final int FG = Color.parseColor((String)"#ECEBE6");
+    private static final int MUTED = Color.parseColor((String)"#8A8B86");
+    private static final int SUBTLE = Color.parseColor((String)"#5C5D59");
+    private static final int HIT = Color.parseColor((String)"#9AAB9C");
+    private static final int BORDER = Color.parseColor((String)"#2A2B2C");
+    private static final int VEL_HI = Color.parseColor((String)"#6F7D71");
+    private static final int VEL_LO = Color.parseColor((String)"#3A3C3A");
+    private static final int ACCENT = Color.parseColor((String)"#D9A441");
+    private static final int ACC_CELL = Color.parseColor((String)"#3A3220");
     private static final int OPEN = 7;
     private static final int SAVE_MIDI = 8;
     private static final int SAVE_SNG = 9;
@@ -136,7 +136,7 @@ extends Activity {
     private static final int SAVE_SF2 = 12;
     private static final int OPEN_PAD = 13;
     private static final int OPEN_ISO_SAMPLE = 21;
-    static final int OPEN_ANALYZE = 22;
+    private static final int OPEN_ANALYZE = 22;
     private static final int SAVE_PY = 14;
     private static final int SAVE_PRJ = 15;
     private static final int SAVE_PKP = 16;
@@ -145,21 +145,21 @@ extends Activity {
     private static final int SAVE_FSET = 19;
     private String midiSaveRole = "pattern";
     private String fsetSaveSource = null;
-    final Map<String, Engine.Style> styles = Engine.styles();
-    final int[][] cells = Engine.emptyCells();
-    final int[][] fillPat = Engine.fillCells("toms");
-    final int[][] lens = Engine.emptyCells();
-    final int[][] fillLens = Engine.emptyCells();
-    final boolean[] accents = new boolean[32];
-    final boolean[] mutes = new boolean[Engine.TRACK_ID.length];
-    final TextView[][] grid = new TextView[Engine.TRACK_ID.length][32];
-    TextView accLab;
-    final TextView[] accCells = new TextView[32];
-    final TextView[] padBtns = new TextView[Engine.TRACK_ID.length];
-    final List<Engine.Part> song = new ArrayList<Engine.Part>();
-    final List<Engine.ImportedSong> importedSongs = new ArrayList<Engine.ImportedSong>();
-    String songLane = "original";
-    String importedSongId;
+    private final Map<String, Engine.Style> styles = Engine.styles();
+    private final int[][] cells = Engine.emptyCells();
+    private final int[][] fillPat = Engine.fillCells("toms");
+    private final int[][] lens = Engine.emptyCells();
+    private final int[][] fillLens = Engine.emptyCells();
+    private final boolean[] accents = new boolean[32];
+    private final boolean[] mutes = new boolean[Engine.TRACK_ID.length];
+    private final TextView[][] grid = new TextView[Engine.TRACK_ID.length][32];
+    private TextView accLab;
+    private final TextView[] accCells = new TextView[32];
+    private final TextView[] padBtns = new TextView[Engine.TRACK_ID.length];
+    private final List<Engine.Part> song = new ArrayList<Engine.Part>();
+    private final List<Engine.ImportedSong> importedSongs = new ArrayList<Engine.ImportedSong>();
+    private String songLane = "original";
+    private String importedSongId;
     private final List<Engine.Learned> learned = new ArrayList<Engine.Learned>();
     private final List<Engine.LearnedFill> learnedFills = new ArrayList<Engine.LearnedFill>();
     private final List<Engine.LearnedFill> variatedFills = new ArrayList<Engine.LearnedFill>();
@@ -168,7 +168,7 @@ extends Activity {
     private final List<String> hiddenStyles = new ArrayList<String>();
     private final List<String> hiddenFills = new ArrayList<String>();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    int paintLen;
+    private int paintLen;
     private LinearLayout lenBar;
     private final TextView[] lenChips = new TextView[Engine.LEN_STEPS.length];
     private long cellTapAt;
@@ -182,8 +182,8 @@ extends Activity {
     private final short[][] voices = new short[Engine.NOTES.length][];
     private final List<Engine.DrumSet> drumSets = new ArrayList<Engine.DrumSet>();
     private int drumSetIndex = 0;
-    FlowLayout drumSetBar;
-    TextView padMatchAll;
+    private FlowLayout drumSetBar;
+    private TextView padMatchAll;
     private short[] oneShot;
     private int oneShotPos = -1;
     private float oneShotGain;
@@ -195,45 +195,45 @@ extends Activity {
     private FlowLayout styleBar;
     private LinearLayout importedHost;
     private LinearLayout importedFillHost;
-    LinearLayout importedFileList;
+    private LinearLayout importedFileList;
     private final Map<String, Boolean> openPacks = new LinkedHashMap<String, Boolean>();
     private FlowLayout variatedPatternBar;
-    LinearLayout styleWrap;
-    LinearLayout fillWrap;
+    private LinearLayout styleWrap;
+    private LinearLayout fillWrap;
     private FlowLayout variatedFillBar;
     private FlowLayout fillBar;
-    LinearLayout chrome;
+    private LinearLayout chrome;
     private LinearLayout body;
-    LinearLayout gridPane;
-    LinearLayout songCards;
-    LinearLayout knobsRow;
+    private LinearLayout gridPane;
+    private LinearLayout songCards;
+    private LinearLayout knobsRow;
     private LinearLayout toolsRow;
     private HorizontalScrollView toolsScroll;
-    ScrollView gridScroll;
-    LinearLayout padsPane;
-    LinearLayout songPane;
-    LinearLayout pyPane;
-    EditText pyEditor;
+    private ScrollView gridScroll;
+    private LinearLayout padsPane;
+    private LinearLayout songPane;
+    private LinearLayout pyPane;
+    private EditText pyEditor;
     private String pyName = "drum_midi.py";
-    LinearLayout importPane;
-    LinearLayout exportPane;
-    LinearLayout isolatePane;
-    LinearLayout isolateRows;
-    TextView isolateStatus;
-    TextView isolateUse;
-    TextView isolateSkip;
+    private LinearLayout importPane;
+    private LinearLayout exportPane;
+    private LinearLayout isolatePane;
+    private LinearLayout isolateRows;
+    private TextView isolateStatus;
+    private TextView isolateUse;
+    private TextView isolateSkip;
     private AudioIo.Analysis isolateAnalysis;
     private String isolateFile;
     private String isolateSampleTrack;
-    LinearLayout analyzePane;
-    LinearLayout analyzeRows;
-    TextView analyzeStatus;
-    TextView analyzeFileLab;
+    private LinearLayout analyzePane;
+    private LinearLayout analyzeRows;
+    private TextView analyzeStatus;
+    private TextView analyzeFileLab;
     private byte[] analyzeBytes;
     private String analyzeName;
     private Uri analyzeUri;
-    LinearLayout songAdds;
-    LinearLayout timeline;
+    private LinearLayout songAdds;
+    private LinearLayout timeline;
     private TextView playBtn;
     private TextView muteBtn;
     private TextView stepsBtn;
@@ -244,27 +244,27 @@ extends Activity {
     private RangeBar swingBar;
     private RangeBar densBar;
     private RangeBar humanBar;
-    String style = "house";
+    private String style = "house";
     private String variatedPatternId;
-    String view = "pattern";
-    String fillId = "toms";
-    String songMode = "edit";
+    private String view = "pattern";
+    private String fillId = "toms";
+    private String songMode = "edit";
     private volatile boolean playing;
     private volatile boolean songPlay;
     private boolean muted;
-    boolean livePads;
+    private boolean livePads;
     private boolean pluginGhostHats;
     private boolean fillLast;
-    int playhead = -1;
+    private int playhead = -1;
     private int step;
     private int songIndex;
     private int songLoop;
     private int barLoop;
     private int bars = 4;
-    int steps = 16;
+    private int steps = 16;
     private int tsNum = 4;
-    int tsDen = 4;
-    int padTarget = -1;
+    private int tsDen = 4;
+    private int padTarget = -1;
     private AudioTrack track;
     private boolean fillVariated;
     private static final int MIX_CHUNK = 256;
@@ -282,7 +282,7 @@ extends Activity {
     private int shownHead = -1;
     private final Random mixRng = new Random();
 
-    protected void onCreate(Bundle bundle) {
+    private void onCreateBase(Bundle bundle) {
         super.onCreate(bundle);
         if (Build.VERSION.SDK_INT >= 21) {
             this.getWindow().setStatusBarColor(BG);
@@ -302,7 +302,7 @@ extends Activity {
         this.refreshSong();
     }
 
-    private View buildUi() {
+    private View buildUiBase() {
         LinearLayout.LayoutParams layoutParams;
         TextView textView;
         LinearLayout linearLayout;
@@ -504,7 +504,94 @@ extends Activity {
         this.body.addView((View)this.chrome);
         FrameLayout frameLayout = new FrameLayout((Context)this);
         frameLayout.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));
-        this.gridPane = new GridPane(this);
+        this.gridPane = this.col();
+        this.gridPane.setClipChildren(true);
+        LinearLayout linearLayout11 = this.row();
+        linearLayout11.setClipChildren(true);
+        linearLayout11.setPadding(0, 0, 0, this.dp(2));
+        if (Build.VERSION.SDK_INT >= 21) {
+            linearLayout11.setElevation((float)this.dp(6));
+        }
+        this.accLab = this.labelCell("ACC", FG);
+        this.accLab.setClickable(true);
+        this.bindAccCell(this.accLab);
+        this.accLab.setOnClickListener(view -> {
+            int n;
+            boolean bl = false;
+            for (n = 0; n < this.steps; ++n) {
+                if (!this.accents[n]) continue;
+                bl = true;
+                break;
+            }
+            if (bl) {
+                for (n = 0; n < 32; ++n) {
+                    this.accents[n] = false;
+                }
+            } else {
+                Engine.defaultAccents(this.accents, this.steps, Engine.stepsPerBeat(this.tsDen));
+            }
+            view.performHapticFeedback(3);
+            this.refreshGrid();
+        });
+        linearLayout11.addView((View)this.accLab);
+        for (n2 = 0; n2 < 32; ++n2) {
+            int n4 = n2;
+            TextView textView14 = this.cell(n2 % 4 == 0 ? Integer.toString(n2 / 4 + 1) : "\u00b7", view -> {
+                this.accents[n4] = !this.accents[n4];
+                view.performHapticFeedback(3);
+                this.refreshGrid();
+            });
+            textView14.setTag((Object)("acc-" + n2));
+            this.bindAccCell(textView14);
+            this.accCells[n2] = textView14;
+            linearLayout11.addView((View)textView14, (ViewGroup.LayoutParams)this.accLp());
+        }
+        this.gridPane.addView((View)linearLayout11);
+        for (n2 = 0; n2 < Engine.TRACK_ID.length; ++n2) {
+            LinearLayout linearLayout12 = this.row();
+            linearLayout12.setClipChildren(true);
+            linearLayout12.setMinimumHeight(this.dp(40));
+            int n5 = n2;
+            textView3 = this.labelCell(Engine.TRACK_SHORT[n2], MUTED);
+            textView3.setOnClickListener(view -> {
+                if (this.mutes[n5]) {
+                    this.mutes[n5] = false;
+                    this.refreshGrid();
+                    return;
+                }
+                this.bang(n5, 110);
+            });
+            textView3.setOnLongClickListener(view -> {
+                this.mutes[n5] = !this.mutes[n5];
+                this.refreshGrid();
+                return true;
+            });
+            linearLayout12.addView((View)textView3);
+            for (int i = 0; i < 32; ++i) {
+                int n6 = i;
+                textView2 = this.cell("", view -> {
+                    if (this.paintLen > 0) {
+                        this.setCellLen(n5, n6, this.paintLen);
+                        return;
+                    }
+                    int[][] nArray = this.editCells();
+                    int[][] nArray2 = this.editLens();
+                    int v = nArray[n5][n6];
+                    nArray[n5][n6] = v <= 0 ? 100 : (v < 90 ? 0 : (v < 120 ? 127 : 64));
+                    if (nArray[n5][n6] <= 0) {
+                        nArray2[n5][n6] = 0;
+                    }
+                    this.refreshGrid();
+                    if (!"fills".equals(this.view)) {
+                        this.syncBuiltinFill();
+                    }
+                });
+                this.bindCellLength(textView2, n5, n6);
+                this.grid[n2][i] = textView2;
+                linearLayout12.addView((View)textView2, (ViewGroup.LayoutParams)this.cellLp());
+            }
+            this.gridPane.addView((View)linearLayout12);
+        }
         HorizontalScrollView horizontalScrollView2 = new HorizontalScrollView((Context)this);
         horizontalScrollView2.setHorizontalScrollBarEnabled(false);
         horizontalScrollView2.setFillViewport(true);
@@ -517,19 +604,249 @@ extends Activity {
         this.gridScroll.setClipToPadding(false);
         this.gridScroll.addView((View)horizontalScrollView2);
         frameLayout.addView((View)this.gridScroll);
-        this.padsPane = new PadsPane(this);
+        this.padsPane = this.col();
+        this.padsPane.setVisibility(8);
+        this.padsPane.addView((View)this.text("Drum sets", 11, true));
+        HorizontalScrollView horizontalScrollView3 = new HorizontalScrollView((Context)this);
+        horizontalScrollView3.setHorizontalScrollBarEnabled(false);
+        this.drumSetBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
+        this.drumSetBar.setSingleLine(true);
+        horizontalScrollView3.addView((View)this.drumSetBar);
+        this.padsPane.addView((View)horizontalScrollView3);
+        LinearLayout linearLayout13 = this.row();
+        textView3 = this.outline("Live", false, view -> {
+            this.livePads = !this.livePads;
+            this.paintOutline((TextView)view, this.livePads);
+            this.setNow(this.livePads ? "Pads write the pattern" : "Hold a pad");
+        });
+        linearLayout13.addView((View)textView3);
+        linearLayout13.addView((View)this.outline("Silent", false, view -> {
+            for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
+                for (int j = 0; j < 16; ++j) {
+                    this.cells[i][j] = 0;
+                }
+            }
+            Engine.zeroCells(this.lens);
+            this.syncBuiltinFill();
+            this.refreshGrid();
+        }));
+        this.padMatchAll = this.outline("Match Original", true, view -> this.matchWholeOriginal());
+        this.padMatchAll.setVisibility(8);
+        linearLayout13.addView((View)this.padMatchAll);
+        TextView textView15 = this.text("  Tap Match Original for the whole kit", 11, false);
+        textView15.setTextColor(SUBTLE);
+        linearLayout13.addView((View)textView15);
+        this.padsPane.addView((View)linearLayout13);
+        ScrollView scrollView = new ScrollView((Context)this);
+        LinearLayout padGrid = this.col();
+        for (int i = 0; i < 3; ++i) {
+            linearLayout = this.row();
+            for (int j = 0; j < 4; ++j) {
+                int n7 = i * 4 + j;
+                if (n7 >= Engine.TRACK_ID.length) {
+                    linearLayout.addView(new View((Context)this), (ViewGroup.LayoutParams)new LinearLayout.LayoutParams(0, this.dp(96), 1.0f));
+                    continue;
+                }
+                int n8 = n7;
+                this.padBtns[n7] = textView = this.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7], view -> {
+                    this.bang(n8, 110);
+                    this.flashPad(n8);
+                    if (this.livePads) {
+                        int step = this.playhead >= 0 ? this.playhead : 0;
+                        this.cells[n8][step] = this.cells[n8][step] > 0 ? 0 : 100;
+                        if (this.cells[n8][step] <= 0) {
+                            this.lens[n8][step] = 0;
+                        }
+                        this.syncBuiltinFill();
+                        this.refreshGrid();
+                    }
+                });
+                textView.setOnLongClickListener(view -> {
+                    this.padTarget = n8;
+                    this.showPadMenu(n8);
+                    return true;
+                });
+                layoutParams = new LinearLayout.LayoutParams(0, this.dp(96), 1.0f);
+                layoutParams.setMargins(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
+                textView.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
+                linearLayout.addView((View)textView);
+            }
+            padGrid.addView((View)linearLayout);
+        }
+        scrollView.addView((View)padGrid);
+        this.padsPane.addView((View)scrollView, (ViewGroup.LayoutParams)this.flexFill());
         frameLayout.addView((View)this.padsPane);
-        this.songPane = new SongPane(this);
+        this.refreshDrumSets();
+        this.songPane = this.col();
+        this.songPane.setVisibility(8);
+        LinearLayout linearLayout14 = this.row();
+        TextView editPill = this.pill("Edit", true, view -> {
+            this.songMode = "edit";
+            this.chrome.setVisibility(0);
+            this.styleWrap.setVisibility(8);
+            this.fillWrap.setVisibility(8);
+            this.knobsRow.setVisibility(8);
+            this.refreshSong();
+        });
+        editPill.setTag((Object)"edit");
+        TextView textView16 = this.pill("Play", false, view -> {
+            this.songMode = "play";
+            this.chrome.setVisibility(8);
+            this.refreshSong();
+        });
+        textView16.setTag((Object)"play");
+        linearLayout14.addView((View)editPill);
+        linearLayout14.addView((View)textView16);
+        this.songPane.addView((View)linearLayout14);
+        LinearLayout linearLayout15 = this.row();
+        TextView textView17 = this.pill("Original", true, view -> {
+            this.songLane = "original";
+            this.refreshSong();
+        });
+        textView17.setTag((Object)"original");
+        textView = this.pill("Imported", false, view -> {
+            this.songLane = "imported";
+            if (this.importedSongId == null && !this.importedSongs.isEmpty()) {
+                this.importedSongId = this.importedSongs.get((int)0).id;
+            }
+            this.refreshSong();
+        });
+        textView.setTag((Object)"imported");
+        linearLayout15.addView((View)textView17);
+        linearLayout15.addView((View)textView);
+        this.songPane.addView((View)linearLayout15);
+        this.songAdds = this.row();
+        TextView patternPill = this.pill("Pattern \u00d74", false, view -> {
+            Engine.Part part = Engine.groove(this.styles.get((Object)this.style).label, this.bpm(), this.cells, 4);
+            part.lens = Engine.copyCells(this.lens);
+            this.add(part);
+        });
+        this.attachSongPick(patternPill, -1, "pattern");
+        TextView textView18 = this.pill("Fillern", false, view -> this.addCurrentFillern());
+        this.attachSongPick(textView18, -1, "fillern");
+        TextView textView19 = this.pill("Fill", false, view -> {
+            Engine.Part part = Engine.fill(this.fillLabel(this.fillId), this.bpm(), this.fillPat, 1);
+            part.lens = Engine.copyCells(this.fillLens);
+            this.add(part);
+        });
+        this.attachSongPick(textView19, -1, "fill");
+        this.songAdds.addView((View)patternPill);
+        this.songAdds.addView((View)textView18);
+        this.songAdds.addView((View)textView19);
+        this.songAdds.addView((View)this.pill("Silent", false, view -> this.add(Engine.rest(this.bpm(), 2))));
+        this.songAdds.addView((View)this.pill("Clear", false, view -> {
+            if ("imported".equals(this.songLane) && this.importedSongId != null) {
+                String string = this.importedSongId;
+                this.importedSongs.removeIf(importedSong -> string.equals(importedSong.id));
+                this.importedSongId = this.importedSongs.isEmpty() ? null : this.importedSongs.get((int)0).id;
+                this.persistLearned();
+            } else {
+                this.song.clear();
+            }
+            this.refreshSong();
+        }));
+        HorizontalScrollView horizontalScrollView4 = new HorizontalScrollView((Context)this);
+        horizontalScrollView4.setHorizontalScrollBarEnabled(false);
+        horizontalScrollView4.addView((View)this.songAdds);
+        this.songPane.addView((View)horizontalScrollView4);
+        HorizontalScrollView horizontalScrollView5 = new HorizontalScrollView((Context)this);
+        horizontalScrollView5.setHorizontalScrollBarEnabled(false);
+        this.timeline = this.row();
+        horizontalScrollView5.addView((View)this.timeline);
+        this.songPane.addView((View)horizontalScrollView5);
+        ScrollView scrollView2 = new ScrollView((Context)this);
+        this.songCards = this.col();
+        scrollView2.addView((View)this.songCards);
+        this.songPane.addView((View)scrollView2, (ViewGroup.LayoutParams)this.flexFill());
         frameLayout.addView((View)this.songPane);
-        this.pyPane = new PyJavPane(this);
+        this.pyPane = this.col();
+        this.pyPane.setVisibility(8);
+        this.pyPane.addView((View)this.text("PyJav", 18, true));
+        TextView textView20 = this.text("Python, or Java .java / .jar / .class. Run uses java or python3 on this device when it is installed.", 14, false);
+        textView20.setTextColor(MUTED);
+        textView20.setPadding(0, this.dp(8), 0, this.dp(8));
+        this.pyPane.addView((View)textView20);
+        this.pyEditor = new EditText((Context)this);
+        this.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
+        this.pyEditor.setTypeface(Typeface.MONOSPACE);
+        this.pyEditor.setTextColor(FG);
+        this.pyEditor.setTextSize(2, 12.0f);
+        this.pyEditor.setBackground((Drawable)this.round(ELEV, 10));
+        this.pyEditor.setPadding(this.dp(10), this.dp(10), this.dp(10), this.dp(10));
+        this.pyEditor.setGravity(0x800033);
+        this.pyEditor.setMinLines(8);
+        this.pyPane.addView((View)this.pyEditor, (ViewGroup.LayoutParams)this.flexFill());
         frameLayout.addView((View)this.pyPane);
-        this.importPane = new ImportPane(this);
+        this.importPane = this.col();
+        this.importPane.setVisibility(8);
+        this.importPane.addView((View)this.text("Import", 18, true));
+        TextView textView21 = this.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 isolate kick, snare, toms, hats, ride, crash\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
+        textView21.setTextColor(MUTED);
+        textView21.setPadding(0, this.dp(8), 0, this.dp(16));
+        this.importPane.addView((View)textView21);
+        this.importPane.addView((View)this.action("Choose file", FG, BG, view -> this.openFile()));
+        this.importedFileList = this.col();
+        this.importedFileList.setPadding(0, this.dp(12), 0, 0);
+        this.importPane.addView((View)this.importedFileList);
+        TextView textView22 = this.action("Try Dub pack", ELEV, FG, view -> this.tryDub());
+        LinearLayout.LayoutParams layoutParams4 = this.wrap();
+        layoutParams4.setMargins(0, this.dp(8), 0, 0);
+        textView22.setLayoutParams((ViewGroup.LayoutParams)layoutParams4);
+        this.importPane.addView((View)textView22);
         frameLayout.addView((View)this.importPane);
-        this.isolatePane = new IsolatePane(this);
+        this.isolatePane = this.col();
+        this.isolatePane.setVisibility(8);
+        this.isolatePane.addView((View)this.text("Isolation", 18, true));
+        this.isolateStatus = this.text("Import a WAV or MP3 to isolate pads.", 14, false);
+        this.isolateStatus.setTextColor(MUTED);
+        this.isolateStatus.setPadding(0, this.dp(8), 0, this.dp(12));
+        this.isolatePane.addView((View)this.isolateStatus);
+        ScrollView scrollView3 = new ScrollView((Context)this);
+        this.isolateRows = this.col();
+        scrollView3.addView((View)this.isolateRows);
+        this.isolatePane.addView((View)scrollView3, (ViewGroup.LayoutParams)this.flexFill());
+        LinearLayout linearLayout16 = this.row();
+        linearLayout16.setPadding(0, this.dp(8), 0, 0);
+        this.isolateUse = this.action("Use pads", FG, BG, view -> this.finishIsolation());
+        this.isolateSkip = this.action("Skip", ELEV, FG, view -> this.finishIsolation());
+        linearLayout16.addView((View)this.isolateUse, (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout16.addView((View)this.isolateSkip, (ViewGroup.LayoutParams)this.flexBtn());
+        this.isolatePane.addView((View)linearLayout16);
         frameLayout.addView((View)this.isolatePane);
-        this.analyzePane = new AnalyzePane(this);
-        frameLayout.addView((View)this.analyzePane);
-        this.exportPane = new ExportPane(this);
+        this.exportPane = this.col();
+        this.exportPane.setVisibility(8);
+        this.exportPane.addView((View)this.text("Export", 18, true));
+        this.exportPane.addView((View)this.hint("Project"));
+        LinearLayout linearLayout17 = this.row();
+        linearLayout17.addView((View)this.action("PRJ", HIT, BG, view -> this.saveKind(15)), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout17.addView((View)this.action("PKP", ELEV, FG, view -> this.saveKind(16)), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout17.addView((View)this.action("FSET", ELEV, FG, view -> this.saveFset(null)), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout17);
+        this.exportPane.addView((View)this.hint("MIDI"));
+        LinearLayout linearLayout18 = this.row();
+        linearLayout18.addView((View)this.action("Pattern", ELEV, FG, view -> this.saveMidi("pattern")), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout18.addView((View)this.action("Fillern", ELEV, FG, view -> this.saveMidi("fillern")), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout18.addView((View)this.action("Fill", ELEV, FG, view -> this.saveMidi("fill")), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout18);
+        this.exportPane.addView((View)this.hint("This beat"));
+        LinearLayout linearLayout19 = this.row();
+        linearLayout19.addView((View)this.action("WAV", ELEV, FG, view -> this.saveKind(10)), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout19.addView((View)this.action("MP3", ELEV, FG, view -> this.saveKind(11)), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout19);
+        LinearLayout linearLayout20 = this.row();
+        linearLayout20.setPadding(0, this.dp(8), 0, 0);
+        linearLayout20.addView((View)this.action("SF2", ELEV, FG, view -> this.saveKind(12)), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout20.addView((View)this.action("JAR", ELEV, FG, view -> this.saveKind(18)), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout20);
+        this.exportPane.addView((View)this.hint("Song"));
+        LinearLayout linearLayout21 = this.row();
+        linearLayout21.addView((View)this.action("SNG", ELEV, FG, view -> this.saveKind(9)), (ViewGroup.LayoutParams)this.flexBtn());
+        linearLayout21.addView((View)this.action("Song MIDI", ELEV, FG, view -> this.saveKind(17)), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout21);
+        this.exportPane.addView((View)this.hint("Python"));
+        LinearLayout linearLayout22 = this.row();
+        linearLayout22.addView((View)this.action("PY", ELEV, FG, view -> this.saveKind(14)), (ViewGroup.LayoutParams)this.flexBtn());
+        this.exportPane.addView((View)linearLayout22);
         frameLayout.addView((View)this.exportPane);
         this.body.addView((View)frameLayout);
         linearLayout2.addView((View)this.body);
@@ -637,41 +954,11 @@ extends Activity {
         this.tabs.add(textView);
     }
 
-    private void showFileMenu(View view2) {
-        LinearLayout linearLayout = this.col();
-        GradientDrawable gradientDrawable = this.round(SURFACE, 8);
-        gradientDrawable.setStroke(this.dp(1), BORDER);
-        linearLayout.setBackground((Drawable)gradientDrawable);
-        linearLayout.setPadding(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
-        TextView textView = this.text("Import", 14, true);
-        textView.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        textView.setTextColor("import".equals(this.view) ? FG : MUTED);
-        TextView textView2 = this.text("Export", 14, true);
-        textView2.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        textView2.setTextColor("export".equals(this.view) ? FG : MUTED);
-        linearLayout.addView((View)textView);
-        linearLayout.addView((View)textView2);
-        linearLayout.measure(0, 0);
-        PopupWindow popupWindow = new PopupWindow((View)linearLayout, linearLayout.getMeasuredWidth(), linearLayout.getMeasuredHeight(), true);
-        popupWindow.setBackgroundDrawable((Drawable)new GradientDrawable());
-        popupWindow.setOutsideTouchable(true);
-        popupWindow.setElevation((float)this.dp(8));
-        textView.setOnClickListener(view -> {
-            popupWindow.dismiss();
-            this.show("import");
-        });
-        textView2.setOnClickListener(view -> {
-            popupWindow.dismiss();
-            this.show("export");
-        });
-        popupWindow.showAsDropDown(view2, 0, this.dp(4), 0x800005);
-    }
-
     private boolean grooveView() {
         return "pattern".equals(this.view) || "combo".equals(this.view);
     }
 
-    private void show(String string) {
+    private void showBase(String string) {
         this.hideLenMenu();
         this.view = string;
         boolean bl = "song".equals(string);
@@ -756,15 +1043,6 @@ extends Activity {
         }
     }
 
-    private void refreshTabs() {
-        for (TextView textView : this.tabs) {
-            Object object = textView.getTag();
-            boolean bl = this.view.equals(object) || "file".equals(object) && ("import".equals(this.view) || "export".equals(this.view) || "isolate".equals(this.view) || "analyze".equals(this.view));
-            textView.setBackground((Drawable)this.round(bl ? ELEV : 0, 8));
-            textView.setTextColor(bl ? FG : MUTED);
-        }
-    }
-
     private void applyFill(String string) {
         this.fillId = string;
         int[][] nArray = this.fillCellsFor(string);
@@ -785,7 +1063,7 @@ extends Activity {
         return this.fillId != null && (this.fillId.startsWith("l:") || this.fillId.startsWith("v:") || this.fillId.startsWith("p:"));
     }
 
-    void syncBuiltinFill() {
+    private void syncBuiltinFill() {
         if (this.customFill()) {
             return;
         }
@@ -814,7 +1092,7 @@ extends Activity {
         return Engine.buildFill(string, this.cells, this.style);
     }
 
-    String fillLabel(String string) {
+    private String fillLabel(String string) {
         String string2;
         if (string != null && string.startsWith("l:")) {
             string2 = string.substring(2);
@@ -930,11 +1208,11 @@ extends Activity {
         this.setNow("Imported song \u00b7 " + importedSong.name);
     }
 
-    void attachSongPick(TextView textView, int n) {
+    private void attachSongPick(TextView textView, int n) {
         this.attachSongPick(textView, n, null);
     }
 
-    void attachSongPick(TextView textView, int n, String string) {
+    private void attachSongPick(TextView textView, int n, String string) {
         textView.setOnLongClickListener(view -> {
             if (!"original".equals(this.songLane)) {
                 return true;
@@ -944,7 +1222,7 @@ extends Activity {
         });
     }
 
-    void addCurrentFillern() {
+    private void addCurrentFillern() {
         Engine.Part part = Engine.groove(this.styles.get((Object)this.style).label, this.bpm(), this.cells, 4);
         part.lens = Engine.copyCells(this.lens);
         Engine.Part part2 = Engine.fill(this.fillLabel(this.fillId), this.bpm(), this.fillPat, 1);
@@ -1332,7 +1610,7 @@ extends Activity {
         this.setNow("fillern".equals(string) ? this.patternName(string2) + " Fillern" : ("fill".equals(string) ? this.fillLabel(string2) : this.patternName(string2)));
     }
 
-    void add(Engine.Part part) {
+    private void add(Engine.Part part) {
         List<Engine.Part> list = this.activeSong();
         if ("imported".equals(this.songLane) && this.importedSong() == null) {
             Toast.makeText((Context)this, (CharSequence)"No imported song yet", (int)0).show();
@@ -1352,7 +1630,7 @@ extends Activity {
         this.refreshSong();
     }
 
-    void refreshSong() {
+    private void refreshSongBase() {
         List<Engine.Part> list;
         if (this.songAdds != null) {
             boolean bl = "edit".equals(this.songMode) && (!"imported".equals(this.songLane) || !this.importedSongs.isEmpty());
@@ -1379,7 +1657,7 @@ extends Activity {
         if ("imported".equals(this.songLane) && !this.importedSongs.isEmpty()) {
             LinearLayout linearLayout = this.row();
             for (Engine.ImportedSong importedSong : this.importedSongs) {
-                TextView object = this.pill(importedSong.name, importedSong.id.equals(this.importedSongId), arg_0 -> this.lambda$refreshSong$75(importedSong, arg_0));
+                TextView object = this.pill(importedSong.name, importedSong.id.equals(this.importedSongId), arg_0 -> this.refreshSongAction75(importedSong, arg_0));
                 linearLayout.addView((View)object);
             }
             this.songCards.addView((View)linearLayout);
@@ -1423,7 +1701,7 @@ extends Activity {
         this.setNow("play".equals(this.songMode) ? (this.songPlay && this.songIndex < list.size() ? list.get((int)this.songIndex).name : "Play mode") : list.size() + " parts");
     }
 
-    private LinearLayout partCard(int n, int n2, Engine.Part part, boolean bl) {
+    private LinearLayout partCardBase(int n, int n2, Engine.Part part, boolean bl) {
         LinearLayout linearLayout = this.row();
         linearLayout.setBackground((Drawable)this.round(bl ? Color.parseColor((String)"#2A322C") : ELEV, 12));
         linearLayout.setPadding(this.dp(10), this.dp(10), this.dp(10), this.dp(10));
@@ -1742,7 +2020,7 @@ extends Activity {
         this.rebuildImported();
     }
 
-    void refreshGrid() {
+    private void refreshGrid() {
         this.shownHead = this.playhead;
         this.applyGridWidth();
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
@@ -1761,7 +2039,7 @@ extends Activity {
         this.paintAccentRow();
     }
 
-    private void refreshPlayhead() {
+    private void refreshPlayheadBase() {
         int n = this.shownHead;
         int n2 = this.playhead;
         if (n == n2) {
@@ -1820,15 +2098,15 @@ extends Activity {
         }
     }
 
-    int[][] editCells() {
+    private int[][] editCells() {
         return "fills".equals(this.view) ? this.fillPat : this.cells;
     }
 
-    int[][] editLens() {
+    private int[][] editLens() {
         return "fills".equals(this.view) ? this.fillLens : this.lens;
     }
 
-    void setCellLen(int n, int n2, int n3) {
+    private void setCellLen(int n, int n2, int n3) {
         int[][] nArray = this.editCells();
         int[][] nArray2 = this.editLens();
         int n4 = Engine.clampLen(n3);
@@ -1842,7 +2120,7 @@ extends Activity {
         }
     }
 
-    void bindAccCell(TextView textView) {
+    private void bindAccCell(TextView textView) {
         textView.setClickable(true);
         textView.setLongClickable(false);
         textView.setTextIsSelectable(false);
@@ -1868,7 +2146,7 @@ extends Activity {
         });
     }
 
-    void bindCellLength(final TextView textView, final int n, final int n2) {
+    private void bindCellLength(final TextView textView, final int n, final int n2) {
         textView.setClickable(true);
         textView.setLongClickable(false);
         textView.setTextIsSelectable(false);
@@ -2147,7 +2425,7 @@ extends Activity {
         }
     }
 
-    void paintOutline(TextView textView, boolean bl) {
+    private void paintOutline(TextView textView, boolean bl) {
         GradientDrawable gradientDrawable = new GradientDrawable();
         gradientDrawable.setColor(bl ? Color.parseColor((String)"#2A322C") : 0);
         gradientDrawable.setCornerRadius((float)this.dp(16));
@@ -2156,7 +2434,7 @@ extends Activity {
         textView.setTextColor(bl ? FG : MUTED);
     }
 
-    int bpm() {
+    private int bpm() {
         return this.bpmBar != null ? this.bpmBar.getVal() : 124;
     }
 
@@ -2419,7 +2697,7 @@ extends Activity {
             n = 0;
         }
         boolean advanced = n != 0;
-        this.handler.post(() -> this.lambda$audioTick$94(n5, part2, advanced));
+        this.handler.post(() -> this.audioTickAction94(n5, part2, advanced));
     }
 
     private void applyPart(Engine.Part part) {
@@ -2611,7 +2889,7 @@ extends Activity {
         }
     }
 
-    void bang(int n, int n2) {
+    private void bang(int n, int n2) {
         if (this.muted || this.mutes[n] || n < 0 || n >= this.mixPos.length) {
             return;
         }
@@ -2647,7 +2925,7 @@ extends Activity {
         }
     }
 
-    void flashPad(int n) {
+    private void flashPad(int n) {
         if (this.padBtns[n] == null) {
             return;
         }
@@ -2659,7 +2937,7 @@ extends Activity {
         }, 90L);
     }
 
-    void saveKind(int n) {
+    private void saveKind(int n) {
         Intent intent = new Intent("android.intent.action.CREATE_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
         if (n == 9) {
@@ -2880,7 +3158,7 @@ extends Activity {
         Toast.makeText((Context)this, (CharSequence)("Plugin \u00b7 " + (string2 != null ? string2 : "pack")), (int)0).show();
     }
 
-    void tryDub() {
+    private void tryDub() {
         Engine.Style style = Engine.dubStyle();
         this.addPluginStyle(style);
         int[][] nArray = Engine.dubFill();
@@ -2898,7 +3176,7 @@ extends Activity {
         this.rebuildImported();
     }
 
-    void saveMidi(String string) {
+    private void saveMidi(String string) {
         this.midiSaveRole = string == null ? "pattern" : string;
         this.saveKind(8);
     }
@@ -3118,7 +3396,7 @@ extends Activity {
         }
     }
 
-    void finishIsolation() {
+    private void finishIsolationBase() {
         if (this.isolateAnalysis == null) {
             this.show("import");
             return;
@@ -3248,14 +3526,14 @@ extends Activity {
         this.setNow(object);
     }
 
-    private boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
+    private boolean learnFromSongImportBase(String string, Engine.MidiBars midiBars) {
         return this.learnFromSongImport(string, midiBars, false);
     }
 
     /*
      * WARNING - void declaration
      */
-    private boolean learnFromSongImport(String string, Engine.MidiBars midiBars, boolean bl) {
+    private boolean learnFromSongImportBase(String string, Engine.MidiBars midiBars, boolean bl) {
         boolean bl2;
         List<Engine.MidiSeg> list = Engine.segmentMidiBars(midiBars.bars);
         if (list.isEmpty()) {
@@ -3369,7 +3647,7 @@ extends Activity {
         if (!arrayList.isEmpty()) {
             String string6 = string2;
             ArrayList<Engine.Part> object2 = new ArrayList<Engine.Part>(arrayList);
-            new AlertDialog.Builder((Context)this).setTitle((CharSequence)"Make a song?").setMessage((CharSequence)(stringBuilder + "\n\nIt goes under Imported. Your original song stays.")).setPositiveButton((CharSequence)"Make song", (arg_0, arg_1) -> this.lambda$learnFromSongImport$100(string6, object2, arg_0, arg_1)).setNegativeButton((CharSequence)"Not now", null).show();
+            new AlertDialog.Builder((Context)this).setTitle((CharSequence)"Make a song?").setMessage((CharSequence)(stringBuilder + "\n\nIt goes under Imported. Your original song stays.")).setPositiveButton((CharSequence)"Make song", (arg_0, arg_1) -> this.learnFromSongImportAction100(string6, object2, arg_0, arg_1)).setNegativeButton((CharSequence)"Not now", null).show();
         }
         return true;
     }
@@ -3414,7 +3692,7 @@ extends Activity {
         return bl2 != null ? bl2 : bl;
     }
 
-    private void addImportPack(LinearLayout linearLayout, String string, String string2, int n, boolean bl, Runnable runnable, Runnable runnable2, Consumer<FlowLayout> consumer) {
+    private void addImportPackBase(LinearLayout linearLayout, String string, String string2, int n, boolean bl, Runnable runnable, Runnable runnable2, Consumer<FlowLayout> consumer) {
         boolean bl2 = this.packOpen(string, bl);
         TextView textView = this.pill((bl2 ? "\u25be " : "\u25b8 ") + string2 + " \u00b7 " + n, bl, view -> {
             this.openPacks.put(string, !this.packOpen(string, bl));
@@ -3541,7 +3819,7 @@ extends Activity {
         this.refreshImportedFiles();
     }
 
-    private void removeImportSource(String string) {
+    private void removeImportSourceBase(String string) {
         String string2 = string == null ? "" : string;
         this.learned.removeIf(learned -> string2.equals(Engine.sourceOf(learned)));
         this.learnedFills.removeIf(learnedFill -> string2.equals(Engine.sourceOf(learnedFill)));
@@ -3601,7 +3879,7 @@ extends Activity {
         return (String)((LinkedHashMap)object).keySet().iterator().next();
     }
 
-    void saveFset(String string) {
+    private void saveFset(String string) {
         String string2 = string;
         if (string2 == null) {
             string2 = this.selectedFileSource();
@@ -3620,7 +3898,7 @@ extends Activity {
         this.saveKind(19);
     }
 
-    private void loadFset(byte[] byArray, String string) throws Exception {
+    private void loadFsetBase(byte[] byArray, String string) throws Exception {
         Engine.FileSet fileSet = Engine.decodeFset(byArray);
         String string2 = Engine.importSource(string);
         if (string2 == null || string2.isEmpty() || "Import".equals(string2)) {
@@ -3682,7 +3960,7 @@ extends Activity {
         Toast.makeText((Context)this, (CharSequence)string6, (int)0).show();
     }
 
-    private void refreshImportedFiles() {
+    private void refreshImportedFilesBase() {
         if (this.importedFileList == null) {
             return;
         }
@@ -3738,7 +4016,7 @@ extends Activity {
                 TextView textView = this.text("Pattern · " + learned.name, 13, false);
                 textView.setTextColor(MUTED);
                 textView.setPadding(0, this.dp(4), 0, this.dp(4));
-                textView.setOnClickListener(arg_0 -> this.lambda$refreshImportedFiles$118(learned, arg_0));
+                textView.setOnClickListener(arg_0 -> this.refreshImportedFilesAction118(learned, arg_0));
                 linearLayout2.addView((View)textView);
             }
             for (Engine.LearnedFill learnedFill : this.learnedFills) {
@@ -3746,7 +4024,7 @@ extends Activity {
                 TextView textView = this.text("Fill · " + learnedFill.name, 13, false);
                 textView.setTextColor(MUTED);
                 textView.setPadding(0, this.dp(4), 0, this.dp(4));
-                textView.setOnClickListener(arg_0 -> this.lambda$refreshImportedFiles$119(learnedFill, arg_0));
+                textView.setOnClickListener(arg_0 -> this.refreshImportedFilesAction119(learnedFill, arg_0));
                 linearLayout2.addView((View)textView);
             }
             this.importedFileList.addView((View)linearLayout2);
@@ -3938,7 +4216,7 @@ extends Activity {
             for (Engine.LearnedFill object4 : this.variatedFills) {
                 String object2 = "v:" + object4.id;
                 list.add(this.fillernItem(object2, object4.name, string));
-                list2.add(() -> this.lambda$addFillernFillRows$124(runnable, object2, string));
+                list2.add(() -> this.addFillernFillRowsAction124(runnable, object2, string));
             }
         }
         LinkedHashMap<String, ArrayList<Engine.LearnedFill>> linkedHashMap = new LinkedHashMap<String, ArrayList<Engine.LearnedFill>>();
@@ -4072,7 +4350,7 @@ extends Activity {
         return new File(this.getFilesDir(), "kit.sf2");
     }
 
-    void persistLearned() {
+    private void persistLearnedBase() {
         try {
             String string = "{\"learned\":" + Engine.learnedJson(this.learned) + ",\"learnedFills\":" + Engine.learnedFillsJson(this.learnedFills) + ",\"variatedFills\":" + Engine.learnedFillsJson(this.variatedFills) + ",\"variatedPatterns\":" + Engine.learnedJson(this.variatedPatterns) + ",\"fillernPairs\":" + this.fillernPairJson() + ",\"importedSongs\":" + Engine.importedSongsJson(this.importedSongs) + "}";
             FileOutputStream fileOutputStream = new FileOutputStream(this.learnedFile());
@@ -4303,86 +4581,17 @@ extends Activity {
         return AudioIo.fileName(bl ? "silent" : string2, this.bpm(), string, this.fillVariated);
     }
 
-    void openFile() {
+    private void openFile() {
         Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
         intent.setType("*/*");
         this.startActivityForResult(intent, 7);
     }
 
-    void runAnalyze() {
-        if (this.analyzeBytes == null && this.analyzeUri == null) {
-            if (this.analyzeStatus != null) {
-                this.analyzeStatus.setText((CharSequence)"Choose a WAV or MP3 first.");
-            }
-            return;
-        }
-        if (this.analyzeStatus != null) {
-            this.analyzeStatus.setText((CharSequence)"Processing\u2026");
-        }
-        try {
-            byte[] byArray = this.analyzeBytes != null ? this.analyzeBytes : this.readUri(this.analyzeUri);
-            String string = AudioIo.sniff(byArray);
-            AudioIo.Pcm pcm;
-            if ("mp3".equals(string) || this.analyzeName != null && this.analyzeName.toLowerCase().endsWith(".mp3")) {
-                short[] sArray = this.decodeToShorts(this.analyzeUri, byArray);
-                float[] fArray = new float[sArray.length];
-                for (int i = 0; i < sArray.length; ++i) {
-                    fArray[i] = (float)sArray[i] / 32768.0f;
-                }
-                pcm = new AudioIo.Pcm(fArray, 22050);
-            } else {
-                pcm = AudioIo.parseWav(byArray);
-            }
-            this.showAnalyze(AudioIo.analyzeParts(pcm.samples, pcm.sr));
-        }
-        catch (Exception exception) {
-            if (this.analyzeStatus != null) {
-                this.analyzeStatus.setText((CharSequence)(exception.getMessage() != null ? exception.getMessage() : "Could not analyze that file"));
-            }
-        }
-    }
-
-    private String fmtTime(float f) {
-        int n = Math.max(0, Math.round(f));
-        return n / 60 + ":" + String.format("%02d", n % 60);
-    }
-
-    private void showAnalyze(AudioIo.PartAnalysis partAnalysis) {
-        if (this.analyzeRows == null) {
-            return;
-        }
-        this.analyzeRows.removeAllViews();
-        if (this.analyzeStatus != null) {
-            this.analyzeStatus.setText((CharSequence)(partAnalysis.parts.size() + " parts \u00b7 " + this.fmtTime(partAnalysis.durationSec) + " \u00b7 " + partAnalysis.bpm + " BPM overall"));
-        }
-        for (AudioIo.TrackPart trackPart : partAnalysis.parts) {
-            LinearLayout linearLayout = this.col();
-            linearLayout.setBackground((Drawable)this.round(ELEV, 10));
-            linearLayout.setPadding(this.dp(10), this.dp(8), this.dp(10), this.dp(8));
-            LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
-            layoutParams.setMargins(0, 0, 0, this.dp(8));
-            linearLayout.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
-            LinearLayout linearLayout2 = this.row();
-            linearLayout2.addView((View)this.text(trackPart.name, 14, true), (ViewGroup.LayoutParams)this.flex(1));
-            TextView textView = this.text(trackPart.kind, 11, true);
-            textView.setTextColor(SUBTLE);
-            linearLayout2.addView((View)textView);
-            linearLayout.addView((View)linearLayout2);
-            linearLayout.addView((View)this.text("BPM " + trackPart.bpm + " \u00b7 TS " + trackPart.tsNum + "/" + trackPart.tsDen + " \u00b7 " + trackPart.styleLabel, 12, false));
-            TextView textView2 = this.text(trackPart.bars + " bars \u00b7 " + this.fmtTime(trackPart.startSec) + "\u2013" + this.fmtTime(trackPart.endSec) + " \u00b7 " + trackPart.hits + " hits \u00b7 swing " + trackPart.swing, 11, false);
-            textView2.setTextColor(SUBTLE);
-            linearLayout.addView((View)textView2);
-            this.analyzeRows.addView((View)linearLayout);
-        }
-        this.analyzeRows.requestLayout();
-        this.setNow(partAnalysis.parts.size() + " parts");
-    }
-
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
-    protected void onActivityResult(int n, int n2, Intent intent) {
+    private void onActivityResultBase(int n, int n2, Intent intent) {
         super.onActivityResult(n, n2, intent);
         if (n2 != -1 || intent == null || intent.getData() == null) {
             return;
@@ -4524,7 +4733,7 @@ extends Activity {
         return byteArrayOutputStream.toByteArray();
     }
 
-    private void ingest(byte[] byArray, String string, Uri uri) throws Exception {
+    private void ingestBase(byte[] byArray, String string, Uri uri) throws Exception {
         int n;
         int[][] object;
         String string2 = AudioIo.sniff(byArray);
@@ -4830,7 +5039,7 @@ extends Activity {
         super.onDestroy();
     }
 
-    LinearLayout col() {
+    private LinearLayout col() {
         LinearLayout linearLayout = new LinearLayout((Context)this);
         linearLayout.setOrientation(1);
         return linearLayout;
@@ -4847,14 +5056,14 @@ extends Activity {
         return horizontalScrollView;
     }
 
-    LinearLayout row() {
+    private LinearLayout row() {
         LinearLayout linearLayout = new LinearLayout((Context)this);
         linearLayout.setOrientation(0);
         linearLayout.setGravity(16);
         return linearLayout;
     }
 
-    TextView hint(String string) {
+    private TextView hint(String string) {
         TextView textView = this.text(string, 13, false);
         textView.setTextColor(MUTED);
         textView.setPadding(0, this.dp(10), 0, this.dp(6));
@@ -4871,7 +5080,7 @@ extends Activity {
         return textView;
     }
 
-    TextView text(String string, int n, boolean bl) {
+    private TextView text(String string, int n, boolean bl) {
         TextView textView = new TextView((Context)this);
         textView.setText((CharSequence)string);
         textView.setTextColor(FG);
@@ -4881,7 +5090,7 @@ extends Activity {
         return textView;
     }
 
-    TextView pill(String string, boolean bl, View.OnClickListener onClickListener) {
+    private TextView pill(String string, boolean bl, View.OnClickListener onClickListener) {
         TextView textView = this.text(string, 13, true);
         textView.setGravity(17);
         textView.setPadding(this.dp(12), this.dp(7), this.dp(12), this.dp(7));
@@ -4893,7 +5102,7 @@ extends Activity {
         return textView;
     }
 
-    TextView outline(String string, boolean bl, View.OnClickListener onClickListener) {
+    private TextView outline(String string, boolean bl, View.OnClickListener onClickListener) {
         TextView textView = this.text(string, 12, true);
         textView.setGravity(17);
         textView.setPadding(this.dp(12), this.dp(6), this.dp(12), this.dp(6));
@@ -4905,7 +5114,7 @@ extends Activity {
         return textView;
     }
 
-    TextView cell(String string, View.OnClickListener onClickListener) {
+    private TextView cell(String string, View.OnClickListener onClickListener) {
         TextView textView = this.text(string, 9, true);
         textView.setGravity(17);
         textView.setBackground((Drawable)this.round(ELEV, 6));
@@ -4917,7 +5126,7 @@ extends Activity {
         return textView;
     }
 
-    TextView labelCell(String string, int n) {
+    private TextView labelCell(String string, int n) {
         TextView textView = this.text(string, 11, true);
         textView.setTextColor(n);
         textView.setWidth(this.dp(40));
@@ -4927,7 +5136,7 @@ extends Activity {
         return textView;
     }
 
-    TextView pad(String string, String string2, View.OnClickListener onClickListener) {
+    private TextView pad(String string, String string2, View.OnClickListener onClickListener) {
         TextView textView = this.text(string + "\n" + string2, 12, true);
         textView.setGravity(17);
         textView.setBackground((Drawable)this.round(ELEV, 12));
@@ -4936,7 +5145,7 @@ extends Activity {
         return textView;
     }
 
-    TextView action(String string, int n, int n2, View.OnClickListener onClickListener) {
+    private TextView action(String string, int n, int n2, View.OnClickListener onClickListener) {
         TextView textView = this.text(string, 15, true);
         textView.setGravity(17);
         textView.setBackground((Drawable)this.round(n, 12));
@@ -4946,20 +5155,20 @@ extends Activity {
         return textView;
     }
 
-    GradientDrawable round(int n, int n2) {
+    private GradientDrawable round(int n, int n2) {
         GradientDrawable gradientDrawable = new GradientDrawable();
         gradientDrawable.setColor(n);
         gradientDrawable.setCornerRadius((float)this.dp(n2));
         return gradientDrawable;
     }
 
-    LinearLayout.LayoutParams accLp() {
+    private LinearLayout.LayoutParams accLp() {
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(this.dp(26), this.dp(40));
         layoutParams.setMargins(this.dp(1), this.dp(2), this.dp(1), this.dp(2));
         return layoutParams;
     }
 
-    LinearLayout.LayoutParams cellLp() {
+    private LinearLayout.LayoutParams cellLp() {
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(this.dp(26), this.dp(40));
         layoutParams.setMargins(this.dp(1), this.dp(2), this.dp(1), this.dp(2));
         return layoutParams;
@@ -4969,11 +5178,11 @@ extends Activity {
         return new LinearLayout.LayoutParams(0, -2, (float)n);
     }
 
-    LinearLayout.LayoutParams flexFill() {
+    private LinearLayout.LayoutParams flexFill() {
         return new LinearLayout.LayoutParams(-1, 0, 1.0f);
     }
 
-    LinearLayout.LayoutParams flexBtn() {
+    private LinearLayout.LayoutParams flexBtn() {
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, this.dp(44), 1.0f);
         layoutParams.setMargins(this.dp(4), 0, this.dp(4), 0);
         return layoutParams;
@@ -4983,11 +5192,11 @@ extends Activity {
         return new LinearLayout.LayoutParams(this.dp(48), this.dp(48));
     }
 
-    LinearLayout.LayoutParams wrap() {
+    private LinearLayout.LayoutParams wrap() {
         return new LinearLayout.LayoutParams(-2, -2);
     }
 
-    void setNow(String string) {
+    private void setNow(String string) {
         if (this.now == null) {
             return;
         }
@@ -5032,7 +5241,7 @@ extends Activity {
         return sArrayArray;
     }
 
-    void refreshDrumSets() {
+    private void refreshDrumSets() {
         if (this.drumSetBar == null) {
             return;
         }
@@ -5095,7 +5304,7 @@ extends Activity {
         }
     }
 
-    void matchWholeOriginal() {
+    private void matchWholeOriginal() {
         int n;
         Engine.DrumSet drumSet = this.activeDrumSet();
         if (drumSet.original) {
@@ -5127,7 +5336,7 @@ extends Activity {
         }
     }
 
-    void showPadMenu(int n) {
+    private void showPadMenu(int n) {
         Engine.DrumSet drumSet = this.activeDrumSet();
         ArrayList<String> arrayList = new ArrayList<String>();
         arrayList.add("Load WAV / MP3");
@@ -5138,7 +5347,7 @@ extends Activity {
             }
         }
         CharSequence[] charSequenceArray = arrayList.toArray(new String[0]);
-        new AlertDialog.Builder((Context)this).setItems(charSequenceArray, (arg_0, arg_1) -> this.lambda$showPadMenu$147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).show();
+        new AlertDialog.Builder((Context)this).setItems(charSequenceArray, (arg_0, arg_1) -> this.showPadMenuAction147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).show();
     }
 
     /*
@@ -5194,14 +5403,14 @@ extends Activity {
         }
     }
 
-    int dp(int n) {
+    private int dp(int n) {
         return Math.round((float)n * this.getResources().getDisplayMetrics().density);
     }
 
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
-    private /* synthetic */ void lambda$showPadMenu$147(String[] stringArray, int n, Engine.DrumSet drumSet, DialogInterface dialogInterface, int n2) {
+    private /* synthetic */ void showPadMenuAction147(String[] stringArray, int n, Engine.DrumSet drumSet, DialogInterface dialogInterface, int n2) {
         String string = stringArray[n2];
         if ("Load WAV / MP3".equals(string)) {
             this.padTarget = n;
@@ -5226,28 +5435,28 @@ extends Activity {
         }
     }
 
-    private /* synthetic */ void lambda$addFillernFillRows$124(Runnable runnable, String string, String string2) {
+    private /* synthetic */ void addFillernFillRowsAction124(Runnable runnable, String string, String string2) {
         runnable.run();
         this.applyFill(string);
         this.rememberFillern(string2, string);
         this.show("combo");
     }
 
-    private /* synthetic */ void lambda$refreshImportedFiles$119(Engine.LearnedFill learnedFill, View view) {
+    private /* synthetic */ void refreshImportedFilesAction119(Engine.LearnedFill learnedFill, View view) {
         this.applyFill("l:" + learnedFill.id);
         this.show("fills");
     }
 
-    private /* synthetic */ void lambda$refreshImportedFiles$118(Engine.Learned learned, View view) {
+    private /* synthetic */ void refreshImportedFilesAction118(Engine.Learned learned, View view) {
         this.loadStyle(learned.id, false);
         this.show("pattern");
     }
 
-    private /* synthetic */ void lambda$learnFromSongImport$100(String string, List list, DialogInterface dialogInterface, int n) {
+    private /* synthetic */ void learnFromSongImportAction100(String string, List list, DialogInterface dialogInterface, int n) {
         this.addImportedArrangement(string, list);
     }
 
-    private /* synthetic */ void lambda$audioTick$94(int n, Engine.Part part, boolean bl) {
+    private /* synthetic */ void audioTickAction94Base(int n, Engine.Part part, boolean bl) {
         if (!this.playing) {
             return;
         }
@@ -5267,13 +5476,13 @@ extends Activity {
         }
     }
 
-    private /* synthetic */ void lambda$refreshSong$75(Engine.ImportedSong importedSong, View view) {
+    private /* synthetic */ void refreshSongAction75(Engine.ImportedSong importedSong, View view) {
         this.importedSongId = importedSong.id;
         this.songLane = "imported";
         this.refreshSong();
     }
 
-    private /* synthetic */ void lambda$showSongPick$65(String string, int n) {
+    private /* synthetic */ void showSongPickAction65(String string, int n) {
         this.applySongPick("pattern", string, n);
     }
 
@@ -5346,5 +5555,3281 @@ extends Activity {
 
     private static interface NameFn {
         public void apply(String var1);
+    }
+
+    // ------------------------------------------------------------------
+    // Features that used to be injected with Javassist (android/patch).
+    // Analyze, Compose, Prompts, file-set Info, stem/MIDI playback, PyJav.
+    // ------------------------------------------------------------------
+
+    private android.media.MediaPlayer pkMidiPlayer;
+    private java.lang.String pkMidiSrc;
+    private boolean pkMidiPaused;
+    private pulsekit.AudioIo.PartAnalysis analyzeResult;
+    private boolean analyzePacked;
+    private boolean pkAudioBusy;
+    private java.lang.String pkAnErr;
+    private pulsekit.AudioIo.PartAnalysis pkAnPending;
+    private byte[] pkIsoBytes;
+    private android.net.Uri pkIsoUri;
+    private java.lang.String pkIsoName;
+    private java.lang.String pkIsoErr;
+    private pulsekit.AudioIo.Analysis pkIsoPending;
+    private android.widget.LinearLayout composePane;
+    private android.widget.LinearLayout composeRows;
+    private android.widget.TextView composeStatus;
+    private android.widget.TextView composeFileLab;
+    private byte[] composeBytes;
+    private java.lang.String composeName;
+    private android.net.Uri composeUri;
+    private pulsekit.AudioIo.PartAnalysis composeResult;
+    private boolean composePacked;
+    private byte[] composeSourceWav;
+    private boolean pkSkipGuitarFit;
+    private android.widget.CheckBox composeRemoveVocals;
+    private boolean composeVocalsApplied;
+    private android.widget.LinearLayout promptsPane;
+    private android.widget.LinearLayout infoPane;
+    private android.widget.LinearLayout infoRows;
+    private android.widget.TextView infoTitle;
+    private android.widget.TextView infoStatus;
+    private java.util.LinkedHashMap fsetInfoMap;
+    private android.widget.LinearLayout pkPackHost;
+    private java.lang.String pkPackKey;
+    private java.lang.String pkPackLabel;
+    private java.lang.Runnable pkPackDel;
+    private java.lang.Runnable pkPackExp;
+    private byte[] pkFsetBytes;
+    private java.lang.String pkFsetName;
+    private java.lang.String pkRemovedSource;
+    private java.lang.String pkInfoBack;
+    private android.media.MediaPlayer pkMixPlayer;
+    private android.media.MediaPlayer pkDrumPlayer;
+    private android.media.MediaPlayer pkGuitarPlayer;
+    private short[] pkDrumPcm;
+    private short[] pkGuitarPcm;
+    private java.lang.String pkStemSrc;
+    private java.lang.Runnable pkMixRun;
+    private int pkDrumLevel = 100;
+    private int pkGuitarLevel = 100;
+    private int pkMain = 100;
+    private int pkBakeDrum = 100;
+    private int pkBakeGuitar = 100;
+    private int pkBakeMain = 100;
+    private int pkGate = 20;
+    private int pkComp = 50;
+    private int pkLimit = 25;
+    private boolean pkComposeBusy;
+    private boolean pkComposeStrip;
+    private java.lang.String pkComposeErr;
+    private byte[] pkComposeWav;
+    private pulsekit.AudioIo.PartAnalysis pkComposePending;
+    private byte[] pkCombinedExport;
+    private java.lang.String pkCombinedName;
+    private boolean pkPartNow;
+    private boolean pkPyWired;
+    private boolean pkPyRecentMute;
+    private android.widget.TextView pkPyLog;
+    private android.widget.TextView pkPyHint;
+    private android.widget.EditText pkPyArgs;
+    private android.widget.TextView pkParamsBtn;
+    private android.widget.TextView pkPyInput;
+    private String pkPyInputToken;
+    private String pkPyInputPath;
+    private String pkPyOutputPath;
+    private android.widget.Spinner pkPyRecent;
+    private java.util.List pkPyRecentItems;
+    private byte[] pkPyBytes;
+    private String pkPromptRun;
+    private String pkPromptCategory;
+    private String pkPromptReport;
+    private String pkPromptDescription;
+    private String pkPromptSource;
+    private String pkRef1Path;
+    private String pkRef2Path;
+    private String pkDefinedResult;
+    private String pkOutputName;
+    private boolean pkOutputInvented;
+    private boolean pkOutputSaved;
+    private boolean pkOutputResume;
+    private android.widget.LinearLayout pkPromptModes;
+    private android.widget.TextView pkRunBash;
+    private android.widget.TextView pkRunCmd;
+    private android.widget.TextView pkRunAi;
+
+    private void loadFset(byte[] byArray, String string) throws Exception {
+        this.pkFsetBytes = byArray;
+        java.lang.String src = pulsekit.Engine.importSource(string);
+        if (src == null || src.length() == 0 || "Import".equals(src)) src = string;
+        java.lang.String unique = pulsekit.Engine.uniqueImportSource(src, this.learned, this.learnedFills);
+        if (unique != null && src != null && !unique.equals(src)) string = unique + ".fset";
+        this.pkFsetName = string;
+        this.loadFsetBase(byArray, string);
+        this.afterLoadFset();
+    }
+
+    private void afterLoadFset() {
+        try {
+            if (this.pkFsetBytes == null) return;
+            pulsekit.Engine.FileSet set = pulsekit.Engine.decodeFset(this.pkFsetBytes);
+            java.lang.String src = pulsekit.Engine.importSource(this.pkFsetName);
+            if (src == null || src.length() == 0 || "Import".equals(src)) src = set.name;
+            java.util.List parts = set.parts;
+            if (parts == null || parts.isEmpty()) parts = pulsekit.Engine.partsForDisplay(set);
+            if (pulsekit.Engine.isFileSetOrigin(set.origin)) pulsekit.Engine.rememberFileSetOrigin(src, set.origin);
+            if (set.sourceWav != null || set.combinedWav != null) {
+                pulsekit.Engine.rememberFileSetAudio(src, set.sourceWav, set.combinedWav, set.combinedName);
+                pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+            }
+            if (set.sourceMidi != null && set.sourceMidi.length >= 14) {
+                pulsekit.Engine.rememberFileSetMidi(src, set.sourceMidi, set.sourceMidiName);
+                if (set.name != null && !set.name.equals(src)) pulsekit.Engine.rememberFileSetMidi(set.name, set.sourceMidi, set.sourceMidiName);
+                for (int i = 0; i < this.learned.size() && i < 12; i++) {
+                    pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(i);
+                    if (item == null) continue;
+                    java.lang.String s = pulsekit.Engine.sourceOf(item);
+                    if (s == null || s.length() == 0) continue;
+                    if (s.equals(src) || (set.name != null && (s.equals(set.name) || s.startsWith(set.name + " ")))) pulsekit.Engine.rememberFileSetMidi(s, set.sourceMidi, set.sourceMidiName);
+                }
+            }
+            this.storeFsetParts(src, parts);
+            this.rebuildImported();
+            this.rebuildImportedFills();
+        } catch (java.lang.Exception ignored) {}
+    }
+    private void show(String string) {
+        this.showBase(string);
+        this.afterShow();
+    }
+    private void showFileMenu(View anchor) {
+        android.widget.LinearLayout menu = this.col();
+        android.graphics.drawable.GradientDrawable bg = this.round(SURFACE, 8);
+        bg.setStroke(this.dp(1), BORDER);
+        menu.setBackground(bg);
+        menu.setPadding(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
+        android.widget.TextView imp = this.text("Import", 14, true);
+        imp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        imp.setTextColor("import".equals(this.view) ? FG : MUTED);
+        android.widget.TextView exp = this.text("Export", 14, true);
+        exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        menu.addView(imp);
+        menu.addView(exp);
+        menu.measure(0, 0);
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
+        pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
+        pop.setOutsideTouchable(true);
+        pop.setElevation((float) this.dp(8));
+        imp.setOnClickListener(pulsekit.AnalyzeClicks.fileItem(this, pop, "import"));
+        exp.setOnClickListener(pulsekit.AnalyzeClicks.fileItem(this, pop, "export"));
+        pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
+    }
+    private void refreshTabs() {
+        this.pkWirePyJav();
+        java.util.Iterator it = this.tabs.iterator();
+        while (it.hasNext()) {
+            android.widget.TextView tab = (android.widget.TextView) it.next();
+            java.lang.Object tag = tab.getTag();
+            boolean on = this.view.equals(tag)
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "isolate".equals(this.view) || "analyze".equals(this.view) || "compose".equals(this.view) || "fsetinfo".equals(this.view)));
+            tab.setBackground(this.round(on ? ELEV : 0, 8));
+            tab.setTextColor(on ? FG : MUTED);
+        }
+    }
+    private View buildUi() {
+        View root = this.buildUiBase();
+        this.wireAnalyzePane();
+        this.wireComposePane();
+        this.wirePrompts();
+        this.wireInfoPane();
+        this.loadPersistedFsetInfo();
+        return root;
+    }
+    protected void onCreate(Bundle bundle) {
+        this.onCreateBase(bundle);
+        ArtJava.pinWorkDir(this);
+    }
+    private void finishIsolation() {
+        if (this.tryPackIsolation()) {
+            return;
+        }
+        this.finishIsolationBase();
+    }
+    private boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
+        if (this.tryPackMidiFileSet(string, midiBars, true)) {
+            return true;
+        }
+        return this.learnFromSongImportBase(string, midiBars);
+    }
+
+    private boolean learnFromSongImport(String string, Engine.MidiBars midiBars, boolean bl) {
+        if (this.tryPackMidiFileSet(string, midiBars, bl)) {
+            return true;
+        }
+        return this.learnFromSongImportBase(string, midiBars, bl);
+    }
+    private void persistLearned() {
+        this.persistLearnedBase();
+        this.persistFsetInfo();
+    }
+    private void removeImportSource(String string) {
+        this.pkRemovedSource = string;
+        this.removeImportSourceBase(string);
+        this.ensureFsetInfoMap();
+        if (this.pkRemovedSource != null) {
+            this.fsetInfoMap.remove(this.pkRemovedSource);
+            pulsekit.Engine.forgetFileSetOrigin(this.pkRemovedSource);
+            pulsekit.Engine.forgetFileSetAudio(this.pkRemovedSource);
+            pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+        }
+        this.persistFsetInfo();
+    }
+    private void refreshSong() {
+        this.refreshSongBase();
+        this.afterRefreshSong();
+    }
+
+    private void refreshPlayhead() {
+        this.refreshPlayheadBase();
+        this.afterRefreshSong();
+    }
+
+    private void audioTickAction94(int n, Engine.Part part, boolean bl) {
+        this.audioTickAction94Base(n, part, bl);
+        this.afterRefreshSong();
+    }
+    private LinearLayout partCard(int n, int n2, Engine.Part part, boolean bl) {
+        this.pkPartNow = bl;
+        LinearLayout card = this.partCardBase(n, n2, part, bl);
+        this.afterPartCard(card, this.pkPartNow);
+        return card;
+    }
+    private void addImportPack(LinearLayout linearLayout, String string, String string2, int n, boolean bl, Runnable runnable, Runnable runnable2, Consumer<FlowLayout> consumer) {
+        this.pkPackHost = linearLayout;
+        this.pkPackKey = string;
+        this.pkPackLabel = string2;
+        this.pkPackDel = runnable;
+        this.pkPackExp = runnable2;
+        this.addImportPackBase(linearLayout, string, string2, n, bl, runnable, runnable2, consumer);
+        this.attachFileSetInfoMenu(this.pkPackHost, this.pkPackKey, this.pkPackLabel, this.pkPackDel, this.pkPackExp);
+    }
+    private void refreshImportedFiles() {
+        this.refreshImportedFilesBase();
+        this.wireFileSetListActions();
+    }
+    private void ingest(byte[] byArray, String string, Uri uri) throws Exception {
+        // Audio goes to the background isolation job.
+        if (byArray != null && byArray.length >= 4) {
+            java.lang.String k = pulsekit.AudioIo.sniff(byArray);
+            java.lang.String n = string == null ? "" : string.toLowerCase();
+            boolean audio = "wav".equals(k) || "mp3".equals(k) || n.endsWith(".wav") || n.endsWith(".wave") || n.endsWith(".mp3");
+            if (audio) {
+                if (this.pkAudioBusy) {
+                    android.widget.Toast.makeText(this, "Still working on the song", 0).show();
+                    return;
+                }
+                this.pkAudioBusy = true;
+                this.pkIsoBytes = byArray;
+                this.pkIsoUri = uri;
+                this.pkIsoName = string;
+                this.pkIsoErr = null;
+                this.pkIsoPending = null;
+                android.widget.Toast.makeText(this, "Isolating…", 0).show();
+                new java.lang.Thread(new pulsekit.IsolateJob(this), "pulsekit-isolate").start();
+                return;
+            }
+        }
+        // Programs (.java, .class, .jar, .js, .ts) open in PyJav.
+        if (this.pkTakeProgram(byArray, string)) {
+            return;
+        }
+        // .prompt sheets open in PyJav with their run mode and references.
+        if (string != null && (string.toLowerCase().endsWith(".prompt") || (byArray != null && byArray.length >= 9 && new String(byArray, 0, Math.min(byArray.length, 12), java.nio.charset.StandardCharsets.UTF_8).startsWith("PKPROMPT1")))) {
+            String base = string;
+            int slash = Math.max(base.lastIndexOf(47), base.lastIndexOf(58));
+            if (slash >= 0) base = base.substring(slash + 1);
+            if (!base.toLowerCase().endsWith(".prompt")) base = base + ".prompt";
+            this.pyName = base;
+            this.pkPyBytes = null;
+            String text = new String(byArray, java.nio.charset.StandardCharsets.UTF_8);
+            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+            this.pkPromptSource = text;
+            this.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
+            if (sheet != null && sheet.body != null) text = sheet.body;
+            if (this.pyEditor != null) this.pyEditor.setText(text);
+            this.pkSetPromptRun(pulsekit.PromptRun.runMode(new String(byArray, java.nio.charset.StandardCharsets.UTF_8), null));
+            this.pkLoadRefs(this.pkPromptSource);
+            this.pkShowPromptModes();
+            this.show("py");
+            this.setNow("PyJav · " + base);
+            return;
+        }
+        this.ingestBase(byArray, string, uri);
+    }
+    private void afterShow() {
+        this.afterShowCore();
+        this.pkSyncTransport();
+    }
+    public void tickMixClock() {
+        this.tickMixClockCore();
+        this.tickMidiClock();
+    }
+    public void stopCombinedFile() {
+        this.stopSourceMidi();
+        this.stopCombinedFileCore();
+    }
+    private void wireFileSetListActions() {
+        this.wireFileSetListActionsCore();
+        this.pkRebindFileSetClicks();
+    }
+    private void appendCombinedFileRows() {
+        this.appendCombinedFileRowsCore();
+        this.appendMidiFileRows();
+    }
+    public void openFileSetInfo(String key, String label) {
+        this.openFileSetInfoCore(key, label);
+        this.pkShowInfoMidi(key != null && key.startsWith("f:") ? key.substring(2) : "");
+    }
+    private boolean pkTakeProgram(byte[] data, String name) {
+        if (data != null && name != null && isNodeScript(name)) {
+            int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+            String base = slash >= 0 ? name.substring(slash + 1) : name;
+            this.pyName = base;
+            this.pkPyBytes = null;
+            this.pkPyInputPath = null;
+            if (this.pyEditor != null) {
+                this.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
+            }
+            this.show("py");
+            return true;
+        }
+        return this.pkTakeProgramCore(data, name);
+    }
+    public void pkTakePickedProgram(Uri uri) {
+        try {
+            byte[] data = this.readUri(uri);
+            String name = this.displayName(uri, "program.js");
+            if (data != null && isNodeScript(name)) {
+                this.pyName = name;
+                this.pkPyBytes = null;
+                this.pkPyInputPath = null;
+                if (this.pyEditor != null) {
+                    this.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
+                }
+                this.show("py");
+                return;
+            }
+        }
+        catch (Exception exception) {
+            // Fall through: the general loader reports the error.
+        }
+        this.pkTakePickedProgramCore(uri);
+    }
+
+    private String displayName(Uri uri, String fallback) {
+        String name = null;
+        android.database.Cursor cursor = this.getContentResolver().query(uri, null, null, null, null);
+        if (cursor != null) {
+            try {
+                if (cursor.moveToFirst()) {
+                    int col = cursor.getColumnIndex("_display_name");
+                    if (col >= 0) {
+                        name = cursor.getString(col);
+                    }
+                }
+            }
+            finally {
+                cursor.close();
+            }
+        }
+        if (name == null) {
+            name = uri.getLastPathSegment();
+        }
+        if (name == null) {
+            name = fallback;
+        }
+        int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+        return slash >= 0 ? name.substring(slash + 1) : name;
+    }
+    private void pkWirePyJav() {
+        this.pkWirePyJavCore();
+        if (this.pkPyRecent != null && this.pyPane != null && this.pkPyRecent.getParent() == this.pyPane) {
+            this.pyPane.removeView(this.pkPyRecent);
+            int at = this.pyPane.getChildCount() > 0 ? 1 : 0;
+            this.pyPane.addView(this.pkPyRecent, at);
+            this.pkPyRecent.setBackgroundColor(0xFF1B1D1F);
+        }
+        this.pkRefreshNodeUi();
+    }
+
+    private void afterShowCore() {
+        boolean an = "analyze".equals(this.view);
+        boolean gt = "compose".equals(this.view);
+        boolean info = "fsetinfo".equals(this.view);
+        boolean pr = "prompts".equals(this.view);
+        if (this.analyzePane != null) {
+            this.analyzePane.setVisibility(an ? 0 : 8);
+            if (an) this.analyzePane.bringToFront();
+        }
+        if (this.composePane != null) {
+            this.composePane.setVisibility(gt ? 0 : 8);
+            if (gt) this.composePane.bringToFront();
+        }
+        if (this.infoPane != null) {
+            this.infoPane.setVisibility(info ? 0 : 8);
+            if (info) this.infoPane.bringToFront();
+        }
+        if (this.promptsPane != null) {
+            this.promptsPane.setVisibility(pr ? 0 : 8);
+            if (pr) this.promptsPane.bringToFront();
+        }
+        if (an || gt || info || pr) {
+            this.gridScroll.setVisibility(8);
+            if (this.lenBar != null) this.lenBar.setVisibility(8);
+            if (this.importPane != null) this.importPane.setVisibility(8);
+            if (this.exportPane != null) this.exportPane.setVisibility(8);
+            if (this.isolatePane != null) this.isolatePane.setVisibility(8);
+            if (this.padsPane != null) this.padsPane.setVisibility(8);
+            if (this.songPane != null) this.songPane.setVisibility(8);
+            if (this.pyPane != null) this.pyPane.setVisibility(8);
+            if (this.chrome != null) this.chrome.setVisibility(8);
+            if (this.knobsRow != null) this.knobsRow.setVisibility(8);
+            if (this.toolsRow != null) this.toolsRow.setVisibility(8);
+            if (this.styleWrap != null) this.styleWrap.setVisibility(8);
+            if (this.fillWrap != null) this.fillWrap.setVisibility(8);
+            if (an) {
+                if (this.analyzeStatus != null) this.setNow(this.analyzeStatus.getText().toString());
+                else this.setNow("Analyze");
+            } else if (gt) {
+                if (this.composeStatus != null) this.setNow(this.composeStatus.getText().toString());
+                else this.setNow("Compose from GT");
+            } else if (pr) {
+                this.setNow("Prompts");
+            } else {
+                if (this.infoStatus != null) this.setNow(this.infoStatus.getText().toString());
+                else this.setNow("File set");
+            }
+            this.refreshTabs();
+        }
+    }
+
+    public void openKitView(java.lang.String view) { this.show(view); }
+
+    public void pickAnalyzeFile() {
+        android.content.Intent intent = new android.content.Intent("android.intent.action.OPEN_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("audio/*");
+        this.startActivityForResult(intent, 22);
+    }
+
+    private java.lang.String fmtAnalyzeTime(float sec) {
+        int s = Math.max(0, Math.round(sec));
+        return (s / 60) + ":" + java.lang.String.format("%02d", new java.lang.Object[] { java.lang.Integer.valueOf(s % 60) });
+    }
+
+    private void showAnalyze(pulsekit.AudioIo.PartAnalysis result) {
+        if (this.analyzeRows == null) return;
+        this.analyzeRows.removeAllViews();
+        if (this.analyzeStatus != null) {
+            java.lang.String styleBit = "";
+            if (!result.parts.isEmpty()) {
+                java.lang.String lab = ((pulsekit.AudioIo.TrackPart) result.parts.get(0)).styleLabel;
+                if (lab != null && lab.length() > 0) styleBit = lab + " · ";
+            }
+            this.analyzeStatus.setText(result.parts.size() + " parts · " + styleBit + this.fmtAnalyzeTime(result.durationSec) + " · " + result.bpm + " BPM overall");
+        }
+        java.util.List parts = result.parts;
+        for (int i = 0; i < parts.size(); i++) {
+            pulsekit.AudioIo.TrackPart p = (pulsekit.AudioIo.TrackPart) parts.get(i);
+            android.widget.LinearLayout card = this.col();
+            card.setBackground(this.round(ELEV, 10));
+            card.setPadding(this.dp(10), this.dp(8), this.dp(10), this.dp(8));
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+            lp.setMargins(0, 0, 0, this.dp(8));
+            card.setLayoutParams(lp);
+            android.widget.LinearLayout head = this.row();
+            head.addView(this.text(p.name, 14, true), this.flex(1));
+            android.widget.TextView kind = this.text(p.kind, 11, true);
+            kind.setTextColor(SUBTLE);
+            head.addView(kind);
+            card.addView(head);
+            card.addView(this.text("BPM " + p.bpm + " · TS " + p.tsNum + "/" + p.tsDen + " · " + p.styleLabel, 12, false));
+            android.widget.TextView more = this.text(p.bars + " bars · " + this.fmtAnalyzeTime(p.startSec) + "–" + this.fmtAnalyzeTime(p.endSec) + " · " + p.hits + " hits · swing " + p.swing, 11, false);
+            more.setTextColor(SUBTLE);
+            card.addView(more);
+            this.analyzeRows.addView(card);
+        }
+        this.analyzeRows.requestLayout();
+        this.setNow(result.parts.size() + " parts");
+        if (this.analyzeStatus != null && !this.analyzePacked) {
+            this.analyzeStatus.setText(this.analyzeStatus.getText().toString() + " Tap Process again to build a file set.");
+        }
+    }
+
+    public void runAnalyze() {
+        if (this.analyzeBytes == null && this.analyzeUri == null) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Choose a WAV or MP3 first.");
+            return;
+        }
+        if (this.analyzeResult != null && !this.analyzePacked) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Processing…");
+            try {
+                java.lang.String stem = pulsekit.Engine.uniqueImportSource(pulsekit.Engine.stemNameFromMidi(this.analyzeName), this.learned, this.learnedFills);
+                pulsekit.Engine.FileSet set = pulsekit.AudioIo.fileSetFromParts(this.analyzeResult, stem, "analyze");
+                if (set.patterns.isEmpty() && set.fills.isEmpty()) {
+                    if (this.analyzeStatus != null) this.analyzeStatus.setText("Could not build a file set from those parts");
+                    return;
+                }
+                byte[] packed = pulsekit.Engine.encodeFset(set);
+                this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
+                this.analyzePacked = true;
+                if (this.analyzeStatus != null) {
+                    this.analyzeStatus.setText("File set · " + set.name + " · " + set.patterns.size() + " patterns · " + set.fillerns.size() + " Fillerns · " + set.fills.size() + " fills. Tap Process to analyze again.");
+                }
+            } catch (java.lang.Exception ex) {
+                if (this.analyzeStatus != null) {
+                    java.lang.String m = ex.getMessage();
+                    this.analyzeStatus.setText(m != null ? m : "Could not build that file set");
+                }
+            }
+            return;
+        }
+        if (this.pkAudioBusy) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Still working…");
+            return;
+        }
+        this.pkAudioBusy = true;
+        this.pkAnErr = null;
+        this.pkAnPending = null;
+        if (this.analyzeStatus != null) this.analyzeStatus.setText("Processing…");
+        new java.lang.Thread(new pulsekit.AnalyzeJob(this), "pulsekit-analyze").start();
+    }
+
+    private pulsekit.AudioIo.Pcm songPcm(byte[] bytes, boolean mp3, android.net.Uri uri) throws Exception {
+        if (mp3) {
+            try {
+                pulsekit.JlAssets.install(this);
+                pulsekit.AudioIo.Pcm dec = pulsekit.Mp3Decode.parse(bytes);
+                return pulsekit.AudioIo.forAnalyze(dec.samples, dec.sr);
+            } catch (java.lang.Throwable ex) {
+                if (ex instanceof java.lang.Error) throw (java.lang.Error) ex;
+            }
+            short[] s = this.decodeToShorts(uri, bytes);
+            if (s.length > 22050 * 60 * 15) {
+                short[] cut = new short[22050 * 60 * 15];
+                System.arraycopy(s, 0, cut, 0, cut.length);
+                s = cut;
+            }
+            float[] f = new float[s.length];
+            for (int i = 0; i < s.length; i++) f[i] = (float) s[i] / 32768.0f;
+            return new pulsekit.AudioIo.Pcm(f, 22050);
+        }
+        pulsekit.AudioIo.Pcm wav = pulsekit.AudioIo.parseWav(bytes);
+        return pulsekit.AudioIo.forAnalyze(wav.samples, wav.sr);
+    }
+
+    public void runAnalyzeJob() {
+        java.lang.String err = null;
+        pulsekit.AudioIo.PartAnalysis analysis = null;
+        try {
+            byte[] bytes = this.analyzeBytes != null ? this.analyzeBytes : this.readUri(this.analyzeUri);
+            java.lang.String kind = pulsekit.AudioIo.sniff(bytes);
+            java.lang.String name = this.analyzeName;
+            boolean mp3 = "mp3".equals(kind) || (name != null && name.toLowerCase().endsWith(".mp3"));
+            pulsekit.AudioIo.Pcm pcm = this.songPcm(bytes, mp3, this.analyzeUri);
+            bytes = null;
+            this.analyzeBytes = null;
+            analysis = pulsekit.AudioIo.analyzeParts(pcm.samples, pcm.sr);
+        } catch (java.lang.Throwable ex) {
+            err = ex instanceof java.lang.OutOfMemoryError
+                ? "That song is too large for this device"
+                : ex.getMessage();
+            if (err == null || err.length() == 0) err = "Could not analyze that file";
+        }
+        this.pkAnErr = err;
+        this.pkAnPending = analysis;
+        this.handler.post(new pulsekit.AnalyzeDone(this));
+    }
+
+    public void finishAnalyzeJob() {
+        this.pkAudioBusy = false;
+        java.lang.String err = this.pkAnErr;
+        pulsekit.AudioIo.PartAnalysis analysis = this.pkAnPending;
+        this.pkAnErr = null;
+        this.pkAnPending = null;
+        if (err != null) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText(err);
+            return;
+        }
+        if (analysis == null) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Could not analyze that file");
+            return;
+        }
+        this.analyzeResult = analysis;
+        this.analyzePacked = false;
+        this.showAnalyze(analysis);
+    }
+
+    public void runIsolateJob() {
+        java.lang.String err = null;
+        pulsekit.AudioIo.Analysis analysis = null;
+        try {
+            byte[] bytes = this.pkIsoBytes;
+            android.net.Uri uri = this.pkIsoUri;
+            java.lang.String name = this.pkIsoName;
+            java.lang.String kind = pulsekit.AudioIo.sniff(bytes);
+            java.lang.String low = name == null ? "" : name.toLowerCase();
+            boolean mp3 = "mp3".equals(kind) || low.endsWith(".mp3");
+            pulsekit.AudioIo.Pcm pcm = this.songPcm(bytes, mp3, uri);
+            bytes = null;
+            this.pkIsoBytes = null;
+            analysis = pulsekit.AudioIo.analyze(pcm.samples, pcm.sr);
+            pulsekit.AudioIo.compactImportBars(analysis);
+        } catch (java.lang.Throwable ex) {
+            err = ex instanceof java.lang.OutOfMemoryError
+                ? "That song is too large for this device"
+                : ex.getMessage();
+            if (err == null || err.length() == 0) err = "Could not isolate that song";
+        }
+        this.pkIsoErr = err;
+        this.pkIsoPending = analysis;
+        this.handler.post(new pulsekit.IsolateDone(this));
+    }
+
+    public void finishIsolateJob() {
+        this.pkAudioBusy = false;
+        this.pkIsoBytes = null;
+        java.lang.String err = this.pkIsoErr;
+        pulsekit.AudioIo.Analysis analysis = this.pkIsoPending;
+        java.lang.String name = this.pkIsoName != null ? this.pkIsoName : "song";
+        this.pkIsoErr = null;
+        this.pkIsoPending = null;
+        if (err != null || analysis == null) {
+            java.lang.String m = err != null ? err : "Could not isolate that song";
+            android.widget.Toast.makeText(this, m, 1).show();
+            return;
+        }
+        try {
+            if (analysis.isolated) {
+                this.applyIsoMemory(analysis, name);
+                this.isolateAnalysis = analysis;
+                this.isolateFile = name;
+                this.refreshIsolate();
+                this.show("isolate");
+                android.widget.Toast.makeText(this, "Kick and snare found", 0).show();
+            } else {
+                this.applyAnalysis(analysis, name);
+            }
+        } catch (java.lang.Throwable ex) {
+            java.lang.String m = ex.getMessage();
+            android.widget.Toast.makeText(this, m != null && m.length() > 0 ? m : "Could not open that song", 1).show();
+        }
+    }
+
+    private void takeAnalyzeFile(android.net.Uri uri) {
+        try {
+            this.analyzeUri = uri;
+            this.analyzeBytes = this.readUri(uri);
+            this.analyzeResult = null;
+            this.analyzePacked = false;
+            java.lang.String name = uri.getLastPathSegment();
+            if (name == null || name.length() == 0) name = "song";
+            int slash = name.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < name.length()) name = name.substring(slash + 1);
+            this.analyzeName = name;
+            if (this.analyzeFileLab != null) this.analyzeFileLab.setText(name);
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Tap Process to split the track.");
+            if (this.analyzeRows != null) this.analyzeRows.removeAllViews();
+            this.show("analyze");
+        } catch (java.lang.Exception ex) {
+            if (this.analyzeStatus != null) this.analyzeStatus.setText("Could not read that file");
+        }
+    }
+
+    private void wireAnalyzePane() {
+        this.analyzePane = this.col();
+        this.analyzePane.setVisibility(8);
+        this.analyzePane.setBackgroundColor(BG);
+        this.analyzePane.setClickable(true);
+        this.analyzePane.setPadding(this.dp(16), this.dp(12), this.dp(16), this.dp(12));
+        this.analyzePane.addView(this.text("Analyze", 18, true));
+        this.analyzeStatus = this.text("Choose a WAV or MP3, then tap Process.", 14, false);
+        this.analyzeStatus.setTextColor(MUTED);
+        this.analyzeStatus.setPadding(0, this.dp(8), 0, this.dp(8));
+        this.analyzePane.addView(this.analyzeStatus);
+        this.analyzeFileLab = this.text("No file selected", 13, false);
+        this.analyzeFileLab.setTextColor(FG);
+        this.analyzeFileLab.setBackground(this.round(SURFACE, 8));
+        this.analyzeFileLab.setPadding(this.dp(12), this.dp(12), this.dp(12), this.dp(12));
+        android.widget.LinearLayout.LayoutParams pathLp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        pathLp.setMargins(0, this.dp(4), 0, this.dp(8));
+        this.analyzePane.addView(this.analyzeFileLab, pathLp);
+        android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(48));
+        btnLp.setMargins(0, 0, 0, this.dp(8));
+        android.widget.TextView pick = this.action("Choose file", SURFACE, FG, pulsekit.AnalyzeClicks.pick(this));
+        this.analyzePane.addView(pick, btnLp);
+        android.widget.LinearLayout.LayoutParams procLp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(48));
+        procLp.setMargins(0, 0, 0, this.dp(8));
+        android.widget.TextView process = this.action("Process", FG, BG, pulsekit.AnalyzeClicks.process(this));
+        this.analyzePane.addView(process, procLp);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        this.analyzeRows = this.col();
+        scroll.addView(this.analyzeRows);
+        android.widget.LinearLayout.LayoutParams lp = this.flexFill();
+        lp.setMargins(0, this.dp(8), 0, 0);
+        this.analyzePane.addView(scroll, lp);
+        android.view.ViewGroup host = null;
+        if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.isolatePane.getParent();
+        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.importPane.getParent();
+        } else if (this.exportPane != null && this.exportPane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.exportPane.getParent();
+        }
+        if (host != null) {
+            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            host.addView((android.view.View) this.analyzePane, (android.view.ViewGroup.LayoutParams) flp);
+        }
+    }
+
+    public void pickComposeFile() {
+        android.content.Intent intent = new android.content.Intent("android.intent.action.OPEN_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("audio/*");
+        this.startActivityForResult(intent, 23);
+    }
+
+    public void showCompose(pulsekit.AudioIo.PartAnalysis result) {
+        if (this.composeRows == null) return;
+        this.composeRows.removeAllViews();
+        if (this.composeStatus != null) {
+            java.lang.String styleBit = "";
+            if (!result.parts.isEmpty()) {
+                java.lang.String lab = ((pulsekit.AudioIo.TrackPart) result.parts.get(0)).styleLabel;
+                if (lab != null && lab.length() > 0) styleBit = lab + " · ";
+            }
+            this.composeStatus.setText((this.composeVocalsApplied ? "Vocals reduced · " : "") + result.parts.size() + " parts · " + styleBit + this.fmtAnalyzeTime(result.durationSec) + " · " + result.bpm + " BPM overall");
+        }
+        java.util.List parts = result.parts;
+        for (int i = 0; i < parts.size(); i++) {
+            pulsekit.AudioIo.TrackPart p = (pulsekit.AudioIo.TrackPart) parts.get(i);
+            android.widget.LinearLayout card = this.col();
+            card.setBackground(this.round(ELEV, 10));
+            card.setPadding(this.dp(10), this.dp(8), this.dp(10), this.dp(8));
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+            lp.setMargins(0, 0, 0, this.dp(8));
+            card.setLayoutParams(lp);
+            android.widget.LinearLayout head = this.row();
+            head.addView(this.text(p.name, 14, true), this.flex(1));
+            android.widget.TextView kind = this.text(p.kind, 11, true);
+            kind.setTextColor(SUBTLE);
+            head.addView(kind);
+            card.addView(head);
+            card.addView(this.text("BPM " + p.bpm + " · TS " + p.tsNum + "/" + p.tsDen + " · " + p.styleLabel, 12, false));
+            android.widget.TextView more = this.text(p.bars + " bars · " + this.fmtAnalyzeTime(p.startSec) + "–" + this.fmtAnalyzeTime(p.endSec) + " · " + p.hits + " hits · swing " + p.swing, 11, false);
+            more.setTextColor(SUBTLE);
+            card.addView(more);
+            this.composeRows.addView(card);
+        }
+        this.composeRows.requestLayout();
+        this.setNow(result.parts.size() + " parts");
+        if (this.composeStatus != null && !this.composePacked) {
+            this.composeStatus.setText(this.composeStatus.getText().toString() + " Tap Process again to compose drums.");
+        }
+    }
+
+    public pulsekit.AudioIo.StereoPcm pkDecodeStereo(android.net.Uri uri) throws Exception {
+        if (uri == null) throw new IllegalArgumentException("No audio file");
+        android.media.MediaExtractor ex = new android.media.MediaExtractor();
+        android.os.ParcelFileDescriptor pfd = this.getContentResolver().openFileDescriptor(uri, "r");
+        if (pfd == null) throw new IllegalArgumentException("Could not open that file");
+        android.media.MediaCodec codec = null;
+        try {
+            ex.setDataSource(pfd.getFileDescriptor());
+            int track = -1;
+            android.media.MediaFormat fmt = null;
+            int nTracks = ex.getTrackCount();
+            for (int i = 0; i < nTracks; i++) {
+                android.media.MediaFormat f = ex.getTrackFormat(i);
+                java.lang.String mime = f.getString("mime");
+                if (mime != null && mime.startsWith("audio/")) { track = i; fmt = f; break; }
+            }
+            if (fmt == null || track < 0) throw new IllegalArgumentException("No audio track");
+            ex.selectTrack(track);
+            int inSr = 44100;
+            if (fmt.containsKey("sample-rate")) inSr = fmt.getInteger("sample-rate");
+            if (inSr < 8000) inSr = 44100;
+            int chIn = 1;
+            if (fmt.containsKey("channel-count")) chIn = fmt.getInteger("channel-count");
+            if (chIn < 1) chIn = 1;
+            int outSr = 22050;
+            long durUs = 0L;
+            if (fmt.containsKey("durationUs")) durUs = fmt.getLong("durationUs");
+            int cap = outSr * 30;
+            if (durUs > 0L) cap = (int) (durUs * outSr / 1000000L) + outSr;
+            if (cap < 1) cap = 1;
+            if (cap > outSr * 480) throw new IllegalArgumentException("That take is too long to strip on this phone");
+            float[] left = new float[cap];
+            float[] right = null;
+            if (chIn > 1) right = new float[cap];
+            int pcmFloat = 2;
+            if (fmt.containsKey("pcm-encoding")) pcmFloat = fmt.getInteger("pcm-encoding");
+            java.lang.String mime = fmt.getString("mime");
+            codec = android.media.MediaCodec.createDecoderByType(mime);
+            codec.configure(fmt, null, null, 0);
+            codec.start();
+            android.media.MediaCodec.BufferInfo info = new android.media.MediaCodec.BufferInfo();
+            boolean inDone = false;
+            boolean outDone = false;
+            int spins = 0;
+            long seen = 0L;
+            int w = 0;
+            double ratio = inSr / (double) outSr;
+            if (!(ratio > 0.01)) ratio = 1.0;
+            int limit = outSr * 480;
+            while (!outDone) {
+                if (!inDone) {
+                    int inIx = codec.dequeueInputBuffer(8000L);
+                    if (inIx >= 0) {
+                        java.nio.ByteBuffer inBuf = codec.getInputBuffer(inIx);
+                        int nread = -1;
+                        if (inBuf != null) nread = ex.readSampleData(inBuf, 0);
+                        if (nread < 0) {
+                            codec.queueInputBuffer(inIx, 0, 0, 0L, 4);
+                            inDone = true;
+                        } else {
+                            codec.queueInputBuffer(inIx, 0, nread, ex.getSampleTime(), 0);
+                            ex.advance();
+                        }
+                    }
+                }
+                int outIx = codec.dequeueOutputBuffer(info, 8000L);
+                if (outIx == -2) {
+                    android.media.MediaFormat of = codec.getOutputFormat();
+                    if (of != null && of.containsKey("channel-count")) chIn = of.getInteger("channel-count");
+                    if (chIn < 1) chIn = 1;
+                    if (of != null && of.containsKey("sample-rate")) inSr = of.getInteger("sample-rate");
+                    if (inSr < 8000) inSr = 44100;
+                    ratio = inSr / (double) outSr;
+                    if (of != null && of.containsKey("pcm-encoding")) pcmFloat = of.getInteger("pcm-encoding");
+                    if (chIn > 1 && right == null) right = new float[left.length];
+                    continue;
+                }
+                if (outIx == -1) {
+                    if (inDone && ++spins > 40) outDone = true;
+                    continue;
+                }
+                if (outIx < 0) continue;
+                spins = 0;
+                java.nio.ByteBuffer buf = codec.getOutputBuffer(outIx);
+                int bps = pcmFloat == 4 ? 4 : 2;
+                int frameBytes = bps * chIn;
+                int start = info.offset;
+                int size = info.size;
+                if (buf != null && frameBytes > 0 && start >= 0 && size > 0 && start + size <= buf.capacity()) {
+                    int frames = size / frameBytes;
+                    for (int i = 0; i < frames; i++) {
+                        int p = start + i * frameBytes;
+                        if (p + frameBytes > buf.capacity()) break;
+                        float lf;
+                        float rf;
+                        if (pcmFloat == 4) {
+                            lf = buf.getFloat(p);
+                            rf = chIn > 1 ? buf.getFloat(p + 4) : lf;
+                        } else {
+                            int ls = (short) ((buf.get(p) & 0xff) | (buf.get(p + 1) << 8));
+                            lf = ls / 32768f;
+                            if (chIn > 1) {
+                                int rs = (short) ((buf.get(p + 2) & 0xff) | (buf.get(p + 3) << 8));
+                                rf = rs / 32768f;
+                            } else rf = lf;
+                        }
+                        long abs = seen + i;
+                        int guard = 0;
+                        while ((long) Math.floor(w * ratio) <= abs && guard++ < 8) {
+                            if (w >= left.length) {
+                                int ncap = left.length * 2;
+                                if (ncap > limit) throw new IllegalArgumentException("That take is too long to strip on this phone");
+                                float[] nl = new float[ncap];
+                                java.lang.System.arraycopy(left, 0, nl, 0, left.length);
+                                left = nl;
+                                if (right != null) {
+                                    float[] nr = new float[ncap];
+                                    java.lang.System.arraycopy(right, 0, nr, 0, right.length);
+                                    right = nr;
+                                }
+                            }
+                            left[w] = lf;
+                            if (right != null) right[w] = rf;
+                            w++;
+                        }
+                    }
+                    seen += frames;
+                }
+                codec.releaseOutputBuffer(outIx, false);
+                if ((info.flags & 4) != 0) outDone = true;
+            }
+            int n = w;
+            if (n < 1) n = 1;
+            if (n < left.length) {
+                float[] lf = new float[n];
+                java.lang.System.arraycopy(left, 0, lf, 0, Math.min(n, left.length));
+                left = lf;
+                if (right != null) {
+                    float[] rf = new float[n];
+                    java.lang.System.arraycopy(right, 0, rf, 0, Math.min(n, right.length));
+                    right = rf;
+                }
+            }
+            return new pulsekit.AudioIo.StereoPcm(left, right, outSr);
+        } finally {
+            if (codec != null) {
+                try { codec.stop(); } catch (java.lang.Throwable ignored) {}
+                try { codec.release(); } catch (java.lang.Throwable ignored) {}
+            }
+            try { ex.release(); } catch (java.lang.Throwable ignored) {}
+            try { pfd.close(); } catch (java.lang.Throwable ignored) {}
+        }
+    }
+
+    public byte[] pkReadUri(android.net.Uri uri) throws Exception {
+        return this.readUri(uri);
+    }
+
+    public short[] pkDecodeToShorts(android.net.Uri uri, byte[] bytes) throws Exception {
+        return this.decodeToShorts(uri, bytes);
+    }
+
+    public void runCompose() {
+        boolean strip = this.composeRemoveVocals != null && this.composeRemoveVocals.isChecked();
+        if (this.composeBytes == null && this.composeUri == null) {
+            if (this.composeStatus != null) this.composeStatus.setText("Choose a WAV or MP3 first.");
+            return;
+        }
+        if (this.composeResult != null && !this.composePacked && strip == this.composeVocalsApplied) {
+            if (this.composeStatus != null) this.composeStatus.setText("Processing…");
+            try {
+                java.lang.String stem = pulsekit.Engine.uniqueImportSource(pulsekit.Engine.stemNameFromMidi(this.composeName), this.learned, this.learnedFills);
+                pulsekit.Engine.FileSet set = pulsekit.AudioIo.fileSetFromParts(this.composeResult, stem, "compose");
+                if (this.composeSourceWav != null) pulsekit.AudioIo.stampGuitarIfEmpty(set, this.composeSourceWav);
+                if (set.patterns.isEmpty() && set.fills.isEmpty()) {
+                    if (this.composeStatus != null) this.composeStatus.setText("Could not compose drums from those parts");
+                    return;
+                }
+                if (this.composeSourceWav != null) pulsekit.Engine.rememberFileSetAudio(set.name, this.composeSourceWav, null, null);
+                pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+                byte[] packed = pulsekit.Engine.encodeFset(set);
+                this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
+                this.composePacked = true;
+                if (this.composeStatus != null) {
+                    this.composeStatus.setText("File set · C " + set.name + " · " + set.patterns.size() + " patterns · " + set.fillerns.size() + " Fillerns · " + set.fills.size() + " fills. Tap Process to split again.");
+                }
+            } catch (java.lang.Exception ex) {
+                if (this.composeStatus != null) {
+                    java.lang.String m = ex.getMessage();
+                    this.composeStatus.setText(m != null ? m : "Could not compose that file set");
+                }
+            }
+            return;
+        }
+        if (this.pkComposeBusy) return;
+        this.pkComposeBusy = true;
+        if (this.composeStatus != null) this.composeStatus.setText(strip ? "Removing vocals…" : "Processing…");
+        new java.lang.Thread(new pulsekit.ComposeJob(this, strip)).start();
+    }
+
+    public void runComposeJob(boolean doStrip) {
+        java.lang.String err = null;
+        pulsekit.AudioIo.PartAnalysis analysis = null;
+        byte[] sourceWav = null;
+        try {
+            byte[] bytes = this.composeBytes != null ? this.composeBytes : this.pkReadUri(this.composeUri);
+            java.lang.String kind = pulsekit.AudioIo.sniff(bytes);
+            java.lang.String name = this.composeName;
+            pulsekit.AudioIo.Pcm pcm;
+            boolean mp3 = "mp3".equals(kind) || (name != null && name.toLowerCase().endsWith(".mp3"));
+            if (mp3) {
+                float[] f = null;
+                if (this.composeUri != null) {
+                    try {
+                        pulsekit.AudioIo.StereoPcm st = this.pkDecodeStereo(this.composeUri);
+                        if (st != null && st.left != null) {
+                            boolean wide = st.right != null;
+                            int sr = st.sr;
+                            if (sr <= 0) sr = 22050;
+                            if (doStrip || wide) {
+                                float[] right = null;
+                                if (wide) right = st.right;
+                                f = pulsekit.AudioIo.removeVocals(st.left, right, sr);
+                            } else f = st.left;
+                        }
+                    } catch (java.lang.Throwable ignored) {}
+                }
+                if (f == null) {
+                    short[] s = this.pkDecodeToShorts(this.composeUri, bytes);
+                    f = new float[s.length];
+                    for (int i = 0; i < s.length; i++) f[i] = (float) s[i] / 32768.0f;
+                    s = null;
+                    if (doStrip) f = pulsekit.AudioIo.removeVocals(f, null, 22050);
+                }
+                pcm = new pulsekit.AudioIo.Pcm(f, 22050);
+            } else if (doStrip || pulsekit.AudioIo.wavChannelCount(bytes) >= 2) {
+                pcm = pulsekit.AudioIo.stripVocalsWav(bytes);
+            } else {
+                pcm = pulsekit.AudioIo.parseWav(bytes);
+            }
+            analysis = pulsekit.AudioIo.analyzeParts(pcm.samples, pcm.sr);
+            float[] mono = pulsekit.AudioIo.resample(pcm.samples, pcm.sr, 22050);
+            sourceWav = pulsekit.AudioIo.encodeWav(pulsekit.AudioIo.floatsToShorts(mono), 22050);
+        } catch (java.lang.Throwable ex) {
+            err = ex instanceof java.lang.OutOfMemoryError
+                ? "That take is too long to strip on this phone"
+                : ex.getMessage();
+            if (err == null) err = "Could not split that guitar track";
+        }
+        this.pkComposeErr = err;
+        this.pkComposePending = analysis;
+        this.pkComposeWav = sourceWav;
+        this.pkComposeStrip = doStrip;
+        this.handler.post(new pulsekit.ComposeDone(this));
+    }
+
+    public void finishComposeJob() {
+        this.pkComposeBusy = false;
+        java.lang.String err = this.pkComposeErr;
+        pulsekit.AudioIo.PartAnalysis analysis = this.pkComposePending;
+        byte[] wav = this.pkComposeWav;
+        this.pkComposeErr = null;
+        this.pkComposePending = null;
+        this.pkComposeWav = null;
+        if (err != null) {
+            if (this.composeStatus != null) this.composeStatus.setText(err);
+            return;
+        }
+        if (analysis == null) {
+            if (this.composeStatus != null) this.composeStatus.setText("Could not split that guitar track");
+            return;
+        }
+        this.composeVocalsApplied = this.pkComposeStrip;
+        this.composeSourceWav = wav;
+        this.composeResult = analysis;
+        this.composePacked = false;
+        this.showCompose(analysis);
+    }
+
+    private void takeComposeFile(android.net.Uri uri) {
+        try {
+            this.composeUri = uri;
+            this.composeBytes = this.readUri(uri);
+            this.composeResult = null;
+            this.composePacked = false;
+            this.composeSourceWav = null;
+            this.composeVocalsApplied = false;
+            java.lang.String name = uri.getLastPathSegment();
+            if (name == null || name.length() == 0) name = "song";
+            int slash = name.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < name.length()) name = name.substring(slash + 1);
+            this.composeName = name;
+            if (this.composeFileLab != null) this.composeFileLab.setText(name);
+            if (this.composeStatus != null) this.composeStatus.setText("Tap Process to split the guitar track.");
+            if (this.composeRows != null) this.composeRows.removeAllViews();
+            this.show("compose");
+        } catch (java.lang.Exception ex) {
+            if (this.composeStatus != null) this.composeStatus.setText("Could not read that file");
+        }
+    }
+
+    private void wireComposePane() {
+        this.composePane = this.col();
+        this.composePane.setVisibility(8);
+        this.composePane.setBackgroundColor(BG);
+        this.composePane.setClickable(true);
+        this.composePane.setPadding(this.dp(16), this.dp(12), this.dp(16), this.dp(12));
+        this.composePane.addView(this.text("Compose from GT", 18, true));
+        this.composeStatus = this.text("Choose a guitar WAV or MP3, then tap Process.", 14, false);
+        this.composeStatus.setTextColor(MUTED);
+        this.composeStatus.setPadding(0, this.dp(8), 0, this.dp(8));
+        this.composePane.addView(this.composeStatus);
+        this.composeFileLab = this.text("No file selected", 13, false);
+        this.composeFileLab.setTextColor(FG);
+        this.composeFileLab.setBackground(this.round(SURFACE, 8));
+        this.composeFileLab.setPadding(this.dp(12), this.dp(12), this.dp(12), this.dp(12));
+        android.widget.LinearLayout.LayoutParams pathLp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        pathLp.setMargins(0, this.dp(4), 0, this.dp(8));
+        this.composePane.addView(this.composeFileLab, pathLp);
+        this.composeRemoveVocals = new android.widget.CheckBox(this);
+        this.composeRemoveVocals.setText("Remove vocals");
+        this.composeRemoveVocals.setTextColor(FG);
+        this.composeRemoveVocals.setTextSize(14f);
+        this.composeRemoveVocals.setButtonTintList(android.content.res.ColorStateList.valueOf(FG));
+        this.composeRemoveVocals.setPadding(0, this.dp(4), 0, this.dp(8));
+        this.composePane.addView(this.composeRemoveVocals);
+        android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(48));
+        btnLp.setMargins(0, 0, 0, this.dp(8));
+        android.widget.TextView pick = this.action("Choose file", SURFACE, FG, pulsekit.AnalyzeClicks.pickCompose(this));
+        this.composePane.addView(pick, btnLp);
+        android.widget.LinearLayout.LayoutParams procLp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(48));
+        procLp.setMargins(0, 0, 0, this.dp(8));
+        android.widget.TextView process = this.action("Process", FG, BG, pulsekit.AnalyzeClicks.processCompose(this));
+        this.composePane.addView(process, procLp);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        this.composeRows = this.col();
+        scroll.addView(this.composeRows);
+        android.widget.LinearLayout.LayoutParams lp = this.flexFill();
+        lp.setMargins(0, this.dp(8), 0, 0);
+        this.composePane.addView(scroll, lp);
+        android.view.ViewGroup host = null;
+        if (this.analyzePane != null && this.analyzePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.analyzePane.getParent();
+        } else if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.isolatePane.getParent();
+        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.importPane.getParent();
+        }
+        if (host != null) {
+            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            host.addView((android.view.View) this.composePane, (android.view.ViewGroup.LayoutParams) flp);
+        }
+    }
+
+    public void openPrompts() { this.show("prompts"); }
+
+    public void takePromptRef(android.net.Uri uri) { pulsekit.PromptSheet.take(this, uri); }
+
+    private void wirePrompts() {
+        this.promptsPane = pulsekit.PromptSheet.create(this);
+        this.promptsPane.setVisibility(8);
+        android.view.ViewGroup host = null;
+        if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.isolatePane.getParent();
+        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.importPane.getParent();
+        }
+        if (host != null) {
+            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            host.addView((android.view.View) this.promptsPane, (android.view.ViewGroup.LayoutParams) flp);
+        }
+        android.widget.TextView tab = this.text("Prompts", 13, true);
+        tab.setGravity(17);
+        tab.setTag("prompts");
+        tab.setOnClickListener(pulsekit.AnalyzeClicks.prompts(this));
+        tab.setPadding(0, this.dp(8), 0, this.dp(8));
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
+        lp.setMargins(this.dp(2), 0, this.dp(2), 0);
+        tab.setLayoutParams(lp);
+        android.view.View py = null;
+        java.util.Iterator it = this.tabs.iterator();
+        while (it.hasNext()) {
+            android.widget.TextView t = (android.widget.TextView) it.next();
+            if ("py".equals(t.getTag())) { py = t; break; }
+        }
+        if (py != null && py.getParent() instanceof android.view.ViewGroup) {
+            android.view.ViewGroup row = (android.view.ViewGroup) py.getParent();
+            row.addView(tab, row.indexOfChild(py) + 1);
+        }
+        this.tabs.add(tab);
+    }
+
+    private void writeCombinedExport(android.net.Uri uri) {
+        if (uri == null || this.pkCombinedExport == null) return;
+        try {
+            java.io.OutputStream out = this.getContentResolver().openOutputStream(uri);
+            if (out == null) {
+                this.setNow("Could not save that mix");
+                return;
+            }
+            out.write(this.pkCombinedExport);
+            out.close();
+            java.lang.String name = this.pkCombinedName != null ? this.pkCombinedName : "combined_track.wav";
+            this.setNow("Saved \u00b7 " + name);
+        } catch (java.lang.Exception ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not save that mix");
+        }
+    }
+
+    public void takePromptExport(android.net.Uri uri) { pulsekit.PromptSheet.writeExport(this, uri); }
+
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        if (req == 22) {
+            super.onActivityResult(req, res, data);
+            if (res == -1 && data != null && data.getData() != null) this.takeAnalyzeFile(data.getData());
+            return;
+        }
+        if (req == 23) {
+            super.onActivityResult(req, res, data);
+            if (res == -1 && data != null && data.getData() != null) this.takeComposeFile(data.getData());
+            return;
+        }
+        if (req == 24) {
+            super.onActivityResult(req, res, data);
+            if (res == -1 && data != null && data.getData() != null) this.writeCombinedExport(data.getData());
+            return;
+        }
+        if (req == 27) {
+            super.onActivityResult(req, res, data);
+            if (res == -1 && data != null && data.getData() != null) this.takePromptRef(data.getData());
+            return;
+        }
+        if (req == 28) {
+            super.onActivityResult(req, res, data);
+            if (res == -1 && data != null && data.getData() != null) this.takePromptExport(data.getData());
+            return;
+        }
+        this.onActivityResultBase(req, res, data);
+    }
+
+    private void ensureFsetInfoMap() {
+        if (this.fsetInfoMap == null) this.fsetInfoMap = new java.util.LinkedHashMap();
+    }
+
+    private void persistFsetInfo() {
+        try {
+            this.ensureFsetInfoMap();
+            java.io.File f = new java.io.File(this.getFilesDir(), "fset-info.json");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            out.write(pulsekit.Engine.encodeFsetInfo(this.fsetInfoMap).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.close();
+        } catch (java.lang.Exception ignored) {}
+    }
+
+    private void loadPersistedFsetInfo() {
+        try {
+            this.ensureFsetInfoMap();
+            java.io.File f = new java.io.File(this.getFilesDir(), "fset-info.json");
+            if (!f.isFile() || f.length() < 8) return;
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            byte[] buf = new byte[(int) f.length()];
+            int n = in.read(buf);
+            in.close();
+            if (n <= 0) return;
+            java.lang.String json = new java.lang.String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+            this.fsetInfoMap.clear();
+            this.fsetInfoMap.putAll(pulsekit.Engine.decodeFsetInfo(json));
+            pulsekit.Engine.fileSetOrigins.clear();
+            pulsekit.Engine.fileSetOrigins.putAll(pulsekit.Engine.decodeFsetOrigins(json));
+            pulsekit.Engine.loadFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+        } catch (java.lang.Exception ignored) {}
+    }
+
+    private void storeFsetParts(java.lang.String source, java.util.List parts) {
+        this.ensureFsetInfoMap();
+        if (source == null) return;
+        if (parts == null || parts.isEmpty()) this.fsetInfoMap.remove(source);
+        else this.fsetInfoMap.put(source, new java.util.ArrayList(parts));
+        this.persistFsetInfo();
+    }
+
+    private void applyPlayerVolumes() {
+        float bd = this.pkBakeDrum > 0 ? this.pkBakeDrum : 100f;
+        float bg = this.pkBakeGuitar > 0 ? this.pkBakeGuitar : 100f;
+        float bm = this.pkBakeMain > 0 ? this.pkBakeMain : 100f;
+        float drum = (this.pkDrumLevel / bd) * (this.pkMain / bm);
+        float guitar = (this.pkGuitarLevel / bg) * (this.pkMain / bm);
+        if (drum < 0f) drum = 0f;
+        if (guitar < 0f) guitar = 0f;
+        if (drum > 1f) drum = 1f;
+        if (guitar > 1f) guitar = 1f;
+        if (this.pkDrumPlayer != null) this.pkDrumPlayer.setVolume(drum, drum);
+        if (this.pkGuitarPlayer != null) this.pkGuitarPlayer.setVolume(guitar, guitar);
+        if (this.pkDrumPlayer == null && this.pkGuitarPlayer == null && this.pkMixPlayer != null) {
+            float m = this.pkMain / 100f;
+            if (m < 0f) m = 0f;
+            if (m > 1f) m = 1f;
+            this.pkMixPlayer.setVolume(m, m);
+        }
+    }
+
+    public void setMixLevel(int kind, int value) {
+        int cap = kind == 5 ? 200 : 100;
+        if (value < 0) value = 0;
+        if (value > cap) value = cap;
+        if (kind == 0) this.pkDrumLevel = value;
+        else if (kind == 1) this.pkGuitarLevel = value;
+        else if (kind == 2) this.pkGate = value;
+        else if (kind == 3) this.pkComp = value;
+        else if (kind == 4) this.pkLimit = value;
+        else this.pkMain = value;
+        if (kind < 2 || kind == 5) {
+            this.applyPlayerVolumes();
+            this.setNow("Main " + this.pkMain + "  Drum " + this.pkDrumLevel + "  Guitar " + this.pkGuitarLevel);
+        }
+    }
+
+    private android.widget.LinearLayout mixSlider(java.lang.String label, int kind, java.lang.String src) {
+        android.widget.LinearLayout row = this.row();
+        android.widget.TextView lab = this.text(label, 11, false);
+        lab.setTextColor(MUTED);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(kind == 5 ? 200 : 100);
+        int progress = this.pkLimit;
+        if (kind == 0) progress = this.pkDrumLevel;
+        else if (kind == 1) progress = this.pkGuitarLevel;
+        else if (kind == 2) progress = this.pkGate;
+        else if (kind == 3) progress = this.pkComp;
+        else if (kind == 5) progress = this.pkMain;
+        bar.setProgress(progress);
+        pulsekit.MixLevels levels = new pulsekit.MixLevels(this, kind, src);
+        bar.setOnSeekBarChangeListener(levels);
+        bar.setOnTouchListener(levels);
+        row.addView(lab);
+        row.addView(bar, this.flex(1));
+        return row;
+    }
+
+    private void addMixLevels(android.widget.LinearLayout parent, java.lang.String src) {
+        if (parent == null) return;
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setTag("mixlevels");
+        box.addView(this.mixSlider("Main", 5, src));
+        box.addView(this.mixSlider("Drum", 0, src));
+        box.addView(this.mixSlider("Guitar", 1, src));
+        box.addView(this.mixSlider("Gate", 2, src));
+        box.addView(this.mixSlider("Comp", 3, src));
+        box.addView(this.mixSlider("Limit", 4, src));
+        parent.addView(box);
+    }
+
+    private static java.lang.String mixTime(int ms) {
+        if (ms < 0) ms = 0;
+        int s = ms / 1000;
+        int m = s / 60;
+        s = s % 60;
+        return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    private void paintMixClockOn(android.view.View v, java.lang.String label) {
+        if (v instanceof android.widget.TextView && "mixclock".equals(v.getTag())) {
+            ((android.widget.TextView) v).setText(label);
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) this.paintMixClockOn(g.getChildAt(i), label);
+        }
+    }
+
+    private void paintMixClock(java.lang.String label) {
+        android.view.View root = this.getWindow() == null ? null : this.getWindow().getDecorView();
+        if (root != null) this.paintMixClockOn(root, label);
+    }
+
+    private void stopMixClock() {
+        if (this.pkMixRun != null) this.handler.removeCallbacks(this.pkMixRun);
+    }
+
+    private void tickMixClockCore() {
+        android.media.MediaPlayer mp = this.pkMixPlayer;
+        if (mp == null) return;
+        int pos = 0;
+        int dur = 0;
+        boolean going = false;
+        try {
+            dur = mp.getDuration();
+            pos = mp.getCurrentPosition();
+            going = mp.isPlaying();
+        } catch (java.lang.Exception ex) { return; }
+        java.lang.String label = mixTime(pos) + " / " + mixTime(dur);
+        this.setNow(label);
+        this.paintMixClock(label);
+        if (going && this.pkMixRun != null) this.handler.postDelayed(this.pkMixRun, 200L);
+    }
+
+    private void startMixClock() {
+        this.stopMixClock();
+        this.pkMixRun = new pulsekit.MixClock(this);
+        this.handler.post(this.pkMixRun);
+    }
+
+    private void writePcmFile(java.io.File f, short[] pcm) throws java.lang.Exception {
+        java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+        out.write(pulsekit.AudioIo.encodeWav(pcm, 22050));
+        out.close();
+    }
+
+    private void releasePlayer(android.media.MediaPlayer p) {
+        if (p == null) return;
+        try { p.stop(); } catch (java.lang.Exception ignored) {}
+        try { p.release(); } catch (java.lang.Exception ignored) {}
+    }
+
+    private void releaseStemPlayers() {
+        android.media.MediaPlayer mix = this.pkMixPlayer;
+        android.media.MediaPlayer drum = this.pkDrumPlayer;
+        android.media.MediaPlayer guitar = this.pkGuitarPlayer;
+        this.pkMixPlayer = null;
+        this.pkDrumPlayer = null;
+        this.pkGuitarPlayer = null;
+        if (mix != null && mix != drum && mix != guitar) this.releasePlayer(mix);
+        this.releasePlayer(drum);
+        this.releasePlayer(guitar);
+    }
+
+    private void stopCombinedFileCore() {
+        this.stopMixClock();
+        this.releaseStemPlayers();
+        this.setNow("Stopped");
+    }
+
+    private void paintMidiClockOn(android.view.View v, java.lang.String label) {
+        if (v instanceof android.widget.TextView && "midiclock".equals(v.getTag())) {
+            ((android.widget.TextView) v).setText(label);
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) this.paintMidiClockOn(g.getChildAt(i), label);
+        }
+    }
+
+    private void paintMidiClock(java.lang.String label) {
+        android.view.View root = this.getWindow() == null ? null : this.getWindow().getDecorView();
+        if (root != null) this.paintMidiClockOn(root, label);
+    }
+
+    public void tickMidiClock() {
+        android.media.MediaPlayer mp = this.pkMidiPlayer;
+        if (mp == null) return;
+        int pos = 0;
+        int dur = 0;
+        boolean going = false;
+        try {
+            dur = mp.getDuration();
+            pos = mp.getCurrentPosition();
+            going = mp.isPlaying();
+        } catch (java.lang.Exception ex) { return; }
+        this.paintMidiClock(mixTime(pos) + " / " + mixTime(dur));
+        if (going && this.pkMixRun != null) this.handler.postDelayed(this.pkMixRun, 200L);
+    }
+
+    public void stopSourceMidi() {
+        android.media.MediaPlayer mp = this.pkMidiPlayer;
+        this.pkMidiPlayer = null;
+        this.pkMidiPaused = false;
+        this.pkMidiSrc = null;
+        if (mp != null) this.releasePlayer(mp);
+        this.paintMidiClock("00:00 / 00:00");
+        this.setNow("Stopped");
+    }
+
+    public void pauseSourceMidi() {
+        android.media.MediaPlayer mp = this.pkMidiPlayer;
+        if (mp == null) return;
+        try {
+            if (mp.isPlaying()) mp.pause();
+            this.pkMidiPaused = true;
+            this.paintMidiClock(mixTime(mp.getCurrentPosition()) + " / " + mixTime(mp.getDuration()));
+            this.setNow("Paused");
+        } catch (java.lang.Exception ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not pause");
+        }
+    }
+
+    public void playSourceMidi(java.lang.String src) {
+        if (src != null && src.equals(this.pkMidiSrc) && this.pkMidiPlayer != null && this.pkMidiPaused) {
+            try {
+                this.pkMidiPlayer.start();
+                this.pkMidiPaused = false;
+                this.startMixClock();
+                this.setNow("Play");
+                return;
+            } catch (java.lang.Exception ignored) {}
+        }
+        this.stopCombinedFile();
+        this.stopSourceMidi();
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if (au == null || au.sourceMidi == null || au.sourceMidi.length < 14) {
+            this.setNow("That MIDI file is missing");
+            return;
+        }
+        try {
+            short[] pcm = pulsekit.AudioIo.renderMidiDrums(au.sourceMidi, this.mixVoices(), 22050);
+            if (pcm == null || pcm.length < 8) {
+                this.setNow("No drum notes in that MIDI");
+                return;
+            }
+            java.io.File f = new java.io.File(this.getCacheDir(), "pk-midi.wav");
+            this.writePcmFile(f, pcm);
+            android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            mp.setDataSource(f.getAbsolutePath());
+            mp.prepare();
+            float vol = this.pkMain / 100f;
+            if (vol < 0f) vol = 0f;
+            if (vol > 1f) vol = 1f;
+            mp.setVolume(vol, vol);
+            mp.start();
+            this.pkMidiPlayer = mp;
+            this.pkMidiSrc = src;
+            this.pkMidiPaused = false;
+            this.startMixClock();
+            this.setNow("Play \u00b7 " + pulsekit.Engine.fileSetMidiName(src));
+        } catch (java.lang.Throwable ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not play that MIDI");
+        }
+    }
+
+    private void attachMidiChip(android.widget.LinearLayout host, java.lang.String key) {
+        if (host == null || key == null || !key.startsWith("f:")) return;
+        java.lang.String src = key.substring(2);
+        java.lang.String name = pulsekit.Engine.fileSetMidiName(src);
+        if (name.length() == 0) return;
+        for (int i = host.getChildCount() - 1; i >= 0; i--) {
+            android.view.View v = host.getChildAt(i);
+            if ("sourcemidi".equals(v.getTag())) return;
+            if (v instanceof android.widget.TextView && "pack".equals(v.getTag())) break;
+        }
+        android.widget.LinearLayout line = this.row();
+        line.setTag("sourcemidi");
+        line.setPadding(this.dp(8), 0, 0, this.dp(4));
+        android.widget.TextView label = this.text(name, 12, false);
+        label.setTextColor(MUTED);
+        line.addView(label, this.flex(1));
+        android.widget.TextView clock = this.text("00:00 / 00:00", 11, false);
+        clock.setTag("midiclock");
+        clock.setTextColor(MUTED);
+        clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+        line.addView(clock);
+        line.addView(this.outline("Play", false, pulsekit.AnalyzeClicks.filePlayMidi(this, src)));
+        line.addView(this.outline("Pause", false, pulsekit.AnalyzeClicks.filePauseMidi(this)));
+        line.addView(this.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopMidi(this)));
+        host.addView(line);
+    }
+
+    public void playCombinedFile(java.lang.String src) {
+        this.stopCombinedFile();
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if (au == null || au.combinedWav == null || au.combinedWav.length < 44) {
+            this.setNow("That mix is missing");
+            return;
+        }
+        try {
+            java.io.File f = new java.io.File(this.getCacheDir(), "pk-mix.wav");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            out.write(au.combinedWav);
+            out.close();
+            android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            mp.setDataSource(f.getAbsolutePath());
+            mp.prepare();
+            float vol = this.pkMain / 100f;
+            if (vol < 0f) vol = 0f;
+            if (vol > 1f) vol = 1f;
+            mp.setVolume(vol, vol);
+            mp.start();
+            this.pkMixPlayer = mp;
+            this.startMixClock();
+            this.setNow("Main " + this.pkMain + " / Guitar " + this.pkGuitarLevel);
+        } catch (java.lang.Exception ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not play that mix");
+        }
+    }
+
+    public void applyMixLevels(java.lang.String src) {
+        int pos = 0;
+        boolean going = false;
+        if (this.pkMixPlayer != null) {
+            try {
+                pos = this.pkMixPlayer.getCurrentPosition();
+                going = this.pkMixPlayer.isPlaying();
+            } catch (java.lang.Exception ignored) {}
+        }
+        short[] drums = this.pkDrumPcm;
+        short[] guitar = this.pkGuitarPcm;
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if ((drums == null || guitar == null || src == null || !src.equals(this.pkStemSrc)) && au != null && au.drumWav != null && au.bedWav != null && au.drumWav.length > 44 && au.bedWav.length > 44) {
+            try {
+                drums = pulsekit.AudioIo.floatsToShorts(pulsekit.AudioIo.parseWav(au.drumWav).samples);
+                guitar = pulsekit.AudioIo.floatsToShorts(pulsekit.AudioIo.parseWav(au.bedWav).samples);
+                this.pkDrumPcm = drums;
+                this.pkGuitarPcm = guitar;
+                this.pkStemSrc = src;
+            } catch (java.lang.Throwable ignored) {}
+        }
+        if (drums == null || guitar == null) {
+            this.setNow("Combine tracks again, then move Gate, Comp or Limit");
+            return;
+        }
+        try {
+            float gMul = this.pkGuitarLevel / 100f * this.pkMain / 100f * 2.6f;
+            float dMul = this.pkDrumLevel / 100f * this.pkMain / 100f * 1.15f;
+            short[] shaped = pulsekit.AudioIo.shapeGuitar(guitar, gMul, this.pkGate / 100f, this.pkComp / 100f, this.pkLimit / 100f);
+            short[] drumsOut = pulsekit.AudioIo.boostLimited(drums, dMul, 0.88f);
+            short[] mix = pulsekit.AudioIo.remixStems(drumsOut, shaped, 1f, 1f);
+            if (au != null) au.combinedWav = pulsekit.AudioIo.encodeWav(mix, 22050);
+            pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+            if (going) {
+                this.playCombinedFile(src);
+                if (this.pkMixPlayer != null) this.pkMixPlayer.seekTo(pos);
+            }
+            this.setNow("Main " + this.pkMain + " / Gate " + this.pkGate + " / Comp " + this.pkComp + " / Limit " + this.pkLimit);
+        } catch (java.lang.Throwable ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not shape the guitar");
+        }
+    }
+
+    public void saveCombinedFile(java.lang.String src) {
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if (au == null || au.combinedWav == null || au.combinedWav.length < 44) {
+            this.setNow("That mix is missing");
+            return;
+        }
+        java.lang.String name = au.combinedName != null && au.combinedName.length() > 0 ? au.combinedName : "combined_track.wav";
+        this.pkCombinedExport = au.combinedWav;
+        this.pkCombinedName = name;
+        android.content.Intent intent = new android.content.Intent("android.intent.action.CREATE_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("audio/wav");
+        intent.putExtra("android.intent.extra.TITLE", name);
+        this.startActivityForResult(intent, 24);
+    }
+
+    private void attachCombinedChip(android.widget.LinearLayout host, java.lang.String key) {
+        if (host == null || host.getChildCount() < 2 || key == null || !key.startsWith("f:")) return;
+        java.lang.String src = key.substring(2);
+        java.lang.String name = pulsekit.Engine.fileSetCombinedName(src);
+        if (name.length() == 0) return;
+        android.view.View strip = host.getChildAt(host.getChildCount() - 1);
+        if (!(strip instanceof android.widget.HorizontalScrollView)) return;
+        for (int i = host.getChildCount() - 1; i >= 0; i--) {
+            android.view.View v = host.getChildAt(i);
+            if ("combined".equals(v.getTag())) return;
+            if (v instanceof android.widget.TextView && "pack".equals(v.getTag())) break;
+        }
+        android.widget.LinearLayout line = this.row();
+        line.setTag("combined");
+        line.setPadding(this.dp(8), 0, 0, this.dp(4));
+        android.widget.TextView label = this.text(name, 12, false);
+        label.setTextColor(MUTED);
+        line.addView(label, this.flex(1));
+        android.widget.TextView clock = this.text("00:00 / 00:00", 11, false);
+        clock.setTag("mixclock");
+        clock.setTextColor(MUTED);
+        clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+        line.addView(clock);
+        line.addView(this.outline("Play", false, pulsekit.AnalyzeClicks.filePlayCombined(this, src)));
+        line.addView(this.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopCombined(this)));
+        line.addView(this.outline("Save", false, pulsekit.AnalyzeClicks.fileSaveCombined(this, src)));
+        android.view.View head = host.getChildAt(host.getChildCount() - 2);
+        host.addView(line);
+        this.addMixLevels(host, src);
+        if (head instanceof android.widget.TextView) {
+            android.widget.TextView h = (android.widget.TextView) head;
+            java.lang.String t = h.getText() == null ? "" : h.getText().toString();
+            int cut = t.lastIndexOf(" \u00b7 ");
+            if (cut > 0) {
+                try {
+                    int n = Integer.parseInt(t.substring(cut + 3).trim());
+                    h.setText(t.substring(0, cut) + " \u00b7 " + (n + 1));
+                } catch (java.lang.Exception ignored) {}
+            }
+        }
+    }
+
+    private void appendCombinedFileRowsCore() {
+        if (this.importedFileList == null) return;
+        for (int i = 0; i < this.importedFileList.getChildCount(); i++) {
+            android.view.View child = this.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            android.widget.TextView packHead = null;
+            boolean header = false;
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View v = row.getChildAt(j);
+                if (!(v instanceof android.widget.TextView)) continue;
+                android.widget.TextView t = (android.widget.TextView) v;
+                java.lang.String s = t.getText() == null ? "" : t.getText().toString();
+                if ("Export".equals(s)) header = true;
+                else if (packHead == null && s.indexOf(" \u00b7 ") >= 0) packHead = t;
+            }
+            if (!header || packHead == null) continue;
+            if (i + 1 >= this.importedFileList.getChildCount()) continue;
+            android.view.View next = this.importedFileList.getChildAt(i + 1);
+            if (!(next instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout kids = (android.widget.LinearLayout) next;
+            boolean nextHeader = false;
+            boolean already = false;
+            for (int k = 0; k < kids.getChildCount(); k++) {
+                android.view.View v = kids.getChildAt(k);
+                if ("combined".equals(v.getTag())) already = true;
+                if (v instanceof android.widget.TextView && "Export".equals(((android.widget.TextView) v).getText().toString())) nextHeader = true;
+            }
+            if (nextHeader || already) continue;
+            java.lang.String label = packHead.getText() == null ? "" : packHead.getText().toString();
+            if (label.startsWith("\u25be ") || label.startsWith("\u25b8 ")) label = label.substring(2);
+            int cut = label.lastIndexOf(" \u00b7 ");
+            java.lang.String name = cut > 0 ? label.substring(0, cut) : label;
+            java.lang.String src = "Other".equals(name) ? "" : name;
+            java.lang.String mix = pulsekit.Engine.fileSetCombinedName(src);
+            if (mix.length() == 0 && name.length() > 2 && name.charAt(1) == ' ') {
+                java.lang.String mark = name.substring(0, 1);
+                if ("M".equals(mark) || "A".equals(mark) || "I".equals(mark) || "C".equals(mark)) {
+                    src = name.substring(2);
+                    if ("Other".equals(src)) src = "";
+                    mix = pulsekit.Engine.fileSetCombinedName(src);
+                }
+            }
+            if (mix.length() == 0) continue;
+            android.widget.LinearLayout line = this.row();
+            line.setTag("combined");
+            android.widget.TextView nameView = this.text(mix, 12, false);
+            nameView.setTextColor(MUTED);
+            line.addView(nameView, this.flex(1));
+            android.widget.TextView clock = this.text("00:00 / 00:00", 11, false);
+            clock.setTag("mixclock");
+            clock.setTextColor(MUTED);
+            clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+            line.addView(clock);
+            line.addView(this.outline("Play", false, pulsekit.AnalyzeClicks.filePlayCombined(this, src)));
+            line.addView(this.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopCombined(this)));
+            line.addView(this.outline("Save", false, pulsekit.AnalyzeClicks.fileSaveCombined(this, src)));
+            kids.addView(line);
+            this.addMixLevels(kids, src);
+            java.lang.String head = packHead.getText() == null ? "" : packHead.getText().toString();
+            int hc = head.lastIndexOf(" \u00b7 ");
+            if (hc > 0) {
+                try {
+                    int n = Integer.parseInt(head.substring(hc + 3).trim());
+                    packHead.setText(head.substring(0, hc) + " \u00b7 " + (n + 1));
+                } catch (java.lang.Exception ignored) {}
+            }
+        }
+    }
+
+    private void stampPackMark(android.widget.TextView pack, java.lang.String source) {
+        if (pack == null || source == null) return;
+        java.lang.String mark = pulsekit.Engine.fileSetOriginMark(pulsekit.Engine.fileSetOriginOf(source));
+        if (mark.length() == 0) return;
+        java.lang.CharSequence cs = pack.getText();
+        java.lang.String raw = cs == null ? "" : cs.toString();
+        boolean arrow = raw.startsWith("\u25be ") || raw.startsWith("\u25b8 ");
+        java.lang.String rest = arrow ? raw.substring(2) : raw;
+        if (rest.startsWith(mark + " ")) return;
+        pack.setText((arrow ? raw.substring(0, 2) : "") + mark + " " + rest);
+    }
+
+    private void attachFileSetInfoMenu(android.widget.LinearLayout host, java.lang.String key, java.lang.String label, java.lang.Runnable onDelete, java.lang.Runnable onExport) {
+        if (host == null) return;
+        android.widget.TextView pack = null;
+        for (int i = host.getChildCount() - 1; i >= 0; i--) {
+            android.view.View v = host.getChildAt(i);
+            if (v instanceof android.widget.TextView && "pack".equals(v.getTag())) {
+                pack = (android.widget.TextView) v;
+                break;
+            }
+        }
+        if (pack == null) return;
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        this.stampPackMark(pack, src);
+        pack.setOnLongClickListener(pulsekit.AnalyzeClicks.packMenu(this, key, label, onDelete, onExport));
+        this.attachCombinedChip(host, key);
+        this.attachMidiChip(host, key);
+    }
+
+    private void wireFileSetListActionsCore() {
+        if (this.importedFileList == null) return;
+        for (int i = 0; i < this.importedFileList.getChildCount(); i++) {
+            android.view.View child = this.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            android.widget.TextView exportBtn = null;
+            android.widget.TextView packHead = null;
+            boolean hasMake = false;
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View v = row.getChildAt(j);
+                if (!(v instanceof android.widget.TextView)) continue;
+                android.widget.TextView t = (android.widget.TextView) v;
+                java.lang.CharSequence cs = t.getText();
+                java.lang.String s = cs == null ? "" : cs.toString();
+                if ("Export".equals(s)) exportBtn = t;
+                else if ("Make song".equals(s)) hasMake = true;
+                else if (s.indexOf(" \u00b7 ") >= 0) packHead = t;
+            }
+            if (exportBtn == null || packHead == null || hasMake) continue;
+            java.lang.String head = packHead.getText().toString();
+            if (head.startsWith("\u25be ") || head.startsWith("\u25b8 ")) head = head.substring(2);
+            int cut = head.lastIndexOf(" \u00b7 ");
+            java.lang.String label = cut > 0 ? head.substring(0, cut) : head;
+            java.lang.String src = "Other".equals(label) ? "" : label;
+            java.lang.String key = src.length() == 0 ? "o:other" : "f:" + src;
+            this.stampPackMark(packHead, src);
+            android.widget.TextView make = this.outline("Make song", false, pulsekit.AnalyzeClicks.fileMakeSong(this, key, label));
+            row.addView(make, row.indexOfChild(exportBtn));
+            if (pulsekit.Engine.fileSetStyleOn(pulsekit.Engine.fileSetOriginOf(src))) {
+                android.widget.TextView style = this.outline("Change style", false, pulsekit.AnalyzeClicks.fileChangeStyle(this, key, label));
+                row.addView(style, row.indexOfChild(exportBtn));
+            }
+            if ("compose".equals(pulsekit.Engine.fileSetOriginOf(src))) {
+                android.widget.TextView combine = this.outline("Combine tracks", false, pulsekit.AnalyzeClicks.fileCombine(this, key, label));
+                row.addView(combine, row.indexOfChild(exportBtn));
+            }
+        }
+        this.appendCombinedFileRows();
+    }
+
+    private void pkRebindFileSetClicks() {
+        if (this.importedFileList == null) return;
+        android.view.View.OnClickListener click = pulsekit.AnalyzeClicks.fileEntry(this);
+        java.lang.String src = "";
+        for (int i = 0; i < this.importedFileList.getChildCount(); i++) {
+            android.view.View child = this.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout box = (android.widget.LinearLayout) child;
+            boolean header = false;
+            android.widget.TextView packHead = null;
+            for (int j = 0; j < box.getChildCount(); j++) {
+                android.view.View v = box.getChildAt(j);
+                if (!(v instanceof android.widget.TextView)) continue;
+                java.lang.String s = ((android.widget.TextView) v).getText() == null ? "" : ((android.widget.TextView) v).getText().toString();
+                if ("Export".equals(s)) header = true;
+                if (s.startsWith("\u25be ") || s.startsWith("\u25b8 ")) packHead = (android.widget.TextView) v;
+            }
+            if (header) {
+                src = "";
+                if (packHead != null && packHead.getText() != null) {
+                    java.lang.String head = packHead.getText().toString();
+                    if (head.startsWith("\u25be ") || head.startsWith("\u25b8 ")) head = head.substring(2);
+                    int cut = head.lastIndexOf(" \u00b7 ");
+                    java.lang.String label = cut > 0 ? head.substring(0, cut) : head;
+                    if (label.startsWith("EP ")) label = label.substring(3);
+                    else if (label.startsWith("A ") || label.startsWith("M ") || label.startsWith("I ") || label.startsWith("C ")) label = label.substring(2);
+                    src = "Other".equals(label) ? "" : label;
+                }
+                continue;
+            }
+            int pi = 0;
+            int fi = 0;
+            for (int j = 0; j < box.getChildCount(); j++) {
+                android.view.View v = box.getChildAt(j);
+                if (!(v instanceof android.widget.TextView)) continue;
+                java.lang.String s = ((android.widget.TextView) v).getText() == null ? "" : ((android.widget.TextView) v).getText().toString();
+                if (s.startsWith("Pattern")) {
+                    while (pi < this.learned.size()) {
+                        pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(pi);
+                        pi = pi + 1;
+                        if (item != null && src.equals(pulsekit.Engine.sourceOf(item))) {
+                            v.setTag("fp:" + item.id);
+                            v.setOnClickListener(click);
+                            v.setClickable(true);
+                            break;
+                        }
+                    }
+                } else if (s.startsWith("Fill ") || s.startsWith("Fill\u00b7")) {
+                    while (fi < this.learnedFills.size()) {
+                        pulsekit.Engine.LearnedFill item = (pulsekit.Engine.LearnedFill) this.learnedFills.get(fi);
+                        fi = fi + 1;
+                        if (item != null && src.equals(pulsekit.Engine.sourceOf(item))) {
+                            v.setTag("ff:" + item.id);
+                            v.setOnClickListener(click);
+                            v.setClickable(true);
+                            break;
+                        }
+                    }
+                }
+            }
+            for (int n = 0; n < this.learned.size(); n++) {
+                pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(n);
+                if (item == null || !src.equals(pulsekit.Engine.sourceOf(item))) continue;
+                java.lang.String pair = (java.lang.String) this.fillernPairs.get("l:" + item.id);
+                if (pair == null || pair.length() == 0) continue;
+                android.widget.TextView t = this.text("Fillern \u00b7 " + item.name, 13, false);
+                t.setTextColor(MUTED);
+                t.setPadding(0, this.dp(4), 0, this.dp(4));
+                t.setTag("fr:" + item.id);
+                t.setOnClickListener(click);
+                t.setClickable(true);
+                box.addView(t);
+            }
+        }
+    }
+
+    public void pkLoadFilePattern(java.lang.String id) {
+        if (id == null) return;
+        for (int i = 0; i < this.learned.size(); i++) {
+            pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(i);
+            if (item == null || !id.equals(item.id)) continue;
+            this.styles.put(item.id, new pulsekit.Engine.Style(item.id, item.name, item.bpm, pulsekit.Engine.rowsFromCells(item.cells)));
+            this.loadStyle(item.id, false);
+            if (item.tsNum > 0) {
+                this.tsNum = pulsekit.Engine.clampTsNum(item.tsNum);
+                this.tsDen = pulsekit.Engine.clampTsDen(item.tsDen > 0 ? item.tsDen : 4);
+                if (this.tsNumField != null) this.tsNumField.setText(java.lang.Integer.toString(this.tsNum));
+                if (this.tsDenField != null) this.tsDenField.setText(java.lang.Integer.toString(this.tsDen));
+            }
+            int steps = item.steps > 0 ? item.steps : pulsekit.Engine.patternLenFromCells(item.cells, this.tsNum, this.tsDen);
+            pulsekit.Engine.defaultAccents(this.accents, steps, pulsekit.Engine.stepsPerBeat(this.tsDen));
+            this.applySteps(steps, false);
+            this.show("pattern");
+            this.refreshGrid();
+            this.setNow(item.name);
+            return;
+        }
+    }
+
+    public void pkLoadFileFill(java.lang.String id) {
+        if (id == null) return;
+        this.applyFill("l:" + id);
+        this.show("fills");
+        this.refreshGrid();
+    }
+
+    public void pkLoadFileFillern(java.lang.String id) {
+        if (id == null) return;
+        this.pkLoadFilePattern(id);
+        this.show("combo");
+        this.refreshGrid();
+        this.setNow("Fillern \u00b7 " + this.patternName(id));
+    }
+
+    private void showFileSetInfo(java.lang.String label, java.util.List parts, pulsekit.Engine.FileSet set) {
+        if (this.infoRows == null) return;
+        this.infoRows.removeAllViews();
+        if (this.infoTitle != null) this.infoTitle.setText(label == null || label.length() == 0 ? "File set" : label);
+        int nFill = set == null ? 0 : set.fills.size();
+        int nPair = set == null ? 0 : set.fillerns.size();
+        int nPart = parts == null ? 0 : parts.size();
+        if (this.infoStatus != null) {
+            java.lang.String style = "";
+            if (parts != null && !parts.isEmpty()) {
+                pulsekit.Engine.FileSetPart first = (pulsekit.Engine.FileSetPart) parts.get(0);
+                if (first.styleLabel != null && first.styleLabel.length() > 0) style = first.styleLabel + " · ";
+            }
+            this.infoStatus.setText(style + (nPart > 0 ? ((pulsekit.Engine.FileSetPart) parts.get(0)).bpm + " BPM · " : "") + nPart + " parts · " + pulsekit.Engine.fileSetLengthLine(parts, set == null ? 0f : set.durationSec) + " · " + nFill + " fills · " + nPair + " Fillerns");
+        }
+        if (parts != null) {
+            for (int i = 0; i < parts.size(); i++) {
+                pulsekit.Engine.FileSetPart p = (pulsekit.Engine.FileSetPart) parts.get(i);
+                android.widget.LinearLayout card = this.col();
+                card.setBackground(this.round(ELEV, 10));
+                card.setPadding(this.dp(10), this.dp(8), this.dp(10), this.dp(8));
+                android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+                lp.setMargins(0, 0, 0, this.dp(8));
+                card.setLayoutParams(lp);
+                android.widget.LinearLayout head = this.row();
+                head.addView(this.text(p.name, 14, true), this.flex(1));
+                android.widget.TextView kind = this.text(p.kind, 11, true);
+                kind.setTextColor(SUBTLE);
+                head.addView(kind);
+                card.addView(head);
+                card.addView(this.text("BPM " + p.bpm + " · TS " + p.tsNum + "/" + p.tsDen + " · " + (p.styleLabel == null ? "" : p.styleLabel), 12, false));
+                android.widget.TextView more = this.text(p.bars + " bars · " + this.fmtAnalyzeTime(p.startSec) + "–" + this.fmtAnalyzeTime(p.endSec) + " · " + p.hits + " hits · swing " + p.swing, 11, false);
+                more.setTextColor(SUBTLE);
+                card.addView(more);
+                this.infoRows.addView(card);
+            }
+        }
+        this.infoRows.requestLayout();
+        this.setNow(nPart + " parts");
+    }
+
+    private void openFileSetInfoCore(java.lang.String key, java.lang.String label) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        this.ensureFsetInfoMap();
+        java.util.List parts = (java.util.List) this.fsetInfoMap.get(src);
+        pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, label, this.learned, this.learnedFills, this.fillernPairs);
+        if (parts == null || parts.isEmpty()) {
+            if (set != null && set.parts != null && !set.parts.isEmpty()) parts = set.parts;
+            else parts = pulsekit.Engine.partsForDisplay(set);
+        }
+        if (set != null && "compose".equals(set.origin) && parts != null && !parts.isEmpty()) {
+            float fileSec = set.durationSec;
+            pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+            if (au != null && au.sourceWav != null && au.sourceWav.length >= 44) {
+                try {
+                    pulsekit.AudioIo.Pcm guitar = pulsekit.AudioIo.parseWav(au.sourceWav);
+                    if (guitar.sr > 0 && guitar.samples.length > 0) fileSec = guitar.samples.length / (float) guitar.sr;
+                } catch (Exception ignored) {}
+            }
+            if (fileSec > 0.05f) {
+                pulsekit.Engine.fitPartsExact(parts, fileSec);
+                set.durationSec = fileSec;
+            }
+        }
+        pulsekit.Engine.unifyFileSetParts(parts, set);
+        if (parts != null && !parts.isEmpty()) this.storeFsetParts(src, parts);
+        if (!"fsetinfo".equals(this.view)) this.pkInfoBack = this.view;
+        java.lang.String shown = pulsekit.Engine.fileSetMarked(label == null || label.length() == 0 ? "File set" : label, pulsekit.Engine.fileSetOriginOf(src));
+        this.showFileSetInfo(shown, parts, set);
+        java.lang.String word = pulsekit.Engine.fileSetOriginTitle(pulsekit.Engine.fileSetOriginOf(src));
+        if (word.length() > 0 && this.infoStatus != null) {
+            java.lang.String cur = this.infoStatus.getText().toString();
+            if (!cur.startsWith(word)) this.infoStatus.setText(word + " · " + cur);
+        }
+        this.show("fsetinfo");
+    }
+
+    private void wireInfoPane() {
+        this.infoPane = this.col();
+        this.infoPane.setVisibility(8);
+        this.infoPane.setBackgroundColor(BG);
+        this.infoPane.setClickable(true);
+        this.infoPane.setPadding(this.dp(16), this.dp(12), this.dp(16), this.dp(12));
+        this.infoTitle = this.text("File set", 18, true);
+        this.infoPane.addView(this.infoTitle);
+        this.infoStatus = this.text("Hold a file set and choose Info.", 14, false);
+        this.infoStatus.setTextColor(MUTED);
+        this.infoStatus.setPadding(0, this.dp(8), 0, this.dp(8));
+        this.infoPane.addView(this.infoStatus);
+        android.widget.LinearLayout.LayoutParams closeLp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(48));
+        closeLp.setMargins(0, 0, 0, this.dp(8));
+        android.widget.TextView close = this.action("Close", SURFACE, FG, pulsekit.AnalyzeClicks.closeInfo(this));
+        this.infoPane.addView(close, closeLp);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        this.infoRows = this.col();
+        scroll.addView(this.infoRows);
+        android.widget.LinearLayout.LayoutParams lp = this.flexFill();
+        lp.setMargins(0, this.dp(8), 0, 0);
+        this.infoPane.addView(scroll, lp);
+        android.view.ViewGroup host = null;
+        if (this.analyzePane != null && this.analyzePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.analyzePane.getParent();
+        } else if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.isolatePane.getParent();
+        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+            host = (android.view.ViewGroup) this.importPane.getParent();
+        }
+        if (host != null) {
+            android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
+            host.addView((android.view.View) this.infoPane, (android.view.ViewGroup.LayoutParams) flp);
+        }
+    }
+
+    private boolean packIsolationFileSet(pulsekit.AudioIo.Analysis a, java.lang.String file, boolean anyPad) {
+        try {
+            if (a == null || a.pcm == null || a.pcm.length < pulsekit.AudioIo.SR * 2) return false;
+            pulsekit.AudioIo.PartAnalysis parts = pulsekit.AudioIo.analyzeParts(a.pcm, pulsekit.AudioIo.SR);
+            java.lang.String stem = pulsekit.Engine.uniqueImportSource(pulsekit.Engine.stemNameFromMidi(file), this.learned, this.learnedFills);
+            pulsekit.Engine.FileSet set = pulsekit.AudioIo.fileSetFromParts(parts, stem, "isolate");
+            if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
+            this.storeFsetParts(stem, set.parts);
+            byte[] packed = pulsekit.Engine.encodeFset(set);
+            this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
+            if (anyPad) this.show("pads");
+            return true;
+        } catch (java.lang.Exception ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not build a file set");
+            return false;
+        }
+    }
+
+    private boolean tryPackIsolation() {
+        if (this.isolateAnalysis == null || this.isolateAnalysis.pcm == null) return false;
+        pulsekit.AudioIo.Analysis a = this.isolateAnalysis;
+        java.lang.String file = this.isolateFile != null ? this.isolateFile : "song";
+        this.rememberIsoPads();
+        boolean anyPad = false;
+        java.util.Iterator it = a.pads.iterator();
+        while (it.hasNext()) {
+            pulsekit.AudioIo.PadIso p = (pulsekit.AudioIo.PadIso) it.next();
+            if (p.found && p.sample != null) anyPad = true;
+        }
+        if (!anyPad && (a.kickSample != null || a.snareSample != null)) anyPad = true;
+        if (anyPad) this.addIsolatedSet(pulsekit.Engine.stemNameFromMidi(file), a.pads);
+        boolean packed = this.packIsolationFileSet(a, file, anyPad);
+        this.isolateAnalysis = null;
+        this.isolateFile = null;
+        if (packed) return true;
+        if (anyPad) this.show("pads");
+        else this.applyAnalysis(a, file);
+        return true;
+    }
+
+    public void closeFileSetInfo() {
+        java.lang.String back = this.pkInfoBack;
+        if (back == null || back.length() == 0 || "fsetinfo".equals(back)) back = "import";
+        this.show(back);
+    }
+
+    public void makeFileSetSong(java.lang.String key, java.lang.String label) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, label, this.learned, this.learnedFills, this.fillernPairs);
+        if (set == null) {
+            this.setNow("That file set is empty");
+            return;
+        }
+        this.ensureFsetInfoMap();
+        java.util.List stored = (java.util.List) this.fsetInfoMap.get(src);
+        if (stored != null && !stored.isEmpty()) {
+            set.parts.clear();
+            set.parts.addAll(stored);
+        }
+        java.util.List song = pulsekit.Engine.songFromFileSet(set);
+        if (song == null || song.isEmpty()) {
+            this.setNow("Could not make a song from that file set");
+            return;
+        }
+        java.lang.String name = label;
+        if (name == null || name.length() == 0) name = src.length() == 0 ? "Import" : src;
+        this.addImportedArrangement(name, song);
+    }
+
+    public java.lang.String[] styleDbNames() {
+        java.util.List rows = pulsekit.StyleDb.rows();
+        java.lang.String[] names = new java.lang.String[rows.size()];
+        for (int i = 0; i < rows.size(); i++) {
+            pulsekit.StyleDb.Row row = (pulsekit.StyleDb.Row) rows.get(i);
+            names[i] = row.name + "  \u00b7  " + row.bpm;
+        }
+        return names;
+    }
+
+    public int currentStyleDbIndex(java.lang.String key) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        this.ensureFsetInfoMap();
+        java.util.List stored = (java.util.List) this.fsetInfoMap.get(src);
+        if (stored == null || stored.isEmpty()) {
+            pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, "", this.learned, this.learnedFills, this.fillernPairs);
+            if (set != null) stored = set.parts;
+        }
+        if (stored == null) return -1;
+        for (int i = 0; i < stored.size(); i++) {
+            pulsekit.Engine.FileSetPart p = (pulsekit.Engine.FileSetPart) stored.get(i);
+            if (p != null && p.styleLabel != null && p.styleLabel.length() > 0) return pulsekit.StyleDb.indexOf(p.styleLabel);
+        }
+        return -1;
+    }
+
+    public void applyFileSetStyle(java.lang.String key, java.lang.String label, java.lang.String kit, java.lang.String styleName, int hats, float four, float dkick, int styleBpm, float styleBack) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        if (!pulsekit.Engine.fileSetStyleOn(pulsekit.Engine.fileSetOriginOf(src))) {
+            this.setNow("Using the source file");
+            return;
+        }
+        java.lang.String shown = label;
+        if (shown == null || shown.length() == 0) shown = src.length() == 0 ? "Import" : src;
+        pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, shown, this.learned, this.learnedFills, this.fillernPairs);
+        if (set == null) {
+            this.setNow("That file set is empty");
+            return;
+        }
+        this.ensureFsetInfoMap();
+        java.util.List stored = (java.util.List) this.fsetInfoMap.get(src);
+        if (stored != null && !stored.isEmpty()) {
+            set.parts.clear();
+            set.parts.addAll(stored);
+        }
+        set.origin = pulsekit.Engine.fileSetOriginOf(src);
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if (au != null) set.sourceWav = au.sourceWav;
+        java.lang.String back = this.view;
+        pulsekit.Engine.FileSet next = pulsekit.AudioIo.restyleFileSet(set, kit, styleName, hats, four, dkick, styleBpm, styleBack);
+        pulsekit.Engine.replaceFileSetLearned(src, next, this.learned, this.learnedFills, this.fillernPairs);
+        if (next.parts != null && !next.parts.isEmpty()) this.storeFsetParts(src, next.parts);
+        if (pulsekit.Engine.isFileSetOrigin(set.origin)) pulsekit.Engine.rememberFileSetOrigin(src, set.origin);
+        this.persistLearned();
+        pulsekit.Engine.ImportedSong made = pulsekit.Engine.fileSetSongMade(shown, this.importedSongs);
+        if (made != null) this.importedSongs.remove(made);
+        this.makeFileSetSong(key, shown);
+        this.rebuildImported();
+        if (back != null) this.show(back);
+        this.setNow("Style \u00b7 " + styleName);
+    }
+
+    public void combineFileSetTracks(java.lang.String key, java.lang.String label) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        if (!"compose".equals(pulsekit.Engine.fileSetOriginOf(src))) {
+            this.setNow("Combine tracks is for a C file set");
+            return;
+        }
+        java.lang.String songLabel = label;
+        if (songLabel == null || songLabel.length() == 0) songLabel = src.length() == 0 ? "Import" : src;
+        pulsekit.Engine.ImportedSong made = pulsekit.Engine.fileSetSongMade(songLabel, this.importedSongs);
+        boolean existed = made != null && made.parts != null && !made.parts.isEmpty();
+        if (!existed) this.makeFileSetSong(key, label);
+        made = pulsekit.Engine.fileSetSongMade(songLabel, this.importedSongs);
+        if (made == null || made.parts == null || made.parts.isEmpty()) {
+            this.setNow("Could not make a song from that file set");
+            return;
+        }
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        if (au == null || au.sourceWav == null || au.sourceWav.length < 44) {
+            this.setNow("Original guitar track is missing");
+            return;
+        }
+        try {
+            this.ensureAudio();
+            pulsekit.AudioIo.Pcm guitar = pulsekit.AudioIo.parseWav(au.sourceWav);
+            float fileSec = guitar.sr > 0 ? guitar.samples.length / (float) guitar.sr : 0f;
+            this.ensureFsetInfoMap();
+            java.util.List stored = (java.util.List) this.fsetInfoMap.get(src);
+            if (stored != null && !stored.isEmpty() && fileSec > 0.05f) {
+                pulsekit.Engine.fitPartsExact(stored, fileSec);
+                this.storeFsetParts(src, stored);
+            }
+            pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, label, this.learned, this.learnedFills, this.fillernPairs);
+            pulsekit.AudioIo.PartAnalysis fresh = pulsekit.AudioIo.analyzeParts(guitar.samples, guitar.sr);
+            pulsekit.Engine.FileSet sourceSet = pulsekit.AudioIo.fileSetFromParts(fresh, songLabel, "compose");
+            if (sourceSet != null) pulsekit.AudioIo.stampGuitarIfEmpty(sourceSet, guitar.samples, guitar.sr);
+            if (sourceSet != null && sourceSet.patterns != null && !sourceSet.patterns.isEmpty()) {
+                sourceSet.origin = "compose";
+                if (sourceSet.parts != null && fileSec > 0.05f) pulsekit.Engine.fitPartsExact(sourceSet.parts, fileSec);
+                pulsekit.Engine.replaceFileSetLearned(src, sourceSet, this.learned, this.learnedFills, this.fillernPairs);
+                if (sourceSet.parts != null && !sourceSet.parts.isEmpty()) {
+                    this.storeFsetParts(src, sourceSet.parts);
+                    stored = sourceSet.parts;
+                }
+                set = sourceSet;
+            }
+            boolean fitStyle = false;
+            pulsekit.AudioIo.GuitarFit fit = pulsekit.AudioIo.fitGuitar(guitar.samples, guitar.sr, stored);
+            float[] heard = guitar.samples;
+            if (fitStyle && set != null && fit.cells != null && fit.cells.length > 0 && fit.cells[0] != null) {
+                for (int pi = 0; pi < set.patterns.size(); pi++) {
+                    pulsekit.Engine.Learned learned = (pulsekit.Engine.Learned) set.patterns.get(pi);
+                    if (learned == null) continue;
+                    int[][] cells = new int[fit.cells.length][];
+                    for (int t = 0; t < fit.cells.length; t++) {
+                        int[] row = fit.cells[t];
+                        if (row == null) {
+                            cells[t] = null;
+                        } else {
+                            int[] copy = new int[row.length];
+                            for (int k = 0; k < row.length; k++) copy[k] = row[k];
+                            cells[t] = copy;
+                        }
+                    }
+                    learned.cells = cells;
+                    learned.bpm = fit.bpm;
+                    learned.tsNum = fit.tsNum;
+                    learned.tsDen = fit.tsDen;
+                    learned.swing = fit.swing;
+                    learned.human = 0;
+                    learned.closest = "folk";
+                    learned.steps = fit.cells[0].length;
+                }
+                java.util.List rows = stored != null && !stored.isEmpty() ? stored : set.parts;
+                for (int ri = 0; rows != null && ri < rows.size(); ri++) {
+                    pulsekit.Engine.FileSetPart row = (pulsekit.Engine.FileSetPart) rows.get(ri);
+                    if (row == null) continue;
+                    row.styleLabel = "Folk";
+                    row.bpm = fit.bpm;
+                    row.tsNum = fit.tsNum;
+                    row.tsDen = fit.tsDen;
+                    row.swing = fit.swing;
+                }
+                if (stored != null) this.storeFsetParts(src, stored);
+            }
+            float[] wallS = null;
+            float[] wallE = null;
+            if (stored != null && !stored.isEmpty()) {
+                wallS = new float[stored.size()];
+                wallE = new float[stored.size()];
+                for (int i = 0; i < stored.size(); i++) {
+                    pulsekit.Engine.FileSetPart wall = (pulsekit.Engine.FileSetPart) stored.get(i);
+                    if (wall == null) continue;
+                    wallS[i] = wall.startSec;
+                    wallE[i] = wall.endSec;
+                }
+            }
+            if (set != null) pulsekit.AudioIo.stampGuitarFeel(set, stored != null && !stored.isEmpty() ? stored : set.parts, guitar.samples, guitar.sr);
+            java.util.ArrayList secs = new java.util.ArrayList();
+            java.util.List aligned = made.parts;
+            if (set != null) {
+                if (stored != null && stored != set.parts) {
+                    set.parts.clear();
+                    set.parts.addAll(stored);
+                }
+                set.durationSec = fileSec;
+                set.origin = "compose";
+                aligned = pulsekit.Engine.songFromFileSet(set, secs);
+            }
+            if (stored != null && wallS != null) {
+                for (int i = 0; i < stored.size() && i < wallS.length; i++) {
+                    pulsekit.Engine.FileSetPart wall = (pulsekit.Engine.FileSetPart) stored.get(i);
+                    if (wall == null) continue;
+                    wall.startSec = wallS[i];
+                    wall.endSec = wallE[i];
+                }
+            }
+            if (set != null) pulsekit.AudioIo.stampGuitarFeel(set, stored != null && !stored.isEmpty() ? stored : set.parts, guitar.samples, guitar.sr);
+            if (set != null && aligned != null && aligned != made.parts && !aligned.isEmpty()) {
+                made.parts.clear();
+                made.parts.addAll(aligned);
+                this.persistLearned();
+            }
+            java.util.List clockParts = stored != null && !stored.isEmpty() ? stored : (set == null ? null : set.parts);
+            short[] drums;
+            if (set == null) drums = pulsekit.AudioIo.mixSongOnFile(aligned, secs, null, this.mixVoices(), 22050, fileSec);
+            else if (fitStyle) drums = pulsekit.AudioIo.renderGuitarFit(fit, this.mixVoices());
+            else drums = pulsekit.AudioIo.mixFileSetOnGuitar(set, clockParts, heard, guitar.sr, this.mixVoices());
+            short[] mix;
+            pulsekit.AudioIo.MixOut mixed = pulsekit.AudioIo.combineMix(drums, 22050, heard, guitar.sr, fit.beats, this.pkDrumLevel / 100f, this.pkGuitarLevel / 100f);
+            mix = mixed.mix;
+            java.lang.String name = pulsekit.Engine.combinedAudioName(made.name != null ? made.name : songLabel);
+            pulsekit.Engine.rememberFileSetAudio(src, au.sourceWav, pulsekit.AudioIo.encodeWav(mix, 22050), name);
+            pulsekit.Engine.rememberMixStems(src, pulsekit.AudioIo.encodeWav(mixed.drums, 22050), pulsekit.AudioIo.encodeWav(mixed.guitar, 22050));
+            this.pkDrumPcm = mixed.drums;
+            this.pkGuitarPcm = mixed.guitar;
+            this.pkStemSrc = src;
+            pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+            if (key != null) this.openPacks.put(key, java.lang.Boolean.TRUE);
+            this.rebuildImported();
+            this.rebuildImportedFills();
+            java.lang.String extra = "";
+            this.setNow("Combined · " + name + extra + " · v122 · source" + (existed ? "" : " · song saved"));
+        } catch (java.lang.Throwable ex) {
+            java.lang.String m = ex instanceof java.lang.OutOfMemoryError
+                ? "That take is too long to mix on this phone"
+                : ex.getMessage();
+            this.setNow(m != null ? m : "Could not combine those tracks");
+        }
+    }
+
+    public void applyStylePick(java.lang.String key, java.lang.String label, int index) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        if (!pulsekit.Engine.fileSetStyleOn(pulsekit.Engine.fileSetOriginOf(src))) {
+            this.setNow("Using the source file");
+            return;
+        }
+        java.util.List rows = pulsekit.StyleDb.rows();
+        if (index < 0 || index >= rows.size()) return;
+        pulsekit.StyleDb.Row row = (pulsekit.StyleDb.Row) rows.get(index);
+        this.applyFileSetStyle(key, label, row.kit, row.name, row.hats, row.four, row.dkick, row.bpm, row.back);
+        if ("compose".equals(pulsekit.Engine.fileSetOriginOf(src))) {
+            this.pkSkipGuitarFit = true;
+            this.combineFileSetTracks(key, label);
+            this.pkSkipGuitarFit = false;
+        }
+        this.setNow("Style \u00b7 " + row.name);
+    }
+
+    public boolean fileSetIsCompose(java.lang.String key) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        return "compose".equals(pulsekit.Engine.fileSetOriginOf(src));
+    }
+
+    public boolean fileSetStyleOn(java.lang.String key) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        return pulsekit.Engine.fileSetStyleOn(pulsekit.Engine.fileSetOriginOf(src));
+    }
+
+    public void addImportedMidiSong(java.lang.String name, java.util.List parts) {
+        this.addImportedArrangement(name, parts);
+    }
+
+    private boolean tryPackMidiFileSet(java.lang.String filename, pulsekit.Engine.MidiBars bars, boolean force) {
+        if (bars == null || bars.bars == null || bars.bars.isEmpty()) return false;
+        java.util.List segs = pulsekit.Engine.segmentMidiBars(bars.bars);
+        if (segs == null || segs.isEmpty()) return false;
+        java.util.LinkedHashSet uniqueG = new java.util.LinkedHashSet();
+        java.util.LinkedHashSet uniqueF = new java.util.LinkedHashSet();
+        int nFillern = 0;
+        for (int i = 0; i < segs.size(); i++) {
+            pulsekit.Engine.MidiSeg s = (pulsekit.Engine.MidiSeg) segs.get(i);
+            uniqueG.add(pulsekit.Engine.patternSignature(s.groove));
+            if (s.fill != null) uniqueF.add(pulsekit.Engine.patternSignature(s.fill));
+            if ("fillern".equals(s.kind)) nFillern++;
+        }
+        boolean multi = bars.bars.size() >= 3 && (segs.size() > 1 || uniqueG.size() > 1 || uniqueF.size() > 1 || (nFillern > 0 && bars.bars.size() >= 4));
+        if (!force && !multi) return false;
+        try {
+            java.lang.String stem = pulsekit.Engine.uniqueImportSource(pulsekit.Engine.stemNameFromMidi(filename), this.learned, this.learnedFills);
+            pulsekit.Engine.FileSet set = pulsekit.AudioIo.fileSetFromMidi(bars, stem);
+            pulsekit.Engine.attachStagedMidi(set);
+            if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
+            this.storeFsetParts(stem, set.parts);
+            byte[] packed = pulsekit.Engine.encodeFset(set);
+            this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
+            java.util.ArrayList song = new java.util.ArrayList();
+            for (int i = 0; i < segs.size(); i++) {
+                if (song.size() >= pulsekit.Engine.MAX_SONG) break;
+                pulsekit.Engine.MidiSeg s = (pulsekit.Engine.MidiSeg) segs.get(i);
+                song.add(pulsekit.Engine.groove(stem, bars.bpm, s.groove, s.grooveRepeats));
+                if (s.fill != null && song.size() < pulsekit.Engine.MAX_SONG) {
+                    song.add(pulsekit.Engine.fill("fill", bars.bpm, s.fill, 1));
+                }
+            }
+            if (!song.isEmpty()) {
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle((java.lang.CharSequence) "Make a song?")
+                    .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays."))
+                    .setPositiveButton((java.lang.CharSequence) "Make song", pulsekit.AnalyzeClicks.makeSong(this, stem, song))
+                    .setNegativeButton((java.lang.CharSequence) "Not now", null)
+                    .show();
+            }
+            return true;
+        } catch (java.lang.Exception ex) {
+            java.lang.String m = ex.getMessage();
+            this.setNow(m != null ? m : "Could not build a file set");
+            return false;
+        }
+    }
+
+    private void afterRefreshSong() {
+        if (!"song".equals(this.view)) return;
+        java.util.List parts = this.activeSong();
+        if ("imported".equals(this.songLane) && this.importedSongs.isEmpty()) {
+            this.setNow("No imported song yet");
+            return;
+        }
+        int idx = this.songPlay ? this.songIndex : -1;
+        int loop = this.songPlay ? this.songLoop : 0;
+        int step = this.playhead < 0 ? 0 : this.playhead;
+        int global = pulsekit.Engine.songGlobalStep(parts, idx, loop, step);
+        this.setNow(pulsekit.Engine.songNowLine(parts, this.songPlay, idx, global));
+    }
+
+    private void afterPartCard(android.widget.LinearLayout card, boolean now) {
+        if (!now || card == null) return;
+        android.widget.TextView lab = this.text("Now", 10, true);
+        lab.setTextColor(HIT);
+        int at = card.getChildCount() > 2 ? 2 : card.getChildCount();
+        card.addView((android.view.View) lab, at);
+    }
+
+    private void pkPaintRun(android.widget.TextView button, String mode) {
+        if (button == null) return;
+        boolean on = mode.equals(this.pkPromptRun);
+        button.setBackgroundColor(on ? HIT : ELEV);
+        button.setTextColor(on ? BG : FG);
+    }
+
+    public void pkSetPromptRun(String mode) {
+        String m = mode == null ? "" : pulsekit.PromptRun.normalizeType(mode);
+        if (m.length() == 0 && mode != null && "ai".equals(mode.toLowerCase())) m = "ai";
+        if (m.length() == 0) m = "bash";
+        this.pkPromptRun = m;
+        this.pkPaintRun(this.pkRunBash, "bash");
+        this.pkPaintRun(this.pkRunCmd, "cmd");
+        this.pkPaintRun(this.pkRunAi, "ai");
+        if (this.pyName == null || !this.pyName.toLowerCase().endsWith(".prompt")) return;
+        String report = pulsekit.PromptRun.report(this.pkPromptCategory, m, pulsekit.Subsystem.grok(this), pulsekit.Subsystem.sogni(this), pulsekit.Subsystem.claude(this));
+        this.pkPromptReport = report;
+        if (this.pkPyHint != null) this.pkPyHint.setText(report);
+        if (this.pkPyLog != null) this.pkPyLog.setText(report);
+        this.setNow(report.replace('\n', ' '));
+    }
+
+    private void pkShowPromptModes() {
+        if (this.pkPromptModes == null) return;
+        boolean prompt = this.pyName != null && this.pyName.toLowerCase().endsWith(".prompt");
+        this.pkPromptModes.setVisibility(prompt ? 0 : 8);
+    }
+
+    public void pkLoadRefs(String full) {
+        try {
+            String text = full == null ? this.pkPromptSource : full;
+            if (text == null) text = "";
+            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+            String title = sheet != null && sheet.name != null ? sheet.name : "";
+            if (title.length() == 0 && this.pyName != null) {
+                title = this.pyName;
+                if (title.toLowerCase().endsWith(".prompt")) title = title.substring(0, title.length() - 7);
+            }
+            String category = sheet != null && sheet.category != null && sheet.category.length() > 0 ? sheet.category : this.pkPromptCategory;
+            String n1 = sheet != null && sheet.ref1 != null ? sheet.ref1 : "";
+            String n2 = sheet != null && sheet.ref2 != null ? sheet.ref2 : "";
+            pulsekit.PromptFiles.Saved saved = pulsekit.PromptFiles.write(this, title, category, n1, n2);
+            this.pkRef1Path = saved.ref1Path;
+            this.pkRef2Path = saved.ref2Path;
+            this.pkPromptDescription = saved.description == null ? "" : saved.description;
+            this.pkDefinedResult = saved.resultName == null ? "" : saved.resultName;
+            if (this.pkPromptDescription.length() == 0 && sheet != null && sheet.description != null) this.pkPromptDescription = sheet.description;
+            if (this.pyEditor != null) {
+                String now = this.pyEditor.getText().toString();
+                String next = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, now);
+                if (!now.equals(next)) this.pyEditor.setText(next);
+            }
+            if (saved.ref1Path != null && saved.ref1Path.length() > 0 && (this.pkPyInputPath == null || this.pkPyInputPath.length() == 0)) this.pkPyInputPath = saved.ref1Path;
+            String note = saved.note == null ? "" : saved.note;
+            String report = this.pkPromptReport == null ? "" : this.pkPromptReport;
+            int cut = report.indexOf("\nReference file 1:");
+            if (cut >= 0) report = report.substring(0, cut);
+            String shown = report.length() == 0 ? note : report + "\n" + note;
+            this.pkPromptReport = shown;
+            if (this.pkPyLog != null) this.pkPyLog.setText(shown);
+            if (this.pkPyHint != null) this.pkPyHint.setText(shown);
+        } catch (Exception ex) {
+            if (this.pkPyLog != null) this.pkPyLog.setText("Could not read reference files.");
+        }
+    }
+
+    private void pkApplyHint(String hint) {
+        if (hint == null) hint = "";
+        if (this.pkPyHint != null) this.pkPyHint.setText(hint);
+        if (this.pkPyLog != null) this.pkPyLog.setText(hint);
+        this.pkPyInputToken = pulsekit.PyJavHints.firstInput(hint);
+        java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+        if (!dir.isDirectory()) dir.mkdirs();
+        String out = pulsekit.PyJavHints.outputFile(this.pkPyInputPath, hint, dir.getAbsolutePath());
+        if (out.length() > 0) {
+            this.pkPyOutputPath = out;
+            String filled = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
+            if (this.pkPyArgs != null) this.pkPyArgs.setText(filled);
+            String note = hint + "\nOutput file: " + out + "\nExtra args: " + filled;
+            if (this.pkPyLog != null) this.pkPyLog.setText(note);
+        }
+        if (this.pkPyInput == null) return;
+        if (this.pkPyInputToken == null) {
+            this.pkPyInput.setVisibility(8);
+        } else {
+            this.pkPyInput.setVisibility(0);
+            this.pkPyInput.setText("Browse " + this.pkPyInputToken);
+        }
+    }
+
+    private void pkRefreshRecent(int select) {
+        if (this.pkPyRecent == null) return;
+        this.pkPyRecentItems = pulsekit.PyJavRecent.load(this.getFilesDir());
+        pulsekit.PyJavUi.fillRecent(this, this.pkPyRecent, this.pkPyRecentItems);
+    }
+
+    public void pkApplyRecent(int index) {
+        if (this.pkPyRecentMute || this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
+        pulsekit.PyJavRecent.Item item = (pulsekit.PyJavRecent.Item) this.pkPyRecentItems.get(index - 1);
+        this.pyName = item.name;
+        this.pkPyInputPath = null;
+        boolean binary = item.bytes != null && item.bytes.length > 0;
+        if (binary) this.pkPyBytes = item.bytes;
+        else this.pkPyBytes = null;
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        if (this.pyEditor != null) {
+            if (binary) this.pyEditor.setText("// " + item.name + "\n// Binary. Run uses this file.\n");
+            else {
+                String text = item.source == null ? "" : item.source;
+                if (item.name != null && item.name.toLowerCase().endsWith(".prompt")) {
+                    pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+                    this.pkPromptSource = text;
+                    this.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
+                    this.pkSetPromptRun(pulsekit.PromptRun.runMode(text, sheet));
+                    this.pkLoadRefs(this.pkPromptSource);
+                    if (sheet != null && sheet.body != null) text = sheet.body;
+                }
+                this.pyEditor.setText(text);
+            }
+        }
+        this.pkShowPromptModes();
+        this.setNow("PyJav · " + item.label());
+        String hint = pulsekit.PyJavHints.status(item.name, item.source, item.bytes);
+        this.pkApplyHint(hint);
+    }
+
+    private void pkWirePyJavCore() {
+        if (this.tabs != null) {
+            for (int i = 0; i < this.tabs.size(); i++) {
+                android.widget.TextView tv = (android.widget.TextView) this.tabs.get(i);
+                if ("py".equals(tv.getTag())) tv.setText("PyJav");
+            }
+        }
+        if (this.pyPane == null) return;
+        if (this.pyPane.getChildCount() > 0 && this.pyPane.getChildAt(0) instanceof android.widget.TextView) {
+            ((android.widget.TextView) this.pyPane.getChildAt(0)).setText("PyJav");
+        }
+        if (this.pyPane.getChildCount() > 1 && this.pyPane.getChildAt(1) instanceof android.widget.TextView) {
+            android.widget.TextView hint = (android.widget.TextView) this.pyPane.getChildAt(1);
+            hint.setText("Python, Java, or a .prompt file. Java is compiled in the app and run on ART.");
+        }
+        if (this.pkPyWired) return;
+        this.pkPyWired = true;
+        int slot = 1;
+        if (slot > this.pyPane.getChildCount()) slot = this.pyPane.getChildCount();
+        this.pkPyRecent = new android.widget.Spinner(this, 1);
+        this.pkPyRecent.setLayoutParams(new android.widget.LinearLayout.LayoutParams(-1, -2));
+        this.pkPyRecent.setMinimumHeight(this.dp(40));
+        this.pyPane.addView(this.pkPyRecent, slot);
+        slot = slot + 1;
+        this.pkPyRecent.setOnItemSelectedListener(pulsekit.PyJavUi.recent(this));
+        this.pkRefreshRecent(0);
+        this.pkPyHint = this.text("Possible extra args appear after you browse a file.", 12, false);
+        this.pkPyHint.setTextColor(FG);
+        this.pyPane.addView(this.pkPyHint, slot);
+        slot = slot + 1;
+        this.pkPyArgs = new android.widget.EditText(this);
+        this.pkPyArgs.setHint("Extra args");
+        this.pkPyArgs.setSingleLine(false);
+        this.pkPyArgs.setMinLines(2);
+        this.pkPyArgs.setTextColor(FG);
+        this.pkPyArgs.setHintTextColor(MUTED);
+        this.pkPyArgs.setLayoutParams(new android.widget.LinearLayout.LayoutParams(-1, -2));
+        this.pyPane.addView(this.pkPyArgs, slot);
+        slot = slot + 1;
+        this.pkPyInput = this.action("Browse input", ELEV, FG, pulsekit.PyJavUi.browseInput(this));
+        this.pkPyInput.setVisibility(8);
+        this.pyPane.addView(this.pkPyInput, slot);
+        slot = slot + 1;
+        this.pkPromptModes = new android.widget.LinearLayout(this);
+        this.pkPromptModes.setOrientation(0);
+        this.pkRunBash = this.action("bash", ELEV, FG, pulsekit.PyJavUi.mode(this, "bash"));
+        this.pkRunCmd = this.action("cmd", ELEV, FG, pulsekit.PyJavUi.mode(this, "cmd"));
+        this.pkRunAi = this.action("AI", ELEV, FG, pulsekit.PyJavUi.mode(this, "ai"));
+        this.pkPromptModes.addView(this.pkRunBash, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        this.pkPromptModes.addView(this.pkRunCmd, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        this.pkPromptModes.addView(this.pkRunAi, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        this.pyPane.addView(this.pkPromptModes, slot);
+        this.pkPromptModes.setVisibility(8);
+        this.pkSetPromptRun(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
+        slot = slot + 1;
+        this.pyPane.addView(this.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(this)), slot);
+        slot = slot + 1;
+        this.pyPane.addView(this.action("Params", FG, BG, pulsekit.PyJavUi.params(this)), slot);
+        slot = slot + 1;
+        this.pyPane.addView(this.action("Run", FG, BG, pulsekit.PyJavUi.click(this)), slot);
+        slot = slot + 1;
+        this.pkPyLog = this.text("Output appears here.", 12, false);
+        this.pkPyLog.setTextColor(FG);
+        this.pkPyLog.setMinLines(4);
+        this.pyPane.addView(this.pkPyLog, slot);
+    }
+
+    public void pkPrepareOutput() {
+        pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(this.pkPromptSource);
+        String defined = this.pkDefinedResult == null ? "" : this.pkDefinedResult;
+        if (defined.length() == 0 && sheet != null && sheet.result != null) defined = sheet.result;
+        String title = sheet != null && sheet.name != null && sheet.name.length() > 0 ? sheet.name : this.pyName;
+        String category = sheet != null && sheet.category != null && sheet.category.length() > 0 ? sheet.category : this.pkPromptCategory;
+        String model = sheet != null && sheet.model != null ? sheet.model : "";
+        String body = this.pyEditor != null ? this.pyEditor.getText().toString() : "";
+        String fileName = pulsekit.PromptRun.chooseOutputName(title, category, this.pkPromptRun, model, body, defined);
+        this.pkOutputInvented = defined == null || defined.trim().length() == 0;
+        this.pkOutputSaved = !this.pkOutputInvented;
+        this.pkOutputName = fileName;
+        java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+        if (!dir.isDirectory()) dir.mkdirs();
+        this.pkPyOutputPath = new java.io.File(dir, fileName).getAbsolutePath();
+        String note = "Output file: " + fileName;
+        String report = this.pkPromptReport == null ? "" : this.pkPromptReport;
+        int cut = report.indexOf("\nOutput file:");
+        if (cut >= 0) report = report.substring(0, cut);
+        this.pkPromptReport = report.length() == 0 ? note : report + "\n" + note;
+    }
+
+    public void pkSaveInventedOutput(String text) {
+        if (!this.pkOutputInvented || this.pkOutputSaved || this.pkPyOutputPath == null || this.pkOutputName == null) return;
+        try {
+            java.io.File file = new java.io.File(this.pkPyOutputPath);
+            byte[] data = null;
+            if (file.isFile() && file.length() > 0) {
+                java.io.FileInputStream in = new java.io.FileInputStream(file);
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                in.close();
+                data = bos.toByteArray();
+            } else if (pulsekit.PromptRun.logOutput(this.pkOutputName)) {
+                String body = text == null ? "" : text;
+                data = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                java.io.FileOutputStream out = new java.io.FileOutputStream(file);
+                out.write(data);
+                out.close();
+            }
+            if (data == null) return;
+            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(this.pkPromptSource);
+            String title = sheet != null && sheet.name != null ? sheet.name : "";
+            String category = sheet != null && sheet.category != null ? sheet.category : this.pkPromptCategory;
+            String n1 = sheet != null && sheet.ref1 != null ? sheet.ref1 : "";
+            String n2 = sheet != null && sheet.ref2 != null ? sheet.ref2 : "";
+            pulsekit.PromptFiles.storeResult(this, title, category, n1, n2, this.pkOutputName, data);
+            this.pkOutputSaved = true;
+            this.pkDefinedResult = this.pkOutputName;
+        } catch (Exception ignored) {}
+    }
+
+    public void pkShowAiResult(String line) {
+        if (line == null) line = "";
+        String report = this.pkPromptReport == null ? "" : this.pkPromptReport;
+        String shown = report.length() == 0 ? line : report + "\n" + line;
+        if (this.pkPyLog != null) this.pkPyLog.setText(shown);
+        if (this.pkPyHint != null) this.pkPyHint.setText(shown);
+        this.setNow(line);
+        this.pkSaveInventedOutput(shown);
+    }
+
+    public void pkRunPyJav() {
+        if (this.pyName != null && this.pyName.toLowerCase().endsWith(".prompt")) {
+            if (!this.pkOutputResume) {
+                this.pkLoadRefs(this.pkPromptSource);
+                this.pkPrepareOutput();
+                if (this.pkOutputInvented && pulsekit.PromptRun.logOutput(this.pkOutputName)) {
+                    pulsekit.PyJavUi.askOutput(this);
+                    return;
+                }
+            }
+            this.pkOutputResume = false;
+        }
+        if (this.pyName != null && this.pyName.toLowerCase().endsWith(".prompt") && "ai".equals(this.pkPromptRun)) {
+            String body = this.pyEditor != null ? this.pyEditor.getText().toString() : "";
+            body = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, body);
+            pulsekit.PyJavRecent.remember(this.getFilesDir(), this.pyName, "", this.pkPromptSource == null ? body : this.pkPromptSource, null);
+            this.pkRefreshRecent(0);
+            pulsekit.PyJavUi.chooseAi(this, body, this.pkRef1Path, this.pkRef2Path);
+            return;
+        }
+        String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
+        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        if (this.pkPyLog != null) this.pkPyLog.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\nRunning…" : "Running…");
+        if (this.pkPyHint != null) this.pkPyHint.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport : "Running…");
+        this.setNow("Running…");
+        String name = this.pyName == null ? "script.py" : this.pyName;
+        extra = pulsekit.PyJavParams.merge(extra, pulsekit.PyJavParams.load(this, name));
+        String src = this.pyEditor != null ? this.pyEditor.getText().toString() : "";
+        src = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, src);
+        java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+        if (!dir.isDirectory()) dir.mkdirs();
+        String filled = pulsekit.PyJavHints.fillArgs(extra, hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
+        String out = pulsekit.PyJavHints.outputFile(this.pkPyInputPath, hint + "\n" + extra, dir.getAbsolutePath());
+        if (out.length() > 0 && !this.pkOutputInvented) this.pkPyOutputPath = out;
+        if (this.pkPyArgs != null && filled.length() > 0) this.pkPyArgs.setText(filled);
+        pulsekit.PyJavRecent.remember(this.getFilesDir(), name, filled, src, this.pkPyBytes);
+        this.pkRefreshRecent(0);
+        java.util.List argv;
+        if ((this.pkPyInputPath != null && this.pkPyInputPath.length() > 0) || out.length() > 0) {
+            argv = pulsekit.PyJavHints.programArgs(filled, this.pkPyInputToken, this.pkPyInputPath, hint, dir.getAbsolutePath());
+            if (this.pkPyHint != null) this.pkPyHint.setText(pulsekit.PyJavHints.outputNotice(filled, hint, this.pkPyInputPath, dir.getAbsolutePath()));
+        } else {
+            int swing = this.swingBar != null ? this.swingBar.getVal() : 0;
+            argv = pulsekit.JavaRun.argvFor(src, this.bpm(), this.style, this.bars, swing, extra);
+        }
+        if (name.toLowerCase().endsWith(".prompt")) {
+            argv.add("--pk-run");
+            argv.add(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
+        }
+        if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
+        if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
+        if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
+        pulsekit.JavaRun.start(name, src, this.pkPyBytes, argv, pulsekit.PyJavUi.listener(this));
+    }
+
+    public void pkAcceptOutput(String answer) {
+        String given = answer == null ? "" : answer.trim();
+        if (given.length() > 0) {
+            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(this.pkPromptSource);
+            String title = sheet != null && sheet.name != null && sheet.name.length() > 0 ? sheet.name : this.pyName;
+            String category = sheet != null && sheet.category != null && sheet.category.length() > 0 ? sheet.category : this.pkPromptCategory;
+            String model = sheet != null && sheet.model != null ? sheet.model : "";
+            String body = this.pyEditor != null ? this.pyEditor.getText().toString() : "";
+            String fileName = pulsekit.PromptRun.chooseOutputName(title, category, this.pkPromptRun, model, body, given);
+            this.pkOutputName = fileName;
+            this.pkOutputInvented = true;
+            this.pkOutputSaved = false;
+            java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            this.pkPyOutputPath = new java.io.File(dir, fileName).getAbsolutePath();
+            String note = "Output file: " + fileName;
+            String report = this.pkPromptReport == null ? "" : this.pkPromptReport;
+            int cut = report.indexOf("\nOutput file:");
+            if (cut >= 0) report = report.substring(0, cut);
+            this.pkPromptReport = report.length() == 0 ? note : report + "\n" + note;
+        }
+        this.pkOutputResume = true;
+        this.pkRunPyJav();
+    }
+
+    public void pkCancelOutput() {
+        this.pkOutputInvented = false;
+        this.pkOutputResume = false;
+        this.pkShowAiResult("Cancelled.");
+    }
+
+    public void pkSetPyArgs(java.lang.String args) {
+        java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
+        java.lang.String merged = pulsekit.PyJavParams.merge(extra, args);
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(merged);
+        this.setNow("Params saved");
+    }
+
+    public void pkOpenParams() {
+        java.lang.String name = this.pyName == null ? "DrumMidi" : this.pyName;
+        java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
+        pulsekit.PyJavParams.open(this, name, extra);
+    }
+
+    public void pkSyncTransport() {
+        try {
+            if (this.playBtn == null || !(this.playBtn.getParent() instanceof android.view.View)) return;
+            android.view.View row = (android.view.View) this.playBtn.getParent();
+            row.setVisibility("py".equals(this.view) ? 8 : 0);
+        } catch (Throwable ignored) {}
+    }
+
+    public String pkImportProgramMidi(byte[] data, String name) {
+        try {
+            if (data == null || name == null) return "Import failed: no MIDI file";
+            pulsekit.Engine.stageSourceMidi(data, name);
+            String stem = pulsekit.Engine.stemNameFromMidi(name);
+            pulsekit.Engine.MidiBars bars = pulsekit.Engine.parseMidiBars(data);
+            boolean ok = bars != null && this.learnFromSongImport(name, bars, true);
+            String source = stem;
+            if (ok) {
+                pulsekit.Engine.rememberFileSetMidi(source, data, name);
+                for (int i = 0; i < this.learned.size(); i++) {
+                    pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(i);
+                    if (item == null) continue;
+                    java.lang.String s = pulsekit.Engine.sourceOf(item);
+                    if (s == null || s.length() == 0) continue;
+                    if (s.equals(source) || s.startsWith(source + " ")) pulsekit.Engine.rememberFileSetMidi(s, data, name);
+                }
+                pulsekit.Engine.rememberFileSetOrigin(source, "program");
+                pulsekit.Engine.storeFileSetAudioDir(new java.io.File(this.getFilesDir(), "fset-audio"));
+                this.persistFsetInfo();
+                this.rebuildImported();
+                this.rebuildImportedFills();
+                this.setNow("Succeeded: " + source);
+                android.widget.Toast.makeText(this, "Succeeded: " + source, 1).show();
+                return "Succeeded: " + source;
+            }
+            int[][] cells = pulsekit.Engine.parseMidi(data);
+            if (cells == null || pulsekit.Engine.hitCount(cells) < 1) return "Failed: no drum notes in " + name;
+            int bpm = pulsekit.Engine.parseMidiBpm(data, this.bpm());
+            this.learnFromImport(name, cells, bpm);
+            source = pulsekit.Engine.importSource(name);
+            if (source == null || source.length() == 0) source = stem;
+            boolean found = false;
+            for (int i = 0; i < this.learned.size(); i++) {
+                pulsekit.Engine.Learned item = (pulsekit.Engine.Learned) this.learned.get(i);
+                if (item != null && source.equals(item.source)) found = true;
+            }
+            if (!found) return "Failed: " + name + " did not become a file set";
+            pulsekit.Engine.rememberFileSetMidi(source, data, name);
+            pulsekit.Engine.rememberFileSetOrigin(source, "program");
+            this.persistFsetInfo();
+            this.rebuildImported();
+            this.setNow("Succeeded: " + source);
+            android.widget.Toast.makeText(this, "Succeeded: " + source, 1).show();
+            return "Succeeded: " + source;
+        } catch (Throwable ex) {
+            String m = ex.getMessage();
+            return "Failed: " + (m == null ? ex.toString() : m);
+        }
+    }
+
+    public String pkVerdict(String log, int code, int midis, String status) {
+        String found = null;
+        if (log != null) {
+            int i = 0;
+            while (i < log.length()) {
+                int nl = log.indexOf(10, i);
+                String line = (nl < 0 ? log.substring(i) : log.substring(i, nl)).trim();
+                if (line.startsWith("Succeeded:") || line.startsWith("Failed:")) found = line;
+                if (nl < 0) break;
+                i = nl + 1;
+            }
+        }
+        if (found != null) return found;
+        if (status != null && (status.startsWith("Succeeded:") || status.startsWith("Failed:"))) return status;
+        String why = status == null ? "" : status;
+        if (why.startsWith("Import failed: ")) why = why.substring(15);
+        if (why.startsWith("Import succeeded: ")) return "Succeeded: " + why.substring(18);
+        if (log != null) {
+            int cut = log.indexOf("ERROR");
+            if (cut < 0) cut = log.indexOf("Exception");
+            if (cut < 0) cut = log.indexOf("Timed out");
+            if (cut >= 0) {
+                int end = log.indexOf(10, cut);
+                why = (end < 0 ? log.substring(cut) : log.substring(cut, end)).trim();
+            }
+        }
+        if (midis > 0 && code == 0) return "Succeeded: " + (why.length() == 0 ? "MIDI" : why);
+        if (why.length() == 0) why = "no MIDI file was written";
+        return "Failed: " + why;
+    }
+
+    public void pkShowPyResult(pulsekit.JavaRun.Result result) {
+        String status = "Import failed: no result";
+        String log = "";
+        try {
+        log = result == null || result.log == null || result.log.length() == 0 ? "(no output)" : result.log;
+        if (this.pkPromptReport != null && this.pkPromptReport.length() > 0 && this.pyName != null && this.pyName.toLowerCase().endsWith(".prompt") && log.indexOf("Category:") != 0) log = this.pkPromptReport + "\n" + log;
+        int midis = 0;
+        if (result != null && result.files != null) {
+            for (int i = 0; i < result.files.size(); i++) {
+                pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                log = log + "\nfile " + f.name + " (" + f.bytes.length + " bytes)";
+                String low = f.name.toLowerCase();
+                if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T' && f.bytes[2] == 'h' && f.bytes[3] == 'd') {
+                    status = this.pkImportProgramMidi(f.bytes, f.name);
+                    midis = midis + 1;
+                }
+            }
+        }
+        boolean prompt = this.pyName != null && this.pyName.toLowerCase().endsWith(".prompt");
+        if (midis == 0 && !prompt && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && (result == null || result.log == null || !result.log.startsWith("Executed"))) {
+            try {
+                java.io.File out = new java.io.File(this.pkPyOutputPath);
+                if (out.isFile()) {
+                    java.io.FileInputStream in = new java.io.FileInputStream(out);
+                    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                    in.close();
+                    log = log + "\nfile " + out.getName() + " (" + bos.size() + " bytes)";
+                    status = this.pkImportProgramMidi(bos.toByteArray(), out.getName());
+                    midis = midis + 1;
+                }
+            } catch (Throwable ex) {
+                String m = ex.getMessage();
+                status = "Import failed: " + (m == null ? ex.toString() : m);
+            }
+        }
+        if (midis == 0 && (prompt || (result != null && result.log != null && (result.log.startsWith("Executed") || result.log.startsWith("AI prompt") || result.log.startsWith("$ ") || result.log.startsWith("The prompt is empty") || result.log.startsWith("bash is not") || result.log.startsWith("cmd is not"))))) {
+            String raw = result == null || result.log == null ? "" : result.log;
+            int nl = raw.indexOf(10);
+            status = nl < 0 ? raw : raw.substring(0, nl);
+            if (status.length() == 0) status = result != null && result.code != 0 ? "Prompt failed" : "Prompt finished";
+        } else if (midis == 0) {
+            String why = "Import failed: no MIDI file was written";
+            int cut = log.indexOf("No output file:");
+            if (cut < 0) cut = log.indexOf("could not read");
+            if (cut < 0) cut = log.indexOf("OutOfMemoryError");
+            if (cut < 0) cut = log.indexOf("Error processing audio");
+            if (cut >= 0) {
+                int end = log.indexOf('\n', cut);
+                why = "Import failed: " + (end < 0 ? log.substring(cut) : log.substring(cut, end)).trim();
+            }
+            status = why;
+        }
+        status = this.pkVerdict(log, result == null ? 1 : result.code, midis, status);
+        log = status + "\n" + log;
+        if (this.pkPyHint != null) this.pkPyHint.setText(status);
+        this.setNow(status);
+        android.widget.Toast.makeText(this, status, 1).show();
+        this.pkSaveInventedOutput(log);
+        if (this.pkPyLog != null) this.pkPyLog.setText(log);
+        } catch (Throwable ex) {
+            String m = ex.getMessage();
+            status = "Failed: " + (m == null ? ex.toString() : m);
+            if (this.pkPyHint != null) this.pkPyHint.setText(status);
+            this.setNow(status);
+            android.widget.Toast.makeText(this, status, 1).show();
+            if (this.pkPyLog != null) this.pkPyLog.setText(status);
+        }
+    }
+
+    private boolean pkTakeProgramCore(byte[] data, String name) {
+        if (data == null || name == null) return false;
+        String low = name.toLowerCase();
+        boolean jar = low.endsWith(".jar");
+        boolean cls = low.endsWith(".class");
+        boolean javaSrc = low.endsWith(".java");
+        if (!jar && !cls && !javaSrc) return false;
+        if (jar) {
+            try {
+                java.util.Map files = pulsekit.Engine.unzip(data);
+                if (files != null && files.containsKey("pattern.json")) return false;
+            } catch (Exception ignored) {}
+        }
+        int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+        String base = slash >= 0 ? name.substring(slash + 1) : name;
+        this.pyName = base;
+        this.pkPyInputPath = null;
+        if (jar || cls) this.pkPyBytes = data;
+        else this.pkPyBytes = null;
+        if (this.pyEditor != null) {
+            if (jar || cls) this.pyEditor.setText("// " + base + "\n// Binary. Run uses this file.\n");
+            else this.pyEditor.setText(new String(data, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        this.show("py");
+        this.setNow("PyJav · " + base);
+        String src = (jar || cls) ? "" : new String(data, java.nio.charset.StandardCharsets.UTF_8);
+        String hint = pulsekit.PyJavHints.status(base, src, data);
+        this.pkApplyHint(hint);
+        byte[] kept = null;
+        if (jar || cls) kept = data;
+        pulsekit.PyJavRecent.remember(this.getFilesDir(), base, "", src, kept);
+        this.pkRefreshRecent(0);
+        this.pkShowPromptModes();
+        return true;
+    }
+
+    public void pkOpenPromptText(String name, String full) {
+        if (name == null || name.length() == 0) name = "prompt.prompt";
+        if (!name.toLowerCase().endsWith(".prompt")) name = name + ".prompt";
+        this.pyName = name;
+        this.pkPyBytes = null;
+        this.pkPyInputPath = null;
+        String text = full == null ? "" : full;
+        pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+        this.pkPromptSource = text;
+        this.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
+        String body = sheet != null && sheet.body != null ? sheet.body : text;
+        if (this.pyEditor != null) this.pyEditor.setText(body);
+        this.pkSetPromptRun(pulsekit.PromptRun.runMode(text, sheet));
+        this.pkShowPromptModes();
+        this.show("py");
+        String hint = this.pkPromptReport == null ? "" : this.pkPromptReport;
+        this.setNow(hint.replace('\n', ' '));
+        this.pkApplyHint(hint);
+        this.pkLoadRefs(text);
+        pulsekit.PyJavRecent.remember(this.getFilesDir(), name, "", text, null);
+        this.pkRefreshRecent(0);
+        android.widget.Toast.makeText(this, "Opened " + name, 0).show();
+    }
+
+    public void pkBrowsePyJav() {
+        android.content.Intent intent = new android.content.Intent("android.intent.action.OPEN_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("*/*");
+        intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"*/*", "text/plain", "text/*", "application/octet-stream"});
+        this.startActivityForResult(intent, 25);
+    }
+
+    private void pkTakePickedProgramCore(android.net.Uri uri) {
+        try {
+            byte[] data = this.readUri(uri);
+            String name = null;
+            android.database.Cursor cursor = this.getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                try {
+                    if (cursor.moveToFirst()) {
+                        int col = cursor.getColumnIndex("_display_name");
+                        if (col >= 0) name = cursor.getString(col);
+                    }
+                } finally { cursor.close(); }
+            }
+            if (name == null) name = uri.getLastPathSegment();
+            if (name == null) name = "program.py";
+            int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+            if (slash >= 0) name = name.substring(slash + 1);
+            String low = name.toLowerCase();
+            boolean py = low.endsWith(".py");
+            boolean jar = low.endsWith(".jar");
+            boolean cls = low.endsWith(".class");
+            boolean javaSrc = low.endsWith(".java");
+            boolean prompt = low.endsWith(".prompt") || low.endsWith(".prompt.txt") || low.contains(".prompt");
+            if (!prompt && data != null && data.length >= 9) {
+                String head = new String(data, 0, Math.min(data.length, 12), java.nio.charset.StandardCharsets.UTF_8);
+                if (head.startsWith("PKPROMPT1")) {
+                    prompt = true;
+                    if (!low.endsWith(".prompt")) name = (low.endsWith(".txt") ? name.substring(0, name.length() - 4) : name) + ".prompt";
+                }
+            }
+            if (!py && !prompt && !jar && !cls && !javaSrc) {
+                String why = "Pick a .py, .java, .class, .jar, or .prompt file.";
+                if (this.pkPyLog != null) this.pkPyLog.setText(why);
+                android.widget.Toast.makeText(this, why, 1).show();
+                return;
+            }
+            if (jar) {
+                try {
+                    java.util.Map files = pulsekit.Engine.unzip(data);
+                    if (files != null && files.containsKey("pattern.json")) {
+                        if (this.pkPyLog != null) this.pkPyLog.setText("That JAR is a kit snapshot, not a program.");
+                        return;
+                    }
+                } catch (Exception ignored) {}
+            }
+            this.pyName = name;
+            this.pkPyInputPath = null;
+            if (jar || cls) this.pkPyBytes = data;
+            else this.pkPyBytes = null;
+            if (this.pyEditor != null) {
+                if (jar || cls) this.pyEditor.setText("// " + name + "\n// Binary. Run uses this file.\n");
+                else {
+                    String text = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+                    if (prompt) {
+                        pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+                        this.pkPromptSource = text;
+                        this.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
+                        if (sheet != null && sheet.body != null) text = sheet.body;
+                    }
+                    this.pyEditor.setText(text);
+                    if (prompt) this.pkSetPromptRun(pulsekit.PromptRun.runMode(new String(data, java.nio.charset.StandardCharsets.UTF_8), null));
+                }
+            }
+            this.pkShowPromptModes();
+            this.show("py");
+            this.setNow("PyJav · " + name);
+            String src = (jar || cls) ? "" : new String(data, java.nio.charset.StandardCharsets.UTF_8);
+            if (prompt) {
+                pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(src);
+                if (sheet != null && sheet.body != null) src = sheet.body;
+            }
+            String hint = prompt
+                ? (this.pkPromptReport == null ? "" : this.pkPromptReport)
+                : pulsekit.PyJavHints.status(name, src, data);
+            this.pkApplyHint(hint);
+            if (prompt) this.pkLoadRefs(this.pkPromptSource);
+            byte[] kept = null;
+            if (jar || cls) kept = data;
+            pulsekit.PyJavRecent.remember(this.getFilesDir(), name, "", src, kept);
+            this.pkRefreshRecent(0);
+            android.widget.Toast.makeText(this, "Opened " + name, 0).show();
+        } catch (Exception ex) {
+            String m = ex.getMessage();
+            if (m == null || m.length() == 0) m = "Could not open that file";
+            if (this.pkPyLog != null) this.pkPyLog.setText(m);
+            android.widget.Toast.makeText(this, m, 1).show();
+        }
+    }
+
+    public void pkBrowseInput() {
+        android.content.Intent intent = new android.content.Intent("android.intent.action.OPEN_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("*/*");
+        this.startActivityForResult(intent, 26);
+    }
+
+    public void pkTakeInputFile(android.net.Uri uri) {
+        try {
+            String name = null;
+            android.database.Cursor cursor = this.getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                try {
+                    if (cursor.moveToFirst()) {
+                        int col = cursor.getColumnIndex("_display_name");
+                        if (col >= 0) name = cursor.getString(col);
+                    }
+                } finally { cursor.close(); }
+            }
+            if (name == null || name.length() == 0) name = "input.wav";
+            int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+            if (slash >= 0) name = name.substring(slash + 1);
+            name = name.replace(' ', '_');
+            java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            java.io.File out = new java.io.File(dir, name);
+            java.io.InputStream in = this.getContentResolver().openInputStream(uri);
+            if (in == null) throw new java.io.IOException("Could not open " + name);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            try {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            } finally { fos.close(); in.close(); }
+            String path = out.getAbsolutePath();
+            this.pkPyInputPath = path;
+            String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+            java.io.File folder = new java.io.File(this.getCacheDir(), "pyjav-in");
+            String note = pulsekit.PyJavHints.outputNotice("", hint, path, folder.getAbsolutePath());
+            String next = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, path, folder.getAbsolutePath());
+            String output = pulsekit.PyJavHints.outputFile(path, hint, folder.getAbsolutePath());
+            this.pkPyOutputPath = output;
+            if (this.pkPyArgs != null) this.pkPyArgs.setText(next);
+            if (this.pkPyLog != null) this.pkPyLog.setText(note);
+        } catch (Exception ex) {
+            String m = ex.getMessage();
+            if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
+        }
+    }
+
+    private android.widget.LinearLayout pkMidiRow(java.lang.String src) {
+        if (src == null) src = "";
+        src = pulsekit.Engine.fileSetMidiKeyForLabel(src);
+        java.lang.String name = pulsekit.Engine.fileSetMidiName(src);
+        if (name.length() == 0) return null;
+        android.widget.LinearLayout line = this.row();
+        line.setTag("sourcemidi");
+        line.setPadding(this.dp(8), this.dp(4), 0, this.dp(4));
+        android.widget.TextView label = this.text(name, 12, false);
+        label.setTextColor(FG);
+        line.addView(label, this.flex(1));
+        android.widget.TextView clock = this.text("00:00 / 00:00", 11, false);
+        clock.setTag("midiclock");
+        clock.setTextColor(MUTED);
+        clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+        line.addView(clock);
+        line.addView(this.outline("Play", false, pulsekit.AnalyzeClicks.filePlayMidi(this, src)));
+        line.addView(this.outline("Pause", false, pulsekit.AnalyzeClicks.filePauseMidi(this)));
+        line.addView(this.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopMidi(this)));
+        return line;
+    }
+
+    private void appendMidiFileRows() {
+        if (this.importedFileList == null) return;
+        for (int i = 0; i < this.importedFileList.getChildCount(); i++) {
+            android.view.View child = this.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            android.widget.TextView packHead = null;
+            boolean header = false;
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View v = row.getChildAt(j);
+                if (!(v instanceof android.widget.TextView)) continue;
+                java.lang.String s = ((android.widget.TextView) v).getText() == null ? "" : ((android.widget.TextView) v).getText().toString();
+                if ("Export".equals(s)) header = true;
+                if (s.startsWith("\u25be ") || s.startsWith("\u25b8 ")) packHead = (android.widget.TextView) v;
+            }
+            if (!header || packHead == null) continue;
+            android.view.View next = i + 1 < this.importedFileList.getChildCount() ? this.importedFileList.getChildAt(i + 1) : null;
+            android.widget.LinearLayout kids = next instanceof android.widget.LinearLayout ? (android.widget.LinearLayout) next : null;
+            boolean nextHeader = true;
+            boolean already = false;
+            if (kids != null) {
+                nextHeader = false;
+                for (int k = 0; k < kids.getChildCount(); k++) {
+                    android.view.View v = kids.getChildAt(k);
+                    if ("sourcemidi".equals(v.getTag())) already = true;
+                    if (v instanceof android.widget.TextView) {
+                        java.lang.String s = ((android.widget.TextView) v).getText() == null ? "" : ((android.widget.TextView) v).getText().toString();
+                        if ("Export".equals(s)) nextHeader = true;
+                    }
+                }
+            }
+            if (already) continue;
+            java.lang.String head = packHead.getText() == null ? "" : packHead.getText().toString();
+            if (head.startsWith("\u25be ") || head.startsWith("\u25b8 ")) head = head.substring(2);
+            int cut = head.lastIndexOf(" \u00b7 ");
+            java.lang.String label = cut > 0 ? head.substring(0, cut) : head;
+            if (label.startsWith("EP ")) label = label.substring(3);
+            else if (label.startsWith("A ") || label.startsWith("M ") || label.startsWith("I ") || label.startsWith("C ")) label = label.substring(2);
+            java.lang.String src = "Other".equals(label) ? "" : label;
+            android.widget.LinearLayout line = this.pkMidiRow(src);
+            if (line == null) continue;
+            if (nextHeader) this.importedFileList.addView(line, i + 1);
+            else kids.addView(line, 0);
+        }
+    }
+
+    private void pkShowInfoMidi(java.lang.String src) {
+        if (this.infoRows == null) return;
+        android.widget.LinearLayout line = this.pkMidiRow(src);
+        if (line != null) this.infoRows.addView(line, 0);
+    }
+
+    public void pkRefreshNodeUi() {
+        if (this.pyPane == null) return;
+        String next = "Python, Java, JavaScript, or TypeScript. On Android, Node.js runs in Termux: pkg install nodejs. npm installs @sogni-ai/sogni-client. Java runs in the app.";
+        for (int i = 0; i < this.pyPane.getChildCount(); i++) {
+            android.view.View child = this.pyPane.getChildAt(i);
+            if (!(child instanceof android.widget.TextView)) continue;
+            android.widget.TextView label = (android.widget.TextView) child;
+            String s = label.getText() == null ? "" : label.getText().toString();
+            if (s.indexOf("Python") >= 0 && s.indexOf("Java") >= 0 && s.indexOf("Termux") < 0) label.setText(next);
+        }
+        if (this.pyPane.findViewWithTag("sogni-client") != null) return;
+        android.widget.TextView btn = this.text("Sogni client", 13, true);
+        btn.setTag("sogni-client");
+        btn.setGravity(17);
+        btn.setBackground(this.round(ELEV, 8));
+        btn.setOnClickListener(new pulsekit.SogniClientClick(this));
+        int at = this.pyPane.getChildCount() > 2 ? 2 : this.pyPane.getChildCount();
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, this.dp(40));
+        lp.bottomMargin = this.dp(8);
+        this.pyPane.addView(btn, at, lp);
+    }
+
+    /** JavaScript and TypeScript files run with Node.js (Termux on Android). */
+    private static boolean isNodeScript(String name) {
+        String low = name.toLowerCase();
+        return low.endsWith(".js") || low.endsWith(".mjs") || low.endsWith(".cjs") || low.endsWith(".jsx") || low.endsWith(".ts") || low.endsWith(".mts") || low.endsWith(".tsx");
+    }
+
+    public void pkLoadSogniClient(View v) {
+        this.pyName = "sogni-client.mjs";
+        this.pkPyBytes = null;
+        this.pkPyInputPath = null;
+        String src = "import * as sogni from \"@sogni-ai/sogni-client\";\n\n"
+            + "const names = Object.keys(sogni).sort();\n"
+            + "console.log(\"Sogni client loaded\");\n"
+            + "console.log(names.length ? names.join(\", \") : \"(no named exports)\");\n"
+            + "if (!process.env.SOGNI_APP_ID) {\n"
+            + "  console.log(\"Set SOGNI_APP_ID, SOGNI_USERNAME, and SOGNI_PASSWORD to sign in.\");\n"
+            + "}\n";
+        if (this.pyEditor != null) {
+            this.pyEditor.setText(src);
+        }
+        this.setNow("sogni-client.mjs");
     }
 }

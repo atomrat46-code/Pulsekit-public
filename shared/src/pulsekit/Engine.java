@@ -3,12 +3,8 @@ package pulsekit;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -2612,7 +2608,7 @@ public final class Engine {
       try {
         File metaF = new File(kid, "meta.txt");
         if (!metaF.isFile()) continue;
-        String meta = new String(readFileBytes(metaF), StandardCharsets.UTF_8);
+        String meta = new String(Files.readAllBytes(metaF.toPath()), StandardCharsets.UTF_8);
         int nl = meta.indexOf('\n');
         String source = (nl < 0 ? meta : meta.substring(0, nl)).trim();
         String combinedName = nl < 0 ? "" : meta.substring(nl + 1).trim();
@@ -2620,17 +2616,17 @@ public final class Engine {
         byte[] combined = null;
         File sw = new File(kid, "source.wav");
         File cw = new File(kid, "combined.wav");
-        if (sw.isFile()) sourceWav = readFileBytes(sw);
-        if (cw.isFile()) combined = readFileBytes(cw);
+        if (sw.isFile()) sourceWav = Files.readAllBytes(sw.toPath());
+        if (cw.isFile()) combined = Files.readAllBytes(cw.toPath());
         rememberFileSetAudio(source, sourceWav, combined, combinedName.isEmpty() ? null : combinedName);
         File mid = new File(kid, "source.mid");
-        if (mid.isFile()) rememberFileSetMidi(source, readFileBytes(mid), "source.mid");
+        if (mid.isFile()) rememberFileSetMidi(source, Files.readAllBytes(mid.toPath()), "source.mid");
         FileSetAudio loaded = fileSetAudioOf(source);
         File dw = new File(kid, "drum.wav");
         File bw = new File(kid, "bed.wav");
         if (loaded != null && dw.isFile() && bw.isFile()) {
-          loaded.drumWav = readFileBytes(dw);
-          loaded.bedWav = readFileBytes(bw);
+          loaded.drumWav = Files.readAllBytes(dw.toPath());
+          loaded.bedWav = Files.readAllBytes(bw.toPath());
         }
       } catch (Exception ignored) { /* optional */ }
     }
@@ -2654,38 +2650,14 @@ public final class Engine {
         if (!kid.mkdirs() && !kid.isDirectory()) continue;
         String name = au.combinedName == null ? "" : au.combinedName.replace("\n", " ");
         String meta = e.getKey().replace("\n", " ") + "\n" + name + "\n";
-        writeFileBytes(new File(kid, "meta.txt"), meta.getBytes(StandardCharsets.UTF_8));
-        if (hasSource) writeFileBytes(new File(kid, "source.wav"), au.sourceWav);
-        if (hasMix) writeFileBytes(new File(kid, "combined.wav"), au.combinedWav);
-        if (au.drumWav != null && au.drumWav.length > 44) writeFileBytes(new File(kid, "drum.wav"), au.drumWav);
-        if (au.bedWav != null && au.bedWav.length > 44) writeFileBytes(new File(kid, "bed.wav"), au.bedWav);
-        if (hasMidi) writeFileBytes(new File(kid, "source.mid"), au.sourceMidi);
+        Files.write(new File(kid, "meta.txt").toPath(), meta.getBytes(StandardCharsets.UTF_8));
+        if (hasSource) Files.write(new File(kid, "source.wav").toPath(), au.sourceWav);
+        if (hasMix) Files.write(new File(kid, "combined.wav").toPath(), au.combinedWav);
+        if (au.drumWav != null && au.drumWav.length > 44) Files.write(new File(kid, "drum.wav").toPath(), au.drumWav);
+        if (au.bedWav != null && au.bedWav.length > 44) Files.write(new File(kid, "bed.wav").toPath(), au.bedWav);
+        if (hasMidi) Files.write(new File(kid, "source.mid").toPath(), au.sourceMidi);
       }
     } catch (Exception ignored) { /* optional */ }
-  }
-
-  /** API 24-safe replacement for Files.readAllBytes (java.nio.file needs API 26). */
-  private static byte[] readFileBytes(File f) throws IOException {
-    InputStream in = new FileInputStream(f);
-    try {
-      ByteArrayOutputStream out = new ByteArrayOutputStream((int) Math.max(0, Math.min(f.length(), Integer.MAX_VALUE)));
-      byte[] buf = new byte[16384];
-      int n;
-      while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-      return out.toByteArray();
-    } finally {
-      in.close();
-    }
-  }
-
-  /** API 24-safe replacement for Files.write (java.nio.file needs API 26). */
-  private static void writeFileBytes(File f, byte[] data) throws IOException {
-    OutputStream out = new FileOutputStream(f);
-    try {
-      out.write(data);
-    } finally {
-      out.close();
-    }
   }
 
   private static void deleteTree(File f) {

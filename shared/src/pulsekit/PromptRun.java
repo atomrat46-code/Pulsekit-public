@@ -11,6 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /** Read, write, and run a .prompt file (PKPROMPT1). */
 public final class PromptRun {
@@ -450,13 +451,13 @@ public final class PromptRun {
     });
     reader.setDaemon(true);
     reader.start();
-    boolean finished = procWait(p, 20000L);
+    boolean finished = p.waitFor(20, TimeUnit.SECONDS);
     if (!finished) {
       p.destroy();
       try {
-        procWait(p, 2000L);
+        p.waitFor(2, TimeUnit.SECONDS);
       } catch (Exception ignored) {}
-      p.destroy();
+      p.destroyForcibly();
     }
     reader.join(1500);
     String text;
@@ -646,25 +647,5 @@ public final class PromptRun {
   private static String one(String value) {
     if (value == null) return "";
     return value.replace('\n', ' ').replace('\r', ' ');
-  }
-
-  // API 24-safe process helpers: Process.isAlive(), destroyForcibly() and
-  // waitFor(long, TimeUnit) only exist on Android from API 26.
-  private static boolean procAlive(Process p) {
-    try {
-      p.exitValue();
-      return false;
-    } catch (IllegalThreadStateException ex) {
-      return true;
-    }
-  }
-
-  private static boolean procWait(Process p, long ms) throws InterruptedException {
-    long deadline = System.currentTimeMillis() + ms;
-    while (procAlive(p)) {
-      if (System.currentTimeMillis() >= deadline) return false;
-      Thread.sleep(25);
-    }
-    return true;
   }
 }

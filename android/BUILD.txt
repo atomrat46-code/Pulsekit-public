@@ -1,1 +1,0 @@
-Set compileSdk to 33 or higher.

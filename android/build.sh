@@ -20,7 +20,7 @@ rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 # 2. Java sources
 javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none \
   -bootclasspath "$JAR:$BT/core-lambda-stubs.jar" -cp "libs/*" -d "$OUT/classes" \
-  $(find src -name '*.java')
+  $(find src ../shared/src -name '*.java')
 
 # 3. Dex (app classes + bundled libs)
 "$BT/d8" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" \
