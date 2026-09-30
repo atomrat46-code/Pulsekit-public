@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="pk_bg">#FF0A0B0C</color>
+  <color name="pk_surface">#FF131416</color>
+  <color name="pk_fg">#FFECEBE6</color>
+  <color name="pk_hit">#FF9AAB9C</color>
+  <style name="Pulsekit" parent="@android:style/Theme.Material.NoActionBar">
+    <item name="android:windowBackground">@color/pk_bg</item>
+    <item name="android:colorBackground">@color/pk_bg</item>
+    <item name="android:statusBarColor">@color/pk_bg</item>
+    <item name="android:navigationBarColor">@color/pk_surface</item>
+    <item name="android:textColor">@color/pk_fg</item>
+    <item name="android:textColorPrimary">@color/pk_fg</item>
+    <item name="android:colorPrimary">@color/pk_hit</item>
+    <item name="android:colorAccent">@color/pk_hit</item>
+    <item name="android:buttonStyle">@style/PulsekitButton</item>
+    <item name="android:windowLightStatusBar">false</item>
+  </style>
+  <style name="PulsekitButton" parent="@android:style/Widget.Material.Button">
+    <item name="android:minHeight">0dp</item>
+    <item name="android:minWidth">0dp</item>
+    <item name="android:textAllCaps">false</item>
+    <item name="android:stateListAnimator">@null</item>
+    <item name="android:elevation">0dp</item>
+    <item name="android:background">@android:color/transparent</item>
+    <item name="android:padding">0dp</item>
+  </style>
+</resources>

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="pulsekit.app"
+    android:versionCode="198"
+    android:versionName="198.0">
+  <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="33" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+  <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+  <queries>
+    <package android:name="ai.x.grok" />
+    <package android:name="ai.sogni.app.twa" />
+    <package android:name="ai.sogni.app" />
+    <package android:name="com.anthropic.claude" />
+    <package android:name="com.termux" />
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+  </queries>
+  <application
+      android:label="Pulsekit"
+      android:icon="@mipmap/ic_launcher"
+      android:allowBackup="true"
+      android:largeHeap="true"
+      android:theme="@style/Pulsekit">
+    <activity
+        android:name="pulsekit.MainActivity"
+        android:exported="true"
+        android:screenOrientation="portrait"
+        android:windowSoftInputMode="adjustResize"
+        android:configChanges="orientation|screenSize|keyboardHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+    <service
+        android:name="pulsekit.PromptInserter"
+        android:exported="false"
+        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+          android:name="android.accessibilityservice"
+          android:resource="@xml/prompt_inserter" />
+    </service>
+    <provider
+        android:name="pulsekit.RefProvider"
+        android:authorities="pulsekit.app.refs"
+        android:exported="false"
+        android:grantUriPermissions="true" />
+  </application>
+</manifest>

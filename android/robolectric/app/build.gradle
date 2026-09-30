@@ -1,0 +1,33 @@
+plugins { id 'com.android.application' }
+def ROOT = rootDir.parentFile.parentFile.absolutePath
+android {
+  namespace 'pulsekit.app'
+  compileSdk 34
+  defaultConfig { minSdk 24; targetSdk 33; applicationId 'pulsekit.app' }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+  sourceSets {
+    main {
+      manifest.srcFile "$buildDir/AndroidManifest.xml"
+      java.srcDirs = ["$ROOT/android/src", "$ROOT/shared/src"]
+      java.exclude '**/Mp3Decode.java'
+      res.srcDirs = ["$ROOT/android/res"]
+      assets.srcDirs = ["$ROOT/android/assets"]
+    }
+  }
+  testOptions { unitTests { includeAndroidResources = true; all { maxHeapSize = '2g' } } }
+  lint { abortOnError false; checkReleaseBuilds false }
+}
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+// AGP 8 rejects package= in the source manifest; test against a copy without it.
+def stripManifest = tasks.register('stripManifest') {
+  def src = file("$ROOT/android/AndroidManifest.xml")
+  def dst = file("$buildDir/AndroidManifest.xml")
+  inputs.file src
+  outputs.file dst
+  doLast { dst.parentFile.mkdirs(); dst.text = src.text.replaceFirst(/\s+package="[^"]*"/, '') }
+}
+preBuild.dependsOn stripManifest

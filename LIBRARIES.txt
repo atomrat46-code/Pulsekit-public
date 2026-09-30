@@ -1,0 +1,109 @@
+Pulsekit native editions — libraries actually linked
+====================================================
+
+Proof is the jar metadata on disk plus the source line that loads it.
+Hashes are SHA-256 of the jars in this workspace.
+
+PLATFORM (not third-party jars)
+-------------------------------
+Desktop JAR
+  JDK 17. Compile: javac --release 17, classpath adds only JLayer.
+  UI: javax.swing.* and java.awt.* imported by desktop/src/pulsekit/Pulsekit.java
+  MIDI playback: javax.sound.midi.* from the JDK (Pulsekit.java lines 39–48).
+  Entry: desktop/MANIFEST.MF  Main-Class: pulsekit.Pulsekit
+
+Android APK
+  Android SDK platform 33 (android.jar) at compile time, minSdk 24, targetSdk 33.
+  android/AndroidManifest.xml
+  Runtime UI/audio: android.* (MainActivity, AudioTrack via the activity).
+  org.json is the platform class, not a Maven dependency.
+  dalvik.system.DexClassLoader — ArtJava.java line 4.
+
+THIRD-PARTY / BUNDLED
+---------------------
+1. JLayer 1.0.1  (javazoom:jlayer:1.0.1) — DESKTOP ONLY
+   File: shared/libs/jlayer-1_0_1.jar
+   Size: 143624
+   SHA-256: 850508c837454a1b06017c32a36876fae516de1e89a829f725fee1e6dcc52000
+   Maven marker inside the jar: META-INF/maven/javazoom/jlayer/pom.properties
+     groupId=javazoom
+     artifactId=jlayer
+     version=1.0.1
+   Desktop use: shared/src/pulsekit/Mp3Decode.java lines 4–7
+     import javazoom.jl.decoder.Bitstream
+     import javazoom.jl.decoder.Decoder
+     import javazoom.jl.decoder.Header
+     import javazoom.jl.decoder.SampleBuffer
+   Build: desktop/build.sh puts the jar on the javac classpath and
+   unpacks javazoom/ (classes and .ser Huffman tables) into the JAR.
+   Android: not used. The APK decodes MP3 with the platform MediaExtractor,
+   and android/build.sh leaves Mp3Decode.java and JLayer out.
+
+2. Eclipse Compiler for Java (ECJ) 4.6.1
+   File: android/art/ecj-4.6.1.jar  (also shipped as assets/ecj.dex)
+   Size: 2440899
+   SHA-256: 9cddda75f4a1b4469e73f44e7b61a3e897d0f657df4797f9106ffe88c4eeade0
+   Manifest: Bundle-SymbolicName: org.eclipse.jdt.core.compiler.batch
+             Bundle-Version: 3.12.1.v20160829-0950
+             Main-Class: org.eclipse.jdt.internal.compiler.batch.Main
+   Download pinned in scripts/build-art.sh:
+     https://repo1.maven.org/maven2/org/eclipse/jdt/core/compiler/ecj/4.6.1/ecj-4.6.1.jar
+   Runtime use (reflection, so it is not a compile-time import):
+     android/src/pulsekit/ArtJava.java line 233
+     Class.forName("org.eclipse.jdt.internal.compiler.batch.Main", true, ecjLoader)
+   Loaded with DexClassLoader from assets/ecj.dex. ECJ resources
+   (messages.properties) ship in assets/ecj-res.zip.
+
+3. dalvik-dx 14.0.0_r21 (Jake Wharton repackage of the Android dx tool)
+   File: android/art/dx.jar  (also shipped as assets/dx.dex)
+   Size: 1038964
+   SHA-256: 9b13bc80bf86f193f8de9c959f52a8ff83fc85a1cc552f5126f1140da9b85a36
+   Download pinned in scripts/build-art.sh:
+     com/jakewharton/android/repackaged/dalvik-dx/14.0.0_r21/dalvik-dx-14.0.0_r21.jar
+   Contains com.android.dx.command.dexer.Main
+   Runtime use: android/src/pulsekit/ArtJava.java lines 488–489
+     Class.forName("com.android.dx.command.dexer.Main", true, dxLoader)
+     Class.forName("com.android.dx.command.dexer.Main$Arguments", true, dxLoader)
+   Build-time use of the same tool: scripts/build-art.sh
+     java -cp dx.jar com.android.dx.command.Main --dex ...
+
+4. Javassist 3.30.2-GA — NO LONGER USED
+   The old APK build rewrote a prebuilt MainActivity class with Javassist.
+   Those patches are now plain source in android/src/pulsekit/MainActivity.java.
+   The original patch programs are kept in android/patch-original/ for reference.
+
+5. javax.sound.midi stub jar — project-built, not a Maven artifact
+   File: android/art/javax-midi.jar
+   Size: 7849
+   SHA-256: 10ec0dd4bfec5327f64c1b24596adeaa5927fcae57ac2cab88e00e51d419554f
+   Manifest: Created-By: 17.0.20.1 (Debian)
+   Classes: InvalidMidiDataException, MetaMessage, MidiEvent, MidiMessage,
+            MidiSystem, Sequence, ShortMessage, Track
+   Android has no javax.sound.midi. ArtJava.java lines 310–313 unzip this
+   jar into a user program that references javax/sound/midi, and replace
+   midi/MidiSystem.class with assets/MidiSystem.class so relative MIDI
+   writes do not land on the read-only filesystem root.
+
+6. rt.jar — subset of android.jar, not a third-party runtime
+   File: android/art/rt.jar
+   Size: 1072547
+   SHA-256: b90613da37ac27c3dc92cf773c3a800690b56c8cda347994d9d2e3
+   Built by scripts/build-art.sh: classes from android.jar whose names
+   start with java/, javax/, org/xml/, org/w3c/, or org/json/.
+   Shipped as assets/rt.jar and passed to ECJ as -bootclasspath so a
+   .java file on the phone can see the Java standard library.
+   ART (the phone OS) executes the resulting dex. rt.jar is not the VM.
+
+NOT A LIBRARY
+-------------
+shared/src/pulsekit/midiutil.py is first-party. The header says
+"MIDIUtil-compatible MIDI writer". It is not the MIDIUtil package.
+It is copied into the desktop JAR and into the APK as assets/midiutil.py.
+
+WHAT EACH EDITION SHIPS
+-----------------------
+Desktop JAR classpath / contents: Pulsekit classes + unpacked JLayer
+  + drum_midi.py + midiutil.py. No ECJ, no dx, no rt.jar.
+Android APK runtime: Pulsekit dex + assets
+  (ecj.dex, dx.dex, ecj-res.zip, rt.jar, javax-midi.jar, MidiSystem.class,
+   midiutil.py). No JLayer.
