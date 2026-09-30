@@ -353,7 +353,36 @@ final class ProjectIo {
         return byteArrayOutputStream.toByteArray();
     }
 
-    void ingestBase(byte[] byArray, String string, Uri uri) throws Exception {
+    void ingest(byte[] byArray, String string, Uri uri) throws Exception {
+        // WAV and MP3 become the input file of the PyJav program (e.g. MidiDrumGen.java).
+        if (app.pyJav.pkTakeAudioInput(byArray, string)) {
+            return;
+        }
+        // Programs (.java, .class, .jar, .js, .ts) open in PyJav.
+        if (app.pyJav.pkTakeProgram(byArray, string)) {
+            return;
+        }
+        // .prompt sheets open in PyJav with their run mode and references.
+        if (string != null && (string.toLowerCase().endsWith(".prompt") || (byArray != null && byArray.length >= 9 && new String(byArray, 0, Math.min(byArray.length, 12), java.nio.charset.StandardCharsets.UTF_8).startsWith("PKPROMPT1")))) {
+            String base = string;
+            int slash = Math.max(base.lastIndexOf(47), base.lastIndexOf(58));
+            if (slash >= 0) base = base.substring(slash + 1);
+            if (!base.toLowerCase().endsWith(".prompt")) base = base + ".prompt";
+            app.pyName = base;
+            app.pkPyBytes = null;
+            String text = new String(byArray, java.nio.charset.StandardCharsets.UTF_8);
+            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
+            app.pkPromptSource = text;
+            app.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
+            if (sheet != null && sheet.body != null) text = sheet.body;
+            if (app.pyEditor != null) app.pyEditor.setText(text);
+            app.pyJav.pkSetPromptRun(pulsekit.PromptRun.runMode(new String(byArray, java.nio.charset.StandardCharsets.UTF_8), null));
+            app.pyJav.pkLoadRefs(app.pkPromptSource);
+            app.pyJav.pkShowPromptModes();
+            app.show("py");
+            app.setNow("PyJav · " + base);
+            return;
+        }
         int n;
         int[][] object;
         String string2 = AudioIo.sniff(byArray);
@@ -589,36 +618,5 @@ final class ProjectIo {
         return sArray;
     }
 
-    void ingest(byte[] byArray, String string, Uri uri) throws Exception {
-        // WAV and MP3 become the input file of the PyJav program (e.g. MidiDrumGen.java).
-        if (app.pyJav.pkTakeAudioInput(byArray, string)) {
-            return;
-        }
-        // Programs (.java, .class, .jar, .js, .ts) open in PyJav.
-        if (app.pyJav.pkTakeProgram(byArray, string)) {
-            return;
-        }
-        // .prompt sheets open in PyJav with their run mode and references.
-        if (string != null && (string.toLowerCase().endsWith(".prompt") || (byArray != null && byArray.length >= 9 && new String(byArray, 0, Math.min(byArray.length, 12), java.nio.charset.StandardCharsets.UTF_8).startsWith("PKPROMPT1")))) {
-            String base = string;
-            int slash = Math.max(base.lastIndexOf(47), base.lastIndexOf(58));
-            if (slash >= 0) base = base.substring(slash + 1);
-            if (!base.toLowerCase().endsWith(".prompt")) base = base + ".prompt";
-            app.pyName = base;
-            app.pkPyBytes = null;
-            String text = new String(byArray, java.nio.charset.StandardCharsets.UTF_8);
-            pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
-            app.pkPromptSource = text;
-            app.pkPromptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
-            if (sheet != null && sheet.body != null) text = sheet.body;
-            if (app.pyEditor != null) app.pyEditor.setText(text);
-            app.pyJav.pkSetPromptRun(pulsekit.PromptRun.runMode(new String(byArray, java.nio.charset.StandardCharsets.UTF_8), null));
-            app.pyJav.pkLoadRefs(app.pkPromptSource);
-            app.pyJav.pkShowPromptModes();
-            app.show("py");
-            app.setNow("PyJav · " + base);
-            return;
-        }
-        this.ingestBase(byArray, string, uri);
-    }
+
 }

@@ -105,42 +105,7 @@ final class PyJav {
 
     android.widget.TextView pkRunAi;
 
-    boolean pkTakeProgram(byte[] data, String name) {
-        if (data != null && name != null && isNodeScript(name)) {
-            int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
-            String base = slash >= 0 ? name.substring(slash + 1) : name;
-            app.pyName = base;
-            app.pkPyBytes = null;
-            this.pkPyInputPath = null;
-            if (app.pyEditor != null) {
-                app.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
-            }
-            app.show("py");
-            return true;
-        }
-        return this.pkTakeProgramCore(data, name);
-    }
 
-    public void pkTakePickedProgram(Uri uri) {
-        try {
-            byte[] data = app.projectIo.readUri(uri);
-            String name = this.displayName(uri, "program.js");
-            if (data != null && isNodeScript(name)) {
-                app.pyName = name;
-                app.pkPyBytes = null;
-                this.pkPyInputPath = null;
-                if (app.pyEditor != null) {
-                    app.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
-                }
-                app.show("py");
-                return;
-            }
-        }
-        catch (Exception exception) {
-            // Fall through: the general loader reports the error.
-        }
-        this.pkTakePickedProgramCore(uri);
-    }
 
     String displayName(Uri uri, String fallback) {
         String name = null;
@@ -197,7 +162,7 @@ final class PyJav {
         android.widget.TextView tab = app.text("Prompts", 13, true);
         tab.setGravity(17);
         tab.setTag("prompts");
-        tab.setOnClickListener(pulsekit.AnalyzeClicks.prompts(app));
+        tab.setOnClickListener(pulsekit.FileSetClicks.prompts(app));
         tab.setPadding(0, app.dp(8), 0, app.dp(8));
         android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, app.dp(36), 1.0f);
         lp.setMargins(app.dp(2), 0, app.dp(2), 0);
@@ -739,7 +704,19 @@ final class PyJav {
         }
     }
 
-    boolean pkTakeProgramCore(byte[] data, String name) {
+    boolean pkTakeProgram(byte[] data, String name) {
+        if (data != null && name != null && isNodeScript(name)) {
+            int slash = Math.max(name.lastIndexOf(47), name.lastIndexOf(58));
+            String base = slash >= 0 ? name.substring(slash + 1) : name;
+            app.pyName = base;
+            app.pkPyBytes = null;
+            this.pkPyInputPath = null;
+            if (app.pyEditor != null) {
+                app.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
+            }
+            app.show("py");
+            return true;
+        }
         if (data == null || name == null) return false;
         String low = name.toLowerCase();
         boolean jar = low.endsWith(".jar");
@@ -807,7 +784,24 @@ final class PyJav {
         app.startActivityForResult(intent, 25);
     }
 
-    void pkTakePickedProgramCore(android.net.Uri uri) {
+    public void pkTakePickedProgram(android.net.Uri uri) {
+        try {
+            byte[] data = app.projectIo.readUri(uri);
+            String name = this.displayName(uri, "program.js");
+            if (data != null && isNodeScript(name)) {
+                app.pyName = name;
+                app.pkPyBytes = null;
+                this.pkPyInputPath = null;
+                if (app.pyEditor != null) {
+                    app.pyEditor.setText(new String(data, StandardCharsets.UTF_8));
+                }
+                app.show("py");
+                return;
+            }
+        }
+        catch (Exception exception) {
+            // Fall through: the general loader reports the error.
+        }
         try {
             byte[] data = app.projectIo.readUri(uri);
             String name = null;

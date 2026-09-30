@@ -29,7 +29,7 @@ final class Persistence {
         return new File(app.getFilesDir(), "kit.sf2");
     }
 
-    void persistLearnedBase() {
+    void persistLearned() {
         try {
             String string = "{\"learned\":" + Engine.learnedJson(app.learned) + ",\"learnedFills\":" + Engine.learnedFillsJson(app.learnedFills) + ",\"variatedFills\":" + Engine.learnedFillsJson(app.variatedFills) + ",\"variatedPatterns\":" + Engine.learnedJson(app.variatedPatterns) + ",\"fillernPairs\":" + this.fillernPairJson() + ",\"importedSongs\":" + Engine.importedSongsJson(app.importedSongs) + "}";
             FileOutputStream fileOutputStream = new FileOutputStream(this.learnedFile());
@@ -39,6 +39,8 @@ final class Persistence {
         catch (Exception exception) {
             // empty catch block
         }
+
+        app.fileSets.persistFsetInfo();
     }
 
     String fillernPairJson() {
@@ -248,8 +250,5 @@ final class Persistence {
         }
     }
 
-    void persistLearned() {
-        this.persistLearnedBase();
-        app.fileSets.persistFsetInfo();
-    }
+
 }

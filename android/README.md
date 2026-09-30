@@ -22,6 +22,31 @@ Javassist are not needed. On the first run it creates `debug.keystore`
 (git-ignored). Set `KEYSTORE=/path/to/key.jks` to sign with your own key; the
 script assumes the `android` / `androiddebugkey` credentials.
 
+## Code layout
+
+MainActivity used to be one 7,000-line class. It is now split by feature; each
+feature class holds `app` (the activity) and the state only it uses. Shared
+state (pattern cells, learned patterns, the song, the current view) stays on
+MainActivity.
+
+| Class | What it does |
+| --- | --- |
+| `UiKit` | Base class of MainActivity: colors and view factories (`col`, `row`, `text`, `pill`, `dp`, ...) |
+| `MainActivity` | Lifecycle, shared state, header/tabs/knobs/transport, `show()` page routing |
+| `GridEditor` | Pattern grid, accent row, note lengths, steps and time signature |
+| `Playback` | Transport, audio mixer thread, drum voices, drum sets and pads |
+| `SongEditor` | Song lanes, parts, song-pick menu, imported songs |
+| `StyleLibrary` | Patterns, fills and Fillerns: chips, variations and menus |
+| `ImportLibrary` | Learning from imported MIDI, imported-file lists, .fset import |
+| `FileSets` | File-set Info page, style changes, songs from sets, source-MIDI playback |
+| `ProjectIo` | Import/Export pages, projects, plugins, file decoding |
+| `Persistence` | Saving and restoring learned patterns, Fillerns, kit and session |
+| `PyJav` | PyJav page: programs, prompts, run modes, input/output files |
+| `FileSetClicks`, `PyJavUi` | Click adapters used by FileSets and PyJav |
+
+`robolectric/` has behavior tests that snapshot the app's views and state;
+run them before and after a change to check nothing else moved.
+
 ## How MainActivity was rebuilt
 
 The original build compiled a prebuilt `MainActivity.class` and injected most
@@ -37,6 +62,8 @@ features are now ordinary source in `src/pulsekit/MainActivity.java`:
   before/after code around it in the same order Javassist did.
 - `lambda$name$N` methods from the decompiler are renamed `nameActionN`, because
   javac reserves those names.
+- Where it was safe, each wrapper pair was folded back into one method. The
+  pairs that remain (`fooBase`/`fooCore`) wrap a method with early returns.
 - Isolate, Analyze and Compose (with Combine tracks and the stem mixer) are
   removed. An imported WAV or MP3 becomes the PyJav input file instead.
 

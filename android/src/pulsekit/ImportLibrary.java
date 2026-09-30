@@ -99,14 +99,20 @@ final class ImportLibrary {
         app.setNow(object);
     }
 
-    boolean learnFromSongImportBase(String string, Engine.MidiBars midiBars) {
+    boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
+        if (this.tryPackMidiFileSet(string, midiBars, true)) {
+            return true;
+        }
         return this.learnFromSongImport(string, midiBars, false);
     }
 
     /*
      * WARNING - void declaration
      */
-    boolean learnFromSongImportBase(String string, Engine.MidiBars midiBars, boolean bl) {
+    boolean learnFromSongImport(String string, Engine.MidiBars midiBars, boolean bl) {
+        if (this.tryPackMidiFileSet(string, midiBars, bl)) {
+            return true;
+        }
         boolean bl2;
         List<Engine.MidiSeg> list = Engine.segmentMidiBars(midiBars.bars);
         if (list.isEmpty()) {
@@ -471,7 +477,13 @@ final class ImportLibrary {
         app.projectIo.saveKind(19);
     }
 
-    void loadFsetBase(byte[] byArray, String string) throws Exception {
+    void loadFset(byte[] byArray, String string) throws Exception {
+        this.pkFsetBytes = byArray;
+        java.lang.String src = pulsekit.Engine.importSource(string);
+        if (src == null || src.length() == 0 || "Import".equals(src)) src = string;
+        java.lang.String unique = pulsekit.Engine.uniqueImportSource(src, app.learned, app.learnedFills);
+        if (unique != null && src != null && !unique.equals(src)) string = unique + ".fset";
+        this.pkFsetName = string;
         Engine.FileSet fileSet = Engine.decodeFset(byArray);
         String string2 = Engine.importSource(string);
         if (string2 == null || string2.isEmpty() || "Import".equals(string2)) {
@@ -531,6 +543,7 @@ final class ImportLibrary {
         String string6 = "File set · " + string2 + " · " + fileSet.patterns.size() + " patterns · " + n + " Fillerns · " + fileSet.fills.size() + " fills";
         app.setNow(string6);
         Toast.makeText((Context)app, (CharSequence)string6, (int)0).show();
+        this.afterLoadFset();
     }
 
     void refreshImportedFilesBase() {
@@ -634,16 +647,6 @@ final class ImportLibrary {
 
     java.lang.String pkRemovedSource;
 
-    void loadFset(byte[] byArray, String string) throws Exception {
-        this.pkFsetBytes = byArray;
-        java.lang.String src = pulsekit.Engine.importSource(string);
-        if (src == null || src.length() == 0 || "Import".equals(src)) src = string;
-        java.lang.String unique = pulsekit.Engine.uniqueImportSource(src, app.learned, app.learnedFills);
-        if (unique != null && src != null && !unique.equals(src)) string = unique + ".fset";
-        this.pkFsetName = string;
-        this.loadFsetBase(byArray, string);
-        this.afterLoadFset();
-    }
 
     void afterLoadFset() {
         try {
@@ -675,19 +678,7 @@ final class ImportLibrary {
         } catch (java.lang.Exception ignored) {}
     }
 
-    boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
-        if (this.tryPackMidiFileSet(string, midiBars, true)) {
-            return true;
-        }
-        return this.learnFromSongImportBase(string, midiBars);
-    }
 
-    boolean learnFromSongImport(String string, Engine.MidiBars midiBars, boolean bl) {
-        if (this.tryPackMidiFileSet(string, midiBars, bl)) {
-            return true;
-        }
-        return this.learnFromSongImportBase(string, midiBars, bl);
-    }
 
     void removeImportSource(String string) {
         this.pkRemovedSource = string;
@@ -753,7 +744,7 @@ final class ImportLibrary {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")
                     .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays."))
-                    .setPositiveButton((java.lang.CharSequence) "Make song", pulsekit.AnalyzeClicks.makeSong(app, stem, song))
+                    .setPositiveButton((java.lang.CharSequence) "Make song", pulsekit.FileSetClicks.makeSong(app, stem, song))
                     .setNegativeButton((java.lang.CharSequence) "Not now", null)
                     .show();
             }

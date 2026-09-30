@@ -256,7 +256,7 @@ public class MainActivity extends UiKit {
 
     int shownHead = -1;
 
-    void onCreateBase(Bundle bundle) {
+    protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         if (Build.VERSION.SDK_INT >= 21) {
             this.getWindow().setStatusBarColor(BG);
@@ -274,6 +274,8 @@ public class MainActivity extends UiKit {
         this.gridEditor.applyGridWidth();
         this.refreshTabs();
         this.songEditor.refreshSong();
+
+        ArtJava.pinWorkDir(this);
     }
 
     View buildUiBase() {
@@ -515,7 +517,7 @@ public class MainActivity extends UiKit {
         return "pattern".equals(this.view) || "combo".equals(this.view);
     }
 
-    void showBase(String string) {
+    void show(String string) {
         this.gridEditor.hideLenMenu();
         this.view = string;
         boolean bl = "song".equals(string);
@@ -585,6 +587,7 @@ public class MainActivity extends UiKit {
         if (bl8) {
             this.setNow(this.projectIo.exportName("mid").replace(".mid", ""));
         }
+        this.afterShow();
     }
 
     int bpm() {
@@ -606,7 +609,27 @@ public class MainActivity extends UiKit {
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
-    void onActivityResultBase(int n, int n2, Intent intent) {
+    protected void onActivityResult(int n, int n2, Intent intent) {
+        if (n == 25) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakePickedProgram(intent.getData());
+            return;
+        }
+        if (n == 26) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeInputFile(intent.getData());
+            return;
+        }
+        if (n == 27) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
+            return;
+        }
+        if (n == 28) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptExport(intent.getData());
+            return;
+        }
         super.onActivityResult(n, n2, intent);
         if (n2 != -1 || intent == null || intent.getData() == null) {
             return;
@@ -830,10 +853,6 @@ public class MainActivity extends UiKit {
     final Persistence persistence = new Persistence(this);
     final PyJav pyJav = new PyJav(this);
 
-    void show(String string) {
-        this.showBase(string);
-        this.afterShow();
-    }
 
     void showFileMenu(View anchor) {
         android.widget.LinearLayout menu = this.col();
@@ -854,8 +873,8 @@ public class MainActivity extends UiKit {
         pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
         pop.setOutsideTouchable(true);
         pop.setElevation((float) this.dp(8));
-        imp.setOnClickListener(pulsekit.AnalyzeClicks.fileItem(this, pop, "import"));
-        exp.setOnClickListener(pulsekit.AnalyzeClicks.fileItem(this, pop, "export"));
+        imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
+        exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 
@@ -880,17 +899,9 @@ public class MainActivity extends UiKit {
         return root;
     }
 
-    protected void onCreate(Bundle bundle) {
-        this.onCreateBase(bundle);
-        ArtJava.pinWorkDir(this);
-    }
+
 
     void afterShow() {
-        this.afterShowCore();
-        this.pyJav.pkSyncTransport();
-    }
-
-    void afterShowCore() {
         boolean info = "fsetinfo".equals(this.view);
         boolean pr = "prompts".equals(this.view);
         if (this.infoPane != null) {
@@ -922,31 +933,10 @@ public class MainActivity extends UiKit {
             }
             this.refreshTabs();
         }
+        this.pyJav.pkSyncTransport();
     }
 
     public void openKitView(java.lang.String view) { this.show(view); }
 
-    protected void onActivityResult(int req, int res, android.content.Intent data) {
-        if (req == 25) {
-            super.onActivityResult(req, res, data);
-            if (res == -1 && data != null && data.getData() != null) this.pyJav.pkTakePickedProgram(data.getData());
-            return;
-        }
-        if (req == 26) {
-            super.onActivityResult(req, res, data);
-            if (res == -1 && data != null && data.getData() != null) this.pyJav.pkTakeInputFile(data.getData());
-            return;
-        }
-        if (req == 27) {
-            super.onActivityResult(req, res, data);
-            if (res == -1 && data != null && data.getData() != null) this.pyJav.takePromptRef(data.getData());
-            return;
-        }
-        if (req == 28) {
-            super.onActivityResult(req, res, data);
-            if (res == -1 && data != null && data.getData() != null) this.pyJav.takePromptExport(data.getData());
-            return;
-        }
-        this.onActivityResultBase(req, res, data);
-    }
+
 }

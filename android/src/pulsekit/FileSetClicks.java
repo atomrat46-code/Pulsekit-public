@@ -5,9 +5,9 @@ import android.view.View;
 import android.widget.PopupWindow;
 import java.util.ArrayList;
 
-/** Click adapters so Analyze / file-set Info can be wired without javassist anonymous classes. */
-public final class AnalyzeClicks {
-  private AnalyzeClicks() {}
+/** Click handlers for file-set rows and menus, source-MIDI play/pause/stop, and the File menu. */
+public final class FileSetClicks {
+  private FileSetClicks() {}
 
   public static View.OnClickListener prompts(final MainActivity host) {
     return new View.OnClickListener() {
@@ -58,7 +58,7 @@ public final class AnalyzeClicks {
           acts.add(new Runnable() {
             @Override
             public void run() {
-              AnalyzeClicks.promptChangeStyle(host, key, label);
+              FileSetClicks.promptChangeStyle(host, key, label);
             }
           });
         }
@@ -156,7 +156,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        AnalyzeClicks.promptChangeStyle(host, key, label);
+        FileSetClicks.promptChangeStyle(host, key, label);
       }
     };
   }

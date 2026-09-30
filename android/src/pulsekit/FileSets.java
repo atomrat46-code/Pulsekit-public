@@ -48,10 +48,6 @@ final class FileSets {
         this.pkRebindFileSetClicks();
     }
 
-    public void openFileSetInfo(String key, String label) {
-        this.openFileSetInfoCore(key, label);
-        this.pkShowInfoMidi(key != null && key.startsWith("f:") ? key.substring(2) : "");
-    }
 
     java.lang.String fmtAnalyzeTime(float sec) {
         int s = Math.max(0, Math.round(sec));
@@ -248,9 +244,9 @@ final class FileSets {
         clock.setTextColor(MUTED);
         clock.setTypeface(android.graphics.Typeface.MONOSPACE);
         line.addView(clock);
-        line.addView(app.outline("Play", false, pulsekit.AnalyzeClicks.filePlayMidi(app, src)));
-        line.addView(app.outline("Pause", false, pulsekit.AnalyzeClicks.filePauseMidi(app)));
-        line.addView(app.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopMidi(app)));
+        line.addView(app.outline("Play", false, pulsekit.FileSetClicks.filePlayMidi(app, src)));
+        line.addView(app.outline("Pause", false, pulsekit.FileSetClicks.filePauseMidi(app)));
+        line.addView(app.outline("Stop", false, pulsekit.FileSetClicks.fileStopMidi(app)));
         host.addView(line);
     }
 
@@ -280,7 +276,7 @@ final class FileSets {
         java.lang.String src = "";
         if (key != null && key.startsWith("f:")) src = key.substring(2);
         this.stampPackMark(pack, src);
-        pack.setOnLongClickListener(pulsekit.AnalyzeClicks.packMenu(app, key, label, onDelete, onExport));
+        pack.setOnLongClickListener(pulsekit.FileSetClicks.packMenu(app, key, label, onDelete, onExport));
         this.attachMidiChip(host, key);
     }
 
@@ -311,10 +307,10 @@ final class FileSets {
             java.lang.String src = "Other".equals(label) ? "" : label;
             java.lang.String key = src.length() == 0 ? "o:other" : "f:" + src;
             this.stampPackMark(packHead, src);
-            android.widget.TextView make = app.outline("Make song", false, pulsekit.AnalyzeClicks.fileMakeSong(app, key, label));
+            android.widget.TextView make = app.outline("Make song", false, pulsekit.FileSetClicks.fileMakeSong(app, key, label));
             row.addView(make, row.indexOfChild(exportBtn));
             if (pulsekit.Engine.fileSetStyleOn(pulsekit.Engine.fileSetOriginOf(src))) {
-                android.widget.TextView style = app.outline("Change style", false, pulsekit.AnalyzeClicks.fileChangeStyle(app, key, label));
+                android.widget.TextView style = app.outline("Change style", false, pulsekit.FileSetClicks.fileChangeStyle(app, key, label));
                 row.addView(style, row.indexOfChild(exportBtn));
             }
         }
@@ -323,7 +319,7 @@ final class FileSets {
 
     void pkRebindFileSetClicks() {
         if (app.importedFileList == null) return;
-        android.view.View.OnClickListener click = pulsekit.AnalyzeClicks.fileEntry(app);
+        android.view.View.OnClickListener click = pulsekit.FileSetClicks.fileEntry(app);
         java.lang.String src = "";
         for (int i = 0; i < app.importedFileList.getChildCount(); i++) {
             android.view.View child = app.importedFileList.getChildAt(i);
@@ -476,7 +472,7 @@ final class FileSets {
         app.setNow(nPart + " parts");
     }
 
-    void openFileSetInfoCore(java.lang.String key, java.lang.String label) {
+    public void openFileSetInfo(java.lang.String key, java.lang.String label) {
         java.lang.String src = "";
         if (key != null && key.startsWith("f:")) src = key.substring(2);
         this.ensureFsetInfoMap();
@@ -497,6 +493,7 @@ final class FileSets {
             if (!cur.startsWith(word)) app.infoStatus.setText(word + " · " + cur);
         }
         app.show("fsetinfo");
+        this.pkShowInfoMidi(key != null && key.startsWith("f:") ? key.substring(2) : "");
     }
 
     void wireInfoPane() {
@@ -513,7 +510,7 @@ final class FileSets {
         app.infoPane.addView(app.infoStatus);
         android.widget.LinearLayout.LayoutParams closeLp = new android.widget.LinearLayout.LayoutParams(-1, app.dp(48));
         closeLp.setMargins(0, 0, 0, app.dp(8));
-        android.widget.TextView close = app.action("Close", SURFACE, FG, pulsekit.AnalyzeClicks.closeInfo(app));
+        android.widget.TextView close = app.action("Close", SURFACE, FG, pulsekit.FileSetClicks.closeInfo(app));
         app.infoPane.addView(close, closeLp);
         android.widget.ScrollView scroll = new android.widget.ScrollView(app);
         this.infoRows = app.col();
@@ -661,9 +658,9 @@ final class FileSets {
         clock.setTextColor(MUTED);
         clock.setTypeface(android.graphics.Typeface.MONOSPACE);
         line.addView(clock);
-        line.addView(app.outline("Play", false, pulsekit.AnalyzeClicks.filePlayMidi(app, src)));
-        line.addView(app.outline("Pause", false, pulsekit.AnalyzeClicks.filePauseMidi(app)));
-        line.addView(app.outline("Stop", false, pulsekit.AnalyzeClicks.fileStopMidi(app)));
+        line.addView(app.outline("Play", false, pulsekit.FileSetClicks.filePlayMidi(app, src)));
+        line.addView(app.outline("Pause", false, pulsekit.FileSetClicks.filePauseMidi(app)));
+        line.addView(app.outline("Stop", false, pulsekit.FileSetClicks.fileStopMidi(app)));
         return line;
     }
 
