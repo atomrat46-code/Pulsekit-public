@@ -1,39 +1,15 @@
 package pulsekit;
 
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.SystemClock;
-import android.text.Html;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
@@ -41,28 +17,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +31,28 @@ final class PyJav {
 
     PyJav(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the PyJav page and its editor. pkWirePyJav adds the run controls later. */
+    void buildPyPane(FrameLayout frameLayout) {
+        app.pyPane = app.col();
+        app.pyPane.setVisibility(8);
+        app.pyPane.addView((View)app.text("PyJav", 18, true));
+        TextView textView20 = app.text("Python, or Java .java / .jar / .class. Run uses java or python3 on this device when it is installed.", 14, false);
+        textView20.setTextColor(MUTED);
+        textView20.setPadding(0, app.dp(8), 0, app.dp(8));
+        app.pyPane.addView((View)textView20);
+        app.pyEditor = new EditText((Context)app);
+        app.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
+        app.pyEditor.setTypeface(Typeface.MONOSPACE);
+        app.pyEditor.setTextColor(FG);
+        app.pyEditor.setTextSize(2, 12.0f);
+        app.pyEditor.setBackground((Drawable)app.round(ELEV, 10));
+        app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
+        app.pyEditor.setGravity(0x800033);
+        app.pyEditor.setMinLines(8);
+        app.pyPane.addView((View)app.pyEditor, (ViewGroup.LayoutParams)app.flexFill());
+        frameLayout.addView((View)app.pyPane);
     }
 
     boolean pkPyWired;

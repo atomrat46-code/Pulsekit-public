@@ -1,68 +1,24 @@
 package pulsekit;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.SystemClock;
-import android.text.Html;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +28,93 @@ final class SongEditor {
 
     SongEditor(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the Song page: Edit/Play, Original/Imported lanes, add buttons, timeline and part cards. */
+    void buildSongPane(FrameLayout frameLayout) {
+        TextView textView;
+        app.songPane = app.col();
+        app.songPane.setVisibility(8);
+        LinearLayout linearLayout14 = app.row();
+        TextView editPill = app.pill("Edit", true, view -> {
+            app.songMode = "edit";
+            app.chrome.setVisibility(0);
+            app.styleWrap.setVisibility(8);
+            app.fillWrap.setVisibility(8);
+            app.knobsRow.setVisibility(8);
+            this.refreshSong();
+        });
+        editPill.setTag((Object)"edit");
+        TextView textView16 = app.pill("Play", false, view -> {
+            app.songMode = "play";
+            app.chrome.setVisibility(8);
+            this.refreshSong();
+        });
+        textView16.setTag((Object)"play");
+        linearLayout14.addView((View)editPill);
+        linearLayout14.addView((View)textView16);
+        app.songPane.addView((View)linearLayout14);
+        LinearLayout linearLayout15 = app.row();
+        TextView textView17 = app.pill("Original", true, view -> {
+            app.songLane = "original";
+            this.refreshSong();
+        });
+        textView17.setTag((Object)"original");
+        textView = app.pill("Imported", false, view -> {
+            app.songLane = "imported";
+            if (app.importedSongId == null && !app.importedSongs.isEmpty()) {
+                app.importedSongId = app.importedSongs.get((int)0).id;
+            }
+            this.refreshSong();
+        });
+        textView.setTag((Object)"imported");
+        linearLayout15.addView((View)textView17);
+        linearLayout15.addView((View)textView);
+        app.songPane.addView((View)linearLayout15);
+        app.songAdds = app.row();
+        TextView patternPill = app.pill("Pattern \u00d74", false, view -> {
+            Engine.Part part = Engine.groove(app.styles.get((Object)app.style).label, app.bpm(), app.cells, 4);
+            part.lens = Engine.copyCells(app.lens);
+            this.add(part);
+        });
+        this.attachSongPick(patternPill, -1, "pattern");
+        TextView textView18 = app.pill("Fillern", false, view -> this.addCurrentFillern());
+        this.attachSongPick(textView18, -1, "fillern");
+        TextView textView19 = app.pill("Fill", false, view -> {
+            Engine.Part part = Engine.fill(app.styleLibrary.fillLabel(app.fillId), app.bpm(), app.fillPat, 1);
+            part.lens = Engine.copyCells(app.fillLens);
+            this.add(part);
+        });
+        this.attachSongPick(textView19, -1, "fill");
+        app.songAdds.addView((View)patternPill);
+        app.songAdds.addView((View)textView18);
+        app.songAdds.addView((View)textView19);
+        app.songAdds.addView((View)app.pill("Silent", false, view -> this.add(Engine.rest(app.bpm(), 2))));
+        app.songAdds.addView((View)app.pill("Clear", false, view -> {
+            if ("imported".equals(app.songLane) && app.importedSongId != null) {
+                String string = app.importedSongId;
+                app.importedSongs.removeIf(importedSong -> string.equals(importedSong.id));
+                app.importedSongId = app.importedSongs.isEmpty() ? null : app.importedSongs.get((int)0).id;
+                app.persistence.persistLearned();
+            } else {
+                app.song.clear();
+            }
+            this.refreshSong();
+        }));
+        HorizontalScrollView horizontalScrollView4 = new HorizontalScrollView((Context)app);
+        horizontalScrollView4.setHorizontalScrollBarEnabled(false);
+        horizontalScrollView4.addView((View)app.songAdds);
+        app.songPane.addView((View)horizontalScrollView4);
+        HorizontalScrollView horizontalScrollView5 = new HorizontalScrollView((Context)app);
+        horizontalScrollView5.setHorizontalScrollBarEnabled(false);
+        app.timeline = app.row();
+        horizontalScrollView5.addView((View)app.timeline);
+        app.songPane.addView((View)horizontalScrollView5);
+        ScrollView scrollView2 = new ScrollView((Context)app);
+        app.songCards = app.col();
+        scrollView2.addView((View)app.songCards);
+        app.songPane.addView((View)scrollView2, (ViewGroup.LayoutParams)app.flexFill());
+        frameLayout.addView((View)app.songPane);
     }
 
     List<Engine.Part> activeSong() {

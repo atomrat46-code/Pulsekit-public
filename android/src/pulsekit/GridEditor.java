@@ -1,29 +1,11 @@
 package pulsekit;
 
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
 import android.os.SystemClock;
-import android.text.Html;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,33 +18,7 @@ import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +28,141 @@ final class GridEditor {
 
     GridEditor(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the pattern grid (accent row, one row per track) inside a scroll view. */
+    void buildGridPane(FrameLayout frameLayout) {
+        TextView textView2;
+        TextView textView3;
+        int n2;
+        app.gridPane = app.col();
+        app.gridPane.setClipChildren(true);
+        LinearLayout linearLayout11 = app.row();
+        linearLayout11.setClipChildren(true);
+        linearLayout11.setPadding(0, 0, 0, app.dp(2));
+        if (Build.VERSION.SDK_INT >= 21) {
+            linearLayout11.setElevation((float)app.dp(6));
+        }
+        app.accLab = app.labelCell("ACC", FG);
+        app.accLab.setClickable(true);
+        this.bindAccCell(app.accLab);
+        app.accLab.setOnClickListener(view -> {
+            int n;
+            boolean bl = false;
+            for (n = 0; n < app.steps; ++n) {
+                if (!app.accents[n]) continue;
+                bl = true;
+                break;
+            }
+            if (bl) {
+                for (n = 0; n < 32; ++n) {
+                    app.accents[n] = false;
+                }
+            } else {
+                Engine.defaultAccents(app.accents, app.steps, Engine.stepsPerBeat(app.tsDen));
+            }
+            view.performHapticFeedback(3);
+            this.refreshGrid();
+        });
+        linearLayout11.addView((View)app.accLab);
+        for (n2 = 0; n2 < 32; ++n2) {
+            int n4 = n2;
+            TextView textView14 = app.cell(n2 % 4 == 0 ? Integer.toString(n2 / 4 + 1) : "\u00b7", view -> {
+                app.accents[n4] = !app.accents[n4];
+                view.performHapticFeedback(3);
+                this.refreshGrid();
+            });
+            textView14.setTag((Object)("acc-" + n2));
+            this.bindAccCell(textView14);
+            app.accCells[n2] = textView14;
+            linearLayout11.addView((View)textView14, (ViewGroup.LayoutParams)app.accLp());
+        }
+        app.gridPane.addView((View)linearLayout11);
+        for (n2 = 0; n2 < Engine.TRACK_ID.length; ++n2) {
+            LinearLayout linearLayout12 = app.row();
+            linearLayout12.setClipChildren(true);
+            linearLayout12.setMinimumHeight(app.dp(40));
+            int n5 = n2;
+            textView3 = app.labelCell(Engine.TRACK_SHORT[n2], MUTED);
+            textView3.setOnClickListener(view -> {
+                if (app.mutes[n5]) {
+                    app.mutes[n5] = false;
+                    this.refreshGrid();
+                    return;
+                }
+                app.playback.bang(n5, 110);
+            });
+            textView3.setOnLongClickListener(view -> {
+                app.mutes[n5] = !app.mutes[n5];
+                this.refreshGrid();
+                return true;
+            });
+            linearLayout12.addView((View)textView3);
+            for (int i = 0; i < 32; ++i) {
+                int n6 = i;
+                textView2 = app.cell("", view -> {
+                    if (app.paintLen > 0) {
+                        this.setCellLen(n5, n6, app.paintLen);
+                        return;
+                    }
+                    int[][] nArray = this.editCells();
+                    int[][] nArray2 = this.editLens();
+                    int v = nArray[n5][n6];
+                    nArray[n5][n6] = v <= 0 ? 100 : (v < 90 ? 0 : (v < 120 ? 127 : 64));
+                    if (nArray[n5][n6] <= 0) {
+                        nArray2[n5][n6] = 0;
+                    }
+                    this.refreshGrid();
+                    if (!"fills".equals(app.view)) {
+                        app.styleLibrary.syncBuiltinFill();
+                    }
+                });
+                this.bindCellLength(textView2, n5, n6);
+                app.grid[n2][i] = textView2;
+                linearLayout12.addView((View)textView2, (ViewGroup.LayoutParams)app.cellLp());
+            }
+            app.gridPane.addView((View)linearLayout12);
+        }
+        HorizontalScrollView horizontalScrollView2 = new HorizontalScrollView((Context)app);
+        horizontalScrollView2.setHorizontalScrollBarEnabled(false);
+        horizontalScrollView2.setFillViewport(true);
+        horizontalScrollView2.setOverScrollMode(2);
+        horizontalScrollView2.addView((View)app.gridPane);
+        app.gridScroll = new ScrollView((Context)app);
+        app.gridScroll.setFillViewport(true);
+        app.gridScroll.setOverScrollMode(2);
+        app.gridScroll.setPadding(0, app.dp(4), 0, app.dp(8));
+        app.gridScroll.setClipToPadding(false);
+        app.gridScroll.addView((View)horizontalScrollView2);
+        frameLayout.addView((View)app.gridScroll);
+    }
+
+    /** Builds the note-length (LEN) chip bar under the grid. */
+    void buildLenBar(LinearLayout linearLayout23) {
+        app.lenBar = app.row();
+        app.lenBar.setPadding(0, 0, 0, app.dp(8));
+        app.lenBar.setGravity(16);
+        TextView textView23 = app.text("LEN", 10, true);
+        textView23.setTextColor(SUBTLE);
+        textView23.setPadding(0, 0, app.dp(6), 0);
+        app.lenBar.addView((View)textView23);
+        for (int i = 0; i < Engine.LEN_STEPS.length; ++i) {
+            int n9 = Engine.LEN_STEPS[i];
+            TextView textView24 = app.text(Engine.LEN_LABEL[i], 11, true);
+            textView24.setGravity(17);
+            textView24.setTextColor(BG);
+            textView24.setPadding(app.dp(4), app.dp(12), app.dp(4), app.dp(12));
+            LinearLayout.LayoutParams layoutParams5 = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            layoutParams5.setMargins(app.dp(3), 0, app.dp(3), 0);
+            textView24.setOnClickListener(view -> {
+                app.paintLen = app.paintLen == n9 ? 0 : n9;
+                this.paintLenChips();
+            });
+            app.lenChips[i] = textView24;
+            app.lenBar.addView((View)textView24, (ViewGroup.LayoutParams)layoutParams5);
+        }
+        linearLayout23.addView((View)app.lenBar);
+        this.paintLenChips();
     }
 
     long cellTapAt;

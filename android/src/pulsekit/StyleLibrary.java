@@ -1,68 +1,17 @@
 package pulsekit;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.SystemClock;
 import android.text.Html;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
-import android.widget.LinearLayout;
-import android.widget.PopupWindow;
-import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +21,68 @@ final class StyleLibrary {
 
     StyleLibrary(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the Built-in / Variated / Imported chip strips for patterns and for fills. */
+    void buildStyleStrips() {
+        TextView textView4;
+        app.styleWrap = app.col();
+        app.styleWrap.addView((View)app.sectionLabel("Built-in"));
+        app.styleBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+        app.styleBar.setSingleLine(true);
+        for (Engine.Style style2 : app.styles.values()) {
+            TextView textView10 = app.pill(style2.label, false, view -> this.loadStyle(style2.id, false));
+            textView10.setTag((Object)style2.id);
+            this.attachBuiltinStyleMenu(textView10, style2.id);
+            app.styleBar.addView((View)textView10);
+        }
+        app.styleWrap.addView((View)app.chipStrip((View)app.styleBar));
+        app.styleWrap.addView((View)app.sectionLabel("Variated"));
+        app.variatedPatternBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+        app.variatedPatternBar.setSingleLine(true);
+        TextView textView11 = app.text("Variate a groove or add a fill", 12, false);
+        textView11.setTextColor(MUTED);
+        textView11.setTag((Object)"imported-empty");
+        app.variatedPatternBar.addView((View)textView11);
+        app.styleWrap.addView((View)app.chipStrip((View)app.variatedPatternBar));
+        app.styleWrap.addView((View)app.sectionLabel("Imported"));
+        app.importedHost = app.col();
+        TextView emptyStyles = app.text("MIDI, song or plugin pack", 12, false);
+        emptyStyles.setTextColor(MUTED);
+        emptyStyles.setTag("imported-empty");
+        app.importedHost.addView((View)emptyStyles);
+        app.styleWrap.addView((View)app.importedHost);
+        app.chrome.addView((View)app.styleWrap);
+        app.fillWrap = app.col();
+        app.fillWrap.addView((View)app.sectionLabel("Built-in"));
+        app.fillBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+        app.fillBar.setSingleLine(true);
+        for (int i = 0; i < Engine.FILL_ID.length; ++i) {
+            String string = Engine.FILL_ID[i];
+            textView4 = app.pill(Engine.FILL_LABEL[i], false, view -> this.applyFill(string));
+            textView4.setTag((Object)string);
+            app.fillBar.addView((View)textView4);
+        }
+        app.fillBar.addView((View)app.pill("Variate", false, view -> this.variateFill()));
+        app.fillBar.addView((View)app.pill("Apply", false, view -> app.show("combo")));
+        app.fillWrap.addView((View)app.chipStrip((View)app.fillBar));
+        app.fillWrap.addView((View)app.sectionLabel("Variated"));
+        app.variatedFillBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+        app.variatedFillBar.setSingleLine(true);
+        TextView textView12 = app.text("Variate to keep a copy here", 12, false);
+        textView12.setTextColor(MUTED);
+        textView12.setTag((Object)"imported-empty");
+        app.variatedFillBar.addView((View)textView12);
+        app.fillWrap.addView((View)app.chipStrip((View)app.variatedFillBar));
+        app.fillWrap.addView((View)app.sectionLabel("Imported"));
+        app.importedFillHost = app.col();
+        TextView emptyFills = app.text("Last bar of an imported MIDI", 12, false);
+        emptyFills.setTextColor(MUTED);
+        emptyFills.setTag((Object)"imported-empty");
+        app.importedFillHost.addView((View)emptyFills);
+        app.fillWrap.addView((View)app.importedFillHost);
+        app.fillWrap.setVisibility(8);
+        app.chrome.addView((View)app.fillWrap);
     }
 
     final List<String> hiddenStyles = new ArrayList<String>();

@@ -1,68 +1,24 @@
 package pulsekit;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
 import android.os.Process;
-import android.os.SystemClock;
-import android.text.Html;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +28,87 @@ final class Playback {
 
     Playback(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the Pads page: drum sets, Live/Silent/Match Original, and the pad grid. */
+    void buildPadsPane(FrameLayout frameLayout) {
+        LinearLayout.LayoutParams layoutParams;
+        TextView textView;
+        LinearLayout linearLayout;
+        TextView textView3;
+        app.padsPane = app.col();
+        app.padsPane.setVisibility(8);
+        app.padsPane.addView((View)app.text("Drum sets", 11, true));
+        HorizontalScrollView horizontalScrollView3 = new HorizontalScrollView((Context)app);
+        horizontalScrollView3.setHorizontalScrollBarEnabled(false);
+        app.drumSetBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+        app.drumSetBar.setSingleLine(true);
+        horizontalScrollView3.addView((View)app.drumSetBar);
+        app.padsPane.addView((View)horizontalScrollView3);
+        LinearLayout linearLayout13 = app.row();
+        textView3 = app.outline("Live", false, view -> {
+            app.livePads = !app.livePads;
+            app.paintOutline((TextView)view, app.livePads);
+            app.setNow(app.livePads ? "Pads write the pattern" : "Hold a pad");
+        });
+        linearLayout13.addView((View)textView3);
+        linearLayout13.addView((View)app.outline("Silent", false, view -> {
+            for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
+                for (int j = 0; j < 16; ++j) {
+                    app.cells[i][j] = 0;
+                }
+            }
+            Engine.zeroCells(app.lens);
+            app.styleLibrary.syncBuiltinFill();
+            app.gridEditor.refreshGrid();
+        }));
+        app.padMatchAll = app.outline("Match Original", true, view -> this.matchWholeOriginal());
+        app.padMatchAll.setVisibility(8);
+        linearLayout13.addView((View)app.padMatchAll);
+        TextView textView15 = app.text("  Tap Match Original for the whole kit", 11, false);
+        textView15.setTextColor(SUBTLE);
+        linearLayout13.addView((View)textView15);
+        app.padsPane.addView((View)linearLayout13);
+        ScrollView scrollView = new ScrollView((Context)app);
+        LinearLayout padGrid = app.col();
+        for (int i = 0; i < 3; ++i) {
+            linearLayout = app.row();
+            for (int j = 0; j < 4; ++j) {
+                int n7 = i * 4 + j;
+                if (n7 >= Engine.TRACK_ID.length) {
+                    linearLayout.addView(new View((Context)app), (ViewGroup.LayoutParams)new LinearLayout.LayoutParams(0, app.dp(96), 1.0f));
+                    continue;
+                }
+                int n8 = n7;
+                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7], view -> {
+                    this.bang(n8, 110);
+                    this.flashPad(n8);
+                    if (app.livePads) {
+                        int step = app.playhead >= 0 ? app.playhead : 0;
+                        app.cells[n8][step] = app.cells[n8][step] > 0 ? 0 : 100;
+                        if (app.cells[n8][step] <= 0) {
+                            app.lens[n8][step] = 0;
+                        }
+                        app.styleLibrary.syncBuiltinFill();
+                        app.gridEditor.refreshGrid();
+                    }
+                });
+                textView.setOnLongClickListener(view -> {
+                    app.padTarget = n8;
+                    this.showPadMenu(n8);
+                    return true;
+                });
+                layoutParams = new LinearLayout.LayoutParams(0, app.dp(96), 1.0f);
+                layoutParams.setMargins(app.dp(4), app.dp(4), app.dp(4), app.dp(4));
+                textView.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
+                linearLayout.addView((View)textView);
+            }
+            padGrid.addView((View)linearLayout);
+        }
+        scrollView.addView((View)padGrid);
+        app.padsPane.addView((View)scrollView, (ViewGroup.LayoutParams)app.flexFill());
+        frameLayout.addView((View)app.padsPane);
+        this.refreshDrumSets();
     }
 
     int drumSetIndex = 0;

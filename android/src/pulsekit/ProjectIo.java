@@ -1,68 +1,26 @@
 package pulsekit;
 
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.SystemClock;
-import android.text.Html;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 import static pulsekit.MainActivity.*;
 
@@ -72,6 +30,66 @@ final class ProjectIo {
 
     ProjectIo(MainActivity app) {
         this.app = app;
+    }
+
+    /** Builds the Import page and its imported-files list. */
+    void buildImportPane(FrameLayout frameLayout) {
+        app.importPane = app.col();
+        app.importPane.setVisibility(8);
+        app.importPane.addView((View)app.text("Import", 18, true));
+        TextView textView21 = app.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
+        textView21.setTextColor(MUTED);
+        textView21.setPadding(0, app.dp(8), 0, app.dp(16));
+        app.importPane.addView((View)textView21);
+        app.importPane.addView((View)app.action("Choose file", FG, BG, view -> this.openFile()));
+        app.importedFileList = app.col();
+        app.importedFileList.setPadding(0, app.dp(12), 0, 0);
+        app.importPane.addView((View)app.importedFileList);
+        TextView textView22 = app.action("Try Dub pack", ELEV, FG, view -> this.tryDub());
+        LinearLayout.LayoutParams layoutParams4 = app.wrap();
+        layoutParams4.setMargins(0, app.dp(8), 0, 0);
+        textView22.setLayoutParams((ViewGroup.LayoutParams)layoutParams4);
+        app.importPane.addView((View)textView22);
+        frameLayout.addView((View)app.importPane);
+    }
+
+    /** Builds the Export page. */
+    void buildExportPane(FrameLayout frameLayout) {
+        app.exportPane = app.col();
+        app.exportPane.setVisibility(8);
+        app.exportPane.addView((View)app.text("Export", 18, true));
+        app.exportPane.addView((View)app.hint("Project"));
+        LinearLayout linearLayout17 = app.row();
+        linearLayout17.addView((View)app.action("PRJ", HIT, BG, view -> this.saveKind(15)), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout17.addView((View)app.action("PKP", ELEV, FG, view -> this.saveKind(16)), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout17.addView((View)app.action("FSET", ELEV, FG, view -> app.importLibrary.saveFset(null)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout17);
+        app.exportPane.addView((View)app.hint("MIDI"));
+        LinearLayout linearLayout18 = app.row();
+        linearLayout18.addView((View)app.action("Pattern", ELEV, FG, view -> this.saveMidi("pattern")), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout18.addView((View)app.action("Fillern", ELEV, FG, view -> this.saveMidi("fillern")), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout18.addView((View)app.action("Fill", ELEV, FG, view -> this.saveMidi("fill")), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout18);
+        app.exportPane.addView((View)app.hint("This beat"));
+        LinearLayout linearLayout19 = app.row();
+        linearLayout19.addView((View)app.action("WAV", ELEV, FG, view -> this.saveKind(10)), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout19.addView((View)app.action("MP3", ELEV, FG, view -> this.saveKind(11)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout19);
+        LinearLayout linearLayout20 = app.row();
+        linearLayout20.setPadding(0, app.dp(8), 0, 0);
+        linearLayout20.addView((View)app.action("SF2", ELEV, FG, view -> this.saveKind(12)), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout20.addView((View)app.action("JAR", ELEV, FG, view -> this.saveKind(18)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout20);
+        app.exportPane.addView((View)app.hint("Song"));
+        LinearLayout linearLayout21 = app.row();
+        linearLayout21.addView((View)app.action("SNG", ELEV, FG, view -> this.saveKind(9)), (ViewGroup.LayoutParams)app.flexBtn());
+        linearLayout21.addView((View)app.action("Song MIDI", ELEV, FG, view -> this.saveKind(17)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout21);
+        app.exportPane.addView((View)app.hint("Python"));
+        LinearLayout linearLayout22 = app.row();
+        linearLayout22.addView((View)app.action("PY", ELEV, FG, view -> this.saveKind(14)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)linearLayout22);
+        frameLayout.addView((View)app.exportPane);
     }
 
     void saveKind(int n) {

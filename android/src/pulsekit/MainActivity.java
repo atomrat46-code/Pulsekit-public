@@ -1,33 +1,20 @@
 package pulsekit;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioTrack;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.SystemClock;
-import android.text.Html;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -36,33 +23,17 @@ import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.json.JSONObject;
-import pulsekit.AudioIo;
-import pulsekit.Engine;
-import pulsekit.FlowLayout;
 
 public class MainActivity extends UiKit {
     static final int OPEN = 7;
@@ -399,63 +370,7 @@ public class MainActivity extends UiKit {
         this.now.setVisibility(8);
         linearLayout2.addView((View)this.now);
         this.chrome = this.col();
-        this.styleWrap = this.col();
-        this.styleWrap.addView((View)this.sectionLabel("Built-in"));
-        this.styleBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
-        this.styleBar.setSingleLine(true);
-        for (Engine.Style style2 : this.styles.values()) {
-            TextView textView10 = this.pill(style2.label, false, view -> this.styleLibrary.loadStyle(style2.id, false));
-            textView10.setTag((Object)style2.id);
-            this.styleLibrary.attachBuiltinStyleMenu(textView10, style2.id);
-            this.styleBar.addView((View)textView10);
-        }
-        this.styleWrap.addView((View)this.chipStrip((View)this.styleBar));
-        this.styleWrap.addView((View)this.sectionLabel("Variated"));
-        this.variatedPatternBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
-        this.variatedPatternBar.setSingleLine(true);
-        TextView textView11 = this.text("Variate a groove or add a fill", 12, false);
-        textView11.setTextColor(MUTED);
-        textView11.setTag((Object)"imported-empty");
-        this.variatedPatternBar.addView((View)textView11);
-        this.styleWrap.addView((View)this.chipStrip((View)this.variatedPatternBar));
-        this.styleWrap.addView((View)this.sectionLabel("Imported"));
-        this.importedHost = this.col();
-        TextView emptyStyles = this.text("MIDI, song or plugin pack", 12, false);
-        emptyStyles.setTextColor(MUTED);
-        emptyStyles.setTag("imported-empty");
-        this.importedHost.addView((View)emptyStyles);
-        this.styleWrap.addView((View)this.importedHost);
-        this.chrome.addView((View)this.styleWrap);
-        this.fillWrap = this.col();
-        this.fillWrap.addView((View)this.sectionLabel("Built-in"));
-        this.fillBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
-        this.fillBar.setSingleLine(true);
-        for (int i = 0; i < Engine.FILL_ID.length; ++i) {
-            String string = Engine.FILL_ID[i];
-            textView4 = this.pill(Engine.FILL_LABEL[i], false, view -> this.styleLibrary.applyFill(string));
-            textView4.setTag((Object)string);
-            this.fillBar.addView((View)textView4);
-        }
-        this.fillBar.addView((View)this.pill("Variate", false, view -> this.styleLibrary.variateFill()));
-        this.fillBar.addView((View)this.pill("Apply", false, view -> this.show("combo")));
-        this.fillWrap.addView((View)this.chipStrip((View)this.fillBar));
-        this.fillWrap.addView((View)this.sectionLabel("Variated"));
-        this.variatedFillBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
-        this.variatedFillBar.setSingleLine(true);
-        TextView textView12 = this.text("Variate to keep a copy here", 12, false);
-        textView12.setTextColor(MUTED);
-        textView12.setTag((Object)"imported-empty");
-        this.variatedFillBar.addView((View)textView12);
-        this.fillWrap.addView((View)this.chipStrip((View)this.variatedFillBar));
-        this.fillWrap.addView((View)this.sectionLabel("Imported"));
-        this.importedFillHost = this.col();
-        TextView emptyFills = this.text("Last bar of an imported MIDI", 12, false);
-        emptyFills.setTextColor(MUTED);
-        emptyFills.setTag((Object)"imported-empty");
-        this.importedFillHost.addView((View)emptyFills);
-        this.fillWrap.addView((View)this.importedFillHost);
-        this.fillWrap.setVisibility(8);
-        this.chrome.addView((View)this.fillWrap);
+        this.styleLibrary.buildStyleStrips();
         this.knobsRow = this.row();
         this.knobsRow.setPadding(0, this.dp(8), 0, 0);
         this.bpmBar = this.knob(this.knobsRow, "TEMPO", 40, 240, 124, n -> this.bpmLabel.setText((CharSequence)Integer.toString(n)));
@@ -507,360 +422,18 @@ public class MainActivity extends UiKit {
         this.body.addView((View)this.chrome);
         FrameLayout frameLayout = new FrameLayout((Context)this);
         frameLayout.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));
-        this.gridPane = this.col();
-        this.gridPane.setClipChildren(true);
-        LinearLayout linearLayout11 = this.row();
-        linearLayout11.setClipChildren(true);
-        linearLayout11.setPadding(0, 0, 0, this.dp(2));
-        if (Build.VERSION.SDK_INT >= 21) {
-            linearLayout11.setElevation((float)this.dp(6));
-        }
-        this.accLab = this.labelCell("ACC", FG);
-        this.accLab.setClickable(true);
-        this.gridEditor.bindAccCell(this.accLab);
-        this.accLab.setOnClickListener(view -> {
-            int n;
-            boolean bl = false;
-            for (n = 0; n < this.steps; ++n) {
-                if (!this.accents[n]) continue;
-                bl = true;
-                break;
-            }
-            if (bl) {
-                for (n = 0; n < 32; ++n) {
-                    this.accents[n] = false;
-                }
-            } else {
-                Engine.defaultAccents(this.accents, this.steps, Engine.stepsPerBeat(this.tsDen));
-            }
-            view.performHapticFeedback(3);
-            this.gridEditor.refreshGrid();
-        });
-        linearLayout11.addView((View)this.accLab);
-        for (n2 = 0; n2 < 32; ++n2) {
-            int n4 = n2;
-            TextView textView14 = this.cell(n2 % 4 == 0 ? Integer.toString(n2 / 4 + 1) : "\u00b7", view -> {
-                this.accents[n4] = !this.accents[n4];
-                view.performHapticFeedback(3);
-                this.gridEditor.refreshGrid();
-            });
-            textView14.setTag((Object)("acc-" + n2));
-            this.gridEditor.bindAccCell(textView14);
-            this.accCells[n2] = textView14;
-            linearLayout11.addView((View)textView14, (ViewGroup.LayoutParams)this.accLp());
-        }
-        this.gridPane.addView((View)linearLayout11);
-        for (n2 = 0; n2 < Engine.TRACK_ID.length; ++n2) {
-            LinearLayout linearLayout12 = this.row();
-            linearLayout12.setClipChildren(true);
-            linearLayout12.setMinimumHeight(this.dp(40));
-            int n5 = n2;
-            textView3 = this.labelCell(Engine.TRACK_SHORT[n2], MUTED);
-            textView3.setOnClickListener(view -> {
-                if (this.mutes[n5]) {
-                    this.mutes[n5] = false;
-                    this.gridEditor.refreshGrid();
-                    return;
-                }
-                this.playback.bang(n5, 110);
-            });
-            textView3.setOnLongClickListener(view -> {
-                this.mutes[n5] = !this.mutes[n5];
-                this.gridEditor.refreshGrid();
-                return true;
-            });
-            linearLayout12.addView((View)textView3);
-            for (int i = 0; i < 32; ++i) {
-                int n6 = i;
-                textView2 = this.cell("", view -> {
-                    if (this.paintLen > 0) {
-                        this.gridEditor.setCellLen(n5, n6, this.paintLen);
-                        return;
-                    }
-                    int[][] nArray = this.gridEditor.editCells();
-                    int[][] nArray2 = this.gridEditor.editLens();
-                    int v = nArray[n5][n6];
-                    nArray[n5][n6] = v <= 0 ? 100 : (v < 90 ? 0 : (v < 120 ? 127 : 64));
-                    if (nArray[n5][n6] <= 0) {
-                        nArray2[n5][n6] = 0;
-                    }
-                    this.gridEditor.refreshGrid();
-                    if (!"fills".equals(this.view)) {
-                        this.styleLibrary.syncBuiltinFill();
-                    }
-                });
-                this.gridEditor.bindCellLength(textView2, n5, n6);
-                this.grid[n2][i] = textView2;
-                linearLayout12.addView((View)textView2, (ViewGroup.LayoutParams)this.cellLp());
-            }
-            this.gridPane.addView((View)linearLayout12);
-        }
-        HorizontalScrollView horizontalScrollView2 = new HorizontalScrollView((Context)this);
-        horizontalScrollView2.setHorizontalScrollBarEnabled(false);
-        horizontalScrollView2.setFillViewport(true);
-        horizontalScrollView2.setOverScrollMode(2);
-        horizontalScrollView2.addView((View)this.gridPane);
-        this.gridScroll = new ScrollView((Context)this);
-        this.gridScroll.setFillViewport(true);
-        this.gridScroll.setOverScrollMode(2);
-        this.gridScroll.setPadding(0, this.dp(4), 0, this.dp(8));
-        this.gridScroll.setClipToPadding(false);
-        this.gridScroll.addView((View)horizontalScrollView2);
-        frameLayout.addView((View)this.gridScroll);
-        this.padsPane = this.col();
-        this.padsPane.setVisibility(8);
-        this.padsPane.addView((View)this.text("Drum sets", 11, true));
-        HorizontalScrollView horizontalScrollView3 = new HorizontalScrollView((Context)this);
-        horizontalScrollView3.setHorizontalScrollBarEnabled(false);
-        this.drumSetBar = new FlowLayout((Context)this, this.dp(6), this.dp(6));
-        this.drumSetBar.setSingleLine(true);
-        horizontalScrollView3.addView((View)this.drumSetBar);
-        this.padsPane.addView((View)horizontalScrollView3);
-        LinearLayout linearLayout13 = this.row();
-        textView3 = this.outline("Live", false, view -> {
-            this.livePads = !this.livePads;
-            this.paintOutline((TextView)view, this.livePads);
-            this.setNow(this.livePads ? "Pads write the pattern" : "Hold a pad");
-        });
-        linearLayout13.addView((View)textView3);
-        linearLayout13.addView((View)this.outline("Silent", false, view -> {
-            for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-                for (int j = 0; j < 16; ++j) {
-                    this.cells[i][j] = 0;
-                }
-            }
-            Engine.zeroCells(this.lens);
-            this.styleLibrary.syncBuiltinFill();
-            this.gridEditor.refreshGrid();
-        }));
-        this.padMatchAll = this.outline("Match Original", true, view -> this.playback.matchWholeOriginal());
-        this.padMatchAll.setVisibility(8);
-        linearLayout13.addView((View)this.padMatchAll);
-        TextView textView15 = this.text("  Tap Match Original for the whole kit", 11, false);
-        textView15.setTextColor(SUBTLE);
-        linearLayout13.addView((View)textView15);
-        this.padsPane.addView((View)linearLayout13);
-        ScrollView scrollView = new ScrollView((Context)this);
-        LinearLayout padGrid = this.col();
-        for (int i = 0; i < 3; ++i) {
-            linearLayout = this.row();
-            for (int j = 0; j < 4; ++j) {
-                int n7 = i * 4 + j;
-                if (n7 >= Engine.TRACK_ID.length) {
-                    linearLayout.addView(new View((Context)this), (ViewGroup.LayoutParams)new LinearLayout.LayoutParams(0, this.dp(96), 1.0f));
-                    continue;
-                }
-                int n8 = n7;
-                this.padBtns[n7] = textView = this.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7], view -> {
-                    this.playback.bang(n8, 110);
-                    this.playback.flashPad(n8);
-                    if (this.livePads) {
-                        int step = this.playhead >= 0 ? this.playhead : 0;
-                        this.cells[n8][step] = this.cells[n8][step] > 0 ? 0 : 100;
-                        if (this.cells[n8][step] <= 0) {
-                            this.lens[n8][step] = 0;
-                        }
-                        this.styleLibrary.syncBuiltinFill();
-                        this.gridEditor.refreshGrid();
-                    }
-                });
-                textView.setOnLongClickListener(view -> {
-                    this.padTarget = n8;
-                    this.playback.showPadMenu(n8);
-                    return true;
-                });
-                layoutParams = new LinearLayout.LayoutParams(0, this.dp(96), 1.0f);
-                layoutParams.setMargins(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
-                textView.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
-                linearLayout.addView((View)textView);
-            }
-            padGrid.addView((View)linearLayout);
-        }
-        scrollView.addView((View)padGrid);
-        this.padsPane.addView((View)scrollView, (ViewGroup.LayoutParams)this.flexFill());
-        frameLayout.addView((View)this.padsPane);
-        this.playback.refreshDrumSets();
-        this.songPane = this.col();
-        this.songPane.setVisibility(8);
-        LinearLayout linearLayout14 = this.row();
-        TextView editPill = this.pill("Edit", true, view -> {
-            this.songMode = "edit";
-            this.chrome.setVisibility(0);
-            this.styleWrap.setVisibility(8);
-            this.fillWrap.setVisibility(8);
-            this.knobsRow.setVisibility(8);
-            this.songEditor.refreshSong();
-        });
-        editPill.setTag((Object)"edit");
-        TextView textView16 = this.pill("Play", false, view -> {
-            this.songMode = "play";
-            this.chrome.setVisibility(8);
-            this.songEditor.refreshSong();
-        });
-        textView16.setTag((Object)"play");
-        linearLayout14.addView((View)editPill);
-        linearLayout14.addView((View)textView16);
-        this.songPane.addView((View)linearLayout14);
-        LinearLayout linearLayout15 = this.row();
-        TextView textView17 = this.pill("Original", true, view -> {
-            this.songLane = "original";
-            this.songEditor.refreshSong();
-        });
-        textView17.setTag((Object)"original");
-        textView = this.pill("Imported", false, view -> {
-            this.songLane = "imported";
-            if (this.importedSongId == null && !this.importedSongs.isEmpty()) {
-                this.importedSongId = this.importedSongs.get((int)0).id;
-            }
-            this.songEditor.refreshSong();
-        });
-        textView.setTag((Object)"imported");
-        linearLayout15.addView((View)textView17);
-        linearLayout15.addView((View)textView);
-        this.songPane.addView((View)linearLayout15);
-        this.songAdds = this.row();
-        TextView patternPill = this.pill("Pattern \u00d74", false, view -> {
-            Engine.Part part = Engine.groove(this.styles.get((Object)this.style).label, this.bpm(), this.cells, 4);
-            part.lens = Engine.copyCells(this.lens);
-            this.songEditor.add(part);
-        });
-        this.songEditor.attachSongPick(patternPill, -1, "pattern");
-        TextView textView18 = this.pill("Fillern", false, view -> this.songEditor.addCurrentFillern());
-        this.songEditor.attachSongPick(textView18, -1, "fillern");
-        TextView textView19 = this.pill("Fill", false, view -> {
-            Engine.Part part = Engine.fill(this.styleLibrary.fillLabel(this.fillId), this.bpm(), this.fillPat, 1);
-            part.lens = Engine.copyCells(this.fillLens);
-            this.songEditor.add(part);
-        });
-        this.songEditor.attachSongPick(textView19, -1, "fill");
-        this.songAdds.addView((View)patternPill);
-        this.songAdds.addView((View)textView18);
-        this.songAdds.addView((View)textView19);
-        this.songAdds.addView((View)this.pill("Silent", false, view -> this.songEditor.add(Engine.rest(this.bpm(), 2))));
-        this.songAdds.addView((View)this.pill("Clear", false, view -> {
-            if ("imported".equals(this.songLane) && this.importedSongId != null) {
-                String string = this.importedSongId;
-                this.importedSongs.removeIf(importedSong -> string.equals(importedSong.id));
-                this.importedSongId = this.importedSongs.isEmpty() ? null : this.importedSongs.get((int)0).id;
-                this.persistence.persistLearned();
-            } else {
-                this.song.clear();
-            }
-            this.songEditor.refreshSong();
-        }));
-        HorizontalScrollView horizontalScrollView4 = new HorizontalScrollView((Context)this);
-        horizontalScrollView4.setHorizontalScrollBarEnabled(false);
-        horizontalScrollView4.addView((View)this.songAdds);
-        this.songPane.addView((View)horizontalScrollView4);
-        HorizontalScrollView horizontalScrollView5 = new HorizontalScrollView((Context)this);
-        horizontalScrollView5.setHorizontalScrollBarEnabled(false);
-        this.timeline = this.row();
-        horizontalScrollView5.addView((View)this.timeline);
-        this.songPane.addView((View)horizontalScrollView5);
-        ScrollView scrollView2 = new ScrollView((Context)this);
-        this.songCards = this.col();
-        scrollView2.addView((View)this.songCards);
-        this.songPane.addView((View)scrollView2, (ViewGroup.LayoutParams)this.flexFill());
-        frameLayout.addView((View)this.songPane);
-        this.pyPane = this.col();
-        this.pyPane.setVisibility(8);
-        this.pyPane.addView((View)this.text("PyJav", 18, true));
-        TextView textView20 = this.text("Python, or Java .java / .jar / .class. Run uses java or python3 on this device when it is installed.", 14, false);
-        textView20.setTextColor(MUTED);
-        textView20.setPadding(0, this.dp(8), 0, this.dp(8));
-        this.pyPane.addView((View)textView20);
-        this.pyEditor = new EditText((Context)this);
-        this.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
-        this.pyEditor.setTypeface(Typeface.MONOSPACE);
-        this.pyEditor.setTextColor(FG);
-        this.pyEditor.setTextSize(2, 12.0f);
-        this.pyEditor.setBackground((Drawable)this.round(ELEV, 10));
-        this.pyEditor.setPadding(this.dp(10), this.dp(10), this.dp(10), this.dp(10));
-        this.pyEditor.setGravity(0x800033);
-        this.pyEditor.setMinLines(8);
-        this.pyPane.addView((View)this.pyEditor, (ViewGroup.LayoutParams)this.flexFill());
-        frameLayout.addView((View)this.pyPane);
-        this.importPane = this.col();
-        this.importPane.setVisibility(8);
-        this.importPane.addView((View)this.text("Import", 18, true));
-        TextView textView21 = this.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
-        textView21.setTextColor(MUTED);
-        textView21.setPadding(0, this.dp(8), 0, this.dp(16));
-        this.importPane.addView((View)textView21);
-        this.importPane.addView((View)this.action("Choose file", FG, BG, view -> this.projectIo.openFile()));
-        this.importedFileList = this.col();
-        this.importedFileList.setPadding(0, this.dp(12), 0, 0);
-        this.importPane.addView((View)this.importedFileList);
-        TextView textView22 = this.action("Try Dub pack", ELEV, FG, view -> this.projectIo.tryDub());
-        LinearLayout.LayoutParams layoutParams4 = this.wrap();
-        layoutParams4.setMargins(0, this.dp(8), 0, 0);
-        textView22.setLayoutParams((ViewGroup.LayoutParams)layoutParams4);
-        this.importPane.addView((View)textView22);
-        frameLayout.addView((View)this.importPane);
-        this.exportPane = this.col();
-        this.exportPane.setVisibility(8);
-        this.exportPane.addView((View)this.text("Export", 18, true));
-        this.exportPane.addView((View)this.hint("Project"));
-        LinearLayout linearLayout17 = this.row();
-        linearLayout17.addView((View)this.action("PRJ", HIT, BG, view -> this.projectIo.saveKind(15)), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout17.addView((View)this.action("PKP", ELEV, FG, view -> this.projectIo.saveKind(16)), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout17.addView((View)this.action("FSET", ELEV, FG, view -> this.importLibrary.saveFset(null)), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout17);
-        this.exportPane.addView((View)this.hint("MIDI"));
-        LinearLayout linearLayout18 = this.row();
-        linearLayout18.addView((View)this.action("Pattern", ELEV, FG, view -> this.projectIo.saveMidi("pattern")), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout18.addView((View)this.action("Fillern", ELEV, FG, view -> this.projectIo.saveMidi("fillern")), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout18.addView((View)this.action("Fill", ELEV, FG, view -> this.projectIo.saveMidi("fill")), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout18);
-        this.exportPane.addView((View)this.hint("This beat"));
-        LinearLayout linearLayout19 = this.row();
-        linearLayout19.addView((View)this.action("WAV", ELEV, FG, view -> this.projectIo.saveKind(10)), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout19.addView((View)this.action("MP3", ELEV, FG, view -> this.projectIo.saveKind(11)), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout19);
-        LinearLayout linearLayout20 = this.row();
-        linearLayout20.setPadding(0, this.dp(8), 0, 0);
-        linearLayout20.addView((View)this.action("SF2", ELEV, FG, view -> this.projectIo.saveKind(12)), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout20.addView((View)this.action("JAR", ELEV, FG, view -> this.projectIo.saveKind(18)), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout20);
-        this.exportPane.addView((View)this.hint("Song"));
-        LinearLayout linearLayout21 = this.row();
-        linearLayout21.addView((View)this.action("SNG", ELEV, FG, view -> this.projectIo.saveKind(9)), (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout21.addView((View)this.action("Song MIDI", ELEV, FG, view -> this.projectIo.saveKind(17)), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout21);
-        this.exportPane.addView((View)this.hint("Python"));
-        LinearLayout linearLayout22 = this.row();
-        linearLayout22.addView((View)this.action("PY", ELEV, FG, view -> this.projectIo.saveKind(14)), (ViewGroup.LayoutParams)this.flexBtn());
-        this.exportPane.addView((View)linearLayout22);
-        frameLayout.addView((View)this.exportPane);
+        this.gridEditor.buildGridPane(frameLayout);
+        this.playback.buildPadsPane(frameLayout);
+        this.songEditor.buildSongPane(frameLayout);
+        this.pyJav.buildPyPane(frameLayout);
+        this.projectIo.buildImportPane(frameLayout);
+        this.projectIo.buildExportPane(frameLayout);
         this.body.addView((View)frameLayout);
         linearLayout2.addView((View)this.body);
         LinearLayout linearLayout23 = this.col();
         linearLayout23.setBackgroundColor(SURFACE);
         linearLayout23.setPadding(this.dp(12), this.dp(8), this.dp(12), this.dp(16));
-        this.lenBar = this.row();
-        this.lenBar.setPadding(0, 0, 0, this.dp(8));
-        this.lenBar.setGravity(16);
-        TextView textView23 = this.text("LEN", 10, true);
-        textView23.setTextColor(SUBTLE);
-        textView23.setPadding(0, 0, this.dp(6), 0);
-        this.lenBar.addView((View)textView23);
-        for (int i = 0; i < Engine.LEN_STEPS.length; ++i) {
-            int n9 = Engine.LEN_STEPS[i];
-            TextView textView24 = this.text(Engine.LEN_LABEL[i], 11, true);
-            textView24.setGravity(17);
-            textView24.setTextColor(BG);
-            textView24.setPadding(this.dp(4), this.dp(12), this.dp(4), this.dp(12));
-            LinearLayout.LayoutParams layoutParams5 = new LinearLayout.LayoutParams(0, -2, 1.0f);
-            layoutParams5.setMargins(this.dp(3), 0, this.dp(3), 0);
-            textView24.setOnClickListener(view -> {
-                this.paintLen = this.paintLen == n9 ? 0 : n9;
-                this.gridEditor.paintLenChips();
-            });
-            this.lenChips[i] = textView24;
-            this.lenBar.addView((View)textView24, (ViewGroup.LayoutParams)layoutParams5);
-        }
-        linearLayout23.addView((View)this.lenBar);
-        this.gridEditor.paintLenChips();
+        this.gridEditor.buildLenBar(linearLayout23);
         LinearLayout linearLayout24 = this.row();
         linearLayout24.addView((View)this.action("\u25a0", ELEV, FG, view -> this.playback.stop()), (ViewGroup.LayoutParams)this.square());
         this.playBtn = this.action("Play", FG, BG, view -> this.playback.toggle());
