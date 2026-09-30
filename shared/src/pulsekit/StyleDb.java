@@ -258,22 +258,6 @@ public final class StyleDb {
     return "pop";
   }
 
-  public static String kitFromBpm(int bpm) {
-    String nearest = "pop";
-    int dist = Integer.MAX_VALUE;
-    for (Engine.Style st : Engine.styles().values()) {
-      int d = Math.abs(bpm - st.bpm);
-      if (d < dist) {
-        dist = d;
-        nearest = st.id;
-      }
-    }
-    if (bpm >= 84 && bpm <= 126 && ("pop".equals(nearest) || "funk".equals(nearest) || "popballad".equals(nearest))) {
-      return "folk";
-    }
-    return nearest;
-  }
-
   public static String suggest(int[][] cells, int bpm) {
     float four = 0.5f;
     float back = 0.5f;

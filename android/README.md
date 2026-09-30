@@ -1,7 +1,7 @@
 # Pulsekit Android
 
-Full Pulsekit Android app (`pulsekit.app`, versionCode 198), built from plain
-Java source. Code shared with the desktop edition lives in `../shared/src`.
+Pulsekit Android app (`pulsekit.app`, versionCode 198), built from plain Java
+source. Code shared with the desktop edition lives in `../shared/src`.
 
 ## Prebuilt APK
 
@@ -32,18 +32,19 @@ features are now ordinary source in `src/pulsekit/MainActivity.java`:
   compiled but misbehaved, e.g. the accent row, track mutes and pad
   live-record wrote to the wrong index, and song-picker entries opened the
   wrong fill.
-- The 94 fields and 113 methods from `PatchAnalyze` sit at the end of
-  MainActivity: Analyze, Compose, Prompts, file-set Info, stem and MIDI
-  playback, and PyJav.
 - Each Javassist hook became a small wrapper. A hooked method `foo` was renamed
   `fooBase` (or `fooCore` for injected methods), and `foo` runs the injected
   before/after code around it in the same order Javassist did.
-- `PatchPyJavText` and `PatchNode` (open .js/.ts files, Sogni client, Termux
-  hint) are applied. `PatchRecent` and `PatchRefresh` were already built into
-  `PatchAnalyze`'s code.
-- The decompiled MainActivity carried an older Analyze screen with the same
-  method names as the patched one. The patched version replaces it.
 - `lambda$name$N` methods from the decompiler are renamed `nameActionN`, because
   javac reserves those names.
+- Isolate, Analyze and Compose (with Combine tracks and the stem mixer) are
+  removed. An imported WAV or MP3 becomes the PyJav input file instead.
 
 `patch-original/` is kept for reference only and is not compiled.
+
+## Build notes
+
+- `midiutil.py` lives in `../shared/src/pulsekit` and is copied into the APK
+  assets at build time.
+- `Mp3Decode.java` and JLayer are left out: Android decodes MP3 with
+  MediaExtractor.

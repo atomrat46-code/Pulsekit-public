@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: pulsekit.Pulsekit
+Created-By: Pulsekit
+

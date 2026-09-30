@@ -21,8 +21,8 @@ Android APK
 
 THIRD-PARTY / BUNDLED
 ---------------------
-1. JLayer 1.0.1  (javazoom:jlayer:1.0.1)
-   File: java/lib/jl1.0.1.jar
+1. JLayer 1.0.1  (javazoom:jlayer:1.0.1) — DESKTOP ONLY
+   File: shared/libs/jlayer-1_0_1.jar
    Size: 143624
    SHA-256: 850508c837454a1b06017c32a36876fae516de1e89a829f725fee1e6dcc52000
    Maven marker inside the jar: META-INF/maven/javazoom/jlayer/pom.properties
@@ -34,15 +34,10 @@ THIRD-PARTY / BUNDLED
      import javazoom.jl.decoder.Decoder
      import javazoom.jl.decoder.Header
      import javazoom.jl.decoder.SampleBuffer
-   Build: scripts/build-native.sh puts jl1.0.1.jar on the javac classpath
-   and unpacks javazoom/ into the desktop JAR.
-   Android use: the same decoder classes are dexed into the APK
-   (classes/javazoom/jl/decoder). Huffman tables are assets
-   (jl/sfd.ser, l3reorder.ser, au2lin.ser, lin2au.ser) because Android
-   does not serve Class.getResourceAsStream from the APK.
-   Hook: android/src/pulsekit/JlAssets.java lines 6–7
-     import javazoom.jl.decoder.JavaLayerHook
-     import javazoom.jl.decoder.JavaLayerUtils
+   Build: desktop/build.sh puts the jar on the javac classpath and
+   unpacks javazoom/ (classes and .ser Huffman tables) into the JAR.
+   Android: not used. The APK decodes MP3 with the platform MediaExtractor,
+   and android/build.sh leaves Mp3Decode.java and JLayer out.
 
 2. Eclipse Compiler for Java (ECJ) 4.6.1
    File: android/art/ecj-4.6.1.jar  (also shipped as assets/ecj.dex)
@@ -72,22 +67,10 @@ THIRD-PARTY / BUNDLED
    Build-time use of the same tool: scripts/build-art.sh
      java -cp dx.jar com.android.dx.command.Main --dex ...
 
-4. Javassist 3.30.2-GA  (org.javassist:javassist) — BUILD TOOL ONLY
-   File: android/patch/javassist.jar
-   Size: 794714
-   SHA-256: eba37290994b5e4868f3af98ff113f6244a6b099385d9ad46881307d3cb01aaf
-   pom.properties: groupId=org.javassist artifactId=javassist version=3.30.2-GA
-   Manifest license header: MPL 1.1, LGPL 2.1, Apache 2.0
-   Download pinned in scripts/build-native.sh:
-     https://repo1.maven.org/maven2/org/javassist/javassist/3.30.2-GA/javassist-3.30.2-GA.jar
-   Use: android/patch/PatchAnalyze.java lines 3–7
-     import javassist.ClassPool
-     import javassist.CtClass
-     import javassist.CtField
-     import javassist.CtMethod
-     import javassist.CtNewMethod
-   It rewrites the prebuilt MainActivity class at APK build time.
-   It is not dexed into the APK (d8 inputs are pulsekit classes and JLayer only).
+4. Javassist 3.30.2-GA — NO LONGER USED
+   The old APK build rewrote a prebuilt MainActivity class with Javassist.
+   Those patches are now plain source in android/src/pulsekit/MainActivity.java.
+   The original patch programs are kept in android/patch-original/ for reference.
 
 5. javax.sound.midi stub jar — project-built, not a Maven artifact
    File: android/art/javax-midi.jar
@@ -119,9 +102,8 @@ It is copied into the desktop JAR and into the APK as assets/midiutil.py.
 
 WHAT EACH EDITION SHIPS
 -----------------------
-Desktop JAR classpath / contents: Pulsekit classes + unpacked JLayer.
-  No ECJ, no dx, no Javassist, no rt.jar.
-Android APK runtime: Pulsekit dex + JLayer decoder dex + assets
+Desktop JAR classpath / contents: Pulsekit classes + unpacked JLayer
+  + drum_midi.py + midiutil.py. No ECJ, no dx, no rt.jar.
+Android APK runtime: Pulsekit dex + assets
   (ecj.dex, dx.dex, ecj-res.zip, rt.jar, javax-midi.jar, MidiSystem.class,
-   midiutil.py, jl/*.ser).
-  Javassist stays on the build machine.
+   midiutil.py). No JLayer.

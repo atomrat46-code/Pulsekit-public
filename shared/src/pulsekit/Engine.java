@@ -983,13 +983,6 @@ public final class Engine {
     return n <= 1 ? 1 : clampNoteLength(n);
   }
 
-  /** MIDI ticks for a drum gate. One 16th stays the short default (80). */
-  public static int noteGateTicks(int len) {
-    int n = clampNoteLength(len);
-    if (n <= 1) return 80;
-    return Math.max(80, n * (TPQ / 4) - 12);
-  }
-
   public static String noteLengthLabel(int steps) {
     int n = clampNoteLength(steps);
     if (n <= 1) return "16th";
@@ -1008,14 +1001,6 @@ public final class Engine {
       if (j + noteLengthAt(gates, j) > at) return true;
     }
     return false;
-  }
-
-  public static void clearCells(int[][] cells) {
-    if (cells == null) return;
-    for (int t = 0; t < cells.length; t++) {
-      if (cells[t] == null) continue;
-      for (int s = 0; s < cells[t].length; s++) cells[t][s] = 0;
-    }
   }
 
   public static int barSteps(int num, int den) {
@@ -1953,11 +1938,6 @@ public final class Engine {
     return shouldLearnFill(cells);
   }
 
-  public static int[][] grooveFromImport(int[][] cells) {
-    if (importedFillern(cells)) return firstBar(cells);
-    return copyCells(cells);
-  }
-
   public static boolean importedFillern(int[][] cells) {
     if (usedSteps(cells) < 24) return false;
     String a = patternSignature(firstBar(cells));
@@ -2546,28 +2526,9 @@ public final class Engine {
     }
   }
 
-  public static void rememberMixStems(String source, byte[] drumWav, byte[] bedWav) {
-    if (source == null || source.isEmpty()) return;
-    FileSetAudio cur = fileSetAudio.get(source);
-    if (cur == null) {
-      cur = new FileSetAudio();
-      fileSetAudio.put(source, cur);
-    }
-    if (drumWav != null && drumWav.length > 44) cur.drumWav = drumWav;
-    if (bedWav != null && bedWav.length > 44) cur.bedWav = bedWav;
-  }
-
   public static FileSetAudio fileSetAudioOf(String source) {
     if (source == null) return null;
     return fileSetAudio.get(source);
-  }
-
-  /** Name of the mixed wav stored on this file set, or empty. */
-  public static String fileSetCombinedName(String source) {
-    FileSetAudio au = fileSetAudioOf(source);
-    if (au == null || au.combinedWav == null || au.combinedWav.length < 44) return "";
-    if (au.combinedName != null && !au.combinedName.isEmpty()) return au.combinedName;
-    return "combined_track.wav";
   }
 
   private static boolean audioPresent(FileSetAudio au) {
@@ -3181,28 +3142,6 @@ public final class Engine {
     }
     parts.get(0).startSec = 0;
     parts.get(parts.size() - 1).endSec = round1(durationSec);
-  }
-
-  /** Scale part clocks so the last end is exactly `durationSec`. */
-  public static void fitPartsExact(List<FileSetPart> parts, float durationSec) {
-    if (parts == null || parts.isEmpty() || !(durationSec > 0)) return;
-    float span = partsSpanSec(parts);
-    int n = parts.size();
-    if (!(span > 0)) {
-      for (int i = 0; i < n; i++) {
-        FileSetPart p = parts.get(i);
-        p.startSec = i == 0 ? 0f : (i / (float) n) * durationSec;
-        p.endSec = ((i + 1f) / n) * durationSec;
-      }
-    } else {
-      float s = durationSec / span;
-      for (FileSetPart p : parts) {
-        p.startSec = Math.max(0f, p.startSec * s);
-        p.endSec = Math.max(0f, p.endSec * s);
-      }
-    }
-    parts.get(0).startSec = 0f;
-    parts.get(n - 1).endSec = durationSec;
   }
 
   public static String fmtClock(float sec) {

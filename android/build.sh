@@ -11,20 +11,22 @@ OUT=build
 
 rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 
-# 1. Resources + manifest
+# 1. Resources + manifest (assets plus the shared midiutil.py)
+cp -r assets "$OUT/assets"
+cp ../shared/src/pulsekit/midiutil.py "$OUT/assets/"
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
 "$BT/aapt2" link -I "$JAR" --manifest AndroidManifest.xml \
   --min-sdk-version 24 --target-sdk-version 33 \
-  -A assets -o "$OUT/base.apk" "$OUT/res.zip"
+  -A "$OUT/assets" -o "$OUT/base.apk" "$OUT/res.zip"
 
 # 2. Java sources
 javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none \
-  -bootclasspath "$JAR:$BT/core-lambda-stubs.jar" -cp "libs/*" -d "$OUT/classes" \
-  $(find src ../shared/src -name '*.java')
+  -bootclasspath "$JAR:$BT/core-lambda-stubs.jar" -d "$OUT/classes" \
+  $(find src ../shared/src -name '*.java' ! -name Mp3Decode.java)
 
-# 3. Dex (app classes + bundled libs)
+# 3. Dex (Mp3Decode/JLayer are desktop-only; Android decodes MP3 with MediaExtractor)
 "$BT/d8" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" \
-  $(find "$OUT/classes" -name '*.class') libs/*.jar
+  $(find "$OUT/classes" -name '*.class')
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT/dex" && zip -q -j ../unsigned.apk classes*.dex)
 

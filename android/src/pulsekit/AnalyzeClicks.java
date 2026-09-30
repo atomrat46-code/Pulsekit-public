@@ -9,47 +9,11 @@ import java.util.ArrayList;
 public final class AnalyzeClicks {
   private AnalyzeClicks() {}
 
-  public static View.OnClickListener pick(final MainActivity host) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.pickAnalyzeFile();
-      }
-    };
-  }
-
-  public static View.OnClickListener process(final MainActivity host) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.runAnalyze();
-      }
-    };
-  }
-
   public static View.OnClickListener prompts(final MainActivity host) {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
         host.openPrompts();
-      }
-    };
-  }
-
-  public static View.OnClickListener pickCompose(final MainActivity host) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.pickComposeFile();
-      }
-    };
-  }
-
-  public static View.OnClickListener processCompose(final MainActivity host) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.runCompose();
       }
     };
   }
@@ -95,15 +59,6 @@ public final class AnalyzeClicks {
             @Override
             public void run() {
               AnalyzeClicks.promptChangeStyle(host, key, label);
-            }
-          });
-        }
-        if (host.fileSetIsCompose(key)) {
-          items.add("Combine tracks");
-          acts.add(new Runnable() {
-            @Override
-            public void run() {
-              host.combineFileSetTracks(key, label);
             }
           });
         }
@@ -206,16 +161,6 @@ public final class AnalyzeClicks {
     };
   }
 
-  public static View.OnClickListener fileCombine(
-      final MainActivity host, final String key, final String label) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.combineFileSetTracks(key, label);
-      }
-    };
-  }
-
   /** Tag is fp: pattern id, ff: fill id, or fr: Fillern pattern id. */
   public static View.OnClickListener fileEntry(final MainActivity host) {
     return new View.OnClickListener() {
@@ -254,33 +199,6 @@ public final class AnalyzeClicks {
       @Override
       public void onClick(View v) {
         host.stopSourceMidi();
-      }
-    };
-  }
-
-  public static View.OnClickListener filePlayCombined(final MainActivity host, final String src) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.playCombinedFile(src);
-      }
-    };
-  }
-
-  public static View.OnClickListener fileStopCombined(final MainActivity host) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.stopCombinedFile();
-      }
-    };
-  }
-
-  public static View.OnClickListener fileSaveCombined(final MainActivity host, final String src) {
-    return new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        host.saveCombinedFile(src);
       }
     };
   }
