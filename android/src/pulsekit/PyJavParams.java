@@ -76,7 +76,7 @@ public final class PyJavParams {
             String args = built.toString();
             activity.getSharedPreferences(PREFS, 0).edit().putString(name, args).apply();
             try {
-              activity.getClass().getMethod("pkSetPyArgs", String.class).invoke(activity, args);
+              if (activity instanceof MainActivity) ((MainActivity) activity).pyJav.pkSetPyArgs(args);
             } catch (Throwable ignored) {
               /* the field is still saved for the next run */
             }

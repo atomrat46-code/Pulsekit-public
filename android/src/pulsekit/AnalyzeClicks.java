@@ -13,7 +13,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.openPrompts();
+        host.pyJav.openPrompts();
       }
     };
   }
@@ -43,17 +43,17 @@ public final class AnalyzeClicks {
         acts.add(new Runnable() {
           @Override
           public void run() {
-            host.openFileSetInfo(key, label);
+            host.fileSets.openFileSetInfo(key, label);
           }
         });
         items.add("Make song");
         acts.add(new Runnable() {
           @Override
           public void run() {
-            host.makeFileSetSong(key, label);
+            host.fileSets.makeFileSetSong(key, label);
           }
         });
-        if (host.fileSetStyleOn(key)) {
+        if (host.fileSets.fileSetStyleOn(key)) {
           items.add("Change style");
           acts.add(new Runnable() {
             @Override
@@ -89,7 +89,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.closeFileSetInfo();
+        host.fileSets.closeFileSetInfo();
       }
     };
   }
@@ -99,15 +99,15 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.makeFileSetSong(key, label);
+        host.fileSets.makeFileSetSong(key, label);
       }
     };
   }
 
   public static void promptChangeStyle(final MainActivity host, final String key, final String label) {
-    final String[] names = host.styleDbNames();
+    final String[] names = host.fileSets.styleDbNames();
     if (names == null || names.length == 0) return;
-    final int current = host.currentStyleDbIndex(key);
+    final int current = host.fileSets.currentStyleDbIndex(key);
     final int initial = current >= 0 ? current : 0;
     final int[] pick = new int[] { initial };
     final android.widget.ArrayAdapter<String> rows = new android.widget.ArrayAdapter<String>(
@@ -136,7 +136,7 @@ public final class AnalyzeClicks {
         .setPositiveButton("Change style", new DialogInterface.OnClickListener() {
           @Override
           public void onClick(DialogInterface d, int w) {
-            host.applyStylePick(key, label, pick[0]);
+            host.fileSets.applyStylePick(key, label, pick[0]);
           }
         })
         .setNegativeButton("Cancel", null)
@@ -169,9 +169,9 @@ public final class AnalyzeClicks {
         Object tag = v.getTag();
         if (tag == null) return;
         String s = tag.toString();
-        if (s.startsWith("fp:")) host.pkLoadFilePattern(s.substring(3));
-        else if (s.startsWith("ff:")) host.pkLoadFileFill(s.substring(3));
-        else if (s.startsWith("fr:")) host.pkLoadFileFillern(s.substring(3));
+        if (s.startsWith("fp:")) host.fileSets.pkLoadFilePattern(s.substring(3));
+        else if (s.startsWith("ff:")) host.fileSets.pkLoadFileFill(s.substring(3));
+        else if (s.startsWith("fr:")) host.fileSets.pkLoadFileFillern(s.substring(3));
       }
     };
   }
@@ -180,7 +180,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.playSourceMidi(src);
+        host.fileSets.playSourceMidi(src);
       }
     };
   }
@@ -189,7 +189,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pauseSourceMidi();
+        host.fileSets.pauseSourceMidi();
       }
     };
   }
@@ -198,7 +198,7 @@ public final class AnalyzeClicks {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.stopSourceMidi();
+        host.fileSets.stopSourceMidi();
       }
     };
   }
@@ -208,7 +208,7 @@ public final class AnalyzeClicks {
     return new DialogInterface.OnClickListener() {
       @Override
       public void onClick(DialogInterface dialog, int which) {
-        host.addImportedMidiSong(name, parts);
+        host.songEditor.addImportedMidiSong(name, parts);
       }
     };
   }

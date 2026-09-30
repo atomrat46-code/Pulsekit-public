@@ -20,7 +20,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pkSetPromptRun(mode);
+        host.pyJav.pkSetPromptRun(mode);
       }
     };
   }
@@ -29,7 +29,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pkRunPyJav();
+        host.pyJav.pkRunPyJav();
       }
     };
   }
@@ -38,11 +38,11 @@ public final class PyJavUi implements JavaRun.Listener {
   public static void chooseAi(final MainActivity host, final String prompt, final String ref1, final String ref2) {
     final String[][] found = Subsystem.available(host);
     if (found.length == 0) {
-      host.pkShowAiResult("AI prompt. PyJav cannot run this on Android. Grok, Sogni, and Claude are not present.");
+      host.pyJav.pkShowAiResult("AI prompt. PyJav cannot run this on Android. Grok, Sogni, and Claude are not present.");
       return;
     }
     if (found.length == 1) {
-      host.pkShowAiResult(Subsystem.openPackage(host, found[0][0], found[0][1], prompt, ref1, ref2));
+      host.pyJav.pkShowAiResult(Subsystem.openPackage(host, found[0][0], found[0][1], prompt, ref1, ref2));
       return;
     }
     final String[] labels = new String[found.length];
@@ -52,13 +52,13 @@ public final class PyJavUi implements JavaRun.Listener {
         .setItems(labels, new DialogInterface.OnClickListener() {
           @Override
           public void onClick(DialogInterface dialog, int which) {
-            host.pkShowAiResult(Subsystem.openPackage(host, found[which][0], found[which][1], prompt, ref1, ref2));
+            host.pyJav.pkShowAiResult(Subsystem.openPackage(host, found[which][0], found[which][1], prompt, ref1, ref2));
           }
         })
         .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
           @Override
           public void onClick(DialogInterface dialog, int which) {
-            host.pkShowAiResult("Cancelled.");
+            host.pyJav.pkShowAiResult("Cancelled.");
           }
         })
         .show();
@@ -76,13 +76,13 @@ public final class PyJavUi implements JavaRun.Listener {
         .setPositiveButton("OK", new DialogInterface.OnClickListener() {
           @Override
           public void onClick(DialogInterface dialog, int which) {
-            host.pkAcceptOutput(field.getText().toString());
+            host.pyJav.pkAcceptOutput(field.getText().toString());
           }
         })
         .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
           @Override
           public void onClick(DialogInterface dialog, int which) {
-            host.pkCancelOutput();
+            host.pyJav.pkCancelOutput();
           }
         })
         .show();
@@ -92,7 +92,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pkBrowsePyJav();
+        host.pyJav.pkBrowsePyJav();
       }
     };
   }
@@ -176,7 +176,7 @@ public final class PyJavUi implements JavaRun.Listener {
         button.setOnClickListener(new View.OnClickListener() {
           @Override
           public void onClick(View v) {
-            host.pkApplyRecent(pick);
+            host.pyJav.pkApplyRecent(pick);
           }
         });
         box.addView(button, lp);
@@ -191,7 +191,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pkOpenParams();
+        host.pyJav.pkOpenParams();
       }
     };
   }
@@ -200,7 +200,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        host.pkBrowseInput();
+        host.pyJav.pkBrowseInput();
       }
     };
   }
@@ -209,7 +209,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return new android.widget.AdapterView.OnItemSelectedListener() {
       @Override
       public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-        host.pkApplyRecent(position);
+        host.pyJav.pkApplyRecent(position);
       }
 
       @Override
@@ -226,7 +226,7 @@ public final class PyJavUi implements JavaRun.Listener {
     host.runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        host.pkShowPyResult(result);
+        host.pyJav.pkShowPyResult(result);
       }
     });
   }

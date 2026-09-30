@@ -13,7 +13,7 @@ public final class SogniClientClick implements View.OnClickListener {
   @Override
   public void onClick(View v) {
     try {
-      host.getClass().getMethod("pkLoadSogniClient", View.class).invoke(host, v);
+      host.pyJav.pkLoadSogniClient(v);
     } catch (Exception ignored) {}
   }
 }

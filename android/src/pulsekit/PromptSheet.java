@@ -814,7 +814,7 @@ public final class PromptSheet {
         toast(activity, "Name the prompt");
         return;
       }
-      activity.getClass().getMethod("pkOpenPromptText", String.class, String.class).invoke(activity, sheet[0], sheet[1]);
+      if (activity instanceof MainActivity) ((MainActivity) activity).pyJav.pkOpenPromptText(sheet[0], sheet[1]);
     } catch (Exception ex) {
       Throwable cause = ex.getCause();
       String message = cause != null && cause.getMessage() != null ? cause.getMessage() : ex.getMessage();
