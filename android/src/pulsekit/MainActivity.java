@@ -807,8 +807,8 @@ extends Activity {
         this.isolatePane.addView((View)scrollView3, (ViewGroup.LayoutParams)this.flexFill());
         LinearLayout linearLayout16 = this.row();
         linearLayout16.setPadding(0, this.dp(8), 0, 0);
-        this.isolateUse = this.action("Use pads", FG, BG, view -> this.finishIsolation());
-        this.isolateSkip = this.action("Skip", ELEV, FG, view -> this.finishIsolation());
+        this.isolateUse = this.action("Use pads", FG, BG, view -> this.finishIsolation(ISO_PADS_USE));
+        this.isolateSkip = this.action("Skip", ELEV, FG, view -> this.finishIsolation(ISO_PADS_SKIP));
         linearLayout16.addView((View)this.isolateUse, (ViewGroup.LayoutParams)this.flexBtn());
         linearLayout16.addView((View)this.isolateSkip, (ViewGroup.LayoutParams)this.flexBtn());
         this.isolatePane.addView((View)linearLayout16);
@@ -5353,7 +5353,16 @@ extends Activity {
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
+    /**
+     * Adds a drum set made from the pads isolated out of a song. Pads the song
+     * did not yield play the Original kit's sound instead of silence. The set
+     * becomes the active kit only when the user chose "Use pads"; "Skip" adds
+     * nothing.
+     */
     private void addIsolatedSet(String string, List<AudioIo.PadIso> list) {
+        if (this.isoPadMode == ISO_PADS_SKIP) {
+            return;
+        }
         Engine.DrumSet drumSet = Engine.DrumSet.isolated("s" + Integer.toHexString((int)(Math.random() * 1.0E9)), Engine.uniqueSetName(string, this.drumSets));
         int n = 0;
         Object object = this.mixLock;
@@ -5368,15 +5377,25 @@ extends Activity {
         if (n == 0) {
             return;
         }
+        for (int t = 0; t < drumSet.samples.length; ++t) {
+            if (drumSet.samples[t] == null) {
+                drumSet.matchOrig[t] = true;
+            }
+        }
+        Engine.DrumSet active = this.activeDrumSet();
         this.drumSets.add(drumSet);
         while (this.drumSets.size() > 9) {
             this.drumSets.remove(1);
         }
-        this.drumSetIndex = this.drumSets.size() - 1;
+        boolean select = this.isoPadMode == ISO_PADS_USE;
+        int keep = this.drumSets.indexOf(active);
+        this.drumSetIndex = select || keep < 0 ? this.drumSets.size() - 1 : keep;
         this.refreshDrumSets();
         this.refreshPadLabels();
-        Toast.makeText((Context)this, (CharSequence)("Drum set \u00b7 " + drumSet.name + " \u00b7 " + n + " pads"), (int)0).show();
-        this.show("pads");
+        Toast.makeText((Context)this, (CharSequence)("Drum set \u00b7 " + drumSet.name + " \u00b7 " + n + " pads" + (select ? "" : " \u00b7 pick it under Pads")), (int)0).show();
+        if (select) {
+            this.show("pads");
+        }
     }
 
     private byte[] encodeWav() {
@@ -5749,11 +5768,24 @@ extends Activity {
         this.onCreateBase(bundle);
         ArtJava.pinWorkDir(this);
     }
-    private void finishIsolation() {
-        if (this.tryPackIsolation()) {
-            return;
+    /** How the next isolation result treats the pads it found in the song. */
+    private static final int ISO_PADS_AUTO = 0;
+    private static final int ISO_PADS_USE = 1;
+    private static final int ISO_PADS_SKIP = 2;
+    private int isoPadMode = ISO_PADS_AUTO;
+
+    /** Called by the isolate pane's "Use pads" and "Skip" buttons. */
+    private void finishIsolation(int padMode) {
+        this.isoPadMode = padMode;
+        try {
+            if (this.tryPackIsolation()) {
+                return;
+            }
+            this.finishIsolationBase();
         }
-        this.finishIsolationBase();
+        finally {
+            this.isoPadMode = ISO_PADS_AUTO;
+        }
     }
     private boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
         if (this.tryPackMidiFileSet(string, midiBars, true)) {
@@ -7628,6 +7660,7 @@ extends Activity {
             if (p.found && p.sample != null) anyPad = true;
         }
         if (!anyPad && (a.kickSample != null || a.snareSample != null)) anyPad = true;
+        if (this.isoPadMode == ISO_PADS_SKIP) anyPad = false;
         if (anyPad) this.addIsolatedSet(pulsekit.Engine.stemNameFromMidi(file), a.pads);
         boolean packed = this.packIsolationFileSet(a, file, anyPad);
         this.isolateAnalysis = null;
