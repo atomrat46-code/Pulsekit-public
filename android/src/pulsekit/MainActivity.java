@@ -135,7 +135,6 @@ extends Activity {
     private static final int SAVE_MP3 = 11;
     private static final int SAVE_SF2 = 12;
     private static final int OPEN_PAD = 13;
-    private static final int OPEN_ISO_SAMPLE = 21;
     private static final int OPEN_ANALYZE = 22;
     private static final int SAVE_PY = 14;
     private static final int SAVE_PRJ = 15;
@@ -217,14 +216,6 @@ extends Activity {
     private String pyName = "drum_midi.py";
     private LinearLayout importPane;
     private LinearLayout exportPane;
-    private LinearLayout isolatePane;
-    private LinearLayout isolateRows;
-    private TextView isolateStatus;
-    private TextView isolateUse;
-    private TextView isolateSkip;
-    private AudioIo.Analysis isolateAnalysis;
-    private String isolateFile;
-    private String isolateSampleTrack;
     private LinearLayout analyzePane;
     private LinearLayout analyzeRows;
     private TextView analyzeStatus;
@@ -780,7 +771,7 @@ extends Activity {
         this.importPane = this.col();
         this.importPane.setVisibility(8);
         this.importPane.addView((View)this.text("Import", 18, true));
-        TextView textView21 = this.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 isolate kick, snare, toms, hats, ride, crash\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
+        TextView textView21 = this.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
         textView21.setTextColor(MUTED);
         textView21.setPadding(0, this.dp(8), 0, this.dp(16));
         this.importPane.addView((View)textView21);
@@ -794,25 +785,6 @@ extends Activity {
         textView22.setLayoutParams((ViewGroup.LayoutParams)layoutParams4);
         this.importPane.addView((View)textView22);
         frameLayout.addView((View)this.importPane);
-        this.isolatePane = this.col();
-        this.isolatePane.setVisibility(8);
-        this.isolatePane.addView((View)this.text("Isolation", 18, true));
-        this.isolateStatus = this.text("Import a WAV or MP3 to isolate pads.", 14, false);
-        this.isolateStatus.setTextColor(MUTED);
-        this.isolateStatus.setPadding(0, this.dp(8), 0, this.dp(12));
-        this.isolatePane.addView((View)this.isolateStatus);
-        ScrollView scrollView3 = new ScrollView((Context)this);
-        this.isolateRows = this.col();
-        scrollView3.addView((View)this.isolateRows);
-        this.isolatePane.addView((View)scrollView3, (ViewGroup.LayoutParams)this.flexFill());
-        LinearLayout linearLayout16 = this.row();
-        linearLayout16.setPadding(0, this.dp(8), 0, 0);
-        this.isolateUse = this.action("Use pads", FG, BG, view -> this.finishIsolation(ISO_PADS_USE));
-        this.isolateSkip = this.action("Skip", ELEV, FG, view -> this.finishIsolation(ISO_PADS_SKIP));
-        linearLayout16.addView((View)this.isolateUse, (ViewGroup.LayoutParams)this.flexBtn());
-        linearLayout16.addView((View)this.isolateSkip, (ViewGroup.LayoutParams)this.flexBtn());
-        this.isolatePane.addView((View)linearLayout16);
-        frameLayout.addView((View)this.isolatePane);
         this.exportPane = this.col();
         this.exportPane.setVisibility(8);
         this.exportPane.addView((View)this.text("Export", 18, true));
@@ -969,9 +941,8 @@ extends Activity {
         boolean bl6 = "pattern".equals(string);
         boolean bl7 = "import".equals(string);
         boolean bl8 = "export".equals(string);
-        boolean bl9 = "isolate".equals(string);
         boolean bl11 = "analyze".equals(string);
-        boolean bl10 = bl || bl2 || bl3 || bl7 || bl8 || bl9 || bl11;
+        boolean bl10 = bl || bl2 || bl3 || bl7 || bl8 || bl11;
         this.gridScroll.setVisibility(bl10 ? 8 : 0);
         if (this.lenBar != null) {
             this.lenBar.setVisibility(bl10 ? 8 : 0);
@@ -981,16 +952,15 @@ extends Activity {
         this.pyPane.setVisibility(bl2 ? 0 : 8);
         this.importPane.setVisibility(bl7 ? 0 : 8);
         this.exportPane.setVisibility(bl8 ? 0 : 8);
-        this.isolatePane.setVisibility(bl9 ? 0 : 8);
         if (this.analyzePane != null) {
             this.analyzePane.setVisibility(bl11 ? 0 : 8);
         }
-        this.chrome.setVisibility(bl2 || bl7 || bl8 || bl9 || bl11 || bl && "play".equals(this.songMode) ? 8 : 0);
-        if (!(bl2 || bl7 || bl8 || bl9 || bl11)) {
+        this.chrome.setVisibility(bl2 || bl7 || bl8 || bl11 || bl && "play".equals(this.songMode) ? 8 : 0);
+        if (!(bl2 || bl7 || bl8 || bl11)) {
             this.styleWrap.setVisibility(this.grooveView() ? 0 : 8);
         }
         this.fillWrap.setVisibility(bl4 ? 0 : 8);
-        this.knobsRow.setVisibility(bl || bl2 || bl7 || bl8 || bl9 || bl11 ? 8 : 0);
+        this.knobsRow.setVisibility(bl || bl2 || bl7 || bl8 || bl11 ? 8 : 0);
         this.toolsRow.setVisibility(this.grooveView() ? 0 : 8);
         this.refreshTabs();
         this.refreshFills();
@@ -1030,10 +1000,6 @@ extends Activity {
         }
         if (bl7) {
             this.setNow("Choose a MIDI, song, WAV or SoundFont");
-        }
-        if (bl9) {
-            this.refreshIsolate();
-            this.setNow(this.isolateStatus != null ? this.isolateStatus.getText().toString() : "Isolation");
         }
         if (bl11) {
             this.setNow(this.analyzeStatus != null ? this.analyzeStatus.getText().toString() : "Analyze");
@@ -3181,282 +3147,6 @@ extends Activity {
         this.saveKind(8);
     }
 
-    private void refreshIsolate() {
-        if (this.isolateRows == null) {
-            return;
-        }
-        this.isolateRows.removeAllViews();
-        boolean bl = this.isolateAnalysis != null;
-        List<AudioIo.PadIso> list = bl ? this.isolateAnalysis.pads : AudioIo.emptyPads();
-        this.isolateStatus.setText((CharSequence)(bl ? AudioIo.isolationStatus(list) : "Import a WAV or MP3 to isolate pads."));
-        if (this.isolateUse != null) {
-            this.isolateUse.setText((CharSequence)(bl ? "Use pads" : "Import song"));
-        }
-        if (this.isolateSkip != null) {
-            this.isolateSkip.setVisibility(bl ? 0 : 8);
-        }
-        for (AudioIo.PadIso padIso : list) {
-            LinearLayout linearLayout = this.col();
-            linearLayout.setBackground((Drawable)this.round(ELEV, 10));
-            linearLayout.setPadding(this.dp(10), this.dp(8), this.dp(10), this.dp(8));
-            LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
-            layoutParams.setMargins(0, 0, 0, this.dp(8));
-            linearLayout.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
-            LinearLayout linearLayout2 = this.row();
-            LinearLayout linearLayout3 = this.col();
-            linearLayout3.addView((View)this.text(padIso.name, 14, true));
-            TextView textView = this.text(AudioIo.padShort(padIso.track), 10, true);
-            textView.setTextColor(SUBTLE);
-            if (Build.VERSION.SDK_INT >= 21) {
-                textView.setLetterSpacing(0.12f);
-            }
-            linearLayout3.addView((View)textView);
-            linearLayout2.addView((View)linearLayout3, (ViewGroup.LayoutParams)this.flex(1));
-            TextView textView2 = this.text(padIso.found ? "Found" : "Missing", 11, true);
-            textView2.setTextColor(padIso.found ? HIT : SUBTLE);
-            linearLayout2.addView((View)textView2);
-            linearLayout.addView((View)linearLayout2);
-            LinearLayout linearLayout4 = this.row();
-            linearLayout4.setPadding(0, this.dp(6), 0, 0);
-            TextView textView3 = this.text("Hz", 10, true);
-            textView3.setTextColor(SUBTLE);
-            textView3.setPadding(0, 0, this.dp(8), 0);
-            linearLayout4.addView((View)textView3);
-            int n = padIso.lo > 0 ? padIso.lo : AudioIo.isolateLo(padIso.track);
-            int n2 = padIso.hi > 0 ? padIso.hi : AudioIo.isolateHi(padIso.track);
-            EditText editText = this.isoHzField(Integer.toString(n), Integer.toString(AudioIo.isolateLo(padIso.track)));
-            EditText editText2 = this.isoHzField(Integer.toString(n2), Integer.toString(AudioIo.isolateHi(padIso.track)));
-            editText.setEnabled(bl);
-            editText2.setEnabled(bl);
-            linearLayout4.addView((View)editText);
-            TextView textView4 = this.text("\u2013", 14, false);
-            textView4.setPadding(this.dp(4), 0, this.dp(4), 0);
-            linearLayout4.addView((View)textView4);
-            linearLayout4.addView((View)editText2);
-            String string = padIso.track;
-            TextView textView5 = this.action("Try", SURFACE, FG, view -> {
-                int lo = 0;
-                int hi = 0;
-                try {
-                    lo = Integer.parseInt(editText.getText().toString().trim());
-                }
-                catch (Exception exception) {
-                    // empty catch block
-                }
-                try {
-                    hi = Integer.parseInt(editText2.getText().toString().trim());
-                }
-                catch (Exception exception) {
-                    // empty catch block
-                }
-                this.tryIsolatePad(string, lo, hi);
-            });
-            textView5.setEnabled(bl);
-            textView5.setAlpha(bl ? 1.0f : 0.4f);
-            linearLayout4.addView((View)textView5, (ViewGroup.LayoutParams)this.flexBtn());
-            TextView textView6 = this.action("Sample", SURFACE, FG, view -> {
-                this.isolateSampleTrack = string;
-                Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
-                intent.addCategory("android.intent.category.OPENABLE");
-                intent.setType("audio/*");
-                this.startActivityForResult(intent, 21);
-            });
-            textView6.setEnabled(bl);
-            textView6.setAlpha(bl ? 1.0f : 0.4f);
-            linearLayout4.addView((View)textView6, (ViewGroup.LayoutParams)this.flexBtn());
-            if (padIso.found) {
-                linearLayout4.addView((View)this.action("Play", SURFACE, FG, view -> this.previewIsoPad(string)), (ViewGroup.LayoutParams)this.flexBtn());
-            }
-            linearLayout.addView((View)linearLayout4);
-            this.isolateRows.addView((View)linearLayout);
-        }
-        this.isolateRows.requestLayout();
-    }
-
-    private EditText isoHzField(String string, String string2) {
-        EditText editText = new EditText((Context)this);
-        editText.setText((CharSequence)string);
-        editText.setHint((CharSequence)string2);
-        editText.setHintTextColor(SUBTLE);
-        editText.setInputType(2);
-        editText.setTextColor(FG);
-        editText.setTextSize(2, 14.0f);
-        editText.setTypeface(Typeface.MONOSPACE);
-        editText.setBackground((Drawable)this.round(SURFACE, 8));
-        editText.setPadding(this.dp(8), this.dp(8), this.dp(8), this.dp(8));
-        editText.setSingleLine(true);
-        editText.setGravity(17);
-        editText.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(this.dp(64), this.dp(40)));
-        return editText;
-    }
-
-    private String isoFileKey(String string) {
-        String string2 = string == null ? "song" : string;
-        int n = Math.max(string2.lastIndexOf(47), string2.lastIndexOf(92));
-        if (n >= 0 && n + 1 < string2.length()) {
-            string2 = string2.substring(n + 1);
-        }
-        return (string2 = string2.replaceAll("(?i)\\.(wav|wave|mp3)$", "").trim().toLowerCase()).isEmpty() ? "song" : string2;
-    }
-
-    private void rememberIsoPads() {
-        if (this.isolateFile == null || this.isolateAnalysis == null) {
-            return;
-        }
-        try {
-            JSONObject jSONObject = new JSONObject(this.getSharedPreferences("iso_hz", 0).getString("map", "{}"));
-            String string = this.isoFileKey(this.isolateFile);
-            JSONObject jSONObject2 = jSONObject.has(string) ? jSONObject.getJSONObject(string) : new JSONObject();
-            for (AudioIo.PadIso padIso : this.isolateAnalysis.pads) {
-                if (padIso.lo < 18 || padIso.hi <= padIso.lo) continue;
-                JSONObject jSONObject3 = new JSONObject();
-                jSONObject3.put("lo", padIso.lo);
-                jSONObject3.put("hi", padIso.hi);
-                jSONObject3.put("hz", padIso.hz);
-                jSONObject2.put(padIso.track, (Object)jSONObject3);
-            }
-            jSONObject.put(string, (Object)jSONObject2);
-            this.getSharedPreferences("iso_hz", 0).edit().putString("map", jSONObject.toString()).apply();
-        }
-        catch (Exception exception) {
-            // empty catch block
-        }
-    }
-
-    private void applyIsoMemory(AudioIo.Analysis analysis, String string) {
-        if (analysis == null || analysis.pcm == null) {
-            return;
-        }
-        try {
-            JSONObject jSONObject = new JSONObject(this.getSharedPreferences("iso_hz", 0).getString("map", "{}"));
-            String string2 = this.isoFileKey(string);
-            if (!jSONObject.has(string2)) {
-                return;
-            }
-            JSONObject jSONObject2 = jSONObject.getJSONObject(string2);
-            for (int i = 0; i < analysis.pads.size(); ++i) {
-                AudioIo.PadIso padIso = analysis.pads.get(i);
-                if (!jSONObject2.has(padIso.track)) continue;
-                JSONObject jSONObject3 = jSONObject2.getJSONObject(padIso.track);
-                int n = jSONObject3.optInt("lo", 0);
-                int n2 = jSONObject3.optInt("hi", 0);
-                if (n < 18 || n2 <= n) continue;
-                AudioIo.PadIso padIso2 = AudioIo.isolateAtRange(analysis.pcm, padIso.track, n, n2);
-                if (padIso2.found) {
-                    analysis.pads.set(i, padIso2);
-                    continue;
-                }
-                padIso.lo = n;
-                padIso.hi = n2;
-                if (!jSONObject3.has("hz")) continue;
-                padIso.hz = jSONObject3.optInt("hz", padIso.hz);
-            }
-        }
-        catch (Exception exception) {
-            // empty catch block
-        }
-    }
-
-    private void tryIsolatePad(String string, int n, int n2) {
-        if (this.isolateAnalysis == null || this.isolateAnalysis.pcm == null) {
-            return;
-        }
-        int n3 = n > 0 ? n : AudioIo.isolateLo(string);
-        int n4 = n2 > n3 ? n2 : AudioIo.isolateHi(string);
-        AudioIo.PadIso padIso = AudioIo.isolateAtRange(this.isolateAnalysis.pcm, string, n3, n4);
-        for (int i = 0; i < this.isolateAnalysis.pads.size(); ++i) {
-            if (!string.equals(this.isolateAnalysis.pads.get((int)i).track)) continue;
-            this.isolateAnalysis.pads.set(i, padIso);
-            break;
-        }
-        AudioIo.continueIsolation(this.isolateAnalysis.pcm, this.isolateAnalysis.pads);
-        this.rememberIsoPads();
-        String string2 = padIso.found ? padIso.name + " \u00b7 " + padIso.lo + "\u2013" + padIso.hi + " Hz." : "No " + padIso.name + " in " + n3 + "\u2013" + n4 + " Hz.";
-        this.isolateStatus.setText((CharSequence)(AudioIo.isolationStatus(this.isolateAnalysis.pads) + " " + string2));
-        this.setNow(string2);
-        this.refreshIsolate();
-    }
-
-    /*
-     * WARNING - Removed try catching itself - possible behaviour change.
-     */
-    private void previewIsoPad(String string) {
-        if (this.isolateAnalysis == null) {
-            return;
-        }
-        for (AudioIo.PadIso padIso : this.isolateAnalysis.pads) {
-            if (!string.equals(padIso.track) || !padIso.found || padIso.sample == null) continue;
-            Object object = this.mixLock;
-            synchronized (object) {
-                this.oneShot = padIso.sample;
-                this.oneShotPos = 0;
-                this.oneShotGain = 0.86f;
-            }
-            return;
-        }
-    }
-
-    private void finishIsolationBase() {
-        if (this.isolateAnalysis == null) {
-            this.show("import");
-            return;
-        }
-        AudioIo.Analysis analysis = this.isolateAnalysis;
-        this.rememberIsoPads();
-        String string = this.isolateFile != null ? this.isolateFile : "song";
-        this.isolateAnalysis = null;
-        this.isolateFile = null;
-        this.applyAnalysis(analysis, string);
-    }
-
-    private void applyAnalysis(AudioIo.Analysis analysis, String string) {
-        int n;
-        int n2 = 0;
-        for (AudioIo.PadIso padIso : analysis.pads) {
-            if (!padIso.found || padIso.sample == null) continue;
-            ++n2;
-        }
-        if (n2 == 0 && (analysis.kickSample != null || analysis.snareSample != null)) {
-            n2 = 1;
-        }
-        if (n2 > 0) {
-            this.addIsolatedSet(Engine.stemNameFromMidi(string), analysis.pads);
-        }
-        if (analysis.bars.size() >= 1) {
-            Engine.MidiBars midiBars = new Engine.MidiBars();
-            midiBars.bpm = analysis.bpm;
-            midiBars.bars.addAll(analysis.bars);
-            if (this.learnFromSongImport(string, midiBars, true)) {
-                if (n2 > 0) {
-                    Toast.makeText((Context)this, (CharSequence)(n2 + " pads from the song"), (int)0).show();
-                }
-                return;
-            }
-        }
-        int n3 = Math.min(analysis.cells[0].length, this.cells[0].length);
-        for (n = 0; n < Engine.TRACK_ID.length; ++n) {
-            System.arraycopy(analysis.cells[n], 0, this.cells[n], 0, n3);
-        }
-        if (this.bpmBar != null) {
-            this.bpmBar.setVal(Engine.clampBpm(analysis.bpm));
-        }
-        this.bpmLabel.setText((CharSequence)Integer.toString(analysis.bpm));
-        if (this.styles.containsKey(analysis.styleId)) {
-            this.loadStyle(analysis.styleId, true);
-        }
-        for (n = 0; n < Engine.TRACK_ID.length; ++n) {
-            System.arraycopy(analysis.cells[n], 0, this.cells[n], 0, n3);
-        }
-        this.refreshGrid();
-        this.learnFromImport(string, analysis.cells, analysis.bpm);
-        Engine.Style style = this.styles.get(analysis.styleId);
-        String string2 = style != null ? style.label : analysis.styleId;
-        String string3 = n2 > 0 ? " \u00b7 " + n2 + " pads" : "";
-        String string4 = analysis.isolated ? string2 + " \u00b7 " + analysis.bpm + " BPM \u00b7 drums from the song" + string3 : string2 + " \u00b7 " + analysis.bpm + " BPM \u00b7 built a fill" + string3;
-        Toast.makeText((Context)this, (CharSequence)string4, (int)1).show();
-        this.setNow(string4);
-    }
-
     /*
      * WARNING - void declaration
      */
@@ -4614,30 +4304,6 @@ extends Activity {
                 this.show("analyze");
                 return;
             }
-            if (n == 21) {
-                byte[] byArray2 = this.readUri(uri);
-                if (this.isolateAnalysis == null || this.isolateAnalysis.pcm == null || this.isolateSampleTrack == null) {
-                    return;
-                }
-                short[] sArray = this.decodeToShorts(uri, byArray2);
-                float[] fArray = new float[sArray.length];
-                for (int i = 0; i < sArray.length; ++i) {
-                    fArray[i] = (float)sArray[i] / 32768.0f;
-                }
-                AudioIo.PadIso padIso = AudioIo.isolateFromSample(this.isolateAnalysis.pcm, this.isolateSampleTrack, fArray);
-                for (int i = 0; i < this.isolateAnalysis.pads.size(); ++i) {
-                    if (!this.isolateSampleTrack.equals(this.isolateAnalysis.pads.get((int)i).track)) continue;
-                    this.isolateAnalysis.pads.set(i, padIso);
-                    break;
-                }
-                AudioIo.continueIsolation(this.isolateAnalysis.pcm, this.isolateAnalysis.pads);
-                this.rememberIsoPads();
-                String string = padIso.fromSample ? padIso.name + " loaded from sample \u00b7 " + padIso.hz + " Hz." : (padIso.found ? padIso.name + " matched the sample at " + padIso.hz + " Hz." : "Could not match " + padIso.name + " from that sample.");
-                this.isolateStatus.setText((CharSequence)(AudioIo.isolationStatus(this.isolateAnalysis.pads) + " " + string));
-                Toast.makeText((Context)this, (CharSequence)string, (int)0).show();
-                this.refreshIsolate();
-                return;
-            }
             if (n == 13) {
                 byte[] byArray3 = this.readUri(uri);
                 int n3 = this.padTarget;
@@ -4797,31 +4463,6 @@ extends Activity {
             this.show("song");
             this.applyPart(list.get(0));
             Toast.makeText((Context)this, (CharSequence)(list.size() + " parts loaded"), (int)0).show();
-            return;
-        }
-        if ("wav".equals(string2) || "mp3".equals(string2)) {
-            AudioIo.Pcm pcm;
-            if ("wav".equals(string2)) {
-                pcm = AudioIo.parseWav(byArray);
-            } else {
-                short[] shorts = this.decodeToShorts(uri, byArray);
-                float[] fArray = new float[shorts.length];
-                for (int i = 0; i < shorts.length; ++i) {
-                    fArray[i] = (float)shorts[i] / 32768.0f;
-                }
-                pcm = new AudioIo.Pcm(fArray, 22050);
-            }
-            AudioIo.Analysis object2 = AudioIo.analyze(pcm.samples, pcm.sr);
-            if (object2.isolated) {
-                this.applyIsoMemory((AudioIo.Analysis)object2, string);
-                this.isolateAnalysis = object2;
-                this.isolateFile = string;
-                this.refreshIsolate();
-                this.show("isolate");
-                Toast.makeText((Context)this, (CharSequence)"Kick and snare found", (int)0).show();
-                return;
-            }
-            this.applyAnalysis((AudioIo.Analysis)object2, string);
             return;
         }
         if ("sf2".equals(string2)) {
@@ -5353,51 +4994,6 @@ extends Activity {
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
-    /**
-     * Adds a drum set made from the pads isolated out of a song. Pads the song
-     * did not yield play the Original kit's sound instead of silence. The set
-     * becomes the active kit only when the user chose "Use pads"; "Skip" adds
-     * nothing.
-     */
-    private void addIsolatedSet(String string, List<AudioIo.PadIso> list) {
-        if (this.isoPadMode == ISO_PADS_SKIP) {
-            return;
-        }
-        Engine.DrumSet drumSet = Engine.DrumSet.isolated("s" + Integer.toHexString((int)(Math.random() * 1.0E9)), Engine.uniqueSetName(string, this.drumSets));
-        int n = 0;
-        Object object = this.mixLock;
-        synchronized (object) {
-            for (AudioIo.PadIso padIso : list) {
-                int n2 = AudioIo.voiceIndex(padIso.track);
-                if (n2 < 0 || !padIso.found || padIso.sample == null) continue;
-                drumSet.samples[n2] = padIso.sample;
-                ++n;
-            }
-        }
-        if (n == 0) {
-            return;
-        }
-        for (int t = 0; t < drumSet.samples.length; ++t) {
-            if (drumSet.samples[t] == null) {
-                drumSet.matchOrig[t] = true;
-            }
-        }
-        Engine.DrumSet active = this.activeDrumSet();
-        this.drumSets.add(drumSet);
-        while (this.drumSets.size() > 9) {
-            this.drumSets.remove(1);
-        }
-        boolean select = this.isoPadMode == ISO_PADS_USE;
-        int keep = this.drumSets.indexOf(active);
-        this.drumSetIndex = select || keep < 0 ? this.drumSets.size() - 1 : keep;
-        this.refreshDrumSets();
-        this.refreshPadLabels();
-        Toast.makeText((Context)this, (CharSequence)("Drum set \u00b7 " + drumSet.name + " \u00b7 " + n + " pads" + (select ? "" : " \u00b7 pick it under Pads")), (int)0).show();
-        if (select) {
-            this.show("pads");
-        }
-    }
-
     private byte[] encodeWav() {
         return AudioIo.encodeWav(this.mixPcm(), 22050);
     }
@@ -5589,11 +5185,6 @@ extends Activity {
     private boolean pkAudioBusy;
     private java.lang.String pkAnErr;
     private pulsekit.AudioIo.PartAnalysis pkAnPending;
-    private byte[] pkIsoBytes;
-    private android.net.Uri pkIsoUri;
-    private java.lang.String pkIsoName;
-    private java.lang.String pkIsoErr;
-    private pulsekit.AudioIo.Analysis pkIsoPending;
     private android.widget.LinearLayout composePane;
     private android.widget.LinearLayout composeRows;
     private android.widget.TextView composeStatus;
@@ -5750,7 +5341,7 @@ extends Activity {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "isolate".equals(this.view) || "analyze".equals(this.view) || "compose".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "analyze".equals(this.view) || "compose".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }
@@ -5767,25 +5358,6 @@ extends Activity {
     protected void onCreate(Bundle bundle) {
         this.onCreateBase(bundle);
         ArtJava.pinWorkDir(this);
-    }
-    /** How the next isolation result treats the pads it found in the song. */
-    private static final int ISO_PADS_AUTO = 0;
-    private static final int ISO_PADS_USE = 1;
-    private static final int ISO_PADS_SKIP = 2;
-    private int isoPadMode = ISO_PADS_AUTO;
-
-    /** Called by the isolate pane's "Use pads" and "Skip" buttons. */
-    private void finishIsolation(int padMode) {
-        this.isoPadMode = padMode;
-        try {
-            if (this.tryPackIsolation()) {
-                return;
-            }
-            this.finishIsolationBase();
-        }
-        finally {
-            this.isoPadMode = ISO_PADS_AUTO;
-        }
     }
     private boolean learnFromSongImport(String string, Engine.MidiBars midiBars) {
         if (this.tryPackMidiFileSet(string, midiBars, true)) {
@@ -5850,26 +5422,9 @@ extends Activity {
         this.wireFileSetListActions();
     }
     private void ingest(byte[] byArray, String string, Uri uri) throws Exception {
-        // Audio goes to the background isolation job.
-        if (byArray != null && byArray.length >= 4) {
-            java.lang.String k = pulsekit.AudioIo.sniff(byArray);
-            java.lang.String n = string == null ? "" : string.toLowerCase();
-            boolean audio = "wav".equals(k) || "mp3".equals(k) || n.endsWith(".wav") || n.endsWith(".wave") || n.endsWith(".mp3");
-            if (audio) {
-                if (this.pkAudioBusy) {
-                    android.widget.Toast.makeText(this, "Still working on the song", 0).show();
-                    return;
-                }
-                this.pkAudioBusy = true;
-                this.pkIsoBytes = byArray;
-                this.pkIsoUri = uri;
-                this.pkIsoName = string;
-                this.pkIsoErr = null;
-                this.pkIsoPending = null;
-                android.widget.Toast.makeText(this, "Isolating…", 0).show();
-                new java.lang.Thread(new pulsekit.IsolateJob(this), "pulsekit-isolate").start();
-                return;
-            }
+        // WAV and MP3 become the input file of the PyJav program (e.g. MidiDrumGen.java).
+        if (this.pkTakeAudioInput(byArray, string)) {
+            return;
         }
         // Programs (.java, .class, .jar, .js, .ts) open in PyJav.
         if (this.pkTakeProgram(byArray, string)) {
@@ -6020,7 +5575,6 @@ extends Activity {
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
             if (this.exportPane != null) this.exportPane.setVisibility(8);
-            if (this.isolatePane != null) this.isolatePane.setVisibility(8);
             if (this.padsPane != null) this.padsPane.setVisibility(8);
             if (this.songPane != null) this.songPane.setVisibility(8);
             if (this.pyPane != null) this.pyPane.setVisibility(8);
@@ -6202,62 +5756,6 @@ extends Activity {
         this.showAnalyze(analysis);
     }
 
-    public void runIsolateJob() {
-        java.lang.String err = null;
-        pulsekit.AudioIo.Analysis analysis = null;
-        try {
-            byte[] bytes = this.pkIsoBytes;
-            android.net.Uri uri = this.pkIsoUri;
-            java.lang.String name = this.pkIsoName;
-            java.lang.String kind = pulsekit.AudioIo.sniff(bytes);
-            java.lang.String low = name == null ? "" : name.toLowerCase();
-            boolean mp3 = "mp3".equals(kind) || low.endsWith(".mp3");
-            pulsekit.AudioIo.Pcm pcm = this.songPcm(bytes, mp3, uri);
-            bytes = null;
-            this.pkIsoBytes = null;
-            analysis = pulsekit.AudioIo.analyze(pcm.samples, pcm.sr);
-            pulsekit.AudioIo.compactImportBars(analysis);
-        } catch (java.lang.Throwable ex) {
-            err = ex instanceof java.lang.OutOfMemoryError
-                ? "That song is too large for this device"
-                : ex.getMessage();
-            if (err == null || err.length() == 0) err = "Could not isolate that song";
-        }
-        this.pkIsoErr = err;
-        this.pkIsoPending = analysis;
-        this.handler.post(new pulsekit.IsolateDone(this));
-    }
-
-    public void finishIsolateJob() {
-        this.pkAudioBusy = false;
-        this.pkIsoBytes = null;
-        java.lang.String err = this.pkIsoErr;
-        pulsekit.AudioIo.Analysis analysis = this.pkIsoPending;
-        java.lang.String name = this.pkIsoName != null ? this.pkIsoName : "song";
-        this.pkIsoErr = null;
-        this.pkIsoPending = null;
-        if (err != null || analysis == null) {
-            java.lang.String m = err != null ? err : "Could not isolate that song";
-            android.widget.Toast.makeText(this, m, 1).show();
-            return;
-        }
-        try {
-            if (analysis.isolated) {
-                this.applyIsoMemory(analysis, name);
-                this.isolateAnalysis = analysis;
-                this.isolateFile = name;
-                this.refreshIsolate();
-                this.show("isolate");
-                android.widget.Toast.makeText(this, "Kick and snare found", 0).show();
-            } else {
-                this.applyAnalysis(analysis, name);
-            }
-        } catch (java.lang.Throwable ex) {
-            java.lang.String m = ex.getMessage();
-            android.widget.Toast.makeText(this, m != null && m.length() > 0 ? m : "Could not open that song", 1).show();
-        }
-    }
-
     private void takeAnalyzeFile(android.net.Uri uri) {
         try {
             this.analyzeUri = uri;
@@ -6311,9 +5809,7 @@ extends Activity {
         lp.setMargins(0, this.dp(8), 0, 0);
         this.analyzePane.addView(scroll, lp);
         android.view.ViewGroup host = null;
-        if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
-            host = (android.view.ViewGroup) this.isolatePane.getParent();
-        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+        if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.importPane.getParent();
         } else if (this.exportPane != null && this.exportPane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.exportPane.getParent();
@@ -6713,8 +6209,6 @@ extends Activity {
         android.view.ViewGroup host = null;
         if (this.analyzePane != null && this.analyzePane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.analyzePane.getParent();
-        } else if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
-            host = (android.view.ViewGroup) this.isolatePane.getParent();
         } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.importPane.getParent();
         }
@@ -6732,9 +6226,7 @@ extends Activity {
         this.promptsPane = pulsekit.PromptSheet.create(this);
         this.promptsPane.setVisibility(8);
         android.view.ViewGroup host = null;
-        if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
-            host = (android.view.ViewGroup) this.isolatePane.getParent();
-        } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
+        if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.importPane.getParent();
         }
         if (host != null) {
@@ -7618,8 +7110,6 @@ extends Activity {
         android.view.ViewGroup host = null;
         if (this.analyzePane != null && this.analyzePane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.analyzePane.getParent();
-        } else if (this.isolatePane != null && this.isolatePane.getParent() instanceof android.view.ViewGroup) {
-            host = (android.view.ViewGroup) this.isolatePane.getParent();
         } else if (this.importPane != null && this.importPane.getParent() instanceof android.view.ViewGroup) {
             host = (android.view.ViewGroup) this.importPane.getParent();
         }
@@ -7627,48 +7117,6 @@ extends Activity {
             android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
             host.addView((android.view.View) this.infoPane, (android.view.ViewGroup.LayoutParams) flp);
         }
-    }
-
-    private boolean packIsolationFileSet(pulsekit.AudioIo.Analysis a, java.lang.String file, boolean anyPad) {
-        try {
-            if (a == null || a.pcm == null || a.pcm.length < pulsekit.AudioIo.SR * 2) return false;
-            pulsekit.AudioIo.PartAnalysis parts = pulsekit.AudioIo.analyzeParts(a.pcm, pulsekit.AudioIo.SR);
-            java.lang.String stem = pulsekit.Engine.uniqueImportSource(pulsekit.Engine.stemNameFromMidi(file), this.learned, this.learnedFills);
-            pulsekit.Engine.FileSet set = pulsekit.AudioIo.fileSetFromParts(parts, stem, "isolate");
-            if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
-            this.storeFsetParts(stem, set.parts);
-            byte[] packed = pulsekit.Engine.encodeFset(set);
-            this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
-            if (anyPad) this.show("pads");
-            return true;
-        } catch (java.lang.Exception ex) {
-            java.lang.String m = ex.getMessage();
-            this.setNow(m != null ? m : "Could not build a file set");
-            return false;
-        }
-    }
-
-    private boolean tryPackIsolation() {
-        if (this.isolateAnalysis == null || this.isolateAnalysis.pcm == null) return false;
-        pulsekit.AudioIo.Analysis a = this.isolateAnalysis;
-        java.lang.String file = this.isolateFile != null ? this.isolateFile : "song";
-        this.rememberIsoPads();
-        boolean anyPad = false;
-        java.util.Iterator it = a.pads.iterator();
-        while (it.hasNext()) {
-            pulsekit.AudioIo.PadIso p = (pulsekit.AudioIo.PadIso) it.next();
-            if (p.found && p.sample != null) anyPad = true;
-        }
-        if (!anyPad && (a.kickSample != null || a.snareSample != null)) anyPad = true;
-        if (this.isoPadMode == ISO_PADS_SKIP) anyPad = false;
-        if (anyPad) this.addIsolatedSet(pulsekit.Engine.stemNameFromMidi(file), a.pads);
-        boolean packed = this.packIsolationFileSet(a, file, anyPad);
-        this.isolateAnalysis = null;
-        this.isolateFile = null;
-        if (packed) return true;
-        if (anyPad) this.show("pads");
-        else this.applyAnalysis(a, file);
-        return true;
     }
 
     public void closeFileSetInfo() {
@@ -8090,6 +7538,9 @@ extends Activity {
 
     private void pkApplyHint(String hint) {
         if (hint == null) hint = "";
+        if (this.pkPyInputPath == null && this.pkAudioInputPath != null && new java.io.File(this.pkAudioInputPath).isFile()) {
+            this.pkPyInputPath = this.pkAudioInputPath;
+        }
         if (this.pkPyHint != null) this.pkPyHint.setText(hint);
         if (this.pkPyLog != null) this.pkPyLog.setText(hint);
         this.pkPyInputToken = pulsekit.PyJavHints.firstInput(hint);
@@ -8731,20 +8182,72 @@ extends Activity {
                 int n;
                 while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
             } finally { fos.close(); in.close(); }
-            String path = out.getAbsolutePath();
-            this.pkPyInputPath = path;
-            String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
-            java.io.File folder = new java.io.File(this.getCacheDir(), "pyjav-in");
-            String note = pulsekit.PyJavHints.outputNotice("", hint, path, folder.getAbsolutePath());
-            String next = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, path, folder.getAbsolutePath());
-            String output = pulsekit.PyJavHints.outputFile(path, hint, folder.getAbsolutePath());
-            this.pkPyOutputPath = output;
-            if (this.pkPyArgs != null) this.pkPyArgs.setText(next);
-            if (this.pkPyLog != null) this.pkPyLog.setText(note);
+            this.pkUseInputPath(out.getAbsolutePath());
         } catch (Exception ex) {
             String m = ex.getMessage();
             if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
         }
+    }
+
+    /** Makes path the PyJav input file and fills the program's args from its hint. */
+    private void pkUseInputPath(String path) {
+        this.pkPyInputPath = path;
+        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        java.io.File folder = new java.io.File(this.getCacheDir(), "pyjav-in");
+        String note = pulsekit.PyJavHints.outputNotice("", hint, path, folder.getAbsolutePath());
+        String next = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, path, folder.getAbsolutePath());
+        this.pkPyOutputPath = pulsekit.PyJavHints.outputFile(path, hint, folder.getAbsolutePath());
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(next);
+        if (this.pkPyLog != null) this.pkPyLog.setText(note);
+    }
+
+    /**
+     * Imported WAV or MP3: copy it into PyJav's input folder and open PyJav, so a
+     * program such as MidiDrumGen.java can turn it into MIDI.
+     */
+    /** Last WAV/MP3 imported as PyJav input; programs opened later still get it. */
+    private String pkAudioInputPath;
+
+    private boolean pkTakeAudioInput(byte[] data, String name) {
+        if (data == null || data.length < 4) {
+            return false;
+        }
+        String kind = AudioIo.sniff(data);
+        String low = name == null ? "" : name.toLowerCase();
+        boolean audio = "wav".equals(kind) || "mp3".equals(kind) || low.endsWith(".wav") || low.endsWith(".wave") || low.endsWith(".mp3");
+        if (!audio) {
+            return false;
+        }
+        String base = name == null || name.isEmpty() ? "input." + ("mp3".equals(kind) ? "mp3" : "wav") : name;
+        int slash = Math.max(base.lastIndexOf(47), base.lastIndexOf(58));
+        if (slash >= 0) {
+            base = base.substring(slash + 1);
+        }
+        base = base.replace(' ', '_');
+        try {
+            java.io.File dir = new java.io.File(this.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) {
+                dir.mkdirs();
+            }
+            java.io.File out = new java.io.File(dir, base);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            try {
+                fos.write(data);
+            }
+            finally {
+                fos.close();
+            }
+            this.pkAudioInputPath = out.getAbsolutePath();
+            this.show("py");
+            this.pkUseInputPath(this.pkAudioInputPath);
+            this.setNow("PyJav input \u00b7 " + base);
+            Toast.makeText((Context)this, (CharSequence)(base + " is the PyJav input. Run MidiDrumGen.java to make MIDI."), (int)1).show();
+        }
+        catch (Exception exception) {
+            String m = exception.getMessage();
+            Toast.makeText((Context)this, (CharSequence)(m != null ? m : "Could not use that audio file"), (int)1).show();
+        }
+        return true;
     }
 
     private android.widget.LinearLayout pkMidiRow(java.lang.String src) {
