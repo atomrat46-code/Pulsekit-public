@@ -2104,8 +2104,24 @@ public final class Engine {
     return item == null || item.source == null || item.source.isEmpty() ? "" : item.source;
   }
 
-  public static String newLearnedId() {
-    return "c" + Long.toString(System.currentTimeMillis(), 36) + Integer.toString((int) (Math.random() * 36), 36);
+  private static long lastIdMillis;
+  private static int idSeq;
+
+  /**
+   * "c" + time in base 36 + a sequence number. An import creates several patterns
+   * in the same millisecond; the old random last digit let two of them share an id
+   * (about 1 in 36), and the second then replaced the first.
+   */
+  public static synchronized String newLearnedId() {
+    long now = System.currentTimeMillis();
+    if (now <= lastIdMillis) {
+      now = lastIdMillis;
+      idSeq++;
+    } else {
+      lastIdMillis = now;
+      idSeq = 0;
+    }
+    return "c" + Long.toString(now, 36) + Integer.toString(idSeq, 36);
   }
 
   public static String learnedJson(List<Learned> list) {
