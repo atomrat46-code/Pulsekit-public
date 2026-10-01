@@ -304,6 +304,10 @@ final class PyJav {
     public void pkApplyRecent(int index) {
         if (this.pkPyRecentMute || this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
         pulsekit.PyJavRecent.Item item = (pulsekit.PyJavRecent.Item) this.pkPyRecentItems.get(index - 1);
+        // A bundled program (Programs/Java or Python) runs as the app ships it now, not the copy
+        // saved when it last ran, so fixes reach programs picked from Recent.
+        String bundled = item.bytes == null || item.bytes.length == 0 ? app.programMenus.bundledSource(item.name) : null;
+        String source = bundled != null ? bundled : item.source;
         app.pyName = item.name;
         this.pkPyInputPath = null;
         boolean binary = item.bytes != null && item.bytes.length > 0;
@@ -313,7 +317,7 @@ final class PyJav {
         if (app.pyEditor != null) {
             if (binary) app.pyEditor.setText("// " + item.name + "\n// Binary. Run uses this file.\n");
             else {
-                String text = item.source == null ? "" : item.source;
+                String text = source == null ? "" : source;
                 if (item.name != null && item.name.toLowerCase().endsWith(".prompt")) {
                     pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
                     app.pkPromptSource = text;
@@ -327,7 +331,7 @@ final class PyJav {
         }
         this.pkShowPromptModes();
         app.setNow("PyJav · " + item.label());
-        String hint = pulsekit.PyJavHints.status(item.name, item.source, item.bytes);
+        String hint = pulsekit.PyJavHints.status(item.name, source, item.bytes);
         this.pkApplyHint(hint);
         // The hint fills args from the program's usage; the recent item's own args win.
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);

@@ -981,6 +981,24 @@ public class BehaviorTest {
     write("s34_params_from_program", out.toString());
   }
 
+  /** A Recent entry for a bundled program loads the program as the app ships it, not the saved copy. */
+  @Test
+  public void s35_recent_uses_bundled_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    PyJavRecent.remember(app.getFilesDir(), "CompareHits.java", "a.wav d.mid", "// old copy with a lambda\n", null);
+    call("pkRefreshRecent", 0);
+    idle();
+    call("pkApplyRecent", 1);
+    idle();
+    String editor = ((TextView) get("pyEditor")).getText().toString();
+    out.append("editor has old copy=").append(editor.contains("old copy")).append('\n');
+    out.append("editor has bundled program=").append(editor.contains("public final class CompareHits")).append('\n');
+    out.append("args kept=").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s35_recent_uses_bundled_program", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

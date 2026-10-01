@@ -461,10 +461,14 @@ final class PyJav {
         PyJavRecent.Item item = this.pyRecentItems.get(index - 1);
         app.pyInputPath = null;
         boolean binary = item.bytes != null && item.bytes.length > 0;
-        byte[] data = binary ? item.bytes : (item.source == null ? new byte[0] : item.source.getBytes(StandardCharsets.UTF_8));
+        // A bundled program (Programs/Java or Python) runs as the app ships it now, not the copy
+        // saved when it last ran, so fixes reach programs picked from Recent.
+        String bundled = binary ? null : ProgramFiles.bundledSource(item.name);
+        String source = bundled != null ? bundled : item.source;
+        byte[] data = binary ? item.bytes : (source == null ? new byte[0] : source.getBytes(StandardCharsets.UTF_8));
         this.rememberProgram(item.name, data, binary, false);
         app.pyInputPath = null;
-        this.showPyHint(PyJavHints.status(item.name, item.source, item.bytes));
+        this.showPyHint(PyJavHints.status(item.name, source, item.bytes));
         // The hint fills args from the program's usage; the recent item's own args win.
         if (this.pyExtra != null) this.pyExtra.setText(item.extra);
     }
