@@ -482,6 +482,62 @@ public class BehaviorTest {
     write("s21_create_fillern", out.toString());
   }
 
+  @Test
+  public void s22_imported_list_scrolls() throws Exception {
+    String[] styles = {"rock", "funk", "house", "techno", "trap", "hiphop"};
+    for (int k = 0; k < styles.length; k++) {
+      List<Engine.Part> parts = new ArrayList<>();
+      parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get(styles[k])), 2));
+      parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get(styles[(k + 1) % styles.length])), 2));
+      call("ingest", Engine.encodeSongMidi(parts), "Set " + (k + 1) + ".mid", null);
+      idle();
+      AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (song != null && song.isShowing()) {
+        song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idle();
+      }
+    }
+    call("show", "combo");
+    idle();
+    // Open every folded file set.
+    for (int round = 0; round < 10; round++) {
+      TextView folded = null;
+      for (View v : allViews(root())) {
+        if (v instanceof TextView && v.isShown() && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().startsWith("\u25b8 ")) {
+          folded = (TextView) v;
+          break;
+        }
+      }
+      if (folded == null) break;
+      folded.performClick();
+      idle();
+    }
+    StringBuilder out = new StringBuilder();
+    int notes = 0;
+    for (View v : allViews(root())) if ("fillern-none".equals(v.getTag())) notes++;
+    out.append("file sets with the no-fillerns note=").append(notes).append('\n');
+    View scroll = root().findViewWithTag("imported-scroll");
+    View inner = ((ViewGroup) scroll).getChildAt(0);
+    int screen = app.getResources().getDisplayMetrics().heightPixels;
+    out.append("list taller than its box=").append(inner.getHeight() > scroll.getHeight()).append('\n');
+    out.append("box at most a third of the screen=").append(scroll.getHeight() <= screen / 3 + 1).append('\n');
+    View knobs = (View) get("knobsRow");
+    int[] at = new int[2];
+    knobs.getLocationInWindow(at);
+    out.append("knobs on screen=").append(knobs.isShown() && at[1] + knobs.getHeight() <= screen).append('\n');
+    write("s22_imported_scroll", out.toString());
+  }
+
+  private List<View> allViews(View v) {
+    List<View> out = new ArrayList<>();
+    out.add(v);
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) out.addAll(allViews(g.getChildAt(i)));
+    }
+    return out;
+  }
+
   /** Text of the shown chips in the imported pattern packs. */
   private String packChips() throws Exception {
     List<String> names = new ArrayList<>();

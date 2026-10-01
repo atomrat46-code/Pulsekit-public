@@ -540,7 +540,7 @@ extends JFrame {
         this.styleHost.add(this.sectionLab("Variated"));
         this.styleHost.add(this.variatedPatternBar);
         this.styleHost.add(this.sectionLab("Imported"));
-        this.styleHost.add(this.importedBar);
+        this.styleHost.add(this.cappedScroll(this.importedBar, 260));
         this.fillHost.setOpaque(false);
         this.fillHost.setLayout(new BoxLayout(this.fillHost, BoxLayout.Y_AXIS));
         this.fillHost.setAlignmentX(0.0f);
@@ -605,7 +605,7 @@ extends JFrame {
         this.fillHost.add(this.sectionLab("Variated"));
         this.fillHost.add(this.variatedFillBar);
         this.fillHost.add(this.sectionLab("Imported"));
-        this.fillHost.add(this.importedFillBar);
+        this.fillHost.add(this.cappedScroll(this.importedFillBar, 160));
         this.fillHost.setVisible(false);
         this.chrome.add(this.styleHost);
         this.chrome.add(this.fillHost);
@@ -4341,6 +4341,28 @@ extends JFrame {
                 this.paintChip(jButton, this.fillId.equals(jButton.getClientProperty("fill")));
             });
         }
+    }
+
+    /** The imported file sets scroll inside at most maxHeight pixels, so a long list leaves room for the grid. */
+    private JScrollPane cappedScroll(JComponent content, int maxHeight) {
+        JScrollPane scroll = new JScrollPane(content, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension d = content.getPreferredSize();
+                return new Dimension(d.width, Math.min(maxHeight, d.height + 4));
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+            }
+        };
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setAlignmentX(0.0f);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
     }
 
     private void flatten(JButton jButton) {

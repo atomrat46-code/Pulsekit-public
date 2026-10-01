@@ -23,6 +23,26 @@ final class StyleLibrary {
         this.app = app;
     }
 
+    /**
+     * The imported file sets scroll inside at most a third of the screen, so a long list
+     * does not push the knobs and the grid off the screen.
+     */
+    View cappedScroll(View content) {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app) {
+            @Override
+            protected void onMeasure(int widthSpec, int heightSpec) {
+                int cap = (int) (getResources().getDisplayMetrics().heightPixels * 0.33f);
+                int size = View.MeasureSpec.getSize(heightSpec);
+                if (View.MeasureSpec.getMode(heightSpec) == View.MeasureSpec.UNSPECIFIED || size > cap) size = cap;
+                super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.AT_MOST));
+            }
+        };
+        scroll.setTag("imported-scroll");
+        scroll.setFillViewport(false);
+        scroll.addView(content);
+        return scroll;
+    }
+
     /** Builds the Built-in / Variated / Imported chip strips for patterns and for fills. */
     void buildStyleStrips() {
         TextView textView4;
@@ -51,7 +71,7 @@ final class StyleLibrary {
         emptyStyles.setTextColor(MUTED);
         emptyStyles.setTag("imported-empty");
         app.importedHost.addView((View)emptyStyles);
-        app.styleWrap.addView((View)app.importedHost);
+        app.styleWrap.addView((View)this.cappedScroll(app.importedHost));
         app.chrome.addView((View)app.styleWrap);
         app.fillWrap = app.col();
         app.fillWrap.addView((View)app.sectionLabel("Built-in"));
@@ -80,7 +100,7 @@ final class StyleLibrary {
         emptyFills.setTextColor(MUTED);
         emptyFills.setTag((Object)"imported-empty");
         app.importedFillHost.addView((View)emptyFills);
-        app.fillWrap.addView((View)app.importedFillHost);
+        app.fillWrap.addView((View)this.cappedScroll(app.importedFillHost));
         app.fillWrap.setVisibility(8);
         app.chrome.addView((View)app.fillWrap);
     }
