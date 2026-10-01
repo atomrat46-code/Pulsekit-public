@@ -313,26 +313,27 @@ public final class AudioIo {
 
   /**
    * A song as heard, for Song WAV / Song MP3 export: every part in turn at its own tempo and
-   * length, with hits ringing on into the next part and past the end. Muted tracks are left out.
+   * length, with hits ringing on into the next part. The audio is exactly as long as the song:
+   * steps sit at their exact times, and the last few milliseconds fade out instead of clicking.
+   * Muted tracks are left out.
    */
   public static short[] renderSong(java.util.List<Engine.Part> parts, boolean[] mutes, short[][] voices, int sr) {
     if (parts == null || parts.isEmpty()) return new short[0];
-    long length = 0;
+    double length = 0;
     for (Engine.Part p : parts) {
       if (p == null) continue;
-      length += songStepSamples(p, sr) * (long) songPartSteps(p) * Math.max(1, p.repeats);
+      length += songStepSamples(p, sr) * songPartSteps(p) * Math.max(1, p.repeats);
     }
-    int tail = 0;
-    for (int t = 0; voices != null && t < voices.length; t++) if (voices[t] != null) tail = Math.max(tail, voices[t].length);
-    int total = (int) Math.min(Integer.MAX_VALUE - 8, length + tail);
+    int total = (int) Math.min(Integer.MAX_VALUE - 8, Math.round(length));
     int[] acc = new int[total];
-    long at = 0;
+    double pos = 0;
     for (Engine.Part p : parts) {
       if (p == null) continue;
-      int stepN = songStepSamples(p, sr);
+      double stepN = songStepSamples(p, sr);
       int nSteps = songPartSteps(p);
       for (int r = 0; r < Math.max(1, p.repeats); r++) {
-        for (int s = 0; s < nSteps; s++, at += stepN) {
+        for (int s = 0; s < nSteps; s++, pos += stepN) {
+          long at = Math.round(pos);
           for (int t = 0; t < Engine.TRACK_ID.length; t++) {
             if (mutes != null && t < mutes.length && mutes[t]) continue;
             int vel = p.cells != null && t < p.cells.length && p.cells[t] != null && s < p.cells[t].length ? p.cells[t][s] : 0;
@@ -345,13 +346,18 @@ public final class AudioIo {
         }
       }
     }
+    int fade = Math.min(total, Math.max(1, sr / 100));
     short[] pcm = new short[total];
-    for (int i = 0; i < total; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, acc[i]));
+    for (int i = 0; i < total; i++) {
+      int v = acc[i];
+      if (i >= total - fade) v = (int) ((long) v * (total - i) / (fade + 1));
+      pcm[i] = (short) Math.max(-32767, Math.min(32767, v));
+    }
     return pcm;
   }
 
-  private static int songStepSamples(Engine.Part p, int sr) {
-    return Math.max(200, (int) Math.round(sr * 60.0 / Math.max(40, p.bpm > 0 ? p.bpm : 120) / 4.0));
+  private static double songStepSamples(Engine.Part p, int sr) {
+    return Math.max(200.0, sr * 60.0 / Math.max(40, p.bpm > 0 ? p.bpm : 120) / 4.0);
   }
 
   private static int songPartSteps(Engine.Part p) {

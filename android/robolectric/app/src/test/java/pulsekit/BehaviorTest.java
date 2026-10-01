@@ -865,7 +865,7 @@ public class BehaviorTest {
     double sec = 0;
     for (Engine.Part p : song) sec += p.repeats * p.steps * 15.0 / p.bpm;
     short[] pcm = (short[]) call("songPcm");
-    out.append("song ").append(String.format(java.util.Locale.ROOT, "%.2f", sec)).append(" s, audio longer than the song: ").append(pcm.length / 22050.0 > sec).append('\n');
+    out.append("song ").append(String.format(java.util.Locale.ROOT, "%.2f", sec)).append(" s, audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
     write("s31_song_audio_export", out.toString());
   }
 
@@ -904,7 +904,7 @@ public class BehaviorTest {
     double sec = 0;
     for (Engine.Part p : kept.get(0).parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
     short[] pcm = AudioIo.renderSong(kept.get(0).parts, null, AudioIo.buildVoices(22050), 22050);
-    out.append("audio covers the song: ").append(pcm.length / 22050.0 >= sec).append('\n');
+    out.append("audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
     write("s32_long_song_survives_restart", out.toString());
   }
 

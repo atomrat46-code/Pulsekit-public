@@ -272,7 +272,7 @@ public final class DesktopBehavior {
     short[] pcm = (short[]) call("songPcm", parts);
     double sec = 0;
     for (Engine.Part p : parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
-    out.append("song ").append(String.format("%.2f", sec)).append(" s, audio longer than the song: ").append(pcm.length / 22050.0 > sec).append('\n');
+    out.append("song ").append(String.format("%.2f", sec)).append(" s, audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
   }
 
   private static List<Engine.Part> songParts() {
