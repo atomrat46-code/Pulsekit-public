@@ -22,6 +22,13 @@ public final class PyJavParams {
   private static final String[] HINTS = {
     "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off"
   };
+  /**
+   * Suggested values, tested on a drum and bass guitar mix (Passing Ships): lower sensitivity
+   * keeps bass notes and cymbal wash out. Empty means the program's own default.
+   */
+  private static final String[] SUGGESTED = {
+    "0.4", "0.4", "0.4", "0.4", "0.4", "", "", ""
+  };
   private static final String PREFS = "pulsekit-pyjav-params";
 
   private PyJavParams() {}
@@ -35,6 +42,28 @@ public final class PyJavParams {
     LinearLayout box = new LinearLayout(activity);
     box.setOrientation(LinearLayout.VERTICAL);
     box.setPadding(pad, pad, pad, pad);
+    LinearLayout resets = new LinearLayout(activity);
+    resets.setOrientation(LinearLayout.HORIZONTAL);
+    android.widget.Button defaults = new android.widget.Button(activity);
+    defaults.setText("Reset to defaults");
+    defaults.setTag("params-defaults");
+    android.widget.Button suggested = new android.widget.Button(activity);
+    suggested.setText("Reset to suggested values");
+    suggested.setTag("params-suggested");
+    resets.addView(defaults, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    resets.addView(suggested, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    box.addView(resets);
+    TextView note = new TextView(activity);
+    note.setText("Defaults: the program's own values (empty fields). Suggested: tested on a drum and bass guitar mix.");
+    note.setTextSize(12);
+    note.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+    box.addView(note);
+    defaults.setOnClickListener(v -> {
+      for (EditText f : fields) f.setText("");
+    });
+    suggested.setOnClickListener(v -> {
+      for (int i = 0; i < fields.length; i++) fields[i].setText(SUGGESTED[i]);
+    });
     for (int i = 0; i < FLAGS.length; i++) {
       TextView label = new TextView(activity);
       label.setText(LABELS[i] + "  " + FLAGS[i]);

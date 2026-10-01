@@ -816,6 +816,31 @@ public class BehaviorTest {
     write("s29_song_export_names", out.toString());
   }
 
+  @Test
+  public void s30_drummidi_params_resets() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("in.wav out.mid --sens 2.0 --bpm 99");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    d.getWindow().getDecorView().findViewWithTag("params-suggested").performClick();
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("suggested: ").append(args.getText()).append('\n');
+    call("pkOpenParams");
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    d.getWindow().getDecorView().findViewWithTag("params-defaults").performClick();
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("defaults: ").append(args.getText()).append('\n');
+    write("s30_drummidi_params_resets", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {
