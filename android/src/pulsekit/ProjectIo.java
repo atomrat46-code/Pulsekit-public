@@ -126,11 +126,11 @@ final class ProjectIo {
             List<Engine.Part> songParts = app.songEditor.songPartsForExport();
             intent.putExtra("android.intent.extra.TITLE", Engine.songFilename(songParts, app.songEditor.songFileSet(songParts)).replace(".sng", ".mid"));
         } else if (n == 20 || n == 21) {
-            intent.setType(n == 20 ? "audio/wav" : "audio/mpeg");
+            intent.setType(n == 20 ? "audio/x-wav" : "audio/mpeg");
             List<Engine.Part> songParts = app.songEditor.songPartsForExport();
             intent.putExtra("android.intent.extra.TITLE", Engine.songExportFilename(songParts, app.songEditor.songFileSet(songParts), n == 20 ? "wav" : "mp3"));
         } else if (n == 10) {
-            intent.setType("audio/wav");
+            intent.setType("audio/x-wav");
             intent.putExtra("android.intent.extra.TITLE", this.exportName("wav"));
         } else if (n == 11) {
             intent.setType("audio/mpeg");
