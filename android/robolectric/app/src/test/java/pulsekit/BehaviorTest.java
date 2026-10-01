@@ -250,6 +250,50 @@ public class BehaviorTest {
     snap("s14_persistence_restart");
   }
 
+  @Test
+  public void s15_program_menus() throws Exception {
+    call("show", "py");
+    idle();
+    StringBuilder out = new StringBuilder();
+    for (String kind : new String[] {"Java", "Python", "Code"}) {
+      out.append(kind).append(": ").append(String.join(", ", (String[]) call("list", kind))).append('\n');
+    }
+    String editorBefore = ((TextView) get("pyEditor")).getText().toString();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    out.append("after Java pick: pyName=").append(get("pyName"))
+        .append(" editorUnchanged=").append(editorBefore.equals(((TextView) get("pyEditor")).getText().toString())).append('\n');
+    pickFromMenu("Code \u25be", "sogni-client.mjs");
+    String editor = ((TextView) get("pyEditor")).getText().toString();
+    String run = (String) call("sourceToRun");
+    out.append("after Code pick: pyName=").append(get("pyName"))
+        .append(" editorHasSogni=").append(editor.contains("@sogni-ai/sogni-client"))
+        .append(" runsDrumMidi=").append(run != null && run.contains("public class DrumMidi_CRT")).append('\n');
+    short[] pcm = new short[22050];
+    call("ingest", AudioIo.encodeWav(pcm, 22050), "Song take.wav", null);
+    idle();
+    out.append("after WAV: pyName=").append(get("pyName")).append(" args=")
+        .append(norm(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
+    write("s15_program_menus", out + state() + tree(root(), 0));
+  }
+
+  /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */
+  private void pickFromMenu(String button, String entry) throws Exception {
+    TextView b = findText(root(), button);
+    if (b == null) throw new AssertionError("no button " + button);
+    b.performClick();
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.ListView list = d.getListView();
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (entry.equals(String.valueOf(list.getAdapter().getItem(i)))) {
+        org.robolectric.Shadows.shadowOf(d).clickOnItem(i);
+        idle();
+        return;
+      }
+    }
+    throw new AssertionError("no entry " + entry);
+  }
+
   // ------------------------------------------------------------- snapshotting
 
   private void snap(String name) throws Exception {

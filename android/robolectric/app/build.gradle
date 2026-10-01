@@ -11,7 +11,7 @@ android {
       java.srcDirs = ["$ROOT/android/src", "$ROOT/shared/src"]
       java.exclude '**/Mp3Decode.java'
       res.srcDirs = ["$ROOT/android/res"]
-      assets.srcDirs = ["$ROOT/android/assets"]
+      assets.srcDirs = ["$ROOT/android/assets", "$buildDir/gen-assets"]
     }
   }
   testOptions { unitTests { includeAndroidResources = true; all { maxHeapSize = '2g' } } }
@@ -31,3 +31,10 @@ def stripManifest = tasks.register('stripManifest') {
   doLast { dst.parentFile.mkdirs(); dst.text = src.text.replaceFirst(/\s+package="[^"]*"/, '') }
 }
 preBuild.dependsOn stripManifest
+
+// Programs/ is packaged as assets/Programs, as android/build.sh does.
+def copyPrograms = tasks.register('copyPrograms', Copy) {
+  from "$ROOT/Programs"
+  into "$buildDir/gen-assets/Programs"
+}
+preBuild.dependsOn copyPrograms

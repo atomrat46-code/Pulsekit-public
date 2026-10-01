@@ -1030,6 +1030,8 @@ extends JFrame {
         this.reloadPyRecent(0);
         this.pyRecent.addActionListener(ev -> this.applyPyRecent());
         north.add(this.pyRecent);
+        north.add(Box.createVerticalStrut(6));
+        north.add(this.buildProgramMenus());
         this.pyHint = new JLabel("Possible extra args appear here after you browse a file.");
         this.pyHint.setForeground(FG);
         this.pyHint.setAlignmentX(0.0f);
@@ -1245,7 +1247,8 @@ extends JFrame {
 
     private void runPython() {
         if (this.pyEditor == null) return;
-        final String src = this.pyEditor.getText();
+        final String listed = this.listedProgramCurrent() ? this.listedSource : null;
+        final String src = listed != null ? listed : this.pyEditor.getText();
         final String name = this.pyName == null || this.pyName.isEmpty() ? "drum_midi.py" : this.pyName;
         final byte[] bytes = this.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
@@ -1515,9 +1518,109 @@ extends JFrame {
             }
         }
         this.showPromptModes();
+        this.paintProgramMenus();
         if (!open) return;
         this.showView("py");
         this.setNow("PyJav · " + this.pyName);
+    }
+
+    // ---- Java / Python / Code menus (Programs folder) -----------------------------
+    // Java and Python pick the program Run executes; the editor is left alone.
+    // Code opens a file in the editor for editing and never changes what Run executes.
+
+    private static final String[] PROGRAM_KINDS = {"Java", "Python", "Code"};
+    private final JButton[] programButtons = new JButton[PROGRAM_KINDS.length];
+    private String listedName;
+    private String listedSource;
+    private String listedKind;
+
+    private JPanel buildProgramMenus() {
+        JPanel row = new JPanel(new FlowLayout(0, 8, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(0.0f);
+        for (int i = 0; i < PROGRAM_KINDS.length; i++) {
+            final String kind = PROGRAM_KINDS[i];
+            final JButton[] self = new JButton[1];
+            self[0] = this.action(kind + " \u25be", ELEV, FG, () -> this.showProgramMenu(kind, self[0]));
+            this.programButtons[i] = self[0];
+            row.add(self[0]);
+        }
+        return row;
+    }
+
+    private void showProgramMenu(String kind, JButton anchor) {
+        String[] names = ProgramFiles.list(kind);
+        JPopupMenu menu = new JPopupMenu();
+        if (names.length == 0) {
+            JMenuItem none = new JMenuItem("No programs in Programs/" + kind);
+            none.setEnabled(false);
+            menu.add(none);
+        }
+        for (String name : names) {
+            JMenuItem item = new JMenuItem(name);
+            item.addActionListener(e -> {
+                if ("Code".equals(kind)) this.openCodeFile(name);
+                else this.selectListedProgram(kind, name);
+            });
+            menu.add(item);
+        }
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** Java or Python: this file becomes the program Run executes. */
+    private void selectListedProgram(String kind, String name) {
+        try {
+            byte[] data = ProgramFiles.read(kind, name);
+            String src = new String(data, StandardCharsets.UTF_8);
+            this.pyName = name;
+            this.pyBytes = null;
+            this.pyInputPath = null;
+            this.listedName = name;
+            this.listedSource = src;
+            this.listedKind = kind;
+            this.showPromptModes();
+            this.showPyHint(PyJavHints.status(name, src, data));
+            this.paintProgramMenus();
+            this.setNow("Run \u00b7 " + name);
+        } catch (Exception ex) {
+            if (this.pyLog != null) this.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /** Code: show the file in the editor for editing. What Run executes does not change. */
+    private void openCodeFile(String name) {
+        try {
+            String text = new String(ProgramFiles.read("Code", name), StandardCharsets.UTF_8);
+            if (this.pyEditor != null) {
+                this.pyEditor.setEditable(true);
+                this.pyEditor.setText(text);
+                this.pyEditor.setCaretPosition(0);
+            }
+            if (this.programButtons[2] != null) this.programButtons[2].setText("Code \u00b7 " + name);
+            this.setNow("Editing \u00b7 " + name);
+        } catch (Exception ex) {
+            if (this.pyLog != null) this.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /** True while the listed program is still the current program (nothing else was opened since). */
+    private boolean listedProgramCurrent() {
+        return this.listedName != null && this.listedName.equals(this.pyName) && this.pyBytes == null;
+    }
+
+    private void paintProgramMenus() {
+        if (this.listedName != null && !this.listedProgramCurrent()) {
+            this.listedName = null;
+            this.listedSource = null;
+            this.listedKind = null;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (this.programButtons[i] == null) continue;
+            boolean on = PROGRAM_KINDS[i].equals(this.listedKind);
+            this.programButtons[i].setText(on ? PROGRAM_KINDS[i] + " \u00b7 " + this.listedName : PROGRAM_KINDS[i] + " \u25be");
+            this.programButtons[i].setBackground(on ? HIT : ELEV);
+            this.programButtons[i].setForeground(on ? BG : FG);
+        }
     }
 
     private JPanel buildImportPage() {

@@ -51,6 +51,8 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
+        app.pyEditor.setVerticalScrollBarEnabled(true);
+        app.pyEditor.setScrollbarFadingEnabled(false);
         app.pyPane.addView((View)app.pyEditor, (ViewGroup.LayoutParams)app.flexFill());
         frameLayout.addView((View)app.pyPane);
     }
@@ -142,6 +144,7 @@ final class PyJav {
             this.pkPyRecent.setBackgroundColor(0xFF1B1D1F);
         }
         this.pkRefreshNodeUi();
+        app.programMenus.paint();
     }
 
     public void openPrompts() { app.show("prompts"); }
@@ -470,7 +473,8 @@ final class PyJav {
         app.setNow("Running…");
         String name = app.pyName == null ? "script.py" : app.pyName;
         extra = pulsekit.PyJavParams.merge(extra, pulsekit.PyJavParams.load(app, name));
-        String src = app.pyEditor != null ? app.pyEditor.getText().toString() : "";
+        String listed = app.programMenus.sourceToRun();
+        String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
         src = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, src);
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();
@@ -1002,38 +1006,16 @@ final class PyJav {
             String s = label.getText() == null ? "" : label.getText().toString();
             if (s.indexOf("Python") >= 0 && s.indexOf("Java") >= 0 && s.indexOf("Termux") < 0) label.setText(next);
         }
-        if (app.pyPane.findViewWithTag("sogni-client") != null) return;
-        android.widget.TextView btn = app.text("Sogni client", 13, true);
-        btn.setTag("sogni-client");
-        btn.setGravity(17);
-        btn.setBackground(app.round(ELEV, 8));
-        btn.setOnClickListener(new pulsekit.SogniClientClick(app));
+        if (app.pyPane.findViewWithTag("program-menus") != null) return;
         int at = app.pyPane.getChildCount() > 2 ? 2 : app.pyPane.getChildCount();
-        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, app.dp(40));
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
         lp.bottomMargin = app.dp(8);
-        app.pyPane.addView(btn, at, lp);
+        app.pyPane.addView(app.programMenus.buildRow(), at, lp);
     }
 
     /** JavaScript and TypeScript files run with Node.js (Termux on Android). */
     static boolean isNodeScript(String name) {
         String low = name.toLowerCase();
         return low.endsWith(".js") || low.endsWith(".mjs") || low.endsWith(".cjs") || low.endsWith(".jsx") || low.endsWith(".ts") || low.endsWith(".mts") || low.endsWith(".tsx");
-    }
-
-    public void pkLoadSogniClient(View v) {
-        app.pyName = "sogni-client.mjs";
-        app.pkPyBytes = null;
-        this.pkPyInputPath = null;
-        String src = "import * as sogni from \"@sogni-ai/sogni-client\";\n\n"
-            + "const names = Object.keys(sogni).sort();\n"
-            + "console.log(\"Sogni client loaded\");\n"
-            + "console.log(names.length ? names.join(\", \") : \"(no named exports)\");\n"
-            + "if (!process.env.SOGNI_APP_ID) {\n"
-            + "  console.log(\"Set SOGNI_APP_ID, SOGNI_USERNAME, and SOGNI_PASSWORD to sign in.\");\n"
-            + "}\n";
-        if (app.pyEditor != null) {
-            app.pyEditor.setText(src);
-        }
-        app.setNow("sogni-client.mjs");
     }
 }

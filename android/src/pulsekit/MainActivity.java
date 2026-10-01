@@ -852,6 +852,7 @@ public class MainActivity extends UiKit {
     final ProjectIo projectIo = new ProjectIo(this);
     final Persistence persistence = new Persistence(this);
     final PyJav pyJav = new PyJav(this);
+    final ProgramMenus programMenus = new ProgramMenus(this);
 
 
     void showFileMenu(View anchor) {
