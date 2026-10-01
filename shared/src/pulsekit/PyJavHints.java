@@ -117,10 +117,10 @@ public final class PyJavHints {
     }
     int u = blob.indexOf("Usage:");
     if (u >= 0) {
-      int end = blob.indexOf('\n', u);
-      if (end < 0 || end - u > 160) end = Math.min(blob.length(), u + 160);
-      String usage = blob.substring(u, end).trim();
-      if (usage.length() > 6) {
+      // Java strings split over lines are joined, and the source's closing quote is left out.
+      String usage = "Usage: " + ProgramParams.usageLine(blob, u + 6);
+      if (usage.length() > 220) usage = usage.substring(0, 220);
+      if (usage.length() > 7) {
         if (sb.length() > 0) sb.append('\n');
         sb.append(usage);
       }

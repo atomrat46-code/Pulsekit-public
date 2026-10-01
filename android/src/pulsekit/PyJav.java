@@ -35,7 +35,19 @@ final class PyJav {
 
     /** Builds the PyJav page and its editor. pkWirePyJav adds the run controls later. */
     void buildPyPane(FrameLayout frameLayout) {
-        app.pyPane = app.col();
+        // The page scrolls, so a long argument line or output never pushes Params and Run off screen.
+        // The pane shows and hides its scroll view with it.
+        final android.widget.ScrollView scroll = new android.widget.ScrollView((Context)app);
+        scroll.setFillViewport(true);
+        scroll.setTag("py-scroll");
+        app.pyPane = new android.widget.LinearLayout((Context)app) {
+            @Override
+            public void setVisibility(int visibility) {
+                super.setVisibility(visibility);
+                scroll.setVisibility(visibility);
+            }
+        };
+        app.pyPane.setOrientation(1);
         app.pyPane.setVisibility(8);
         app.pyPane.addView((View)app.text("PyJav", 18, true));
         app.pyEditor = new EditText((Context)app);
@@ -47,8 +59,18 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
-        app.pyPane.addView((View)app.pyEditor, (ViewGroup.LayoutParams)app.flexFill());
-        frameLayout.addView((View)app.pyPane);
+        // A fixed height that scrolls inside, so a long program does not make the page long.
+        app.pyEditor.setVerticalScrollBarEnabled(true);
+        app.pyEditor.setOnTouchListener((v, ev) -> {
+            if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
+            if (ev.getActionMasked() == android.view.MotionEvent.ACTION_UP || ev.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+                v.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            return false;
+        });
+        app.pyPane.addView((View)app.pyEditor, new android.widget.LinearLayout.LayoutParams(-1, app.dp(360)));
+        scroll.addView((View)app.pyPane, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        frameLayout.addView((View)scroll);
     }
 
     boolean pkPyWired;

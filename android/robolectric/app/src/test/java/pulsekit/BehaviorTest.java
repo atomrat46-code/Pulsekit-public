@@ -949,7 +949,10 @@ public class BehaviorTest {
     StringBuilder out = new StringBuilder();
     call("show", "py");
     idle();
-    pickFromMenu("Java \u25be", "CompareHits.java");
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CompareHits.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText()).append('\n');
+    out.append("page scrolls: ").append(root().findViewWithTag("py-scroll") instanceof android.widget.ScrollView).append('\n');
     TextView args = (TextView) get("pkPyArgs");
     args.setText("/x/in.wav");
     call("pkOpenParams");
