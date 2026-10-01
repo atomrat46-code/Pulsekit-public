@@ -68,7 +68,7 @@ public class BehaviorTest {
   @Test
   public void s02_views() throws Exception {
     StringBuilder all = new StringBuilder();
-    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo"}) {
+    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo", "help"}) {
       call("show", v);
       idle();
       all.append("### ").append(v).append('\n').append(state()).append(tree(root(), 0));
@@ -274,6 +274,22 @@ public class BehaviorTest {
     out.append("after WAV: pyName=").append(get("pyName")).append(" args=")
         .append(norm(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
     write("s15_program_menus", out + state() + tree(root(), 0));
+  }
+
+  @Test
+  public void s16_help_from_file_menu() throws Exception {
+    TextView file = findText(root(), "File");
+    if (file == null) throw new AssertionError("no File tab");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView help = findText(pop.getContentView(), "Help-Android");
+    if (help == null) throw new AssertionError("no Help-Android item");
+    help.performClick();
+    idle();
+    TextView pyText = findText(root(), "Python, Java, JavaScript, or TypeScript. On Android, Node.js runs in Termux: "
+        + "pkg install nodejs. npm installs @sogni-ai/sogni-client. Java runs in the app.");
+    write("s16_help", "helpTextShown=" + (pyText != null && pyText.isShown()) + "\n" + state() + tree(root(), 0));
   }
 
   /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */

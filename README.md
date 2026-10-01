@@ -37,6 +37,13 @@ the editor for editing; it does not change what Run executes. Opening a program
 any other way (Browse file, Recent, Import) makes that the program again. To add
 a program, put the file in the right folder and rebuild.
 
+## Help
+
+File > Help-Android (phone) and File > Help-Desktop open a Help page. Its text
+is in `android/src/pulsekit/HelpPage.java` and `HELP_SECTIONS` in
+`desktop/src/pulsekit/Pulsekit.java`; the two differ where the editions run
+programs differently (Termux on Android, Termux for Windows and a JDK on the PC).
+
 ## WAV and MP3
 
 Importing a WAV or MP3 makes it the input file of the PyJav program, so a

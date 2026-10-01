@@ -828,6 +828,8 @@ public class MainActivity extends UiKit {
 
     android.widget.LinearLayout promptsPane;
 
+    android.widget.LinearLayout helpPane;
+
     android.widget.LinearLayout infoPane;
 
     android.widget.TextView infoStatus;
@@ -853,6 +855,7 @@ public class MainActivity extends UiKit {
     final Persistence persistence = new Persistence(this);
     final PyJav pyJav = new PyJav(this);
     final ProgramMenus programMenus = new ProgramMenus(this);
+    final HelpPage helpPage = new HelpPage(this);
 
 
     void showFileMenu(View anchor) {
@@ -867,8 +870,12 @@ public class MainActivity extends UiKit {
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        android.widget.TextView help = this.text("Help-Android", 14, true);
+        help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        help.setTextColor("help".equals(this.view) ? FG : MUTED);
         menu.addView(imp);
         menu.addView(exp);
+        menu.addView(help);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
         pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
@@ -876,6 +883,7 @@ public class MainActivity extends UiKit {
         pop.setElevation((float) this.dp(8));
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
+        help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 
@@ -886,7 +894,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }
@@ -895,6 +903,7 @@ public class MainActivity extends UiKit {
     View buildUi() {
         View root = this.buildUiBase();
         this.pyJav.wirePrompts();
+        this.helpPage.wire();
         this.fileSets.wireInfoPane();
         this.fileSets.loadPersistedFsetInfo();
         return root;
@@ -905,6 +914,11 @@ public class MainActivity extends UiKit {
     void afterShow() {
         boolean info = "fsetinfo".equals(this.view);
         boolean pr = "prompts".equals(this.view);
+        boolean help = "help".equals(this.view);
+        if (this.helpPane != null) {
+            this.helpPane.setVisibility(help ? 0 : 8);
+            if (help) this.helpPane.bringToFront();
+        }
         if (this.infoPane != null) {
             this.infoPane.setVisibility(info ? 0 : 8);
             if (info) this.infoPane.bringToFront();
@@ -913,7 +927,7 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr) {
+        if (info || pr || help) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -926,7 +940,9 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (pr) {
+            if (help) {
+                this.setNow("Help");
+            } else if (pr) {
                 this.setNow("Prompts");
             } else {
                 if (this.infoStatus != null) this.setNow(this.infoStatus.getText().toString());

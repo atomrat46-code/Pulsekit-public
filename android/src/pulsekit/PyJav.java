@@ -38,10 +38,6 @@ final class PyJav {
         app.pyPane = app.col();
         app.pyPane.setVisibility(8);
         app.pyPane.addView((View)app.text("PyJav", 18, true));
-        TextView textView20 = app.text("Python, or Java .java / .jar / .class. Run uses java or python3 on this device when it is installed.", 14, false);
-        textView20.setTextColor(MUTED);
-        textView20.setPadding(0, app.dp(8), 0, app.dp(8));
-        app.pyPane.addView((View)textView20);
         app.pyEditor = new EditText((Context)app);
         app.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
         app.pyEditor.setTypeface(Typeface.MONOSPACE);
@@ -141,7 +137,7 @@ final class PyJav {
             app.pyPane.addView(this.pkPyRecent, at);
             this.pkPyRecent.setBackgroundColor(0xFF1B1D1F);
         }
-        this.pkRefreshNodeUi();
+        this.addProgramMenus();
         app.programMenus.paint();
     }
 
@@ -323,10 +319,6 @@ final class PyJav {
         if (app.pyPane == null) return;
         if (app.pyPane.getChildCount() > 0 && app.pyPane.getChildAt(0) instanceof android.widget.TextView) {
             ((android.widget.TextView) app.pyPane.getChildAt(0)).setText("PyJav");
-        }
-        if (app.pyPane.getChildCount() > 1 && app.pyPane.getChildAt(1) instanceof android.widget.TextView) {
-            android.widget.TextView hint = (android.widget.TextView) app.pyPane.getChildAt(1);
-            hint.setText("Python, Java, or a .prompt file. Java is compiled in the app and run on ART.");
         }
         if (this.pkPyWired) return;
         this.pkPyWired = true;
@@ -994,16 +986,8 @@ final class PyJav {
         return true;
     }
 
-    public void pkRefreshNodeUi() {
+    public void addProgramMenus() {
         if (app.pyPane == null) return;
-        String next = "Python, Java, JavaScript, or TypeScript. On Android, Node.js runs in Termux: pkg install nodejs. npm installs @sogni-ai/sogni-client. Java runs in the app.";
-        for (int i = 0; i < app.pyPane.getChildCount(); i++) {
-            android.view.View child = app.pyPane.getChildAt(i);
-            if (!(child instanceof android.widget.TextView)) continue;
-            android.widget.TextView label = (android.widget.TextView) child;
-            String s = label.getText() == null ? "" : label.getText().toString();
-            if (s.indexOf("Python") >= 0 && s.indexOf("Java") >= 0 && s.indexOf("Termux") < 0) label.setText(next);
-        }
         if (app.pyPane.findViewWithTag("program-menus") != null) return;
         int at = app.pyPane.getChildCount() > 2 ? 2 : app.pyPane.getChildCount();
         android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);

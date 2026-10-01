@@ -622,6 +622,7 @@ extends JFrame {
         this.pageHost.add((Component)this.buildExportPage(), "export");
         this.pageHost.add((Component)this.buildPromptsPage(), "prompts");
         this.pageHost.add((Component)this.buildInfoPage(), "fsetinfo");
+        this.pageHost.add((Component)this.buildHelpPage(), "help");
         jPanel9.add((Component)this.pageHost, "Center");
         jPanel6.add((Component)jPanel9, "Center");
         jPanel.add((Component)jPanel6, "Center");
@@ -695,8 +696,11 @@ extends JFrame {
             imp.addActionListener(e -> this.showView("import"));
             JMenuItem exp = new JMenuItem("Export");
             exp.addActionListener(e -> this.showView("export"));
+            JMenuItem help = new JMenuItem("Help-Desktop");
+            help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
+            menu.add(help);
             menu.show(jButton, 0, jButton.getHeight());
         });
         jPanel.add(jButton);
@@ -1014,13 +1018,10 @@ extends JFrame {
         JLabel jLabel = new JLabel("PyJav");
         jLabel.setFont(new Font("SansSerif", 1, 20));
         jLabel.setForeground(FG);
-        JLabel jLabel2 = new JLabel("<html><body style='width:520px;color:#8A8B86'>Python, Java, JavaScript, or TypeScript. Node.js and npm run .js and .ts, including @sogni-ai/sogni-client. A .prompt file runs as bash, cmd, or AI. Java needs a JDK. JavaScript needs Node.js.</body></html>");
         JPanel north = new JPanel();
         north.setOpaque(false);
         north.setLayout(new BoxLayout(north, 1));
         north.add(jLabel);
-        north.add(Box.createVerticalStrut(4));
-        north.add(jLabel2);
         north.add(Box.createVerticalStrut(8));
         this.pyRecent = new JComboBox<String>();
         this.pyRecent.setBackground(ELEV);
@@ -1681,6 +1682,46 @@ extends JFrame {
         jPanel.add((Component)scroll, "Center");
         this.refreshPluginUi();
         return jPanel;
+    }
+
+    /** Help page sections (File > Help-Desktop): caption, then text. */
+    private static final String[][] HELP_SECTIONS = {
+        {"PyJav", "Python, Java, JavaScript, or TypeScript. On Windows, Node.js runs in Termux for Windows: "
+            + "pkg install nodejs. npm installs @sogni-ai/sogni-client. A .prompt file runs as bash, cmd, or AI. "
+            + "Java runs with the JDK installed on this computer. Python needs Python 3."},
+    };
+
+    private JPanel buildHelpPage() {
+        JPanel col = new JPanel();
+        col.setOpaque(false);
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(BorderFactory.createEmptyBorder(4, 4, 16, 4));
+        JLabel title = new JLabel("Help");
+        title.setFont(new Font("SansSerif", Font.BOLD, 20));
+        title.setForeground(FG);
+        title.setAlignmentX(0.0f);
+        col.add(title);
+        for (String[] section : HELP_SECTIONS) {
+            col.add(Box.createVerticalStrut(16));
+            JLabel caption = new JLabel(section[0]);
+            caption.setFont(new Font("SansSerif", Font.BOLD, 15));
+            caption.setForeground(FG);
+            caption.setAlignmentX(0.0f);
+            col.add(caption);
+            col.add(Box.createVerticalStrut(6));
+            JLabel text = new JLabel("<html><body style='width:520px'>" + section[1] + "</body></html>");
+            text.setForeground(MUTED);
+            text.setAlignmentX(0.0f);
+            col.add(text);
+        }
+        JPanel page = new JPanel(new BorderLayout());
+        page.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(col);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        page.add(scroll, BorderLayout.CENTER);
+        return page;
     }
 
     private JPanel buildPromptsPage() {
@@ -3855,7 +3896,7 @@ extends JFrame {
         boolean groove = pattern || combo;
         boolean bl2 = "song".equals(string);
         boolean bl3 = "py".equals(string);
-        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string);
+        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string);
         boolean prompts = "prompts".equals(string);
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
@@ -3915,6 +3956,9 @@ extends JFrame {
         if (prompts) {
             this.setNow("Prompts");
         }
+        if ("help".equals(string)) {
+            this.setNow("Help");
+        }
         if ("import".equals(string)) {
             this.setNow("Choose a MIDI, song, WAV or SoundFont");
         }
@@ -3941,7 +3985,7 @@ extends JFrame {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
-                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "fsetinfo".equals(this.view)));
+                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
         }
