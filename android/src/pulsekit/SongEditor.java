@@ -90,6 +90,9 @@ final class SongEditor {
         app.songAdds.addView((View)textView18);
         app.songAdds.addView((View)textView19);
         app.songAdds.addView((View)app.pill("Silent", false, view -> this.add(Engine.rest(app.bpm(), 2))));
+        TextView saveToSet = app.pill("Save to set", false, view -> this.saveSongToFileSet());
+        saveToSet.setTag((Object)"song-save-set");
+        app.songAdds.addView((View)saveToSet);
         app.songAdds.addView((View)app.pill("Clear", false, view -> {
             if ("imported".equals(app.songLane) && app.importedSongId != null) {
                 String string = app.importedSongId;
@@ -136,6 +139,153 @@ final class SongEditor {
             }
         }
         return app.importedSongs.isEmpty() ? null : app.importedSongs.get(0);
+    }
+
+    /** A song saved in a file set, listed under Imported songs and built from the set's patterns. */
+    Engine.ImportedSong addFileSetSong(String source, Engine.FileSetSong song) {
+        Engine.ImportedSong importedSong = new Engine.ImportedSong();
+        importedSong.id = Engine.newLearnedId();
+        importedSong.name = Engine.uniqueImportedName(song.name, app.importedSongs);
+        importedSong.fileSet = source;
+        importedSong.fileSetSong = song.name;
+        importedSong.parts.addAll(Engine.resolveSong(song, Engine.learnedFrom(app.learned, source), Engine.fillsFrom(app.learnedFills, source)));
+        app.importedSongs.add(0, importedSong);
+        while (app.importedSongs.size() > Engine.MAX_IMPORTED_SONGS) {
+            app.importedSongs.remove(app.importedSongs.size() - 1);
+        }
+        if (app.importedSongId == null) app.importedSongId = importedSong.id;
+        app.persistence.persistLearned();
+        return importedSong;
+    }
+
+    /** Opening a song saved in a file set builds it again from the set's patterns, so their edits show. */
+    void refreshFromFileSet(Engine.ImportedSong importedSong) {
+        if (importedSong == null || importedSong.fileSet == null || importedSong.fileSetSong == null) return;
+        List<Engine.FileSetSong> songs = Engine.fileSetSongs.get(importedSong.fileSet);
+        if (songs == null) return;
+        for (Engine.FileSetSong song : songs) {
+            if (!song.name.equals(importedSong.fileSetSong)) continue;
+            importedSong.parts.clear();
+            importedSong.parts.addAll(Engine.resolveSong(song, Engine.learnedFrom(app.learned, importedSong.fileSet), Engine.fillsFrom(app.learnedFills, importedSong.fileSet)));
+            return;
+        }
+    }
+
+    /** Save to set: the song goes into a file set, as references to the set's patterns and fills. */
+    void saveSongToFileSet() {
+        List<Engine.Part> song = this.activeSong();
+        if (song.isEmpty()) {
+            Toast.makeText((Context)app, (CharSequence)"The song is empty", (int)0).show();
+            return;
+        }
+        List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        if (sources.isEmpty()) {
+            Toast.makeText((Context)app, (CharSequence)"Import a MIDI to make a file set first", (int)1).show();
+            return;
+        }
+        Engine.ImportedSong imported = "imported".equals(app.songLane) ? this.importedSong() : null;
+        String best = imported != null && imported.fileSet != null && sources.contains(imported.fileSet) ? imported.fileSet : this.bestFileSetFor(song, sources);
+        ArrayList<String> order = new ArrayList<String>();
+        if (best != null) order.add(best);
+        for (String s : sources) if (!order.contains(s)) order.add(s);
+        String[] names = new String[order.size()];
+        for (int i = 0; i < names.length; i++) names[i] = order.get(i).isEmpty() ? "Other" : order.get(i);
+        String songName = imported != null ? (imported.fileSetSong != null ? imported.fileSetSong : imported.name) : "Song";
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)("Save \"" + songName + "\" to file set")).setItems((CharSequence[])names, (d, which) -> {
+            if (which >= 0 && which < order.size()) this.saveSongInto(order.get(which), songName, imported);
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** The file set whose pattern and fill names the song uses most. */
+    String bestFileSetFor(List<Engine.Part> song, List<String> sources) {
+        String best = null;
+        int bestHits = 0;
+        for (String src : sources) {
+            int hits = 0;
+            List<Engine.Learned> pats = Engine.learnedFrom(app.learned, src);
+            List<Engine.LearnedFill> fills = Engine.fillsFrom(app.learnedFills, src);
+            for (Engine.Part p : song) {
+                for (Engine.Learned x : pats) if (x.name.equals(p.name)) { hits++; break; }
+                for (Engine.LearnedFill x : fills) if (x.name.equals(p.name)) { hits++; break; }
+            }
+            if (hits > bestHits) { bestHits = hits; best = src; }
+        }
+        return best;
+    }
+
+    void saveSongInto(String source, String songName, Engine.ImportedSong imported) {
+        List<Engine.Part> song = this.activeSong();
+        Engine.FileSetSong saved = Engine.songForFileSet(songName, song, Engine.learnedFrom(app.learned, source), Engine.fillsFrom(app.learnedFills, source));
+        List<Integer> outside = Engine.partsFromOutside(saved);
+        if (outside.isEmpty()) {
+            this.storeFileSetSong(source, saved, imported);
+            return;
+        }
+        String set = source.isEmpty() ? "Other" : source;
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)"Parts from outside the file set")
+            .setMessage((CharSequence)(outside.size() + (outside.size() == 1 ? " part uses a pattern or fill" : " parts use patterns or fills") + " that are not in " + set + ". Copy them into it? Otherwise their notes are kept in the song."))
+            .setPositiveButton((CharSequence)"Copy into set", (d, w) -> {
+                this.copyPartsIntoSet(source, song, outside);
+                this.storeFileSetSong(source, Engine.songForFileSet(songName, song, Engine.learnedFrom(app.learned, source), Engine.fillsFrom(app.learnedFills, source)), imported);
+            })
+            .setNegativeButton((CharSequence)"Keep in song", (d, w) -> this.storeFileSetSong(source, saved, imported))
+            .show();
+    }
+
+    /** Copies the patterns and fills of outside parts into the file set, and names the parts after the copies. */
+    void copyPartsIntoSet(String source, List<Engine.Part> song, List<Integer> outside) {
+        java.util.HashMap<String, String> copied = new java.util.HashMap<String, String>();
+        for (Integer at : outside) {
+            Engine.Part p = song.get(at.intValue());
+            String key = p.kind + ":" + Engine.patternSignature(p.cells);
+            String name = copied.get(key);
+            if (name == null) {
+                if ("fill".equals(p.kind)) {
+                    Engine.LearnedFill fill = new Engine.LearnedFill();
+                    fill.id = Engine.newLearnedId();
+                    fill.kind = "toms";
+                    fill.name = Engine.uniqueFillName(p.name, Engine.fillsFrom(app.learnedFills, source));
+                    fill.cells = Engine.copyCells(p.cells);
+                    fill.source = source;
+                    app.learnedFills.add(0, fill);
+                    name = fill.name;
+                } else {
+                    Engine.Learned pat = new Engine.Learned();
+                    pat.id = Engine.newLearnedId();
+                    pat.name = Engine.uniqueLearnedName(p.name, Engine.learnedFrom(app.learned, source));
+                    pat.bpm = p.bpm;
+                    pat.closest = "";
+                    pat.cells = Engine.copyCells(p.cells);
+                    pat.tsNum = p.tsNum;
+                    pat.tsDen = p.tsDen;
+                    pat.source = source;
+                    app.learned.add(0, pat);
+                    app.styles.put(pat.id, new Engine.Style(pat.id, pat.name, pat.bpm, Engine.rowsFromCells(pat.cells)));
+                    name = pat.name;
+                }
+                copied.put(key, name);
+            }
+            p.name = name;
+        }
+        app.importLibrary.rebuildImported();
+        app.importLibrary.rebuildImportedFills();
+    }
+
+    void storeFileSetSong(String source, Engine.FileSetSong saved, Engine.ImportedSong imported) {
+        Engine.putFileSetSong(source, saved);
+        if (imported != null) {
+            imported.fileSet = source;
+            imported.fileSetSong = saved.name;
+        } else {
+            Engine.ImportedSong added = this.addFileSetSong(source, saved);
+            app.importedSongId = added.id;
+        }
+        app.fileSets.persistFsetInfo();
+        app.persistence.persistLearned();
+        this.refreshSong();
+        int refs = 0;
+        for (Engine.SongRef r : saved.parts) if (r.usePattern != null || r.useFill != null) refs++;
+        app.setNow("Saved \u00b7 " + saved.name + " in " + (source.isEmpty() ? "Other" : source) + " \u00b7 " + refs + " of " + saved.parts.size() + " parts follow the set");
     }
 
     void addImportedArrangement(String string, List<Engine.Part> list) {
@@ -798,6 +948,7 @@ final class SongEditor {
     }
 
     private /* synthetic */ void refreshSongAction75(Engine.ImportedSong importedSong, View view) {
+        this.refreshFromFileSet(importedSong);
         app.importedSongId = importedSong.id;
         app.songLane = "imported";
         this.refreshSong();

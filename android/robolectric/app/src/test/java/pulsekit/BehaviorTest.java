@@ -47,6 +47,7 @@ public class BehaviorTest {
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
     MidiImportSettings.reset();
+    Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
@@ -720,6 +721,69 @@ public class BehaviorTest {
     out.append("strip scrolled=").append(strip.getScrollX() > 0).append(" playing cell in view=").append(visible).append('\n');
     setField("songPlay", false);
     write("s27_song_follows_playback", out.toString());
+  }
+
+  @Test
+  public void s28_song_saved_in_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Set song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    // Add a built-in pattern to the imported song: a part from outside the set.
+    findText(root(), "Rock").performClick();
+    idle();
+    call("show", "song");
+    idle();
+    findText(root(), "Pattern \u00d74").performClick();
+    idle();
+    out.append("song=").append(timelineCells()).append('\n');
+    root().findViewWithTag("song-save-set").performClick();
+    idle();
+    pickItem("Set song");
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("asked=").append(ask.isShowing()).append('\n');
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    List<Engine.FileSetSong> saved = Engine.fileSetSongs.get("Set song");
+    Engine.FileSetSong song = saved.get(0);
+    StringBuilder refs = new StringBuilder();
+    for (Engine.SongRef r : song.parts) refs.append(r.part.name).append("->").append(r.usePattern != null ? r.usePattern : (r.useFill != null ? r.useFill : "-")).append("; ");
+    out.append("saved ").append(song.name).append(": ").append(refs).append('\n');
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    List<String> setPatterns = new ArrayList<>();
+    for (Engine.Learned l : Engine.learnedFrom(learned, "Set song")) setPatterns.add(l.name);
+    out.append("set patterns=").append(setPatterns).append('\n');
+    // Edit Pattern 1 in the set; reopening the song shows the edit.
+    Engine.Learned p1 = null;
+    for (Engine.Learned l : Engine.learnedFrom(learned, "Set song")) if ("Pattern 1".equals(l.name)) p1 = l;
+    p1.cells[0][3] = 100;
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    call("refreshFromFileSet", songs.get(0));
+    out.append("song follows the edit=").append(songs.get(0).parts.get(0).cells[0][3] == 100).append('\n');
+    // Export the set and load it back: the song comes with it.
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    @SuppressWarnings("unchecked")
+    Map<String, String> pairs = (Map<String, String>) get("fillernPairs");
+    byte[] fset = Engine.encodeFset(Engine.collectFset("Set song", "Set song", learned, fills, pairs));
+    Engine.FileSet back = Engine.decodeFset(fset);
+    out.append("fset songs=").append(back.songs.size()).append(" parts=").append(back.songs.isEmpty() ? 0 : back.songs.get(0).parts.size()).append('\n');
+    call("removeImportSource", "Set song");
+    idle();
+    songs.clear();
+    call("loadFset", fset, "Set song.fset");
+    idle();
+    int bars = 0;
+    for (Engine.Part p : songs.get(0).parts) bars += p.repeats;
+    out.append("after reload: song=").append(songs.get(0).name).append(" in ").append(songs.get(0).fileSet).append(" bars=").append(bars)
+        .append(" edit kept=").append(songs.get(0).parts.get(0).cells[0][3] == 100).append('\n');
+    write("s28_song_in_file_set", out.toString());
   }
 
   private void setField(String name, Object value) throws Exception {

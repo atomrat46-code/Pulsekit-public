@@ -83,6 +83,7 @@ final class FileSets {
             app.fsetInfoMap.putAll(pulsekit.Engine.decodeFsetInfo(json));
             pulsekit.Engine.fileSetOrigins.clear();
             pulsekit.Engine.fileSetOrigins.putAll(pulsekit.Engine.decodeFsetOrigins(json));
+            pulsekit.Engine.loadFileSetSongs(json);
             pulsekit.Engine.loadFileSetAudioDir(new java.io.File(app.getFilesDir(), "fset-audio"));
         } catch (java.lang.Exception ignored) {}
     }

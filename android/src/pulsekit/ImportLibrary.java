@@ -478,6 +478,7 @@ final class ImportLibrary {
         String string2 = string == null ? "" : string;
         app.learned.removeIf(learned -> string2.equals(Engine.sourceOf(learned)));
         app.learnedFills.removeIf(learnedFill -> string2.equals(Engine.sourceOf(learnedFill)));
+        if (Engine.fileSetSongs.remove(string2) != null) app.fileSets.persistFsetInfo();
         app.fillernPairs.entrySet().removeIf(entry -> {
             String id;
             String key = (String)entry.getKey();
@@ -609,6 +610,12 @@ final class ImportLibrary {
             app.fillernPairs.put("l:" + string4, string5);
             ++n;
         }
+        // Songs saved in the file set: kept with it, and listed under Imported songs.
+        for (Engine.FileSetSong song : fileSet.songs) {
+            Engine.putFileSetSong(string2, song);
+            app.songEditor.addFileSetSong(string2, song);
+        }
+        if (!fileSet.songs.isEmpty()) app.fileSets.persistFsetInfo();
         if (string3 != null) {
             app.styleLibrary.loadStyle(string3, false);
         } else if (!arrayList.isEmpty()) {

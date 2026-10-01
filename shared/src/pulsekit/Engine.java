@@ -302,6 +302,9 @@ public final class Engine {
   public static final class ImportedSong {
     public String id;
     public String name;
+    /** The file set this song is saved in, and its name there; null when it is not saved in one. */
+    public String fileSet;
+    public String fileSetSong;
     public final List<Part> parts = new ArrayList<>();
   }
 
@@ -1301,6 +1304,8 @@ public final class Engine {
       ImportedSong s = list.get(i);
       sb.append("{\"id\":").append(quote(s.id));
       sb.append(",\"name\":").append(quote(s.name));
+      if (s.fileSet != null) sb.append(",\"fileSet\":").append(quote(s.fileSet));
+      if (s.fileSetSong != null) sb.append(",\"fileSetSong\":").append(quote(s.fileSetSong));
       sb.append(",\"parts\":").append(partsJson(s.parts)).append('}');
     }
     return sb.append(']').toString();
@@ -1314,6 +1319,10 @@ public final class Engine {
       s.name = jsonStr(obj, "\"name\"");
       if (s.id == null || s.id.isEmpty()) s.id = newLearnedId();
       if (s.name == null || s.name.isEmpty()) s.name = "Import";
+      int partsAt = obj.indexOf("\"parts\"");
+      String head = partsAt > 0 ? obj.substring(0, partsAt) : obj;
+      s.fileSet = jsonStr(head, "\"fileSet\"");
+      s.fileSetSong = jsonStr(head, "\"fileSetSong\"");
       s.parts.addAll(decodeSng(obj.getBytes(StandardCharsets.UTF_8)));
       if (!s.parts.isEmpty()) out.add(s);
       if (out.size() >= MAX_IMPORTED_SONGS) break;
@@ -2598,6 +2607,174 @@ public final class Engine {
     public final List<LearnedFill> fills = new ArrayList<LearnedFill>();
     public final List<String[]> fillerns = new ArrayList<String[]>();
     public final List<FileSetPart> parts = new ArrayList<FileSetPart>();
+    /** Songs saved in this file set. */
+    public final List<FileSetSong> songs = new ArrayList<FileSetSong>();
+  }
+
+  /**
+   * One part of a song saved in a file set. The part keeps its own notes, and names the set's
+   * pattern and fill it is made of; when those exist the song is rebuilt from them, so editing
+   * a pattern changes the song too.
+   */
+  public static final class SongRef {
+    public Part part;
+    public String usePattern;
+    public String useFill;
+    /** For a pattern with a Fillern's fill in it: FILLERN_END or FILLERN_START. */
+    public String mix;
+  }
+
+  public static final class FileSetSong {
+    public String name = "Song";
+    public final List<SongRef> parts = new ArrayList<SongRef>();
+  }
+
+  /** Source name → songs saved in that file set. Survives in fset-info.json. */
+  public static final LinkedHashMap<String, List<FileSetSong>> fileSetSongs = new LinkedHashMap<String, List<FileSetSong>>();
+
+  private static Learned patternNamed(List<Learned> list, String name) {
+    if (list == null || name == null) return null;
+    for (Learned x : list) if (name.equals(x.name)) return x;
+    return null;
+  }
+
+  private static LearnedFill fillNamed(List<LearnedFill> list, String name) {
+    if (list == null || name == null) return null;
+    for (LearnedFill x : list) if (name.equals(x.name)) return x;
+    return null;
+  }
+
+  /**
+   * A song as it is saved in a file set: each part names the set's pattern and fill it is
+   * made of, where the notes match them.
+   */
+  public static FileSetSong songForFileSet(String name, List<Part> song, List<Learned> patterns, List<LearnedFill> fills) {
+    FileSetSong out = new FileSetSong();
+    out.name = name == null || name.trim().isEmpty() ? "Song" : name.trim();
+    for (Part p : song) {
+      SongRef ref = new SongRef();
+      ref.part = copyPart(p);
+      String sig = patternSignature(p.cells);
+      if ("fill".equals(p.kind)) {
+        LearnedFill f = fillNamed(fills, p.name);
+        if (f != null && patternSignature(f.cells).equals(sig)) ref.useFill = f.name;
+      } else if ("groove".equals(p.kind)) {
+        Learned pat = patternNamed(patterns, p.name);
+        if (pat != null && patternSignature(pat.cells).equals(sig)) {
+          ref.usePattern = pat.name;
+        } else if (p.name != null && p.name.contains(" + ")) {
+          int cut = p.name.lastIndexOf(" + ");
+          Learned a = patternNamed(patterns, p.name.substring(0, cut));
+          LearnedFill f = fillNamed(fills, p.name.substring(cut + 3));
+          if (a != null && f != null) {
+            int bar = barSteps(p.tsNum, p.tsDen);
+            for (String m : new String[] { FILLERN_END, FILLERN_START }) {
+              int[][] mixed = fillIntoPattern(a.cells, p.steps, f.cells, bar, FILLERN_END.equals(m));
+              if (patternSignature(mixed).equals(sig)) {
+                ref.usePattern = a.name;
+                ref.useFill = f.name;
+                ref.mix = m;
+                break;
+              }
+            }
+          }
+        }
+      }
+      out.parts.add(ref);
+    }
+    return out;
+  }
+
+  /** Indexes of parts with notes that use nothing of the file set: patterns or fills from elsewhere. */
+  public static List<Integer> partsFromOutside(FileSetSong song) {
+    List<Integer> out = new ArrayList<Integer>();
+    for (int i = 0; i < song.parts.size(); i++) {
+      SongRef r = song.parts.get(i);
+      if (r.usePattern != null || r.useFill != null) continue;
+      if (!"groove".equals(r.part.kind) && !"fill".equals(r.part.kind)) continue;
+      if (hitCount(r.part.cells) > 0) out.add(Integer.valueOf(i));
+    }
+    return out;
+  }
+
+  /** The song's parts, built from the file set's patterns and fills as they are now. */
+  public static List<Part> resolveSong(FileSetSong song, List<Learned> patterns, List<LearnedFill> fills) {
+    List<Part> out = new ArrayList<Part>();
+    for (SongRef r : song.parts) {
+      Part p = copyPart(r.part);
+      Learned pat = patternNamed(patterns, r.usePattern);
+      LearnedFill f = fillNamed(fills, r.useFill);
+      if (pat != null && r.mix != null && f != null) {
+        p.cells = fillIntoPattern(pat.cells, p.steps, f.cells, barSteps(p.tsNum, p.tsDen), FILLERN_END.equals(r.mix));
+      } else if (pat != null) {
+        p.cells = copyCells(pat.cells);
+      } else if (f != null && "fill".equals(p.kind)) {
+        p.cells = copyCells(f.cells);
+      }
+      out.add(p);
+    }
+    return out;
+  }
+
+  public static String fileSetSongsJson(List<FileSetSong> songs) {
+    StringBuilder sb = new StringBuilder("[");
+    for (int i = 0; songs != null && i < songs.size(); i++) {
+      FileSetSong s = songs.get(i);
+      if (i > 0) sb.append(',');
+      sb.append("{\"song\":").append(quote(s.name)).append(",\"songParts\":[");
+      for (int j = 0; j < s.parts.size(); j++) {
+        SongRef r = s.parts.get(j);
+        if (j > 0) sb.append(',');
+        String one = partsJson(java.util.Collections.singletonList(r.part));
+        sb.append(one, 1, one.length() - 2);
+        if (r.usePattern != null) sb.append(",\"usePattern\":").append(quote(r.usePattern));
+        if (r.useFill != null) sb.append(",\"useFill\":").append(quote(r.useFill));
+        if (r.mix != null) sb.append(",\"mix\":").append(quote(r.mix));
+        sb.append('}');
+      }
+      sb.append("]}");
+    }
+    return sb.append(']').toString();
+  }
+
+  public static List<FileSetSong> decodeFileSetSongs(String json, String arrayKey) {
+    List<FileSetSong> out = new ArrayList<FileSetSong>();
+    if (json == null) return out;
+    for (String obj : jsonObjects(json, arrayKey)) {
+      FileSetSong s = new FileSetSong();
+      String name = jsonStr(obj, "\"song\"");
+      if (name != null && !name.isEmpty()) s.name = name;
+      for (String po : jsonObjects(obj, "songParts")) {
+        List<Part> one = decodeSng(po.getBytes(StandardCharsets.UTF_8));
+        if (one.isEmpty()) continue;
+        SongRef r = new SongRef();
+        r.part = one.get(0);
+        r.usePattern = jsonStr(po, "\"usePattern\"");
+        r.useFill = jsonStr(po, "\"useFill\"");
+        String mix = jsonStr(po, "\"mix\"");
+        r.mix = FILLERN_END.equals(mix) || FILLERN_START.equals(mix) ? mix : null;
+        s.parts.add(r);
+      }
+      if (!s.parts.isEmpty()) out.add(s);
+    }
+    return out;
+  }
+
+  /** Saves a song in a file set, replacing one of the same name. */
+  public static void putFileSetSong(String source, FileSetSong song) {
+    String key = source == null ? "" : source;
+    List<FileSetSong> list = fileSetSongs.get(key);
+    if (list == null) {
+      list = new ArrayList<FileSetSong>();
+      fileSetSongs.put(key, list);
+    }
+    for (int i = 0; i < list.size(); i++) {
+      if (list.get(i).name.equals(song.name)) {
+        list.set(i, song);
+        return;
+      }
+    }
+    list.add(song);
   }
 
   /** Source name → midi | analyze | isolate | compose. Survives in fset-info.json. */
@@ -3046,6 +3223,8 @@ public final class Engine {
       for (LearnedFill f : fills) if (extra.contains(f.id)) set.fills.add(f);
     }
     if (set.patterns.isEmpty() && set.fills.isEmpty()) return null;
+    List<FileSetSong> songs = fileSetSongs.get(want);
+    if (songs != null) set.songs.addAll(songs);
     return set;
   }
 
@@ -3161,6 +3340,7 @@ public final class Engine {
       files.put(file, midi);
       json.append(",\"sourceMidi\":").append(quote(file));
     }
+    if (!set.songs.isEmpty()) json.append(",\"songs\":").append(fileSetSongsJson(set.songs));
     json.append("}");
     LinkedHashMap<String, byte[]> ordered = new LinkedHashMap<String, byte[]>();
     ordered.put("set.json", json.toString().getBytes(StandardCharsets.UTF_8));
@@ -3219,6 +3399,7 @@ public final class Engine {
       if (p != null && f != null) set.fillerns.add(new String[] { p, f });
     }
     set.parts.addAll(parseFileSetParts(json));
+    set.songs.addAll(decodeFileSetSongs(json, "songs"));
     set.durationSec = jsonFloat(json, "\"durationSec\"", 0);
     if (!(set.durationSec > 0)) set.durationSec = partsSpanSec(set.parts);
     byte[] sourceWav = files.get("source.wav");
@@ -3789,8 +3970,28 @@ public final class Engine {
         sb.append(",\"origin\":").append(quote(e.getValue())).append('}');
       }
     }
+    sb.append("],\"setSongs\":[");
+    int k = 0;
+    for (Map.Entry<String, List<FileSetSong>> e : fileSetSongs.entrySet()) {
+      if (e.getValue() == null || e.getValue().isEmpty()) continue;
+      if (k++ > 0) sb.append(',');
+      sb.append("{\"source\":").append(quote(e.getKey() == null ? "" : e.getKey()));
+      sb.append(",\"songs\":").append(fileSetSongsJson(e.getValue())).append('}');
+    }
     sb.append("]}");
     return sb.toString();
+  }
+
+  /** Reads the songs saved in file sets from fset-info.json into fileSetSongs. */
+  public static void loadFileSetSongs(String json) {
+    fileSetSongs.clear();
+    if (json == null) return;
+    for (String obj : jsonObjects(json, "setSongs")) {
+      String src = jsonStr(obj, "\"source\"");
+      if (src == null) continue;
+      List<FileSetSong> songs = decodeFileSetSongs(obj, "songs");
+      if (!songs.isEmpty()) fileSetSongs.put(src, songs);
+    }
   }
 
   public static LinkedHashMap<String, List<FileSetPart>> decodeFsetInfo(String json) {
