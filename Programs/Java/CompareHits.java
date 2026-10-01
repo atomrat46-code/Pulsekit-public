@@ -59,7 +59,12 @@ public final class CompareHits {
   }
 
   static byte[] read(String path) throws java.io.IOException {
-    return java.nio.file.Files.readAllBytes(new java.io.File(path).toPath());
+    java.io.File f = new java.io.File(path);
+    if (!f.isFile()) {
+      throw new java.io.FileNotFoundException("No such file: " + f.getName()
+          + ". In Pulsekit, choose it on Params (a .mid can come From file set).");
+    }
+    return java.nio.file.Files.readAllBytes(f.toPath());
   }
 
   static String name(String path) {

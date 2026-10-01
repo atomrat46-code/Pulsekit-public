@@ -999,6 +999,47 @@ public class BehaviorTest {
     write("s35_recent_uses_bundled_program", out.toString());
   }
 
+  /** Params: a .mid can come from a file set's source MIDI, copied into PyJav's input folder. */
+  @Test
+  public void s36_params_midi_from_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    byte[] midi = Engine.encodeSongMidi(parts);
+    Engine.stageSourceMidi(midi, "Passing Ships.mid");
+    call("ingest", midi, "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CompareHits.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("/x/in.wav");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = params.getWindow().getDecorView();
+    out.append("button for drums.mid: ").append(dv.findViewWithTag("params-fileset:drums.mid") != null).append('\n');
+    out.append("button for input.wav: ").append(dv.findViewWithTag("params-fileset:input.wav") != null).append('\n');
+    dv.findViewWithTag("params-fileset:drums.mid").performClick();
+    idle();
+    AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("sets: ").append(list.getListView().getAdapter().getCount()).append(' ').append(list.getListView().getAdapter().getItem(0)).append('\n');
+    org.robolectric.Shadows.shadowOf(list).clickOnItem(0);
+    idle();
+    out.append("chosen: ").append(((TextView) dv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String line = args.getText().toString();
+    File copied = new File(app.getCacheDir(), "pyjav-in/Passing_Ships_source.mid");
+    out.append("args: ").append(line.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("copied file is the source MIDI: ").append(copied.isFile() && java.util.Arrays.equals(Files.readAllBytes(copied.toPath()), midi)).append('\n');
+    write("s36_params_midi_from_file_set", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

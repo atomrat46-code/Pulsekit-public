@@ -10,6 +10,7 @@ The same comparison as Pulsekit's File > Compare Hits page and Programs/Java/Com
 Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
 Needs numpy.
 """
+import os
 import struct
 import sys
 import time
@@ -43,6 +44,8 @@ def var_len(d, p):
 
 def midi_hits(path):
     """Hit times in seconds, sorted, one array per family. Follows tempo changes."""
+    if not os.path.isfile(path):
+        raise FileNotFoundError("No such file: %s" % os.path.basename(path))
     d = open(path, "rb").read()
     ppq = struct.unpack(">H", d[12:14])[0] or 480
     i = 8 + struct.unpack(">I", d[4:8])[0]

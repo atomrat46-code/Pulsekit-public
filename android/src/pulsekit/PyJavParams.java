@@ -114,6 +114,14 @@ public final class PyJavParams {
         row.addView(pick);
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(row);
+        if ("mid".equals(p.ext) && activity instanceof MainActivity) {
+          // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
+          android.widget.Button fromSet = new android.widget.Button(activity);
+          fromSet.setText("From file set");
+          fromSet.setTag("params-fileset:" + p.token);
+          fromSet.setOnClickListener(v -> pickFileSetMidi((MainActivity) activity, values, index, chosen));
+          box.addView(fromSet, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         continue;
       }
       EditText field = new EditText(activity);
@@ -163,6 +171,41 @@ public final class PyJavParams {
     if (path == null || path.length() == 0) return "None";
     int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
     return slash >= 0 ? path.substring(slash + 1) : path;
+  }
+
+  /** Lists the file sets that keep a source MIDI; the one picked is copied into PyJav's input folder. */
+  static void pickFileSetMidi(final MainActivity app, final String[] values, final int index, final TextView label) {
+    final java.util.LinkedHashMap<String, String> sets = HitCompare.fileSetsWithMidi(Engine.fileSetSources(app.learned, app.learnedFills));
+    if (sets.isEmpty()) {
+      new AlertDialog.Builder(app)
+          .setTitle("From file set")
+          .setMessage("No file set keeps a source MIDI yet. Run DrumMidi_CRT in PyJav: its MIDI is kept with the file set it makes.")
+          .setPositiveButton("OK", null)
+          .show();
+      return;
+    }
+    final String[] labels = sets.keySet().toArray(new String[0]);
+    new AlertDialog.Builder(app)
+        .setTitle("Source MIDI from file set")
+        .setItems(labels, (d, which) -> {
+          try {
+            byte[] midi = HitCompare.fileSetMidi(sets.get(labels[which]));
+            java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            java.io.File out = new java.io.File(dir, ProgramParams.fileSetMidiFile(labels[which]));
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            try {
+              fos.write(midi);
+            } finally {
+              fos.close();
+            }
+            values[index] = out.getAbsolutePath();
+            label.setText(labels[which] + " \u00b7 source.mid");
+          } catch (Exception ex) {
+            app.setNow("Could not copy that file set's MIDI");
+          }
+        })
+        .show();
   }
 
   static void pickFile(Activity activity, String[] values, int index, TextView label) {

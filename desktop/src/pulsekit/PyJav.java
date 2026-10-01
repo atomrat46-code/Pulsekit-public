@@ -613,6 +613,18 @@ final class PyJav {
                 });
                 row.add(pick, BorderLayout.WEST);
                 row.add(chosen, BorderLayout.CENTER);
+                if ("mid".equals(p.ext)) {
+                    // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
+                    JButton fromSet = new JButton("From file set");
+                    fromSet.setName("params-fileset:" + p.token);
+                    fromSet.addActionListener(e -> {
+                        String path = this.pickFileSetMidi();
+                        if (path == null) return;
+                        values[index] = path;
+                        chosen.setText(new File(path).getName());
+                    });
+                    row.add(fromSet, BorderLayout.EAST);
+                }
                 form.add(row);
                 continue;
             }
@@ -658,6 +670,30 @@ final class PyJav {
         if (newInput && input != null && input.length() > 0 && new File(input).isFile()) this.setInputFile(new File(input));
         if (this.pyExtra != null) this.pyExtra.setText(line);
         app.setNow("Params saved");
+    }
+
+    /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */
+    String pickFileSetMidi() {
+        java.util.LinkedHashMap<String, String> sets = HitCompare.fileSetsWithMidi(Engine.fileSetSources(app.learned, app.learnedFills));
+        if (sets.isEmpty()) {
+            JOptionPane.showMessageDialog(app, "No file set keeps a source MIDI yet. Run DrumMidi_CRT in PyJav: its MIDI is kept with the file set it makes.",
+                "From file set", JOptionPane.INFORMATION_MESSAGE);
+            return null;
+        }
+        String[] labels = sets.keySet().toArray(new String[0]);
+        Object pick = JOptionPane.showInputDialog(app, "Source MIDI from file set", "From file set",
+            JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]);
+        if (pick == null) return null;
+        try {
+            File dir = new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            File out = new File(dir, ProgramParams.fileSetMidiFile(pick.toString()));
+            Files.write(out.toPath(), HitCompare.fileSetMidi(sets.get(pick.toString())));
+            return out.getAbsolutePath();
+        } catch (Exception ex) {
+            app.setNow("Could not copy that file set's MIDI");
+            return null;
+        }
     }
 
     void setInputFile(File file) {

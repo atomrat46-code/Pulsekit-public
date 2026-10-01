@@ -190,6 +190,14 @@ public final class ProgramParams {
     return "Read from the program itself.";
   }
 
+  /** File name for a file set's source MIDI copied in for a program, such as "Passing_Ships_source.mid". */
+  public static String fileSetMidiFile(String label) {
+    String n = label == null ? "" : label.trim().replaceAll("[^A-Za-z0-9._-]+", "_").replaceAll("^_+|_+$", "");
+    if (n.length() == 0) n = "fileset";
+    if (n.length() > 40) n = n.substring(0, 40);
+    return n + "_source.mid";
+  }
+
   public static boolean hasSuggested(List<Param> ps) {
     for (Param p : ps) if (p.suggested != null && p.suggested.length() > 0) return true;
     return false;
