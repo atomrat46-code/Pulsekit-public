@@ -322,10 +322,16 @@ public class BehaviorTest {
     // open something else, then pick the recent entry
     call("ingest", "print('x')".getBytes(StandardCharsets.UTF_8), "other.py", null);
     idle();
+    View list = box == null ? null : box.findViewWithTag("pk-recent-list");
+    out.append("list starts closed=").append(list != null && list.getVisibility() == View.GONE).append('\n');
+    box.findViewWithTag("pk-recent-toggle").performClick();
+    out.append("list opens=").append(list.getVisibility() == View.VISIBLE).append('\n');
     if (entry != null) {
       entry.performClick();
       idle();
     }
+    list = root().findViewWithTag("pk-recent-list");
+    out.append("list closes after pick=").append(list != null && list.getVisibility() == View.GONE).append('\n');
     out.append("after tap: pyName=").append(get("pyName")).append('\n');
     out.append("after tap: args restored=").append(used.equals(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
     out.append("after tap: editor has DrumMidi=").append(((TextView) get("pyEditor")).getText().toString().contains("class DrumMidi_CRT")).append('\n');

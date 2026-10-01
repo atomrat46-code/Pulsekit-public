@@ -447,7 +447,7 @@ final class PyJav {
         if (this.pyRecent == null) return;
         this.pyRecentMute = true;
         this.pyRecent.removeAllItems();
-        this.pyRecent.addItem("Recent");
+        this.pyRecent.addItem("Select program");
         for (PyJavRecent.Item item : this.pyRecentItems) this.pyRecent.addItem(item.label());
         int index = select > 0 && select <= this.pyRecentItems.size() ? select : 0;
         this.pyRecent.setSelectedIndex(index);
