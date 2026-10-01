@@ -31,7 +31,7 @@ final class Persistence {
 
     void persistLearned() {
         try {
-            String string = "{\"learned\":" + Engine.learnedJson(app.learned) + ",\"learnedFills\":" + Engine.learnedFillsJson(app.learnedFills) + ",\"variatedFills\":" + Engine.learnedFillsJson(app.variatedFills) + ",\"variatedPatterns\":" + Engine.learnedJson(app.variatedPatterns) + ",\"fillernPairs\":" + this.fillernPairJson() + ",\"importedSongs\":" + Engine.importedSongsJson(app.importedSongs) + "}";
+            String string = "{\"learned\":" + Engine.learnedJson(app.learned) + ",\"learnedFills\":" + Engine.learnedFillsJson(app.learnedFills) + ",\"variatedFills\":" + Engine.learnedFillsJson(app.variatedFills) + ",\"variatedPatterns\":" + Engine.learnedJson(app.variatedPatterns) + ",\"fillernPairs\":" + this.fillernPairJson() + ",\"fillernPicked\":" + this.fillernPickedJson() + ",\"importedSongs\":" + Engine.importedSongsJson(app.importedSongs) + "}";
             FileOutputStream fileOutputStream = new FileOutputStream(this.learnedFile());
             fileOutputStream.write(string.getBytes(StandardCharsets.UTF_8));
             fileOutputStream.close();
@@ -56,7 +56,29 @@ final class Persistence {
         return stringBuilder.toString();
     }
 
+    String fillernPickedJson() {
+        StringBuilder sb = new StringBuilder("[");
+        int n = 0;
+        for (String key : app.fillernPicked) {
+            if (n++ > 0) sb.append(',');
+            sb.append(Engine.quote(key));
+        }
+        return sb.append(']').toString();
+    }
+
+    void loadFillernPicked(String string) {
+        app.fillernPicked.clear();
+        int n = string.indexOf("\"fillernPicked\"");
+        if (n < 0) return;
+        int n2 = string.indexOf('[', n);
+        int n3 = n2 < 0 ? -1 : string.indexOf(']', n2);
+        if (n2 < 0 || n3 < 0) return;
+        Matcher matcher = Pattern.compile("\"((?:\\\\.|[^\"])*)\"").matcher(string.substring(n2 + 1, n3));
+        while (matcher.find()) app.fillernPicked.add(matcher.group(1).replace("\\\"", "\""));
+    }
+
     void loadFillernPairs(String string) {
+        this.loadFillernPicked(string);
         app.fillernPairs.clear();
         int n = string.indexOf("\"fillernPairs\"");
         if (n < 0) {

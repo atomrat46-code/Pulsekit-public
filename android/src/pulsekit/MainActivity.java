@@ -105,6 +105,8 @@ public class MainActivity extends UiKit {
     final List<Engine.Learned> variatedPatterns = new ArrayList<Engine.Learned>();
 
     final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
+    /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
+    final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
 
     final Handler handler = new Handler(Looper.getMainLooper());
 

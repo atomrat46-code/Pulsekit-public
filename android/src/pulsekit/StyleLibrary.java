@@ -438,6 +438,7 @@ final class StyleLibrary {
         String object = app.fillernPairs.get(string2);
         if (object != null) {
             app.fillernPairs.put("l:" + learned22.id, object);
+            if (app.fillernPicked.contains(string2)) app.fillernPicked.add("l:" + learned22.id);
         }
         app.importLibrary.addLearnedChip(learned22);
         app.persistence.persistLearned();
@@ -551,15 +552,9 @@ final class StyleLibrary {
         return this.fillernUnderlined(this.patternKeyFor(string));
     }
 
+    /** Underlined only when a fill was chosen for this pattern from the list, and that fill still exists. */
     boolean fillernUnderlined(String string) {
-        if (string == null) {
-            return false;
-        }
-        String string2 = app.fillernPairs.get(string);
-        if (string2 != null && !string2.isEmpty()) {
-            return true;
-        }
-        return string.equals(this.currentPatternKey());
+        return this.selectedFillFor(string) != null;
     }
 
     String fillernFillKeyOf(String string) {
@@ -583,15 +578,25 @@ final class StyleLibrary {
         return "Built-in";
     }
 
+    /** The fill chosen from the list for this pattern, or null. Fills an import paired do not count. */
     String selectedFillFor(String string) {
+        if (string == null || !app.fillernPicked.contains(string)) {
+            return null;
+        }
         String string2 = app.fillernPairs.get(string);
-        if (string2 != null) {
-            return string2;
+        if (string2 == null || string2.isEmpty()) {
+            return null;
         }
-        if (string.equals(this.patternKeyFor(app.style))) {
-            return app.fillId;
+        return Engine.fillKeyExists(string2, app.variatedFills, app.learnedFills) ? string2 : null;
+    }
+
+    /** A fill chosen from the list: remembered and underlined. */
+    void pickFillern(String string, String string2) {
+        if (string == null || string2 == null) {
+            return;
         }
-        return null;
+        app.fillernPicked.add(string);
+        this.rememberFillern(string, string2);
     }
 
     void rememberFillern(String string, String string2) {
@@ -655,7 +660,7 @@ final class StyleLibrary {
             list2.add(() -> {
                 runnable.run();
                 this.applyFill(object3);
-                this.rememberFillern(string, object3);
+                this.pickFillern(string, object3);
                 app.show("combo");
             });
         }
@@ -690,7 +695,7 @@ final class StyleLibrary {
                 list2.add(() -> {
                     runnable.run();
                     this.applyFill(string2);
-                    this.rememberFillern(string, string2);
+                    this.pickFillern(string, string2);
                     app.show("combo");
                 });
             }
@@ -794,7 +799,7 @@ final class StyleLibrary {
     private /* synthetic */ void addFillernFillRowsAction124(Runnable runnable, String string, String string2) {
         runnable.run();
         this.applyFill(string);
-        this.rememberFillern(string2, string);
+        this.pickFillern(string2, string);
         app.show("combo");
     }
 }

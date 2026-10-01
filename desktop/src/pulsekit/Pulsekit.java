@@ -208,6 +208,8 @@ extends JFrame {
     private final List<String> hiddenStyles = new ArrayList<String>();
     private final List<String> hiddenFills = new ArrayList<String>();
     private final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
+    /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
+    private final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
     private final Map<String, Boolean> openPacks = new LinkedHashMap<String, Boolean>();
     private JPanel pluginList;
     private JPanel importedFileList;
@@ -404,6 +406,7 @@ extends JFrame {
         if (oldKey == null && this.styles.containsKey(id) && !id.equals(item.id)) oldKey = this.patternKeyFor(id);
         String fk = oldKey == null ? null : this.fillernPairs.get(oldKey);
         if (fk != null) this.fillernPairs.put("l:" + item.id, fk);
+        if (fk != null && this.fillernPicked.contains(oldKey)) this.fillernPicked.add("l:" + item.id);
         this.persistLearned();
         this.refreshLearnedChips();
         this.loadLearned(item.id);
@@ -2684,11 +2687,9 @@ extends JFrame {
         return this.patternKeyFor(this.style);
     }
 
+    /** Underlined only when a fill was chosen for this pattern from the list, and that fill still exists. */
     private boolean fillernUnderlined(String patternKey) {
-        if (patternKey == null) return false;
-        String stored = this.fillernPairs.get(patternKey);
-        if (stored != null && !stored.isEmpty()) return true;
-        return patternKey.equals(this.currentPatternKey());
+        return this.selectedFillFor(patternKey) != null;
     }
 
     private String fillernFillKeyOf(String patternKey) {
@@ -2762,11 +2763,19 @@ extends JFrame {
         }
     }
 
+    /** The fill chosen from the list for this pattern, or null. Fills an import paired do not count. */
     private String selectedFillFor(String patternKey) {
+        if (patternKey == null || !this.fillernPicked.contains(patternKey)) return null;
         String stored = this.fillernPairs.get(patternKey);
-        if (stored != null) return stored;
-        if (patternKey.equals(this.currentPatternKey())) return this.fillId;
-        return null;
+        if (stored == null || stored.isEmpty()) return null;
+        return Engine.fillKeyExists(stored, this.variatedFills, this.learnedFills) ? stored : null;
+    }
+
+    /** A fill chosen from the list: remembered and underlined. */
+    private void pickFillern(String patternKey, String fillKey) {
+        if (patternKey == null || fillKey == null) return;
+        this.fillernPicked.add(patternKey);
+        this.rememberFillern(patternKey, fillKey);
     }
 
     private void rememberFillern(String patternKey, String fillKey) {
@@ -2801,7 +2810,7 @@ extends JFrame {
             it.addActionListener(e -> {
                 loadPattern.run();
                 this.applyFill(fid);
-                this.rememberFillern(patternKey, fid);
+                this.pickFillern(patternKey, fid);
                 if (!"combo".equals(this.view)) this.showView("combo");
             });
             m.add(it);
@@ -2815,7 +2824,7 @@ extends JFrame {
                 it.addActionListener(e -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -2831,7 +2840,7 @@ extends JFrame {
                 it.addActionListener(e -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -2857,7 +2866,7 @@ extends JFrame {
                 it.addActionListener(ev -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -4842,6 +4851,8 @@ extends JFrame {
     }
 
     private void loadFillernPairs(String json) {
+        this.fillernPicked.clear();
+        this.fillernPicked.addAll(this.parseStringArray(json, "fillernPicked"));
         this.fillernPairs.clear();
         for (String row : this.parseStringArray(json, "fillernPairs")) {
             int eq = row.indexOf('=');
@@ -4911,6 +4922,7 @@ extends JFrame {
                 + ",\"variatedFills\":" + Engine.learnedFillsJson(this.variatedFills)
                 + ",\"variatedPatterns\":" + Engine.learnedJson(this.variatedPatterns)
                 + ",\"fillernPairs\":" + this.stringListJson(this.fillernPairList())
+                + ",\"fillernPicked\":" + this.stringListJson(new ArrayList<String>(this.fillernPicked))
                 + ",\"importedSongs\":" + Engine.importedSongsJson(this.importedSongs) + "}";
             Files.write(new File(this.pulsekitDir(), "learned.json").toPath(), json.getBytes(StandardCharsets.UTF_8), new OpenOption[0]);
         } catch (Exception ignored) { /* optional */ }

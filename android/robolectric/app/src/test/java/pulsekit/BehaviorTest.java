@@ -369,6 +369,101 @@ public class BehaviorTest {
     write("s19_drum_midi_settings", out.toString() + tree(root(), 0));
   }
 
+  @Test
+  public void s20_fillern_underline_only_when_picked() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.fill("toms", 110, 1));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Old set.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    // Like an older import: every pattern already has a fill paired.
+    @SuppressWarnings("unchecked")
+    Map<String, String> pairs = (Map<String, String>) get("fillernPairs");
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    for (Engine.Learned l : learned) pairs.put("l:" + l.id, "toms");
+    call("show", "combo");
+    idle();
+    StringBuilder out = new StringBuilder();
+    out.append("underlined after import=").append(underlinedChips()).append('\n');
+    TextView chip = null;
+    for (Engine.Learned l : learned) {
+      View v = root().findViewWithTag(l.id);
+      if (v instanceof TextView && v.isShown()) { chip = (TextView) v; break; }
+    }
+    if (chip == null) throw new AssertionError("no imported pattern chip");
+    out.append("chip=").append(chip.getText()).append('\n');
+    chip.performLongClick();
+    idle();
+    out.append("list underlined before pick=").append(underlinedItems()).append('\n');
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.ListView list = menu.getListView();
+    int at = -1;
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (String.valueOf(list.getAdapter().getItem(i)).trim().equals(Engine.FILL_LABEL[1])) at = i;
+    }
+    if (at < 0) throw new AssertionError("no " + Engine.FILL_LABEL[1] + " in the list");
+    org.robolectric.Shadows.shadowOf(list).performItemClick(at);
+    idle();
+    call("show", "combo");
+    idle();
+    out.append("underlined after pick=").append(underlinedChips()).append('\n');
+    chip = (TextView) root().findViewWithTag(chip.getTag());
+    chip.performLongClick();
+    idle();
+    out.append("list underlined after pick=").append(underlinedItems()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    out.append("underlined after restart=").append(underlinedChips()).append(" (the set's chips start folded)\n");
+    out.append("picked after restart=").append(call("fillernUnderlined", "l:" + chip.getTag())).append('\n');
+    write("s20_fillern_underline", out.toString());
+  }
+
+  /** Names of shown pattern chips drawn underlined. */
+  private String underlinedChips() {
+    List<String> names = new ArrayList<>();
+    collectUnderlined(root(), names);
+    return names.toString();
+  }
+
+  private void collectUnderlined(View v, List<String> out) {
+    if (v instanceof TextView && v.isShown() && v.getTag() != null
+        && (((TextView) v).getPaintFlags() & android.graphics.Paint.UNDERLINE_TEXT_FLAG) != 0) {
+      out.add(((TextView) v).getText().toString());
+    }
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) collectUnderlined(g.getChildAt(i), out);
+    }
+  }
+
+  /** Entries of the open list dialog that are underlined. */
+  private String underlinedItems() {
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    List<String> names = new ArrayList<>();
+    android.widget.ListAdapter a = d.getListView().getAdapter();
+    for (int i = 0; i < a.getCount(); i++) {
+      Object item = a.getItem(i);
+      if (item instanceof android.text.Spanned
+          && ((android.text.Spanned) item).getSpans(0, ((android.text.Spanned) item).length(), android.text.style.UnderlineSpan.class).length > 0) {
+        names.add(item.toString().trim());
+      }
+    }
+    return names.toString();
+  }
+
   /** A detected drum track: 64 bars that each differ a little, with two silent bars. */
   private byte[] detectedMidi() {
     java.util.Random rng = new java.util.Random(7);

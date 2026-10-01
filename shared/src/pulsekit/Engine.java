@@ -2806,6 +2806,17 @@ public final class Engine {
     if (source != null) fileSetOrigins.remove(source);
   }
 
+  /** True when a Fillern fill key still names a fill: built-in, plugin, "v:id" variated, or "l:id" imported. */
+  public static boolean fillKeyExists(String key, List<LearnedFill> variated, List<LearnedFill> learned) {
+    if (key == null || key.isEmpty()) return false;
+    if (isFillId(key) || key.startsWith("p:")) return true;
+    List<LearnedFill> list = key.startsWith("v:") ? variated : (key.startsWith("l:") ? learned : null);
+    if (list == null) return false;
+    String id = key.substring(2);
+    for (LearnedFill f : list) if (f != null && id.equals(f.id)) return true;
+    return false;
+  }
+
   public static boolean isFillId(String s) {
     if (s == null) return false;
     for (String id : FILL_ID) if (id.equals(s)) return true;
