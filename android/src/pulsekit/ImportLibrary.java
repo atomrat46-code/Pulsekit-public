@@ -310,6 +310,7 @@ final class ImportLibrary {
             return;
         }
         app.importedHost.removeAllViews();
+        app.importedFor = "combo".equals(app.view) ? "combo" : "pattern";
         if (app.learned.isEmpty()) {
             TextView textView = app.text("MIDI, song or plugin pack", 12, false);
             textView.setTextColor(MUTED);
@@ -338,7 +339,14 @@ final class ImportLibrary {
             }
             String string2 = string.isEmpty() ? "Other" : string;
             String packKey = string.isEmpty() ? "o:other" : "f:" + string;
-            this.addImportPack(app.importedHost, packKey, string2, arrayList.size(), bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
+            // On the Fillern tab a file set lists its Fillerns: patterns with a fill chosen for them.
+            boolean fillerns = "combo".equals(app.view);
+            int shown = fillerns ? this.fillernsOf(arrayList).size() : arrayList.size();
+            this.addImportPack(app.importedHost, packKey, string2, shown, bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
+                if (fillerns) {
+                    this.addFillernChips(flowLayout, arrayList);
+                    return;
+                }
                 for (Engine.Learned learned : arrayList) {
                     TextView textView = app.pill(learned.name, false, view -> app.styleLibrary.loadStyle(learned.id, false));
                     textView.setTag((Object)learned.id);
@@ -349,6 +357,59 @@ final class ImportLibrary {
         }
         app.styleLibrary.refreshStyles();
         this.refreshImportedFiles();
+    }
+
+    /** Patterns of a file set that have a fill chosen for them. */
+    List<Engine.Learned> fillernsOf(List<Engine.Learned> patterns) {
+        ArrayList<Engine.Learned> out = new ArrayList<Engine.Learned>();
+        for (Engine.Learned learned : patterns) {
+            if (app.styleLibrary.selectedFillFor(app.styleLibrary.patternKeyFor(learned.id)) != null) out.add(learned);
+        }
+        return out;
+    }
+
+    /** Fillern chips ("pattern · fill"), or a note when there are none, and a way to make one. */
+    void addFillernChips(ViewGroup host, List<Engine.Learned> patterns) {
+        List<Engine.Learned> made = this.fillernsOf(patterns);
+        for (Engine.Learned learned : made) {
+            String fill = app.styleLibrary.selectedFillFor(app.styleLibrary.patternKeyFor(learned.id));
+            TextView textView = app.pill(learned.name + " \u00b7 " + app.styleLibrary.fillLabel(fill), false, view -> app.styleLibrary.loadStyle(learned.id, false));
+            textView.setTag((Object)learned.id);
+            app.styleLibrary.attachLearnedStyleMenu(textView, learned);
+            host.addView((View)textView);
+        }
+        if (made.isEmpty()) {
+            TextView none = app.text("No fillerns yet, create one", 13, false);
+            none.setTextColor(MUTED);
+            none.setTag((Object)"fillern-none");
+            none.setPadding(app.dp(4), app.dp(10), app.dp(10), app.dp(10));
+            none.setOnClickListener(view -> this.createFillern(patterns));
+            host.addView((View)none);
+        }
+        TextView add = app.pill("+ Fillern", false, view -> this.createFillern(patterns));
+        add.setTag((Object)"fillern-add");
+        host.addView((View)add);
+    }
+
+    /** Pick a pattern of the file set, then a fill for it. */
+    void createFillern(List<Engine.Learned> patterns) {
+        if (patterns.isEmpty()) {
+            app.setNow("This file set has no patterns");
+            return;
+        }
+        String[] names = new String[patterns.size()];
+        for (int i = 0; i < names.length; i++) names[i] = patterns.get(i).name;
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)"Fillern: choose a pattern").setItems((CharSequence[])names, (dialogInterface, which) -> {
+            if (which < 0 || which >= patterns.size()) return;
+            Engine.Learned learned = patterns.get(which);
+            ArrayList<CharSequence> rows = new ArrayList<CharSequence>();
+            ArrayList<Runnable> acts = new ArrayList<Runnable>();
+            app.styleLibrary.addFillernFillRows(rows, acts, app.styleLibrary.patternKeyFor(learned.id), () -> app.styleLibrary.loadStyle(learned.id, false));
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)("Fill for " + learned.name)).setItems(rows.toArray(new CharSequence[0]), (d, n) -> {
+                if (n < 0 || n >= acts.size() || acts.get(n) == null) return;
+                acts.get(n).run();
+            }).setNegativeButton((CharSequence)"Cancel", null).show();
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
     }
 
     void rebuildImportedFills() {

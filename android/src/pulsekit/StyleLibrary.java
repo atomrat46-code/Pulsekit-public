@@ -597,6 +597,7 @@ final class StyleLibrary {
         }
         app.fillernPicked.add(string);
         this.rememberFillern(string, string2);
+        if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
     }
 
     void rememberFillern(String string, String string2) {

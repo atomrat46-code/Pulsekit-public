@@ -392,18 +392,14 @@ public class BehaviorTest {
     idle();
     StringBuilder out = new StringBuilder();
     out.append("underlined after import=").append(underlinedChips()).append('\n');
-    TextView chip = null;
-    for (Engine.Learned l : learned) {
-      View v = root().findViewWithTag(l.id);
-      if (v instanceof TextView && v.isShown()) { chip = (TextView) v; break; }
-    }
-    if (chip == null) throw new AssertionError("no imported pattern chip");
-    out.append("chip=").append(chip.getText()).append('\n');
-    chip.performLongClick();
+    out.append("fillern tab chips=").append(packChips()).append('\n');
+    // Make a Fillern from the file set: first pattern, then a fill.
+    root().findViewWithTag("fillern-add").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(((AlertDialog) ShadowDialog.getLatestDialog()).getListView()).performItemClick(0);
     idle();
     out.append("list underlined before pick=").append(underlinedItems()).append('\n');
-    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
-    android.widget.ListView list = menu.getListView();
+    android.widget.ListView list = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
     int at = -1;
     for (int i = 0; i < list.getAdapter().getCount(); i++) {
       if (String.valueOf(list.getAdapter().getItem(i)).trim().equals(Engine.FILL_LABEL[1])) at = i;
@@ -413,6 +409,13 @@ public class BehaviorTest {
     idle();
     call("show", "combo");
     idle();
+    TextView chip = null;
+    for (Engine.Learned l : learned) {
+      View v = root().findViewWithTag(l.id);
+      if (v instanceof TextView && v.isShown()) { chip = (TextView) v; break; }
+    }
+    if (chip == null) throw new AssertionError("no Fillern chip");
+    out.append("chip=").append(chip.getText()).append('\n');
     out.append("underlined after pick=").append(underlinedChips()).append('\n');
     chip = (TextView) root().findViewWithTag(chip.getTag());
     chip.performLongClick();
@@ -429,6 +432,69 @@ public class BehaviorTest {
     out.append("underlined after restart=").append(underlinedChips()).append(" (the set's chips start folded)\n");
     out.append("picked after restart=").append(call("fillernUnderlined", "l:" + chip.getTag())).append('\n');
     write("s20_fillern_underline", out.toString());
+  }
+
+  @Test
+  public void s21_create_fillern_in_file_set() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    parts.add(Engine.groove("C", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Three parts.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    StringBuilder out = new StringBuilder();
+    call("show", "pattern");
+    idle();
+    out.append("pattern tab chips=").append(packChips()).append('\n');
+    call("show", "combo");
+    idle();
+    out.append("fillern tab chips=").append(packChips()).append('\n');
+    View none = root().findViewWithTag("fillern-none");
+    out.append("no-fillerns note shown=").append(none != null && none.isShown()).append('\n');
+    none.performClick();
+    idle();
+    AlertDialog pick = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.ListView patterns = pick.getListView();
+    StringBuilder names = new StringBuilder();
+    for (int i = 0; i < patterns.getAdapter().getCount(); i++) names.append(i == 0 ? "" : ", ").append(patterns.getAdapter().getItem(i));
+    out.append("pattern list=").append(names).append('\n');
+    org.robolectric.Shadows.shadowOf(patterns).performItemClick(0);
+    idle();
+    android.widget.ListView fills = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
+    int at = -1;
+    for (int i = 0; i < fills.getAdapter().getCount(); i++) {
+      if (String.valueOf(fills.getAdapter().getItem(i)).trim().equals(Engine.FILL_LABEL[1])) at = i;
+    }
+    org.robolectric.Shadows.shadowOf(fills).performItemClick(at);
+    idle();
+    out.append("after create: fillern tab chips=").append(packChips()).append('\n');
+    View gone = root().findViewWithTag("fillern-none");
+    out.append("no-fillerns note shown=").append(gone != null && gone.isShown()).append('\n');
+    out.append("underlined=").append(underlinedChips()).append('\n');
+    call("show", "pattern");
+    idle();
+    out.append("pattern tab chips=").append(packChips()).append('\n');
+    write("s21_create_fillern", out.toString());
+  }
+
+  /** Text of the shown chips in the imported pattern packs. */
+  private String packChips() throws Exception {
+    List<String> names = new ArrayList<>();
+    collectChips((View) get("importedHost"), names);
+    return names.toString();
+  }
+
+  private void collectChips(View v, List<String> out) {
+    if (v instanceof TextView && v.isShown() && !"pack".equals(v.getTag())) out.add(((TextView) v).getText().toString());
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) collectChips(g.getChildAt(i), out);
+    }
   }
 
   /** Names of shown pattern chips drawn underlined. */

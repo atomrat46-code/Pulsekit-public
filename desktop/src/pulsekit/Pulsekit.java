@@ -210,6 +210,8 @@ extends JFrame {
     private final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
     /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
     private final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
+    /** The groove tab the imported chips were last built for. */
+    private String importedFor;
     private final Map<String, Boolean> openPacks = new LinkedHashMap<String, Boolean>();
     private JPanel pluginList;
     private JPanel importedFileList;
@@ -2776,6 +2778,24 @@ extends JFrame {
         if (patternKey == null || fillKey == null) return;
         this.fillernPicked.add(patternKey);
         this.rememberFillern(patternKey, fillKey);
+        if ("combo".equals(this.view)) this.refreshLearnedChips();
+    }
+
+    /** Make a Fillern: a menu of the file set's patterns, each opening the fills to pair with it. */
+    private void createFillern(JComponent anchor, List<Engine.Learned> patterns) {
+        if (patterns.isEmpty()) {
+            this.setNow("This file set has no patterns");
+            return;
+        }
+        JPopupMenu m = new JPopupMenu();
+        this.addMenuHeading(m, "Fillern: choose a pattern");
+        for (Engine.Learned item : patterns) {
+            final Engine.Learned it = item;
+            javax.swing.JMenu sub = new javax.swing.JMenu(it.name);
+            this.addFillernItems(sub.getPopupMenu(), () -> this.loadLearned(it.id), this.patternKeyFor(it.id));
+            m.add(sub);
+        }
+        m.show(anchor, 0, anchor.getHeight());
     }
 
     private void rememberFillern(String patternKey, String fillKey) {
@@ -3076,14 +3096,21 @@ extends JFrame {
             this.importedBar.add(this.importPack("p:" + pid, p.name, p.styles.size(), selected, "Remove pack",
                 () -> { this.uninstallPlugin(pid); this.setNow("Removed \u00b7 " + p.name); }, kids));
         }
+        // The Pattern tab lists a file set's patterns, the Fillern tab its Fillerns.
+        boolean fillerns = "combo".equals(this.view);
+        this.importedFor = fillerns ? "combo" : "pattern";
         for (String src : this.learnedSources()) {
             ChipStrip kids = new ChipStrip();
             boolean selected = false;
             int n = 0;
+            List<Engine.Learned> setPatterns = new ArrayList<Engine.Learned>();
+            for (Engine.Learned item : this.learned) if (src.equals(Engine.sourceOf(item))) setPatterns.add(item);
             for (Engine.Learned item : this.learned) {
                 if (!src.equals(Engine.sourceOf(item))) continue;
+                if (fillerns && this.selectedFillFor(this.patternKeyFor(item.id)) == null) continue;
                 final Engine.Learned it = item;
-                JButton b = this.chip(it.name, false);
+                String chipName = fillerns ? it.name + " \u00b7 " + this.fillLabel(this.selectedFillFor(this.patternKeyFor(it.id))) : it.name;
+                JButton b = this.chip(chipName, false);
                 b.putClientProperty("style", it.id);
                 b.putClientProperty("learned", it.id);
                 b.addActionListener(e -> this.loadLearned(it.id));
@@ -3091,6 +3118,21 @@ extends JFrame {
                 kids.add(b);
                 n++;
                 if (it.id.equals(this.style) || it.id.equals(this.learnedId())) selected = true;
+            }
+            if (fillerns) {
+                if (n == 0) {
+                    JButton none = new JButton("No fillerns yet, create one");
+                    this.flatten(none);
+                    none.setBackground(BG);
+                    none.setForeground(MUTED);
+                    none.putClientProperty("role", "fillern-none");
+                    none.addActionListener(e -> this.createFillern(none, setPatterns));
+                    kids.add(none);
+                }
+                JButton add = this.chip("+ Fillern", false);
+                add.putClientProperty("role", "fillern-add");
+                add.addActionListener(e -> this.createFillern(add, setPatterns));
+                kids.add(add);
             }
             String label = src.isEmpty() ? "Other" : src;
             this.importedBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
@@ -4025,6 +4067,7 @@ extends JFrame {
 
     private void showView(String string) {
         this.view = string;
+        if (("pattern".equals(string) || "combo".equals(string)) && !string.equals(this.importedFor)) this.refreshLearnedChips();
         boolean bl = "fills".equals(string);
         boolean combo = "combo".equals(string);
         boolean pattern = "pattern".equals(string);

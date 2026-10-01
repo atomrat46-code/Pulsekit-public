@@ -552,6 +552,10 @@ public class MainActivity extends UiKit {
         if (bl) {
             this.songEditor.refreshSong();
         }
+        if ((bl5 || bl6) && !string.equals(this.importedFor)) {
+            // The Pattern tab lists a file set's patterns, the Fillern tab its Fillerns.
+            this.importLibrary.rebuildImported();
+        }
         if (bl6) {
             this.fillLast = false;
             this.setNow(null);
@@ -833,6 +837,9 @@ public class MainActivity extends UiKit {
     android.widget.LinearLayout helpPane;
 
     android.widget.LinearLayout drumMidiPane;
+
+    /** The groove tab the imported chips were last built for. */
+    String importedFor;
 
     android.widget.LinearLayout infoPane;
 
