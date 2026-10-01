@@ -786,6 +786,36 @@ public class BehaviorTest {
     write("s28_song_in_file_set", out.toString());
   }
 
+  @Test
+  public void s29_song_export_named_after_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("songPartsForExport");
+    String set = (String) call("songFileSet", song);
+    out.append("imported song: ").append(Engine.songFilename(song, set)).append(" / ").append(Engine.songFilename(song, set).replace(".sng", ".mid")).append('\n');
+    // A song of built-in patterns only keeps the old name.
+    call("loadStyle", "rock", false);
+    idle();
+    ((View) get("songPane")).findViewWithTag("original").performClick();
+    idle();
+    findText(root(), "Pattern \u00d74").performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> own = (List<Engine.Part>) call("songPartsForExport");
+    StringBuilder names = new StringBuilder();
+    for (Engine.Part p : own) names.append(p.name).append(' ');
+    out.append("lane=").append(get("songLane")).append(" parts=").append(names).append('\n');
+    out.append("built-in song: ").append(Engine.songFilename(own, (String) call("songFileSet", own))).append('\n');
+    write("s29_song_export_names", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

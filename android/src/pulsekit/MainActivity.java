@@ -684,7 +684,9 @@ public class MainActivity extends UiKit {
                 return;
             }
             if (n == 9) {
-                byArray = Engine.encodeSng(this.songEditor.songPartsForExport(), this.songEditor.songPartsForExport().get((int)0).name);
+                List<Engine.Part> songParts = this.songEditor.songPartsForExport();
+                String songSet = this.songEditor.songFileSet(songParts);
+                byArray = Engine.encodeSng(songParts, songSet != null ? songSet : songParts.get(0).name);
             } else if (n == 14) {
                 byArray = (this.pyEditor != null ? this.pyEditor.getText().toString() : "").getBytes(StandardCharsets.UTF_8);
             } else if (n == 15) {

@@ -3812,6 +3812,21 @@ extends JFrame {
         m.show(anchor, 0, anchor.getHeight());
     }
 
+    /**
+     * The file set a song comes from, for naming its exports: the set it is saved in, the set an
+     * imported song was made from, or the set whose names it uses most. Null when none.
+     */
+    private String songFileSet(List<Engine.Part> song) {
+        List<String> sources = Engine.fileSetSources(this.learned, this.learnedFills);
+        if ("imported".equals(this.songLane)) {
+            Engine.ImportedSong imported = this.importedSong();
+            if (imported != null && imported.fileSet != null && sources.contains(imported.fileSet)) return imported.fileSet;
+            if (imported != null && sources.contains(imported.name)) return imported.name;
+        }
+        String best = this.bestFileSetFor(song, sources);
+        return best == null || best.isEmpty() ? null : best;
+    }
+
     /** The file set whose pattern and fill names the song uses most. */
     private String bestFileSetFor(List<Engine.Part> song, List<String> sources) {
         String best = null;
@@ -5123,13 +5138,14 @@ extends JFrame {
             parts = Collections.singletonList(Engine.groove(name, this.bpm(), this.cells, 1));
         }
         JFileChooser jFileChooser = new JFileChooser();
-        jFileChooser.setSelectedFile(new File(Engine.sngFilename(parts)));
+        jFileChooser.setSelectedFile(new File(Engine.songFilename(parts, this.songFileSet(parts))));
         jFileChooser.setFileFilter(new FileNameExtensionFilter("Pulsekit song", "sng"));
         if (jFileChooser.showSaveDialog(this) != 0) {
             return;
         }
         try {
-            Files.write(jFileChooser.getSelectedFile().toPath(), Engine.encodeSng(parts, parts.get(0).name), new OpenOption[0]);
+            String songSet = this.songFileSet(parts);
+            Files.write(jFileChooser.getSelectedFile().toPath(), Engine.encodeSng(parts, songSet != null ? songSet : parts.get(0).name), new OpenOption[0]);
         }
         catch (Exception exception) {
             JOptionPane.showMessageDialog(this, "Could not save .sng: " + exception.getMessage());
@@ -6383,7 +6399,7 @@ extends JFrame {
         List<Engine.Part> parts = this.activeSong().isEmpty()
             ? Collections.singletonList(Engine.groove(this.exportName("mid").replace(".mid", ""), this.bpm(), this.cells, 1))
             : this.activeSong();
-        this.saveBytes(Engine.sngFilename(parts).replace(".sng", ".mid"), "Song MIDI", "mid", Engine.encodeSongMidi(parts));
+        this.saveBytes(Engine.songFilename(parts, this.songFileSet(parts)).replace(".sng", ".mid"), "Song MIDI", "mid", Engine.encodeSongMidi(parts));
     }
 
     private void saveJar() {

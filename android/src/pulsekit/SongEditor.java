@@ -196,6 +196,21 @@ final class SongEditor {
         }).setNegativeButton((CharSequence)"Cancel", null).show();
     }
 
+    /**
+     * The file set a song comes from, for naming its exports: the set it is saved in, the set an
+     * imported song was made from, or the set whose names it uses most. Null when none.
+     */
+    String songFileSet(List<Engine.Part> song) {
+        List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        if ("imported".equals(app.songLane)) {
+            Engine.ImportedSong imported = this.importedSong();
+            if (imported != null && imported.fileSet != null && sources.contains(imported.fileSet)) return imported.fileSet;
+            if (imported != null && sources.contains(imported.name)) return imported.name;
+        }
+        String best = this.bestFileSetFor(song, sources);
+        return best == null || best.isEmpty() ? null : best;
+    }
+
     /** The file set whose pattern and fill names the song uses most. */
     String bestFileSetFor(List<Engine.Part> song, List<String> sources) {
         String best = null;

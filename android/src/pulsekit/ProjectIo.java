@@ -98,7 +98,7 @@ final class ProjectIo {
         if (n == 9) {
             intent.setType("application/octet-stream");
             List<Engine.Part> list = app.songEditor.songPartsForExport();
-            intent.putExtra("android.intent.extra.TITLE", Engine.sngFilename(list));
+            intent.putExtra("android.intent.extra.TITLE", Engine.songFilename(list, app.songEditor.songFileSet(list)));
         } else if (n == 14) {
             intent.setType("text/x-python");
             intent.putExtra("android.intent.extra.TITLE", app.pyName);
@@ -117,7 +117,8 @@ final class ProjectIo {
             intent.putExtra("android.intent.extra.TITLE", this.exportName("jar"));
         } else if (n == 17) {
             intent.setType("audio/midi");
-            intent.putExtra("android.intent.extra.TITLE", Engine.sngFilename(app.songEditor.songPartsForExport()).replace(".sng", ".mid"));
+            List<Engine.Part> songParts = app.songEditor.songPartsForExport();
+            intent.putExtra("android.intent.extra.TITLE", Engine.songFilename(songParts, app.songEditor.songFileSet(songParts)).replace(".sng", ".mid"));
         } else if (n == 10) {
             intent.setType("audio/wav");
             intent.putExtra("android.intent.extra.TITLE", this.exportName("wav"));

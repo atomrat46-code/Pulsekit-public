@@ -1242,6 +1242,12 @@ public final class Engine {
     return stem.replaceAll("[/\\\\?%*:|\"<>]", " ").trim() + ".sng";
   }
 
+  /** Song file name after the file set the song uses (e.g. "Passing Ships.sng"); without one, as sngFilename. */
+  public static String songFilename(List<Part> parts, String fileSet) {
+    if (fileSet == null || fileSet.trim().isEmpty()) return sngFilename(parts);
+    return fileSet.replaceAll("[/\\\\?%*:|\"<>]", " ").trim() + ".sng";
+  }
+
   public static byte[] encodeSng(List<Part> parts, String name) {
     StringBuilder sb = new StringBuilder();
     sb.append("{\"format\":\"pulsekit-sng\",\"v\":1,\"name\":").append(quote(name));
