@@ -3,6 +3,7 @@ package pulsekit;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -476,12 +477,41 @@ public final class AudioIo {
     Set<String> usedF = new LinkedHashSet<String>();
     String lastName = null;
     int[][] lastGroove = null;
+    Map<String, String> patBySig = new HashMap<String, String>();
+    Map<String, String> fillBySig = new HashMap<String, String>();
     for (int i = 0; i < a.parts.size(); i++) {
       TrackPart p = a.parts.get(i);
       TrackPart next = i + 1 < a.parts.size() ? a.parts.get(i + 1) : null;
       // A silent bar from a file is a rest in the song, not an empty pattern.
       if (source && "rest".equals(p.kind) && (p.cells == null || Engine.hitCount(p.cells) < 1)) continue;
       int[][] gp = restyle ? composedGroove(p, i) : (source ? sourceCells(p) : grooveCells(p));
+      if (source) {
+        // A bar that comes back is the same pattern or fill, not a new one each time.
+        boolean isFill = "fill".equals(p.kind);
+        String seen = (isFill ? fillBySig : patBySig).get(Engine.patternSignature(gp));
+        if (seen != null) {
+          p.name = seen;
+          if (isFill) {
+            if (lastName != null) set.fillerns.add(new String[] { lastName, seen });
+          } else {
+            lastName = seen;
+            lastGroove = gp;
+          }
+          continue;
+        }
+        if (isFill) {
+          String fname = uniqueSetName(p.name == null || p.name.isEmpty() ? "Fill " + (p.index + 1) : p.name, usedF);
+          p.name = fname;
+          Engine.LearnedFill fill = new Engine.LearnedFill();
+          fill.name = fname;
+          fill.kind = Engine.classifyFill(gp);
+          fill.cells = gp;
+          set.fills.add(fill);
+          fillBySig.put(Engine.patternSignature(gp), fname);
+          if (lastName != null) set.fillerns.add(new String[] { lastName, fname });
+          continue;
+        }
+      }
       String pname = uniqueSetName(p.name == null || p.name.isEmpty() ? ("Part " + (p.index + 1)) : p.name, usedP);
       Engine.Learned item = new Engine.Learned();
       item.name = pname;
@@ -491,6 +521,10 @@ public final class AudioIo {
       item.tsNum = p.tsNum;
       item.tsDen = p.tsDen;
       set.patterns.add(item);
+      if (source) {
+        p.name = pname;
+        patBySig.put(Engine.patternSignature(gp), pname);
+      }
       if ("fill".equals(p.kind)) {
         int[][] groove = lastGroove != null ? lastGroove : gp;
         int[][] fp = restyle ? Engine.buildFill("toms", groove, p.styleId) : (source ? sourceCells(p) : fillCellsFor(p, groove));

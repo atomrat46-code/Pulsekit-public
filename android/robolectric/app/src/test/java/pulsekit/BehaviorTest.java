@@ -331,7 +331,7 @@ public class BehaviorTest {
   }
 
   @Test
-  public void s18_program_midi_kept_as_written() throws Exception {
+  public void s18_program_midi_kept_as_written_merged() throws Exception {
     // A detected drum track: 64 bars that each differ a little, with two silent bars.
     java.util.Random rng = new java.util.Random(7);
     int[][] base = Engine.styleCells(Engine.styles().get("rock"));
@@ -350,9 +350,15 @@ public class BehaviorTest {
       d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
       idle();
     }
-    Engine.MidiBars bars = Engine.parseMidiBars(midi);
+    Engine.MidiBars parsed = Engine.parseMidiBars(midi);
+    // Bars a hit or two apart are merged on import; the song must follow the merged bars.
+    List<int[][]> merged = Engine.mergeNearBars(parsed.bars, Engine.MERGE_HITS);
     java.util.Set<String> barSigs = new java.util.HashSet<>();
-    for (int[][] b : bars.bars) barSigs.add(Engine.patternSignature(b));
+    int changedHits = 0;
+    for (int i = 0; i < merged.size(); i++) {
+      barSigs.add(Engine.patternSignature(merged.get(i)));
+      changedHits += Engine.hitDiff(merged.get(i), parsed.bars.get(i));
+    }
     StringBuilder out = new StringBuilder();
     @SuppressWarnings("unchecked")
     List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
@@ -371,7 +377,7 @@ public class BehaviorTest {
       fillCount++;
       if (barSigs.contains(Engine.patternSignature(f.cells))) fillsFromFile++;
     }
-    out.append("bars=").append(bars.bars.size()).append('\n');
+    out.append("bars=").append(parsed.bars.size()).append(" distinct after merge=").append(barSigs.size()).append(" hits changed=").append(changedHits).append('\n');
     out.append("patterns=").append(pats).append(" from the file=").append(patsFromFile).append(" styled=").append(styled).append('\n');
     out.append("fills=").append(fillCount).append(" from the file=").append(fillsFromFile).append('\n');
     out.append("swing=").append(call("swing")).append(" human=").append(call("human")).append('\n');
@@ -390,8 +396,8 @@ public class BehaviorTest {
       for (int r = 0; r < p.repeats; r++) song.add(Engine.patternSignature(p.cells));
     }
     int inPlace = 0;
-    for (int i = 0; i < Math.min(song.size(), bars.bars.size()); i++) {
-      if (song.get(i).equals(Engine.patternSignature(bars.bars.get(i)))) inPlace++;
+    for (int i = 0; i < Math.min(song.size(), merged.size()); i++) {
+      if (song.get(i).equals(Engine.patternSignature(merged.get(i)))) inPlace++;
     }
     out.append("song bars=").append(song.size()).append(" in place=").append(inPlace).append('\n');
     write("s18_program_midi", out.toString());

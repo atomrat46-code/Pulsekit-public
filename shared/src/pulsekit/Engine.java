@@ -6,6 +6,8 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1624,9 +1626,73 @@ public final class Engine {
     return false;
   }
 
+  /** On import, bars that differ by this many hits or fewer become one pattern. */
+  public static final int MERGE_HITS = 2;
+
+  /** Steps where one bar has a hit and the other does not. Velocity is ignored. */
+  public static int hitDiff(int[][] a, int[][] b) {
+    int n = 0;
+    for (int t = 0; t < TRACK_ID.length; t++) {
+      int len = Math.max(a[t].length, b[t].length);
+      for (int s = 0; s < len; s++) {
+        boolean x = s < a[t].length && a[t][s] > 0;
+        boolean y = s < b[t].length && b[t][s] > 0;
+        if (x != y) n++;
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Detected drums vary by a hit or two from bar to bar. Each bar becomes the most
+   * common bar within maxDiff hits of it, so a song is a few patterns, not one per bar.
+   * Bars with fewer than 4 hits are left alone, so a sparse bar never turns into another.
+   */
+  public static List<int[][]> mergeNearBars(List<int[][]> bars, int maxDiff) {
+    if (bars == null || maxDiff <= 0) return bars;
+    LinkedHashMap<String, int[][]> first = new LinkedHashMap<>();
+    final Map<String, Integer> count = new HashMap<>();
+    for (int[][] b : bars) {
+      String sig = patternSignature(b);
+      if (!first.containsKey(sig)) first.put(sig, b);
+      Integer n = count.get(sig);
+      count.put(sig, n == null ? 1 : n + 1);
+    }
+    List<String> order = new ArrayList<>(first.keySet());
+    Collections.sort(order, (x, y) -> count.get(y) - count.get(x));  // stable: ties keep first appearance
+    List<String> reps = new ArrayList<>();
+    Map<String, String> to = new HashMap<>();
+    for (String sig : order) {
+      int[][] cells = first.get(sig);
+      String best = null;
+      int bestDiff = maxDiff + 1;
+      if (hitCount(cells) >= 4) {
+        for (String r : reps) {
+          int[][] rc = first.get(r);
+          if (hitCount(rc) < 4) continue;
+          int d = hitDiff(cells, rc);
+          if (d < bestDiff) {
+            bestDiff = d;
+            best = r;
+          }
+        }
+      }
+      if (best == null) {
+        reps.add(sig);
+        to.put(sig, sig);
+      } else {
+        to.put(sig, best);
+      }
+    }
+    List<int[][]> out = new ArrayList<>(bars.size());
+    for (int[][] b : bars) out.add(first.get(to.get(patternSignature(b))));
+    return out;
+  }
+
   public static List<MidiSeg> segmentMidiBars(List<int[][]> bars) {
     List<MidiSeg> out = new ArrayList<>();
     if (bars == null || bars.isEmpty()) return out;
+    bars = mergeNearBars(bars, MERGE_HITS);
     Map<String, Integer> freq = new LinkedHashMap<>();
     for (int[][] b : bars) {
       String s = patternSignature(b);
@@ -3440,6 +3506,7 @@ public final class Engine {
     int songBpm = 120;
     if (!timeline.isEmpty() && timeline.get(0).bpm > 0) songBpm = timeline.get(0).bpm;
     boolean useWall = !reconstructedParts(timeline);
+    boolean asWritten = !timeline.isEmpty() && unstyledFileSet(timeline, set);
     float sixteenth = 60f / Math.max(MIN_BPM, songBpm) / 4f;
     if (sectionSecs != null) {
       sectionSecs.clear();
@@ -3495,7 +3562,8 @@ public final class Engine {
       int gTsNum = pat.tsNum > 0 ? pat.tsNum : tsNum;
       int gTsDen = pat.tsDen > 0 ? pat.tsDen : tsDen;
       int steps = clampSteps(Math.max(barSteps(gTsNum, gTsDen), usedSteps(pat.cells)));
-      String fname = !"fill".equals(nextKind) ? fillernFill(set, pat.name) : null;
+      // A set kept as written plays its parts in order: a pattern's Fillern is not added where the file had none.
+      String fname = !asWritten && !"fill".equals(nextKind) ? fillernFill(set, pat.name) : null;
       int[][] fp = fname != null ? fillCellsNamed(set, fname) : null;
       boolean addFillern = fp != null && hitCount(fp) >= 1;
       float grooveDur = Math.max(0, info.endSec - info.startSec);
