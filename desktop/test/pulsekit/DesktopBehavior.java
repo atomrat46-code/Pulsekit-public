@@ -249,6 +249,32 @@ public final class DesktopBehavior {
     snap("long song");
   }
 
+  void s17_song_audio_export() throws Exception {
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("showView", "export");
+    answers.add("Save");
+    click("Song WAV");
+    answers.add("Save");
+    click("Song MP3");
+    File home = new File(System.getProperty("user.home"));
+    String[] names = home.list();
+    java.util.Arrays.sort(names);
+    for (String n : names) {
+      File f = new File(home, n);
+      if (!f.isFile()) continue;
+      byte[] b = Files.readAllBytes(f.toPath());
+      out.append("saved ").append(n).append(' ').append(b.length > 1000 ? "has audio" : "too small").append(' ')
+          .append(new String(b, 0, 4, StandardCharsets.ISO_8859_1).replaceAll("[^A-Za-z]", "?")).append('\n');
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> parts = (List<Engine.Part>) call("activeSong");
+    short[] pcm = (short[]) call("songPcm", parts);
+    double sec = 0;
+    for (Engine.Part p : parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    out.append("song ").append(String.format("%.2f", sec)).append(" s, audio longer than the song: ").append(pcm.length / 22050.0 > sec).append('\n');
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));

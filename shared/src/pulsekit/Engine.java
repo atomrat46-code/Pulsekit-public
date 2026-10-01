@@ -1242,6 +1242,13 @@ public final class Engine {
     return stem.replaceAll("[/\\\\?%*:|\"<>]", " ").trim() + ".sng";
   }
 
+  /** Song audio export name: the song's name with "_song_export", e.g. "Passing Ships_song_export.wav". */
+  public static String songExportFilename(List<Part> parts, String fileSet, String ext) {
+    String sng = songFilename(parts, fileSet);
+    String stem = sng.endsWith(".sng") ? sng.substring(0, sng.length() - 4) : sng;
+    return stem + "_song_export." + ext;
+  }
+
   /** Song file name after the file set the song uses (e.g. "Passing Ships.sng"); without one, as sngFilename. */
   public static String songFilename(List<Part> parts, String fileSet) {
     if (fileSet == null || fileSet.trim().isEmpty()) return sngFilename(parts);

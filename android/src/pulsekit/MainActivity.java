@@ -710,6 +710,10 @@ public class MainActivity extends UiKit {
                 byArray = Engine.encodeKitJar(Engine.encodeMidi(this.cells, this.bpm(), this.steps, this.tsNum, this.tsDen), this.cells, this.bpm(), this.style);
             } else if (n == 17) {
                 byArray = Engine.encodeSongMidi(this.songEditor.songPartsForExport());
+            } else if (n == 20) {
+                byArray = AudioIo.encodeWav(this.playback.songPcm(), 22050);
+            } else if (n == 21) {
+                byArray = AudioIo.encodeMp3(this.playback.songPcm(), 22050);
             } else if (n == 10) {
                 byArray = this.playback.encodeWav();
             } else if (n == 11) {

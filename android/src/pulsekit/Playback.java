@@ -664,6 +664,13 @@ final class Playback {
         return AudioIo.encodeWav(this.mixPcm(), 22050);
     }
 
+    /** The song's drum hits as audio, with the current drum set (Song WAV / Song MP3). */
+    short[] songPcm() {
+        this.ensureAudio();
+        this.fillMissingVoices();
+        return AudioIo.renderSong(app.songEditor.songPartsForExport(), app.mutes, this.mixVoices(), 22050);
+    }
+
     short[] mixPcm() {
         this.ensureAudio();
         this.fillMissingVoices();

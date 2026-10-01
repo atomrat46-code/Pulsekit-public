@@ -841,6 +841,34 @@ public class BehaviorTest {
     write("s30_drummidi_params_resets", out.toString());
   }
 
+  @Test
+  public void s31_song_audio_export() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "export");
+    idle();
+    for (String label : new String[] {"Song WAV", "Song MP3"}) {
+      findText(root(), label).performClick();
+      idle();
+      android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+      out.append(label).append(": ").append(save.getType()).append(' ').append(save.getStringExtra("android.intent.extra.TITLE")).append('\n');
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("songPartsForExport");
+    double sec = 0;
+    for (Engine.Part p : song) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    short[] pcm = (short[]) call("songPcm");
+    out.append("song ").append(String.format(java.util.Locale.ROOT, "%.2f", sec)).append(" s, audio longer than the song: ").append(pcm.length / 22050.0 > sec).append('\n');
+    write("s31_song_audio_export", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {
