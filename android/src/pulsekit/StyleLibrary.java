@@ -245,6 +245,7 @@ final class StyleLibrary {
             return;
         }
         app.style = string;
+        app.styleChosen = true;
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, app.cells[i], 0, 32);
@@ -473,7 +474,7 @@ final class StyleLibrary {
             for (n = 0; n < app.styleBar.getChildCount(); ++n) {
                 view = app.styleBar.getChildAt(n);
                 if (!(view instanceof TextView)) continue;
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
             }
         }
         if (app.importedHost != null) {
@@ -483,7 +484,7 @@ final class StyleLibrary {
             for (n = 0; n < app.variatedPatternBar.getChildCount(); ++n) {
                 view = app.variatedPatternBar.getChildAt(n);
                 if (!(view instanceof TextView) || view.getTag() == null || "imported-empty".equals(view.getTag())) continue;
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
             }
         }
     }
@@ -492,7 +493,7 @@ final class StyleLibrary {
         for (int i = 0; i < viewGroup.getChildCount(); ++i) {
             View view = viewGroup.getChildAt(i);
             if (view instanceof TextView && view.getTag() != null && !"imported-empty".equals(view.getTag()) && !"pack".equals(view.getTag())) {
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
                 continue;
             }
             if (!(view instanceof ViewGroup)) continue;

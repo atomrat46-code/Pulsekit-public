@@ -554,6 +554,7 @@ final class ImportLibrary {
         LinkedHashMap<String, String> linkedHashMap = new LinkedHashMap<String, String>();
         ArrayList<Engine.LearnedFill> arrayList = new ArrayList<Engine.LearnedFill>();
         String string3 = null;
+        int at = 0;
         for (Engine.Learned object2 : fileSet.patterns) {
             Engine.Learned copy = new Engine.Learned();
             copy.id = Engine.newLearnedId();
@@ -562,7 +563,7 @@ final class ImportLibrary {
             copy.closest = object2.closest;
             copy.cells = Engine.copyCells(object2.cells);
             copy.source = string2;
-            app.learned.add(0, copy);
+            app.learned.add(at++, copy);  // keep the file set's order: first part first
             while (app.learned.size() > Engine.MAX_LEARNED) {
                 app.learned.remove(app.learned.size() - 1);
             }
@@ -571,6 +572,7 @@ final class ImportLibrary {
             if (string3 != null) continue;
             string3 = copy.id;
         }
+        int fat = 0;
         for (Engine.LearnedFill learnedFill : fileSet.fills) {
             Engine.LearnedFill copy = new Engine.LearnedFill();
             copy.id = Engine.newLearnedId();
@@ -578,7 +580,7 @@ final class ImportLibrary {
             copy.kind = learnedFill.kind == null || learnedFill.kind.isEmpty() ? "toms" : learnedFill.kind;
             copy.cells = Engine.copyCells(learnedFill.cells);
             copy.source = string2;
-            app.learnedFills.add(0, copy);
+            app.learnedFills.add(fat++, copy);
             while (app.learnedFills.size() > Engine.MAX_LEARNED) {
                 app.learnedFills.remove(app.learnedFills.size() - 1);
             }

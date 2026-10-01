@@ -528,6 +528,26 @@ public class BehaviorTest {
     write("s22_imported_scroll", out.toString());
   }
 
+  @Test
+  public void s23_no_style_selected_at_start() throws Exception {
+    StringBuilder out = new StringBuilder();
+    out.append("selected at start=").append(selectedChips()).append('\n');
+    findText(root(), "Rock").performClick();
+    idle();
+    out.append("selected after tapping Rock=").append(selectedChips()).append('\n');
+    write("s23_no_style_selected", out.toString());
+  }
+
+  /** Pattern chips drawn as selected (dark text on the light chip). */
+  private String selectedChips() throws Exception {
+    int bg = UiKit.BG;
+    List<String> names = new ArrayList<>();
+    for (View v : allViews((View) get("styleBar"))) {
+      if (v instanceof TextView && v.getTag() != null && ((TextView) v).getCurrentTextColor() == bg) names.add(((TextView) v).getText().toString());
+    }
+    return names.toString();
+  }
+
   private List<View> allViews(View v) {
     List<View> out = new ArrayList<>();
     out.add(v);

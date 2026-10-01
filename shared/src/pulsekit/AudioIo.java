@@ -500,7 +500,8 @@ public final class AudioIo {
           continue;
         }
         if (isFill) {
-          String fname = uniqueSetName(p.name == null || p.name.isEmpty() ? "Fill " + (p.index + 1) : p.name, usedF);
+          // Named in song order, so the names say what they are: Fill 1, Fill 2, ...
+          String fname = uniqueSetName("Fill " + (usedF.size() + 1), usedF);
           p.name = fname;
           Engine.LearnedFill fill = new Engine.LearnedFill();
           fill.name = fname;
@@ -512,7 +513,9 @@ public final class AudioIo {
           continue;
         }
       }
-      String pname = uniqueSetName(p.name == null || p.name.isEmpty() ? ("Part " + (p.index + 1)) : p.name, usedP);
+      String pname = source
+          ? uniqueSetName("Pattern " + (usedP.size() + 1), usedP)
+          : uniqueSetName(p.name == null || p.name.isEmpty() ? ("Part " + (p.index + 1)) : p.name, usedP);
       Engine.Learned item = new Engine.Learned();
       item.name = pname;
       item.bpm = Math.max(40, Math.min(240, p.bpm));

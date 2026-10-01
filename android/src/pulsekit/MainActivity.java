@@ -207,6 +207,8 @@ public class MainActivity extends UiKit {
     RangeBar humanBar;
 
     String style = "house";
+    /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
+    boolean styleChosen;
 
     String view = "pattern";
 
@@ -270,6 +272,7 @@ public class MainActivity extends UiKit {
         this.styleLibrary.loadStyle("house", false);
         this.setContentView(this.buildUi());
         this.persistence.restoreSession();
+        this.styleChosen = false;
         this.styleLibrary.refreshStyles();
         this.styleLibrary.refreshFills();
         this.gridEditor.refreshGrid();

@@ -155,6 +155,8 @@ extends JFrame {
     private JPanel drumSetBar;
     private JButton padMatchAll;
     private String style = "house";
+    /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
+    private boolean styleChosen;
     private String view = "pattern";
     private String fillId = "toms";
     private String songMode = "edit";
@@ -232,6 +234,8 @@ extends JFrame {
         this.openMidi();
         this.restoreAutosave();
         this.restoreSessionFiles();
+        this.styleChosen = false;
+        this.refreshStyles();
         this.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -327,6 +331,7 @@ extends JFrame {
             return;
         }
         this.style = string;
+        this.styleChosen = true;
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, this.cells[i], 0, Engine.MAX_STEPS);
@@ -4306,7 +4311,7 @@ extends JFrame {
         for (JPanel bar : new JPanel[] { this.styleBar, this.variatedPatternBar, this.importedBar }) {
             this.walkChips(bar, jButton -> {
                 Object sid = jButton.getClientProperty("style");
-                boolean on = this.style.equals(sid);
+                boolean on = this.styleChosen && this.style.equals(sid);
                 this.paintChip(jButton, on);
                 boolean under = false;
                 if ("combo".equals(this.view) && sid instanceof String) {
@@ -5904,6 +5909,7 @@ extends JFrame {
         java.util.LinkedHashMap<String, String> patternIds = new java.util.LinkedHashMap<String, String>();
         java.util.ArrayList<Engine.LearnedFill> importedFills = new java.util.ArrayList<Engine.LearnedFill>();
         String firstId = null;
+        int at = 0;
         for (Engine.Learned p : set.patterns) {
             Engine.Learned item = new Engine.Learned();
             item.id = Engine.newLearnedId();
@@ -5912,12 +5918,13 @@ extends JFrame {
             item.closest = p.closest;
             item.cells = Engine.copyCells(p.cells);
             item.source = source;
-            this.learned.add(0, item);
+            this.learned.add(at++, item);  // keep the file set's order: first part first
             while (this.learned.size() > Engine.MAX_LEARNED) this.learned.remove(this.learned.size() - 1);
             this.styles.put(item.id, new Engine.Style(item.id, item.name, item.bpm, Engine.rowsFromCells(item.cells)));
             patternIds.put(p.name, item.id);
             if (firstId == null) firstId = item.id;
         }
+        int fat = 0;
         for (Engine.LearnedFill f : set.fills) {
             Engine.LearnedFill item = new Engine.LearnedFill();
             item.id = Engine.newLearnedId();
@@ -5925,7 +5932,7 @@ extends JFrame {
             item.kind = f.kind == null ? "toms" : f.kind;
             item.cells = Engine.copyCells(f.cells);
             item.source = source;
-            this.learnedFills.add(0, item);
+            this.learnedFills.add(fat++, item);
             while (this.learnedFills.size() > Engine.MAX_LEARNED) this.learnedFills.remove(this.learnedFills.size() - 1);
             importedFills.add(item);
         }
