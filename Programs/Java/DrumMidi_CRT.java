@@ -25,6 +25,14 @@ import java.util.Set;
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
  *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss]
+ *
+ * --sens sets kick and snare, and every other part that is not given its own value.
+ * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
+ *
+ * Bass guitar shares the kick and tom bands, so a low-band onset alone is not a drum.
+ * A kick needs a beater click (2-6 kHz) with it, a tom needs a stick attack (1-4 kHz)
+ * and a jump in raw low-mid level, and a snare needs its body (150-350 Hz) to jump
+ * more than the kick band. Cutting the bass out with a filter would cut the kick too.
  */
 public class DrumMidi_CRT{
 
@@ -42,6 +50,12 @@ public class DrumMidi_CRT{
     static final double FLOOR_LO = 70, FLOOR_HI = 120;
     static final double MID_LO = 130, MID_HI = 190;
     static final double RACK_LO = 200, RACK_HI = 320;
+
+    static final double ATTACK_LO = 1000, ATTACK_HI = 4000;
+    static final double KICK_CLICK = 0.5;
+    static final double SNARE_BODY_RISE = 0.6;
+    static final double TOM_ATTACK_GATE = 0.5, TOM_ATTACK = 0.6, TOM_RISE = 0.5;
+    static final double OPEN_HAT_TAIL = 0.45;
 
     static final int MIN_GAP_FRAMES = 5;
     static final double BASE_DELTA = 0.30;
@@ -93,7 +107,7 @@ public class DrumMidi_CRT{
         }
         File inFile = new File(args[0]);
         File outFile = new File(args[1]);
-        double sens = 1.0, hatSens = 1.0, tomSens = 1.0, rideSens = 1.0, crashSens = 1.0, bpmOverride = 0;
+        double sens = 1.0, hatSens = -1, tomSens = -1, rideSens = -1, crashSens = -1, bpmOverride = 0;
         int quant = 0;
         boolean hpss = true;
         for (int i = 2; i < args.length; i++) {
@@ -108,6 +122,10 @@ public class DrumMidi_CRT{
             else if ("--no-hpss".equals(opt)) hpss = false;
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
+        if (hatSens <= 0) hatSens = sens;
+        if (tomSens <= 0) tomSens = sens;
+        if (rideSens <= 0) rideSens = sens;
+        if (crashSens <= 0) crashSens = sens;
 
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
@@ -119,12 +137,17 @@ public class DrumMidi_CRT{
         }
 
         float[][] mag = spectrogram(audio.samples, sr);
+        int maxBin = mag[0].length - 1;
+        // Rises in the raw spectrum, before HPSS evens them out. A drum jumps; a bass note mostly does not.
+        double[] lowRise = rise(mag, bin(40, sr, maxBin), bin(100, sr, maxBin));
+        double[] bodyRise = rise(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
+        double[] tomRise = rise(mag, bin(FLOOR_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
+        double[] hatRaw = bandMean(mag, bin(HAT_LO, sr, maxBin), bin(HAT_HI, sr, maxBin));
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             applyHpss(mag);
         }
 
-        int maxBin = mag[0].length - 1;
         double[] kick = flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
         double[] snareNoise = flux(mag, bin(SNARE_NOISE_LO, sr, maxBin), bin(SNARE_NOISE_HI, sr, maxBin));
@@ -139,9 +162,7 @@ public class DrumMidi_CRT{
         int hatLo = bin(HAT_LO, sr, maxBin);
         int hatHi = bin(HAT_HI, sr, maxBin);
         double[] hat = flux(mag, hatLo, hatHi);
-        double[] hatEnergy = bandMean(mag, hatLo, hatHi);
         normalize(hat);
-        normalize(hatEnergy);
 
         int rideLo = bin(RIDE_LO, sr, maxBin);
         int rideHi = bin(RIDE_HI, sr, maxBin);
@@ -162,6 +183,17 @@ public class DrumMidi_CRT{
             crash[t] = Math.sqrt(ride[t] * top[t]);
         }
 
+        // Kick onsets only count where the beater clicks. Bass notes have no click.
+        double[] kickOnset = new double[kick.length];
+        for (int t = 0; t < kick.length; t++) {
+            double g = Math.min(1.0, near(snareNoise, t) / KICK_CLICK);
+            kickOnset[t] = kick[t] * g * g;
+        }
+        normalize(kickOnset);
+        // Toms likewise need a stick attack.
+        double[] attack = flux(mag, bin(ATTACK_LO, sr, maxBin), bin(ATTACK_HI, sr, maxBin));
+        normalize(attack);
+
         double[] floor = flux(mag, bin(FLOOR_LO, sr, maxBin), bin(FLOOR_HI, sr, maxBin));
         double[] mid = flux(mag, bin(MID_LO, sr, maxBin), bin(MID_HI, sr, maxBin));
         double[] rack = flux(mag, bin(RACK_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
@@ -170,35 +202,51 @@ public class DrumMidi_CRT{
         normalize(rack);
         double[] toms = new double[kick.length];
         for (int t = 0; t < toms.length; t++) {
-            if (snareNoise[t] > 0.55 || hat[t] > 0.75) continue;
-            toms[t] = Math.max(floor[t], Math.max(mid[t], rack[t]));
+            if (hat[t] > 0.75) continue;
+            double g = Math.min(1.0, Math.max(attack[t], t > 0 ? attack[t - 1] : 0) / TOM_ATTACK_GATE);
+            toms[t] = Math.max(floor[t], Math.max(mid[t], rack[t])) * g * g;
         }
+        normalize(toms);
 
         double[] drums = new double[kick.length];
         for (int t = 0; t < drums.length; t++) drums[t] = kick[t] + snare[t];
 
         double delta = BASE_DELTA / sens;
         List<Hit> hits = new ArrayList<Hit>();
-        List<Integer> kickPeaks = pickPeaks(kick, delta);
-        for (int i = 0; i < kickPeaks.size(); i++) {
-            int t = kickPeaks.get(i).intValue();
-            hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
-        }
-        List<Integer> snarePeaks = pickPeaks(snare, delta);
-        for (int i = 0; i < snarePeaks.size(); i++) {
-            int t = snarePeaks.get(i).intValue();
+        // A snare's body jumps more than the kick band. Kick plus hat looks like a snare otherwise.
+        List<Integer> snarePeaks = new ArrayList<Integer>();
+        for (Integer p : pickPeaks(snare, delta)) {
+            int t = p.intValue();
+            double body = near(bodyRise, t);
+            if (body < SNARE_BODY_RISE || body <= near(lowRise, t)) continue;
+            snarePeaks.add(p);
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
         }
-        List<Integer> hatPeaks = pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, sens * hatSens), 3);
+        boolean[] snareAt = new boolean[kick.length];
+        for (Integer p : snarePeaks) mark(snareAt, p.intValue(), 1);
+        for (Integer p : pickPeaks(kickOnset, delta)) {
+            int t = p.intValue();
+            if (snareAt[t] && kick[t] < 0.85 * near(snareBody, t)) continue;
+            hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
+        }
+        // Toms are not where a kick or snare would be found at full sensitivity,
+        // so a lower --sens does not turn quiet kicks and snares into toms.
+        boolean[] busy = new boolean[kick.length];
+        for (Integer p : pickPeaks(snare, BASE_DELTA)) {
+            int t = p.intValue();
+            if (near(bodyRise, t) >= SNARE_BODY_RISE && near(bodyRise, t) > near(lowRise, t)) mark(busy, t, 2);
+        }
+        for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) mark(busy, p.intValue(), 2);
+        List<Integer> hatPeaks = pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3);
         for (int i = 0; i < hatPeaks.size(); i++) {
             int t = hatPeaks.get(i).intValue();
             if (snare[t] > 1.0 && hat[t] < snare[t]) continue;
             if (isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
             if (ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) continue;
-            boolean open = openHat(hatEnergy, hatPeaks, i);
+            boolean open = openHat(hatRaw, hatPeaks, i);
             hits.add(new Hit(t * (double) HOP / sr, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
-        List<Integer> ridePeaks = pickPeaks(ride, (BASE_DELTA * 0.9) / Math.max(0.05, sens * rideSens), 5);
+        List<Integer> ridePeaks = pickPeaks(ride, (BASE_DELTA * 0.9) / Math.max(0.05, rideSens), 5);
         for (int i = 0; i < ridePeaks.size(); i++) {
             int t = ridePeaks.get(i).intValue();
             if (!rideRings(rideEnergy, t)) continue;
@@ -207,17 +255,19 @@ public class DrumMidi_CRT{
             if (hat[t] > ride[t] * 1.35) continue;
             hits.add(new Hit(t * (double) HOP / sr, RIDE_NOTE, ride[t]));
         }
-        List<Integer> crashPeaks = pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, sens * crashSens), 32);
+        List<Integer> crashPeaks = pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32);
         for (int i = 0; i < crashPeaks.size(); i++) {
             int t = crashPeaks.get(i).intValue();
             if (!isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
             if (!crashAttack(ride, top, t)) continue;
             hits.add(new Hit(t * (double) HOP / sr, CRASH_NOTE, crash[t]));
         }
-        List<Integer> tomPeaks = pickPeaks(toms, BASE_DELTA / Math.max(0.05, sens * tomSens), 4);
+        List<Integer> tomPeaks = pickPeaks(toms, BASE_DELTA / Math.max(0.05, tomSens), 4);
         for (int i = 0; i < tomPeaks.size(); i++) {
             int t = tomPeaks.get(i).intValue();
-            if (snare[t] > 0.85 && snareNoise[t] > 0.35) continue;
+            if (busy[t]) continue;
+            // A tom is struck as hard as a snare and its low-mid jumps. Bass notes fail one or both.
+            if (near(attack, t) < TOM_ATTACK || near(tomRise, t) < TOM_RISE) continue;
             double f = floor[t], m = mid[t], r = rack[t];
             int note;
             double strength;
@@ -685,7 +735,8 @@ public class DrumMidi_CRT{
 
     /**
      * Open hats ring in the top band. A hat that is hit again within ~90 ms is closed,
-     * because an open hat is left to sound.
+     * because an open hat is left to sound. The ring is measured in the raw band level
+     * (HPSS removes it) above the level just before the hit, so cymbal wash does not count.
      */
     static boolean openHat(double[] energy, List<Integer> peaks, int index) {
         int t = peaks.get(index).intValue();
@@ -693,10 +744,12 @@ public class DrumMidi_CRT{
             int next = peaks.get(index + 1).intValue();
             if (next - t < 8) return false;
         }
-        double now = energy[t];
-        if (now < 1e-6) return false;
-        int a = Math.min(energy.length - 1, t + 6);
-        int b = Math.min(energy.length - 1, t + 16);
+        int n = energy.length;
+        double pre = Math.min(energy[Math.max(0, t - 3)], energy[Math.max(0, t - 2)]);
+        double peak = Math.max(energy[t], energy[Math.min(n - 1, t + 1)]) - pre;
+        if (peak < 1e-6) return false;
+        int a = Math.min(n - 1, t + 5);
+        int b = Math.min(n - 1, t + 9);
         double tail = 0;
         int count = 0;
         for (int i = a; i <= b; i++) {
@@ -704,7 +757,7 @@ public class DrumMidi_CRT{
             count++;
         }
         tail /= Math.max(1, count);
-        return tail > now * 0.32;
+        return tail - pre > peak * OPEN_HAT_TAIL;
     }
 
     /** A ride keeps ringing in the mid-high band well after an open hat would have died. */
@@ -758,6 +811,31 @@ public class DrumMidi_CRT{
         }
         tail /= Math.max(1, count);
         return tail > now * 0.30;
+    }
+
+    /** Mean log rise over two frames in a band of the raw spectrum. */
+    static double[] rise(float[][] mag, int lo, int hi) {
+        double[] o = new double[mag.length];
+        for (int t = 2; t < mag.length; t++) {
+            double s = 0;
+            for (int k = lo; k <= hi; k++) {
+                s += Math.log1p(LOG_GAMMA * mag[t][k]) - Math.log1p(LOG_GAMMA * mag[t - 2][k]);
+            }
+            o[t] = s / (hi - lo + 1);
+        }
+        return o;
+    }
+
+    /** Largest value within one frame of t. Onsets in different bands can land a frame apart. */
+    static double near(double[] o, int t) {
+        double v = o[t];
+        if (t > 0) v = Math.max(v, o[t - 1]);
+        if (t + 1 < o.length) v = Math.max(v, o[t + 1]);
+        return v;
+    }
+
+    static void mark(boolean[] at, int t, int r) {
+        for (int i = Math.max(0, t - r); i <= Math.min(at.length - 1, t + r); i++) at[i] = true;
     }
 
     static void normalize(double[] o) {
