@@ -424,6 +424,14 @@ public final class Engine {
     return FILLERN_END.equals(mode) || FILLERN_START.equals(mode) ? mode : FILLERN_AFTER;
   }
 
+  /** True for a song part that is a fill, or a pattern with a Fillern's fill in it ("Pattern 1 + Snare roll"). */
+  public static boolean partHasFill(Part p) {
+    return p != null && ("fill".equals(p.kind) || (p.name != null && p.name.contains(" + ")));
+  }
+
+  /** Song cells with a fill in them: a muted violet, apart from plain patterns. */
+  public static final int FILL_CELL_COLOR = 0xFF3E3352;
+
   /** A Fillern's own type, or the default from Drum Midi Settings when it has none. */
   public static String fillernModeOr(String own) {
     return own == null || own.isEmpty() ? fillernMode(MidiImportSettings.fillernDefault) : fillernMode(own);

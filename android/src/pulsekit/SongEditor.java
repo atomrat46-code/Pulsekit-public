@@ -704,7 +704,7 @@ final class SongEditor {
             textView.setGravity(17);
             textView.setMinWidth(app.dp(44));
             textView.setPadding(app.dp(10), app.dp(8), app.dp(10), app.dp(8));
-            textView.setBackground((Drawable)app.round(bl ? HIT : ELEV, 0));
+            textView.setBackground((Drawable)app.round(bl ? HIT : (Engine.partHasFill(object2) ? Engine.FILL_CELL_COLOR : ELEV), 0));
             textView.setTextColor(bl ? BG : FG);
             TextView textView2 = app.text(((Engine.Part)object2).name, 10, false);
             textView2.setGravity(17);
@@ -730,7 +730,7 @@ final class SongEditor {
 
     LinearLayout partCardBase(int n, int n2, Engine.Part part, boolean bl) {
         LinearLayout linearLayout = app.row();
-        linearLayout.setBackground((Drawable)app.round(bl ? Color.parseColor((String)"#2A322C") : ELEV, 12));
+        linearLayout.setBackground((Drawable)app.round(bl ? Color.parseColor((String)"#2A322C") : (Engine.partHasFill(part) ? Engine.FILL_CELL_COLOR : ELEV), 12));
         linearLayout.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
         layoutParams.topMargin = app.dp(6);
@@ -817,6 +817,7 @@ final class SongEditor {
     LinearLayout partCard(int n, int n2, Engine.Part part, boolean bl) {
         this.pkPartNow = bl;
         LinearLayout card = this.partCardBase(n, n2, part, bl);
+        card.setTag("part-card-" + n);
         this.afterPartCard(card, this.pkPartNow);
         return card;
     }
@@ -833,10 +834,37 @@ final class SongEditor {
             return;
         }
         int idx = app.songPlay ? app.songIndex : -1;
+        if (idx >= 0) this.followPlayingPart(idx);
         int loop = app.songPlay ? app.songLoop : 0;
         int step = app.playhead < 0 ? 0 : app.playhead;
         int global = pulsekit.Engine.songGlobalStep(parts, idx, loop, step);
         app.setNow(pulsekit.Engine.songNowLine(parts, app.songPlay, idx, global));
+    }
+
+    /** Keeps the playing part in view: the cell strip and the part list scroll with the song. */
+    void followPlayingPart(int idx) {
+        if (app.timeline != null && app.timeline.getParent() instanceof android.widget.HorizontalScrollView && idx < app.timeline.getChildCount()) {
+            android.widget.HorizontalScrollView strip = (android.widget.HorizontalScrollView) app.timeline.getParent();
+            android.view.View cell = app.timeline.getChildAt(idx);
+            this.afterLayout(strip, () -> strip.smoothScrollTo(Math.max(0, cell.getLeft() - strip.getWidth() / 3), 0));
+        }
+        if (app.songCards != null && app.songCards.getParent() instanceof android.widget.ScrollView) {
+            android.widget.ScrollView list = (android.widget.ScrollView) app.songCards.getParent();
+            android.view.View card = app.songCards.findViewWithTag("part-card-" + idx);
+            if (card != null) this.afterLayout(list, () -> list.smoothScrollTo(0, Math.max(0, card.getTop() - list.getHeight() / 3)));
+        }
+    }
+
+    /** Runs r once the view has been laid out again: the song views are rebuilt on every part change. */
+    void afterLayout(final android.view.View v, final Runnable r) {
+        v.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                v.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                r.run();
+            }
+        });
+        v.requestLayout();
     }
 
     void afterPartCard(android.widget.LinearLayout card, boolean now) {

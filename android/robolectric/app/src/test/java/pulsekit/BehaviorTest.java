@@ -683,6 +683,59 @@ public class BehaviorTest {
     write("s26_replace_with_fillern", out.toString());
   }
 
+  @Test
+  public void s27_song_follows_playback() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int i = 0; i < 16; i++) parts.add(Engine.groove("P" + i, 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    parts.add(2, Engine.fill("Snare roll", 120, 1));
+    parts.get(6).name = "P5 + Snare roll";  // a pattern with a Fillern's fill in it
+    call("addImportedArrangement", "Long song", parts);
+    idle();
+    StringBuilder out = new StringBuilder();
+    ViewGroup line = (ViewGroup) get("timeline");
+    int fillColor = Engine.FILL_CELL_COLOR;
+    List<String> colored = new ArrayList<>();
+    for (int i = 0; i < line.getChildCount(); i++) {
+      View top = ((ViewGroup) line.getChildAt(i)).getChildAt(0);
+      android.graphics.drawable.Drawable bg = top.getBackground();
+      if (bg instanceof android.graphics.drawable.GradientDrawable
+          && ((android.graphics.drawable.GradientDrawable) bg).getColor() != null
+          && ((android.graphics.drawable.GradientDrawable) bg).getColor().getDefaultColor() == fillColor) {
+        colored.add(((TextView) ((ViewGroup) line.getChildAt(i)).getChildAt(1)).getText().toString());
+      }
+    }
+    out.append("fill-colored cells=").append(colored).append('\n');
+    android.widget.HorizontalScrollView strip = (android.widget.HorizontalScrollView) line.getParent();
+    out.append("strip scroll at start=").append(strip.getScrollX()).append('\n');
+    // Playing part 14 of 17.
+    setField("songPlay", true);
+    setField("songIndex", 14);
+    call("refreshSong");
+    idle();
+    ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    line = (ViewGroup) get("timeline");
+    strip = (android.widget.HorizontalScrollView) line.getParent();
+    View now = line.getChildAt(14);
+    boolean visible = now.getLeft() >= strip.getScrollX() && now.getRight() <= strip.getScrollX() + strip.getWidth();
+    out.append("strip scrolled=").append(strip.getScrollX() > 0).append(" playing cell in view=").append(visible).append('\n');
+    setField("songPlay", false);
+    write("s27_song_follows_playback", out.toString());
+  }
+
+  private void setField(String name, Object value) throws Exception {
+    for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
+      try {
+        Field f = c.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(app, value);
+        return;
+      } catch (NoSuchFieldException ignored) {
+        // look further up
+      }
+    }
+    throw new NoSuchFieldException(name);
+  }
+
   private String timelineCells() throws Exception {
     List<String> cells = new ArrayList<>();
     ViewGroup line = (ViewGroup) get("timeline");

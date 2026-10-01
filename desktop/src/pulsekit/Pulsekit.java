@@ -107,6 +107,7 @@ extends JFrame {
     private final JPanel toolsRow = new JPanel(new FlowLayout(0, 6, 4));
     private final JPanel knobsRow = new JPanel(new GridLayout(1, 4, 12, 0));
     private final JPanel timeline = new JPanel(new FlowLayout(0, 2, 0));
+    private JScrollPane timelineScroll;
     private final JPanel songAdds = new JPanel(new FlowLayout(0, 6, 4));
     private final JTextField bpmField = new JTextField("124", 3);
     private final JTextField tsNumField = new JTextField("4", 2);
@@ -1024,7 +1025,19 @@ extends JFrame {
         jPanel2.add(jPanel3);
         jPanel2.add(this.songLaneBar);
         jPanel2.add(this.songAdds);
-        jPanel2.add(this.timeline);
+        // The cell strip scrolls sideways and follows the playing part.
+        this.timelineScroll = new JScrollPane(this.timeline, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+            }
+        };
+        this.timelineScroll.setOpaque(false);
+        this.timelineScroll.getViewport().setOpaque(false);
+        this.timelineScroll.setBorder(BorderFactory.createEmptyBorder());
+        this.timelineScroll.setAlignmentX(0.0f);
+        this.timelineScroll.getHorizontalScrollBar().setUnitIncrement(24);
+        jPanel2.add(this.timelineScroll);
         jPanel.add((Component)jPanel2, "North");
         JScrollPane jScrollPane = new JScrollPane(jList);
         jScrollPane.getViewport().setBackground(ELEV);
@@ -4225,7 +4238,7 @@ extends JFrame {
             jPanel.setOpaque(false);
             JLabel jLabel = new JLabel(Integer.toString(n), 0);
             jLabel.setOpaque(true);
-            jLabel.setBackground(bl ? HIT : ELEV);
+            jLabel.setBackground(bl ? HIT : (Engine.partHasFill(part) ? new Color(Engine.FILL_CELL_COLOR, true) : ELEV));
             jLabel.setForeground(bl ? BG : FG);
             jLabel.setFont(new Font("SansSerif", 1, 15));
             jLabel.setAlignmentX(0.5f);
@@ -4242,6 +4255,15 @@ extends JFrame {
         }
         this.timeline.revalidate();
         this.timeline.repaint();
+        if (this.songPlay && this.songPart >= 0 && this.songPart < this.timeline.getComponentCount()) {
+            final Component now = this.timeline.getComponent(this.songPart);
+            SwingUtilities.invokeLater(() -> {
+                java.awt.Rectangle r = now.getBounds();
+                r.x = Math.max(0, r.x - 120);
+                r.width += 240;
+                this.timeline.scrollRectToVisible(r);
+            });
+        }
         if (this.songList != null && this.songPlay && this.songPart >= 0 && this.songPart < this.songModel.getSize()) {
             this.songList.setSelectedIndex(this.songPart);
             this.songList.ensureIndexIsVisible(this.songPart);
