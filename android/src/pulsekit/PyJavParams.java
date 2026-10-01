@@ -8,20 +8,14 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** DrumMidi switches, one text field each, saved per program. */
 public final class PyJavParams {
-  private static final String[] FLAGS = {
-    "--sens", "--hat", "--tom", "--ride", "--crash", "--bpm", "--quantize", "--no-hpss"
-  };
-  private static final String[] LABELS = {
-    "Sensitivity", "Hi-hat", "Toms", "Ride", "Crash", "BPM", "Quantize", "No HPSS"
-  };
-  private static final String[] HINTS = {
-    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off"
-  };
+  private static final String[] FLAGS = DrumMidiArgs.FLAGS;
+  private static final String[] LABELS = DrumMidiArgs.LABELS;
+  private static final String[] HINTS = DrumMidiArgs.HINTS;
+  private static final String[] SUGGESTED = DrumMidiArgs.SUGGESTED;
   private static final String PREFS = "pulsekit-pyjav-params";
 
   private PyJavParams() {}
@@ -35,6 +29,28 @@ public final class PyJavParams {
     LinearLayout box = new LinearLayout(activity);
     box.setOrientation(LinearLayout.VERTICAL);
     box.setPadding(pad, pad, pad, pad);
+    LinearLayout resets = new LinearLayout(activity);
+    resets.setOrientation(LinearLayout.HORIZONTAL);
+    android.widget.Button defaults = new android.widget.Button(activity);
+    defaults.setText("Reset to defaults");
+    defaults.setTag("params-defaults");
+    android.widget.Button suggested = new android.widget.Button(activity);
+    suggested.setText("Reset to suggested values");
+    suggested.setTag("params-suggested");
+    resets.addView(defaults, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    resets.addView(suggested, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    box.addView(resets);
+    TextView note = new TextView(activity);
+    note.setText(DrumMidiArgs.NOTE);
+    note.setTextSize(12);
+    note.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+    box.addView(note);
+    defaults.setOnClickListener(v -> {
+      for (EditText f : fields) f.setText("");
+    });
+    suggested.setOnClickListener(v -> {
+      for (int i = 0; i < fields.length; i++) fields[i].setText(SUGGESTED[i]);
+    });
     for (int i = 0; i < FLAGS.length; i++) {
       TextView label = new TextView(activity);
       label.setText(LABELS[i] + "  " + FLAGS[i]);
@@ -59,21 +75,9 @@ public final class PyJavParams {
         .setPositiveButton("OK", new android.content.DialogInterface.OnClickListener() {
           @Override
           public void onClick(android.content.DialogInterface dialog, int which) {
-            StringBuilder built = new StringBuilder();
-            for (int i = 0; i < FLAGS.length; i++) {
-              String value = fields[i].getText() == null ? "" : fields[i].getText().toString().trim();
-              if (value.length() == 0) continue;
-              if ("--no-hpss".equals(FLAGS[i])) {
-                if (on(value)) {
-                  if (built.length() > 0) built.append(' ');
-                  built.append(FLAGS[i]);
-                }
-                continue;
-              }
-              if (built.length() > 0) built.append(' ');
-              built.append(FLAGS[i]).append(' ').append(value);
-            }
-            String args = built.toString();
+            String[] values = new String[FLAGS.length];
+            for (int i = 0; i < FLAGS.length; i++) values[i] = fields[i].getText() == null ? "" : fields[i].getText().toString();
+            String args = DrumMidiArgs.build(values);
             activity.getSharedPreferences(PREFS, 0).edit().putString(name, args).apply();
             try {
               if (activity instanceof MainActivity) ((MainActivity) activity).pyJav.pkSetPyArgs(args);
@@ -95,52 +99,11 @@ public final class PyJavParams {
 
   /** File paths stay. A saved string replaces DrumMidi flags. Null means nothing was saved. */
   public static String merge(String extra, String saved) {
-    if (saved == null) return extra == null ? "" : extra.trim();
-    String kept = strip(extra);
-    if (saved.trim().length() == 0) return kept;
-    if (kept.length() == 0) return saved.trim();
-    return kept + " " + saved.trim();
-  }
-
-  private static String strip(String extra) {
-    if (extra == null || extra.trim().length() == 0) return "";
-    String[] parts = extra.trim().split("\\s+");
-    StringBuilder out = new StringBuilder();
-    for (int i = 0; i < parts.length; i++) {
-      int flag = index(parts[i]);
-      if (flag >= 0) {
-        if (!"--no-hpss".equals(FLAGS[flag]) && i + 1 < parts.length && !parts[i + 1].startsWith("-")) i++;
-        continue;
-      }
-      if (out.length() > 0) out.append(' ');
-      out.append(parts[i]);
-    }
-    return out.toString();
+    return DrumMidiArgs.merge(extra, saved);
   }
 
   private static Map<String, String> read(String extra) {
-    Map<String, String> out = new LinkedHashMap<String, String>();
-    if (extra == null || extra.trim().length() == 0) return out;
-    String[] parts = extra.trim().split("\\s+");
-    for (int i = 0; i < parts.length; i++) {
-      int flag = index(parts[i]);
-      if (flag < 0) continue;
-      if ("--no-hpss".equals(FLAGS[flag])) {
-        out.put(FLAGS[flag], "1");
-        continue;
-      }
-      if (i + 1 < parts.length && !parts[i + 1].startsWith("-")) out.put(FLAGS[flag], parts[++i]);
-    }
-    return out;
-  }
-
-  private static int index(String token) {
-    for (int i = 0; i < FLAGS.length; i++) if (FLAGS[i].equals(token)) return i;
-    return -1;
-  }
-
-  private static boolean on(String value) {
-    return "1".equals(value) || "true".equalsIgnoreCase(value) || "yes".equalsIgnoreCase(value) || "on".equalsIgnoreCase(value);
+    return DrumMidiArgs.read(extra);
   }
 
   private static int dp(Activity activity, int n) {

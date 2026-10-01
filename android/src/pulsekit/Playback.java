@@ -190,7 +190,9 @@ final class Playback {
         }
         int n2 = this.step;
         int[][] nArray = app.cells;
-        boolean bl2 = bl = !app.songPlay && app.fillLast && app.barLoop == app.bars - 1;
+        // The Fillern's fill plays in the last bar, or in the first when it replaces the pattern's start.
+        int fillBar = Engine.FILLERN_START.equals(app.styleLibrary.fillernModeOf(app.styleLibrary.currentPatternKey())) ? 0 : app.bars - 1;
+        boolean bl2 = bl = !app.songPlay && app.fillLast && app.barLoop == fillBar;
         if (bl) {
             nArray = app.fillPat;
         }

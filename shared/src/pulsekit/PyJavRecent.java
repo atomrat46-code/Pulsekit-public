@@ -42,7 +42,8 @@ public final class PyJavRecent {
     if (!file.isFile()) return out;
     try {
       String text = new String(read(file), StandardCharsets.UTF_8);
-      String[] lines = text.split("\n");
+      // -1 keeps trailing empty fields: an item without bytes ends in an empty line.
+      String[] lines = text.split("\n", -1);
       for (int i = 0; i + 3 < lines.length && out.size() < MAX; i += 4) {
         String name = decode(lines[i]);
         if (name.isEmpty()) continue;

@@ -43,6 +43,11 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // File-set state is static; start each scenario without what an earlier one imported.
+    Engine.fileSetOrigins.clear();
+    Engine.fileSetAudio.clear();
+    MidiImportSettings.reset();
+    Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
@@ -68,7 +73,7 @@ public class BehaviorTest {
   @Test
   public void s02_views() throws Exception {
     StringBuilder all = new StringBuilder();
-    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo"}) {
+    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo", "help", "midisettings"}) {
       call("show", v);
       idle();
       all.append("### ").append(v).append('\n').append(state()).append(tree(root(), 0));
@@ -250,6 +255,823 @@ public class BehaviorTest {
     snap("s14_persistence_restart");
   }
 
+  @Test
+  public void s15_program_menus() throws Exception {
+    call("show", "py");
+    idle();
+    StringBuilder out = new StringBuilder();
+    for (String kind : new String[] {"Java", "Python", "Code"}) {
+      out.append(kind).append(": ").append(String.join(", ", (String[]) call("list", kind))).append('\n');
+    }
+    String editorBefore = ((TextView) get("pyEditor")).getText().toString();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    out.append("after Java pick: pyName=").append(get("pyName"))
+        .append(" editorUnchanged=").append(editorBefore.equals(((TextView) get("pyEditor")).getText().toString())).append('\n');
+    pickFromMenu("Code \u25be", "sogni-client.mjs");
+    String editor = ((TextView) get("pyEditor")).getText().toString();
+    String run = (String) call("sourceToRun");
+    out.append("after Code pick: pyName=").append(get("pyName"))
+        .append(" editorHasSogni=").append(editor.contains("@sogni-ai/sogni-client"))
+        .append(" runsDrumMidi=").append(run != null && run.contains("public class DrumMidi_CRT")).append('\n');
+    short[] pcm = new short[22050];
+    call("ingest", AudioIo.encodeWav(pcm, 22050), "Song take.wav", null);
+    idle();
+    out.append("after WAV: pyName=").append(get("pyName")).append(" args=")
+        .append(norm(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
+    write("s15_program_menus", out + state() + tree(root(), 0));
+  }
+
+  @Test
+  public void s16_help_from_file_menu() throws Exception {
+    TextView file = findText(root(), "File");
+    if (file == null) throw new AssertionError("no File tab");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView help = findText(pop.getContentView(), "Help-Android");
+    if (help == null) throw new AssertionError("no Help-Android item");
+    help.performClick();
+    idle();
+    TextView pyText = findText(root(), "Python, Java, JavaScript, or TypeScript. On Android, Node.js runs in Termux: "
+        + "pkg install nodejs. npm installs @sogni-ai/sogni-client. Java runs in the app.");
+    write("s16_help", "helpTextShown=" + (pyText != null && pyText.isShown()) + "\n" + state() + tree(root(), 0));
+  }
+
+  @Test
+  public void s17_recent_after_run() throws Exception {
+    call("show", "py");
+    idle();
+    short[] pcm = new short[22050];
+    call("ingest", AudioIo.encodeWav(pcm, 22050), "Passing Ships.wav", null);
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView args = (TextView) get("pkPyArgs");
+    String used = args.getText().toString() + " --sens 0.4 --hat 0.4";
+    args.setText(used);
+    TextView run = findText(root(), "Run");
+    run.performClick();
+    idle();
+    StringBuilder out = new StringBuilder();
+    @SuppressWarnings("unchecked")
+    List<Object> items = (List<Object>) get("pkPyRecentItems");
+    out.append("recent items=").append(items == null ? 0 : items.size()).append('\n');
+    View box = root().findViewWithTag("pk-recent");
+    String label = "DrumMidi_CRT.java  " + used;
+    TextView entry = box == null ? null : findText(box, label);
+    out.append("recent row shown=").append(entry != null).append('\n');
+    // open something else, then pick the recent entry
+    call("ingest", "print('x')".getBytes(StandardCharsets.UTF_8), "other.py", null);
+    idle();
+    if (entry != null) {
+      entry.performClick();
+      idle();
+    }
+    out.append("after tap: pyName=").append(get("pyName")).append('\n');
+    out.append("after tap: args restored=").append(used.equals(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
+    out.append("after tap: editor has DrumMidi=").append(((TextView) get("pyEditor")).getText().toString().contains("class DrumMidi_CRT")).append('\n');
+    write("s17_recent", norm(out.toString()));
+  }
+
+  @Test
+  public void s18_program_midi_kept_as_written_merged() throws Exception {
+    write("s18_program_midi", importStats(detectedMidi(), "Passing Ships"));
+  }
+
+  @Test
+  public void s19_drum_midi_settings() throws Exception {
+    TextView file = findText(root(), "File");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView item = findText(pop.getContentView(), "Drum Midi Settings");
+    if (item == null) throw new AssertionError("no Drum Midi Settings item");
+    item.performClick();
+    idle();
+    StringBuilder out = new StringBuilder();
+    out.append("view=").append(get("view")).append('\n');
+    View page = (View) get("drumMidiPane");
+    out.append("page shown=").append(page != null && page.isShown()).append('\n');
+    // Merge more, and no one-off fills.
+    ((android.widget.CheckBox) findText(page, "Treat a one-off bar after a repeated groove as a fill")).performClick();
+    TextView plus = findText(page, "+");
+    plus.performClick();
+    plus.performClick();
+    idle();
+    out.append("settings:\n").append(MidiImportSettings.encode());
+    out.append(importStats(detectedMidi(), "Detected"));
+    // Merging off.
+    call("show", "midisettings");
+    idle();
+    ((android.widget.CheckBox) findText((View) get("drumMidiPane"), "Merge hits")).performClick();
+    idle();
+    out.append("merge off:\n").append(importStats(detectedMidi(), "Unmerged"));
+    String stored = app.getSharedPreferences("pulsekit-drum-midi", 0).getString("settings", "");
+    out.append("stored=").append(stored.replace('\n', ' ')).append('\n');
+    write("s19_drum_midi_settings", out.toString() + tree(root(), 0));
+  }
+
+  @Test
+  public void s20_fillern_underline_only_when_picked() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.fill("toms", 110, 1));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Old set.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    // Like an older import: every pattern already has a fill paired.
+    @SuppressWarnings("unchecked")
+    Map<String, String> pairs = (Map<String, String>) get("fillernPairs");
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    for (Engine.Learned l : learned) pairs.put("l:" + l.id, "toms");
+    call("show", "combo");
+    idle();
+    StringBuilder out = new StringBuilder();
+    out.append("underlined after import=").append(underlinedChips()).append('\n');
+    out.append("fillern tab chips=").append(packChips()).append('\n');
+    // Make a Fillern from the file set: first pattern, then a fill.
+    root().findViewWithTag("fillern-add").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(((AlertDialog) ShadowDialog.getLatestDialog()).getListView()).performItemClick(0);
+    idle();
+    out.append("list underlined before pick=").append(underlinedItems()).append('\n');
+    android.widget.ListView list = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
+    int at = -1;
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (String.valueOf(list.getAdapter().getItem(i)).trim().equals(Engine.FILL_LABEL[1])) at = i;
+    }
+    if (at < 0) throw new AssertionError("no " + Engine.FILL_LABEL[1] + " in the list");
+    org.robolectric.Shadows.shadowOf(list).performItemClick(at);
+    idle();
+    call("show", "combo");
+    idle();
+    TextView chip = null;
+    for (Engine.Learned l : learned) {
+      View v = root().findViewWithTag(l.id);
+      if (v instanceof TextView && v.isShown()) { chip = (TextView) v; break; }
+    }
+    if (chip == null) throw new AssertionError("no Fillern chip");
+    out.append("chip=").append(chip.getText()).append('\n');
+    out.append("underlined after pick=").append(underlinedChips()).append('\n');
+    chip = (TextView) root().findViewWithTag(chip.getTag());
+    chip.performLongClick();
+    idle();
+    out.append("list underlined after pick=").append(underlinedItems()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    out.append("underlined after restart=").append(underlinedChips()).append(" (the set's chips start folded)\n");
+    out.append("picked after restart=").append(call("fillernUnderlined", "l:" + chip.getTag())).append('\n');
+    write("s20_fillern_underline", out.toString());
+  }
+
+  @Test
+  public void s21_create_fillern_in_file_set() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    parts.add(Engine.groove("C", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Three parts.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    StringBuilder out = new StringBuilder();
+    call("show", "pattern");
+    idle();
+    out.append("pattern tab chips=").append(packChips()).append('\n');
+    call("show", "combo");
+    idle();
+    out.append("fillern tab chips=").append(packChips()).append('\n');
+    View none = root().findViewWithTag("fillern-none");
+    out.append("no-fillerns note shown=").append(none != null && none.isShown()).append('\n');
+    none.performClick();
+    idle();
+    AlertDialog pick = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.ListView patterns = pick.getListView();
+    StringBuilder names = new StringBuilder();
+    for (int i = 0; i < patterns.getAdapter().getCount(); i++) names.append(i == 0 ? "" : ", ").append(patterns.getAdapter().getItem(i));
+    out.append("pattern list=").append(names).append('\n');
+    org.robolectric.Shadows.shadowOf(patterns).performItemClick(0);
+    idle();
+    android.widget.ListView fills = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
+    int at = -1;
+    for (int i = 0; i < fills.getAdapter().getCount(); i++) {
+      if (String.valueOf(fills.getAdapter().getItem(i)).trim().equals(Engine.FILL_LABEL[1])) at = i;
+    }
+    org.robolectric.Shadows.shadowOf(fills).performItemClick(at);
+    idle();
+    out.append("after create: fillern tab chips=").append(packChips()).append('\n');
+    View gone = root().findViewWithTag("fillern-none");
+    out.append("no-fillerns note shown=").append(gone != null && gone.isShown()).append('\n');
+    out.append("underlined=").append(underlinedChips()).append('\n');
+    call("show", "pattern");
+    idle();
+    out.append("pattern tab chips=").append(packChips()).append('\n');
+    write("s21_create_fillern", out.toString());
+  }
+
+  @Test
+  public void s22_imported_list_scrolls() throws Exception {
+    String[] styles = {"rock", "funk", "house", "techno", "trap", "hiphop"};
+    for (int k = 0; k < styles.length; k++) {
+      List<Engine.Part> parts = new ArrayList<>();
+      parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get(styles[k])), 2));
+      parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get(styles[(k + 1) % styles.length])), 2));
+      call("ingest", Engine.encodeSongMidi(parts), "Set " + (k + 1) + ".mid", null);
+      idle();
+      AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (song != null && song.isShowing()) {
+        song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idle();
+      }
+    }
+    call("show", "combo");
+    idle();
+    // Open every folded file set.
+    for (int round = 0; round < 10; round++) {
+      TextView folded = null;
+      for (View v : allViews(root())) {
+        if (v instanceof TextView && v.isShown() && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().startsWith("\u25b8 ")) {
+          folded = (TextView) v;
+          break;
+        }
+      }
+      if (folded == null) break;
+      folded.performClick();
+      idle();
+    }
+    StringBuilder out = new StringBuilder();
+    int notes = 0;
+    for (View v : allViews(root())) if ("fillern-none".equals(v.getTag())) notes++;
+    out.append("file sets with the no-fillerns note=").append(notes).append('\n');
+    View scroll = root().findViewWithTag("imported-scroll");
+    View inner = ((ViewGroup) scroll).getChildAt(0);
+    int screen = app.getResources().getDisplayMetrics().heightPixels;
+    out.append("list taller than its box=").append(inner.getHeight() > scroll.getHeight()).append('\n');
+    out.append("box at most a third of the screen=").append(scroll.getHeight() <= screen / 3 + 1).append('\n');
+    View knobs = (View) get("knobsRow");
+    int[] at = new int[2];
+    knobs.getLocationInWindow(at);
+    out.append("knobs on screen=").append(knobs.isShown() && at[1] + knobs.getHeight() <= screen).append('\n');
+    write("s22_imported_scroll", out.toString());
+  }
+
+  @Test
+  public void s23_no_style_selected_at_start() throws Exception {
+    StringBuilder out = new StringBuilder();
+    out.append("selected at start=").append(selectedChips()).append('\n');
+    findText(root(), "Rock").performClick();
+    idle();
+    out.append("selected after tapping Rock=").append(selectedChips()).append('\n');
+    write("s23_no_style_selected", out.toString());
+  }
+
+  @Test
+  public void s24_fills_in_file_sets() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "No fills.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    call("show", "fills");
+    idle();
+    StringBuilder out = new StringBuilder();
+    for (View v : allViews((View) get("importedFillHost"))) {
+      if (v instanceof TextView && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().startsWith("\u25b8 ")) {
+        out.append("set=").append(((TextView) v).getText()).append('\n');
+        v.performClick();
+        idle();
+        break;
+      }
+    }
+    out.append("fills tab=").append(fillPackChips()).append('\n');
+    // "No fills yet, add one" -> Snare roll.
+    root().findViewWithTag("fills-none").performClick();
+    idle();
+    pickItem(Engine.FILL_LABEL[1]);
+    out.append("after add=").append(fillPackChips()).append('\n');
+    // Long press Crash -> Variated fill into file set -> this set.
+    TextView crash = null;
+    for (View v : allViews((View) get("fillBar"))) {
+      if (v instanceof TextView && "crash".equals(v.getTag())) crash = (TextView) v;
+    }
+    if (crash == null) throw new AssertionError("no Crash chip");
+    crash.performLongClick();
+    idle();
+    pickItem("Variated fill into file set");
+    pickItem("No fills");
+    out.append("after variated=").append(fillPackChips()).append('\n');
+    crash.performLongClick();
+    idle();
+    pickItem("Copy fill to file set");
+    pickItem("No fills");
+    out.append("after copy=").append(fillPackChips()).append('\n');
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    for (Engine.LearnedFill f : fills) {
+      // A variation is random: only that it has hits is stable.
+      String hits = f.name.endsWith(" var") ? (Engine.hitCount(f.cells) > 0 ? "some" : "0") : Integer.toString(Engine.hitCount(f.cells));
+      out.append("fill ").append(f.name).append(" src=").append(f.source).append(" hits=").append(hits).append('\n');
+    }
+    write("s24_fills_in_file_sets", out.toString());
+  }
+
+  @Test
+  public void s25_fillern_types() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String key = (String) call("patternKeyFor", "rock");
+    for (String type : Engine.FILLERN_MODE_LABELS) {
+      findText(root(), "Rock").performClick();
+      idle();
+      call("show", "combo");
+      idle();
+      TextView rock = null;
+      for (View v : allViews((View) get("styleBar"))) {
+        if (v instanceof TextView && "rock".equals(v.getTag())) rock = (TextView) v;
+      }
+      rock.performLongClick();
+      idle();
+      out.append(type).append(": list shows ");
+      List<String> rows = new ArrayList<>();
+      android.widget.ListAdapter a = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView().getAdapter();
+      for (int i = 0; i < 5 && i < a.getCount(); i++) rows.add(String.valueOf(a.getItem(i)).trim());
+      out.append(rows).append('\n');
+      pickItem(type);
+      rock.performLongClick();
+      idle();
+      pickItem(Engine.FILL_LABEL[1]);
+      out.append("  underlined type=").append(underlinedItemsAfterLongPress(rock)).append('\n');
+      @SuppressWarnings("unchecked")
+      List<Engine.Part> song = (List<Engine.Part>) call("activeSong");
+      song.clear();
+      call("applySongPick", "fillern", key, -1);
+      idle();
+      int bars = 0;
+      StringBuilder parts = new StringBuilder();
+      for (Engine.Part p : song) {
+        bars += p.repeats;
+        parts.append(p.kind).append(' ').append(p.name).append(" x").append(p.repeats).append(" steps=").append(p.steps).append("; ");
+      }
+      out.append("  song: ").append(parts).append("bars=").append(bars).append('\n');
+      for (Engine.Part p : song) {
+        if (p.name.contains(" + ")) {
+          int[][] rockCells = Engine.styleCells(Engine.styles().get("rock"));
+          int first = Engine.hitDiff(cut(p.cells, 0, 8), cut(rockCells, 0, 8));
+          int last = Engine.hitDiff(cut(p.cells, 8, 16), cut(rockCells, 8, 16));
+          out.append("  mixed bar differs from Rock: first half ").append(first).append(" hits, second half ").append(last).append(" hits\n");
+        }
+      }
+    }
+    write("s25_fillern_types", out.toString());
+  }
+
+  @Test
+  public void s26_replace_song_part_with_fillern() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Fillern type default: replaces end.
+    call("show", "midisettings");
+    idle();
+    findText((View) get("drumMidiPane"), Engine.FILLERN_MODE_LABELS[1]).performClick();
+    idle();
+    out.append("default=").append(MidiImportSettings.fillernDefault).append('\n');
+    // A song MIDI, and the song made from it.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Song.mid", null);
+    idle();
+    AlertDialog make = (AlertDialog) ShadowDialog.getLatestDialog();
+    make.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("song cells=").append(timelineCells()).append(" bars=").append(songBars()).append('\n');
+    // A Fillern for Pattern 1 with Snare roll; it has no type of its own.
+    call("show", "combo");
+    idle();
+    root().findViewWithTag("fillern-add").performClick();
+    idle();
+    pickItem("Pattern 1");
+    pickItem(Engine.FILL_LABEL[1]);
+    out.append("fillern chips=").append(packChips()).append('\n');
+    // Song tab, imported lane: long press the second part, replace it with the Fillern.
+    call("show", "song");
+    idle();
+    View second = findText((View) get("songCards"), "Pattern 2");
+    while (second != null && !second.isLongClickable()) second = (View) second.getParent();
+    second.performLongClick();
+    idle();
+    pickItem("Replace with fillern");
+    pickItem("Pattern 1 \u00b7 Snare roll (replaces end)");
+    out.append("after replace=").append(timelineCells()).append(" bars=").append(songBars()).append('\n');
+    write("s26_replace_with_fillern", out.toString());
+  }
+
+  @Test
+  public void s27_song_follows_playback() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int i = 0; i < 16; i++) parts.add(Engine.groove("P" + i, 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    parts.add(2, Engine.fill("Snare roll", 120, 1));
+    parts.get(6).name = "P5 + Snare roll";  // a pattern with a Fillern's fill in it
+    call("addImportedArrangement", "Long song", parts);
+    idle();
+    StringBuilder out = new StringBuilder();
+    ViewGroup line = (ViewGroup) get("timeline");
+    int fillColor = Engine.FILL_CELL_COLOR;
+    List<String> colored = new ArrayList<>();
+    for (int i = 0; i < line.getChildCount(); i++) {
+      View top = ((ViewGroup) line.getChildAt(i)).getChildAt(0);
+      android.graphics.drawable.Drawable bg = top.getBackground();
+      if (bg instanceof android.graphics.drawable.GradientDrawable
+          && ((android.graphics.drawable.GradientDrawable) bg).getColor() != null
+          && ((android.graphics.drawable.GradientDrawable) bg).getColor().getDefaultColor() == fillColor) {
+        colored.add(((TextView) ((ViewGroup) line.getChildAt(i)).getChildAt(1)).getText().toString());
+      }
+    }
+    out.append("fill-colored cells=").append(colored).append('\n');
+    android.widget.HorizontalScrollView strip = (android.widget.HorizontalScrollView) line.getParent();
+    out.append("strip scroll at start=").append(strip.getScrollX()).append('\n');
+    // Playing part 14 of 17.
+    setField("songPlay", true);
+    setField("songIndex", 14);
+    call("refreshSong");
+    idle();
+    ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    line = (ViewGroup) get("timeline");
+    strip = (android.widget.HorizontalScrollView) line.getParent();
+    View now = line.getChildAt(14);
+    boolean visible = now.getLeft() >= strip.getScrollX() && now.getRight() <= strip.getScrollX() + strip.getWidth();
+    out.append("strip scrolled=").append(strip.getScrollX() > 0).append(" playing cell in view=").append(visible).append('\n');
+    setField("songPlay", false);
+    write("s27_song_follows_playback", out.toString());
+  }
+
+  @Test
+  public void s28_song_saved_in_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Set song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    // Add a built-in pattern to the imported song: a part from outside the set.
+    findText(root(), "Rock").performClick();
+    idle();
+    call("show", "song");
+    idle();
+    findText(root(), "Pattern \u00d74").performClick();
+    idle();
+    out.append("song=").append(timelineCells()).append('\n');
+    root().findViewWithTag("song-save-set").performClick();
+    idle();
+    pickItem("Set song");
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("asked=").append(ask.isShowing()).append('\n');
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    List<Engine.FileSetSong> saved = Engine.fileSetSongs.get("Set song");
+    Engine.FileSetSong song = saved.get(0);
+    StringBuilder refs = new StringBuilder();
+    for (Engine.SongRef r : song.parts) refs.append(r.part.name).append("->").append(r.usePattern != null ? r.usePattern : (r.useFill != null ? r.useFill : "-")).append("; ");
+    out.append("saved ").append(song.name).append(": ").append(refs).append('\n');
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    List<String> setPatterns = new ArrayList<>();
+    for (Engine.Learned l : Engine.learnedFrom(learned, "Set song")) setPatterns.add(l.name);
+    out.append("set patterns=").append(setPatterns).append('\n');
+    // Edit Pattern 1 in the set; reopening the song shows the edit.
+    Engine.Learned p1 = null;
+    for (Engine.Learned l : Engine.learnedFrom(learned, "Set song")) if ("Pattern 1".equals(l.name)) p1 = l;
+    p1.cells[0][3] = 100;
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    call("refreshFromFileSet", songs.get(0));
+    out.append("song follows the edit=").append(songs.get(0).parts.get(0).cells[0][3] == 100).append('\n');
+    // Export the set and load it back: the song comes with it.
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    @SuppressWarnings("unchecked")
+    Map<String, String> pairs = (Map<String, String>) get("fillernPairs");
+    byte[] fset = Engine.encodeFset(Engine.collectFset("Set song", "Set song", learned, fills, pairs));
+    Engine.FileSet back = Engine.decodeFset(fset);
+    out.append("fset songs=").append(back.songs.size()).append(" parts=").append(back.songs.isEmpty() ? 0 : back.songs.get(0).parts.size()).append('\n');
+    call("removeImportSource", "Set song");
+    idle();
+    songs.clear();
+    call("loadFset", fset, "Set song.fset");
+    idle();
+    int bars = 0;
+    for (Engine.Part p : songs.get(0).parts) bars += p.repeats;
+    out.append("after reload: song=").append(songs.get(0).name).append(" in ").append(songs.get(0).fileSet).append(" bars=").append(bars)
+        .append(" edit kept=").append(songs.get(0).parts.get(0).cells[0][3] == 100).append('\n');
+    write("s28_song_in_file_set", out.toString());
+  }
+
+  @Test
+  public void s29_song_export_named_after_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("songPartsForExport");
+    String set = (String) call("songFileSet", song);
+    out.append("imported song: ").append(Engine.songFilename(song, set)).append(" / ").append(Engine.songFilename(song, set).replace(".sng", ".mid")).append('\n');
+    // A song of built-in patterns only keeps the old name.
+    call("loadStyle", "rock", false);
+    idle();
+    ((View) get("songPane")).findViewWithTag("original").performClick();
+    idle();
+    findText(root(), "Pattern \u00d74").performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> own = (List<Engine.Part>) call("songPartsForExport");
+    StringBuilder names = new StringBuilder();
+    for (Engine.Part p : own) names.append(p.name).append(' ');
+    out.append("lane=").append(get("songLane")).append(" parts=").append(names).append('\n');
+    out.append("built-in song: ").append(Engine.songFilename(own, (String) call("songFileSet", own))).append('\n');
+    write("s29_song_export_names", out.toString());
+  }
+
+  @Test
+  public void s30_drummidi_params_resets() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("in.wav out.mid --sens 2.0 --bpm 99");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    d.getWindow().getDecorView().findViewWithTag("params-suggested").performClick();
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("suggested: ").append(args.getText()).append('\n');
+    call("pkOpenParams");
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    d.getWindow().getDecorView().findViewWithTag("params-defaults").performClick();
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("defaults: ").append(args.getText()).append('\n');
+    write("s30_drummidi_params_resets", out.toString());
+  }
+
+  private void setField(String name, Object value) throws Exception {
+    for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
+      try {
+        Field f = c.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(app, value);
+        return;
+      } catch (NoSuchFieldException ignored) {
+        // look further up
+      }
+    }
+    throw new NoSuchFieldException(name);
+  }
+
+  private String timelineCells() throws Exception {
+    List<String> cells = new ArrayList<>();
+    ViewGroup line = (ViewGroup) get("timeline");
+    for (int i = 0; i < line.getChildCount(); i++) {
+      ViewGroup cell = (ViewGroup) line.getChildAt(i);
+      cells.add(((TextView) cell.getChildAt(0)).getText() + " " + ((TextView) cell.getChildAt(1)).getText());
+    }
+    return cells.toString();
+  }
+
+  private int songBars() throws Exception {
+    int bars = 0;
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("activeSong");
+    for (Engine.Part p : song) bars += p.repeats;
+    return bars;
+  }
+
+  private static int[][] cut(int[][] cells, int from, int to) {
+    int[][] out = Engine.emptyCells();
+    for (int t = 0; t < cells.length && t < out.length; t++) {
+      for (int s = from; s < to && s < cells[t].length; s++) out[t][s] = cells[t][s];
+    }
+    return out;
+  }
+
+  private String underlinedItemsAfterLongPress(TextView chip) {
+    chip.performLongClick();
+    idle();
+    String u = underlinedItems();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    idle();
+    return u;
+  }
+
+  /** Taps the entry of the open list dialog whose text is label. */
+  private void pickItem(String label) {
+    android.widget.ListView list = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (String.valueOf(list.getAdapter().getItem(i)).trim().equals(label)) {
+        org.robolectric.Shadows.shadowOf(list).performItemClick(i);
+        idle();
+        return;
+      }
+    }
+    throw new AssertionError("no " + label + " in the list");
+  }
+
+  private String fillPackChips() throws Exception {
+    List<String> names = new ArrayList<>();
+    collectChips((View) get("importedFillHost"), names);
+    return names.toString();
+  }
+
+  /** Pattern chips drawn as selected (dark text on the light chip). */
+  private String selectedChips() throws Exception {
+    int bg = UiKit.BG;
+    List<String> names = new ArrayList<>();
+    for (View v : allViews((View) get("styleBar"))) {
+      if (v instanceof TextView && v.getTag() != null && ((TextView) v).getCurrentTextColor() == bg) names.add(((TextView) v).getText().toString());
+    }
+    return names.toString();
+  }
+
+  private List<View> allViews(View v) {
+    List<View> out = new ArrayList<>();
+    out.add(v);
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) out.addAll(allViews(g.getChildAt(i)));
+    }
+    return out;
+  }
+
+  /** Text of the shown chips in the imported pattern packs. */
+  private String packChips() throws Exception {
+    List<String> names = new ArrayList<>();
+    collectChips((View) get("importedHost"), names);
+    return names.toString();
+  }
+
+  private void collectChips(View v, List<String> out) {
+    if (v instanceof TextView && v.isShown() && !"pack".equals(v.getTag())) out.add(((TextView) v).getText().toString());
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) collectChips(g.getChildAt(i), out);
+    }
+  }
+
+  /** Names of shown pattern chips drawn underlined. */
+  private String underlinedChips() {
+    List<String> names = new ArrayList<>();
+    collectUnderlined(root(), names);
+    return names.toString();
+  }
+
+  private void collectUnderlined(View v, List<String> out) {
+    if (v instanceof TextView && v.isShown() && v.getTag() != null
+        && (((TextView) v).getPaintFlags() & android.graphics.Paint.UNDERLINE_TEXT_FLAG) != 0) {
+      out.add(((TextView) v).getText().toString());
+    }
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) collectUnderlined(g.getChildAt(i), out);
+    }
+  }
+
+  /** Entries of the open list dialog that are underlined. */
+  private String underlinedItems() {
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    List<String> names = new ArrayList<>();
+    android.widget.ListAdapter a = d.getListView().getAdapter();
+    for (int i = 0; i < a.getCount(); i++) {
+      Object item = a.getItem(i);
+      if (item instanceof android.text.Spanned
+          && ((android.text.Spanned) item).getSpans(0, ((android.text.Spanned) item).length(), android.text.style.UnderlineSpan.class).length > 0) {
+        names.add(item.toString().trim());
+      }
+    }
+    return names.toString();
+  }
+
+  /** A detected drum track: 64 bars that each differ a little, with two silent bars. */
+  private byte[] detectedMidi() {
+    java.util.Random rng = new java.util.Random(7);
+    int[][] base = Engine.styleCells(Engine.styles().get("rock"));
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int b = 0; b < 64; b++) {
+      int[][] cells = Engine.copyCells(base);
+      if (b == 30 || b == 31) cells = Engine.emptyCells();
+      else for (int k = 0; k < 2; k++) cells[rng.nextInt(3)][rng.nextInt(16)] = 90;
+      parts.add(Engine.groove("b" + b, 121, cells, 1));
+    }
+    byte[] midi = Engine.encodeSongMidi(parts);
+    return midi;
+  }
+
+  /** Import a MIDI as program output, decline the song, and count what the file set holds. */
+  private String importStats(byte[] midi, String name) throws Exception {
+    call("pkImportProgramMidi", midi, name + ".mid");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    Engine.MidiBars parsed = Engine.parseMidiBars(midi);
+    // Bars a hit or two apart are merged on import; the song must follow the merged bars.
+    List<int[][]> merged = Engine.mergeNearBars(parsed.bars, MidiImportSettings.mergeLimit());
+    java.util.Set<String> barSigs = new java.util.HashSet<>();
+    int changedHits = 0;
+    for (int i = 0; i < merged.size(); i++) {
+      barSigs.add(Engine.patternSignature(merged.get(i)));
+      changedHits += Engine.hitDiff(merged.get(i), parsed.bars.get(i));
+    }
+    StringBuilder out = new StringBuilder();
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    int pats = 0, patsFromFile = 0, styled = 0;
+    for (Engine.Learned l : learned) {
+      if (!name.equals(l.source)) continue;
+      pats++;
+      if (barSigs.contains(Engine.patternSignature(l.cells))) patsFromFile++;
+      if (l.closest != null && !l.closest.isEmpty()) styled++;
+    }
+    int fillCount = 0, fillsFromFile = 0;
+    for (Engine.LearnedFill f : fills) {
+      if (!name.equals(f.source)) continue;
+      fillCount++;
+      if (barSigs.contains(Engine.patternSignature(f.cells))) fillsFromFile++;
+    }
+    out.append("bars=").append(parsed.bars.size()).append(" distinct after merge=").append(barSigs.size()).append(" hits changed=").append(changedHits).append('\n');
+    out.append("patterns=").append(pats).append(" from the file=").append(patsFromFile).append(" styled=").append(styled).append('\n');
+    out.append("fills=").append(fillCount).append(" from the file=").append(fillsFromFile).append('\n');
+    out.append("swing=").append(call("swing")).append(" human=").append(call("human")).append('\n');
+    @SuppressWarnings("unchecked")
+    Map<String, String> fillerns = (Map<String, String>) get("fillernPairs");
+    Engine.FileSet set = Engine.collectFset(name, name, learned, fills, fillerns);
+    call("ensureFsetInfoMap");
+    @SuppressWarnings("unchecked")
+    List<Engine.FileSetPart> stored = (List<Engine.FileSetPart>) ((Map<String, Object>) get("fsetInfoMap")).get(name);
+    if (stored != null && !stored.isEmpty()) {
+      set.parts.clear();
+      set.parts.addAll(stored);
+    }
+    List<String> song = new ArrayList<>();
+    for (Engine.Part p : Engine.songFromFileSet(set)) {
+      for (int r = 0; r < p.repeats; r++) song.add(Engine.patternSignature(p.cells));
+    }
+    int inPlace = 0;
+    for (int i = 0; i < Math.min(song.size(), merged.size()); i++) {
+      if (song.get(i).equals(Engine.patternSignature(merged.get(i)))) inPlace++;
+    }
+    out.append("song bars=").append(song.size()).append(" in place=").append(inPlace).append('\n');
+    return out.toString();
+  }
+
+  /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */
+  private void pickFromMenu(String button, String entry) throws Exception {
+    TextView b = findText(root(), button);
+    if (b == null) throw new AssertionError("no button " + button);
+    b.performClick();
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.ListView list = d.getListView();
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (entry.equals(String.valueOf(list.getAdapter().getItem(i)))) {
+        org.robolectric.Shadows.shadowOf(d).clickOnItem(i);
+        idle();
+        return;
+      }
+    }
+    throw new AssertionError("no entry " + entry);
+  }
+
   // ------------------------------------------------------------- snapshotting
 
   private void snap(String name) throws Exception {
@@ -362,7 +1184,16 @@ public class BehaviorTest {
     return text.replaceAll("\\bc[0-9a-z]{9,10}\\b", "ID");
   }
 
+  /** Draw the whole window, as the phone does. Catches crashes that only happen while drawing. */
+  private void drawAll() {
+    View r = root();
+    int w = Math.max(1, r.getWidth()), h = Math.max(1, r.getHeight());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+    r.draw(new android.graphics.Canvas(bmp));
+  }
+
   private void write(String name, String text) throws Exception {
+    drawAll();
     text = stableIds(text);
     File dir = new File(System.getProperty("snapshotDir", "build/snapshots"));
     dir.mkdirs();

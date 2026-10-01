@@ -75,7 +75,7 @@ final class ImportLibrary {
             object.human = app.human();
             object.source = Engine.importSource(string);
             app.learned.add(0, object);
-            while (app.learned.size() > 48) {
+            while (app.learned.size() > Engine.MAX_LEARNED) {
                 app.learned.remove(app.learned.size() - 1);
             }
             app.styles.put(object.id, new Engine.Style(object.id, object.name, object.bpm, Engine.rowsFromCells(object.cells)));
@@ -169,7 +169,7 @@ final class ImportLibrary {
                     object.human = app.human();
                     object.source = string2;
                     app.learned.add(0, object);
-                    while (app.learned.size() > 48) {
+                    while (app.learned.size() > Engine.MAX_LEARNED) {
                         app.learned.remove(app.learned.size() - 1);
                     }
                     app.styles.put(object.id, new Engine.Style(object.id, object.name, object.bpm, Engine.rowsFromCells(object.cells)));
@@ -247,7 +247,7 @@ final class ImportLibrary {
         learnedFill.cells = Engine.copyCells(nArray);
         learnedFill.source = Engine.importSource(string);
         app.learnedFills.add(0, learnedFill);
-        while (app.learnedFills.size() > 48) {
+        while (app.learnedFills.size() > Engine.MAX_LEARNED) {
             app.learnedFills.remove(app.learnedFills.size() - 1);
         }
         this.addLearnedFillChip(learnedFill);
@@ -310,6 +310,7 @@ final class ImportLibrary {
             return;
         }
         app.importedHost.removeAllViews();
+        app.importedFor = "combo".equals(app.view) ? "combo" : "pattern";
         if (app.learned.isEmpty()) {
             TextView textView = app.text("MIDI, song or plugin pack", 12, false);
             textView.setTextColor(MUTED);
@@ -338,7 +339,14 @@ final class ImportLibrary {
             }
             String string2 = string.isEmpty() ? "Other" : string;
             String packKey = string.isEmpty() ? "o:other" : "f:" + string;
-            this.addImportPack(app.importedHost, packKey, string2, arrayList.size(), bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
+            // On the Fillern tab a file set lists its Fillerns: patterns with a fill chosen for them.
+            boolean fillerns = "combo".equals(app.view);
+            int shown = fillerns ? this.fillernsOf(arrayList).size() : arrayList.size();
+            this.addImportPack(app.importedHost, packKey, string2, shown, bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
+                if (fillerns) {
+                    this.addFillernChips(flowLayout, arrayList);
+                    return;
+                }
                 for (Engine.Learned learned : arrayList) {
                     TextView textView = app.pill(learned.name, false, view -> app.styleLibrary.loadStyle(learned.id, false));
                     textView.setTag((Object)learned.id);
@@ -351,12 +359,67 @@ final class ImportLibrary {
         this.refreshImportedFiles();
     }
 
+    /** Patterns of a file set that have a fill chosen for them. */
+    List<Engine.Learned> fillernsOf(List<Engine.Learned> patterns) {
+        ArrayList<Engine.Learned> out = new ArrayList<Engine.Learned>();
+        for (Engine.Learned learned : patterns) {
+            if (app.styleLibrary.selectedFillFor(app.styleLibrary.patternKeyFor(learned.id)) != null) out.add(learned);
+        }
+        return out;
+    }
+
+    /** Fillern chips ("pattern · fill"), or a note when there are none, and a way to make one. */
+    void addFillernChips(ViewGroup host, List<Engine.Learned> patterns) {
+        List<Engine.Learned> made = this.fillernsOf(patterns);
+        for (Engine.Learned learned : made) {
+            String fill = app.styleLibrary.selectedFillFor(app.styleLibrary.patternKeyFor(learned.id));
+            String key = app.styleLibrary.patternKeyFor(learned.id);
+            String note = Engine.fillernModeNote(app.styleLibrary.fillernModeOf(key));
+            TextView textView = app.pill(learned.name + " \u00b7 " + app.styleLibrary.fillLabel(fill) + note, false, view -> app.styleLibrary.loadStyle(learned.id, false));
+            textView.setTag((Object)learned.id);
+            app.styleLibrary.attachLearnedStyleMenu(textView, learned);
+            host.addView((View)textView);
+        }
+        if (made.isEmpty()) {
+            TextView none = app.text("No fillerns yet, create one", 13, false);
+            none.setTextColor(MUTED);
+            none.setTag((Object)"fillern-none");
+            none.setPadding(app.dp(4), app.dp(10), app.dp(10), app.dp(10));
+            none.setOnClickListener(view -> this.createFillern(patterns));
+            host.addView((View)none);
+        }
+        TextView add = app.pill("+ Fillern", false, view -> this.createFillern(patterns));
+        add.setTag((Object)"fillern-add");
+        host.addView((View)add);
+    }
+
+    /** Pick a pattern of the file set, then a fill for it. */
+    void createFillern(List<Engine.Learned> patterns) {
+        if (patterns.isEmpty()) {
+            app.setNow("This file set has no patterns");
+            return;
+        }
+        String[] names = new String[patterns.size()];
+        for (int i = 0; i < names.length; i++) names[i] = patterns.get(i).name;
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)"Fillern: choose a pattern").setItems((CharSequence[])names, (dialogInterface, which) -> {
+            if (which < 0 || which >= patterns.size()) return;
+            Engine.Learned learned = patterns.get(which);
+            ArrayList<CharSequence> rows = new ArrayList<CharSequence>();
+            ArrayList<Runnable> acts = new ArrayList<Runnable>();
+            app.styleLibrary.addFillernFillRows(rows, acts, app.styleLibrary.patternKeyFor(learned.id), () -> app.styleLibrary.loadStyle(learned.id, false));
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)("Fill for " + learned.name)).setItems(rows.toArray(new CharSequence[0]), (d, n) -> {
+                if (n < 0 || n >= acts.size() || acts.get(n) == null) return;
+                acts.get(n).run();
+            }).setNegativeButton((CharSequence)"Cancel", null).show();
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
     void rebuildImportedFills() {
         if (app.importedFillHost == null) {
             return;
         }
         app.importedFillHost.removeAllViews();
-        if (app.learnedFills.isEmpty()) {
+        if (app.learnedFills.isEmpty() && app.learned.isEmpty()) {
             TextView textView = app.text("Last bar of an imported MIDI", 12, false);
             textView.setTextColor(MUTED);
             textView.setTag((Object)"imported-empty");
@@ -364,7 +427,9 @@ final class ImportLibrary {
             this.refreshImportedFiles();
             return;
         }
+        // Every file set, also one without fills yet.
         LinkedHashMap<String, ArrayList<Engine.LearnedFill>> linkedHashMap = new LinkedHashMap<String, ArrayList<Engine.LearnedFill>>();
+        for (String src : Engine.fileSetSources(app.learned, app.learnedFills)) linkedHashMap.put(src, new ArrayList<Engine.LearnedFill>());
         for (Engine.LearnedFill object : app.learnedFills) {
             String string = Engine.sourceOf(object);
             ArrayList<Engine.LearnedFill> arrayList = linkedHashMap.get(string);
@@ -392,6 +457,17 @@ final class ImportLibrary {
                     app.styleLibrary.attachLearnedFillMenu(textView, learnedFill);
                     flowLayout.addView((View)textView);
                 }
+                if (arrayList.isEmpty()) {
+                    TextView none = app.text("No fills yet, add one", 13, false);
+                    none.setTextColor(MUTED);
+                    none.setTag((Object)"fills-none");
+                    none.setPadding(app.dp(4), app.dp(10), app.dp(10), app.dp(10));
+                    none.setOnClickListener(view -> app.styleLibrary.pickBuiltinFillFor(string));
+                    flowLayout.addView((View)none);
+                }
+                TextView add = app.pill("+ Fill", false, view -> app.styleLibrary.pickBuiltinFillFor(string));
+                add.setTag((Object)"fills-add");
+                flowLayout.addView((View)add);
             });
         }
         app.styleLibrary.refreshFills();
@@ -402,6 +478,7 @@ final class ImportLibrary {
         String string2 = string == null ? "" : string;
         app.learned.removeIf(learned -> string2.equals(Engine.sourceOf(learned)));
         app.learnedFills.removeIf(learnedFill -> string2.equals(Engine.sourceOf(learnedFill)));
+        if (Engine.fileSetSongs.remove(string2) != null) app.fileSets.persistFsetInfo();
         app.fillernPairs.entrySet().removeIf(entry -> {
             String id;
             String key = (String)entry.getKey();
@@ -493,16 +570,17 @@ final class ImportLibrary {
         LinkedHashMap<String, String> linkedHashMap = new LinkedHashMap<String, String>();
         ArrayList<Engine.LearnedFill> arrayList = new ArrayList<Engine.LearnedFill>();
         String string3 = null;
+        int at = 0;
         for (Engine.Learned object2 : fileSet.patterns) {
             Engine.Learned copy = new Engine.Learned();
             copy.id = Engine.newLearnedId();
-            copy.name = Engine.uniqueLearnedName(object2.name, app.learned);
+            copy.name = Engine.uniqueLearnedName(object2.name, Engine.learnedFrom(app.learned, string2));
             copy.bpm = object2.bpm;
             copy.closest = object2.closest;
             copy.cells = Engine.copyCells(object2.cells);
             copy.source = string2;
-            app.learned.add(0, copy);
-            while (app.learned.size() > 48) {
+            app.learned.add(at++, copy);  // keep the file set's order: first part first
+            while (app.learned.size() > Engine.MAX_LEARNED) {
                 app.learned.remove(app.learned.size() - 1);
             }
             app.styles.put(copy.id, new Engine.Style(copy.id, copy.name, copy.bpm, Engine.rowsFromCells(copy.cells)));
@@ -510,15 +588,16 @@ final class ImportLibrary {
             if (string3 != null) continue;
             string3 = copy.id;
         }
+        int fat = 0;
         for (Engine.LearnedFill learnedFill : fileSet.fills) {
             Engine.LearnedFill copy = new Engine.LearnedFill();
             copy.id = Engine.newLearnedId();
-            copy.name = Engine.uniqueFillName(learnedFill.name == null || learnedFill.name.isEmpty() ? "fill" : learnedFill.name, app.learnedFills);
+            copy.name = Engine.uniqueFillName(learnedFill.name == null || learnedFill.name.isEmpty() ? "fill" : learnedFill.name, Engine.fillsFrom(app.learnedFills, string2));
             copy.kind = learnedFill.kind == null || learnedFill.kind.isEmpty() ? "toms" : learnedFill.kind;
             copy.cells = Engine.copyCells(learnedFill.cells);
             copy.source = string2;
-            app.learnedFills.add(0, copy);
-            while (app.learnedFills.size() > 48) {
+            app.learnedFills.add(fat++, copy);
+            while (app.learnedFills.size() > Engine.MAX_LEARNED) {
                 app.learnedFills.remove(app.learnedFills.size() - 1);
             }
             arrayList.add(copy);
@@ -531,6 +610,12 @@ final class ImportLibrary {
             app.fillernPairs.put("l:" + string4, string5);
             ++n;
         }
+        // Songs saved in the file set: kept with it, and listed under Imported songs.
+        for (Engine.FileSetSong song : fileSet.songs) {
+            Engine.putFileSetSong(string2, song);
+            app.songEditor.addFileSetSong(string2, song);
+        }
+        if (!fileSet.songs.isEmpty()) app.fileSets.persistFsetInfo();
         if (string3 != null) {
             app.styleLibrary.loadStyle(string3, false);
         } else if (!arrayList.isEmpty()) {
@@ -731,15 +816,8 @@ final class ImportLibrary {
             app.fileSets.storeFsetParts(stem, set.parts);
             byte[] packed = pulsekit.Engine.encodeFset(set);
             this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
-            java.util.ArrayList song = new java.util.ArrayList();
-            for (int i = 0; i < segs.size(); i++) {
-                if (song.size() >= pulsekit.Engine.MAX_SONG) break;
-                pulsekit.Engine.MidiSeg s = (pulsekit.Engine.MidiSeg) segs.get(i);
-                song.add(pulsekit.Engine.groove(stem, bars.bpm, s.groove, s.grooveRepeats));
-                if (s.fill != null && song.size() < pulsekit.Engine.MAX_SONG) {
-                    song.add(pulsekit.Engine.fill("fill", bars.bpm, s.fill, 1));
-                }
-            }
+            // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
+            java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")

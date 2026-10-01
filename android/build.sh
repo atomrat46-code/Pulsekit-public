@@ -11,9 +11,10 @@ OUT=build
 
 rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 
-# 1. Resources + manifest (assets plus the shared midiutil.py)
+# 1. Resources + manifest (assets plus the shared midiutil.py and Programs/)
 cp -r assets "$OUT/assets"
 cp ../shared/src/pulsekit/midiutil.py "$OUT/assets/"
+cp -r ../Programs "$OUT/assets/Programs"   # PyJav's Java / Python / Code menus
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
 "$BT/aapt2" link -I "$JAR" --manifest AndroidManifest.xml \
   --min-sdk-version 24 --target-sdk-version 33 \

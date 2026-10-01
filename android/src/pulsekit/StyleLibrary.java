@@ -23,6 +23,26 @@ final class StyleLibrary {
         this.app = app;
     }
 
+    /**
+     * The imported file sets scroll inside at most a third of the screen, so a long list
+     * does not push the knobs and the grid off the screen.
+     */
+    View cappedScroll(View content) {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app) {
+            @Override
+            protected void onMeasure(int widthSpec, int heightSpec) {
+                int cap = (int) (getResources().getDisplayMetrics().heightPixels * 0.33f);
+                int size = View.MeasureSpec.getSize(heightSpec);
+                if (View.MeasureSpec.getMode(heightSpec) == View.MeasureSpec.UNSPECIFIED || size > cap) size = cap;
+                super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.AT_MOST));
+            }
+        };
+        scroll.setTag("imported-scroll");
+        scroll.setFillViewport(false);
+        scroll.addView(content);
+        return scroll;
+    }
+
     /** Builds the Built-in / Variated / Imported chip strips for patterns and for fills. */
     void buildStyleStrips() {
         TextView textView4;
@@ -51,7 +71,7 @@ final class StyleLibrary {
         emptyStyles.setTextColor(MUTED);
         emptyStyles.setTag("imported-empty");
         app.importedHost.addView((View)emptyStyles);
-        app.styleWrap.addView((View)app.importedHost);
+        app.styleWrap.addView((View)this.cappedScroll(app.importedHost));
         app.chrome.addView((View)app.styleWrap);
         app.fillWrap = app.col();
         app.fillWrap.addView((View)app.sectionLabel("Built-in"));
@@ -61,6 +81,7 @@ final class StyleLibrary {
             String string = Engine.FILL_ID[i];
             textView4 = app.pill(Engine.FILL_LABEL[i], false, view -> this.applyFill(string));
             textView4.setTag((Object)string);
+            this.attachBuiltinFillMenu(textView4, string);
             app.fillBar.addView((View)textView4);
         }
         app.fillBar.addView((View)app.pill("Variate", false, view -> this.variateFill()));
@@ -80,7 +101,7 @@ final class StyleLibrary {
         emptyFills.setTextColor(MUTED);
         emptyFills.setTag((Object)"imported-empty");
         app.importedFillHost.addView((View)emptyFills);
-        app.fillWrap.addView((View)app.importedFillHost);
+        app.fillWrap.addView((View)this.cappedScroll(app.importedFillHost));
         app.fillWrap.setVisibility(8);
         app.chrome.addView((View)app.fillWrap);
     }
@@ -159,6 +180,62 @@ final class StyleLibrary {
         return Engine.fillLabel(string);
     }
 
+    /** Long press on a built-in fill: copy it, or a variation of it, into a file set. */
+    void attachBuiltinFillMenu(TextView textView, String fillId) {
+        textView.setOnLongClickListener(view -> {
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)this.fillLabel(fillId)).setItems(new CharSequence[]{"Copy fill to file set", "Variated fill into file set"}, (dialogInterface, n) -> this.chooseFileSetFor(fillId, n == 1)).setNegativeButton((CharSequence)"Cancel", null).show();
+            return true;
+        });
+    }
+
+    void chooseFileSetFor(String fillId, boolean variate) {
+        List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        if (sources.isEmpty()) {
+            app.setNow("Import a MIDI to make a file set first");
+            return;
+        }
+        String[] names = new String[sources.size()];
+        for (int i = 0; i < names.length; i++) names[i] = sources.get(i).isEmpty() ? "Other" : sources.get(i);
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)(variate ? "Variated fill into file set" : "Copy fill to file set")).setItems((CharSequence[])names, (dialogInterface, n) -> {
+            if (n >= 0 && n < sources.size()) this.copyFillToFileSet(fillId, sources.get(n), variate);
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** "No fills yet, add one" and "+ Fill": choose a built-in fill to copy into this file set. */
+    void pickBuiltinFillFor(String source) {
+        ArrayList<String> ids = new ArrayList<String>();
+        ArrayList<CharSequence> names = new ArrayList<CharSequence>();
+        for (int i = 0; i < Engine.FILL_ID.length; ++i) {
+            if (this.hiddenFills.contains(Engine.FILL_ID[i])) continue;
+            ids.add(Engine.FILL_ID[i]);
+            names.add(Engine.FILL_LABEL[i]);
+        }
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)("Add a fill to " + (source.isEmpty() ? "Other" : source))).setItems(names.toArray(new CharSequence[0]), (dialogInterface, n) -> {
+            if (n >= 0 && n < ids.size()) this.copyFillToFileSet(ids.get(n), source, false);
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** Adds a built-in fill, as it sounds with the current pattern, to a file set; with variate, a variation of it. */
+    Engine.LearnedFill copyFillToFileSet(String fillId, String source, boolean variate) {
+        int[][] cells = Engine.copyCells(this.fillCellsFor(fillId));
+        if (variate) cells = Engine.variateFillCells(cells, new Random());
+        Engine.LearnedFill fill = new Engine.LearnedFill();
+        fill.id = Engine.newLearnedId();
+        fill.kind = Engine.isFillId(fillId) ? fillId : "toms";
+        fill.name = Engine.uniqueFillName(this.fillLabel(fillId) + (variate ? " var" : ""), Engine.fillsFrom(app.learnedFills, source));
+        fill.cells = cells;
+        fill.source = source;
+        app.learnedFills.add(0, fill);
+        while (app.learnedFills.size() > Engine.MAX_LEARNED) {
+            app.learnedFills.remove(app.learnedFills.size() - 1);
+        }
+        app.persistence.persistLearned();
+        app.importLibrary.rebuildImportedFills();
+        this.applyFill("l:" + fill.id);
+        app.setNow(fill.name + " \u00b7 " + (source.isEmpty() ? "Other" : source));
+        return fill;
+    }
+
     void variateFill() {
         Random random = new Random();
         for (int i = 8; i < Engine.TRACK_ID.length; ++i) {
@@ -225,6 +302,7 @@ final class StyleLibrary {
             return;
         }
         app.style = string;
+        app.styleChosen = true;
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, app.cells[i], 0, 32);
@@ -415,7 +493,7 @@ final class StyleLibrary {
             return;
         }
         app.learned.add(0, learned22);
-        while (app.learned.size() > 48) {
+        while (app.learned.size() > Engine.MAX_LEARNED) {
             app.learned.remove(app.learned.size() - 1);
         }
         app.styles.put(learned22.id, new Engine.Style(learned22.id, learned22.name, learned22.bpm, Engine.rowsFromCells(learned22.cells)));
@@ -438,6 +516,7 @@ final class StyleLibrary {
         String object = app.fillernPairs.get(string2);
         if (object != null) {
             app.fillernPairs.put("l:" + learned22.id, object);
+            if (app.fillernPicked.contains(string2)) app.fillernPicked.add("l:" + learned22.id);
         }
         app.importLibrary.addLearnedChip(learned22);
         app.persistence.persistLearned();
@@ -452,7 +531,7 @@ final class StyleLibrary {
             for (n = 0; n < app.styleBar.getChildCount(); ++n) {
                 view = app.styleBar.getChildAt(n);
                 if (!(view instanceof TextView)) continue;
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
             }
         }
         if (app.importedHost != null) {
@@ -462,7 +541,7 @@ final class StyleLibrary {
             for (n = 0; n < app.variatedPatternBar.getChildCount(); ++n) {
                 view = app.variatedPatternBar.getChildAt(n);
                 if (!(view instanceof TextView) || view.getTag() == null || "imported-empty".equals(view.getTag())) continue;
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
             }
         }
     }
@@ -471,7 +550,7 @@ final class StyleLibrary {
         for (int i = 0; i < viewGroup.getChildCount(); ++i) {
             View view = viewGroup.getChildAt(i);
             if (view instanceof TextView && view.getTag() != null && !"imported-empty".equals(view.getTag()) && !"pack".equals(view.getTag())) {
-                app.paintChip((TextView)view, app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
+                app.paintChip((TextView)view, app.styleChosen && app.style.equals(view.getTag()), this.fillernUnder(String.valueOf(view.getTag())));
                 continue;
             }
             if (!(view instanceof ViewGroup)) continue;
@@ -551,15 +630,9 @@ final class StyleLibrary {
         return this.fillernUnderlined(this.patternKeyFor(string));
     }
 
+    /** Underlined only when a fill was chosen for this pattern from the list, and that fill still exists. */
     boolean fillernUnderlined(String string) {
-        if (string == null) {
-            return false;
-        }
-        String string2 = app.fillernPairs.get(string);
-        if (string2 != null && !string2.isEmpty()) {
-            return true;
-        }
-        return string.equals(this.currentPatternKey());
+        return this.selectedFillFor(string) != null;
     }
 
     String fillernFillKeyOf(String string) {
@@ -583,15 +656,26 @@ final class StyleLibrary {
         return "Built-in";
     }
 
+    /** The fill chosen from the list for this pattern, or null. Fills an import paired do not count. */
     String selectedFillFor(String string) {
+        if (string == null || !app.fillernPicked.contains(string)) {
+            return null;
+        }
         String string2 = app.fillernPairs.get(string);
-        if (string2 != null) {
-            return string2;
+        if (string2 == null || string2.isEmpty()) {
+            return null;
         }
-        if (string.equals(this.patternKeyFor(app.style))) {
-            return app.fillId;
+        return Engine.fillKeyExists(string2, app.variatedFills, app.learnedFills) ? string2 : null;
+    }
+
+    /** A fill chosen from the list: remembered and underlined. */
+    void pickFillern(String string, String string2) {
+        if (string == null || string2 == null) {
+            return;
         }
-        return null;
+        app.fillernPicked.add(string);
+        this.rememberFillern(string, string2);
+        if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
     }
 
     void rememberFillern(String string, String string2) {
@@ -640,9 +724,31 @@ final class StyleLibrary {
         return string4;
     }
 
+    String fillernModeOf(String patternKey) {
+        return Engine.fillernModeOr(patternKey == null ? null : app.fillernModes.get(patternKey));
+    }
+
+    void setFillernMode(String patternKey, String mode) {
+        if (patternKey == null) return;
+        String m = Engine.fillernMode(mode);
+        app.fillernModes.put(patternKey, m);  // its own type, whatever the default is later
+        app.persistence.persistLearned();
+        if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
+        app.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);
+    }
+
     void addFillernFillRows(List<CharSequence> list, List<Runnable> list2, String string, Runnable runnable) {
         if (!"combo".equals(app.view)) {
             return;
+        }
+        list.add("— Fillern type —");
+        list2.add(null);
+        String mode = this.fillernModeOf(string);
+        for (int i = 0; i < Engine.FILLERN_MODES.length; ++i) {
+            String m = Engine.FILLERN_MODES[i];
+            String row = "  " + Engine.FILLERN_MODE_LABELS[i];
+            list.add(m.equals(mode) ? Html.fromHtml((String)("<u>" + row.replace("&", "&amp;").replace("<", "&lt;") + "</u>"), (int)0) : row);
+            list2.add(() -> this.setFillernMode(string, m));
         }
         list.add("— Last-bar fill —");
         list2.add(null);
@@ -655,7 +761,7 @@ final class StyleLibrary {
             list2.add(() -> {
                 runnable.run();
                 this.applyFill(object3);
-                this.rememberFillern(string, object3);
+                this.pickFillern(string, object3);
                 app.show("combo");
             });
         }
@@ -690,7 +796,7 @@ final class StyleLibrary {
                 list2.add(() -> {
                     runnable.run();
                     this.applyFill(string2);
-                    this.rememberFillern(string, string2);
+                    this.pickFillern(string, string2);
                     app.show("combo");
                 });
             }
@@ -794,7 +900,7 @@ final class StyleLibrary {
     private /* synthetic */ void addFillernFillRowsAction124(Runnable runnable, String string, String string2) {
         runnable.run();
         this.applyFill(string);
-        this.rememberFillern(string2, string);
+        this.pickFillern(string2, string);
         app.show("combo");
     }
 }

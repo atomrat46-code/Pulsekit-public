@@ -6,6 +6,8 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -300,6 +302,9 @@ public final class Engine {
   public static final class ImportedSong {
     public String id;
     public String name;
+    /** The file set this song is saved in, and its name there; null when it is not saved in one. */
+    public String fileSet;
+    public String fileSetSong;
     public final List<Part> parts = new ArrayList<>();
   }
 
@@ -370,6 +375,7 @@ public final class Engine {
   }
 
   public static int styleSwing(String id) {
+    if (id != null && id.isEmpty()) return 0;  // no style: a file set taken from a file plays as written
     if ("techno".equals(id) || "hardrock".equals(id) || "metalballad".equals(id)) return 6;
     if ("hiphop".equals(id)) return 22;
     if ("trap".equals(id) || "ukg".equals(id)) return 18;
@@ -395,6 +401,7 @@ public final class Engine {
   }
 
   public static int styleHuman(String id) {
+    if (id != null && id.isEmpty()) return 0;
     if ("boombap".equals(id)) return 30;
     if ("hiphop".equals(id)) return 28;
     if ("rockballad".equals(id) || "popballad".equals(id)) return 24;
@@ -407,6 +414,114 @@ public final class Engine {
     if ("progmetal".equals(id)) return 8;
     if ("techno".equals(id) || "metal".equals(id)) return 10;
     return 18;
+  }
+
+  /** Fillern types: the fill is added after the pattern, or replaces the pattern's end or start. */
+  public static final String FILLERN_AFTER = "after";
+  public static final String FILLERN_END = "end";
+  public static final String FILLERN_START = "start";
+  public static final String[] FILLERN_MODES = { FILLERN_AFTER, FILLERN_END, FILLERN_START };
+  public static final String[] FILLERN_MODE_LABELS = { "Add fill after pattern", "Fill replaces pattern end", "Fill replaces pattern start" };
+
+  public static String fillernMode(String mode) {
+    return FILLERN_END.equals(mode) || FILLERN_START.equals(mode) ? mode : FILLERN_AFTER;
+  }
+
+  /** True for a song part that is a fill, or a pattern with a Fillern's fill in it ("Pattern 1 + Snare roll"). */
+  public static boolean partHasFill(Part p) {
+    return p != null && ("fill".equals(p.kind) || (p.name != null && p.name.contains(" + ")));
+  }
+
+  /** Song cells with a fill in them: a muted violet, apart from plain patterns. */
+  public static final int FILL_CELL_COLOR = 0xFF3E3352;
+
+  /** A Fillern's own type, or the default from Drum Midi Settings when it has none. */
+  public static String fillernModeOr(String own) {
+    return own == null || own.isEmpty() ? fillernMode(MidiImportSettings.fillernDefault) : fillernMode(own);
+  }
+
+  /** Short note for a Fillern chip: empty for "after", else what the fill replaces. */
+  public static String fillernModeNote(String mode) {
+    if (FILLERN_END.equals(mode)) return " (replaces end)";
+    if (FILLERN_START.equals(mode)) return " (replaces start)";
+    return "";
+  }
+
+  /**
+   * The pattern with its last (end) or first (start) steps taken from the fill. As many
+   * steps are replaced as the fill has, at most the whole pattern.
+   */
+  public static int[][] fillIntoPattern(int[][] pattern, int patternSteps, int[][] fill, int fillSteps, boolean atEnd) {
+    int[][] out = copyCells(pattern);
+    int p = Math.max(1, Math.min(patternSteps, MAX_STEPS));
+    int f = Math.max(1, Math.min(fillSteps, MAX_STEPS));
+    int n = Math.min(p, f);
+    for (int t = 0; t < TRACK_ID.length; t++) {
+      for (int s = 0; s < n; s++) {
+        int to = atEnd ? p - n + s : s;
+        int from = atEnd ? f - n + s : s;
+        out[t][to] = from < fill[t].length ? fill[t][from] : 0;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Song parts for a Fillern. "after" adds the fill bar after the pattern's repeats; "end" and
+   * "start" put the fill into the last or first repeat, so the part keeps its length.
+   */
+  public static List<Part> fillernParts(String name, int bpm, int[][] pattern, int patternSteps, int repeats,
+      String fillName, int[][] fill, int fillSteps, String mode) {
+    List<Part> out = new ArrayList<Part>();
+    int reps = Math.max(1, repeats);
+    String m = fillernMode(mode);
+    if (FILLERN_AFTER.equals(m)) {
+      out.add(groove(name, bpm, pattern, reps));
+      out.add(fill(fillName, bpm, fill, 1));
+      return out;
+    }
+    boolean atEnd = FILLERN_END.equals(m);
+    Part mixed = groove(name + " + " + fillName, bpm, fillIntoPattern(pattern, patternSteps, fill, fillSteps, atEnd), 1);
+    mixed.steps = clampSteps(patternSteps);
+    Part rest = reps > 1 ? groove(name, bpm, pattern, reps - 1) : null;
+    if (rest != null) rest.steps = clampSteps(patternSteps);
+    if (!atEnd) out.add(mixed);
+    if (rest != null) out.add(rest);
+    if (atEnd) out.add(mixed);
+    return out;
+  }
+
+  /** A variation of a fill, as the Variate button makes: some tom and cymbal steps in the last half bar flip. */
+  public static int[][] variateFillCells(int[][] cells, java.util.Random rng) {
+    int[][] out = copyCells(cells);
+    for (int i = track("ltom"); i < TRACK_ID.length; i++) {
+      for (int j = 8; j < 16 && j < out[i].length; j++) {
+        if (rng.nextDouble() >= 0.22) continue;
+        out[i][j] = out[i][j] > 0 ? 0 : (rng.nextBoolean() ? 100 : 127);
+      }
+    }
+    return out;
+  }
+
+  /** Every file set: sources of imported patterns, then of imported fills. */
+  public static List<String> fileSetSources(List<Learned> learned, List<LearnedFill> fills) {
+    java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<String>();
+    if (learned != null) for (Learned x : learned) out.add(sourceOf(x));
+    if (fills != null) for (LearnedFill x : fills) out.add(sourceOf(x));
+    return new ArrayList<String>(out);
+  }
+
+  /** Patterns of one file set. Names need only be unique there: its song finds parts by name. */
+  public static List<Learned> learnedFrom(List<Learned> list, String source) {
+    List<Learned> out = new ArrayList<Learned>();
+    if (list != null) for (Learned x : list) if (source != null && source.equals(sourceOf(x))) out.add(x);
+    return out;
+  }
+
+  public static List<LearnedFill> fillsFrom(List<LearnedFill> list, String source) {
+    List<LearnedFill> out = new ArrayList<LearnedFill>();
+    if (list != null) for (LearnedFill x : list) if (source != null && source.equals(sourceOf(x))) out.add(x);
+    return out;
   }
 
   public static String uniqueFillName(String base, List<LearnedFill> list) {
@@ -1127,6 +1242,12 @@ public final class Engine {
     return stem.replaceAll("[/\\\\?%*:|\"<>]", " ").trim() + ".sng";
   }
 
+  /** Song file name after the file set the song uses (e.g. "Passing Ships.sng"); without one, as sngFilename. */
+  public static String songFilename(List<Part> parts, String fileSet) {
+    if (fileSet == null || fileSet.trim().isEmpty()) return sngFilename(parts);
+    return fileSet.replaceAll("[/\\\\?%*:|\"<>]", " ").trim() + ".sng";
+  }
+
   public static byte[] encodeSng(List<Part> parts, String name) {
     StringBuilder sb = new StringBuilder();
     sb.append("{\"format\":\"pulsekit-sng\",\"v\":1,\"name\":").append(quote(name));
@@ -1189,6 +1310,8 @@ public final class Engine {
       ImportedSong s = list.get(i);
       sb.append("{\"id\":").append(quote(s.id));
       sb.append(",\"name\":").append(quote(s.name));
+      if (s.fileSet != null) sb.append(",\"fileSet\":").append(quote(s.fileSet));
+      if (s.fileSetSong != null) sb.append(",\"fileSetSong\":").append(quote(s.fileSetSong));
       sb.append(",\"parts\":").append(partsJson(s.parts)).append('}');
     }
     return sb.append(']').toString();
@@ -1202,6 +1325,10 @@ public final class Engine {
       s.name = jsonStr(obj, "\"name\"");
       if (s.id == null || s.id.isEmpty()) s.id = newLearnedId();
       if (s.name == null || s.name.isEmpty()) s.name = "Import";
+      int partsAt = obj.indexOf("\"parts\"");
+      String head = partsAt > 0 ? obj.substring(0, partsAt) : obj;
+      s.fileSet = jsonStr(head, "\"fileSet\"");
+      s.fileSetSong = jsonStr(head, "\"fileSetSong\"");
       s.parts.addAll(decodeSng(obj.getBytes(StandardCharsets.UTF_8)));
       if (!s.parts.isEmpty()) out.add(s);
       if (out.size() >= MAX_IMPORTED_SONGS) break;
@@ -1622,9 +1749,70 @@ public final class Engine {
     return false;
   }
 
+  /** Steps where one bar has a hit and the other does not. Velocity is ignored. */
+  public static int hitDiff(int[][] a, int[][] b) {
+    int n = 0;
+    for (int t = 0; t < TRACK_ID.length; t++) {
+      int len = Math.max(a[t].length, b[t].length);
+      for (int s = 0; s < len; s++) {
+        boolean x = s < a[t].length && a[t][s] > 0;
+        boolean y = s < b[t].length && b[t][s] > 0;
+        if (x != y) n++;
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Detected drums vary by a hit or two from bar to bar. Each bar becomes the most
+   * common bar within maxDiff hits of it, so a song is a few patterns, not one per bar.
+   * Bars with fewer than 4 hits are left alone, so a sparse bar never turns into another.
+   */
+  public static List<int[][]> mergeNearBars(List<int[][]> bars, int maxDiff) {
+    if (bars == null || maxDiff <= 0) return bars;
+    LinkedHashMap<String, int[][]> first = new LinkedHashMap<>();
+    final Map<String, Integer> count = new HashMap<>();
+    for (int[][] b : bars) {
+      String sig = patternSignature(b);
+      if (!first.containsKey(sig)) first.put(sig, b);
+      Integer n = count.get(sig);
+      count.put(sig, n == null ? 1 : n + 1);
+    }
+    List<String> order = new ArrayList<>(first.keySet());
+    Collections.sort(order, (x, y) -> count.get(y) - count.get(x));  // stable: ties keep first appearance
+    List<String> reps = new ArrayList<>();
+    Map<String, String> to = new HashMap<>();
+    for (String sig : order) {
+      int[][] cells = first.get(sig);
+      String best = null;
+      int bestDiff = maxDiff + 1;
+      if (hitCount(cells) >= 4) {
+        for (String r : reps) {
+          int[][] rc = first.get(r);
+          if (hitCount(rc) < 4) continue;
+          int d = hitDiff(cells, rc);
+          if (d < bestDiff) {
+            bestDiff = d;
+            best = r;
+          }
+        }
+      }
+      if (best == null) {
+        reps.add(sig);
+        to.put(sig, sig);
+      } else {
+        to.put(sig, best);
+      }
+    }
+    List<int[][]> out = new ArrayList<>(bars.size());
+    for (int[][] b : bars) out.add(first.get(to.get(patternSignature(b))));
+    return out;
+  }
+
   public static List<MidiSeg> segmentMidiBars(List<int[][]> bars) {
     List<MidiSeg> out = new ArrayList<>();
     if (bars == null || bars.isEmpty()) return out;
+    bars = mergeNearBars(bars, MidiImportSettings.mergeLimit());
     Map<String, Integer> freq = new LinkedHashMap<>();
     for (int[][] b : bars) {
       String s = patternSignature(b);
@@ -1634,14 +1822,26 @@ public final class Engine {
     int i = 0;
     while (i < bars.size()) {
       int[][] groove = bars.get(i);
-      if (hitCount(groove) < 1) {
+      if (hitCount(groove) < 1 && !MidiImportSettings.keepSilent) {
         i++;
+        continue;
+      }
+      if (hitCount(groove) < 1) {
+        // Silent bars stay in the song, so what follows keeps its place.
+        int rest = 1;
+        while (i + rest < bars.size() && hitCount(bars.get(i + rest)) < 1) rest++;
+        MidiSeg seg = new MidiSeg();
+        seg.kind = "pattern";
+        seg.groove = groove;
+        seg.grooveRepeats = rest;
+        out.add(seg);
+        i += rest;
         continue;
       }
       String gsig = patternSignature(groove);
       int run = runLength(bars, i);
       int nextIdx = i + run;
-      if (nextIdx < bars.size()) {
+      if (nextIdx < bars.size() && MidiImportSettings.oneOffFills) {
         int[][] fill = bars.get(nextIdx);
         int nrun = runLength(bars, nextIdx);
         Integer nf = freq.get(patternSignature(fill));
@@ -1742,7 +1942,7 @@ public final class Engine {
     return rowsToCells(st.rows);
   }
 
-  public static final int MAX_LEARNED = 48;
+  public static final int MAX_LEARNED = 256;
   public static final int MAX_VARIATED = 8;
   public static final int MAX_SONG = 256;
   public static final int MAX_IMPORTED_SONGS = 8;
@@ -2413,6 +2613,174 @@ public final class Engine {
     public final List<LearnedFill> fills = new ArrayList<LearnedFill>();
     public final List<String[]> fillerns = new ArrayList<String[]>();
     public final List<FileSetPart> parts = new ArrayList<FileSetPart>();
+    /** Songs saved in this file set. */
+    public final List<FileSetSong> songs = new ArrayList<FileSetSong>();
+  }
+
+  /**
+   * One part of a song saved in a file set. The part keeps its own notes, and names the set's
+   * pattern and fill it is made of; when those exist the song is rebuilt from them, so editing
+   * a pattern changes the song too.
+   */
+  public static final class SongRef {
+    public Part part;
+    public String usePattern;
+    public String useFill;
+    /** For a pattern with a Fillern's fill in it: FILLERN_END or FILLERN_START. */
+    public String mix;
+  }
+
+  public static final class FileSetSong {
+    public String name = "Song";
+    public final List<SongRef> parts = new ArrayList<SongRef>();
+  }
+
+  /** Source name → songs saved in that file set. Survives in fset-info.json. */
+  public static final LinkedHashMap<String, List<FileSetSong>> fileSetSongs = new LinkedHashMap<String, List<FileSetSong>>();
+
+  private static Learned patternNamed(List<Learned> list, String name) {
+    if (list == null || name == null) return null;
+    for (Learned x : list) if (name.equals(x.name)) return x;
+    return null;
+  }
+
+  private static LearnedFill fillNamed(List<LearnedFill> list, String name) {
+    if (list == null || name == null) return null;
+    for (LearnedFill x : list) if (name.equals(x.name)) return x;
+    return null;
+  }
+
+  /**
+   * A song as it is saved in a file set: each part names the set's pattern and fill it is
+   * made of, where the notes match them.
+   */
+  public static FileSetSong songForFileSet(String name, List<Part> song, List<Learned> patterns, List<LearnedFill> fills) {
+    FileSetSong out = new FileSetSong();
+    out.name = name == null || name.trim().isEmpty() ? "Song" : name.trim();
+    for (Part p : song) {
+      SongRef ref = new SongRef();
+      ref.part = copyPart(p);
+      String sig = patternSignature(p.cells);
+      if ("fill".equals(p.kind)) {
+        LearnedFill f = fillNamed(fills, p.name);
+        if (f != null && patternSignature(f.cells).equals(sig)) ref.useFill = f.name;
+      } else if ("groove".equals(p.kind)) {
+        Learned pat = patternNamed(patterns, p.name);
+        if (pat != null && patternSignature(pat.cells).equals(sig)) {
+          ref.usePattern = pat.name;
+        } else if (p.name != null && p.name.contains(" + ")) {
+          int cut = p.name.lastIndexOf(" + ");
+          Learned a = patternNamed(patterns, p.name.substring(0, cut));
+          LearnedFill f = fillNamed(fills, p.name.substring(cut + 3));
+          if (a != null && f != null) {
+            int bar = barSteps(p.tsNum, p.tsDen);
+            for (String m : new String[] { FILLERN_END, FILLERN_START }) {
+              int[][] mixed = fillIntoPattern(a.cells, p.steps, f.cells, bar, FILLERN_END.equals(m));
+              if (patternSignature(mixed).equals(sig)) {
+                ref.usePattern = a.name;
+                ref.useFill = f.name;
+                ref.mix = m;
+                break;
+              }
+            }
+          }
+        }
+      }
+      out.parts.add(ref);
+    }
+    return out;
+  }
+
+  /** Indexes of parts with notes that use nothing of the file set: patterns or fills from elsewhere. */
+  public static List<Integer> partsFromOutside(FileSetSong song) {
+    List<Integer> out = new ArrayList<Integer>();
+    for (int i = 0; i < song.parts.size(); i++) {
+      SongRef r = song.parts.get(i);
+      if (r.usePattern != null || r.useFill != null) continue;
+      if (!"groove".equals(r.part.kind) && !"fill".equals(r.part.kind)) continue;
+      if (hitCount(r.part.cells) > 0) out.add(Integer.valueOf(i));
+    }
+    return out;
+  }
+
+  /** The song's parts, built from the file set's patterns and fills as they are now. */
+  public static List<Part> resolveSong(FileSetSong song, List<Learned> patterns, List<LearnedFill> fills) {
+    List<Part> out = new ArrayList<Part>();
+    for (SongRef r : song.parts) {
+      Part p = copyPart(r.part);
+      Learned pat = patternNamed(patterns, r.usePattern);
+      LearnedFill f = fillNamed(fills, r.useFill);
+      if (pat != null && r.mix != null && f != null) {
+        p.cells = fillIntoPattern(pat.cells, p.steps, f.cells, barSteps(p.tsNum, p.tsDen), FILLERN_END.equals(r.mix));
+      } else if (pat != null) {
+        p.cells = copyCells(pat.cells);
+      } else if (f != null && "fill".equals(p.kind)) {
+        p.cells = copyCells(f.cells);
+      }
+      out.add(p);
+    }
+    return out;
+  }
+
+  public static String fileSetSongsJson(List<FileSetSong> songs) {
+    StringBuilder sb = new StringBuilder("[");
+    for (int i = 0; songs != null && i < songs.size(); i++) {
+      FileSetSong s = songs.get(i);
+      if (i > 0) sb.append(',');
+      sb.append("{\"song\":").append(quote(s.name)).append(",\"songParts\":[");
+      for (int j = 0; j < s.parts.size(); j++) {
+        SongRef r = s.parts.get(j);
+        if (j > 0) sb.append(',');
+        String one = partsJson(java.util.Collections.singletonList(r.part));
+        sb.append(one, 1, one.length() - 2);
+        if (r.usePattern != null) sb.append(",\"usePattern\":").append(quote(r.usePattern));
+        if (r.useFill != null) sb.append(",\"useFill\":").append(quote(r.useFill));
+        if (r.mix != null) sb.append(",\"mix\":").append(quote(r.mix));
+        sb.append('}');
+      }
+      sb.append("]}");
+    }
+    return sb.append(']').toString();
+  }
+
+  public static List<FileSetSong> decodeFileSetSongs(String json, String arrayKey) {
+    List<FileSetSong> out = new ArrayList<FileSetSong>();
+    if (json == null) return out;
+    for (String obj : jsonObjects(json, arrayKey)) {
+      FileSetSong s = new FileSetSong();
+      String name = jsonStr(obj, "\"song\"");
+      if (name != null && !name.isEmpty()) s.name = name;
+      for (String po : jsonObjects(obj, "songParts")) {
+        List<Part> one = decodeSng(po.getBytes(StandardCharsets.UTF_8));
+        if (one.isEmpty()) continue;
+        SongRef r = new SongRef();
+        r.part = one.get(0);
+        r.usePattern = jsonStr(po, "\"usePattern\"");
+        r.useFill = jsonStr(po, "\"useFill\"");
+        String mix = jsonStr(po, "\"mix\"");
+        r.mix = FILLERN_END.equals(mix) || FILLERN_START.equals(mix) ? mix : null;
+        s.parts.add(r);
+      }
+      if (!s.parts.isEmpty()) out.add(s);
+    }
+    return out;
+  }
+
+  /** Saves a song in a file set, replacing one of the same name. */
+  public static void putFileSetSong(String source, FileSetSong song) {
+    String key = source == null ? "" : source;
+    List<FileSetSong> list = fileSetSongs.get(key);
+    if (list == null) {
+      list = new ArrayList<FileSetSong>();
+      fileSetSongs.put(key, list);
+    }
+    for (int i = 0; i < list.size(); i++) {
+      if (list.get(i).name.equals(song.name)) {
+        list.set(i, song);
+        return;
+      }
+    }
+    list.add(song);
   }
 
   /** Source name → midi | analyze | isolate | compose. Survives in fset-info.json. */
@@ -2526,6 +2894,12 @@ public final class Engine {
     if (file.length() == 0) file = "song.mid";
     set.sourceMidiName = file;
     rememberFileSetMidi(set.name, stagedMidi, file);
+    clearStagedMidi();  // used once: a later import must not get this file as its source
+  }
+
+  public static void clearStagedMidi() {
+    stagedMidi = null;
+    stagedMidiName = "";
   }
 
   public static void rememberFileSetAudio(String source, byte[] sourceWav, byte[] combinedWav, String combinedName) {
@@ -2651,6 +3025,27 @@ public final class Engine {
   }
 
   /** Isolation, Analyze, and Compose keep the source file. No style database. */
+  /**
+   * True when a file set was taken as written (MIDI or program output, never restyled):
+   * no part has a style label and no pattern has a style. Change style labels it.
+   */
+  static boolean unstyledFileSet(List<FileSetPart> parts, FileSet set) {
+    boolean any = false;
+    if (parts != null) {
+      for (FileSetPart p : parts) {
+        if (p == null) continue;
+        if (p.styleLabel != null && !p.styleLabel.trim().isEmpty()) return false;
+        any = true;
+      }
+    }
+    for (Learned p : set.patterns) {
+      if (p == null) continue;
+      if (p.closest != null && !p.closest.isEmpty()) return false;
+      any = true;
+    }
+    return any;
+  }
+
   public static boolean fileSetStyleOn(String origin) {
     return !("analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin));
   }
@@ -2693,6 +3088,17 @@ public final class Engine {
 
   public static void forgetFileSetOrigin(String source) {
     if (source != null) fileSetOrigins.remove(source);
+  }
+
+  /** True when a Fillern fill key still names a fill: built-in, plugin, "v:id" variated, or "l:id" imported. */
+  public static boolean fillKeyExists(String key, List<LearnedFill> variated, List<LearnedFill> learned) {
+    if (key == null || key.isEmpty()) return false;
+    if (isFillId(key) || key.startsWith("p:")) return true;
+    List<LearnedFill> list = key.startsWith("v:") ? variated : (key.startsWith("l:") ? learned : null);
+    if (list == null) return false;
+    String id = key.substring(2);
+    for (LearnedFill f : list) if (f != null && id.equals(f.id)) return true;
+    return false;
   }
 
   public static boolean isFillId(String s) {
@@ -2823,6 +3229,8 @@ public final class Engine {
       for (LearnedFill f : fills) if (extra.contains(f.id)) set.fills.add(f);
     }
     if (set.patterns.isEmpty() && set.fills.isEmpty()) return null;
+    List<FileSetSong> songs = fileSetSongs.get(want);
+    if (songs != null) set.songs.addAll(songs);
     return set;
   }
 
@@ -2938,6 +3346,7 @@ public final class Engine {
       files.put(file, midi);
       json.append(",\"sourceMidi\":").append(quote(file));
     }
+    if (!set.songs.isEmpty()) json.append(",\"songs\":").append(fileSetSongsJson(set.songs));
     json.append("}");
     LinkedHashMap<String, byte[]> ordered = new LinkedHashMap<String, byte[]>();
     ordered.put("set.json", json.toString().getBytes(StandardCharsets.UTF_8));
@@ -2996,6 +3405,7 @@ public final class Engine {
       if (p != null && f != null) set.fillerns.add(new String[] { p, f });
     }
     set.parts.addAll(parseFileSetParts(json));
+    set.songs.addAll(decodeFileSetSongs(json, "songs"));
     set.durationSec = jsonFloat(json, "\"durationSec\"", 0);
     if (!(set.durationSec > 0)) set.durationSec = partsSpanSec(set.parts);
     byte[] sourceWav = files.get("source.wav");
@@ -3211,7 +3621,7 @@ public final class Engine {
   }
 
   public static void unifyFileSetParts(List<FileSetPart> parts, FileSet set) {
-    if (set != null && !fileSetStyleOn(set.origin)) {
+    if (set != null && (!fileSetStyleOn(set.origin) || unstyledFileSet(parts, set))) {
       int fbBpm = 120;
       if (parts != null && !parts.isEmpty()) fbBpm = parts.get(0).bpm;
       else if (!set.patterns.isEmpty()) fbBpm = set.patterns.get(0).bpm;
@@ -3409,6 +3819,7 @@ public final class Engine {
     int songBpm = 120;
     if (!timeline.isEmpty() && timeline.get(0).bpm > 0) songBpm = timeline.get(0).bpm;
     boolean useWall = !reconstructedParts(timeline);
+    boolean asWritten = !timeline.isEmpty() && unstyledFileSet(timeline, set);
     float sixteenth = 60f / Math.max(MIN_BPM, songBpm) / 4f;
     if (sectionSecs != null) {
       sectionSecs.clear();
@@ -3464,7 +3875,8 @@ public final class Engine {
       int gTsNum = pat.tsNum > 0 ? pat.tsNum : tsNum;
       int gTsDen = pat.tsDen > 0 ? pat.tsDen : tsDen;
       int steps = clampSteps(Math.max(barSteps(gTsNum, gTsDen), usedSteps(pat.cells)));
-      String fname = !"fill".equals(nextKind) ? fillernFill(set, pat.name) : null;
+      // A set kept as written plays its parts in order: a pattern's Fillern is not added where the file had none.
+      String fname = !asWritten && !"fill".equals(nextKind) ? fillernFill(set, pat.name) : null;
       int[][] fp = fname != null ? fillCellsNamed(set, fname) : null;
       boolean addFillern = fp != null && hitCount(fp) >= 1;
       float grooveDur = Math.max(0, info.endSec - info.startSec);
@@ -3564,8 +3976,28 @@ public final class Engine {
         sb.append(",\"origin\":").append(quote(e.getValue())).append('}');
       }
     }
+    sb.append("],\"setSongs\":[");
+    int k = 0;
+    for (Map.Entry<String, List<FileSetSong>> e : fileSetSongs.entrySet()) {
+      if (e.getValue() == null || e.getValue().isEmpty()) continue;
+      if (k++ > 0) sb.append(',');
+      sb.append("{\"source\":").append(quote(e.getKey() == null ? "" : e.getKey()));
+      sb.append(",\"songs\":").append(fileSetSongsJson(e.getValue())).append('}');
+    }
     sb.append("]}");
     return sb.toString();
+  }
+
+  /** Reads the songs saved in file sets from fset-info.json into fileSetSongs. */
+  public static void loadFileSetSongs(String json) {
+    fileSetSongs.clear();
+    if (json == null) return;
+    for (String obj : jsonObjects(json, "setSongs")) {
+      String src = jsonStr(obj, "\"source\"");
+      if (src == null) continue;
+      List<FileSetSong> songs = decodeFileSetSongs(obj, "songs");
+      if (!songs.isEmpty()) fileSetSongs.put(src, songs);
+    }
   }
 
   public static LinkedHashMap<String, List<FileSetPart>> decodeFsetInfo(String json) {

@@ -107,6 +107,7 @@ extends JFrame {
     private final JPanel toolsRow = new JPanel(new FlowLayout(0, 6, 4));
     private final JPanel knobsRow = new JPanel(new GridLayout(1, 4, 12, 0));
     private final JPanel timeline = new JPanel(new FlowLayout(0, 2, 0));
+    private JScrollPane timelineScroll;
     private final JPanel songAdds = new JPanel(new FlowLayout(0, 6, 4));
     private final JTextField bpmField = new JTextField("124", 3);
     private final JTextField tsNumField = new JTextField("4", 2);
@@ -155,6 +156,8 @@ extends JFrame {
     private JPanel drumSetBar;
     private JButton padMatchAll;
     private String style = "house";
+    /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
+    private boolean styleChosen;
     private String view = "pattern";
     private String fillId = "toms";
     private String songMode = "edit";
@@ -208,6 +211,12 @@ extends JFrame {
     private final List<String> hiddenStyles = new ArrayList<String>();
     private final List<String> hiddenFills = new ArrayList<String>();
     private final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
+    /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
+    private final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
+    /** Fillern type per pattern: Engine.FILLERN_AFTER (default), FILLERN_END or FILLERN_START. */
+    private final Map<String, String> fillernModes = new LinkedHashMap<String, String>();
+    /** The groove tab the imported chips were last built for. */
+    private String importedFor;
     private final Map<String, Boolean> openPacks = new LinkedHashMap<String, Boolean>();
     private JPanel pluginList;
     private JPanel importedFileList;
@@ -228,6 +237,8 @@ extends JFrame {
         this.openMidi();
         this.restoreAutosave();
         this.restoreSessionFiles();
+        this.styleChosen = false;
+        this.refreshStyles();
         this.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -323,6 +334,7 @@ extends JFrame {
             return;
         }
         this.style = string;
+        this.styleChosen = true;
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, this.cells[i], 0, Engine.MAX_STEPS);
@@ -404,6 +416,7 @@ extends JFrame {
         if (oldKey == null && this.styles.containsKey(id) && !id.equals(item.id)) oldKey = this.patternKeyFor(id);
         String fk = oldKey == null ? null : this.fillernPairs.get(oldKey);
         if (fk != null) this.fillernPairs.put("l:" + item.id, fk);
+        if (fk != null && this.fillernPicked.contains(oldKey)) this.fillernPicked.add("l:" + item.id);
         this.persistLearned();
         this.refreshLearnedChips();
         this.loadLearned(item.id);
@@ -535,7 +548,7 @@ extends JFrame {
         this.styleHost.add(this.sectionLab("Variated"));
         this.styleHost.add(this.variatedPatternBar);
         this.styleHost.add(this.sectionLab("Imported"));
-        this.styleHost.add(this.importedBar);
+        this.styleHost.add(this.cappedScroll(this.importedBar, 260));
         this.fillHost.setOpaque(false);
         this.fillHost.setLayout(new BoxLayout(this.fillHost, BoxLayout.Y_AXIS));
         this.fillHost.setAlignmentX(0.0f);
@@ -552,7 +565,8 @@ extends JFrame {
             jButton = this.chip(Engine.FILL_LABEL[i], false);
             jButton.putClientProperty("fill", string);
             jButton.addActionListener(actionEvent -> this.applyFill(string));
-            this.onRightClick(jButton, () -> this.hideFill(string));
+            final JButton fillChip = jButton;
+            this.onRightClick(jButton, () -> this.builtinFillMenu(fillChip, string));
             this.fillBar.add(jButton);
         }
         JButton jButton2 = this.chip("Variate", false);
@@ -600,7 +614,7 @@ extends JFrame {
         this.fillHost.add(this.sectionLab("Variated"));
         this.fillHost.add(this.variatedFillBar);
         this.fillHost.add(this.sectionLab("Imported"));
-        this.fillHost.add(this.importedFillBar);
+        this.fillHost.add(this.cappedScroll(this.importedFillBar, 160));
         this.fillHost.setVisible(false);
         this.chrome.add(this.styleHost);
         this.chrome.add(this.fillHost);
@@ -622,6 +636,8 @@ extends JFrame {
         this.pageHost.add((Component)this.buildExportPage(), "export");
         this.pageHost.add((Component)this.buildPromptsPage(), "prompts");
         this.pageHost.add((Component)this.buildInfoPage(), "fsetinfo");
+        this.pageHost.add((Component)this.buildHelpPage(), "help");
+        this.pageHost.add((Component)this.buildDrumMidiPage(), "midisettings");
         jPanel9.add((Component)this.pageHost, "Center");
         jPanel6.add((Component)jPanel9, "Center");
         jPanel.add((Component)jPanel6, "Center");
@@ -695,8 +711,14 @@ extends JFrame {
             imp.addActionListener(e -> this.showView("import"));
             JMenuItem exp = new JMenuItem("Export");
             exp.addActionListener(e -> this.showView("export"));
+            JMenuItem midi = new JMenuItem("Drum Midi Settings");
+            midi.addActionListener(e -> this.showView("midisettings"));
+            JMenuItem help = new JMenuItem("Help-Desktop");
+            help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
+            menu.add(midi);
+            menu.add(help);
             menu.show(jButton, 0, jButton.getHeight());
         });
         jPanel.add(jButton);
@@ -964,6 +986,13 @@ extends JFrame {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (!(e.isPopupTrigger() || e.getButton() == 3)) return;
+                if ("imported".equals(Pulsekit.this.songLane) && "edit".equals(Pulsekit.this.songMode)) {
+                    int at = jList.locationToIndex(e.getPoint());
+                    if (at < 0) return;
+                    jList.setSelectedIndex(at);
+                    Pulsekit.this.importedPartMenu(at).show(jList, e.getX(), e.getY());
+                    return;
+                }
                 if (!"original".equals(Pulsekit.this.songLane) || !"edit".equals(Pulsekit.this.songMode)) return;
                 int idx = jList.locationToIndex(e.getPoint());
                 if (idx < 0) return;
@@ -976,6 +1005,9 @@ extends JFrame {
         this.songAdds.add(jButtonFillern);
         this.songAdds.add(jButton4);
         this.songAdds.add(jButton5);
+        JButton saveToSet = this.chip("Save to set", false);
+        saveToSet.addActionListener(actionEvent -> this.saveSongToFileSet(saveToSet));
+        this.songAdds.add(saveToSet);
         this.songAdds.add(jButton6);
         this.songAdds.add(jButton7);
         this.songAdds.add(jButton8);
@@ -996,7 +1028,19 @@ extends JFrame {
         jPanel2.add(jPanel3);
         jPanel2.add(this.songLaneBar);
         jPanel2.add(this.songAdds);
-        jPanel2.add(this.timeline);
+        // The cell strip scrolls sideways and follows the playing part.
+        this.timelineScroll = new JScrollPane(this.timeline, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+            }
+        };
+        this.timelineScroll.setOpaque(false);
+        this.timelineScroll.getViewport().setOpaque(false);
+        this.timelineScroll.setBorder(BorderFactory.createEmptyBorder());
+        this.timelineScroll.setAlignmentX(0.0f);
+        this.timelineScroll.getHorizontalScrollBar().setUnitIncrement(24);
+        jPanel2.add(this.timelineScroll);
         jPanel.add((Component)jPanel2, "North");
         JScrollPane jScrollPane = new JScrollPane(jList);
         jScrollPane.getViewport().setBackground(ELEV);
@@ -1014,13 +1058,10 @@ extends JFrame {
         JLabel jLabel = new JLabel("PyJav");
         jLabel.setFont(new Font("SansSerif", 1, 20));
         jLabel.setForeground(FG);
-        JLabel jLabel2 = new JLabel("<html><body style='width:520px;color:#8A8B86'>Python, Java, JavaScript, or TypeScript. Node.js and npm run .js and .ts, including @sogni-ai/sogni-client. A .prompt file runs as bash, cmd, or AI. Java needs a JDK. JavaScript needs Node.js.</body></html>");
         JPanel north = new JPanel();
         north.setOpaque(false);
         north.setLayout(new BoxLayout(north, 1));
         north.add(jLabel);
-        north.add(Box.createVerticalStrut(4));
-        north.add(jLabel2);
         north.add(Box.createVerticalStrut(8));
         this.pyRecent = new JComboBox<String>();
         this.pyRecent.setBackground(ELEV);
@@ -1030,6 +1071,8 @@ extends JFrame {
         this.reloadPyRecent(0);
         this.pyRecent.addActionListener(ev -> this.applyPyRecent());
         north.add(this.pyRecent);
+        north.add(Box.createVerticalStrut(6));
+        north.add(this.buildProgramMenus());
         this.pyHint = new JLabel("Possible extra args appear here after you browse a file.");
         this.pyHint.setForeground(FG);
         this.pyHint.setAlignmentX(0.0f);
@@ -1056,6 +1099,7 @@ extends JFrame {
         this.pyInputBtn = this.action("Browse input", ELEV, FG, () -> this.browseInputFile());
         this.pyInputBtn.setVisible(false);
         controls.add(this.pyInputBtn);
+        controls.add(this.action("Params", ELEV, FG, () -> this.openParams()));
         this.pyRun = this.action("Run", HIT, BG, () -> this.runPython());
         controls.add(this.pyRun);
         JLabel extraLab = new JLabel("Extra args");
@@ -1245,7 +1289,8 @@ extends JFrame {
 
     private void runPython() {
         if (this.pyEditor == null) return;
-        final String src = this.pyEditor.getText();
+        final String listed = this.listedProgramCurrent() ? this.listedSource : null;
+        final String src = listed != null ? listed : this.pyEditor.getText();
         final String name = this.pyName == null || this.pyName.isEmpty() ? "drum_midi.py" : this.pyName;
         final byte[] bytes = this.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
@@ -1262,7 +1307,8 @@ extends JFrame {
             this.promptOutputInvented = false;
             this.promptOutputName = "";
         }
-        final String extra = this.pyExtra != null ? this.pyExtra.getText() : "";
+        // Saved Params for this program replace its DrumMidi switches; file paths stay.
+        final String extra = DrumMidiArgs.merge(this.pyExtra != null ? this.pyExtra.getText() : "", this.loadParams(this.pyName));
         File outDir = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (this.pyInputPath != null && this.pyInputPath.length() > 0) {
             File parent = new File(this.pyInputPath).getParentFile();
@@ -1389,8 +1435,9 @@ extends JFrame {
         byte[] data = binary ? item.bytes : (item.source == null ? new byte[0] : item.source.getBytes(StandardCharsets.UTF_8));
         this.rememberProgram(item.name, data, binary, false);
         this.pyInputPath = null;
-        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
         this.showPyHint(PyJavHints.status(item.name, item.source, item.bytes));
+        // The hint fills args from the program's usage; the recent item's own args win.
+        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
     }
 
     private void showPyHint(String status) {
@@ -1437,6 +1484,86 @@ extends JFrame {
         File file = chooser.getSelectedFile();
         if (file == null) return;
         this.setInputFile(file);
+    }
+
+    private File paramsFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "pyjav-params.properties");
+    }
+
+    /** Saved DrumMidi switches for a program, or null when none were saved. */
+    private String loadParams(String program) {
+        if (program == null) return null;
+        java.util.Properties props = new java.util.Properties();
+        File f = this.paramsFile();
+        if (!f.isFile()) return null;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            props.load(in);
+        } catch (Exception ignored) {
+            return null;
+        }
+        return props.getProperty(program);
+    }
+
+    private void saveParams(String program, String args) {
+        java.util.Properties props = new java.util.Properties();
+        File f = this.paramsFile();
+        try {
+            if (f.isFile()) {
+                try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                    props.load(in);
+                }
+            }
+            props.setProperty(program, args);
+            f.getParentFile().mkdirs();
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                props.store(out, "PyJav Params per program");
+            }
+        } catch (Exception ignored) {
+            // kept in the args field for this session
+        }
+    }
+
+    /** Params: DrumMidi switches, one field each, saved per program; with Reset to defaults / suggested values. */
+    private void openParams() {
+        final String program = this.pyName == null || this.pyName.isEmpty() ? "program" : this.pyName;
+        java.util.Map<String, String> saved = DrumMidiArgs.read(this.loadParams(program));
+        java.util.Map<String, String> current = DrumMidiArgs.read(this.pyExtra != null ? this.pyExtra.getText() : "");
+        final JTextField[] fields = new JTextField[DrumMidiArgs.FLAGS.length];
+        JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
+        for (int i = 0; i < DrumMidiArgs.FLAGS.length; i++) {
+            String flag = DrumMidiArgs.FLAGS[i];
+            form.add(new JLabel(DrumMidiArgs.LABELS[i] + "  " + flag));
+            String value = saved.containsKey(flag) ? saved.get(flag) : current.get(flag);
+            JTextField field = new JTextField(value == null ? "" : value, 10);
+            field.setToolTipText("Default: " + DrumMidiArgs.HINTS[i]);
+            fields[i] = field;
+            form.add(field);
+        }
+        JPanel resets = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton defaults = new JButton("Reset to defaults");
+        defaults.addActionListener(e -> { for (JTextField f : fields) f.setText(""); });
+        JButton suggested = new JButton("Reset to suggested values");
+        suggested.addActionListener(e -> { for (int i = 0; i < fields.length; i++) fields[i].setText(DrumMidiArgs.SUGGESTED[i]); });
+        resets.add(defaults);
+        resets.add(suggested);
+        JPanel box = new JPanel(new BorderLayout(0, 8));
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        resets.setAlignmentX(0.0f);
+        top.add(resets);
+        JLabel note = new JLabel("<html><body style='width:380px'>" + DrumMidiArgs.NOTE + " Empty fields use the default shown when you point at them.</body></html>");
+        note.setAlignmentX(0.0f);
+        top.add(note);
+        box.add(top, BorderLayout.NORTH);
+        box.add(form, BorderLayout.CENTER);
+        int ans = JOptionPane.showConfirmDialog(this, box, "DrumMidi parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (ans != JOptionPane.OK_OPTION) return;
+        String[] values = new String[fields.length];
+        for (int i = 0; i < fields.length; i++) values[i] = fields[i].getText();
+        String args = DrumMidiArgs.build(values);
+        this.saveParams(program, args);
+        if (this.pyExtra != null) this.pyExtra.setText(DrumMidiArgs.merge(this.pyExtra.getText(), args));
+        this.setNow("Params saved");
     }
 
     private void setInputFile(File file) {
@@ -1515,9 +1642,109 @@ extends JFrame {
             }
         }
         this.showPromptModes();
+        this.paintProgramMenus();
         if (!open) return;
         this.showView("py");
         this.setNow("PyJav · " + this.pyName);
+    }
+
+    // ---- Java / Python / Code menus (Programs folder) -----------------------------
+    // Java and Python pick the program Run executes; the editor is left alone.
+    // Code opens a file in the editor for editing and never changes what Run executes.
+
+    private static final String[] PROGRAM_KINDS = {"Java", "Python", "Code"};
+    private final JButton[] programButtons = new JButton[PROGRAM_KINDS.length];
+    private String listedName;
+    private String listedSource;
+    private String listedKind;
+
+    private JPanel buildProgramMenus() {
+        JPanel row = new JPanel(new FlowLayout(0, 8, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(0.0f);
+        for (int i = 0; i < PROGRAM_KINDS.length; i++) {
+            final String kind = PROGRAM_KINDS[i];
+            final JButton[] self = new JButton[1];
+            self[0] = this.action(kind + " \u25be", ELEV, FG, () -> this.showProgramMenu(kind, self[0]));
+            this.programButtons[i] = self[0];
+            row.add(self[0]);
+        }
+        return row;
+    }
+
+    private void showProgramMenu(String kind, JButton anchor) {
+        String[] names = ProgramFiles.list(kind);
+        JPopupMenu menu = new JPopupMenu();
+        if (names.length == 0) {
+            JMenuItem none = new JMenuItem("No programs in Programs/" + kind);
+            none.setEnabled(false);
+            menu.add(none);
+        }
+        for (String name : names) {
+            JMenuItem item = new JMenuItem(name);
+            item.addActionListener(e -> {
+                if ("Code".equals(kind)) this.openCodeFile(name);
+                else this.selectListedProgram(kind, name);
+            });
+            menu.add(item);
+        }
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** Java or Python: this file becomes the program Run executes. */
+    private void selectListedProgram(String kind, String name) {
+        try {
+            byte[] data = ProgramFiles.read(kind, name);
+            String src = new String(data, StandardCharsets.UTF_8);
+            this.pyName = name;
+            this.pyBytes = null;
+            this.pyInputPath = null;
+            this.listedName = name;
+            this.listedSource = src;
+            this.listedKind = kind;
+            this.showPromptModes();
+            this.showPyHint(PyJavHints.status(name, src, data));
+            this.paintProgramMenus();
+            this.setNow("Run \u00b7 " + name);
+        } catch (Exception ex) {
+            if (this.pyLog != null) this.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /** Code: show the file in the editor for editing. What Run executes does not change. */
+    private void openCodeFile(String name) {
+        try {
+            String text = new String(ProgramFiles.read("Code", name), StandardCharsets.UTF_8);
+            if (this.pyEditor != null) {
+                this.pyEditor.setEditable(true);
+                this.pyEditor.setText(text);
+                this.pyEditor.setCaretPosition(0);
+            }
+            if (this.programButtons[2] != null) this.programButtons[2].setText("Code \u00b7 " + name);
+            this.setNow("Editing \u00b7 " + name);
+        } catch (Exception ex) {
+            if (this.pyLog != null) this.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /** True while the listed program is still the current program (nothing else was opened since). */
+    private boolean listedProgramCurrent() {
+        return this.listedName != null && this.listedName.equals(this.pyName) && this.pyBytes == null;
+    }
+
+    private void paintProgramMenus() {
+        if (this.listedName != null && !this.listedProgramCurrent()) {
+            this.listedName = null;
+            this.listedSource = null;
+            this.listedKind = null;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (this.programButtons[i] == null) continue;
+            boolean on = PROGRAM_KINDS[i].equals(this.listedKind);
+            this.programButtons[i].setText(on ? PROGRAM_KINDS[i] + " \u00b7 " + this.listedName : PROGRAM_KINDS[i] + " \u25be");
+            this.programButtons[i].setBackground(on ? HIT : ELEV);
+            this.programButtons[i].setForeground(on ? BG : FG);
+        }
     }
 
     private JPanel buildImportPage() {
@@ -1578,6 +1805,196 @@ extends JFrame {
         jPanel.add((Component)scroll, "Center");
         this.refreshPluginUi();
         return jPanel;
+    }
+
+    /** Help page sections (File > Help-Desktop): caption, then text. */
+    private static final String[][] HELP_SECTIONS = {
+        {"PyJav", "Python, Java, JavaScript, or TypeScript. On Windows, Node.js runs in Termux for Windows: "
+            + "pkg install nodejs. npm installs @sogni-ai/sogni-client. A .prompt file runs as bash, cmd, or AI. "
+            + "Java runs with the JDK installed on this computer. Python needs Python 3."},
+    };
+
+    private JPanel buildHelpPage() {
+        JPanel col = new JPanel();
+        col.setOpaque(false);
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(BorderFactory.createEmptyBorder(4, 4, 16, 4));
+        JLabel title = new JLabel("Help");
+        title.setFont(new Font("SansSerif", Font.BOLD, 20));
+        title.setForeground(FG);
+        title.setAlignmentX(0.0f);
+        col.add(title);
+        for (String[] section : HELP_SECTIONS) {
+            col.add(Box.createVerticalStrut(16));
+            JLabel caption = new JLabel(section[0]);
+            caption.setFont(new Font("SansSerif", Font.BOLD, 15));
+            caption.setForeground(FG);
+            caption.setAlignmentX(0.0f);
+            col.add(caption);
+            col.add(Box.createVerticalStrut(6));
+            JLabel text = new JLabel("<html><body style='width:520px'>" + section[1] + "</body></html>");
+            text.setForeground(MUTED);
+            text.setAlignmentX(0.0f);
+            col.add(text);
+        }
+        JPanel page = new JPanel(new BorderLayout());
+        page.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(col);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        page.add(scroll, BorderLayout.CENTER);
+        return page;
+    }
+
+    private File drumMidiFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "drum-midi-settings.txt");
+    }
+
+    private void saveDrumMidi() {
+        try {
+            File f = this.drumMidiFile();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), MidiImportSettings.encode().getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // settings stay for this session
+        }
+    }
+
+    private JCheckBox drumMidiCheck(JPanel col, String label, String note, boolean on, java.util.function.Consumer<Boolean> set) {
+        col.add(Box.createVerticalStrut(12));
+        JCheckBox box = new JCheckBox(label, on);
+        box.setOpaque(false);
+        box.setForeground(FG);
+        box.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        box.setAlignmentX(0.0f);
+        box.addActionListener(e -> {
+            set.accept(box.isSelected());
+            this.saveDrumMidi();
+        });
+        col.add(box);
+        JLabel sub = new JLabel("<html><body style='width:480px'>" + note + "</body></html>");
+        sub.setForeground(MUTED);
+        sub.setBorder(BorderFactory.createEmptyBorder(0, 24, 0, 0));
+        sub.setAlignmentX(0.0f);
+        col.add(sub);
+        return box;
+    }
+
+    /** File > Drum Midi Settings: how a MIDI drum track becomes a file set on import. */
+    private JPanel buildDrumMidiPage() {
+        try {
+            File f = this.drumMidiFile();
+            MidiImportSettings.decode(f.isFile() ? new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : null);
+        } catch (Exception ex) {
+            MidiImportSettings.reset();
+        }
+        JPanel col = new JPanel();
+        col.setOpaque(false);
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(BorderFactory.createEmptyBorder(4, 4, 16, 4));
+        JLabel title = new JLabel("Drum Midi Settings");
+        title.setFont(new Font("SansSerif", Font.BOLD, 20));
+        title.setForeground(FG);
+        title.setAlignmentX(0.0f);
+        col.add(title);
+        JLabel lead = new JLabel("<html><body style='width:520px'>How a MIDI drum track, such as DrumMidi output, becomes patterns, "
+            + "fills and a song when it is imported (changes apply to the next import), and how Fillerns play.</body></html>");
+        lead.setForeground(MUTED);
+        lead.setAlignmentX(0.0f);
+        col.add(Box.createVerticalStrut(6));
+        col.add(lead);
+        JCheckBox written = this.drumMidiCheck(col, "Keep the notes as written",
+            "No style, swing, humanize or generated fills. Off: Pulsekit guesses a style and adds its feel and fills.",
+            MidiImportSettings.asWritten, on -> MidiImportSettings.asWritten = on);
+        JCheckBox merge = this.drumMidiCheck(col, "Merge hits",
+            "Bars that differ by only a few hits become one pattern. The source MIDI still plays as recorded.",
+            MidiImportSettings.mergeBars, on -> MidiImportSettings.mergeBars = on);
+        JPanel hitsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        hitsRow.setOpaque(false);
+        hitsRow.setAlignmentX(0.0f);
+        hitsRow.setBorder(BorderFactory.createEmptyBorder(0, 18, 0, 0));
+        JButton minus = this.chip("\u2212", false);
+        JButton plus = this.chip("+", false);
+        JLabel hits = new JLabel();
+        hits.setForeground(FG);
+        Runnable paintHits = () -> hits.setText("Merge up to " + MidiImportSettings.mergeHits + (MidiImportSettings.mergeHits == 1 ? " hit" : " hits"));
+        paintHits.run();
+        minus.addActionListener(e -> {
+            MidiImportSettings.mergeHits = MidiImportSettings.clampHits(MidiImportSettings.mergeHits - 1);
+            paintHits.run();
+            this.saveDrumMidi();
+        });
+        plus.addActionListener(e -> {
+            MidiImportSettings.mergeHits = MidiImportSettings.clampHits(MidiImportSettings.mergeHits + 1);
+            paintHits.run();
+            this.saveDrumMidi();
+        });
+        hitsRow.add(minus);
+        hitsRow.add(hits);
+        hitsRow.add(plus);
+        hitsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        col.add(hitsRow);
+        JCheckBox fills = this.drumMidiCheck(col, "Treat a one-off bar after a repeated groove as a fill",
+            "Off: every bar is a pattern and the import makes no fills or Fillerns.",
+            MidiImportSettings.oneOffFills, on -> MidiImportSettings.oneOffFills = on);
+        JCheckBox reuse = this.drumMidiCheck(col, "Reuse a pattern when the same bar comes back",
+            "Off: each section gets its own pattern, even when the notes repeat.",
+            MidiImportSettings.reuseBars, on -> MidiImportSettings.reuseBars = on);
+        JCheckBox silent = this.drumMidiCheck(col, "Keep silent bars as rests",
+            "Off: silent bars are dropped and the song closes up around them.",
+            MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on);
+        col.add(Box.createVerticalStrut(18));
+        JLabel fd = new JLabel("Fillern type default");
+        fd.setFont(new Font("SansSerif", Font.BOLD, 15));
+        fd.setForeground(FG);
+        fd.setAlignmentX(0.0f);
+        col.add(fd);
+        JLabel fdNote = new JLabel("<html><body style='width:480px'>For Fillerns without a type of their own. A Fillern's type is set in its fill list.</body></html>");
+        fdNote.setForeground(MUTED);
+        fdNote.setAlignmentX(0.0f);
+        col.add(fdNote);
+        javax.swing.ButtonGroup fdGroup = new javax.swing.ButtonGroup();
+        javax.swing.JRadioButton[] fdRadios = new javax.swing.JRadioButton[Engine.FILLERN_MODES.length];
+        for (int i = 0; i < Engine.FILLERN_MODES.length; i++) {
+            final String mode = Engine.FILLERN_MODES[i];
+            javax.swing.JRadioButton r = new javax.swing.JRadioButton(Engine.FILLERN_MODE_LABELS[i], mode.equals(MidiImportSettings.fillernDefault));
+            r.setOpaque(false);
+            r.setForeground(FG);
+            r.setFont(new Font("SansSerif", Font.PLAIN, 14));
+            r.setAlignmentX(0.0f);
+            r.addActionListener(e -> {
+                MidiImportSettings.fillernDefault = mode;
+                this.saveDrumMidi();
+                if ("combo".equals(this.view)) this.refreshLearnedChips();
+            });
+            fdGroup.add(r);
+            fdRadios[i] = r;
+            col.add(r);
+        }
+        col.add(Box.createVerticalStrut(16));
+        JButton reset = this.outline("Reset to defaults", false);
+        reset.setAlignmentX(0.0f);
+        reset.addActionListener(e -> {
+            MidiImportSettings.reset();
+            this.saveDrumMidi();
+            written.setSelected(MidiImportSettings.asWritten);
+            merge.setSelected(MidiImportSettings.mergeBars);
+            fills.setSelected(MidiImportSettings.oneOffFills);
+            reuse.setSelected(MidiImportSettings.reuseBars);
+            silent.setSelected(MidiImportSettings.keepSilent);
+            for (int i = 0; i < fdRadios.length; i++) fdRadios[i].setSelected(Engine.FILLERN_MODES[i].equals(MidiImportSettings.fillernDefault));
+            paintHits.run();
+        });
+        col.add(reset);
+        JPanel page = new JPanel(new BorderLayout());
+        page.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(col);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        page.add(scroll, BorderLayout.CENTER);
+        return page;
     }
 
     private JPanel buildPromptsPage() {
@@ -2076,6 +2493,7 @@ extends JFrame {
             this.fileSetParts.putAll(Engine.decodeFsetInfo(json));
             Engine.fileSetOrigins.clear();
             Engine.fileSetOrigins.putAll(Engine.decodeFsetOrigins(json));
+            Engine.loadFileSetSongs(json);
             Engine.loadFileSetAudioDir(new File(this.pulsekitDir(), "fset-audio"));
         } catch (Exception ignored) { /* optional */ }
     }
@@ -2414,11 +2832,9 @@ extends JFrame {
         return this.patternKeyFor(this.style);
     }
 
+    /** Underlined only when a fill was chosen for this pattern from the list, and that fill still exists. */
     private boolean fillernUnderlined(String patternKey) {
-        if (patternKey == null) return false;
-        String stored = this.fillernPairs.get(patternKey);
-        if (stored != null && !stored.isEmpty()) return true;
-        return patternKey.equals(this.currentPatternKey());
+        return this.selectedFillFor(patternKey) != null;
     }
 
     private String fillernFillKeyOf(String patternKey) {
@@ -2492,11 +2908,37 @@ extends JFrame {
         }
     }
 
+    /** The fill chosen from the list for this pattern, or null. Fills an import paired do not count. */
     private String selectedFillFor(String patternKey) {
+        if (patternKey == null || !this.fillernPicked.contains(patternKey)) return null;
         String stored = this.fillernPairs.get(patternKey);
-        if (stored != null) return stored;
-        if (patternKey.equals(this.currentPatternKey())) return this.fillId;
-        return null;
+        if (stored == null || stored.isEmpty()) return null;
+        return Engine.fillKeyExists(stored, this.variatedFills, this.learnedFills) ? stored : null;
+    }
+
+    /** A fill chosen from the list: remembered and underlined. */
+    private void pickFillern(String patternKey, String fillKey) {
+        if (patternKey == null || fillKey == null) return;
+        this.fillernPicked.add(patternKey);
+        this.rememberFillern(patternKey, fillKey);
+        if ("combo".equals(this.view)) this.refreshLearnedChips();
+    }
+
+    /** Make a Fillern: a menu of the file set's patterns, each opening the fills to pair with it. */
+    private void createFillern(JComponent anchor, List<Engine.Learned> patterns) {
+        if (patterns.isEmpty()) {
+            this.setNow("This file set has no patterns");
+            return;
+        }
+        JPopupMenu m = new JPopupMenu();
+        this.addMenuHeading(m, "Fillern: choose a pattern");
+        for (Engine.Learned item : patterns) {
+            final Engine.Learned it = item;
+            javax.swing.JMenu sub = new javax.swing.JMenu(it.name);
+            this.addFillernItems(sub.getPopupMenu(), () -> this.loadLearned(it.id), this.patternKeyFor(it.id));
+            m.add(sub);
+        }
+        m.show(anchor, 0, anchor.getHeight());
     }
 
     private void rememberFillern(String patternKey, String fillKey) {
@@ -2522,6 +2964,14 @@ extends JFrame {
     private void addFillernItems(JPopupMenu m, Runnable loadPattern, String patternKey) {
         if (!"combo".equals(this.view)) return;
         String selected = this.selectedFillFor(patternKey);
+        this.addMenuHeading(m, "Fillern type");
+        String mode = this.fillernModeOf(patternKey);
+        for (int i = 0; i < Engine.FILLERN_MODES.length; i++) {
+            final String fm = Engine.FILLERN_MODES[i];
+            JMenuItem it = new JMenuItem(this.fillernMenuLabel("  " + Engine.FILLERN_MODE_LABELS[i], fm.equals(mode)));
+            it.addActionListener(e -> this.setFillernMode(patternKey, fm));
+            m.add(it);
+        }
         this.addMenuHeading(m, "Last-bar fill");
         this.addMenuHeading(m, "Built-in");
         for (int i = 0; i < Engine.FILL_ID.length; i++) {
@@ -2531,7 +2981,7 @@ extends JFrame {
             it.addActionListener(e -> {
                 loadPattern.run();
                 this.applyFill(fid);
-                this.rememberFillern(patternKey, fid);
+                this.pickFillern(patternKey, fid);
                 if (!"combo".equals(this.view)) this.showView("combo");
             });
             m.add(it);
@@ -2545,7 +2995,7 @@ extends JFrame {
                 it.addActionListener(e -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -2561,7 +3011,7 @@ extends JFrame {
                 it.addActionListener(e -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -2587,7 +3037,7 @@ extends JFrame {
                 it.addActionListener(ev -> {
                     loadPattern.run();
                     this.applyFill(fid);
-                    this.rememberFillern(patternKey, fid);
+                    this.pickFillern(patternKey, fid);
                     if (!"combo".equals(this.view)) this.showView("combo");
                 });
                 m.add(it);
@@ -2797,14 +3247,23 @@ extends JFrame {
             this.importedBar.add(this.importPack("p:" + pid, p.name, p.styles.size(), selected, "Remove pack",
                 () -> { this.uninstallPlugin(pid); this.setNow("Removed \u00b7 " + p.name); }, kids));
         }
+        // The Pattern tab lists a file set's patterns, the Fillern tab its Fillerns.
+        boolean fillerns = "combo".equals(this.view);
+        this.importedFor = fillerns ? "combo" : "pattern";
         for (String src : this.learnedSources()) {
             ChipStrip kids = new ChipStrip();
             boolean selected = false;
             int n = 0;
+            List<Engine.Learned> setPatterns = new ArrayList<Engine.Learned>();
+            for (Engine.Learned item : this.learned) if (src.equals(Engine.sourceOf(item))) setPatterns.add(item);
             for (Engine.Learned item : this.learned) {
                 if (!src.equals(Engine.sourceOf(item))) continue;
+                if (fillerns && this.selectedFillFor(this.patternKeyFor(item.id)) == null) continue;
                 final Engine.Learned it = item;
-                JButton b = this.chip(it.name, false);
+                String chipName = fillerns
+                    ? it.name + " \u00b7 " + this.fillLabel(this.selectedFillFor(this.patternKeyFor(it.id))) + Engine.fillernModeNote(this.fillernModeOf(this.patternKeyFor(it.id)))
+                    : it.name;
+                JButton b = this.chip(chipName, false);
                 b.putClientProperty("style", it.id);
                 b.putClientProperty("learned", it.id);
                 b.addActionListener(e -> this.loadLearned(it.id));
@@ -2812,6 +3271,21 @@ extends JFrame {
                 kids.add(b);
                 n++;
                 if (it.id.equals(this.style) || it.id.equals(this.learnedId())) selected = true;
+            }
+            if (fillerns) {
+                if (n == 0) {
+                    JButton none = new JButton("No fillerns yet, create one");
+                    this.flatten(none);
+                    none.setBackground(BG);
+                    none.setForeground(MUTED);
+                    none.putClientProperty("role", "fillern-none");
+                    none.addActionListener(e -> this.createFillern(none, setPatterns));
+                    kids.add(none);
+                }
+                JButton add = this.chip("+ Fillern", false);
+                add.putClientProperty("role", "fillern-add");
+                add.addActionListener(e -> this.createFillern(add, setPatterns));
+                kids.add(add);
             }
             String label = src.isEmpty() ? "Other" : src;
             this.importedBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
@@ -2855,7 +3329,8 @@ extends JFrame {
             this.importedFillBar.add(this.importPack("p:" + pid, p.name, p.fills.size(), selected, "Remove pack",
                 () -> { this.uninstallPlugin(pid); this.setNow("Removed \u00b7 " + p.name); }, kids));
         }
-        for (String src : this.fillSources()) {
+        // Every file set, also one without fills yet.
+        for (String src : Engine.fileSetSources(this.learned, this.learnedFills)) {
             ChipStrip kids = new ChipStrip();
             boolean selected = false;
             int n = 0;
@@ -2871,6 +3346,19 @@ extends JFrame {
                 n++;
                 if (("l:" + it.id).equals(this.fillId)) selected = true;
             }
+            if (n == 0) {
+                JButton none = new JButton("No fills yet, add one");
+                this.flatten(none);
+                none.setBackground(BG);
+                none.setForeground(MUTED);
+                none.putClientProperty("role", "fills-none");
+                none.addActionListener(e -> this.pickBuiltinFillFor(none, src));
+                kids.add(none);
+            }
+            JButton addFill = this.chip("+ Fill", false);
+            addFill.putClientProperty("role", "fills-add");
+            addFill.addActionListener(e -> this.pickBuiltinFillFor(addFill, src));
+            kids.add(addFill);
             String label = src.isEmpty() ? "Other" : src;
             this.importedFillBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
                 () -> this.removeImportSource(src), () -> this.saveFset(src), kids));
@@ -2973,6 +3461,7 @@ extends JFrame {
         this.learned.removeIf(x -> want.equals(Engine.sourceOf(x)));
         this.learnedFills.removeIf(x -> want.equals(Engine.sourceOf(x)));
         this.fileSetParts.remove(want);
+        Engine.fileSetSongs.remove(want);
         Engine.forgetFileSetOrigin(want);
         Engine.forgetFileSetAudio(want);
         this.storeAudioDir();
@@ -3245,6 +3734,64 @@ extends JFrame {
         }
     }
 
+    /** Right click on a built-in fill: copy it, or a variation of it, into a file set; or hide it. */
+    private void builtinFillMenu(JComponent anchor, String fillId) {
+        JPopupMenu m = new JPopupMenu();
+        javax.swing.JMenu copy = new javax.swing.JMenu("Copy fill to file set");
+        javax.swing.JMenu variated = new javax.swing.JMenu("Variated fill into file set");
+        List<String> sources = Engine.fileSetSources(this.learned, this.learnedFills);
+        for (String src : sources) {
+            String label = src.isEmpty() ? "Other" : src;
+            JMenuItem c = new JMenuItem(label);
+            c.addActionListener(e -> this.copyFillToFileSet(fillId, src, false));
+            copy.add(c);
+            JMenuItem v = new JMenuItem(label);
+            v.addActionListener(e -> this.copyFillToFileSet(fillId, src, true));
+            variated.add(v);
+        }
+        copy.setEnabled(!sources.isEmpty());
+        variated.setEnabled(!sources.isEmpty());
+        m.add(copy);
+        m.add(variated);
+        m.addSeparator();
+        JMenuItem hide = new JMenuItem("Hide");
+        hide.addActionListener(e -> this.hideFill(fillId));
+        m.add(hide);
+        m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** "No fills yet, add one" and "+ Fill": choose a built-in fill to copy into this file set. */
+    private void pickBuiltinFillFor(JComponent anchor, String source) {
+        JPopupMenu m = new JPopupMenu();
+        this.addMenuHeading(m, "Add a fill to " + (source.isEmpty() ? "Other" : source));
+        for (int i = 0; i < Engine.FILL_ID.length; i++) {
+            final String fid = Engine.FILL_ID[i];
+            if (this.hiddenFills.contains(fid)) continue;
+            JMenuItem it = new JMenuItem(Engine.FILL_LABEL[i]);
+            it.addActionListener(e -> this.copyFillToFileSet(fid, source, false));
+            m.add(it);
+        }
+        m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** Adds a built-in fill, as it sounds with the current pattern, to a file set; with variate, a variation of it. */
+    private void copyFillToFileSet(String fillId, String source, boolean variate) {
+        int[][] cells = Engine.copyCells(this.fillCellsFor(fillId));
+        if (variate) cells = Engine.variateFillCells(cells, new Random());
+        Engine.LearnedFill fill = new Engine.LearnedFill();
+        fill.id = Engine.newLearnedId();
+        fill.kind = Engine.isFillId(fillId) ? fillId : "toms";
+        fill.name = Engine.uniqueFillName(this.fillLabel(fillId) + (variate ? " var" : ""), Engine.fillsFrom(this.learnedFills, source));
+        fill.cells = cells;
+        fill.source = source;
+        this.learnedFills.add(0, fill);
+        while (this.learnedFills.size() > Engine.MAX_LEARNED) this.learnedFills.remove(this.learnedFills.size() - 1);
+        this.persistLearned();
+        this.refreshLearnedChips();
+        this.applyFill("l:" + fill.id);
+        this.setNow(fill.name + " \u00b7 " + (source.isEmpty() ? "Other" : source));
+    }
+
     private void variateFill() {
         Random random = new Random();
         for (int i = Engine.track("ltom"); i < Engine.TRACK_ID.length; ++i) {
@@ -3289,6 +3836,164 @@ extends JFrame {
             }
         }
         return this.importedSongs.isEmpty() ? null : this.importedSongs.get(0);
+    }
+
+    /** A song saved in a file set, listed under Imported songs and built from the set's patterns. */
+    private Engine.ImportedSong addFileSetSong(String source, Engine.FileSetSong song) {
+        Engine.ImportedSong item = new Engine.ImportedSong();
+        item.id = Engine.newLearnedId();
+        item.name = Engine.uniqueImportedName(song.name, this.importedSongs);
+        item.fileSet = source;
+        item.fileSetSong = song.name;
+        item.parts.addAll(Engine.resolveSong(song, Engine.learnedFrom(this.learned, source), Engine.fillsFrom(this.learnedFills, source)));
+        this.importedSongs.add(0, item);
+        while (this.importedSongs.size() > Engine.MAX_IMPORTED_SONGS) this.importedSongs.remove(this.importedSongs.size() - 1);
+        if (this.importedSongId == null) this.importedSongId = item.id;
+        this.persistLearned();
+        return item;
+    }
+
+    /** Opening a song saved in a file set builds it again from the set's patterns, so their edits show. */
+    private void refreshFromFileSet(Engine.ImportedSong item) {
+        if (item == null || item.fileSet == null || item.fileSetSong == null) return;
+        List<Engine.FileSetSong> songs = Engine.fileSetSongs.get(item.fileSet);
+        if (songs == null) return;
+        for (Engine.FileSetSong song : songs) {
+            if (!song.name.equals(item.fileSetSong)) continue;
+            item.parts.clear();
+            item.parts.addAll(Engine.resolveSong(song, Engine.learnedFrom(this.learned, item.fileSet), Engine.fillsFrom(this.learnedFills, item.fileSet)));
+            return;
+        }
+    }
+
+    /** Save to set: the song goes into a file set, as references to the set's patterns and fills. */
+    private void saveSongToFileSet(JComponent anchor) {
+        List<Engine.Part> song = this.activeSong();
+        if (song.isEmpty()) {
+            this.setNow("The song is empty");
+            return;
+        }
+        List<String> sources = Engine.fileSetSources(this.learned, this.learnedFills);
+        if (sources.isEmpty()) {
+            this.setNow("Import a MIDI to make a file set first");
+            return;
+        }
+        Engine.ImportedSong imported = "imported".equals(this.songLane) ? this.importedSong() : null;
+        String best = imported != null && imported.fileSet != null && sources.contains(imported.fileSet) ? imported.fileSet : this.bestFileSetFor(song, sources);
+        List<String> order = new ArrayList<String>();
+        if (best != null) order.add(best);
+        for (String s : sources) if (!order.contains(s)) order.add(s);
+        String songName = imported != null ? (imported.fileSetSong != null ? imported.fileSetSong : imported.name) : "Song";
+        JPopupMenu m = new JPopupMenu();
+        this.addMenuHeading(m, "Save \"" + songName + "\" to file set");
+        for (String src : order) {
+            JMenuItem it = new JMenuItem(src.isEmpty() ? "Other" : src);
+            it.addActionListener(e -> this.saveSongInto(src, songName, imported));
+            m.add(it);
+        }
+        m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /**
+     * The file set a song comes from, for naming its exports: the set it is saved in, the set an
+     * imported song was made from, or the set whose names it uses most. Null when none.
+     */
+    private String songFileSet(List<Engine.Part> song) {
+        List<String> sources = Engine.fileSetSources(this.learned, this.learnedFills);
+        if ("imported".equals(this.songLane)) {
+            Engine.ImportedSong imported = this.importedSong();
+            if (imported != null && imported.fileSet != null && sources.contains(imported.fileSet)) return imported.fileSet;
+            if (imported != null && sources.contains(imported.name)) return imported.name;
+        }
+        String best = this.bestFileSetFor(song, sources);
+        return best == null || best.isEmpty() ? null : best;
+    }
+
+    /** The file set whose pattern and fill names the song uses most. */
+    private String bestFileSetFor(List<Engine.Part> song, List<String> sources) {
+        String best = null;
+        int bestHits = 0;
+        for (String src : sources) {
+            int hits = 0;
+            List<Engine.Learned> pats = Engine.learnedFrom(this.learned, src);
+            List<Engine.LearnedFill> fills = Engine.fillsFrom(this.learnedFills, src);
+            for (Engine.Part p : song) {
+                for (Engine.Learned x : pats) if (x.name.equals(p.name)) { hits++; break; }
+                for (Engine.LearnedFill x : fills) if (x.name.equals(p.name)) { hits++; break; }
+            }
+            if (hits > bestHits) { bestHits = hits; best = src; }
+        }
+        return best;
+    }
+
+    private void saveSongInto(String source, String songName, Engine.ImportedSong imported) {
+        List<Engine.Part> song = this.activeSong();
+        Engine.FileSetSong saved = Engine.songForFileSet(songName, song, Engine.learnedFrom(this.learned, source), Engine.fillsFrom(this.learnedFills, source));
+        List<Integer> outside = Engine.partsFromOutside(saved);
+        if (!outside.isEmpty()) {
+            String set = source.isEmpty() ? "Other" : source;
+            int ans = JOptionPane.showOptionDialog(this,
+                outside.size() + (outside.size() == 1 ? " part uses a pattern or fill" : " parts use patterns or fills") + " that are not in " + set
+                    + ".\nCopy them into it? Otherwise their notes are kept in the song.",
+                "Parts from outside the file set", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null,
+                new Object[] { "Copy into set", "Keep in song" }, "Copy into set");
+            if (ans == 0) {
+                this.copyPartsIntoSet(source, song, outside);
+                saved = Engine.songForFileSet(songName, song, Engine.learnedFrom(this.learned, source), Engine.fillsFrom(this.learnedFills, source));
+            }
+        }
+        Engine.putFileSetSong(source, saved);
+        if (imported != null) {
+            imported.fileSet = source;
+            imported.fileSetSong = saved.name;
+        } else {
+            Engine.ImportedSong added = this.addFileSetSong(source, saved);
+            this.importedSongId = added.id;
+        }
+        this.persistFileSetInfo();
+        this.persistLearned();
+        this.refreshSong();
+        int refs = 0;
+        for (Engine.SongRef r : saved.parts) if (r.usePattern != null || r.useFill != null) refs++;
+        this.setNow("Saved \u00b7 " + saved.name + " in " + (source.isEmpty() ? "Other" : source) + " \u00b7 " + refs + " of " + saved.parts.size() + " parts follow the set");
+    }
+
+    /** Copies the patterns and fills of outside parts into the file set, and names the parts after the copies. */
+    private void copyPartsIntoSet(String source, List<Engine.Part> song, List<Integer> outside) {
+        java.util.HashMap<String, String> copied = new java.util.HashMap<String, String>();
+        for (Integer at : outside) {
+            Engine.Part p = song.get(at.intValue());
+            String key = p.kind + ":" + Engine.patternSignature(p.cells);
+            String name = copied.get(key);
+            if (name == null) {
+                if ("fill".equals(p.kind)) {
+                    Engine.LearnedFill fill = new Engine.LearnedFill();
+                    fill.id = Engine.newLearnedId();
+                    fill.kind = "toms";
+                    fill.name = Engine.uniqueFillName(p.name, Engine.fillsFrom(this.learnedFills, source));
+                    fill.cells = Engine.copyCells(p.cells);
+                    fill.source = source;
+                    this.learnedFills.add(0, fill);
+                    name = fill.name;
+                } else {
+                    Engine.Learned pat = new Engine.Learned();
+                    pat.id = Engine.newLearnedId();
+                    pat.name = Engine.uniqueLearnedName(p.name, Engine.learnedFrom(this.learned, source));
+                    pat.bpm = p.bpm;
+                    pat.closest = "";
+                    pat.cells = Engine.copyCells(p.cells);
+                    pat.tsNum = p.tsNum;
+                    pat.tsDen = p.tsDen;
+                    pat.source = source;
+                    this.learned.add(0, pat);
+                    this.styles.put(pat.id, new Engine.Style(pat.id, pat.name, pat.bpm, Engine.rowsFromCells(pat.cells)));
+                    name = pat.name;
+                }
+                copied.put(key, name);
+            }
+            p.name = name;
+        }
+        this.refreshLearnedChips();
     }
 
     private void addImportedSong(String name, List<Engine.Part> parts) {
@@ -3582,7 +4287,67 @@ extends JFrame {
         return Engine.buildFill(id, groove != null ? groove : this.cells, this.style);
     }
 
+    /** Right click on a part of an imported song: replace it with a Fillern. */
+    private JPopupMenu importedPartMenu(int n) {
+        JPopupMenu m = new JPopupMenu();
+        javax.swing.JMenu sub = new javax.swing.JMenu("Replace with fillern");
+        List<String> keys = new ArrayList<String>();
+        for (Engine.Learned item : this.learned) {
+            String key = "l:" + item.id;
+            if (this.selectedFillFor(key) != null) keys.add(key);
+        }
+        for (String id : this.styles.keySet()) {
+            String key = this.patternKeyFor(id);
+            if (!keys.contains(key) && this.selectedFillFor(key) != null) keys.add(key);
+        }
+        for (String key : keys) {
+            String label = this.patternName(key) + " \u00b7 " + this.fillLabel(this.selectedFillFor(key)) + Engine.fillernModeNote(this.fillernModeOf(key));
+            JMenuItem it = new JMenuItem(label);
+            it.addActionListener(e -> this.replaceWithFillern(n, key));
+            sub.add(it);
+        }
+        if (keys.isEmpty()) {
+            JMenuItem none = new JMenuItem("No Fillerns yet: make one on the Fillern tab");
+            none.setEnabled(false);
+            sub.add(none);
+        }
+        m.add(sub);
+        return m;
+    }
+
+    /** Puts a Fillern where part n was. Its type decides: "replaces end/start" keep the part's bars; "add after" adds the fill bar. */
+    private void replaceWithFillern(int n, String key) {
+        List<Engine.Part> cur = this.activeSong();
+        if (n < 0 || n >= cur.size()) return;
+        Engine.Part old = cur.get(n);
+        String fillKey = this.selectedFillFor(key);
+        if (fillKey == null) return;
+        int[][] cells = this.patternCellsFor(key);
+        int bar = Engine.barSteps(old.tsNum > 0 ? old.tsNum : this.tsNum, old.tsDen > 0 ? old.tsDen : this.tsDen);
+        List<Engine.Part> parts = Engine.fillernParts(this.patternName(key), old.bpm, cells, Engine.usedSteps(cells), Math.max(1, old.repeats),
+            this.fillLabel(fillKey), this.songFillCells(fillKey, cells), bar, this.fillernModeOf(key));
+        for (Engine.Part p : parts) {
+            p.tsNum = old.tsNum;
+            p.tsDen = old.tsDen;
+            if ("fill".equals(p.kind)) p.steps = bar;
+        }
+        cur.remove(n);
+        cur.addAll(n, parts);
+        if ("imported".equals(this.songLane)) this.persistLearned();
+        this.refreshSong();
+        this.setNow(old.name + " \u2192 " + this.patternName(key) + " Fillern");
+    }
+
     private void addCurrentFillern() {
+        String mode = this.fillernModeOf(this.currentPatternKey());
+        if (!Engine.FILLERN_AFTER.equals(mode)) {
+            // The fill goes into the pattern's last or first bar: the part keeps its 4 bars.
+            for (Engine.Part p : Engine.fillernParts(this.styles.get(this.style).label, this.bpm(), this.cells, this.steps, 4,
+                    this.fillLabel(this.fillId), this.fillPat, Engine.barSteps(this.tsNum, this.tsDen), mode)) {
+                this.addPart(p);
+            }
+            return;
+        }
         Engine.Part g = Engine.groove(this.styles.get(this.style).label, this.bpm(), this.cells, 4);
         g.lens = Engine.copyCells(this.lens);
         Engine.Part f = Engine.fill(this.fillLabel(this.fillId), this.bpm(), this.fillPat, 1);
@@ -3613,6 +4378,21 @@ extends JFrame {
             String fk = this.fillernPairs.get(key);
             if (fk == null) fk = key.equals(this.currentPatternKey()) ? this.fillId : "toms";
             int greps = idx >= 0 && "groove".equals(cur.get(idx).kind) ? cur.get(idx).repeats : 4;
+            String mode = this.fillernModeOf(key);
+            if (!Engine.FILLERN_AFTER.equals(mode)) {
+                // The fill replaces the end or start of the pattern: the song part keeps its length.
+                List<Engine.Part> parts = Engine.fillernParts(this.patternName(key), this.patternBpm(key), gcells, Engine.usedSteps(gcells), greps,
+                    this.fillLabel(fk), this.songFillCells(fk, gcells), Engine.barSteps(this.tsNum, this.tsDen), mode);
+                if (idx >= 0) {
+                    cur.set(idx, parts.get(0));
+                    for (int i = 1; i < parts.size() && cur.size() < 24; i++) cur.add(idx + i, parts.get(i));
+                } else {
+                    for (Engine.Part p : parts) this.addPart(p);
+                }
+                this.refreshSong();
+                this.setNow(this.patternName(key) + " Fillern");
+                return;
+            }
             Engine.Part g = Engine.groove(this.patternName(key), this.patternBpm(key), gcells, greps);
             Engine.Part f = Engine.fill(this.fillLabel(fk), this.patternBpm(key), this.songFillCells(fk, gcells), 1);
             if (idx >= 0) {
@@ -3678,6 +4458,7 @@ extends JFrame {
                     final Engine.ImportedSong item = s;
                     JButton b = this.chip(item.name, item.id.equals(this.importedSongId));
                     b.addActionListener(e -> {
+                        this.refreshFromFileSet(item);
                         this.importedSongId = item.id;
                         this.songLane = "imported";
                         this.refreshSong();
@@ -3703,7 +4484,7 @@ extends JFrame {
             jPanel.setOpaque(false);
             JLabel jLabel = new JLabel(Integer.toString(n), 0);
             jLabel.setOpaque(true);
-            jLabel.setBackground(bl ? HIT : ELEV);
+            jLabel.setBackground(bl ? HIT : (Engine.partHasFill(part) ? new Color(Engine.FILL_CELL_COLOR, true) : ELEV));
             jLabel.setForeground(bl ? BG : FG);
             jLabel.setFont(new Font("SansSerif", 1, 15));
             jLabel.setAlignmentX(0.5f);
@@ -3720,6 +4501,15 @@ extends JFrame {
         }
         this.timeline.revalidate();
         this.timeline.repaint();
+        if (this.songPlay && this.songPart >= 0 && this.songPart < this.timeline.getComponentCount()) {
+            final Component now = this.timeline.getComponent(this.songPart);
+            SwingUtilities.invokeLater(() -> {
+                java.awt.Rectangle r = now.getBounds();
+                r.x = Math.max(0, r.x - 120);
+                r.width += 240;
+                this.timeline.scrollRectToVisible(r);
+            });
+        }
         if (this.songList != null && this.songPlay && this.songPart >= 0 && this.songPart < this.songModel.getSize()) {
             this.songList.setSelectedIndex(this.songPart);
             this.songList.ensureIndexIsVisible(this.songPart);
@@ -3746,13 +4536,14 @@ extends JFrame {
 
     private void showView(String string) {
         this.view = string;
+        if (("pattern".equals(string) || "combo".equals(string)) && !string.equals(this.importedFor)) this.refreshLearnedChips();
         boolean bl = "fills".equals(string);
         boolean combo = "combo".equals(string);
         boolean pattern = "pattern".equals(string);
         boolean groove = pattern || combo;
         boolean bl2 = "song".equals(string);
         boolean bl3 = "py".equals(string);
-        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string);
+        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string);
         boolean prompts = "prompts".equals(string);
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
@@ -3812,6 +4603,12 @@ extends JFrame {
         if (prompts) {
             this.setNow("Prompts");
         }
+        if ("help".equals(string)) {
+            this.setNow("Help");
+        }
+        if ("midisettings".equals(string)) {
+            this.setNow("Drum Midi Settings");
+        }
         if ("import".equals(string)) {
             this.setNow("Choose a MIDI, song, WAV or SoundFont");
         }
@@ -3838,7 +4635,7 @@ extends JFrame {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
-                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "fsetinfo".equals(this.view)));
+                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
         }
@@ -3978,7 +4775,7 @@ extends JFrame {
         for (JPanel bar : new JPanel[] { this.styleBar, this.variatedPatternBar, this.importedBar }) {
             this.walkChips(bar, jButton -> {
                 Object sid = jButton.getClientProperty("style");
-                boolean on = this.style.equals(sid);
+                boolean on = this.styleChosen && this.style.equals(sid);
                 this.paintChip(jButton, on);
                 boolean under = false;
                 if ("combo".equals(this.view) && sid instanceof String) {
@@ -4013,6 +4810,28 @@ extends JFrame {
                 this.paintChip(jButton, this.fillId.equals(jButton.getClientProperty("fill")));
             });
         }
+    }
+
+    /** The imported file sets scroll inside at most maxHeight pixels, so a long list leaves room for the grid. */
+    private JScrollPane cappedScroll(JComponent content, int maxHeight) {
+        JScrollPane scroll = new JScrollPane(content, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension d = content.getPreferredSize();
+                return new Dimension(d.width, Math.min(maxHeight, d.height + 4));
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+            }
+        };
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setAlignmentX(0.0f);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
     }
 
     private void flatten(JButton jButton) {
@@ -4134,7 +4953,9 @@ extends JFrame {
         int n4 = Math.max(1, this.bars);
         int steps = this.steps;
         for (int i = 0; i < n4; ++i) {
-            boolean last = this.fillLast && i == n4 - 1;
+            // The Fillern's fill plays in the last bar, or in the first when it replaces the pattern's start.
+            int fillBar = Engine.FILLERN_START.equals(this.fillernModeOf(this.currentPatternKey())) ? 0 : n4 - 1;
+            boolean last = this.fillLast && i == fillBar;
             int n5 = i * steps * n2;
             for (int j = 0; j < Engine.TRACK_ID.length; ++j) {
                 if (this.mutes[j]) continue;
@@ -4399,13 +5220,14 @@ extends JFrame {
             parts = Collections.singletonList(Engine.groove(name, this.bpm(), this.cells, 1));
         }
         JFileChooser jFileChooser = new JFileChooser();
-        jFileChooser.setSelectedFile(new File(Engine.sngFilename(parts)));
+        jFileChooser.setSelectedFile(new File(Engine.songFilename(parts, this.songFileSet(parts))));
         jFileChooser.setFileFilter(new FileNameExtensionFilter("Pulsekit song", "sng"));
         if (jFileChooser.showSaveDialog(this) != 0) {
             return;
         }
         try {
-            Files.write(jFileChooser.getSelectedFile().toPath(), Engine.encodeSng(parts, parts.get(0).name), new OpenOption[0]);
+            String songSet = this.songFileSet(parts);
+            Files.write(jFileChooser.getSelectedFile().toPath(), Engine.encodeSng(parts, songSet != null ? songSet : parts.get(0).name), new OpenOption[0]);
         }
         catch (Exception exception) {
             JOptionPane.showMessageDialog(this, "Could not save .sng: " + exception.getMessage());
@@ -4565,7 +5387,33 @@ extends JFrame {
         return out;
     }
 
+    private List<String> fillernModeList() {
+        List<String> out = new ArrayList<String>();
+        for (Map.Entry<String, String> e : this.fillernModes.entrySet()) out.add(e.getKey() + "=" + e.getValue());
+        return out;
+    }
+
+    private String fillernModeOf(String patternKey) {
+        return Engine.fillernModeOr(patternKey == null ? null : this.fillernModes.get(patternKey));
+    }
+
+    private void setFillernMode(String patternKey, String mode) {
+        if (patternKey == null) return;
+        String m = Engine.fillernMode(mode);
+        this.fillernModes.put(patternKey, m);  // its own type, whatever the default is later
+        this.persistLearned();
+        if ("combo".equals(this.view)) this.refreshLearnedChips();
+        this.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);
+    }
+
     private void loadFillernPairs(String json) {
+        this.fillernModes.clear();
+        for (String row : this.parseStringArray(json, "fillernModes")) {
+            int eq = row.indexOf('=');
+            if (eq > 0) this.fillernModes.put(row.substring(0, eq), Engine.fillernMode(row.substring(eq + 1)));
+        }
+        this.fillernPicked.clear();
+        this.fillernPicked.addAll(this.parseStringArray(json, "fillernPicked"));
         this.fillernPairs.clear();
         for (String row : this.parseStringArray(json, "fillernPairs")) {
             int eq = row.indexOf('=');
@@ -4635,6 +5483,8 @@ extends JFrame {
                 + ",\"variatedFills\":" + Engine.learnedFillsJson(this.variatedFills)
                 + ",\"variatedPatterns\":" + Engine.learnedJson(this.variatedPatterns)
                 + ",\"fillernPairs\":" + this.stringListJson(this.fillernPairList())
+                + ",\"fillernPicked\":" + this.stringListJson(new ArrayList<String>(this.fillernPicked))
+                + ",\"fillernModes\":" + this.stringListJson(this.fillernModeList())
                 + ",\"importedSongs\":" + Engine.importedSongsJson(this.importedSongs) + "}";
             Files.write(new File(this.pulsekitDir(), "learned.json").toPath(), json.getBytes(StandardCharsets.UTF_8), new OpenOption[0]);
         } catch (Exception ignored) { /* optional */ }
@@ -5364,7 +6214,9 @@ extends JFrame {
         try {
             Engine.stageSourceMidi(data, name);
             Engine.MidiBars bars = Engine.parseMidiBars(data);
-            if (bars != null && this.learnFromSongImport(name, bars, true, "program")) {
+            boolean made = bars != null && this.learnFromSongImport(name, bars, true, "program");
+            Engine.clearStagedMidi();
+            if (made) {
                 String set = this.newestProgramSet();
                 this.setNow("Import succeeded: EP " + set);
                 return "Import succeeded: EP " + set;
@@ -5458,11 +6310,13 @@ extends JFrame {
         if (!force && !multi) return false;
 
         String stem = Engine.uniqueImportSource(Engine.stemNameFromMidi(filename), this.learned, this.learnedFills);
+        Engine.FileSet madeSet = null;
         try {
             if (!Engine.isFileSetOrigin(origin)) origin = "midi";
             Engine.FileSet set = AudioIo.fileSetFromMidi(bars, stem, origin);
             Engine.attachStagedMidi(set);
             if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
+            madeSet = set;
             this.rememberFileSetParts(stem, set.parts);
             this.loadFset(Engine.encodeFset(set), Engine.fsetFilename(set.name));
         } catch (Exception ex) {
@@ -5470,14 +6324,8 @@ extends JFrame {
             return false;
         }
 
-        List<Engine.Part> parts = new ArrayList<>();
-        for (Engine.MidiSeg seg : segs) {
-            if (parts.size() >= Engine.MAX_SONG) break;
-            parts.add(Engine.groove(stem, bars.bpm, seg.groove, seg.grooveRepeats));
-            if (seg.fill != null && parts.size() < Engine.MAX_SONG) {
-                parts.add(Engine.fill("fill", bars.bpm, seg.fill, 1));
-            }
-        }
+        // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
+        List<Engine.Part> parts = new ArrayList<>(Engine.songFromFileSet(madeSet));
         if (!parts.isEmpty()) {
             int ans = JOptionPane.showConfirmDialog(
                 this,
@@ -5551,28 +6399,30 @@ extends JFrame {
         java.util.LinkedHashMap<String, String> patternIds = new java.util.LinkedHashMap<String, String>();
         java.util.ArrayList<Engine.LearnedFill> importedFills = new java.util.ArrayList<Engine.LearnedFill>();
         String firstId = null;
+        int at = 0;
         for (Engine.Learned p : set.patterns) {
             Engine.Learned item = new Engine.Learned();
             item.id = Engine.newLearnedId();
-            item.name = Engine.uniqueLearnedName(p.name, this.learned);
+            item.name = Engine.uniqueLearnedName(p.name, Engine.learnedFrom(this.learned, source));
             item.bpm = p.bpm;
             item.closest = p.closest;
             item.cells = Engine.copyCells(p.cells);
             item.source = source;
-            this.learned.add(0, item);
+            this.learned.add(at++, item);  // keep the file set's order: first part first
             while (this.learned.size() > Engine.MAX_LEARNED) this.learned.remove(this.learned.size() - 1);
             this.styles.put(item.id, new Engine.Style(item.id, item.name, item.bpm, Engine.rowsFromCells(item.cells)));
             patternIds.put(p.name, item.id);
             if (firstId == null) firstId = item.id;
         }
+        int fat = 0;
         for (Engine.LearnedFill f : set.fills) {
             Engine.LearnedFill item = new Engine.LearnedFill();
             item.id = Engine.newLearnedId();
-            item.name = Engine.uniqueFillName(f.name == null || f.name.isEmpty() ? "fill" : f.name, this.learnedFills);
+            item.name = Engine.uniqueFillName(f.name == null || f.name.isEmpty() ? "fill" : f.name, Engine.fillsFrom(this.learnedFills, source));
             item.kind = f.kind == null ? "toms" : f.kind;
             item.cells = Engine.copyCells(f.cells);
             item.source = source;
-            this.learnedFills.add(0, item);
+            this.learnedFills.add(fat++, item);
             while (this.learnedFills.size() > Engine.MAX_LEARNED) this.learnedFills.remove(this.learnedFills.size() - 1);
             importedFills.add(item);
         }
@@ -5584,6 +6434,12 @@ extends JFrame {
             this.fillernPairs.put("l:" + pid, fk);
             nPair++;
         }
+        // Songs saved in the file set: kept with it, and listed under Imported songs.
+        for (Engine.FileSetSong song : set.songs) {
+            Engine.putFileSetSong(source, song);
+            this.addFileSetSong(source, song);
+        }
+        if (!set.songs.isEmpty()) this.persistFileSetInfo();
         if (firstId != null) this.loadLearned(firstId);
         else if (!importedFills.isEmpty()) this.loadLearnedFill(importedFills.get(0).id);
         if (Engine.isFileSetOrigin(set.origin)) Engine.rememberFileSetOrigin(source, set.origin);
@@ -5625,7 +6481,7 @@ extends JFrame {
         List<Engine.Part> parts = this.activeSong().isEmpty()
             ? Collections.singletonList(Engine.groove(this.exportName("mid").replace(".mid", ""), this.bpm(), this.cells, 1))
             : this.activeSong();
-        this.saveBytes(Engine.sngFilename(parts).replace(".sng", ".mid"), "Song MIDI", "mid", Engine.encodeSongMidi(parts));
+        this.saveBytes(Engine.songFilename(parts, this.songFileSet(parts)).replace(".sng", ".mid"), "Song MIDI", "mid", Engine.encodeSongMidi(parts));
     }
 
     private void saveJar() {

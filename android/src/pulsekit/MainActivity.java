@@ -105,6 +105,10 @@ public class MainActivity extends UiKit {
     final List<Engine.Learned> variatedPatterns = new ArrayList<Engine.Learned>();
 
     final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
+    /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
+    final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
+    /** Fillern type per pattern: Engine.FILLERN_AFTER (default), FILLERN_END or FILLERN_START. */
+    final Map<String, String> fillernModes = new LinkedHashMap<String, String>();
 
     final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -205,6 +209,8 @@ public class MainActivity extends UiKit {
     RangeBar humanBar;
 
     String style = "house";
+    /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
+    boolean styleChosen;
 
     String view = "pattern";
 
@@ -268,6 +274,7 @@ public class MainActivity extends UiKit {
         this.styleLibrary.loadStyle("house", false);
         this.setContentView(this.buildUi());
         this.persistence.restoreSession();
+        this.styleChosen = false;
         this.styleLibrary.refreshStyles();
         this.styleLibrary.refreshFills();
         this.gridEditor.refreshGrid();
@@ -550,6 +557,10 @@ public class MainActivity extends UiKit {
         if (bl) {
             this.songEditor.refreshSong();
         }
+        if ((bl5 || bl6) && !string.equals(this.importedFor)) {
+            // The Pattern tab lists a file set's patterns, the Fillern tab its Fillerns.
+            this.importLibrary.rebuildImported();
+        }
         if (bl6) {
             this.fillLast = false;
             this.setNow(null);
@@ -673,7 +684,9 @@ public class MainActivity extends UiKit {
                 return;
             }
             if (n == 9) {
-                byArray = Engine.encodeSng(this.songEditor.songPartsForExport(), this.songEditor.songPartsForExport().get((int)0).name);
+                List<Engine.Part> songParts = this.songEditor.songPartsForExport();
+                String songSet = this.songEditor.songFileSet(songParts);
+                byArray = Engine.encodeSng(songParts, songSet != null ? songSet : songParts.get(0).name);
             } else if (n == 14) {
                 byArray = (this.pyEditor != null ? this.pyEditor.getText().toString() : "").getBytes(StandardCharsets.UTF_8);
             } else if (n == 15) {
@@ -828,6 +841,13 @@ public class MainActivity extends UiKit {
 
     android.widget.LinearLayout promptsPane;
 
+    android.widget.LinearLayout helpPane;
+
+    android.widget.LinearLayout drumMidiPane;
+
+    /** The groove tab the imported chips were last built for. */
+    String importedFor;
+
     android.widget.LinearLayout infoPane;
 
     android.widget.TextView infoStatus;
@@ -852,6 +872,9 @@ public class MainActivity extends UiKit {
     final ProjectIo projectIo = new ProjectIo(this);
     final Persistence persistence = new Persistence(this);
     final PyJav pyJav = new PyJav(this);
+    final ProgramMenus programMenus = new ProgramMenus(this);
+    final HelpPage helpPage = new HelpPage(this);
+    final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
 
 
     void showFileMenu(View anchor) {
@@ -866,8 +889,16 @@ public class MainActivity extends UiKit {
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
+        midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
+        android.widget.TextView help = this.text("Help-Android", 14, true);
+        help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        help.setTextColor("help".equals(this.view) ? FG : MUTED);
         menu.addView(imp);
         menu.addView(exp);
+        menu.addView(midi);
+        menu.addView(help);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
         pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
@@ -875,6 +906,8 @@ public class MainActivity extends UiKit {
         pop.setElevation((float) this.dp(8));
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
+        midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
+        help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 
@@ -885,7 +918,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }
@@ -894,6 +927,8 @@ public class MainActivity extends UiKit {
     View buildUi() {
         View root = this.buildUiBase();
         this.pyJav.wirePrompts();
+        this.helpPage.wire();
+        this.drumMidiSettings.wire();
         this.fileSets.wireInfoPane();
         this.fileSets.loadPersistedFsetInfo();
         return root;
@@ -904,6 +939,16 @@ public class MainActivity extends UiKit {
     void afterShow() {
         boolean info = "fsetinfo".equals(this.view);
         boolean pr = "prompts".equals(this.view);
+        boolean help = "help".equals(this.view);
+        boolean midi = "midisettings".equals(this.view);
+        if (this.helpPane != null) {
+            this.helpPane.setVisibility(help ? 0 : 8);
+            if (help) this.helpPane.bringToFront();
+        }
+        if (this.drumMidiPane != null) {
+            this.drumMidiPane.setVisibility(midi ? 0 : 8);
+            if (midi) this.drumMidiPane.bringToFront();
+        }
         if (this.infoPane != null) {
             this.infoPane.setVisibility(info ? 0 : 8);
             if (info) this.infoPane.bringToFront();
@@ -912,7 +957,7 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr) {
+        if (info || pr || help || midi) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -925,7 +970,11 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (pr) {
+            if (midi) {
+                this.setNow("Drum Midi Settings");
+            } else if (help) {
+                this.setNow("Help");
+            } else if (pr) {
                 this.setNow("Prompts");
             } else {
                 if (this.infoStatus != null) this.setNow(this.infoStatus.getText().toString());

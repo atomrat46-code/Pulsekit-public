@@ -42,6 +42,8 @@ MainActivity.
 | `ProjectIo` | Import/Export pages, projects, plugins, file decoding |
 | `Persistence` | Saving and restoring learned patterns, Fillerns, kit and session |
 | `PyJav` | PyJav page: programs, prompts, run modes, input/output files |
+| `ProgramMenus` | PyJav's Java / Python / Code menus over the bundled `Programs/` folder |
+| `HelpPage` | Help page opened from File > Help-Android |
 | `FileSetClicks`, `PyJavUi` | Click adapters used by FileSets and PyJav |
 
 `robolectric/` has behavior tests that snapshot the app's views and state;
@@ -72,6 +74,6 @@ features are now ordinary source in `src/pulsekit/MainActivity.java`:
 ## Build notes
 
 - `midiutil.py` lives in `../shared/src/pulsekit` and is copied into the APK
-  assets at build time.
+  assets at build time, as is `../Programs` (as `assets/Programs`).
 - `Mp3Decode.java` and JLayer are left out: Android decodes MP3 with
   MediaExtractor.
