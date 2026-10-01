@@ -75,7 +75,7 @@ final class ImportLibrary {
             object.human = app.human();
             object.source = Engine.importSource(string);
             app.learned.add(0, object);
-            while (app.learned.size() > 48) {
+            while (app.learned.size() > Engine.MAX_LEARNED) {
                 app.learned.remove(app.learned.size() - 1);
             }
             app.styles.put(object.id, new Engine.Style(object.id, object.name, object.bpm, Engine.rowsFromCells(object.cells)));
@@ -169,7 +169,7 @@ final class ImportLibrary {
                     object.human = app.human();
                     object.source = string2;
                     app.learned.add(0, object);
-                    while (app.learned.size() > 48) {
+                    while (app.learned.size() > Engine.MAX_LEARNED) {
                         app.learned.remove(app.learned.size() - 1);
                     }
                     app.styles.put(object.id, new Engine.Style(object.id, object.name, object.bpm, Engine.rowsFromCells(object.cells)));
@@ -247,7 +247,7 @@ final class ImportLibrary {
         learnedFill.cells = Engine.copyCells(nArray);
         learnedFill.source = Engine.importSource(string);
         app.learnedFills.add(0, learnedFill);
-        while (app.learnedFills.size() > 48) {
+        while (app.learnedFills.size() > Engine.MAX_LEARNED) {
             app.learnedFills.remove(app.learnedFills.size() - 1);
         }
         this.addLearnedFillChip(learnedFill);
@@ -502,7 +502,7 @@ final class ImportLibrary {
             copy.cells = Engine.copyCells(object2.cells);
             copy.source = string2;
             app.learned.add(0, copy);
-            while (app.learned.size() > 48) {
+            while (app.learned.size() > Engine.MAX_LEARNED) {
                 app.learned.remove(app.learned.size() - 1);
             }
             app.styles.put(copy.id, new Engine.Style(copy.id, copy.name, copy.bpm, Engine.rowsFromCells(copy.cells)));
@@ -518,7 +518,7 @@ final class ImportLibrary {
             copy.cells = Engine.copyCells(learnedFill.cells);
             copy.source = string2;
             app.learnedFills.add(0, copy);
-            while (app.learnedFills.size() > 48) {
+            while (app.learnedFills.size() > Engine.MAX_LEARNED) {
                 app.learnedFills.remove(app.learnedFills.size() - 1);
             }
             arrayList.add(copy);

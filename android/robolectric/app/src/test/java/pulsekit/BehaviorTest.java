@@ -43,6 +43,9 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // File-set state is static; start each scenario without what an earlier one imported.
+    Engine.fileSetOrigins.clear();
+    Engine.fileSetAudio.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
@@ -325,6 +328,73 @@ public class BehaviorTest {
     out.append("after tap: args restored=").append(used.equals(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
     out.append("after tap: editor has DrumMidi=").append(((TextView) get("pyEditor")).getText().toString().contains("class DrumMidi_CRT")).append('\n');
     write("s17_recent", norm(out.toString()));
+  }
+
+  @Test
+  public void s18_program_midi_kept_as_written() throws Exception {
+    // A detected drum track: 64 bars that each differ a little, with two silent bars.
+    java.util.Random rng = new java.util.Random(7);
+    int[][] base = Engine.styleCells(Engine.styles().get("rock"));
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int b = 0; b < 64; b++) {
+      int[][] cells = Engine.copyCells(base);
+      if (b == 30 || b == 31) cells = Engine.emptyCells();
+      else for (int k = 0; k < 2; k++) cells[rng.nextInt(3)][rng.nextInt(16)] = 90;
+      parts.add(Engine.groove("b" + b, 121, cells, 1));
+    }
+    byte[] midi = Engine.encodeSongMidi(parts);
+    call("pkImportProgramMidi", midi, "Passing Ships.mid");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    Engine.MidiBars bars = Engine.parseMidiBars(midi);
+    java.util.Set<String> barSigs = new java.util.HashSet<>();
+    for (int[][] b : bars.bars) barSigs.add(Engine.patternSignature(b));
+    StringBuilder out = new StringBuilder();
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    int pats = 0, patsFromFile = 0, styled = 0;
+    for (Engine.Learned l : learned) {
+      if (!"Passing Ships".equals(l.source)) continue;
+      pats++;
+      if (barSigs.contains(Engine.patternSignature(l.cells))) patsFromFile++;
+      if (l.closest != null && !l.closest.isEmpty()) styled++;
+    }
+    int fillCount = 0, fillsFromFile = 0;
+    for (Engine.LearnedFill f : fills) {
+      if (!"Passing Ships".equals(f.source)) continue;
+      fillCount++;
+      if (barSigs.contains(Engine.patternSignature(f.cells))) fillsFromFile++;
+    }
+    out.append("bars=").append(bars.bars.size()).append('\n');
+    out.append("patterns=").append(pats).append(" from the file=").append(patsFromFile).append(" styled=").append(styled).append('\n');
+    out.append("fills=").append(fillCount).append(" from the file=").append(fillsFromFile).append('\n');
+    out.append("swing=").append(call("swing")).append(" human=").append(call("human")).append('\n');
+    @SuppressWarnings("unchecked")
+    Map<String, String> fillerns = (Map<String, String>) get("fillernPairs");
+    Engine.FileSet set = Engine.collectFset("Passing Ships", "Passing Ships", learned, fills, fillerns);
+    call("ensureFsetInfoMap");
+    @SuppressWarnings("unchecked")
+    List<Engine.FileSetPart> stored = (List<Engine.FileSetPart>) ((Map<String, Object>) get("fsetInfoMap")).get("Passing Ships");
+    if (stored != null && !stored.isEmpty()) {
+      set.parts.clear();
+      set.parts.addAll(stored);
+    }
+    List<String> song = new ArrayList<>();
+    for (Engine.Part p : Engine.songFromFileSet(set)) {
+      for (int r = 0; r < p.repeats; r++) song.add(Engine.patternSignature(p.cells));
+    }
+    int inPlace = 0;
+    for (int i = 0; i < Math.min(song.size(), bars.bars.size()); i++) {
+      if (song.get(i).equals(Engine.patternSignature(bars.bars.get(i)))) inPlace++;
+    }
+    out.append("song bars=").append(song.size()).append(" in place=").append(inPlace).append('\n');
+    write("s18_program_midi", out.toString());
   }
 
   /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */

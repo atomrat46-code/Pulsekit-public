@@ -415,7 +415,7 @@ final class StyleLibrary {
             return;
         }
         app.learned.add(0, learned22);
-        while (app.learned.size() > 48) {
+        while (app.learned.size() > Engine.MAX_LEARNED) {
             app.learned.remove(app.learned.size() - 1);
         }
         app.styles.put(learned22.id, new Engine.Style(learned22.id, learned22.name, learned22.bpm, Engine.rowsFromCells(learned22.cells)));

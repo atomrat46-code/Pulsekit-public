@@ -370,6 +370,7 @@ public final class Engine {
   }
 
   public static int styleSwing(String id) {
+    if (id != null && id.isEmpty()) return 0;  // no style: a file set taken from a file plays as written
     if ("techno".equals(id) || "hardrock".equals(id) || "metalballad".equals(id)) return 6;
     if ("hiphop".equals(id)) return 22;
     if ("trap".equals(id) || "ukg".equals(id)) return 18;
@@ -395,6 +396,7 @@ public final class Engine {
   }
 
   public static int styleHuman(String id) {
+    if (id != null && id.isEmpty()) return 0;
     if ("boombap".equals(id)) return 30;
     if ("hiphop".equals(id)) return 28;
     if ("rockballad".equals(id) || "popballad".equals(id)) return 24;
@@ -1635,7 +1637,15 @@ public final class Engine {
     while (i < bars.size()) {
       int[][] groove = bars.get(i);
       if (hitCount(groove) < 1) {
-        i++;
+        // Silent bars stay in the song, so what follows keeps its place.
+        int rest = 1;
+        while (i + rest < bars.size() && hitCount(bars.get(i + rest)) < 1) rest++;
+        MidiSeg seg = new MidiSeg();
+        seg.kind = "pattern";
+        seg.groove = groove;
+        seg.grooveRepeats = rest;
+        out.add(seg);
+        i += rest;
         continue;
       }
       String gsig = patternSignature(groove);
@@ -1742,7 +1752,7 @@ public final class Engine {
     return rowsToCells(st.rows);
   }
 
-  public static final int MAX_LEARNED = 48;
+  public static final int MAX_LEARNED = 256;
   public static final int MAX_VARIATED = 8;
   public static final int MAX_SONG = 256;
   public static final int MAX_IMPORTED_SONGS = 8;
@@ -2651,6 +2661,27 @@ public final class Engine {
   }
 
   /** Isolation, Analyze, and Compose keep the source file. No style database. */
+  /**
+   * True when a file set was taken as written (MIDI or program output, never restyled):
+   * no part has a style label and no pattern has a style. Change style labels it.
+   */
+  static boolean unstyledFileSet(List<FileSetPart> parts, FileSet set) {
+    boolean any = false;
+    if (parts != null) {
+      for (FileSetPart p : parts) {
+        if (p == null) continue;
+        if (p.styleLabel != null && !p.styleLabel.trim().isEmpty()) return false;
+        any = true;
+      }
+    }
+    for (Learned p : set.patterns) {
+      if (p == null) continue;
+      if (p.closest != null && !p.closest.isEmpty()) return false;
+      any = true;
+    }
+    return any;
+  }
+
   public static boolean fileSetStyleOn(String origin) {
     return !("analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin));
   }
@@ -3211,7 +3242,7 @@ public final class Engine {
   }
 
   public static void unifyFileSetParts(List<FileSetPart> parts, FileSet set) {
-    if (set != null && !fileSetStyleOn(set.origin)) {
+    if (set != null && (!fileSetStyleOn(set.origin) || unstyledFileSet(parts, set))) {
       int fbBpm = 120;
       if (parts != null && !parts.isEmpty()) fbBpm = parts.get(0).bpm;
       else if (!set.patterns.isEmpty()) fbBpm = set.patterns.get(0).bpm;

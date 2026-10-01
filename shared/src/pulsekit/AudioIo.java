@@ -479,6 +479,8 @@ public final class AudioIo {
     for (int i = 0; i < a.parts.size(); i++) {
       TrackPart p = a.parts.get(i);
       TrackPart next = i + 1 < a.parts.size() ? a.parts.get(i + 1) : null;
+      // A silent bar from a file is a rest in the song, not an empty pattern.
+      if (source && "rest".equals(p.kind) && (p.cells == null || Engine.hitCount(p.cells) < 1)) continue;
       int[][] gp = restyle ? composedGroove(p, i) : (source ? sourceCells(p) : grooveCells(p));
       String pname = uniqueSetName(p.name == null || p.name.isEmpty() ? ("Part " + (p.index + 1)) : p.name, usedP);
       Engine.Learned item = new Engine.Learned();
@@ -712,7 +714,7 @@ public final class AudioIo {
       if (i == 0) firstStyle = style;
       int hits = Engine.hitCount(cells);
       float density = Math.min(1f, hits / 32f);
-      String kind = midiPartKind(i, n, nBars, density, fillish);
+      String kind = hits == 0 ? "rest" : midiPartKind(i, n, nBars, density, fillish);
       TrackPart p = new TrackPart();
       p.index = i;
       p.name = midiPartName(kind, i, n);
@@ -748,6 +750,7 @@ public final class AudioIo {
   }
 
   private static String midiPartName(String kind, int index, int total) {
+    if ("rest".equals(kind)) return "Silent " + (index + 1);
     if ("intro".equals(kind)) return "Intro";
     if ("outro".equals(kind)) return "Outro";
     if ("fill".equals(kind)) return "Fill " + (index + 1);
@@ -783,7 +786,7 @@ public final class AudioIo {
     return x;
   }
 
-  /** Isolation, Analyze, and Compose: no style name, no style swing. Timing stays on the file. */
+  /** MIDI, program output, Isolation, Analyze, and Compose: no style name, no style swing. The notes and timing stay as in the file. */
   static void sourceLock(PartAnalysis a) {
     if (a == null) return;
     a.styleId = "";
@@ -799,7 +802,8 @@ public final class AudioIo {
   }
 
   private static boolean sourceOrigin(String origin) {
-    return "analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin);
+    return "midi".equals(origin) || "program".equals(origin)
+        || "analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin);
   }
 
   private static int[][] sourceCells(TrackPart p) {
