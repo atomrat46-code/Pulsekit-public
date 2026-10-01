@@ -829,7 +829,7 @@ final class SongEditor {
                     app.styleLibrary.fillLabel(fk), this.songFillCells(fk, gcells), Engine.barSteps(app.tsNum, app.tsDen), mode);
                 if (idx >= 0) {
                     cur.set(idx, parts.get(0));
-                    for (int i = 1; i < parts.size() && cur.size() < 24; i++) cur.add(idx + i, parts.get(i));
+                    for (int i = 1; i < parts.size() && cur.size() < Engine.MAX_SONG; i++) cur.add(idx + i, parts.get(i));
                 } else {
                     for (Engine.Part p : parts) this.addPart(p);
                 }
@@ -841,7 +841,7 @@ final class SongEditor {
             Engine.Part f = Engine.fill(app.styleLibrary.fillLabel(fk), this.patternBpm(key), this.songFillCells(fk, gcells), 1);
             if (idx >= 0) {
                 cur.set(idx, g);
-                if (cur.size() < 24) cur.add(idx + 1, f);
+                if (cur.size() < Engine.MAX_SONG) cur.add(idx + 1, f);
             } else {
                 this.addPart(g);
                 this.addPart(f);
@@ -857,7 +857,7 @@ final class SongEditor {
             app.setNow("No imported song yet");
             return;
         }
-        if (cur.size() >= 24) {
+        if (cur.size() >= Engine.MAX_SONG) {
             JOptionPane.showMessageDialog(app, "Song is full");
             return;
         }

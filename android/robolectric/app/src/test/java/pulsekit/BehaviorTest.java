@@ -869,6 +869,45 @@ public class BehaviorTest {
     write("s31_song_audio_export", out.toString());
   }
 
+  /** A long imported song (more than 24 parts) keeps every part through a restart and exports at full length. */
+  @Test
+  public void s32_long_song_survives_restart() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int i = 0; i < 8; i++) {
+      parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+      parts.add(Engine.fill("toms", 121, 1));
+      parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+      parts.add(Engine.fill("snare", 121, 1));
+    }
+    call("ingest", Engine.encodeSongMidi(parts), "Long Song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> made = (List<Engine.Part>) call("songPartsForExport");
+    int madeBars = 0;
+    for (Engine.Part p : made) madeBars += p.repeats;
+    out.append("made: ").append(madeBars).append(" bars, more than 24 parts: ").append(made.size() > 24).append('\n');
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> kept = (List<Engine.ImportedSong>) get("importedSongs");
+    int keptBars = 0;
+    for (Engine.Part p : kept.get(0).parts) keptBars += p.repeats;
+    out.append("after restart: ").append(keptBars).append(" bars, same parts: ").append(kept.get(0).parts.size() == made.size()).append('\n');
+    double sec = 0;
+    for (Engine.Part p : kept.get(0).parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    short[] pcm = AudioIo.renderSong(kept.get(0).parts, null, AudioIo.buildVoices(22050), 22050);
+    out.append("audio covers the song: ").append(pcm.length / 22050.0 >= sec).append('\n');
+    write("s32_long_song_survives_restart", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

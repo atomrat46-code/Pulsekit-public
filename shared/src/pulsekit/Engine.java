@@ -1405,7 +1405,7 @@ public final class Engine {
       }
       out.add(p);
       idx = k + 6;
-      if (out.size() >= 24) break;
+      if (out.size() >= MAX_SONG) break;
     }
     return out;
   }
