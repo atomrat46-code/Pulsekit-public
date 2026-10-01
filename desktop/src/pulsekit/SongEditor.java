@@ -186,7 +186,20 @@ final class SongEditor {
         this.songAdds.add(jButtonClear);
         this.timeline.setOpaque(false);
         jPanel2.add(jPanel3);
-        jPanel2.add(this.songLaneBar);
+        // Lanes and songs scroll sideways when there are more songs than fit.
+        JScrollPane laneScroll = new JScrollPane(this.songLaneBar, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+            }
+        };
+        laneScroll.setName("song-strip");
+        laneScroll.setBorder(BorderFactory.createEmptyBorder());
+        laneScroll.setOpaque(false);
+        laneScroll.getViewport().setOpaque(false);
+        laneScroll.getHorizontalScrollBar().setUnitIncrement(24);
+        laneScroll.setAlignmentX(this.songLaneBar.getAlignmentX());
+        jPanel2.add(laneScroll);
         jPanel2.add(this.songAdds);
         // The cell strip scrolls sideways and follows the playing part.
         this.timelineScroll = new JScrollPane(this.timeline, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED) {
@@ -1017,7 +1030,7 @@ final class SongEditor {
     }
 
     void confirmDeleteSong(Engine.ImportedSong song) {
-        String kept = song.fileSet != null && !song.fileSet.isEmpty()
+        String kept = song.fileSet != null && !song.fileSet.isEmpty() && song.fileSetSong != null
             ? " The copy saved in " + song.fileSet + " stays there." : "";
         int ans = javax.swing.JOptionPane.showConfirmDialog(app,
             "Delete " + song.name + " from Imported songs? This cannot be undone." + kept,

@@ -1115,6 +1115,43 @@ public class BehaviorTest {
     write("s38_song_duplicate_delete", out.toString());
   }
 
+  /** Make song from a file set takes that set's whole name, even when another set starts the same way. */
+  @Test
+  public void s39_make_song_names_after_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    for (String file : new String[] {"passing ships v10 121 aaaaaa.mid", "passing ships v10 121 wVqTYx.mid"}) {
+      call("ingest", Engine.encodeSongMidi(parts), file, null);
+      idle();
+      ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    out.append("sets: ").append(Engine.fileSetSources(learned, fills)).append('\n');
+    out.append("made on import: ");
+    for (Engine.ImportedSong s : songs) out.append(s.name).append(" | ");
+    out.append('\n');
+    FileSets fileSets = (FileSets) get("fileSets");
+    fileSets.makeFileSetSong("f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx");
+    idle();
+    Engine.ImportedSong made = songs.get(0);
+    out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append(", selected ")
+        .append(made.id.equals(get("importedSongId"))).append('\n');
+    call("show", "song");
+    idle();
+    View strip = root().findViewWithTag("song-strip");
+    out.append("song list scrolls sideways: ").append(strip instanceof android.widget.HorizontalScrollView).append('\n');
+    write("s39_make_song_names_after_file_set", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

@@ -214,6 +214,12 @@ final class FileSets {
         }
         String name = label == null || label.isEmpty() ? (src.isEmpty() ? "Import" : src) : label;
         app.songEditor.addImportedSong(name, song);
+        // The song belongs to this file set: export names and Compare Hits follow it.
+        Engine.ImportedSong made = app.songEditor.importedSong();
+        if (made != null && !src.isEmpty()) {
+            made.fileSet = src;
+            app.persistence.persistLearned();
+        }
     }
 
     void storeAudioDir() {

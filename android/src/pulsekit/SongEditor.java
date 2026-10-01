@@ -131,6 +131,13 @@ final class SongEditor {
         return app.song;
     }
 
+    int importedSongIndex() {
+        for (int i = 0; i < app.importedSongs.size(); i++) {
+            if (app.importedSongs.get(i).id.equals(app.importedSongId)) return i;
+        }
+        return -1;
+    }
+
     Engine.ImportedSong importedSong() {
         if (app.importedSongId != null) {
             for (Engine.ImportedSong importedSong : app.importedSongs) {
@@ -850,7 +857,14 @@ final class SongEditor {
                 });
                 linearLayout.addView((View)object);
             }
-            app.songCards.addView((View)linearLayout);
+            // More songs than fit scroll sideways.
+            HorizontalScrollView songStrip = new HorizontalScrollView((Context)app);
+            songStrip.setHorizontalScrollBarEnabled(false);
+            songStrip.setTag((Object)"song-strip");
+            songStrip.addView((View)linearLayout);
+            app.songCards.addView((View)songStrip);
+            final View chosen = app.importedSongId == null ? null : linearLayout.getChildAt(Math.max(0, this.importedSongIndex()));
+            if (chosen != null) songStrip.post(() -> songStrip.scrollTo(Math.max(0, chosen.getLeft() - app.dp(16)), 0));
         }
         if ((list = this.activeSong()).isEmpty()) {
             TextView textView = app.text("imported".equals(app.songLane) ? "No imported song yet. After a song MIDI, choose Make song." : "Empty song \u2014 add the current pattern, a fill, or silence.", 13, false);
@@ -993,7 +1007,7 @@ final class SongEditor {
     }
 
     void confirmDeleteSong(final Engine.ImportedSong song) {
-        String kept = song.fileSet != null && !song.fileSet.isEmpty()
+        String kept = song.fileSet != null && !song.fileSet.isEmpty() && song.fileSetSong != null
             ? " The copy saved in " + song.fileSet + " stays there." : "";
         new android.app.AlertDialog.Builder((Context)app)
             .setTitle((CharSequence)"Delete song?")

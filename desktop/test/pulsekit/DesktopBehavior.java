@@ -334,6 +334,23 @@ public final class DesktopBehavior {
     out.append("after OK: ").append(songs.size()).append(" songs, left ").append(songs.get(0).name).append('\n');
   }
 
+  void s22_make_song_names_after_file_set() throws Exception {
+    for (String file : new String[] {"passing ships v10 121 aaaaaa.mid", "passing ships v10 121 wVqTYx.mid"}) {
+      answers.add("Yes");
+      call("ingest", Engine.encodeSongMidi(songParts()), file);
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    out.append("made on import: ");
+    for (Engine.ImportedSong s : songs) out.append(s.name).append(" | ");
+    out.append('\n');
+    edt(() -> call("makeFileSetSong", "f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx"));
+    Engine.ImportedSong made = songs.get(0);
+    out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append('\n');
+    Object bar = get("songLaneBar");
+    out.append("song bar scrolls sideways: ").append(((java.awt.Component) bar).getParent() instanceof javax.swing.JViewport).append('\n');
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));
