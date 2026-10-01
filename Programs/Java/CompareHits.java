@@ -183,7 +183,13 @@ public final class CompareHits {
         p += data;
       }
     }
-    java.util.Collections.sort(tempos, (a, b) -> Long.compare(a[0], b[0]));
+    // No lambdas: PyJav's on-phone compiler has no LambdaMetafactory.
+    java.util.Collections.sort(tempos, new java.util.Comparator<long[]>() {
+      @Override
+      public int compare(long[] a, long[] b) {
+        return a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0);
+      }
+    });
     List<List<Double>> out = lists();
     for (long[] n : notes) {
       int f = family((int) n[1]);
