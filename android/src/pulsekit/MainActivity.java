@@ -636,6 +636,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
             return;
         }
+        if (n == PyJavParams.PICK_FILE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeParamFile(intent.getData());
+            return;
+        }
         if (n == CompareHitsPage.PICK_WAV) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.compareHits.takeWav(intent.getData());

@@ -29,6 +29,14 @@ public final class PyJavHints {
     return format(blob.toString());
   }
 
+  /** The program's text: its source, or the readable strings in a .class or .jar. */
+  public static String programText(String name, String source, byte[] bytes) {
+    StringBuilder blob = new StringBuilder();
+    if (source != null && source.length() > 0) blob.append(source).append('\n');
+    if (bytes != null && bytes.length > 0) appendBytes(blob, bytes, name);
+    return blob.toString();
+  }
+
   private static void appendBytes(StringBuilder blob, byte[] bytes, String name) {
     String low = name == null ? "" : name.toLowerCase();
     boolean jar = low.endsWith(".jar") || (bytes.length > 3 && bytes[0] == 'P' && bytes[1] == 'K');
@@ -288,6 +296,8 @@ public final class PyJavHints {
   private static String outputExt(String hint) {
     if (hint == null) return null;
     String any = null;
+    java.util.Set<String> notOutput = new java.util.HashSet<String>();
+    java.util.List<String> lastNames = new java.util.ArrayList<String>();
     int i = 0;
     while (i < hint.length()) {
       int a = hint.indexOf('<', i);
@@ -297,11 +307,18 @@ public final class PyJavHints {
       String name = hint.substring(a + 1, b).trim();
       int dot = name.lastIndexOf('.');
       if (dot > 0 && !isInputName(name)) {
-        String ext = name.substring(dot);
-        if (name.toLowerCase().indexOf("output") >= 0) return ext;
-        if (any == null) any = ext;
+        if (name.toLowerCase().indexOf("output") >= 0) return name.substring(dot);
+        // Without an "output" name, only the last file in the usage is taken as the output,
+        // and not when an optional [file.ext] follows it (CompareHits <drums.mid> [song.mid]).
+        int lineEnd = hint.indexOf('\n', b);
+        String rest = hint.substring(b + 1, lineEnd < 0 ? hint.length() : lineEnd);
+        if (rest.matches("(?s).*[<\\[][^>\\]\\s-][^>\\]]*\\.[A-Za-z0-9]+\\s*[>\\]].*")) notOutput.add(name);
+        else lastNames.add(name);
       }
       i = b + 1;
+    }
+    for (String name : lastNames) {
+      if (!notOutput.contains(name) && any == null) any = name.substring(name.lastIndexOf('.'));
     }
     return any;
   }
@@ -483,7 +500,8 @@ public final class PyJavHints {
         if (audio) continue;
         audio = true;
       } else if (low.endsWith(".mid") || low.endsWith(".midi")) {
-        if (mid) continue;
+        // A program may take several MIDI files (CompareHits); only the same one twice is dropped.
+        if (mid && out.contains(t)) continue;
         mid = true;
       }
       out.add(t);

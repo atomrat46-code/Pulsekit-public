@@ -464,9 +464,9 @@ final class PyJav {
         if (this.pkPyHint != null) this.pkPyHint.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport : "Running…");
         app.setNow("Running…");
         String name = app.pyName == null ? "script.py" : app.pyName;
-        extra = pulsekit.PyJavParams.merge(extra, pulsekit.PyJavParams.load(app, name));
         String listed = app.programMenus.sourceToRun();
         String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
+        extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, pulsekit.PyJavParams.load(app, name));
         src = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, src);
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();
@@ -535,7 +535,30 @@ final class PyJav {
     public void pkOpenParams() {
         java.lang.String name = app.pyName == null ? "DrumMidi" : app.pyName;
         java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
-        pulsekit.PyJavParams.open(app, name, extra);
+        pulsekit.PyJavParams.open(app, name, extra, this.pkProgramText());
+    }
+
+    /** The loaded program's text, for its parameters: the listed program, the editor, or a .class/.jar's strings. */
+    String pkProgramText() {
+        String listed = app.programMenus.sourceToRun();
+        String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
+        return pulsekit.PyJavHints.programText(app.pyName, src, app.pkPyBytes);
+    }
+
+    /** Params' argument line; a new input file also becomes PyJav's input, so the output is named after it. */
+    public void pkSetPyLine(java.lang.String line, java.lang.String input) {
+        if (input != null && input.length() > 0) this.pkUseInputPath(input);
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(line);
+        app.setNow("Params saved");
+    }
+
+    /** A file picked on the Params screen, copied into PyJav's input folder. */
+    public void pkTakeParamFile(android.net.Uri uri) {
+        try {
+            pulsekit.PyJavParams.filePicked(this.pkCopyInputFile(uri));
+        } catch (Exception ex) {
+            app.setNow("Could not open that file");
+        }
     }
 
     public void pkSyncTransport() {
@@ -896,6 +919,16 @@ final class PyJav {
 
     public void pkTakeInputFile(android.net.Uri uri) {
         try {
+            this.pkUseInputPath(this.pkCopyInputFile(uri));
+        } catch (Exception ex) {
+            String m = ex.getMessage();
+            if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
+        }
+    }
+
+    /** Copies a picked file into PyJav's input folder and returns its path. */
+    String pkCopyInputFile(android.net.Uri uri) throws Exception {
+        {
             String name = null;
             android.database.Cursor cursor = app.getContentResolver().query(uri, null, null, null, null);
             if (cursor != null) {
@@ -921,10 +954,7 @@ final class PyJav {
                 int n;
                 while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
             } finally { fos.close(); in.close(); }
-            this.pkUseInputPath(out.getAbsolutePath());
-        } catch (Exception ex) {
-            String m = ex.getMessage();
-            if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
+            return out.getAbsolutePath();
         }
     }
 

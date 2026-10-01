@@ -225,6 +225,7 @@ public final class DesktopBehavior {
 
   void s15_params() throws Exception {
     call("showView", "py");
+    call("selectListedProgram", "Java", "DrumMidi_CRT.java");
     edt(() -> ((JTextField) get("pyExtra")).setText("in.wav out.mid --sens 2.0"));
     answers.add("Reset to suggested values");
     answers.add("OK");
@@ -287,6 +288,20 @@ public final class DesktopBehavior {
     for (int i = 0; i < 200 && result.getText().startsWith("Comparing"); i++) Thread.sleep(50);
     idle();
     out.append(result.getText()).append('\n');
+  }
+
+  void s19_params_from_program() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CompareHits.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("/tmp/a.wav /tmp/d.mid"));
+    answers.add("OK");
+    call("openParams");
+    out.append("CompareHits args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+    call("selectListedProgram", "Python", "drum_midi.py");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--bpm 100"));
+    answers.add("OK");
+    call("openParams");
+    out.append("drum_midi.py args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
   }
 
   private static List<Engine.Part> songParts() {

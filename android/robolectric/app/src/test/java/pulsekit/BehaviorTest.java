@@ -935,8 +935,41 @@ public class BehaviorTest {
       Thread.sleep(25);
       idle();
     }
-    out.append(result.getText()).append('\n');
+    // The test WAV's drums are noise-based, so only the exact song-against-MIDI table is recorded.
+    String text = result.getText().toString();
+    int wavAt = text.indexOf("MIDI against WAV");
+    out.append(wavAt > 0 ? text.substring(0, wavAt).trim() : text).append('\n');
+    out.append("WAV tables: ").append(wavAt > 0 && text.contains("Song against WAV")).append('\n');
     write("s33_compare_hits", out.toString());
+  }
+
+  /** Params reads the loaded program's Usage line: file buttons for .wav and .mid, text fields for the rest. */
+  @Test
+  public void s34_params_from_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CompareHits.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("/x/in.wav");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"input.wav", "drums.mid", "song.mid"}) {
+      out.append(t).append(": button ").append(dv.findViewWithTag("params-file:" + t) != null)
+          .append(", chosen ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append('\n');
+    }
+    out.append("suggested button: ").append(dv.findViewWithTag("params-suggested") != null).append('\n');
+    dv.findViewWithTag("params-file:drums.mid").performClick();
+    android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("picker: ").append(pick.getAction()).append('\n');
+    PyJavParams.filePicked("/x/drums.mid");
+    out.append("drums.mid chosen: ").append(((TextView) dv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s34_params_from_program", out.toString());
   }
 
   private void setField(String name, Object value) throws Exception {

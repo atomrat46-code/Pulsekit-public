@@ -335,8 +335,9 @@ final class PyJav {
             this.promptOutputInvented = false;
             this.promptOutputName = "";
         }
-        // Saved Params for this program replace its DrumMidi switches; file paths stay.
-        final String extra = DrumMidiArgs.merge(this.pyExtra != null ? this.pyExtra.getText() : "", this.loadParams(app.pyName));
+        // Saved Params for this program replace its own switches; file paths stay.
+        final String extra = ProgramParams.merge(ProgramParams.parse(PyJavHints.programText(name, src, bytes)),
+            this.pyExtra != null ? this.pyExtra.getText() : "", this.loadParams(app.pyName));
         File outDir = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (app.pyInputPath != null && app.pyInputPath.length() > 0) {
             File parent = new File(app.pyInputPath).getParentFile();
@@ -551,46 +552,107 @@ final class PyJav {
         }
     }
 
-    /** Params: DrumMidi switches, one field each, saved per program; with Reset to defaults / suggested values. */
+    /** The loaded program's text, for its parameters: the listed program, the editor, or a .class/.jar's strings. */
+    String programText() {
+        String listed = app.programMenus.listedProgramCurrent() ? app.listedSource : null;
+        String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText() : "");
+        return PyJavHints.programText(app.pyName, src, app.pyBytes);
+    }
+
+    /**
+     * Params: the loaded program's parameters, read from its Usage line or argparse calls. A .wav,
+     * .mp3 or .mid parameter gets a file button, anything else a text field. Switches are saved per
+     * program; with Reset to defaults, and Reset to suggested values when the program has them.
+     */
     void openParams() {
         final String program = app.pyName == null || app.pyName.isEmpty() ? "program" : app.pyName;
-        java.util.Map<String, String> saved = DrumMidiArgs.read(this.loadParams(program));
-        java.util.Map<String, String> current = DrumMidiArgs.read(this.pyExtra != null ? this.pyExtra.getText() : "");
-        final JTextField[] fields = new JTextField[DrumMidiArgs.FLAGS.length];
+        final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(this.programText());
+        if (ps.isEmpty()) {
+            JOptionPane.showMessageDialog(app, "No parameters found in " + program + ". A line such as\n"
+                + "Usage: java Prog <input.wav> [song.mid] [--level N]\nin the program lists them here.",
+                "Parameters \u00b7 " + program, JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        final String extra = this.pyExtra != null ? this.pyExtra.getText() : "";
+        final String[] values = ProgramParams.values(ps, this.loadParams(program), extra);
+        for (int i = 0; i < ps.size(); i++) {
+            ProgramParams.Param p = ps.get(i);
+            if (p.flag || p.output) continue;
+            String input = app.pyInputPath;
+            if (values[i].length() == 0 && input != null && p.ext != null && !"mid".equals(p.ext)
+                && input.toLowerCase().matches(".*\\.(wav|wave|mp3)$")) values[i] = input;
+            break;
+        }
+        final String[] before = values.clone();
+        final JTextField[] fields = new JTextField[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
-        for (int i = 0; i < DrumMidiArgs.FLAGS.length; i++) {
-            String flag = DrumMidiArgs.FLAGS[i];
-            form.add(new JLabel(DrumMidiArgs.LABELS[i] + "  " + flag));
-            String value = saved.containsKey(flag) ? saved.get(flag) : current.get(flag);
-            JTextField field = new JTextField(value == null ? "" : value, 10);
-            field.setToolTipText("Default: " + DrumMidiArgs.HINTS[i]);
+        for (int i = 0; i < ps.size(); i++) {
+            final ProgramParams.Param p = ps.get(i);
+            final int index = i;
+            form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
+            if (p.output) {
+                form.add(new JLabel("Named by PyJav from the input file"));
+                continue;
+            }
+            if (p.isFile()) {
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
+                JButton pick = new JButton("Choose ." + p.ext);
+                pick.setName("params-file:" + p.token);
+                pick.addActionListener(e -> {
+                    JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
+                    String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
+                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    values[index] = chooser.getSelectedFile().getAbsolutePath();
+                    chosen.setText(chooser.getSelectedFile().getName());
+                });
+                row.add(pick, BorderLayout.WEST);
+                row.add(chosen, BorderLayout.CENTER);
+                form.add(row);
+                continue;
+            }
+            JTextField field = new JTextField(values[i], 10);
+            field.setName("params-field:" + p.token);
+            if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             fields[i] = field;
             form.add(field);
         }
         JPanel resets = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton defaults = new JButton("Reset to defaults");
-        defaults.addActionListener(e -> { for (JTextField f : fields) f.setText(""); });
-        JButton suggested = new JButton("Reset to suggested values");
-        suggested.addActionListener(e -> { for (int i = 0; i < fields.length; i++) fields[i].setText(DrumMidiArgs.SUGGESTED[i]); });
+        defaults.addActionListener(e -> { for (JTextField f : fields) if (f != null) f.setText(""); });
         resets.add(defaults);
-        resets.add(suggested);
+        if (ProgramParams.hasSuggested(ps)) {
+            JButton suggested = new JButton("Reset to suggested values");
+            suggested.addActionListener(e -> { for (int i = 0; i < fields.length; i++) if (fields[i] != null) fields[i].setText(ps.get(i).suggested); });
+            resets.add(suggested);
+        }
         JPanel box = new JPanel(new BorderLayout(0, 8));
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         resets.setAlignmentX(0.0f);
         top.add(resets);
-        JLabel note = new JLabel("<html><body style='width:380px'>" + DrumMidiArgs.NOTE + " Empty fields use the default shown when you point at them.</body></html>");
+        JLabel note = new JLabel("<html><body style='width:380px'>" + ProgramParams.note(ps) + " Empty fields use the default shown when you point at them.</body></html>");
         note.setAlignmentX(0.0f);
         top.add(note);
         box.add(top, BorderLayout.NORTH);
         box.add(form, BorderLayout.CENTER);
-        int ans = JOptionPane.showConfirmDialog(app, box, "DrumMidi parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (ans != JOptionPane.OK_OPTION) return;
-        String[] values = new String[fields.length];
-        for (int i = 0; i < fields.length; i++) values[i] = fields[i].getText();
-        String args = DrumMidiArgs.build(values);
-        this.saveParams(program, args);
-        if (this.pyExtra != null) this.pyExtra.setText(DrumMidiArgs.merge(this.pyExtra.getText(), args));
+        for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
+        this.saveParams(program, ProgramParams.build(ps, values));
+        String input = null;
+        boolean newInput = false;
+        for (int i = 0; i < ps.size(); i++) {
+            ProgramParams.Param p = ps.get(i);
+            if (p.flag || p.output) continue;
+            input = values[i];
+            newInput = !values[i].equals(before[i]);
+            break;
+        }
+        String line = ProgramParams.line(ps, values, newInput ? "" : extra);
+        if (newInput && input != null && input.length() > 0 && new File(input).isFile()) this.setInputFile(new File(input));
+        if (this.pyExtra != null) this.pyExtra.setText(line);
         app.setNow("Params saved");
     }
 
