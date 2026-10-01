@@ -51,8 +51,6 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
-        app.pyEditor.setVerticalScrollBarEnabled(true);
-        app.pyEditor.setScrollbarFadingEnabled(false);
         app.pyPane.addView((View)app.pyEditor, (ViewGroup.LayoutParams)app.flexFill());
         frameLayout.addView((View)app.pyPane);
     }

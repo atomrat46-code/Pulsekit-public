@@ -406,7 +406,16 @@ public class BehaviorTest {
     return text.replaceAll("\\bc[0-9a-z]{9,10}\\b", "ID");
   }
 
+  /** Draw the whole window, as the phone does. Catches crashes that only happen while drawing. */
+  private void drawAll() {
+    View r = root();
+    int w = Math.max(1, r.getWidth()), h = Math.max(1, r.getHeight());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+    r.draw(new android.graphics.Canvas(bmp));
+  }
+
   private void write(String name, String text) throws Exception {
+    drawAll();
     text = stableIds(text);
     File dir = new File(System.getProperty("snapshotDir", "build/snapshots"));
     dir.mkdirs();
