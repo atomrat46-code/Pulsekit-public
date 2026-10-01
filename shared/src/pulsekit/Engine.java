@@ -556,6 +556,19 @@ public final class Engine {
     return stem;
   }
 
+  /**
+   * A copy of `song` for the Imported songs list, named "<name> 2" and so on. The copy is not saved
+   * in a file set, so editing it leaves the original and its file set alone. Not added to `list`.
+   */
+  public static ImportedSong duplicateSong(ImportedSong song, List<ImportedSong> list) {
+    ImportedSong copy = new ImportedSong();
+    copy.id = newLearnedId();
+    copy.name = uniqueImportedName(song.name, list);
+    if (copy.name.equals(song.name)) copy.name = uniqueImportedName(song.name + " copy", list);
+    for (Part p : song.parts) copy.parts.add(copyPart(p));
+    return copy;
+  }
+
   public static String uniqueImportedName(String base, List<ImportedSong> list) {
     String stem = base == null || base.isEmpty() ? "Import" : base.trim();
     if (stem.length() > 22) stem = stem.substring(0, 22);

@@ -907,6 +907,18 @@ final class SongEditor {
                         app.songLane = "imported";
                         this.refreshSong();
                     });
+                    b.setName("song-chip:" + item.name);
+                    b.addMouseListener(new java.awt.event.MouseAdapter() {
+                        @Override
+                        public void mousePressed(java.awt.event.MouseEvent e) {
+                            if (e.isPopupTrigger()) SongEditor.this.songMenu(item, b, e.getX(), e.getY());
+                        }
+
+                        @Override
+                        public void mouseReleased(java.awt.event.MouseEvent e) {
+                            if (e.isPopupTrigger()) SongEditor.this.songMenu(item, b, e.getX(), e.getY());
+                        }
+                    });
                     this.songLaneBar.add(b);
                 }
             }
@@ -976,5 +988,50 @@ final class SongEditor {
             global = Engine.songGlobalStep(parts, idx, 0, Math.max(0, app.playhead));
         }
         app.setNow(Engine.songNowLine(parts, app.songPlay, idx, global));
+    }
+
+    /** Right click on a song: Duplicate song, or Delete song after asking. */
+    void songMenu(final Engine.ImportedSong song, java.awt.Component at, int x, int y) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        javax.swing.JMenuItem dup = new javax.swing.JMenuItem("Duplicate song");
+        dup.addActionListener(e -> this.duplicateSong(song));
+        javax.swing.JMenuItem del = new javax.swing.JMenuItem("Delete song");
+        del.addActionListener(e -> this.confirmDeleteSong(song));
+        menu.add(dup);
+        menu.add(del);
+        menu.show(at, x, y);
+    }
+
+    void duplicateSong(Engine.ImportedSong song) {
+        if (app.importedSongs.size() >= Engine.MAX_IMPORTED_SONGS) {
+            app.setNow("Imported songs are full (" + Engine.MAX_IMPORTED_SONGS + "). Delete one first.");
+            return;
+        }
+        Engine.ImportedSong copy = Engine.duplicateSong(song, app.importedSongs);
+        int idx = app.importedSongs.indexOf(song);
+        app.importedSongs.add(idx < 0 ? 0 : idx + 1, copy);
+        app.importedSongId = copy.id;
+        app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("Duplicated \u00b7 " + copy.name);
+    }
+
+    void confirmDeleteSong(Engine.ImportedSong song) {
+        String kept = song.fileSet != null && !song.fileSet.isEmpty()
+            ? " The copy saved in " + song.fileSet + " stays there." : "";
+        int ans = javax.swing.JOptionPane.showConfirmDialog(app,
+            "Delete " + song.name + " from Imported songs? This cannot be undone." + kept,
+            "Delete song?", javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.WARNING_MESSAGE);
+        if (ans == javax.swing.JOptionPane.OK_OPTION) this.deleteSong(song);
+    }
+
+    void deleteSong(Engine.ImportedSong song) {
+        app.importedSongs.remove(song);
+        if (song.id.equals(app.importedSongId)) {
+            app.importedSongId = app.importedSongs.isEmpty() ? null : app.importedSongs.get(0).id;
+        }
+        app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("Deleted \u00b7 " + song.name);
     }
 }

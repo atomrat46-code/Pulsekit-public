@@ -314,6 +314,26 @@ public final class DesktopBehavior {
     out.append("written: ").append(saved.isFile() ? new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8).replace('\n', '|') : "nothing").append('\n');
   }
 
+  void s21_song_duplicate_delete() throws Exception {
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("showView", "song");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    Engine.ImportedSong first = songs.get(0);
+    edt(() -> call("duplicateSong", first));
+    out.append("after duplicate: ");
+    for (Engine.ImportedSong s : songs) out.append(s.name).append(" (").append(s.parts.size()).append(" parts) ");
+    out.append('\n');
+    Engine.ImportedSong copy = songs.get(1);
+    answers.add("Cancel");
+    call("confirmDeleteSong", copy);
+    out.append("after Cancel: ").append(songs.size()).append(" songs\n");
+    answers.add("OK");
+    call("confirmDeleteSong", copy);
+    out.append("after OK: ").append(songs.size()).append(" songs, left ").append(songs.get(0).name).append('\n');
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));

@@ -843,6 +843,11 @@ final class SongEditor {
             LinearLayout linearLayout = app.row();
             for (Engine.ImportedSong importedSong : app.importedSongs) {
                 TextView object = app.pill(importedSong.name, importedSong.id.equals(app.importedSongId), arg_0 -> this.refreshSongAction75(importedSong, arg_0));
+                object.setTag((Object)("song-chip:" + importedSong.name));
+                object.setOnLongClickListener(view -> {
+                    this.songMenu(importedSong);
+                    return true;
+                });
                 linearLayout.addView((View)object);
             }
             app.songCards.addView((View)linearLayout);
@@ -960,6 +965,52 @@ final class SongEditor {
         }
         String string = app.projectIo.exportName("mid").replace(".mid", "");
         return Collections.singletonList(Engine.groove(string, app.bpm(), app.cells, 1));
+    }
+
+    /** Long press on a song: Duplicate song, or Delete song after asking. */
+    void songMenu(final Engine.ImportedSong song) {
+        new android.app.AlertDialog.Builder((Context)app)
+            .setTitle((CharSequence)song.name)
+            .setItems(new CharSequence[] {"Duplicate song", "Delete song"}, (d, which) -> {
+                if (which == 0) this.duplicateSong(song);
+                else this.confirmDeleteSong(song);
+            })
+            .show();
+    }
+
+    void duplicateSong(Engine.ImportedSong song) {
+        if (app.importedSongs.size() >= Engine.MAX_IMPORTED_SONGS) {
+            app.setNow("Imported songs are full (" + Engine.MAX_IMPORTED_SONGS + "). Delete one first.");
+            return;
+        }
+        Engine.ImportedSong copy = Engine.duplicateSong(song, app.importedSongs);
+        int at = app.importedSongs.indexOf(song);
+        app.importedSongs.add(at < 0 ? 0 : at + 1, copy);
+        app.importedSongId = copy.id;
+        app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("Duplicated \u00b7 " + copy.name);
+    }
+
+    void confirmDeleteSong(final Engine.ImportedSong song) {
+        String kept = song.fileSet != null && !song.fileSet.isEmpty()
+            ? " The copy saved in " + song.fileSet + " stays there." : "";
+        new android.app.AlertDialog.Builder((Context)app)
+            .setTitle((CharSequence)"Delete song?")
+            .setMessage((CharSequence)("Delete " + song.name + " from Imported songs? This cannot be undone." + kept))
+            .setNegativeButton((CharSequence)"Cancel", null)
+            .setPositiveButton((CharSequence)"Delete", (d, which) -> this.deleteSong(song))
+            .show();
+    }
+
+    void deleteSong(Engine.ImportedSong song) {
+        app.importedSongs.remove(song);
+        if (song.id.equals(app.importedSongId)) {
+            app.importedSongId = app.importedSongs.isEmpty() ? null : app.importedSongs.get(0).id;
+        }
+        app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("Deleted \u00b7 " + song.name);
     }
 
     private /* synthetic */ void refreshSongAction75(Engine.ImportedSong importedSong, View view) {
