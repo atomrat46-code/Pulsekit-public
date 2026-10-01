@@ -275,6 +275,20 @@ public final class DesktopBehavior {
     out.append("song ").append(String.format("%.2f", sec)).append(" s, audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
   }
 
+  void s18_compare_hits() throws Exception {
+    answers.add("Yes");
+    Engine.stageSourceMidi(Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("showView", "comparehits");
+    idle();
+    out.append("set chips: ").append(((java.awt.Container) get("setsBox")).getComponentCount()).append('\n');
+    click("Compare");
+    javax.swing.JTextArea result = (javax.swing.JTextArea) get("result");
+    for (int i = 0; i < 200 && result.getText().startsWith("Comparing"); i++) Thread.sleep(50);
+    idle();
+    out.append(result.getText()).append('\n');
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));

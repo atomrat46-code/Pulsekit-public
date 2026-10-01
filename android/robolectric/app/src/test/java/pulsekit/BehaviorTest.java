@@ -908,6 +908,37 @@ public class BehaviorTest {
     write("s32_long_song_survives_restart", out.toString());
   }
 
+  /** File > Compare Hits: the song against the file set's MIDI, and both against a WAV of the song. */
+  @Test
+  public void s33_compare_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    Engine.stageSourceMidi(Engine.encodeSongMidi(parts), "Passing Ships.mid");
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "comparehits");
+    idle();
+    out.append("set chip: ").append(root().findViewWithTag("compare-set:Passing Ships") != null).append('\n');
+    CompareHitsPage page = (CompareHitsPage) get("compareHits");
+    page.pickedWav = AudioIo.encodeWav(AudioIo.renderSong(parts, null, AudioIo.buildVoices(44100), 44100), 44100);
+    page.pickedWavName = "song.wav";
+    page.paintWav();
+    out.append("wav: ").append(page.wavLabel.getText()).append('\n');
+    ((View) root().findViewWithTag("compare-run")).performClick();
+    TextView result = (TextView) root().findViewWithTag("compare-result");
+    for (int i = 0; i < 400 && result.getText().toString().startsWith("Comparing"); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    out.append(result.getText()).append('\n');
+    write("s33_compare_hits", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {
