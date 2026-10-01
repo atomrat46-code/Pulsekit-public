@@ -1066,6 +1066,92 @@ public class BehaviorTest {
     write("s37_save_program_output", out.toString());
   }
 
+  /** Long press on a song: Duplicate song, and Delete song after asking. */
+  @Test
+  public void s38_song_duplicate_delete() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "song");
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    String name = songs.get(0).name;
+    root().findViewWithTag("song-chip:" + name).performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("menu: ").append(menu.getListView().getAdapter().getItem(0)).append(", ").append(menu.getListView().getAdapter().getItem(1)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    out.append("after duplicate: ");
+    for (Engine.ImportedSong s : songs) out.append(s.name).append(" (").append(s.parts.size()).append(" parts) ");
+    out.append('\n');
+    out.append("copy selected: ").append(songs.get(1).id.equals(get("importedSongId"))).append('\n');
+    out.append("parts copied, not shared: ").append(songs.get(1).parts.get(0) != songs.get(0).parts.get(0)
+        && Engine.patternSignature(songs.get(1).parts.get(0).cells).equals(Engine.patternSignature(songs.get(0).parts.get(0).cells))).append('\n');
+    String copyName = songs.get(1).name;
+    for (String answer : new String[] {"Cancel", "Delete"}) {
+      root().findViewWithTag("song-chip:" + copyName).performLongClick();
+      idle();
+      org.robolectric.Shadows.shadowOf((AlertDialog) ShadowDialog.getLatestDialog()).clickOnItem(1);
+      idle();
+      AlertDialog confirm = (AlertDialog) ShadowDialog.getLatestDialog();
+      if ("Cancel".equals(answer)) {
+        out.append("confirm: ").append(org.robolectric.Shadows.shadowOf(confirm).getMessage()).append('\n');
+        confirm.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      } else {
+        confirm.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      }
+      idle();
+      out.append("after ").append(answer).append(": ").append(songs.size()).append(" songs\n");
+    }
+    out.append("left: ").append(songs.get(0).name).append(", selected: ").append(songs.get(0).id.equals(get("importedSongId"))).append('\n');
+    write("s38_song_duplicate_delete", out.toString());
+  }
+
+  /** Make song from a file set takes that set's whole name, even when another set starts the same way. */
+  @Test
+  public void s39_make_song_names_after_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    for (String file : new String[] {"passing ships v10 121 aaaaaa.mid", "passing ships v10 121 wVqTYx.mid"}) {
+      call("ingest", Engine.encodeSongMidi(parts), file, null);
+      idle();
+      ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    @SuppressWarnings("unchecked")
+    List<Engine.Learned> learned = (List<Engine.Learned>) get("learned");
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    out.append("sets: ").append(Engine.fileSetSources(learned, fills)).append('\n');
+    out.append("made on import: ");
+    for (Engine.ImportedSong s : songs) out.append(s.name).append(" | ");
+    out.append('\n');
+    FileSets fileSets = (FileSets) get("fileSets");
+    fileSets.makeFileSetSong("f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx");
+    idle();
+    Engine.ImportedSong made = songs.get(0);
+    out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append(", selected ")
+        .append(made.id.equals(get("importedSongId"))).append('\n');
+    call("show", "song");
+    idle();
+    View strip = root().findViewWithTag("song-strip");
+    out.append("song list scrolls sideways: ").append(strip instanceof android.widget.HorizontalScrollView).append('\n');
+    write("s39_make_song_names_after_file_set", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

@@ -557,6 +557,12 @@ final class FileSets {
         java.lang.String name = label;
         if (name == null || name.length() == 0) name = src.length() == 0 ? "Import" : src;
         app.songEditor.addImportedArrangement(name, song);
+        // The song belongs to this file set: export names and Compare Hits follow it.
+        pulsekit.Engine.ImportedSong made = app.songEditor.importedSong();
+        if (made != null && src.length() > 0) {
+            made.fileSet = src;
+            app.persistence.persistLearned();
+        }
     }
 
     public java.lang.String[] styleDbNames() {

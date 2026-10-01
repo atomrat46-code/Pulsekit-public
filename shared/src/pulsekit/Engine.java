@@ -556,15 +556,31 @@ public final class Engine {
     return stem;
   }
 
+  /**
+   * A copy of `song` for the Imported songs list, named "<name> 2" and so on. The copy is not saved
+   * in a file set, so editing it leaves the original and its file set alone. Not added to `list`.
+   */
+  public static ImportedSong duplicateSong(ImportedSong song, List<ImportedSong> list) {
+    ImportedSong copy = new ImportedSong();
+    copy.id = newLearnedId();
+    copy.name = uniqueImportedName(song.name, list);
+    if (copy.name.equals(song.name)) copy.name = uniqueImportedName(song.name + " copy", list);
+    for (Part p : song.parts) copy.parts.add(copyPart(p));
+    return copy;
+  }
+
+  /** Longest song name. Long enough for file set names such as "passing ships v10 121 wVqTYx". */
+  public static final int SONG_NAME_MAX = 40;
+
   public static String uniqueImportedName(String base, List<ImportedSong> list) {
     String stem = base == null || base.isEmpty() ? "Import" : base.trim();
-    if (stem.length() > 22) stem = stem.substring(0, 22);
+    if (stem.length() > SONG_NAME_MAX) stem = stem.substring(0, SONG_NAME_MAX).trim();
     boolean used = false;
     for (ImportedSong x : list) if (stem.equals(x.name)) used = true;
     if (!used) return stem;
     for (int i = 2; i < 99; i++) {
       String n = stem + " " + i;
-      if (n.length() > 28) n = n.substring(0, 28);
+      if (n.length() > SONG_NAME_MAX + 6) n = n.substring(0, SONG_NAME_MAX + 6);
       boolean hit = false;
       for (ImportedSong x : list) if (n.equals(x.name)) { hit = true; break; }
       if (!hit) return n;
@@ -2819,7 +2835,7 @@ public final class Engine {
   public static ImportedSong fileSetSongMade(String label, List<ImportedSong> songs) {
     if (label == null || songs == null) return null;
     String stem = label.trim();
-    if (stem.length() > 22) stem = stem.substring(0, 22);
+    if (stem.length() > SONG_NAME_MAX) stem = stem.substring(0, SONG_NAME_MAX).trim();
     if (stem.isEmpty()) return null;
     ImportedSong numbered = null;
     for (ImportedSong s : songs) {
