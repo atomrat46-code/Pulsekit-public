@@ -424,6 +424,11 @@ public final class Engine {
     return FILLERN_END.equals(mode) || FILLERN_START.equals(mode) ? mode : FILLERN_AFTER;
   }
 
+  /** A Fillern's own type, or the default from Drum Midi Settings when it has none. */
+  public static String fillernModeOr(String own) {
+    return own == null || own.isEmpty() ? fillernMode(MidiImportSettings.fillernDefault) : fillernMode(own);
+  }
+
   /** Short note for a Fillern chip: empty for "after", else what the fill replaces. */
   public static String fillernModeNote(String mode) {
     if (FILLERN_END.equals(mode)) return " (replaces end)";
@@ -2698,6 +2703,12 @@ public final class Engine {
     if (file.length() == 0) file = "song.mid";
     set.sourceMidiName = file;
     rememberFileSetMidi(set.name, stagedMidi, file);
+    clearStagedMidi();  // used once: a later import must not get this file as its source
+  }
+
+  public static void clearStagedMidi() {
+    stagedMidi = null;
+    stagedMidiName = "";
   }
 
   public static void rememberFileSetAudio(String source, byte[] sourceWav, byte[] combinedWav, String combinedName) {

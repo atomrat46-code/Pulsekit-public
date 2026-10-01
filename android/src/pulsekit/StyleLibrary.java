@@ -725,14 +725,13 @@ final class StyleLibrary {
     }
 
     String fillernModeOf(String patternKey) {
-        return Engine.fillernMode(patternKey == null ? null : app.fillernModes.get(patternKey));
+        return Engine.fillernModeOr(patternKey == null ? null : app.fillernModes.get(patternKey));
     }
 
     void setFillernMode(String patternKey, String mode) {
         if (patternKey == null) return;
         String m = Engine.fillernMode(mode);
-        if (Engine.FILLERN_AFTER.equals(m)) app.fillernModes.remove(patternKey);
-        else app.fillernModes.put(patternKey, m);
+        app.fillernModes.put(patternKey, m);  // its own type, whatever the default is later
         app.persistence.persistLearned();
         if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
         app.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);

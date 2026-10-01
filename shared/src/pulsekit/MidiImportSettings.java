@@ -21,6 +21,8 @@ public final class MidiImportSettings {
   public static boolean oneOffFills = true;
   /** Silent bars stay in the song as rests. */
   public static boolean keepSilent = true;
+  /** Fillern type for Fillerns that have none chosen: Engine.FILLERN_AFTER, FILLERN_END or FILLERN_START. */
+  public static String fillernDefault = Engine.FILLERN_AFTER;
 
   public static void reset() {
     asWritten = true;
@@ -29,6 +31,7 @@ public final class MidiImportSettings {
     reuseBars = true;
     oneOffFills = true;
     keepSilent = true;
+    fillernDefault = Engine.FILLERN_AFTER;
   }
 
   /** Bars within this many hits merge on import; 0 when merging is off. */
@@ -38,7 +41,8 @@ public final class MidiImportSettings {
 
   public static String encode() {
     return "asWritten=" + asWritten + "\nmergeBars=" + mergeBars + "\nmergeHits=" + mergeHits
-        + "\nreuseBars=" + reuseBars + "\noneOffFills=" + oneOffFills + "\nkeepSilent=" + keepSilent + "\n";
+        + "\nreuseBars=" + reuseBars + "\noneOffFills=" + oneOffFills + "\nkeepSilent=" + keepSilent
+        + "\nfillernDefault=" + fillernDefault + "\n";
   }
 
   /** Reads text from encode(). Missing or unreadable lines keep their defaults. */
@@ -55,6 +59,7 @@ public final class MidiImportSettings {
       else if ("reuseBars".equals(key)) reuseBars = Boolean.parseBoolean(v);
       else if ("oneOffFills".equals(key)) oneOffFills = Boolean.parseBoolean(v);
       else if ("keepSilent".equals(key)) keepSilent = Boolean.parseBoolean(v);
+      else if ("fillernDefault".equals(key)) fillernDefault = Engine.fillernMode(v);
       else if ("mergeHits".equals(key)) {
         try {
           mergeHits = clampHits(Integer.parseInt(v));

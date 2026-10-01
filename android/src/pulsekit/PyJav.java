@@ -553,6 +553,7 @@ final class PyJav {
             String stem = pulsekit.Engine.stemNameFromMidi(name);
             pulsekit.Engine.MidiBars bars = pulsekit.Engine.parseMidiBars(data);
             boolean ok = bars != null && app.importLibrary.learnFromSongImport(name, bars, true);
+            pulsekit.Engine.clearStagedMidi();
             String source = stem;
             if (ok) {
                 pulsekit.Engine.rememberFileSetMidi(source, data, name);

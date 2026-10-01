@@ -36,7 +36,7 @@ final class DrumMidiSettingsPage {
         pane.setClickable(true);
         pane.addView(app.text("Drum Midi Settings", 18, true));
         TextView lead = app.text("How a MIDI drum track, such as DrumMidi output, becomes patterns, fills and a song "
-            + "when it is imported. Changes apply to the next import.", 13, false);
+            + "when it is imported (changes apply to the next import), and how Fillerns play.", 13, false);
         lead.setTextColor(MUTED);
         lead.setPadding(0, app.dp(6), 0, app.dp(8));
         pane.addView(lead);
@@ -57,6 +57,7 @@ final class DrumMidiSettingsPage {
         body.addView(this.check("Keep silent bars as rests",
             "Off: silent bars are dropped and the song closes up around them.",
             MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on));
+        body.addView(this.fillernDefaultGroup());
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();
@@ -96,6 +97,37 @@ final class DrumMidiSettingsPage {
         sub.setTextColor(MUTED);
         sub.setPadding(app.dp(32), 0, 0, 0);
         item.addView(sub);
+        return item;
+    }
+
+    /** Fillern type default: used by every Fillern that has no type of its own. */
+    View fillernDefaultGroup() {
+        LinearLayout item = app.col();
+        item.setPadding(0, app.dp(18), 0, app.dp(4));
+        item.addView(app.text("Fillern type default", 15, true));
+        TextView sub = app.text("For Fillerns without a type of their own. A Fillern's type is set in its fill list.", 12, false);
+        sub.setTextColor(MUTED);
+        item.addView(sub);
+        android.widget.RadioGroup group = new android.widget.RadioGroup(app);
+        group.setTag("fillern-default");
+        for (int i = 0; i < Engine.FILLERN_MODES.length; i++) {
+            final String mode = Engine.FILLERN_MODES[i];
+            android.widget.RadioButton radio = new android.widget.RadioButton(app);
+            radio.setId(View.generateViewId());
+            radio.setText(Engine.FILLERN_MODE_LABELS[i]);
+            radio.setTextColor(FG);
+            radio.setTextSize(15);
+            radio.setButtonTintList(ColorStateList.valueOf(HIT));
+            group.addView(radio);
+            if (mode.equals(MidiImportSettings.fillernDefault)) radio.setChecked(true);
+            radio.setOnCheckedChangeListener((b, checked) -> {
+                if (!checked) return;
+                MidiImportSettings.fillernDefault = mode;
+                this.save();
+                if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
+            });
+        }
+        item.addView(group);
         return item;
     }
 

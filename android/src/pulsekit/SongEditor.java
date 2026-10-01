@@ -194,6 +194,68 @@ final class SongEditor {
         this.showSongPick(n, null);
     }
 
+    /** Long press on a part of an imported song: replace it with a Fillern. */
+    void showImportedPartMenu(int n) {
+        List<Engine.Part> list = this.activeSong();
+        if (n < 0 || n >= list.size()) return;
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)list.get(n).name).setItems(new CharSequence[]{"Replace with fillern"}, (d, which) -> this.pickFillernFor(n)).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** Fillerns to choose from: patterns with a fill chosen for them, file sets first, then built-in. */
+    void pickFillernFor(int n) {
+        ArrayList<String> keys = new ArrayList<String>();
+        ArrayList<CharSequence> names = new ArrayList<CharSequence>();
+        for (Engine.Learned learned : app.learned) {
+            String key = "l:" + learned.id;
+            String fill = app.styleLibrary.selectedFillFor(key);
+            if (fill == null) continue;
+            keys.add(key);
+            names.add(learned.name + " \u00b7 " + app.styleLibrary.fillLabel(fill) + Engine.fillernModeNote(app.styleLibrary.fillernModeOf(key)));
+        }
+        for (String id : app.styles.keySet()) {
+            String key = app.styleLibrary.patternKeyFor(id);
+            if (keys.contains(key)) continue;
+            String fill = app.styleLibrary.selectedFillFor(key);
+            if (fill == null) continue;
+            keys.add(key);
+            names.add(this.patternName(key) + " \u00b7 " + app.styleLibrary.fillLabel(fill) + Engine.fillernModeNote(app.styleLibrary.fillernModeOf(key)));
+        }
+        if (keys.isEmpty()) {
+            Toast.makeText((Context)app, (CharSequence)"No Fillerns yet: make one on the Fillern tab", (int)1).show();
+            return;
+        }
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)"Replace with fillern").setItems(names.toArray(new CharSequence[0]), (d, which) -> {
+            if (which >= 0 && which < keys.size()) this.replaceWithFillern(n, keys.get(which));
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /**
+     * Puts a Fillern where part n was. Its type decides: "replaces end/start" keep the part's
+     * bars; "add after" adds the fill bar.
+     */
+    void replaceWithFillern(int n, String key) {
+        List<Engine.Part> list = this.activeSong();
+        if (n < 0 || n >= list.size()) return;
+        Engine.Part old = list.get(n);
+        String fillKey = app.styleLibrary.selectedFillFor(key);
+        if (fillKey == null) return;
+        int[][] cells = this.patternCellsFor(key);
+        int steps = Engine.usedSteps(cells);
+        int bar = Engine.barSteps(old.tsNum > 0 ? old.tsNum : app.tsNum, old.tsDen > 0 ? old.tsDen : app.tsDen);
+        List<Engine.Part> parts = Engine.fillernParts(this.patternName(key), old.bpm, cells, steps, Math.max(1, old.repeats),
+            app.styleLibrary.fillLabel(fillKey), this.songFillCells(fillKey, cells), bar, app.styleLibrary.fillernModeOf(key));
+        for (Engine.Part p : parts) {
+            p.tsNum = old.tsNum;
+            p.tsDen = old.tsDen;
+            if ("fill".equals(p.kind)) p.steps = bar;
+        }
+        list.remove(n);
+        list.addAll(n, parts);
+        if ("imported".equals(app.songLane)) app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow(old.name + " \u2192 " + this.patternName(key) + " Fillern");
+    }
+
     void showSongPick(int n2, String string) {
         if (!"original".equals(app.songLane)) {
             return;
@@ -653,6 +715,13 @@ final class SongEditor {
             linearLayout.addView((View)textView2);
             LinearLayout.LayoutParams layoutParams = app.wrap();
             layoutParams.setMargins(app.dp(1), 0, app.dp(1), 0);
+            if ("imported".equals(app.songLane) && "edit".equals(app.songMode)) {
+                final int at = i;
+                linearLayout.setOnLongClickListener(view -> {
+                    this.showImportedPartMenu(at);
+                    return true;
+                });
+            }
             app.timeline.addView((View)linearLayout, (ViewGroup.LayoutParams)layoutParams);
             app.songCards.addView((View)this.partCard(i, n, (Engine.Part)object2, bl));
         }
@@ -679,6 +748,11 @@ final class SongEditor {
         if ("original".equals(app.songLane) && "edit".equals(app.songMode)) {
             linearLayout.setOnLongClickListener(view -> {
                 this.showSongPick(n);
+                return true;
+            });
+        } else if ("imported".equals(app.songLane) && "edit".equals(app.songMode)) {
+            linearLayout.setOnLongClickListener(view -> {
+                this.showImportedPartMenu(n);
                 return true;
             });
         }

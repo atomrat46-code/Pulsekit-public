@@ -809,15 +809,8 @@ final class ImportLibrary {
             app.fileSets.storeFsetParts(stem, set.parts);
             byte[] packed = pulsekit.Engine.encodeFset(set);
             this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
-            java.util.ArrayList song = new java.util.ArrayList();
-            for (int i = 0; i < segs.size(); i++) {
-                if (song.size() >= pulsekit.Engine.MAX_SONG) break;
-                pulsekit.Engine.MidiSeg s = (pulsekit.Engine.MidiSeg) segs.get(i);
-                song.add(pulsekit.Engine.groove(stem, bars.bpm, s.groove, s.grooveRepeats));
-                if (s.fill != null && song.size() < pulsekit.Engine.MAX_SONG) {
-                    song.add(pulsekit.Engine.fill("fill", bars.bpm, s.fill, 1));
-                }
-            }
+            // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
+            java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")

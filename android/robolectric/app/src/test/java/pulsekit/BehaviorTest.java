@@ -642,6 +642,65 @@ public class BehaviorTest {
     write("s25_fillern_types", out.toString());
   }
 
+  @Test
+  public void s26_replace_song_part_with_fillern() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Fillern type default: replaces end.
+    call("show", "midisettings");
+    idle();
+    findText((View) get("drumMidiPane"), Engine.FILLERN_MODE_LABELS[1]).performClick();
+    idle();
+    out.append("default=").append(MidiImportSettings.fillernDefault).append('\n');
+    // A song MIDI, and the song made from it.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Song.mid", null);
+    idle();
+    AlertDialog make = (AlertDialog) ShadowDialog.getLatestDialog();
+    make.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("song cells=").append(timelineCells()).append(" bars=").append(songBars()).append('\n');
+    // A Fillern for Pattern 1 with Snare roll; it has no type of its own.
+    call("show", "combo");
+    idle();
+    root().findViewWithTag("fillern-add").performClick();
+    idle();
+    pickItem("Pattern 1");
+    pickItem(Engine.FILL_LABEL[1]);
+    out.append("fillern chips=").append(packChips()).append('\n');
+    // Song tab, imported lane: long press the second part, replace it with the Fillern.
+    call("show", "song");
+    idle();
+    View second = findText((View) get("songCards"), "Pattern 2");
+    while (second != null && !second.isLongClickable()) second = (View) second.getParent();
+    second.performLongClick();
+    idle();
+    pickItem("Replace with fillern");
+    pickItem("Pattern 1 \u00b7 Snare roll (replaces end)");
+    out.append("after replace=").append(timelineCells()).append(" bars=").append(songBars()).append('\n');
+    write("s26_replace_with_fillern", out.toString());
+  }
+
+  private String timelineCells() throws Exception {
+    List<String> cells = new ArrayList<>();
+    ViewGroup line = (ViewGroup) get("timeline");
+    for (int i = 0; i < line.getChildCount(); i++) {
+      ViewGroup cell = (ViewGroup) line.getChildAt(i);
+      cells.add(((TextView) cell.getChildAt(0)).getText() + " " + ((TextView) cell.getChildAt(1)).getText());
+    }
+    return cells.toString();
+  }
+
+  private int songBars() throws Exception {
+    int bars = 0;
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("activeSong");
+    for (Engine.Part p : song) bars += p.repeats;
+    return bars;
+  }
+
   private static int[][] cut(int[][] cells, int from, int to) {
     int[][] out = Engine.emptyCells();
     for (int t = 0; t < cells.length && t < out.length; t++) {

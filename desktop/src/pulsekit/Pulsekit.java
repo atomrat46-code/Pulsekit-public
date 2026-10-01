@@ -985,6 +985,13 @@ extends JFrame {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (!(e.isPopupTrigger() || e.getButton() == 3)) return;
+                if ("imported".equals(Pulsekit.this.songLane) && "edit".equals(Pulsekit.this.songMode)) {
+                    int at = jList.locationToIndex(e.getPoint());
+                    if (at < 0) return;
+                    jList.setSelectedIndex(at);
+                    Pulsekit.this.importedPartMenu(at).show(jList, e.getX(), e.getY());
+                    return;
+                }
                 if (!"original".equals(Pulsekit.this.songLane) || !"edit".equals(Pulsekit.this.songMode)) return;
                 int idx = jList.locationToIndex(e.getPoint());
                 if (idx < 0) return;
@@ -1794,7 +1801,7 @@ extends JFrame {
         title.setAlignmentX(0.0f);
         col.add(title);
         JLabel lead = new JLabel("<html><body style='width:520px'>How a MIDI drum track, such as DrumMidi output, becomes patterns, "
-            + "fills and a song when it is imported. Changes apply to the next import.</body></html>");
+            + "fills and a song when it is imported (changes apply to the next import), and how Fillerns play.</body></html>");
         lead.setForeground(MUTED);
         lead.setAlignmentX(0.0f);
         col.add(Box.createVerticalStrut(6));
@@ -1839,6 +1846,34 @@ extends JFrame {
         JCheckBox silent = this.drumMidiCheck(col, "Keep silent bars as rests",
             "Off: silent bars are dropped and the song closes up around them.",
             MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on);
+        col.add(Box.createVerticalStrut(18));
+        JLabel fd = new JLabel("Fillern type default");
+        fd.setFont(new Font("SansSerif", Font.BOLD, 15));
+        fd.setForeground(FG);
+        fd.setAlignmentX(0.0f);
+        col.add(fd);
+        JLabel fdNote = new JLabel("<html><body style='width:480px'>For Fillerns without a type of their own. A Fillern's type is set in its fill list.</body></html>");
+        fdNote.setForeground(MUTED);
+        fdNote.setAlignmentX(0.0f);
+        col.add(fdNote);
+        javax.swing.ButtonGroup fdGroup = new javax.swing.ButtonGroup();
+        javax.swing.JRadioButton[] fdRadios = new javax.swing.JRadioButton[Engine.FILLERN_MODES.length];
+        for (int i = 0; i < Engine.FILLERN_MODES.length; i++) {
+            final String mode = Engine.FILLERN_MODES[i];
+            javax.swing.JRadioButton r = new javax.swing.JRadioButton(Engine.FILLERN_MODE_LABELS[i], mode.equals(MidiImportSettings.fillernDefault));
+            r.setOpaque(false);
+            r.setForeground(FG);
+            r.setFont(new Font("SansSerif", Font.PLAIN, 14));
+            r.setAlignmentX(0.0f);
+            r.addActionListener(e -> {
+                MidiImportSettings.fillernDefault = mode;
+                this.saveDrumMidi();
+                if ("combo".equals(this.view)) this.refreshLearnedChips();
+            });
+            fdGroup.add(r);
+            fdRadios[i] = r;
+            col.add(r);
+        }
         col.add(Box.createVerticalStrut(16));
         JButton reset = this.outline("Reset to defaults", false);
         reset.setAlignmentX(0.0f);
@@ -1850,6 +1885,7 @@ extends JFrame {
             fills.setSelected(MidiImportSettings.oneOffFills);
             reuse.setSelected(MidiImportSettings.reuseBars);
             silent.setSelected(MidiImportSettings.keepSilent);
+            for (int i = 0; i < fdRadios.length; i++) fdRadios[i].setSelected(Engine.FILLERN_MODES[i].equals(MidiImportSettings.fillernDefault));
             paintHits.run();
         });
         col.add(reset);
@@ -3993,6 +4029,57 @@ extends JFrame {
         return Engine.buildFill(id, groove != null ? groove : this.cells, this.style);
     }
 
+    /** Right click on a part of an imported song: replace it with a Fillern. */
+    private JPopupMenu importedPartMenu(int n) {
+        JPopupMenu m = new JPopupMenu();
+        javax.swing.JMenu sub = new javax.swing.JMenu("Replace with fillern");
+        List<String> keys = new ArrayList<String>();
+        for (Engine.Learned item : this.learned) {
+            String key = "l:" + item.id;
+            if (this.selectedFillFor(key) != null) keys.add(key);
+        }
+        for (String id : this.styles.keySet()) {
+            String key = this.patternKeyFor(id);
+            if (!keys.contains(key) && this.selectedFillFor(key) != null) keys.add(key);
+        }
+        for (String key : keys) {
+            String label = this.patternName(key) + " \u00b7 " + this.fillLabel(this.selectedFillFor(key)) + Engine.fillernModeNote(this.fillernModeOf(key));
+            JMenuItem it = new JMenuItem(label);
+            it.addActionListener(e -> this.replaceWithFillern(n, key));
+            sub.add(it);
+        }
+        if (keys.isEmpty()) {
+            JMenuItem none = new JMenuItem("No Fillerns yet: make one on the Fillern tab");
+            none.setEnabled(false);
+            sub.add(none);
+        }
+        m.add(sub);
+        return m;
+    }
+
+    /** Puts a Fillern where part n was. Its type decides: "replaces end/start" keep the part's bars; "add after" adds the fill bar. */
+    private void replaceWithFillern(int n, String key) {
+        List<Engine.Part> cur = this.activeSong();
+        if (n < 0 || n >= cur.size()) return;
+        Engine.Part old = cur.get(n);
+        String fillKey = this.selectedFillFor(key);
+        if (fillKey == null) return;
+        int[][] cells = this.patternCellsFor(key);
+        int bar = Engine.barSteps(old.tsNum > 0 ? old.tsNum : this.tsNum, old.tsDen > 0 ? old.tsDen : this.tsDen);
+        List<Engine.Part> parts = Engine.fillernParts(this.patternName(key), old.bpm, cells, Engine.usedSteps(cells), Math.max(1, old.repeats),
+            this.fillLabel(fillKey), this.songFillCells(fillKey, cells), bar, this.fillernModeOf(key));
+        for (Engine.Part p : parts) {
+            p.tsNum = old.tsNum;
+            p.tsDen = old.tsDen;
+            if ("fill".equals(p.kind)) p.steps = bar;
+        }
+        cur.remove(n);
+        cur.addAll(n, parts);
+        if ("imported".equals(this.songLane)) this.persistLearned();
+        this.refreshSong();
+        this.setNow(old.name + " \u2192 " + this.patternName(key) + " Fillern");
+    }
+
     private void addCurrentFillern() {
         String mode = this.fillernModeOf(this.currentPatternKey());
         if (!Engine.FILLERN_AFTER.equals(mode)) {
@@ -5038,14 +5125,13 @@ extends JFrame {
     }
 
     private String fillernModeOf(String patternKey) {
-        return Engine.fillernMode(patternKey == null ? null : this.fillernModes.get(patternKey));
+        return Engine.fillernModeOr(patternKey == null ? null : this.fillernModes.get(patternKey));
     }
 
     private void setFillernMode(String patternKey, String mode) {
         if (patternKey == null) return;
         String m = Engine.fillernMode(mode);
-        if (Engine.FILLERN_AFTER.equals(m)) this.fillernModes.remove(patternKey);
-        else this.fillernModes.put(patternKey, m);
+        this.fillernModes.put(patternKey, m);  // its own type, whatever the default is later
         this.persistLearned();
         if ("combo".equals(this.view)) this.refreshLearnedChips();
         this.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);
@@ -5859,7 +5945,9 @@ extends JFrame {
         try {
             Engine.stageSourceMidi(data, name);
             Engine.MidiBars bars = Engine.parseMidiBars(data);
-            if (bars != null && this.learnFromSongImport(name, bars, true, "program")) {
+            boolean made = bars != null && this.learnFromSongImport(name, bars, true, "program");
+            Engine.clearStagedMidi();
+            if (made) {
                 String set = this.newestProgramSet();
                 this.setNow("Import succeeded: EP " + set);
                 return "Import succeeded: EP " + set;
@@ -5953,11 +6041,13 @@ extends JFrame {
         if (!force && !multi) return false;
 
         String stem = Engine.uniqueImportSource(Engine.stemNameFromMidi(filename), this.learned, this.learnedFills);
+        Engine.FileSet madeSet = null;
         try {
             if (!Engine.isFileSetOrigin(origin)) origin = "midi";
             Engine.FileSet set = AudioIo.fileSetFromMidi(bars, stem, origin);
             Engine.attachStagedMidi(set);
             if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
+            madeSet = set;
             this.rememberFileSetParts(stem, set.parts);
             this.loadFset(Engine.encodeFset(set), Engine.fsetFilename(set.name));
         } catch (Exception ex) {
@@ -5965,14 +6055,8 @@ extends JFrame {
             return false;
         }
 
-        List<Engine.Part> parts = new ArrayList<>();
-        for (Engine.MidiSeg seg : segs) {
-            if (parts.size() >= Engine.MAX_SONG) break;
-            parts.add(Engine.groove(stem, bars.bpm, seg.groove, seg.grooveRepeats));
-            if (seg.fill != null && parts.size() < Engine.MAX_SONG) {
-                parts.add(Engine.fill("fill", bars.bpm, seg.fill, 1));
-            }
-        }
+        // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
+        List<Engine.Part> parts = new ArrayList<>(Engine.songFromFileSet(madeSet));
         if (!parts.isEmpty()) {
             int ans = JOptionPane.showConfirmDialog(
                 this,
