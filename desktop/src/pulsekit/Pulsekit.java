@@ -1393,8 +1393,9 @@ extends JFrame {
         byte[] data = binary ? item.bytes : (item.source == null ? new byte[0] : item.source.getBytes(StandardCharsets.UTF_8));
         this.rememberProgram(item.name, data, binary, false);
         this.pyInputPath = null;
-        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
         this.showPyHint(PyJavHints.status(item.name, item.source, item.bytes));
+        // The hint fills args from the program's usage; the recent item's own args win.
+        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
     }
 
     private void showPyHint(String status) {

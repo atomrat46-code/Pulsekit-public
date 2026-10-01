@@ -292,6 +292,41 @@ public class BehaviorTest {
     write("s16_help", "helpTextShown=" + (pyText != null && pyText.isShown()) + "\n" + state() + tree(root(), 0));
   }
 
+  @Test
+  public void s17_recent_after_run() throws Exception {
+    call("show", "py");
+    idle();
+    short[] pcm = new short[22050];
+    call("ingest", AudioIo.encodeWav(pcm, 22050), "Passing Ships.wav", null);
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView args = (TextView) get("pkPyArgs");
+    String used = args.getText().toString() + " --sens 0.4 --hat 0.4";
+    args.setText(used);
+    TextView run = findText(root(), "Run");
+    run.performClick();
+    idle();
+    StringBuilder out = new StringBuilder();
+    @SuppressWarnings("unchecked")
+    List<Object> items = (List<Object>) get("pkPyRecentItems");
+    out.append("recent items=").append(items == null ? 0 : items.size()).append('\n');
+    View box = root().findViewWithTag("pk-recent");
+    String label = "DrumMidi_CRT.java  " + used;
+    TextView entry = box == null ? null : findText(box, label);
+    out.append("recent row shown=").append(entry != null).append('\n');
+    // open something else, then pick the recent entry
+    call("ingest", "print('x')".getBytes(StandardCharsets.UTF_8), "other.py", null);
+    idle();
+    if (entry != null) {
+      entry.performClick();
+      idle();
+    }
+    out.append("after tap: pyName=").append(get("pyName")).append('\n');
+    out.append("after tap: args restored=").append(used.equals(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
+    out.append("after tap: editor has DrumMidi=").append(((TextView) get("pyEditor")).getText().toString().contains("class DrumMidi_CRT")).append('\n');
+    write("s17_recent", norm(out.toString()));
+  }
+
   /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */
   private void pickFromMenu(String button, String entry) throws Exception {
     TextView b = findText(root(), button);

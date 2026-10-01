@@ -307,6 +307,8 @@ final class PyJav {
         app.setNow("PyJav · " + item.label());
         String hint = pulsekit.PyJavHints.status(item.name, item.source, item.bytes);
         this.pkApplyHint(hint);
+        // The hint fills args from the program's usage; the recent item's own args win.
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
     }
 
     void pkWirePyJavCore() {
