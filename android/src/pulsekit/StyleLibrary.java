@@ -724,9 +724,32 @@ final class StyleLibrary {
         return string4;
     }
 
+    String fillernModeOf(String patternKey) {
+        return Engine.fillernMode(patternKey == null ? null : app.fillernModes.get(patternKey));
+    }
+
+    void setFillernMode(String patternKey, String mode) {
+        if (patternKey == null) return;
+        String m = Engine.fillernMode(mode);
+        if (Engine.FILLERN_AFTER.equals(m)) app.fillernModes.remove(patternKey);
+        else app.fillernModes.put(patternKey, m);
+        app.persistence.persistLearned();
+        if ("combo".equals(app.view)) app.importLibrary.rebuildImported();
+        app.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);
+    }
+
     void addFillernFillRows(List<CharSequence> list, List<Runnable> list2, String string, Runnable runnable) {
         if (!"combo".equals(app.view)) {
             return;
+        }
+        list.add("— Fillern type —");
+        list2.add(null);
+        String mode = this.fillernModeOf(string);
+        for (int i = 0; i < Engine.FILLERN_MODES.length; ++i) {
+            String m = Engine.FILLERN_MODES[i];
+            String row = "  " + Engine.FILLERN_MODE_LABELS[i];
+            list.add(m.equals(mode) ? Html.fromHtml((String)("<u>" + row.replace("&", "&amp;").replace("<", "&lt;") + "</u>"), (int)0) : row);
+            list2.add(() -> this.setFillernMode(string, m));
         }
         list.add("— Last-bar fill —");
         list2.add(null);

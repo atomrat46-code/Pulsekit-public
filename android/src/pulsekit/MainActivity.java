@@ -107,6 +107,8 @@ public class MainActivity extends UiKit {
     final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
     /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
     final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
+    /** Fillern type per pattern: Engine.FILLERN_AFTER (default), FILLERN_END or FILLERN_START. */
+    final Map<String, String> fillernModes = new LinkedHashMap<String, String>();
 
     final Handler handler = new Handler(Looper.getMainLooper());
 

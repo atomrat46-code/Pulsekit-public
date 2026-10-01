@@ -212,6 +212,8 @@ extends JFrame {
     private final Map<String, String> fillernPairs = new LinkedHashMap<String, String>();
     /** Patterns whose Fillern fill was chosen from the list. Only these are underlined. */
     private final java.util.Set<String> fillernPicked = new java.util.LinkedHashSet<String>();
+    /** Fillern type per pattern: Engine.FILLERN_AFTER (default), FILLERN_END or FILLERN_START. */
+    private final Map<String, String> fillernModes = new LinkedHashMap<String, String>();
     /** The groove tab the imported chips were last built for. */
     private String importedFor;
     private final Map<String, Boolean> openPacks = new LinkedHashMap<String, Boolean>();
@@ -2827,6 +2829,14 @@ extends JFrame {
     private void addFillernItems(JPopupMenu m, Runnable loadPattern, String patternKey) {
         if (!"combo".equals(this.view)) return;
         String selected = this.selectedFillFor(patternKey);
+        this.addMenuHeading(m, "Fillern type");
+        String mode = this.fillernModeOf(patternKey);
+        for (int i = 0; i < Engine.FILLERN_MODES.length; i++) {
+            final String fm = Engine.FILLERN_MODES[i];
+            JMenuItem it = new JMenuItem(this.fillernMenuLabel("  " + Engine.FILLERN_MODE_LABELS[i], fm.equals(mode)));
+            it.addActionListener(e -> this.setFillernMode(patternKey, fm));
+            m.add(it);
+        }
         this.addMenuHeading(m, "Last-bar fill");
         this.addMenuHeading(m, "Built-in");
         for (int i = 0; i < Engine.FILL_ID.length; i++) {
@@ -3115,7 +3125,9 @@ extends JFrame {
                 if (!src.equals(Engine.sourceOf(item))) continue;
                 if (fillerns && this.selectedFillFor(this.patternKeyFor(item.id)) == null) continue;
                 final Engine.Learned it = item;
-                String chipName = fillerns ? it.name + " \u00b7 " + this.fillLabel(this.selectedFillFor(this.patternKeyFor(it.id))) : it.name;
+                String chipName = fillerns
+                    ? it.name + " \u00b7 " + this.fillLabel(this.selectedFillFor(this.patternKeyFor(it.id))) + Engine.fillernModeNote(this.fillernModeOf(this.patternKeyFor(it.id)))
+                    : it.name;
                 JButton b = this.chip(chipName, false);
                 b.putClientProperty("style", it.id);
                 b.putClientProperty("learned", it.id);
@@ -3982,6 +3994,15 @@ extends JFrame {
     }
 
     private void addCurrentFillern() {
+        String mode = this.fillernModeOf(this.currentPatternKey());
+        if (!Engine.FILLERN_AFTER.equals(mode)) {
+            // The fill goes into the pattern's last or first bar: the part keeps its 4 bars.
+            for (Engine.Part p : Engine.fillernParts(this.styles.get(this.style).label, this.bpm(), this.cells, this.steps, 4,
+                    this.fillLabel(this.fillId), this.fillPat, Engine.barSteps(this.tsNum, this.tsDen), mode)) {
+                this.addPart(p);
+            }
+            return;
+        }
         Engine.Part g = Engine.groove(this.styles.get(this.style).label, this.bpm(), this.cells, 4);
         g.lens = Engine.copyCells(this.lens);
         Engine.Part f = Engine.fill(this.fillLabel(this.fillId), this.bpm(), this.fillPat, 1);
@@ -4012,6 +4033,21 @@ extends JFrame {
             String fk = this.fillernPairs.get(key);
             if (fk == null) fk = key.equals(this.currentPatternKey()) ? this.fillId : "toms";
             int greps = idx >= 0 && "groove".equals(cur.get(idx).kind) ? cur.get(idx).repeats : 4;
+            String mode = this.fillernModeOf(key);
+            if (!Engine.FILLERN_AFTER.equals(mode)) {
+                // The fill replaces the end or start of the pattern: the song part keeps its length.
+                List<Engine.Part> parts = Engine.fillernParts(this.patternName(key), this.patternBpm(key), gcells, Engine.usedSteps(gcells), greps,
+                    this.fillLabel(fk), this.songFillCells(fk, gcells), Engine.barSteps(this.tsNum, this.tsDen), mode);
+                if (idx >= 0) {
+                    cur.set(idx, parts.get(0));
+                    for (int i = 1; i < parts.size() && cur.size() < 24; i++) cur.add(idx + i, parts.get(i));
+                } else {
+                    for (Engine.Part p : parts) this.addPart(p);
+                }
+                this.refreshSong();
+                this.setNow(this.patternName(key) + " Fillern");
+                return;
+            }
             Engine.Part g = Engine.groove(this.patternName(key), this.patternBpm(key), gcells, greps);
             Engine.Part f = Engine.fill(this.fillLabel(fk), this.patternBpm(key), this.songFillCells(fk, gcells), 1);
             if (idx >= 0) {
@@ -4562,7 +4598,9 @@ extends JFrame {
         int n4 = Math.max(1, this.bars);
         int steps = this.steps;
         for (int i = 0; i < n4; ++i) {
-            boolean last = this.fillLast && i == n4 - 1;
+            // The Fillern's fill plays in the last bar, or in the first when it replaces the pattern's start.
+            int fillBar = Engine.FILLERN_START.equals(this.fillernModeOf(this.currentPatternKey())) ? 0 : n4 - 1;
+            boolean last = this.fillLast && i == fillBar;
             int n5 = i * steps * n2;
             for (int j = 0; j < Engine.TRACK_ID.length; ++j) {
                 if (this.mutes[j]) continue;
@@ -4993,7 +5031,32 @@ extends JFrame {
         return out;
     }
 
+    private List<String> fillernModeList() {
+        List<String> out = new ArrayList<String>();
+        for (Map.Entry<String, String> e : this.fillernModes.entrySet()) out.add(e.getKey() + "=" + e.getValue());
+        return out;
+    }
+
+    private String fillernModeOf(String patternKey) {
+        return Engine.fillernMode(patternKey == null ? null : this.fillernModes.get(patternKey));
+    }
+
+    private void setFillernMode(String patternKey, String mode) {
+        if (patternKey == null) return;
+        String m = Engine.fillernMode(mode);
+        if (Engine.FILLERN_AFTER.equals(m)) this.fillernModes.remove(patternKey);
+        else this.fillernModes.put(patternKey, m);
+        this.persistLearned();
+        if ("combo".equals(this.view)) this.refreshLearnedChips();
+        this.setNow(Engine.FILLERN_MODE_LABELS[java.util.Arrays.asList(Engine.FILLERN_MODES).indexOf(m)]);
+    }
+
     private void loadFillernPairs(String json) {
+        this.fillernModes.clear();
+        for (String row : this.parseStringArray(json, "fillernModes")) {
+            int eq = row.indexOf('=');
+            if (eq > 0) this.fillernModes.put(row.substring(0, eq), Engine.fillernMode(row.substring(eq + 1)));
+        }
         this.fillernPicked.clear();
         this.fillernPicked.addAll(this.parseStringArray(json, "fillernPicked"));
         this.fillernPairs.clear();
@@ -5066,6 +5129,7 @@ extends JFrame {
                 + ",\"variatedPatterns\":" + Engine.learnedJson(this.variatedPatterns)
                 + ",\"fillernPairs\":" + this.stringListJson(this.fillernPairList())
                 + ",\"fillernPicked\":" + this.stringListJson(new ArrayList<String>(this.fillernPicked))
+                + ",\"fillernModes\":" + this.stringListJson(this.fillernModeList())
                 + ",\"importedSongs\":" + Engine.importedSongsJson(this.importedSongs) + "}";
             Files.write(new File(this.pulsekitDir(), "learned.json").toPath(), json.getBytes(StandardCharsets.UTF_8), new OpenOption[0]);
         } catch (Exception ignored) { /* optional */ }

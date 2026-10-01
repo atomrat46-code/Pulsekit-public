@@ -173,6 +173,15 @@ final class SongEditor {
     }
 
     void addCurrentFillern() {
+        String mode = app.styleLibrary.fillernModeOf(app.styleLibrary.currentPatternKey());
+        if (!Engine.FILLERN_AFTER.equals(mode)) {
+            // The fill goes into the pattern's last or first bar: the part keeps its 4 bars.
+            for (Engine.Part p : Engine.fillernParts(app.styles.get((Object)app.style).label, app.bpm(), app.cells, app.steps, 4,
+                    app.styleLibrary.fillLabel(app.fillId), app.fillPat, Engine.barSteps(app.tsNum, app.tsDen), mode)) {
+                this.add(p);
+            }
+            return;
+        }
         Engine.Part part = Engine.groove(app.styles.get((Object)app.style).label, app.bpm(), app.cells, 4);
         part.lens = Engine.copyCells(app.lens);
         Engine.Part part2 = Engine.fill(app.styleLibrary.fillLabel(app.fillId), app.bpm(), app.fillPat, 1);
@@ -527,6 +536,22 @@ final class SongEditor {
                 string3 = string2.equals(app.styleLibrary.currentPatternKey()) ? app.fillId : "toms";
             }
             int n6 = n2 >= 0 && "groove".equals(list.get((int)n2).kind) ? list.get((int)n2).repeats : 4;
+            String mode = app.styleLibrary.fillernModeOf(string2);
+            if (!Engine.FILLERN_AFTER.equals(mode)) {
+                // The fill replaces the end or start of the pattern: the song part keeps its length.
+                int steps = Engine.usedSteps(nArray);
+                List<Engine.Part> parts = Engine.fillernParts(this.patternName(string2), this.patternBpm(string2), nArray, steps, n6,
+                    app.styleLibrary.fillLabel(string3), this.songFillCells(string3, nArray), Engine.barSteps(app.tsNum, app.tsDen), mode);
+                if (n2 >= 0) {
+                    list.set(n2, parts.get(0));
+                    for (int i = 1; i < parts.size() && list.size() < 24; ++i) list.add(n2 + i, parts.get(i));
+                } else {
+                    for (Engine.Part p : parts) this.add(p);
+                }
+                this.refreshSong();
+                app.setNow(this.patternName(string2) + " Fillern");
+                return;
+            }
             Engine.Part part = Engine.groove(this.patternName(string2), this.patternBpm(string2), nArray, n6);
             Engine.Part part2 = Engine.fill(app.styleLibrary.fillLabel(string3), this.patternBpm(string2), this.songFillCells(string3, nArray), 1);
             if (n2 >= 0) {

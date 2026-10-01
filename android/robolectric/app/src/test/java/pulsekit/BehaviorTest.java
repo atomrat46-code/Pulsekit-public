@@ -585,8 +585,78 @@ public class BehaviorTest {
     out.append("after copy=").append(fillPackChips()).append('\n');
     @SuppressWarnings("unchecked")
     List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
-    for (Engine.LearnedFill f : fills) out.append("fill ").append(f.name).append(" src=").append(f.source).append(" hits=").append(Engine.hitCount(f.cells)).append('\n');
+    for (Engine.LearnedFill f : fills) {
+      // A variation is random: only that it has hits is stable.
+      String hits = f.name.endsWith(" var") ? (Engine.hitCount(f.cells) > 0 ? "some" : "0") : Integer.toString(Engine.hitCount(f.cells));
+      out.append("fill ").append(f.name).append(" src=").append(f.source).append(" hits=").append(hits).append('\n');
+    }
     write("s24_fills_in_file_sets", out.toString());
+  }
+
+  @Test
+  public void s25_fillern_types() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String key = (String) call("patternKeyFor", "rock");
+    for (String type : Engine.FILLERN_MODE_LABELS) {
+      findText(root(), "Rock").performClick();
+      idle();
+      call("show", "combo");
+      idle();
+      TextView rock = null;
+      for (View v : allViews((View) get("styleBar"))) {
+        if (v instanceof TextView && "rock".equals(v.getTag())) rock = (TextView) v;
+      }
+      rock.performLongClick();
+      idle();
+      out.append(type).append(": list shows ");
+      List<String> rows = new ArrayList<>();
+      android.widget.ListAdapter a = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView().getAdapter();
+      for (int i = 0; i < 5 && i < a.getCount(); i++) rows.add(String.valueOf(a.getItem(i)).trim());
+      out.append(rows).append('\n');
+      pickItem(type);
+      rock.performLongClick();
+      idle();
+      pickItem(Engine.FILL_LABEL[1]);
+      out.append("  underlined type=").append(underlinedItemsAfterLongPress(rock)).append('\n');
+      @SuppressWarnings("unchecked")
+      List<Engine.Part> song = (List<Engine.Part>) call("activeSong");
+      song.clear();
+      call("applySongPick", "fillern", key, -1);
+      idle();
+      int bars = 0;
+      StringBuilder parts = new StringBuilder();
+      for (Engine.Part p : song) {
+        bars += p.repeats;
+        parts.append(p.kind).append(' ').append(p.name).append(" x").append(p.repeats).append(" steps=").append(p.steps).append("; ");
+      }
+      out.append("  song: ").append(parts).append("bars=").append(bars).append('\n');
+      for (Engine.Part p : song) {
+        if (p.name.contains(" + ")) {
+          int[][] rockCells = Engine.styleCells(Engine.styles().get("rock"));
+          int first = Engine.hitDiff(cut(p.cells, 0, 8), cut(rockCells, 0, 8));
+          int last = Engine.hitDiff(cut(p.cells, 8, 16), cut(rockCells, 8, 16));
+          out.append("  mixed bar differs from Rock: first half ").append(first).append(" hits, second half ").append(last).append(" hits\n");
+        }
+      }
+    }
+    write("s25_fillern_types", out.toString());
+  }
+
+  private static int[][] cut(int[][] cells, int from, int to) {
+    int[][] out = Engine.emptyCells();
+    for (int t = 0; t < cells.length && t < out.length; t++) {
+      for (int s = from; s < to && s < cells[t].length; s++) out[t][s] = cells[t][s];
+    }
+    return out;
+  }
+
+  private String underlinedItemsAfterLongPress(TextView chip) {
+    chip.performLongClick();
+    idle();
+    String u = underlinedItems();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    idle();
+    return u;
   }
 
   /** Taps the entry of the open list dialog whose text is label. */

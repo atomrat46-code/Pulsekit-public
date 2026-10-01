@@ -373,7 +373,9 @@ final class ImportLibrary {
         List<Engine.Learned> made = this.fillernsOf(patterns);
         for (Engine.Learned learned : made) {
             String fill = app.styleLibrary.selectedFillFor(app.styleLibrary.patternKeyFor(learned.id));
-            TextView textView = app.pill(learned.name + " \u00b7 " + app.styleLibrary.fillLabel(fill), false, view -> app.styleLibrary.loadStyle(learned.id, false));
+            String key = app.styleLibrary.patternKeyFor(learned.id);
+            String note = Engine.fillernModeNote(app.styleLibrary.fillernModeOf(key));
+            TextView textView = app.pill(learned.name + " \u00b7 " + app.styleLibrary.fillLabel(fill) + note, false, view -> app.styleLibrary.loadStyle(learned.id, false));
             textView.setTag((Object)learned.id);
             app.styleLibrary.attachLearnedStyleMenu(textView, learned);
             host.addView((View)textView);

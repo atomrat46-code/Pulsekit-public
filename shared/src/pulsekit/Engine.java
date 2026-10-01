@@ -413,6 +413,68 @@ public final class Engine {
     return 18;
   }
 
+  /** Fillern types: the fill is added after the pattern, or replaces the pattern's end or start. */
+  public static final String FILLERN_AFTER = "after";
+  public static final String FILLERN_END = "end";
+  public static final String FILLERN_START = "start";
+  public static final String[] FILLERN_MODES = { FILLERN_AFTER, FILLERN_END, FILLERN_START };
+  public static final String[] FILLERN_MODE_LABELS = { "Add fill after pattern", "Fill replaces pattern end", "Fill replaces pattern start" };
+
+  public static String fillernMode(String mode) {
+    return FILLERN_END.equals(mode) || FILLERN_START.equals(mode) ? mode : FILLERN_AFTER;
+  }
+
+  /** Short note for a Fillern chip: empty for "after", else what the fill replaces. */
+  public static String fillernModeNote(String mode) {
+    if (FILLERN_END.equals(mode)) return " (replaces end)";
+    if (FILLERN_START.equals(mode)) return " (replaces start)";
+    return "";
+  }
+
+  /**
+   * The pattern with its last (end) or first (start) steps taken from the fill. As many
+   * steps are replaced as the fill has, at most the whole pattern.
+   */
+  public static int[][] fillIntoPattern(int[][] pattern, int patternSteps, int[][] fill, int fillSteps, boolean atEnd) {
+    int[][] out = copyCells(pattern);
+    int p = Math.max(1, Math.min(patternSteps, MAX_STEPS));
+    int f = Math.max(1, Math.min(fillSteps, MAX_STEPS));
+    int n = Math.min(p, f);
+    for (int t = 0; t < TRACK_ID.length; t++) {
+      for (int s = 0; s < n; s++) {
+        int to = atEnd ? p - n + s : s;
+        int from = atEnd ? f - n + s : s;
+        out[t][to] = from < fill[t].length ? fill[t][from] : 0;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Song parts for a Fillern. "after" adds the fill bar after the pattern's repeats; "end" and
+   * "start" put the fill into the last or first repeat, so the part keeps its length.
+   */
+  public static List<Part> fillernParts(String name, int bpm, int[][] pattern, int patternSteps, int repeats,
+      String fillName, int[][] fill, int fillSteps, String mode) {
+    List<Part> out = new ArrayList<Part>();
+    int reps = Math.max(1, repeats);
+    String m = fillernMode(mode);
+    if (FILLERN_AFTER.equals(m)) {
+      out.add(groove(name, bpm, pattern, reps));
+      out.add(fill(fillName, bpm, fill, 1));
+      return out;
+    }
+    boolean atEnd = FILLERN_END.equals(m);
+    Part mixed = groove(name + " + " + fillName, bpm, fillIntoPattern(pattern, patternSteps, fill, fillSteps, atEnd), 1);
+    mixed.steps = clampSteps(patternSteps);
+    Part rest = reps > 1 ? groove(name, bpm, pattern, reps - 1) : null;
+    if (rest != null) rest.steps = clampSteps(patternSteps);
+    if (!atEnd) out.add(mixed);
+    if (rest != null) out.add(rest);
+    if (atEnd) out.add(mixed);
+    return out;
+  }
+
   /** A variation of a fill, as the Variate button makes: some tom and cymbal steps in the last half bar flip. */
   public static int[][] variateFillCells(int[][] cells, java.util.Random rng) {
     int[][] out = copyCells(cells);
