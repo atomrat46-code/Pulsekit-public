@@ -304,6 +304,16 @@ public final class DesktopBehavior {
     out.append("drum_midi.py args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
   }
 
+  void s20_save_program_output() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CompareHits.java");
+    out.append("name: ").append(PyJavHints.resultsFileName((String) get("pyName"))).append('\n');
+    answers.add("Save");
+    edt(() -> SaveText.save((Pulsekit) frame, PyJavHints.resultsFileName((String) get("pyName")), "Kick 271 261 188\nSucceeded"));
+    File saved = new File(System.getProperty("user.home"), "CompareHits_test_results.txt");
+    out.append("written: ").append(saved.isFile() ? new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8).replace('\n', '|') : "nothing").append('\n');
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));

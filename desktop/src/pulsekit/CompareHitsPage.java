@@ -81,6 +81,7 @@ final class CompareHitsPage {
         this.result.setBackground(SURFACE);
         this.result.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         this.result.setAlignmentX(0.0f);
+        SaveText.attach(app, this.result, () -> "CompareHits_test_results.txt");
         col.add(this.result);
         col.add(Box.createVerticalStrut(10));
         col.add(this.note(HitCompare.LEGEND));

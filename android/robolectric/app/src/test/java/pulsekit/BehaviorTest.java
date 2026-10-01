@@ -1040,6 +1040,32 @@ public class BehaviorTest {
     write("s36_params_midi_from_file_set", out.toString());
   }
 
+  /** Long press on PyJav's output saves it as <program>_test_results.txt. */
+  @Test
+  public void s37_save_program_output() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CompareHits.java");
+    TextView log = (TextView) get("pkPyLog");
+    log.setText("Song against MIDI\nKick 271 261 188\nSucceeded: compared 3 files");
+    log.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("menu: ").append(menu.getListView().getAdapter().getItem(0)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("save: ").append(save.getAction()).append(' ').append(save.getType()).append(' ')
+        .append(save.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    File file = new File(app.getCacheDir(), "saved_results.txt");
+    android.content.Intent result = new android.content.Intent().setData(android.net.Uri.fromFile(file));
+    org.robolectric.Shadows.shadowOf(app).receiveResult(save, android.app.Activity.RESULT_OK, result);
+    idle();
+    out.append("written: ").append(file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).replace('\n', '|') : "nothing").append('\n');
+    write("s37_save_program_output", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {

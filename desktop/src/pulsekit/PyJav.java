@@ -152,6 +152,7 @@ final class PyJav {
         JScrollPane scroll = new JScrollPane(app.pyEditor);
         scroll.setBorder(BorderFactory.createLineBorder(BORDER));
         app.pyLog = new JTextArea(6, 40);
+        SaveText.attach(app, app.pyLog, () -> PyJavHints.resultsFileName(app.pyName));
         app.pyLog.setEditable(false);
         app.pyLog.setLineWrap(true);
         app.pyLog.setWrapStyleWord(true);

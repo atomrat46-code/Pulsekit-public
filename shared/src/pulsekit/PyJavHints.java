@@ -10,6 +10,18 @@ import java.util.zip.ZipInputStream;
 public final class PyJavHints {
   private PyJavHints() {}
 
+  /** File name for saving a program's output, such as "CompareHits_test_results.txt". */
+  public static String resultsFileName(String program) {
+    String n = program == null ? "" : program.trim();
+    int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+    if (slash >= 0) n = n.substring(slash + 1);
+    int dot = n.lastIndexOf('.');
+    if (dot > 0) n = n.substring(0, dot);
+    n = n.replaceAll("[^A-Za-z0-9._-]+", "_");
+    if (n.length() == 0) n = "PyJav";
+    return n + "_test_results.txt";
+  }
+
   public static String status(String name, String source, byte[] bytes) {
     String found = suggest(name, source, bytes);
     String label = name == null || name.length() == 0 ? "program" : name;

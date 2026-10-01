@@ -72,6 +72,7 @@ final class CompareHitsPage {
         this.result.setTypeface(Typeface.MONOSPACE);
         this.result.setTextColor(FG);
         this.result.setTag("compare-result");
+        SaveText.attach(app, this.result, () -> "CompareHits_test_results.txt");
         HorizontalScrollView wide = new HorizontalScrollView(app);
         wide.addView(this.result);
         body.addView(wide);

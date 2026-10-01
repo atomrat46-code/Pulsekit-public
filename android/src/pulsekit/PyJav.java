@@ -397,6 +397,7 @@ final class PyJav {
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
+        SaveText.attach(app, this.pkPyLog, () -> pulsekit.PyJavHints.resultsFileName(app.pyName));
         app.pyPane.addView(this.pkPyLog, slot);
     }
 
