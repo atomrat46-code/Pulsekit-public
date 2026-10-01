@@ -623,6 +623,7 @@ extends JFrame {
         this.pageHost.add((Component)this.buildPromptsPage(), "prompts");
         this.pageHost.add((Component)this.buildInfoPage(), "fsetinfo");
         this.pageHost.add((Component)this.buildHelpPage(), "help");
+        this.pageHost.add((Component)this.buildDrumMidiPage(), "midisettings");
         jPanel9.add((Component)this.pageHost, "Center");
         jPanel6.add((Component)jPanel9, "Center");
         jPanel.add((Component)jPanel6, "Center");
@@ -696,10 +697,13 @@ extends JFrame {
             imp.addActionListener(e -> this.showView("import"));
             JMenuItem exp = new JMenuItem("Export");
             exp.addActionListener(e -> this.showView("export"));
+            JMenuItem midi = new JMenuItem("Drum Midi Settings");
+            midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem help = new JMenuItem("Help-Desktop");
             help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
+            menu.add(midi);
             menu.add(help);
             menu.show(jButton, 0, jButton.getHeight());
         });
@@ -1715,6 +1719,127 @@ extends JFrame {
             text.setAlignmentX(0.0f);
             col.add(text);
         }
+        JPanel page = new JPanel(new BorderLayout());
+        page.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(col);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        page.add(scroll, BorderLayout.CENTER);
+        return page;
+    }
+
+    private File drumMidiFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "drum-midi-settings.txt");
+    }
+
+    private void saveDrumMidi() {
+        try {
+            File f = this.drumMidiFile();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), MidiImportSettings.encode().getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // settings stay for this session
+        }
+    }
+
+    private JCheckBox drumMidiCheck(JPanel col, String label, String note, boolean on, java.util.function.Consumer<Boolean> set) {
+        col.add(Box.createVerticalStrut(12));
+        JCheckBox box = new JCheckBox(label, on);
+        box.setOpaque(false);
+        box.setForeground(FG);
+        box.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        box.setAlignmentX(0.0f);
+        box.addActionListener(e -> {
+            set.accept(box.isSelected());
+            this.saveDrumMidi();
+        });
+        col.add(box);
+        JLabel sub = new JLabel("<html><body style='width:480px'>" + note + "</body></html>");
+        sub.setForeground(MUTED);
+        sub.setBorder(BorderFactory.createEmptyBorder(0, 24, 0, 0));
+        sub.setAlignmentX(0.0f);
+        col.add(sub);
+        return box;
+    }
+
+    /** File > Drum Midi Settings: how a MIDI drum track becomes a file set on import. */
+    private JPanel buildDrumMidiPage() {
+        try {
+            File f = this.drumMidiFile();
+            MidiImportSettings.decode(f.isFile() ? new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : null);
+        } catch (Exception ex) {
+            MidiImportSettings.reset();
+        }
+        JPanel col = new JPanel();
+        col.setOpaque(false);
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(BorderFactory.createEmptyBorder(4, 4, 16, 4));
+        JLabel title = new JLabel("Drum Midi Settings");
+        title.setFont(new Font("SansSerif", Font.BOLD, 20));
+        title.setForeground(FG);
+        title.setAlignmentX(0.0f);
+        col.add(title);
+        JLabel lead = new JLabel("<html><body style='width:520px'>How a MIDI drum track, such as DrumMidi output, becomes patterns, "
+            + "fills and a song when it is imported. Changes apply to the next import.</body></html>");
+        lead.setForeground(MUTED);
+        lead.setAlignmentX(0.0f);
+        col.add(Box.createVerticalStrut(6));
+        col.add(lead);
+        JCheckBox written = this.drumMidiCheck(col, "Keep the notes as written",
+            "No style, swing, humanize or generated fills. Off: Pulsekit guesses a style and adds its feel and fills.",
+            MidiImportSettings.asWritten, on -> MidiImportSettings.asWritten = on);
+        JCheckBox merge = this.drumMidiCheck(col, "Merge hits",
+            "Bars that differ by only a few hits become one pattern. The source MIDI still plays as recorded.",
+            MidiImportSettings.mergeBars, on -> MidiImportSettings.mergeBars = on);
+        JPanel hitsRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        hitsRow.setOpaque(false);
+        hitsRow.setAlignmentX(0.0f);
+        hitsRow.setBorder(BorderFactory.createEmptyBorder(0, 18, 0, 0));
+        JButton minus = this.chip("\u2212", false);
+        JButton plus = this.chip("+", false);
+        JLabel hits = new JLabel();
+        hits.setForeground(FG);
+        Runnable paintHits = () -> hits.setText("Merge up to " + MidiImportSettings.mergeHits + (MidiImportSettings.mergeHits == 1 ? " hit" : " hits"));
+        paintHits.run();
+        minus.addActionListener(e -> {
+            MidiImportSettings.mergeHits = MidiImportSettings.clampHits(MidiImportSettings.mergeHits - 1);
+            paintHits.run();
+            this.saveDrumMidi();
+        });
+        plus.addActionListener(e -> {
+            MidiImportSettings.mergeHits = MidiImportSettings.clampHits(MidiImportSettings.mergeHits + 1);
+            paintHits.run();
+            this.saveDrumMidi();
+        });
+        hitsRow.add(minus);
+        hitsRow.add(hits);
+        hitsRow.add(plus);
+        hitsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        col.add(hitsRow);
+        JCheckBox fills = this.drumMidiCheck(col, "Treat a one-off bar after a repeated groove as a fill",
+            "Off: every bar is a pattern and the import makes no fills or Fillerns.",
+            MidiImportSettings.oneOffFills, on -> MidiImportSettings.oneOffFills = on);
+        JCheckBox reuse = this.drumMidiCheck(col, "Reuse a pattern when the same bar comes back",
+            "Off: each section gets its own pattern, even when the notes repeat.",
+            MidiImportSettings.reuseBars, on -> MidiImportSettings.reuseBars = on);
+        JCheckBox silent = this.drumMidiCheck(col, "Keep silent bars as rests",
+            "Off: silent bars are dropped and the song closes up around them.",
+            MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on);
+        col.add(Box.createVerticalStrut(16));
+        JButton reset = this.outline("Reset to defaults", false);
+        reset.setAlignmentX(0.0f);
+        reset.addActionListener(e -> {
+            MidiImportSettings.reset();
+            this.saveDrumMidi();
+            written.setSelected(MidiImportSettings.asWritten);
+            merge.setSelected(MidiImportSettings.mergeBars);
+            fills.setSelected(MidiImportSettings.oneOffFills);
+            reuse.setSelected(MidiImportSettings.reuseBars);
+            silent.setSelected(MidiImportSettings.keepSilent);
+            paintHits.run();
+        });
+        col.add(reset);
         JPanel page = new JPanel(new BorderLayout());
         page.setOpaque(false);
         JScrollPane scroll = new JScrollPane(col);
@@ -3897,7 +4022,7 @@ extends JFrame {
         boolean groove = pattern || combo;
         boolean bl2 = "song".equals(string);
         boolean bl3 = "py".equals(string);
-        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string);
+        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string);
         boolean prompts = "prompts".equals(string);
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
@@ -3960,6 +4085,9 @@ extends JFrame {
         if ("help".equals(string)) {
             this.setNow("Help");
         }
+        if ("midisettings".equals(string)) {
+            this.setNow("Drum Midi Settings");
+        }
         if ("import".equals(string)) {
             this.setNow("Choose a MIDI, song, WAV or SoundFont");
         }
@@ -3986,7 +4114,7 @@ extends JFrame {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
-                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)));
+                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
         }
@@ -5702,7 +5830,7 @@ extends JFrame {
         for (Engine.Learned p : set.patterns) {
             Engine.Learned item = new Engine.Learned();
             item.id = Engine.newLearnedId();
-            item.name = Engine.uniqueLearnedName(p.name, this.learned);
+            item.name = Engine.uniqueLearnedName(p.name, Engine.learnedFrom(this.learned, source));
             item.bpm = p.bpm;
             item.closest = p.closest;
             item.cells = Engine.copyCells(p.cells);
@@ -5716,7 +5844,7 @@ extends JFrame {
         for (Engine.LearnedFill f : set.fills) {
             Engine.LearnedFill item = new Engine.LearnedFill();
             item.id = Engine.newLearnedId();
-            item.name = Engine.uniqueFillName(f.name == null || f.name.isEmpty() ? "fill" : f.name, this.learnedFills);
+            item.name = Engine.uniqueFillName(f.name == null || f.name.isEmpty() ? "fill" : f.name, Engine.fillsFrom(this.learnedFills, source));
             item.kind = f.kind == null ? "toms" : f.kind;
             item.cells = Engine.copyCells(f.cells);
             item.source = source;

@@ -830,6 +830,8 @@ public class MainActivity extends UiKit {
 
     android.widget.LinearLayout helpPane;
 
+    android.widget.LinearLayout drumMidiPane;
+
     android.widget.LinearLayout infoPane;
 
     android.widget.TextView infoStatus;
@@ -856,6 +858,7 @@ public class MainActivity extends UiKit {
     final PyJav pyJav = new PyJav(this);
     final ProgramMenus programMenus = new ProgramMenus(this);
     final HelpPage helpPage = new HelpPage(this);
+    final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
 
 
     void showFileMenu(View anchor) {
@@ -870,11 +873,15 @@ public class MainActivity extends UiKit {
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
+        midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
         android.widget.TextView help = this.text("Help-Android", 14, true);
         help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         help.setTextColor("help".equals(this.view) ? FG : MUTED);
         menu.addView(imp);
         menu.addView(exp);
+        menu.addView(midi);
         menu.addView(help);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
@@ -883,6 +890,7 @@ public class MainActivity extends UiKit {
         pop.setElevation((float) this.dp(8));
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
+        midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
@@ -894,7 +902,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }
@@ -904,6 +912,7 @@ public class MainActivity extends UiKit {
         View root = this.buildUiBase();
         this.pyJav.wirePrompts();
         this.helpPage.wire();
+        this.drumMidiSettings.wire();
         this.fileSets.wireInfoPane();
         this.fileSets.loadPersistedFsetInfo();
         return root;
@@ -915,9 +924,14 @@ public class MainActivity extends UiKit {
         boolean info = "fsetinfo".equals(this.view);
         boolean pr = "prompts".equals(this.view);
         boolean help = "help".equals(this.view);
+        boolean midi = "midisettings".equals(this.view);
         if (this.helpPane != null) {
             this.helpPane.setVisibility(help ? 0 : 8);
             if (help) this.helpPane.bringToFront();
+        }
+        if (this.drumMidiPane != null) {
+            this.drumMidiPane.setVisibility(midi ? 0 : 8);
+            if (midi) this.drumMidiPane.bringToFront();
         }
         if (this.infoPane != null) {
             this.infoPane.setVisibility(info ? 0 : 8);
@@ -927,7 +941,7 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr || help) {
+        if (info || pr || help || midi) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -940,7 +954,9 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (help) {
+            if (midi) {
+                this.setNow("Drum Midi Settings");
+            } else if (help) {
                 this.setNow("Help");
             } else if (pr) {
                 this.setNow("Prompts");

@@ -485,7 +485,7 @@ public final class AudioIo {
       // A silent bar from a file is a rest in the song, not an empty pattern.
       if (source && "rest".equals(p.kind) && (p.cells == null || Engine.hitCount(p.cells) < 1)) continue;
       int[][] gp = restyle ? composedGroove(p, i) : (source ? sourceCells(p) : grooveCells(p));
-      if (source) {
+      if (source && MidiImportSettings.reuseBars) {
         // A bar that comes back is the same pattern or fill, not a new one each time.
         boolean isFill = "fill".equals(p.kind);
         String seen = (isFill ? fillBySig : patBySig).get(Engine.patternSignature(gp));
@@ -836,8 +836,8 @@ public final class AudioIo {
   }
 
   private static boolean sourceOrigin(String origin) {
-    return "midi".equals(origin) || "program".equals(origin)
-        || "analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin);
+    if ("midi".equals(origin) || "program".equals(origin)) return MidiImportSettings.asWritten;
+    return "analyze".equals(origin) || "isolate".equals(origin) || "compose".equals(origin);
   }
 
   private static int[][] sourceCells(TrackPart p) {

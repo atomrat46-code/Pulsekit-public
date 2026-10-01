@@ -496,7 +496,7 @@ final class ImportLibrary {
         for (Engine.Learned object2 : fileSet.patterns) {
             Engine.Learned copy = new Engine.Learned();
             copy.id = Engine.newLearnedId();
-            copy.name = Engine.uniqueLearnedName(object2.name, app.learned);
+            copy.name = Engine.uniqueLearnedName(object2.name, Engine.learnedFrom(app.learned, string2));
             copy.bpm = object2.bpm;
             copy.closest = object2.closest;
             copy.cells = Engine.copyCells(object2.cells);
@@ -513,7 +513,7 @@ final class ImportLibrary {
         for (Engine.LearnedFill learnedFill : fileSet.fills) {
             Engine.LearnedFill copy = new Engine.LearnedFill();
             copy.id = Engine.newLearnedId();
-            copy.name = Engine.uniqueFillName(learnedFill.name == null || learnedFill.name.isEmpty() ? "fill" : learnedFill.name, app.learnedFills);
+            copy.name = Engine.uniqueFillName(learnedFill.name == null || learnedFill.name.isEmpty() ? "fill" : learnedFill.name, Engine.fillsFrom(app.learnedFills, string2));
             copy.kind = learnedFill.kind == null || learnedFill.kind.isEmpty() ? "toms" : learnedFill.kind;
             copy.cells = Engine.copyCells(learnedFill.cells);
             copy.source = string2;

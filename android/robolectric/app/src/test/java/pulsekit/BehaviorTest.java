@@ -46,6 +46,7 @@ public class BehaviorTest {
     // File-set state is static; start each scenario without what an earlier one imported.
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
+    MidiImportSettings.reset();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
@@ -71,7 +72,7 @@ public class BehaviorTest {
   @Test
   public void s02_views() throws Exception {
     StringBuilder all = new StringBuilder();
-    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo", "help"}) {
+    for (String v : new String[] {"pattern", "combo", "fills", "pads", "song", "py", "import", "export", "prompts", "fsetinfo", "help", "midisettings"}) {
       call("show", v);
       idle();
       all.append("### ").append(v).append('\n').append(state()).append(tree(root(), 0));
@@ -332,7 +333,44 @@ public class BehaviorTest {
 
   @Test
   public void s18_program_midi_kept_as_written_merged() throws Exception {
-    // A detected drum track: 64 bars that each differ a little, with two silent bars.
+    write("s18_program_midi", importStats(detectedMidi(), "Passing Ships"));
+  }
+
+  @Test
+  public void s19_drum_midi_settings() throws Exception {
+    TextView file = findText(root(), "File");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView item = findText(pop.getContentView(), "Drum Midi Settings");
+    if (item == null) throw new AssertionError("no Drum Midi Settings item");
+    item.performClick();
+    idle();
+    StringBuilder out = new StringBuilder();
+    out.append("view=").append(get("view")).append('\n');
+    View page = (View) get("drumMidiPane");
+    out.append("page shown=").append(page != null && page.isShown()).append('\n');
+    // Merge more, and no one-off fills.
+    ((android.widget.CheckBox) findText(page, "Treat a one-off bar after a repeated groove as a fill")).performClick();
+    TextView plus = findText(page, "+");
+    plus.performClick();
+    plus.performClick();
+    idle();
+    out.append("settings:\n").append(MidiImportSettings.encode());
+    out.append(importStats(detectedMidi(), "Detected"));
+    // Merging off.
+    call("show", "midisettings");
+    idle();
+    ((android.widget.CheckBox) findText((View) get("drumMidiPane"), "Merge hits")).performClick();
+    idle();
+    out.append("merge off:\n").append(importStats(detectedMidi(), "Unmerged"));
+    String stored = app.getSharedPreferences("pulsekit-drum-midi", 0).getString("settings", "");
+    out.append("stored=").append(stored.replace('\n', ' ')).append('\n');
+    write("s19_drum_midi_settings", out.toString() + tree(root(), 0));
+  }
+
+  /** A detected drum track: 64 bars that each differ a little, with two silent bars. */
+  private byte[] detectedMidi() {
     java.util.Random rng = new java.util.Random(7);
     int[][] base = Engine.styleCells(Engine.styles().get("rock"));
     List<Engine.Part> parts = new ArrayList<>();
@@ -343,7 +381,12 @@ public class BehaviorTest {
       parts.add(Engine.groove("b" + b, 121, cells, 1));
     }
     byte[] midi = Engine.encodeSongMidi(parts);
-    call("pkImportProgramMidi", midi, "Passing Ships.mid");
+    return midi;
+  }
+
+  /** Import a MIDI as program output, decline the song, and count what the file set holds. */
+  private String importStats(byte[] midi, String name) throws Exception {
+    call("pkImportProgramMidi", midi, name + ".mid");
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     if (d != null && d.isShowing()) {
@@ -352,7 +395,7 @@ public class BehaviorTest {
     }
     Engine.MidiBars parsed = Engine.parseMidiBars(midi);
     // Bars a hit or two apart are merged on import; the song must follow the merged bars.
-    List<int[][]> merged = Engine.mergeNearBars(parsed.bars, Engine.MERGE_HITS);
+    List<int[][]> merged = Engine.mergeNearBars(parsed.bars, MidiImportSettings.mergeLimit());
     java.util.Set<String> barSigs = new java.util.HashSet<>();
     int changedHits = 0;
     for (int i = 0; i < merged.size(); i++) {
@@ -366,14 +409,14 @@ public class BehaviorTest {
     List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
     int pats = 0, patsFromFile = 0, styled = 0;
     for (Engine.Learned l : learned) {
-      if (!"Passing Ships".equals(l.source)) continue;
+      if (!name.equals(l.source)) continue;
       pats++;
       if (barSigs.contains(Engine.patternSignature(l.cells))) patsFromFile++;
       if (l.closest != null && !l.closest.isEmpty()) styled++;
     }
     int fillCount = 0, fillsFromFile = 0;
     for (Engine.LearnedFill f : fills) {
-      if (!"Passing Ships".equals(f.source)) continue;
+      if (!name.equals(f.source)) continue;
       fillCount++;
       if (barSigs.contains(Engine.patternSignature(f.cells))) fillsFromFile++;
     }
@@ -383,10 +426,10 @@ public class BehaviorTest {
     out.append("swing=").append(call("swing")).append(" human=").append(call("human")).append('\n');
     @SuppressWarnings("unchecked")
     Map<String, String> fillerns = (Map<String, String>) get("fillernPairs");
-    Engine.FileSet set = Engine.collectFset("Passing Ships", "Passing Ships", learned, fills, fillerns);
+    Engine.FileSet set = Engine.collectFset(name, name, learned, fills, fillerns);
     call("ensureFsetInfoMap");
     @SuppressWarnings("unchecked")
-    List<Engine.FileSetPart> stored = (List<Engine.FileSetPart>) ((Map<String, Object>) get("fsetInfoMap")).get("Passing Ships");
+    List<Engine.FileSetPart> stored = (List<Engine.FileSetPart>) ((Map<String, Object>) get("fsetInfoMap")).get(name);
     if (stored != null && !stored.isEmpty()) {
       set.parts.clear();
       set.parts.addAll(stored);
@@ -400,7 +443,7 @@ public class BehaviorTest {
       if (song.get(i).equals(Engine.patternSignature(merged.get(i)))) inPlace++;
     }
     out.append("song bars=").append(song.size()).append(" in place=").append(inPlace).append('\n');
-    write("s18_program_midi", out.toString());
+    return out.toString();
   }
 
   /** Tap a PyJav menu button and choose an entry in the list dialog it opens. */

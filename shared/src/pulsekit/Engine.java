@@ -413,6 +413,19 @@ public final class Engine {
     return 18;
   }
 
+  /** Patterns of one file set. Names need only be unique there: its song finds parts by name. */
+  public static List<Learned> learnedFrom(List<Learned> list, String source) {
+    List<Learned> out = new ArrayList<Learned>();
+    if (list != null) for (Learned x : list) if (source != null && source.equals(sourceOf(x))) out.add(x);
+    return out;
+  }
+
+  public static List<LearnedFill> fillsFrom(List<LearnedFill> list, String source) {
+    List<LearnedFill> out = new ArrayList<LearnedFill>();
+    if (list != null) for (LearnedFill x : list) if (source != null && source.equals(sourceOf(x))) out.add(x);
+    return out;
+  }
+
   public static String uniqueFillName(String base, List<LearnedFill> list) {
     String stem = base == null || base.isEmpty() ? "Var" : base.trim();
     if (stem.length() > 22) stem = stem.substring(0, 22);
@@ -1626,9 +1639,6 @@ public final class Engine {
     return false;
   }
 
-  /** On import, bars that differ by this many hits or fewer become one pattern. */
-  public static final int MERGE_HITS = 2;
-
   /** Steps where one bar has a hit and the other does not. Velocity is ignored. */
   public static int hitDiff(int[][] a, int[][] b) {
     int n = 0;
@@ -1692,7 +1702,7 @@ public final class Engine {
   public static List<MidiSeg> segmentMidiBars(List<int[][]> bars) {
     List<MidiSeg> out = new ArrayList<>();
     if (bars == null || bars.isEmpty()) return out;
-    bars = mergeNearBars(bars, MERGE_HITS);
+    bars = mergeNearBars(bars, MidiImportSettings.mergeLimit());
     Map<String, Integer> freq = new LinkedHashMap<>();
     for (int[][] b : bars) {
       String s = patternSignature(b);
@@ -1702,6 +1712,10 @@ public final class Engine {
     int i = 0;
     while (i < bars.size()) {
       int[][] groove = bars.get(i);
+      if (hitCount(groove) < 1 && !MidiImportSettings.keepSilent) {
+        i++;
+        continue;
+      }
       if (hitCount(groove) < 1) {
         // Silent bars stay in the song, so what follows keeps its place.
         int rest = 1;
@@ -1717,7 +1731,7 @@ public final class Engine {
       String gsig = patternSignature(groove);
       int run = runLength(bars, i);
       int nextIdx = i + run;
-      if (nextIdx < bars.size()) {
+      if (nextIdx < bars.size() && MidiImportSettings.oneOffFills) {
         int[][] fill = bars.get(nextIdx);
         int nrun = runLength(bars, nextIdx);
         Integer nf = freq.get(patternSignature(fill));
