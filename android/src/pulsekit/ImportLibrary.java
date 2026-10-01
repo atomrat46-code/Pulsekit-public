@@ -196,10 +196,10 @@ final class ImportLibrary {
         }
         ArrayList<Engine.Part> arrayList = new ArrayList<Engine.Part>();
         for (Engine.MidiSeg midiSeg : list) {
-            if (arrayList.size() >= 24) break;
+            if (arrayList.size() >= Engine.MAX_SONG) break;
             Engine.Learned object2 = linkedHashMap.get(Engine.patternSignature(midiSeg.groove));
             arrayList.add(Engine.groove(object2 != null ? object2.name : string2, midiBars.bpm, midiSeg.groove, midiSeg.grooveRepeats));
-            if (midiSeg.fill == null || arrayList.size() >= 24) continue;
+            if (midiSeg.fill == null || arrayList.size() >= Engine.MAX_SONG) continue;
             Engine.LearnedFill object = linkedHashMap2.get(Engine.patternSignature(midiSeg.fill));
             arrayList.add(Engine.fill(object != null ? object.name : "fill", midiBars.bpm, midiSeg.fill, 1));
         }

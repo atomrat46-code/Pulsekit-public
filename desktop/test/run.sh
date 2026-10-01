@@ -10,7 +10,12 @@ rm -rf build/classes "$OUT"
 mkdir -p build/classes "$OUT"
 javac -nowarn -cp "$JAR" -d build/classes pulsekit/DesktopBehavior.java
 if [ -z "$DISPLAY" ]; then
-  if [ ! -e /tmp/.X93-lock ]; then Xvfb :93 -screen 0 1400x1000x24 >/dev/null 2>&1 & sleep 2; fi
+  # Start Xvfb unless one is running on :93 (a lock file alone may be left from a stopped one).
+  if ! { [ -e /tmp/.X93-lock ] && kill -0 "$(tr -d ' ' < /tmp/.X93-lock)" 2>/dev/null; }; then
+    rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
+    Xvfb :93 -screen 0 1400x1000x24 >/dev/null 2>&1 &
+    sleep 2
+  fi
   export DISPLAY=:93
 fi
 SCENARIOS=$(grep -o 'void s[0-9][0-9a-z_]*()' pulsekit/DesktopBehavior.java | sed 's/void //; s/()//')

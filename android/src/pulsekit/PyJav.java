@@ -35,7 +35,19 @@ final class PyJav {
 
     /** Builds the PyJav page and its editor. pkWirePyJav adds the run controls later. */
     void buildPyPane(FrameLayout frameLayout) {
-        app.pyPane = app.col();
+        // The page scrolls, so a long argument line or output never pushes Params and Run off screen.
+        // The pane shows and hides its scroll view with it.
+        final android.widget.ScrollView scroll = new android.widget.ScrollView((Context)app);
+        scroll.setFillViewport(true);
+        scroll.setTag("py-scroll");
+        app.pyPane = new android.widget.LinearLayout((Context)app) {
+            @Override
+            public void setVisibility(int visibility) {
+                super.setVisibility(visibility);
+                scroll.setVisibility(visibility);
+            }
+        };
+        app.pyPane.setOrientation(1);
         app.pyPane.setVisibility(8);
         app.pyPane.addView((View)app.text("PyJav", 18, true));
         app.pyEditor = new EditText((Context)app);
@@ -47,8 +59,18 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
-        app.pyPane.addView((View)app.pyEditor, (ViewGroup.LayoutParams)app.flexFill());
-        frameLayout.addView((View)app.pyPane);
+        // A fixed height that scrolls inside, so a long program does not make the page long.
+        app.pyEditor.setVerticalScrollBarEnabled(true);
+        app.pyEditor.setOnTouchListener((v, ev) -> {
+            if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
+            if (ev.getActionMasked() == android.view.MotionEvent.ACTION_UP || ev.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+                v.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            return false;
+        });
+        app.pyPane.addView((View)app.pyEditor, new android.widget.LinearLayout.LayoutParams(-1, app.dp(360)));
+        scroll.addView((View)app.pyPane, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        frameLayout.addView((View)scroll);
     }
 
     boolean pkPyWired;
@@ -282,6 +304,10 @@ final class PyJav {
     public void pkApplyRecent(int index) {
         if (this.pkPyRecentMute || this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
         pulsekit.PyJavRecent.Item item = (pulsekit.PyJavRecent.Item) this.pkPyRecentItems.get(index - 1);
+        // A bundled program (Programs/Java or Python) runs as the app ships it now, not the copy
+        // saved when it last ran, so fixes reach programs picked from Recent.
+        String bundled = item.bytes == null || item.bytes.length == 0 ? app.programMenus.bundledSource(item.name) : null;
+        String source = bundled != null ? bundled : item.source;
         app.pyName = item.name;
         this.pkPyInputPath = null;
         boolean binary = item.bytes != null && item.bytes.length > 0;
@@ -291,7 +317,7 @@ final class PyJav {
         if (app.pyEditor != null) {
             if (binary) app.pyEditor.setText("// " + item.name + "\n// Binary. Run uses this file.\n");
             else {
-                String text = item.source == null ? "" : item.source;
+                String text = source == null ? "" : source;
                 if (item.name != null && item.name.toLowerCase().endsWith(".prompt")) {
                     pulsekit.PromptRun.Sheet sheet = pulsekit.PromptRun.parse(text);
                     app.pkPromptSource = text;
@@ -305,7 +331,7 @@ final class PyJav {
         }
         this.pkShowPromptModes();
         app.setNow("PyJav · " + item.label());
-        String hint = pulsekit.PyJavHints.status(item.name, item.source, item.bytes);
+        String hint = pulsekit.PyJavHints.status(item.name, source, item.bytes);
         this.pkApplyHint(hint);
         // The hint fills args from the program's usage; the recent item's own args win.
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
@@ -371,6 +397,7 @@ final class PyJav {
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
+        SaveText.attach(app, this.pkPyLog, () -> pulsekit.PyJavHints.resultsFileName(app.pyName));
         app.pyPane.addView(this.pkPyLog, slot);
     }
 
@@ -464,9 +491,9 @@ final class PyJav {
         if (this.pkPyHint != null) this.pkPyHint.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport : "Running…");
         app.setNow("Running…");
         String name = app.pyName == null ? "script.py" : app.pyName;
-        extra = pulsekit.PyJavParams.merge(extra, pulsekit.PyJavParams.load(app, name));
         String listed = app.programMenus.sourceToRun();
         String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
+        extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, pulsekit.PyJavParams.load(app, name));
         src = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, src);
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();
@@ -535,7 +562,30 @@ final class PyJav {
     public void pkOpenParams() {
         java.lang.String name = app.pyName == null ? "DrumMidi" : app.pyName;
         java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
-        pulsekit.PyJavParams.open(app, name, extra);
+        pulsekit.PyJavParams.open(app, name, extra, this.pkProgramText());
+    }
+
+    /** The loaded program's text, for its parameters: the listed program, the editor, or a .class/.jar's strings. */
+    String pkProgramText() {
+        String listed = app.programMenus.sourceToRun();
+        String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
+        return pulsekit.PyJavHints.programText(app.pyName, src, app.pkPyBytes);
+    }
+
+    /** Params' argument line; a new input file also becomes PyJav's input, so the output is named after it. */
+    public void pkSetPyLine(java.lang.String line, java.lang.String input) {
+        if (input != null && input.length() > 0) this.pkUseInputPath(input);
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(line);
+        app.setNow("Params saved");
+    }
+
+    /** A file picked on the Params screen, copied into PyJav's input folder. */
+    public void pkTakeParamFile(android.net.Uri uri) {
+        try {
+            pulsekit.PyJavParams.filePicked(this.pkCopyInputFile(uri));
+        } catch (Exception ex) {
+            app.setNow("Could not open that file");
+        }
     }
 
     public void pkSyncTransport() {
@@ -896,6 +946,16 @@ final class PyJav {
 
     public void pkTakeInputFile(android.net.Uri uri) {
         try {
+            this.pkUseInputPath(this.pkCopyInputFile(uri));
+        } catch (Exception ex) {
+            String m = ex.getMessage();
+            if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
+        }
+    }
+
+    /** Copies a picked file into PyJav's input folder and returns its path. */
+    String pkCopyInputFile(android.net.Uri uri) throws Exception {
+        {
             String name = null;
             android.database.Cursor cursor = app.getContentResolver().query(uri, null, null, null, null);
             if (cursor != null) {
@@ -921,10 +981,7 @@ final class PyJav {
                 int n;
                 while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
             } finally { fos.close(); in.close(); }
-            this.pkUseInputPath(out.getAbsolutePath());
-        } catch (Exception ex) {
-            String m = ex.getMessage();
-            if (this.pkPyLog != null) this.pkPyLog.setText(m != null ? m : "Could not open that input file");
+            return out.getAbsolutePath();
         }
     }
 

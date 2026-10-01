@@ -311,6 +311,59 @@ public final class AudioIo {
     return out;
   }
 
+  /**
+   * A song as heard, for Song WAV / Song MP3 export: every part in turn at its own tempo and
+   * length, with hits ringing on into the next part. The audio is exactly as long as the song:
+   * steps sit at their exact times, and the last few milliseconds fade out instead of clicking.
+   * Muted tracks are left out.
+   */
+  public static short[] renderSong(java.util.List<Engine.Part> parts, boolean[] mutes, short[][] voices, int sr) {
+    if (parts == null || parts.isEmpty()) return new short[0];
+    double length = 0;
+    for (Engine.Part p : parts) {
+      if (p == null) continue;
+      length += songStepSamples(p, sr) * songPartSteps(p) * Math.max(1, p.repeats);
+    }
+    int total = (int) Math.min(Integer.MAX_VALUE - 8, Math.round(length));
+    int[] acc = new int[total];
+    double pos = 0;
+    for (Engine.Part p : parts) {
+      if (p == null) continue;
+      double stepN = songStepSamples(p, sr);
+      int nSteps = songPartSteps(p);
+      for (int r = 0; r < Math.max(1, p.repeats); r++) {
+        for (int s = 0; s < nSteps; s++, pos += stepN) {
+          long at = Math.round(pos);
+          for (int t = 0; t < Engine.TRACK_ID.length; t++) {
+            if (mutes != null && t < mutes.length && mutes[t]) continue;
+            int vel = p.cells != null && t < p.cells.length && p.cells[t] != null && s < p.cells[t].length ? p.cells[t][s] : 0;
+            if (vel <= 0) continue;
+            short[] v = voices != null && t < voices.length ? voices[t] : null;
+            if (v == null) continue;
+            double g = vel / 127.0;
+            for (int i = 0; i < v.length && at + i < total; i++) acc[(int) (at + i)] += (int) (v[i] * g);
+          }
+        }
+      }
+    }
+    int fade = Math.min(total, Math.max(1, sr / 100));
+    short[] pcm = new short[total];
+    for (int i = 0; i < total; i++) {
+      int v = acc[i];
+      if (i >= total - fade) v = (int) ((long) v * (total - i) / (fade + 1));
+      pcm[i] = (short) Math.max(-32767, Math.min(32767, v));
+    }
+    return pcm;
+  }
+
+  private static double songStepSamples(Engine.Part p, int sr) {
+    return Math.max(200.0, sr * 60.0 / Math.max(40, p.bpm > 0 ? p.bpm : 120) / 4.0);
+  }
+
+  private static int songPartSteps(Engine.Part p) {
+    return Math.max(1, Math.min(Engine.MAX_STEPS, p.steps > 0 ? p.steps : Engine.STEPS));
+  }
+
   /** Drum hits in a MIDI file, one bar at a time, rendered with the kit voices. */
   public static short[] renderMidiDrums(byte[] midi, short[][] voices, int sr) {
     Engine.MidiBars bars = Engine.parseMidiBars(midi);

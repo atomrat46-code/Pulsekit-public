@@ -51,6 +51,22 @@ final class ProgramMenus {
         return row;
     }
 
+    /** The current source of a bundled Java or Python program with this name, or null. */
+    String bundledSource(String name) {
+        if (name == null) return null;
+        for (String kind : new String[] {"Java", "Python"}) {
+            for (String n : this.list(kind)) {
+                if (!n.equals(name)) continue;
+                try {
+                    return new String(this.read(kind, n), StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
     /** File names in Programs/KIND, sorted. */
     String[] list(String kind) {
         try {

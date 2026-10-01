@@ -85,6 +85,12 @@ final class ProjectIo {
         linearLayout21.addView((View)app.action("SNG", ELEV, FG, view -> this.saveKind(9)), (ViewGroup.LayoutParams)app.flexBtn());
         linearLayout21.addView((View)app.action("Song MIDI", ELEV, FG, view -> this.saveKind(17)), (ViewGroup.LayoutParams)app.flexBtn());
         app.exportPane.addView((View)linearLayout21);
+        // The song's drum hits as audio, with the current drum set.
+        LinearLayout songAudio = app.row();
+        songAudio.setPadding(0, app.dp(8), 0, 0);
+        songAudio.addView((View)app.action("Song WAV", ELEV, FG, view -> this.saveKind(20)), (ViewGroup.LayoutParams)app.flexBtn());
+        songAudio.addView((View)app.action("Song MP3", ELEV, FG, view -> this.saveKind(21)), (ViewGroup.LayoutParams)app.flexBtn());
+        app.exportPane.addView((View)songAudio);
         app.exportPane.addView((View)app.hint("Python"));
         LinearLayout linearLayout22 = app.row();
         linearLayout22.addView((View)app.action("PY", ELEV, FG, view -> this.saveKind(14)), (ViewGroup.LayoutParams)app.flexBtn());
@@ -119,8 +125,12 @@ final class ProjectIo {
             intent.setType("audio/midi");
             List<Engine.Part> songParts = app.songEditor.songPartsForExport();
             intent.putExtra("android.intent.extra.TITLE", Engine.songFilename(songParts, app.songEditor.songFileSet(songParts)).replace(".sng", ".mid"));
+        } else if (n == 20 || n == 21) {
+            intent.setType(n == 20 ? "audio/x-wav" : "audio/mpeg");
+            List<Engine.Part> songParts = app.songEditor.songPartsForExport();
+            intent.putExtra("android.intent.extra.TITLE", Engine.songExportFilename(songParts, app.songEditor.songFileSet(songParts), n == 20 ? "wav" : "mp3"));
         } else if (n == 10) {
-            intent.setType("audio/wav");
+            intent.setType("audio/x-wav");
             intent.putExtra("android.intent.extra.TITLE", this.exportName("wav"));
         } else if (n == 11) {
             intent.setType("audio/mpeg");

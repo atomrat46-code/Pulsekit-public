@@ -322,10 +322,16 @@ public class BehaviorTest {
     // open something else, then pick the recent entry
     call("ingest", "print('x')".getBytes(StandardCharsets.UTF_8), "other.py", null);
     idle();
+    View list = box == null ? null : box.findViewWithTag("pk-recent-list");
+    out.append("list starts closed=").append(list != null && list.getVisibility() == View.GONE).append('\n');
+    box.findViewWithTag("pk-recent-toggle").performClick();
+    out.append("list opens=").append(list.getVisibility() == View.VISIBLE).append('\n');
     if (entry != null) {
       entry.performClick();
       idle();
     }
+    list = root().findViewWithTag("pk-recent-list");
+    out.append("list closes after pick=").append(list != null && list.getVisibility() == View.GONE).append('\n');
     out.append("after tap: pyName=").append(get("pyName")).append('\n');
     out.append("after tap: args restored=").append(used.equals(((TextView) get("pkPyArgs")).getText().toString())).append('\n');
     out.append("after tap: editor has DrumMidi=").append(((TextView) get("pyEditor")).getText().toString().contains("class DrumMidi_CRT")).append('\n');
@@ -839,6 +845,225 @@ public class BehaviorTest {
     idle();
     out.append("defaults: ").append(args.getText()).append('\n');
     write("s30_drummidi_params_resets", out.toString());
+  }
+
+  @Test
+  public void s31_song_audio_export() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "export");
+    idle();
+    for (String label : new String[] {"Song WAV", "Song MP3"}) {
+      findText(root(), label).performClick();
+      idle();
+      android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+      out.append(label).append(": ").append(save.getType()).append(' ').append(save.getStringExtra("android.intent.extra.TITLE")).append('\n');
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) call("songPartsForExport");
+    double sec = 0;
+    for (Engine.Part p : song) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    short[] pcm = (short[]) call("songPcm");
+    out.append("song ").append(String.format(java.util.Locale.ROOT, "%.2f", sec)).append(" s, audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
+    write("s31_song_audio_export", out.toString());
+  }
+
+  /** A long imported song (more than 24 parts) keeps every part through a restart and exports at full length. */
+  @Test
+  public void s32_long_song_survives_restart() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    for (int i = 0; i < 8; i++) {
+      parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+      parts.add(Engine.fill("toms", 121, 1));
+      parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+      parts.add(Engine.fill("snare", 121, 1));
+    }
+    call("ingest", Engine.encodeSongMidi(parts), "Long Song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> made = (List<Engine.Part>) call("songPartsForExport");
+    int madeBars = 0;
+    for (Engine.Part p : made) madeBars += p.repeats;
+    out.append("made: ").append(madeBars).append(" bars, more than 24 parts: ").append(made.size() > 24).append('\n');
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> kept = (List<Engine.ImportedSong>) get("importedSongs");
+    int keptBars = 0;
+    for (Engine.Part p : kept.get(0).parts) keptBars += p.repeats;
+    out.append("after restart: ").append(keptBars).append(" bars, same parts: ").append(kept.get(0).parts.size() == made.size()).append('\n');
+    double sec = 0;
+    for (Engine.Part p : kept.get(0).parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    short[] pcm = AudioIo.renderSong(kept.get(0).parts, null, AudioIo.buildVoices(22050), 22050);
+    out.append("audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
+    write("s32_long_song_survives_restart", out.toString());
+  }
+
+  /** File > Compare Hits: the song against the file set's MIDI, and both against a WAV of the song. */
+  @Test
+  public void s33_compare_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    Engine.stageSourceMidi(Engine.encodeSongMidi(parts), "Passing Ships.mid");
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "comparehits");
+    idle();
+    out.append("set chip: ").append(root().findViewWithTag("compare-set:Passing Ships") != null).append('\n');
+    CompareHitsPage page = (CompareHitsPage) get("compareHits");
+    page.pickedWav = AudioIo.encodeWav(AudioIo.renderSong(parts, null, AudioIo.buildVoices(44100), 44100), 44100);
+    page.pickedWavName = "song.wav";
+    page.paintWav();
+    out.append("wav: ").append(page.wavLabel.getText()).append('\n');
+    ((View) root().findViewWithTag("compare-run")).performClick();
+    TextView result = (TextView) root().findViewWithTag("compare-result");
+    for (int i = 0; i < 400 && result.getText().toString().startsWith("Comparing"); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    // The test WAV's drums are noise-based, so only the exact song-against-MIDI table is recorded.
+    String text = result.getText().toString();
+    int wavAt = text.indexOf("MIDI against WAV");
+    out.append(wavAt > 0 ? text.substring(0, wavAt).trim() : text).append('\n');
+    out.append("WAV tables: ").append(wavAt > 0 && text.contains("Song against WAV")).append('\n');
+    write("s33_compare_hits", out.toString());
+  }
+
+  /** Params reads the loaded program's Usage line: file buttons for .wav and .mid, text fields for the rest. */
+  @Test
+  public void s34_params_from_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CompareHits.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText()).append('\n');
+    out.append("page scrolls: ").append(root().findViewWithTag("py-scroll") instanceof android.widget.ScrollView).append('\n');
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("/x/in.wav");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"input.wav", "drums.mid", "song.mid"}) {
+      out.append(t).append(": button ").append(dv.findViewWithTag("params-file:" + t) != null)
+          .append(", chosen ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append('\n');
+    }
+    out.append("suggested button: ").append(dv.findViewWithTag("params-suggested") != null).append('\n');
+    dv.findViewWithTag("params-file:drums.mid").performClick();
+    android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("picker: ").append(pick.getAction()).append('\n');
+    PyJavParams.filePicked("/x/drums.mid");
+    out.append("drums.mid chosen: ").append(((TextView) dv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s34_params_from_program", out.toString());
+  }
+
+  /** A Recent entry for a bundled program loads the program as the app ships it, not the saved copy. */
+  @Test
+  public void s35_recent_uses_bundled_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    PyJavRecent.remember(app.getFilesDir(), "CompareHits.java", "a.wav d.mid", "// old copy with a lambda\n", null);
+    call("pkRefreshRecent", 0);
+    idle();
+    call("pkApplyRecent", 1);
+    idle();
+    String editor = ((TextView) get("pyEditor")).getText().toString();
+    out.append("editor has old copy=").append(editor.contains("old copy")).append('\n');
+    out.append("editor has bundled program=").append(editor.contains("public final class CompareHits")).append('\n');
+    out.append("args kept=").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s35_recent_uses_bundled_program", out.toString());
+  }
+
+  /** Params: a .mid can come from a file set's source MIDI, copied into PyJav's input folder. */
+  @Test
+  public void s36_params_midi_from_file_set() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    byte[] midi = Engine.encodeSongMidi(parts);
+    Engine.stageSourceMidi(midi, "Passing Ships.mid");
+    call("ingest", midi, "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CompareHits.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("/x/in.wav");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = params.getWindow().getDecorView();
+    out.append("button for drums.mid: ").append(dv.findViewWithTag("params-fileset:drums.mid") != null).append('\n');
+    out.append("button for input.wav: ").append(dv.findViewWithTag("params-fileset:input.wav") != null).append('\n');
+    dv.findViewWithTag("params-fileset:drums.mid").performClick();
+    idle();
+    AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("sets: ").append(list.getListView().getAdapter().getCount()).append(' ').append(list.getListView().getAdapter().getItem(0)).append('\n');
+    org.robolectric.Shadows.shadowOf(list).clickOnItem(0);
+    idle();
+    out.append("chosen: ").append(((TextView) dv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String line = args.getText().toString();
+    File copied = new File(app.getCacheDir(), "pyjav-in/Passing_Ships_source.mid");
+    out.append("args: ").append(line.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("copied file is the source MIDI: ").append(copied.isFile() && java.util.Arrays.equals(Files.readAllBytes(copied.toPath()), midi)).append('\n');
+    write("s36_params_midi_from_file_set", out.toString());
+  }
+
+  /** Long press on PyJav's output saves it as <program>_test_results.txt. */
+  @Test
+  public void s37_save_program_output() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CompareHits.java");
+    TextView log = (TextView) get("pkPyLog");
+    log.setText("Song against MIDI\nKick 271 261 188\nSucceeded: compared 3 files");
+    log.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("menu: ").append(menu.getListView().getAdapter().getItem(0)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("save: ").append(save.getAction()).append(' ').append(save.getType()).append(' ')
+        .append(save.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    File file = new File(app.getCacheDir(), "saved_results.txt");
+    android.content.Intent result = new android.content.Intent().setData(android.net.Uri.fromFile(file));
+    org.robolectric.Shadows.shadowOf(app).receiveResult(save, android.app.Activity.RESULT_OK, result);
+    idle();
+    out.append("written: ").append(file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).replace('\n', '|') : "nothing").append('\n');
+    write("s37_save_program_output", out.toString());
   }
 
   private void setField(String name, Object value) throws Exception {

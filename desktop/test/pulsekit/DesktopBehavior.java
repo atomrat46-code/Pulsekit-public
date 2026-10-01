@@ -225,6 +225,7 @@ public final class DesktopBehavior {
 
   void s15_params() throws Exception {
     call("showView", "py");
+    call("selectListedProgram", "Java", "DrumMidi_CRT.java");
     edt(() -> ((JTextField) get("pyExtra")).setText("in.wav out.mid --sens 2.0"));
     answers.add("Reset to suggested values");
     answers.add("OK");
@@ -247,6 +248,70 @@ public final class DesktopBehavior {
     out.append("timeline scrolled=").append(timeline.getVisibleRect().x > 0).append('\n');
     edt(() -> set("songPlay", Boolean.FALSE));
     snap("long song");
+  }
+
+  void s17_song_audio_export() throws Exception {
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("showView", "export");
+    answers.add("Save");
+    click("Song WAV");
+    answers.add("Save");
+    click("Song MP3");
+    File home = new File(System.getProperty("user.home"));
+    String[] names = home.list();
+    java.util.Arrays.sort(names);
+    for (String n : names) {
+      File f = new File(home, n);
+      if (!f.isFile()) continue;
+      byte[] b = Files.readAllBytes(f.toPath());
+      out.append("saved ").append(n).append(' ').append(b.length > 1000 ? "has audio" : "too small").append(' ')
+          .append(new String(b, 0, 4, StandardCharsets.ISO_8859_1).replaceAll("[^A-Za-z]", "?")).append('\n');
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> parts = (List<Engine.Part>) call("activeSong");
+    short[] pcm = (short[]) call("songPcm", parts);
+    double sec = 0;
+    for (Engine.Part p : parts) sec += p.repeats * p.steps * 15.0 / p.bpm;
+    out.append("song ").append(String.format("%.2f", sec)).append(" s, audio as long as the song: ").append(Math.abs(pcm.length / 22050.0 - sec) < 0.001).append('\n');
+  }
+
+  void s18_compare_hits() throws Exception {
+    answers.add("Yes");
+    Engine.stageSourceMidi(Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    call("showView", "comparehits");
+    idle();
+    out.append("set chips: ").append(((java.awt.Container) get("setsBox")).getComponentCount()).append('\n');
+    click("Compare");
+    javax.swing.JTextArea result = (javax.swing.JTextArea) get("result");
+    for (int i = 0; i < 200 && result.getText().startsWith("Comparing"); i++) Thread.sleep(50);
+    idle();
+    out.append(result.getText()).append('\n');
+  }
+
+  void s19_params_from_program() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CompareHits.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("/tmp/a.wav /tmp/d.mid"));
+    answers.add("OK");
+    call("openParams");
+    out.append("CompareHits args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+    call("selectListedProgram", "Python", "drum_midi.py");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--bpm 100"));
+    answers.add("OK");
+    call("openParams");
+    out.append("drum_midi.py args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+  }
+
+  void s20_save_program_output() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CompareHits.java");
+    out.append("name: ").append(PyJavHints.resultsFileName((String) get("pyName"))).append('\n');
+    answers.add("Save");
+    edt(() -> SaveText.save((Pulsekit) frame, PyJavHints.resultsFileName((String) get("pyName")), "Kick 271 261 188\nSucceeded"));
+    File saved = new File(System.getProperty("user.home"), "CompareHits_test_results.txt");
+    out.append("written: ").append(saved.isFile() ? new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8).replace('\n', '|') : "nothing").append('\n');
   }
 
   private static List<Engine.Part> songParts() {

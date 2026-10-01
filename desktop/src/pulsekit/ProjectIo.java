@@ -128,7 +128,9 @@ final class ProjectIo {
         }));
         jPanel2.add(this.exportSection("Song", new JComponent[] {
             app.action("SNG", ELEV, FG, () -> this.saveSng()),
-            app.action("Song MIDI", ELEV, FG, () -> this.saveSongMidi())
+            app.action("Song MIDI", ELEV, FG, () -> this.saveSongMidi()),
+            app.action("Song WAV", ELEV, FG, () -> this.saveSongAudio("wav")),
+            app.action("Song MP3", ELEV, FG, () -> this.saveSongAudio("mp3"))
         }));
         jPanel2.add(this.exportSection("PyJav", new JComponent[] {
             app.action("Save", ELEV, FG, () -> this.savePy())
@@ -831,6 +833,16 @@ final class ProjectIo {
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(app, "Could not save .pkp: " + ex.getMessage());
         }
+    }
+
+    /** The song's drum hits as audio, with the current drum set: "<song>_song_export.wav" / ".mp3". */
+    void saveSongAudio(String ext) {
+        List<Engine.Part> parts = app.songEditor.activeSong().isEmpty()
+            ? Collections.singletonList(Engine.groove(this.exportName("mid").replace(".mid", ""), app.bpm(), app.cells, 1))
+            : app.songEditor.activeSong();
+        short[] pcm = app.playback.songPcm(parts);
+        byte[] bytes = "mp3".equals(ext) ? AudioIo.encodeMp3(pcm, 22050) : AudioIo.encodeWav(pcm, 22050);
+        this.saveBytes(Engine.songExportFilename(parts, app.songEditor.songFileSet(parts), ext), "mp3".equals(ext) ? "Song MP3" : "Song WAV", ext, bytes);
     }
 
     void saveSongMidi() {

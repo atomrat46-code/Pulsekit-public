@@ -636,6 +636,21 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
             return;
         }
+        if (n == SaveText.SAVE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) SaveText.write(this, intent.getData());
+            return;
+        }
+        if (n == PyJavParams.PICK_FILE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeParamFile(intent.getData());
+            return;
+        }
+        if (n == CompareHitsPage.PICK_WAV) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.compareHits.takeWav(intent.getData());
+            return;
+        }
         if (n == 28) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptExport(intent.getData());
@@ -710,6 +725,10 @@ public class MainActivity extends UiKit {
                 byArray = Engine.encodeKitJar(Engine.encodeMidi(this.cells, this.bpm(), this.steps, this.tsNum, this.tsDen), this.cells, this.bpm(), this.style);
             } else if (n == 17) {
                 byArray = Engine.encodeSongMidi(this.songEditor.songPartsForExport());
+            } else if (n == 20) {
+                byArray = AudioIo.encodeWav(this.playback.songPcm(), 22050);
+            } else if (n == 21) {
+                byArray = AudioIo.encodeMp3(this.playback.songPcm(), 22050);
             } else if (n == 10) {
                 byArray = this.playback.encodeWav();
             } else if (n == 11) {
@@ -845,6 +864,8 @@ public class MainActivity extends UiKit {
 
     android.widget.LinearLayout drumMidiPane;
 
+    android.widget.LinearLayout compareHitsPane;
+
     /** The groove tab the imported chips were last built for. */
     String importedFor;
 
@@ -875,6 +896,7 @@ public class MainActivity extends UiKit {
     final ProgramMenus programMenus = new ProgramMenus(this);
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
+    final CompareHitsPage compareHits = new CompareHitsPage(this);
 
 
     void showFileMenu(View anchor) {
@@ -892,12 +914,16 @@ public class MainActivity extends UiKit {
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
+        android.widget.TextView compare = this.text("Compare Hits", 14, true);
+        compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        compare.setTextColor("comparehits".equals(this.view) ? FG : MUTED);
         android.widget.TextView help = this.text("Help-Android", 14, true);
         help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         help.setTextColor("help".equals(this.view) ? FG : MUTED);
         menu.addView(imp);
         menu.addView(exp);
         menu.addView(midi);
+        menu.addView(compare);
         menu.addView(help);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
@@ -907,6 +933,7 @@ public class MainActivity extends UiKit {
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
+        compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
@@ -918,7 +945,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }
@@ -929,6 +956,7 @@ public class MainActivity extends UiKit {
         this.pyJav.wirePrompts();
         this.helpPage.wire();
         this.drumMidiSettings.wire();
+        this.compareHits.wire();
         this.fileSets.wireInfoPane();
         this.fileSets.loadPersistedFsetInfo();
         return root;
@@ -941,6 +969,7 @@ public class MainActivity extends UiKit {
         boolean pr = "prompts".equals(this.view);
         boolean help = "help".equals(this.view);
         boolean midi = "midisettings".equals(this.view);
+        boolean compare = "comparehits".equals(this.view);
         if (this.helpPane != null) {
             this.helpPane.setVisibility(help ? 0 : 8);
             if (help) this.helpPane.bringToFront();
@@ -948,6 +977,13 @@ public class MainActivity extends UiKit {
         if (this.drumMidiPane != null) {
             this.drumMidiPane.setVisibility(midi ? 0 : 8);
             if (midi) this.drumMidiPane.bringToFront();
+        }
+        if (this.compareHitsPane != null) {
+            this.compareHitsPane.setVisibility(compare ? 0 : 8);
+            if (compare) {
+                this.compareHitsPane.bringToFront();
+                this.compareHits.refresh();
+            }
         }
         if (this.infoPane != null) {
             this.infoPane.setVisibility(info ? 0 : 8);
@@ -957,7 +993,7 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr || help || midi) {
+        if (info || pr || help || midi || compare) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -970,7 +1006,9 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (midi) {
+            if (compare) {
+                this.setNow("Compare Hits");
+            } else if (midi) {
                 this.setNow("Drum Midi Settings");
             } else if (help) {
                 this.setNow("Help");

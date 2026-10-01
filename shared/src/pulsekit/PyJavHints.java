@@ -10,6 +10,18 @@ import java.util.zip.ZipInputStream;
 public final class PyJavHints {
   private PyJavHints() {}
 
+  /** File name for saving a program's output, such as "CompareHits_test_results.txt". */
+  public static String resultsFileName(String program) {
+    String n = program == null ? "" : program.trim();
+    int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+    if (slash >= 0) n = n.substring(slash + 1);
+    int dot = n.lastIndexOf('.');
+    if (dot > 0) n = n.substring(0, dot);
+    n = n.replaceAll("[^A-Za-z0-9._-]+", "_");
+    if (n.length() == 0) n = "PyJav";
+    return n + "_test_results.txt";
+  }
+
   public static String status(String name, String source, byte[] bytes) {
     String found = suggest(name, source, bytes);
     String label = name == null || name.length() == 0 ? "program" : name;
@@ -27,6 +39,14 @@ public final class PyJavHints {
     if (source != null && source.length() > 0) blob.append(source).append('\n');
     if (bytes != null && bytes.length > 0) appendBytes(blob, bytes, name);
     return format(blob.toString());
+  }
+
+  /** The program's text: its source, or the readable strings in a .class or .jar. */
+  public static String programText(String name, String source, byte[] bytes) {
+    StringBuilder blob = new StringBuilder();
+    if (source != null && source.length() > 0) blob.append(source).append('\n');
+    if (bytes != null && bytes.length > 0) appendBytes(blob, bytes, name);
+    return blob.toString();
   }
 
   private static void appendBytes(StringBuilder blob, byte[] bytes, String name) {
@@ -109,10 +129,10 @@ public final class PyJavHints {
     }
     int u = blob.indexOf("Usage:");
     if (u >= 0) {
-      int end = blob.indexOf('\n', u);
-      if (end < 0 || end - u > 160) end = Math.min(blob.length(), u + 160);
-      String usage = blob.substring(u, end).trim();
-      if (usage.length() > 6) {
+      // Java strings split over lines are joined, and the source's closing quote is left out.
+      String usage = "Usage: " + ProgramParams.usageLine(blob, u + 6);
+      if (usage.length() > 220) usage = usage.substring(0, 220);
+      if (usage.length() > 7) {
         if (sb.length() > 0) sb.append('\n');
         sb.append(usage);
       }
@@ -288,6 +308,8 @@ public final class PyJavHints {
   private static String outputExt(String hint) {
     if (hint == null) return null;
     String any = null;
+    java.util.Set<String> notOutput = new java.util.HashSet<String>();
+    java.util.List<String> lastNames = new java.util.ArrayList<String>();
     int i = 0;
     while (i < hint.length()) {
       int a = hint.indexOf('<', i);
@@ -297,11 +319,18 @@ public final class PyJavHints {
       String name = hint.substring(a + 1, b).trim();
       int dot = name.lastIndexOf('.');
       if (dot > 0 && !isInputName(name)) {
-        String ext = name.substring(dot);
-        if (name.toLowerCase().indexOf("output") >= 0) return ext;
-        if (any == null) any = ext;
+        if (name.toLowerCase().indexOf("output") >= 0) return name.substring(dot);
+        // Without an "output" name, only the last file in the usage is taken as the output,
+        // and not when an optional [file.ext] follows it (CompareHits <drums.mid> [song.mid]).
+        int lineEnd = hint.indexOf('\n', b);
+        String rest = hint.substring(b + 1, lineEnd < 0 ? hint.length() : lineEnd);
+        if (rest.matches("(?s).*[<\\[][^>\\]\\s-][^>\\]]*\\.[A-Za-z0-9]+\\s*[>\\]].*")) notOutput.add(name);
+        else lastNames.add(name);
       }
       i = b + 1;
+    }
+    for (String name : lastNames) {
+      if (!notOutput.contains(name) && any == null) any = name.substring(name.lastIndexOf('.'));
     }
     return any;
   }
@@ -483,7 +512,8 @@ public final class PyJavHints {
         if (audio) continue;
         audio = true;
       } else if (low.endsWith(".mid") || low.endsWith(".midi")) {
-        if (mid) continue;
+        // A program may take several MIDI files (CompareHits); only the same one twice is dropped.
+        if (mid && out.contains(t)) continue;
         mid = true;
       }
       out.add(t);

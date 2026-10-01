@@ -124,7 +124,7 @@ public final class PyJavUi implements JavaRun.Listener {
     return adapter;
   }
 
-  /** Visible recent programs. The spinner popup draws no rows on this screen. */
+  /** Recent programs under a collapsed "Select program" row. The spinner popup draws no rows on this screen. */
   public static void fillRecent(final MainActivity host, android.view.View anchor, java.util.List items) {
     if (host == null || anchor == null) return;
     android.view.ViewParent parent = anchor.getParent();
@@ -137,13 +137,33 @@ public final class PyJavUi implements JavaRun.Listener {
     box.setTag("pk-recent");
     box.setOrientation(LinearLayout.VERTICAL);
     int pad = (int) (host.getResources().getDisplayMetrics().density * 12);
-    TextView caption = new TextView(host);
-    caption.setText("Recent");
-    caption.setTextColor(0xFF8A8B86);
-    caption.setTextSize(12);
-    caption.setTypeface(Typeface.DEFAULT_BOLD);
-    caption.setPadding(0, pad, 0, pad / 2);
-    box.addView(caption);
+    // Collapsed like an HTML <select>: the list opens from "Select program", so a stray tap
+    // while scrolling does not change the program.
+    final LinearLayout list = new LinearLayout(host);
+    list.setTag("pk-recent-list");
+    list.setOrientation(LinearLayout.VERTICAL);
+    list.setVisibility(View.GONE);
+    final TextView toggle = new TextView(host);
+    toggle.setTag("pk-recent-toggle");
+    toggle.setText("Select program \u25be");
+    toggle.setTextColor(0xFFECEBE6);
+    toggle.setTextSize(15);
+    toggle.setTypeface(Typeface.DEFAULT_BOLD);
+    toggle.setBackgroundColor(0xFF1B1D1F);
+    toggle.setPadding(pad, pad, pad, pad);
+    toggle.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        boolean open = list.getVisibility() != View.VISIBLE;
+        list.setVisibility(open ? View.VISIBLE : View.GONE);
+        toggle.setText(open ? "Select program \u25b4" : "Select program \u25be");
+      }
+    });
+    LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+    tlp.topMargin = pad / 2;
+    tlp.bottomMargin = pad / 2;
+    box.addView(toggle, tlp);
+    box.addView(list);
     int count = items == null ? 0 : items.size();
     if (count == 0) {
       TextView empty = new TextView(host);
@@ -151,7 +171,7 @@ public final class PyJavUi implements JavaRun.Listener {
       empty.setTextColor(0xFF8A8B86);
       empty.setTextSize(15);
       empty.setPadding(pad, pad, pad, pad);
-      box.addView(empty);
+      list.addView(empty);
     } else {
       for (int i = 0; i < count; i++) {
         Object row = items.get(i);
@@ -169,17 +189,19 @@ public final class PyJavUi implements JavaRun.Listener {
         button.setTextSize(15);
         button.setSingleLine(true);
         button.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        button.setBackgroundColor(0xFF1B1D1F);
-        button.setPadding(pad, pad, pad, pad);
+        button.setBackgroundColor(0xFF15171A);
+        button.setPadding(pad * 2, pad, pad, pad);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.bottomMargin = pad / 2;
         button.setOnClickListener(new View.OnClickListener() {
           @Override
           public void onClick(View v) {
+            list.setVisibility(View.GONE);
+            toggle.setText("Select program \u25be");
             host.pyJav.pkApplyRecent(pick);
           }
         });
-        box.addView(button, lp);
+        list.addView(button, lp);
       }
     }
     int at = 1;

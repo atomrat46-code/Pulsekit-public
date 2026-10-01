@@ -15,6 +15,15 @@ rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 cp -r assets "$OUT/assets"
 cp ../shared/src/pulsekit/midiutil.py "$OUT/assets/"
 cp -r ../Programs "$OUT/assets/Programs"   # PyJav's Java / Python / Code menus
+# Each bundled Java program must compile on the phone: the in-app compiler sees only
+# assets/rt.jar (Java 8, no lambdas), so check them against it here.
+for prog in ../Programs/Java/*.java; do
+  mkdir -p "$OUT/program-check"
+  javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none -proc:none \
+    -bootclasspath assets/rt.jar -classpath assets/rt.jar -d "$OUT/program-check" "$prog" \
+    || { echo "$prog does not compile with PyJav's on-phone compiler (assets/rt.jar)" >&2; exit 1; }
+done
+rm -rf "$OUT/program-check"
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
 "$BT/aapt2" link -I "$JAR" --manifest AndroidManifest.xml \
   --min-sdk-version 24 --target-sdk-version 33 \

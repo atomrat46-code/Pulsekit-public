@@ -771,7 +771,7 @@ final class SongEditor {
                     app.styleLibrary.fillLabel(string3), this.songFillCells(string3, nArray), Engine.barSteps(app.tsNum, app.tsDen), mode);
                 if (n2 >= 0) {
                     list.set(n2, parts.get(0));
-                    for (int i = 1; i < parts.size() && list.size() < 24; ++i) list.add(n2 + i, parts.get(i));
+                    for (int i = 1; i < parts.size() && list.size() < Engine.MAX_SONG; ++i) list.add(n2 + i, parts.get(i));
                 } else {
                     for (Engine.Part p : parts) this.add(p);
                 }
@@ -783,7 +783,7 @@ final class SongEditor {
             Engine.Part part2 = Engine.fill(app.styleLibrary.fillLabel(string3), this.patternBpm(string2), this.songFillCells(string3, nArray), 1);
             if (n2 >= 0) {
                 list.set(n2, part);
-                if (list.size() < 24) {
+                if (list.size() < Engine.MAX_SONG) {
                     list.add(n2 + 1, part2);
                 }
             } else {
@@ -801,7 +801,7 @@ final class SongEditor {
             Toast.makeText((Context)app, (CharSequence)"No imported song yet", (int)0).show();
             return;
         }
-        if (list.size() >= 24) {
+        if (list.size() >= Engine.MAX_SONG) {
             Toast.makeText((Context)app, (CharSequence)"Song is full", (int)0).show();
             return;
         }

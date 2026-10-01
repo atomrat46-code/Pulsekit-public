@@ -473,6 +473,7 @@ public final class Pulsekit extends UiKit {
         this.pageHost.add((Component)this.fileSets.buildInfoPage(), "fsetinfo");
         this.pageHost.add((Component)this.helpPage.buildHelpPage(), "help");
         this.pageHost.add((Component)this.drumMidiSettings.buildDrumMidiPage(), "midisettings");
+        this.pageHost.add((Component)this.compareHits.buildComparePage(), "comparehits");
         jPanel9.add((Component)this.pageHost, "Center");
         jPanel6.add((Component)jPanel9, "Center");
         jPanel.add((Component)jPanel6, "Center");
@@ -548,11 +549,14 @@ public final class Pulsekit extends UiKit {
             exp.addActionListener(e -> this.showView("export"));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
+            JMenuItem compare = new JMenuItem("Compare Hits");
+            compare.addActionListener(e -> this.showView("comparehits"));
             JMenuItem help = new JMenuItem("Help-Desktop");
             help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
             menu.add(midi);
+            menu.add(compare);
             menu.add(help);
             menu.show(jButton, 0, jButton.getHeight());
         });
@@ -613,6 +617,7 @@ public final class Pulsekit extends UiKit {
     final ProgramMenus programMenus = new ProgramMenus(this);
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
+    final CompareHitsPage compareHits = new CompareHitsPage(this);
     final PromptsPage promptsPage = new PromptsPage(this);
 
 
@@ -625,7 +630,7 @@ public final class Pulsekit extends UiKit {
         boolean groove = pattern || combo;
         boolean bl2 = "song".equals(string);
         boolean bl3 = "py".equals(string);
-        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string);
+        boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string) || "comparehits".equals(string);
         boolean prompts = "prompts".equals(string);
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
@@ -691,6 +696,10 @@ public final class Pulsekit extends UiKit {
         if ("midisettings".equals(string)) {
             this.setNow("Drum Midi Settings");
         }
+        if ("comparehits".equals(string)) {
+            this.compareHits.refresh();
+            this.setNow("Compare Hits");
+        }
         if ("import".equals(string)) {
             this.setNow("Choose a MIDI, song, WAV or SoundFont");
         }
@@ -717,7 +726,7 @@ public final class Pulsekit extends UiKit {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
-                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "fsetinfo".equals(this.view)));
+                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
         }

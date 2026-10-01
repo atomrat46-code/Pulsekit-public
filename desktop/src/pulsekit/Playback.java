@@ -579,6 +579,12 @@ final class Playback {
         }
     }
 
+    /** A song's drum hits as audio, with the current drum set (Song WAV / Song MP3). */
+    short[] songPcm(List<Engine.Part> parts) {
+        this.fillMissingVoices();
+        return AudioIo.renderSong(parts, app.mutes, this.mixVoices(), 22050);
+    }
+
     short[] mixPcm() {
         return AudioIo.mix(app.cells, app.fillPat, app.fillLast, app.mutes, this.mixVoices(), app.bpm(), app.bars, 22050, app.steps);
     }

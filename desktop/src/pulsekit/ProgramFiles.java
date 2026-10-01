@@ -39,6 +39,22 @@ final class ProgramFiles {
         return out.toArray(new String[0]);
     }
 
+    /** The current source of a bundled Java or Python program with this name, or null. */
+    static String bundledSource(String name) {
+        if (name == null) return null;
+        for (String kind : new String[] {"Java", "Python"}) {
+            for (String n : list(kind)) {
+                if (!n.equals(name)) continue;
+                try {
+                    return new String(read(kind, n), java.nio.charset.StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
     static byte[] read(String kind, String name) throws Exception {
         try (InputStream in = ProgramFiles.class.getResourceAsStream("/Programs/" + kind + "/" + name)) {
             if (in != null) return readAll(in);
