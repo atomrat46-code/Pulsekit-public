@@ -81,6 +81,7 @@ final class StyleLibrary {
             String string = Engine.FILL_ID[i];
             textView4 = app.pill(Engine.FILL_LABEL[i], false, view -> this.applyFill(string));
             textView4.setTag((Object)string);
+            this.attachBuiltinFillMenu(textView4, string);
             app.fillBar.addView((View)textView4);
         }
         app.fillBar.addView((View)app.pill("Variate", false, view -> this.variateFill()));
@@ -177,6 +178,62 @@ final class StyleLibrary {
             }
         }
         return Engine.fillLabel(string);
+    }
+
+    /** Long press on a built-in fill: copy it, or a variation of it, into a file set. */
+    void attachBuiltinFillMenu(TextView textView, String fillId) {
+        textView.setOnLongClickListener(view -> {
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)this.fillLabel(fillId)).setItems(new CharSequence[]{"Copy fill to file set", "Variated fill into file set"}, (dialogInterface, n) -> this.chooseFileSetFor(fillId, n == 1)).setNegativeButton((CharSequence)"Cancel", null).show();
+            return true;
+        });
+    }
+
+    void chooseFileSetFor(String fillId, boolean variate) {
+        List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        if (sources.isEmpty()) {
+            app.setNow("Import a MIDI to make a file set first");
+            return;
+        }
+        String[] names = new String[sources.size()];
+        for (int i = 0; i < names.length; i++) names[i] = sources.get(i).isEmpty() ? "Other" : sources.get(i);
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)(variate ? "Variated fill into file set" : "Copy fill to file set")).setItems((CharSequence[])names, (dialogInterface, n) -> {
+            if (n >= 0 && n < sources.size()) this.copyFillToFileSet(fillId, sources.get(n), variate);
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** "No fills yet, add one" and "+ Fill": choose a built-in fill to copy into this file set. */
+    void pickBuiltinFillFor(String source) {
+        ArrayList<String> ids = new ArrayList<String>();
+        ArrayList<CharSequence> names = new ArrayList<CharSequence>();
+        for (int i = 0; i < Engine.FILL_ID.length; ++i) {
+            if (this.hiddenFills.contains(Engine.FILL_ID[i])) continue;
+            ids.add(Engine.FILL_ID[i]);
+            names.add(Engine.FILL_LABEL[i]);
+        }
+        new AlertDialog.Builder((Context)app).setTitle((CharSequence)("Add a fill to " + (source.isEmpty() ? "Other" : source))).setItems(names.toArray(new CharSequence[0]), (dialogInterface, n) -> {
+            if (n >= 0 && n < ids.size()) this.copyFillToFileSet(ids.get(n), source, false);
+        }).setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** Adds a built-in fill, as it sounds with the current pattern, to a file set; with variate, a variation of it. */
+    Engine.LearnedFill copyFillToFileSet(String fillId, String source, boolean variate) {
+        int[][] cells = Engine.copyCells(this.fillCellsFor(fillId));
+        if (variate) cells = Engine.variateFillCells(cells, new Random());
+        Engine.LearnedFill fill = new Engine.LearnedFill();
+        fill.id = Engine.newLearnedId();
+        fill.kind = Engine.isFillId(fillId) ? fillId : "toms";
+        fill.name = Engine.uniqueFillName(this.fillLabel(fillId) + (variate ? " var" : ""), Engine.fillsFrom(app.learnedFills, source));
+        fill.cells = cells;
+        fill.source = source;
+        app.learnedFills.add(0, fill);
+        while (app.learnedFills.size() > Engine.MAX_LEARNED) {
+            app.learnedFills.remove(app.learnedFills.size() - 1);
+        }
+        app.persistence.persistLearned();
+        app.importLibrary.rebuildImportedFills();
+        this.applyFill("l:" + fill.id);
+        app.setNow(fill.name + " \u00b7 " + (source.isEmpty() ? "Other" : source));
+        return fill;
     }
 
     void variateFill() {

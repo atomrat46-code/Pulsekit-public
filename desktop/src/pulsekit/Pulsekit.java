@@ -562,7 +562,8 @@ extends JFrame {
             jButton = this.chip(Engine.FILL_LABEL[i], false);
             jButton.putClientProperty("fill", string);
             jButton.addActionListener(actionEvent -> this.applyFill(string));
-            this.onRightClick(jButton, () -> this.hideFill(string));
+            final JButton fillChip = jButton;
+            this.onRightClick(jButton, () -> this.builtinFillMenu(fillChip, string));
             this.fillBar.add(jButton);
         }
         JButton jButton2 = this.chip("Variate", false);
@@ -3181,7 +3182,8 @@ extends JFrame {
             this.importedFillBar.add(this.importPack("p:" + pid, p.name, p.fills.size(), selected, "Remove pack",
                 () -> { this.uninstallPlugin(pid); this.setNow("Removed \u00b7 " + p.name); }, kids));
         }
-        for (String src : this.fillSources()) {
+        // Every file set, also one without fills yet.
+        for (String src : Engine.fileSetSources(this.learned, this.learnedFills)) {
             ChipStrip kids = new ChipStrip();
             boolean selected = false;
             int n = 0;
@@ -3197,6 +3199,19 @@ extends JFrame {
                 n++;
                 if (("l:" + it.id).equals(this.fillId)) selected = true;
             }
+            if (n == 0) {
+                JButton none = new JButton("No fills yet, add one");
+                this.flatten(none);
+                none.setBackground(BG);
+                none.setForeground(MUTED);
+                none.putClientProperty("role", "fills-none");
+                none.addActionListener(e -> this.pickBuiltinFillFor(none, src));
+                kids.add(none);
+            }
+            JButton addFill = this.chip("+ Fill", false);
+            addFill.putClientProperty("role", "fills-add");
+            addFill.addActionListener(e -> this.pickBuiltinFillFor(addFill, src));
+            kids.add(addFill);
             String label = src.isEmpty() ? "Other" : src;
             this.importedFillBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
                 () -> this.removeImportSource(src), () -> this.saveFset(src), kids));
@@ -3569,6 +3584,64 @@ extends JFrame {
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(src[i], 0, this.fillPat[i], 0, 16);
         }
+    }
+
+    /** Right click on a built-in fill: copy it, or a variation of it, into a file set; or hide it. */
+    private void builtinFillMenu(JComponent anchor, String fillId) {
+        JPopupMenu m = new JPopupMenu();
+        javax.swing.JMenu copy = new javax.swing.JMenu("Copy fill to file set");
+        javax.swing.JMenu variated = new javax.swing.JMenu("Variated fill into file set");
+        List<String> sources = Engine.fileSetSources(this.learned, this.learnedFills);
+        for (String src : sources) {
+            String label = src.isEmpty() ? "Other" : src;
+            JMenuItem c = new JMenuItem(label);
+            c.addActionListener(e -> this.copyFillToFileSet(fillId, src, false));
+            copy.add(c);
+            JMenuItem v = new JMenuItem(label);
+            v.addActionListener(e -> this.copyFillToFileSet(fillId, src, true));
+            variated.add(v);
+        }
+        copy.setEnabled(!sources.isEmpty());
+        variated.setEnabled(!sources.isEmpty());
+        m.add(copy);
+        m.add(variated);
+        m.addSeparator();
+        JMenuItem hide = new JMenuItem("Hide");
+        hide.addActionListener(e -> this.hideFill(fillId));
+        m.add(hide);
+        m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** "No fills yet, add one" and "+ Fill": choose a built-in fill to copy into this file set. */
+    private void pickBuiltinFillFor(JComponent anchor, String source) {
+        JPopupMenu m = new JPopupMenu();
+        this.addMenuHeading(m, "Add a fill to " + (source.isEmpty() ? "Other" : source));
+        for (int i = 0; i < Engine.FILL_ID.length; i++) {
+            final String fid = Engine.FILL_ID[i];
+            if (this.hiddenFills.contains(fid)) continue;
+            JMenuItem it = new JMenuItem(Engine.FILL_LABEL[i]);
+            it.addActionListener(e -> this.copyFillToFileSet(fid, source, false));
+            m.add(it);
+        }
+        m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** Adds a built-in fill, as it sounds with the current pattern, to a file set; with variate, a variation of it. */
+    private void copyFillToFileSet(String fillId, String source, boolean variate) {
+        int[][] cells = Engine.copyCells(this.fillCellsFor(fillId));
+        if (variate) cells = Engine.variateFillCells(cells, new Random());
+        Engine.LearnedFill fill = new Engine.LearnedFill();
+        fill.id = Engine.newLearnedId();
+        fill.kind = Engine.isFillId(fillId) ? fillId : "toms";
+        fill.name = Engine.uniqueFillName(this.fillLabel(fillId) + (variate ? " var" : ""), Engine.fillsFrom(this.learnedFills, source));
+        fill.cells = cells;
+        fill.source = source;
+        this.learnedFills.add(0, fill);
+        while (this.learnedFills.size() > Engine.MAX_LEARNED) this.learnedFills.remove(this.learnedFills.size() - 1);
+        this.persistLearned();
+        this.refreshLearnedChips();
+        this.applyFill("l:" + fill.id);
+        this.setNow(fill.name + " \u00b7 " + (source.isEmpty() ? "Other" : source));
     }
 
     private void variateFill() {

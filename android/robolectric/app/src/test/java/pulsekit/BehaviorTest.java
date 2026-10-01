@@ -538,6 +538,76 @@ public class BehaviorTest {
     write("s23_no_style_selected", out.toString());
   }
 
+  @Test
+  public void s24_fills_in_file_sets() throws Exception {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 2));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("funk")), 2));
+    call("ingest", Engine.encodeSongMidi(parts), "No fills.mid", null);
+    idle();
+    AlertDialog song = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (song != null && song.isShowing()) {
+      song.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    call("show", "fills");
+    idle();
+    StringBuilder out = new StringBuilder();
+    for (View v : allViews((View) get("importedFillHost"))) {
+      if (v instanceof TextView && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().startsWith("\u25b8 ")) {
+        out.append("set=").append(((TextView) v).getText()).append('\n');
+        v.performClick();
+        idle();
+        break;
+      }
+    }
+    out.append("fills tab=").append(fillPackChips()).append('\n');
+    // "No fills yet, add one" -> Snare roll.
+    root().findViewWithTag("fills-none").performClick();
+    idle();
+    pickItem(Engine.FILL_LABEL[1]);
+    out.append("after add=").append(fillPackChips()).append('\n');
+    // Long press Crash -> Variated fill into file set -> this set.
+    TextView crash = null;
+    for (View v : allViews((View) get("fillBar"))) {
+      if (v instanceof TextView && "crash".equals(v.getTag())) crash = (TextView) v;
+    }
+    if (crash == null) throw new AssertionError("no Crash chip");
+    crash.performLongClick();
+    idle();
+    pickItem("Variated fill into file set");
+    pickItem("No fills");
+    out.append("after variated=").append(fillPackChips()).append('\n');
+    crash.performLongClick();
+    idle();
+    pickItem("Copy fill to file set");
+    pickItem("No fills");
+    out.append("after copy=").append(fillPackChips()).append('\n');
+    @SuppressWarnings("unchecked")
+    List<Engine.LearnedFill> fills = (List<Engine.LearnedFill>) get("learnedFills");
+    for (Engine.LearnedFill f : fills) out.append("fill ").append(f.name).append(" src=").append(f.source).append(" hits=").append(Engine.hitCount(f.cells)).append('\n');
+    write("s24_fills_in_file_sets", out.toString());
+  }
+
+  /** Taps the entry of the open list dialog whose text is label. */
+  private void pickItem(String label) {
+    android.widget.ListView list = ((AlertDialog) ShadowDialog.getLatestDialog()).getListView();
+    for (int i = 0; i < list.getAdapter().getCount(); i++) {
+      if (String.valueOf(list.getAdapter().getItem(i)).trim().equals(label)) {
+        org.robolectric.Shadows.shadowOf(list).performItemClick(i);
+        idle();
+        return;
+      }
+    }
+    throw new AssertionError("no " + label + " in the list");
+  }
+
+  private String fillPackChips() throws Exception {
+    List<String> names = new ArrayList<>();
+    collectChips((View) get("importedFillHost"), names);
+    return names.toString();
+  }
+
   /** Pattern chips drawn as selected (dark text on the light chip). */
   private String selectedChips() throws Exception {
     int bg = UiKit.BG;

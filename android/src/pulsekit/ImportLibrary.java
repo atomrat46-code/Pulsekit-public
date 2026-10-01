@@ -417,7 +417,7 @@ final class ImportLibrary {
             return;
         }
         app.importedFillHost.removeAllViews();
-        if (app.learnedFills.isEmpty()) {
+        if (app.learnedFills.isEmpty() && app.learned.isEmpty()) {
             TextView textView = app.text("Last bar of an imported MIDI", 12, false);
             textView.setTextColor(MUTED);
             textView.setTag((Object)"imported-empty");
@@ -425,7 +425,9 @@ final class ImportLibrary {
             this.refreshImportedFiles();
             return;
         }
+        // Every file set, also one without fills yet.
         LinkedHashMap<String, ArrayList<Engine.LearnedFill>> linkedHashMap = new LinkedHashMap<String, ArrayList<Engine.LearnedFill>>();
+        for (String src : Engine.fileSetSources(app.learned, app.learnedFills)) linkedHashMap.put(src, new ArrayList<Engine.LearnedFill>());
         for (Engine.LearnedFill object : app.learnedFills) {
             String string = Engine.sourceOf(object);
             ArrayList<Engine.LearnedFill> arrayList = linkedHashMap.get(string);
@@ -453,6 +455,17 @@ final class ImportLibrary {
                     app.styleLibrary.attachLearnedFillMenu(textView, learnedFill);
                     flowLayout.addView((View)textView);
                 }
+                if (arrayList.isEmpty()) {
+                    TextView none = app.text("No fills yet, add one", 13, false);
+                    none.setTextColor(MUTED);
+                    none.setTag((Object)"fills-none");
+                    none.setPadding(app.dp(4), app.dp(10), app.dp(10), app.dp(10));
+                    none.setOnClickListener(view -> app.styleLibrary.pickBuiltinFillFor(string));
+                    flowLayout.addView((View)none);
+                }
+                TextView add = app.pill("+ Fill", false, view -> app.styleLibrary.pickBuiltinFillFor(string));
+                add.setTag((Object)"fills-add");
+                flowLayout.addView((View)add);
             });
         }
         app.styleLibrary.refreshFills();

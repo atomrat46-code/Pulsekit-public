@@ -413,6 +413,26 @@ public final class Engine {
     return 18;
   }
 
+  /** A variation of a fill, as the Variate button makes: some tom and cymbal steps in the last half bar flip. */
+  public static int[][] variateFillCells(int[][] cells, java.util.Random rng) {
+    int[][] out = copyCells(cells);
+    for (int i = track("ltom"); i < TRACK_ID.length; i++) {
+      for (int j = 8; j < 16 && j < out[i].length; j++) {
+        if (rng.nextDouble() >= 0.22) continue;
+        out[i][j] = out[i][j] > 0 ? 0 : (rng.nextBoolean() ? 100 : 127);
+      }
+    }
+    return out;
+  }
+
+  /** Every file set: sources of imported patterns, then of imported fills. */
+  public static List<String> fileSetSources(List<Learned> learned, List<LearnedFill> fills) {
+    java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<String>();
+    if (learned != null) for (Learned x : learned) out.add(sourceOf(x));
+    if (fills != null) for (LearnedFill x : fills) out.add(sourceOf(x));
+    return new ArrayList<String>(out);
+  }
+
   /** Patterns of one file set. Names need only be unique there: its song finds parts by name. */
   public static List<Learned> learnedFrom(List<Learned> list, String source) {
     List<Learned> out = new ArrayList<Learned>();
