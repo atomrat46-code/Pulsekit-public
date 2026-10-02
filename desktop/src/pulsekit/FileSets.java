@@ -276,8 +276,12 @@ final class FileSets {
 
     /** The results text in a dialog, with Save as. */
     void showResults(String title, String text) {
-        javax.swing.JTextArea area = new javax.swing.JTextArea(text, 24, 72);
+        javax.swing.JTextArea area = new javax.swing.JTextArea(text, 28, 84);
         area.setEditable(false);
+        // Tables fit in 84 columns; longer sentences wrap at word boundaries.
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setCaretPosition(0);
         area.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
         area.setName("fileset-results-text");
         Object[] options = {"Save as " + HitCompare.RESULTS_FILE, "Close"};

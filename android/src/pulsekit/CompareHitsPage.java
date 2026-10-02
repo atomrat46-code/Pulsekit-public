@@ -6,7 +6,6 @@ import android.net.Uri;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -73,9 +72,8 @@ final class CompareHitsPage {
         this.result.setTextColor(FG);
         this.result.setTag("compare-result");
         SaveText.attach(app, this.result, () -> "CompareHits_test_results.txt");
-        HorizontalScrollView wide = new HorizontalScrollView(app);
-        wide.addView(this.result);
-        body.addView(wide);
+        // Tables fit across (see showResult); longer lines wrap.
+        body.addView(this.result);
         TextView legend = app.text(HitCompare.LEGEND, 12, false);
         legend.setTextColor(MUTED);
         legend.setPadding(0, app.dp(10), 0, app.dp(16));
@@ -210,6 +208,7 @@ final class CompareHitsPage {
             final String shown = text;
             app.runOnUiThread(() -> {
                 this.running = false;
+                SaveText.fitTables(this.result, shown, app.getResources().getDisplayMetrics().widthPixels - app.dp(32));
                 this.result.setText(shown);
                 app.setNow("Compare Hits");
             });

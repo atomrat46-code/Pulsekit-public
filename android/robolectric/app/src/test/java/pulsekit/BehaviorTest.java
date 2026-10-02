@@ -1205,6 +1205,9 @@ public class BehaviorTest {
     out.append("suggestions: ").append(body.substring(body.indexOf("Suggestions"), body.indexOf("matched:")).trim().replace('\n', '|')).append('\n');
     out.append("results end: ").append(body.substring(body.lastIndexOf("Succeeded"))).append('\n');
     out.append("save button: ").append(shown.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    out.append("wraps, no sideways scroll: ").append(text.getParent() instanceof android.widget.ScrollView).append(", text ")
+        .append(Math.round(text.getTextSize() / app.getResources().getDisplayMetrics().scaledDensity * 2) / 2.0).append(" sp, window width ")
+        .append(shown.getWindow().getAttributes().width == app.getResources().getDisplayMetrics().widthPixels - Math.round(16 * app.getResources().getDisplayMetrics().density)).append('\n');
     shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
     out.append("row under file set: ").append(root().findViewWithTag("fileset-results") != null).append('\n');

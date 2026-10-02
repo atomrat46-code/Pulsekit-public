@@ -305,24 +305,32 @@ final class FileSets {
         }).start();
     }
 
-    /** The results text in a dialog, with Save as. */
+    /**
+     * The results text in a dialog as wide as the screen, with Save as. The tables fit across (the
+     * text size shrinks to fit), longer sentences wrap, and the scrollbar stays visible.
+     */
     void showResults(java.lang.String title, final java.lang.String text) {
+        int width = app.getResources().getDisplayMetrics().widthPixels;
         android.widget.TextView body = app.text(text, 11, false);
         body.setTypeface(android.graphics.Typeface.MONOSPACE);
         body.setTextColor(FG);
         body.setTag("fileset-results-text");
-        body.setPadding(app.dp(16), app.dp(8), app.dp(16), app.dp(8));
-        android.widget.HorizontalScrollView wide = new android.widget.HorizontalScrollView(app);
-        wide.addView(body);
+        body.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
+        pulsekit.SaveText.fitTables(body, text, width - app.dp(24 + 24));
         android.widget.ScrollView tall = new android.widget.ScrollView(app);
-        tall.addView(wide);
-        new android.app.AlertDialog.Builder(app)
+        tall.setVerticalScrollBarEnabled(true);
+        tall.setScrollbarFadingEnabled(false);
+        tall.addView(body);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(app)
             .setTitle((java.lang.CharSequence) ("Compare hits \u00b7 " + title))
             .setView(tall)
             .setNegativeButton((java.lang.CharSequence) "Close", null)
             .setPositiveButton((java.lang.CharSequence) ("Save as " + pulsekit.HitCompare.RESULTS_FILE),
                 (d, w) -> pulsekit.SaveText.save(app, pulsekit.HitCompare.RESULTS_FILE, text))
             .show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(width - app.dp(16), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
     }
 
     /** CompareHits_test_results.txt under the file set, with Open and Save. Null when there are none. */
