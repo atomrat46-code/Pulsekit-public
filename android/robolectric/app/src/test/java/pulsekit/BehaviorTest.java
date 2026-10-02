@@ -970,6 +970,9 @@ public class BehaviorTest {
           .append(", chosen ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append('\n');
     }
     out.append("suggested button: ").append(dv.findViewWithTag("params-suggested") != null).append('\n');
+    android.widget.EditText log = (android.widget.EditText) dv.findViewWithTag("params-field:--log");
+    out.append("--log field: ").append(log != null ? log.getHint() : "none").append('\n');
+    log.setText("CompareHits_test_results.txt");
     dv.findViewWithTag("params-file:drums.mid").performClick();
     android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("picker: ").append(pick.getAction()).append('\n');
@@ -1150,6 +1153,106 @@ public class BehaviorTest {
     View strip = root().findViewWithTag("song-strip");
     out.append("song list scrolls sideways: ").append(strip instanceof android.widget.HorizontalScrollView).append('\n');
     write("s39_make_song_names_after_file_set", out.toString());
+  }
+
+  /** File set menu > Compare hits: results shown, kept under the file set, and still there after a restart. */
+  @Test
+  public void s40_file_set_compare_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    // As DrumMidi_CRT writes it: its settings in a text event.
+    byte[] midi = withText(Engine.encodeSongMidi(parts), "pulsekit-drummidi; input=Passing Ships.wav; output=Passing Ships.mid; "
+        + "args=--sens 0.4 --hat 0.4; sens=0.4; hat=0.4; tom=0.4; ride=0.4; crash=0.4; bpm=auto; quantize=off; hpss=on; tempo=121");
+    Engine.stageSourceMidi(midi, "Passing Ships.mid");
+    call("ingest", midi, "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "combo");
+    idle();
+    TextView pack = null;
+    for (View v : allViews(root())) {
+      if (v instanceof TextView && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().contains("Passing Ships")) pack = (TextView) v;
+    }
+    pack.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    int at = -1;
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+      String item = String.valueOf(menu.getListView().getAdapter().getItem(i));
+      items.append(item).append(" | ");
+      if ("Compare hits".equals(item)) at = i;
+    }
+    out.append("menu: ").append(items).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(at);
+    AlertDialog shown = null;
+    for (int i = 0; i < 400; i++) {
+      idle();
+      Thread.sleep(25);
+      android.app.Dialog d = ShadowDialog.getLatestDialog();
+      if (d != menu && d instanceof AlertDialog && d.isShowing()) {
+        shown = (AlertDialog) d;
+        break;
+      }
+    }
+    TextView text = (TextView) shown.getWindow().getDecorView().findViewWithTag("fileset-results-text");
+    String body = text.getText().toString();
+    out.append("results start: ").append(body.substring(0, body.indexOf("Song against MIDI"))).append('\n');
+    out.append("suggestions: ").append(body.substring(body.indexOf("Suggestions"), body.indexOf("matched:")).trim().replace('\n', '|')).append('\n');
+    out.append("results end: ").append(body.substring(body.lastIndexOf("Succeeded"))).append('\n');
+    View dv = shown.getWindow().getDecorView();
+    out.append("buttons: ").append(((TextView) dv.findViewWithTag("results-save")).getText()).append(" | ")
+        .append(((TextView) dv.findViewWithTag("results-close")).getText()).append('\n');
+    out.append("text box at most 60% of the screen: ").append(((View) text.getParent()).getLayoutParams().height
+        <= Math.max(Math.round(120 * app.getResources().getDisplayMetrics().density), app.getResources().getDisplayMetrics().heightPixels * 0.6f)).append('\n');
+    out.append("wraps, no sideways scroll: ").append(text.getParent() instanceof android.widget.ScrollView).append(", text ")
+        .append(Math.round(text.getTextSize() / app.getResources().getDisplayMetrics().scaledDensity * 2) / 2.0).append(" sp, window width ")
+        .append(shown.getWindow().getAttributes().width == app.getResources().getDisplayMetrics().widthPixels - Math.round(16 * app.getResources().getDisplayMetrics().density)).append('\n');
+    dv.findViewWithTag("results-close").performClick();
+    idle();
+    out.append("closed: ").append(!shown.isShowing()).append('\n');
+    out.append("row under file set: ").append(root().findViewWithTag("fileset-results") != null).append('\n');
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    Engine.fileSetAudio.clear();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    out.append("after restart: kept ").append(body.equals(Engine.fileSetResults("Passing Ships")))
+        .append(", row ").append(root().findViewWithTag("fileset-results") != null).append('\n');
+    write("s40_file_set_compare_hits", out.toString());
+  }
+
+  /** The MIDI with a text event added at the start of its first track. */
+  private static byte[] withText(byte[] midi, String text) {
+    byte[] t = text.getBytes(StandardCharsets.UTF_8);
+    java.io.ByteArrayOutputStream ev = new java.io.ByteArrayOutputStream();
+    ev.write(0);
+    ev.write(0xff);
+    ev.write(0x01);
+    int n = t.length;
+    if (n >= 128) ev.write(0x80 | (n >> 7));
+    ev.write(n & 0x7f);
+    ev.write(t, 0, t.length);
+    byte[] e = ev.toByteArray();
+    int at = 14;
+    int len = ((midi[at + 4] & 0xff) << 24) | ((midi[at + 5] & 0xff) << 16) | ((midi[at + 6] & 0xff) << 8) | (midi[at + 7] & 0xff);
+    byte[] out = new byte[midi.length + e.length];
+    System.arraycopy(midi, 0, out, 0, at + 8);
+    System.arraycopy(e, 0, out, at + 8, e.length);
+    System.arraycopy(midi, at + 8, out, at + 8 + e.length, midi.length - at - 8);
+    len += e.length;
+    out[at + 4] = (byte) (len >> 24);
+    out[at + 5] = (byte) (len >> 16);
+    out[at + 6] = (byte) (len >> 8);
+    out[at + 7] = (byte) len;
+    return out;
   }
 
   private void setField(String name, Object value) throws Exception {

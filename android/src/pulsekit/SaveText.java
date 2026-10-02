@@ -32,6 +32,31 @@ final class SaveText {
         });
     }
 
+    /** Lines of a results table: the header and the Kick/Snare/Cymbals/Toms rows. */
+    private static final java.util.regex.Pattern TABLE =
+        java.util.regex.Pattern.compile("^(\\s+ref\\s|Kick\\s|Snare\\s|Cymbals\\s|Toms\\s).*");
+
+    /**
+     * Picks a text size (11 down to 8 sp) at which the widest table line fits in `widthPx`, so the
+     * tables read across without scrolling; other lines wrap.
+     */
+    static void fitTables(TextView view, String text, int widthPx) {
+        String widest = "";
+        for (String line : (text == null ? "" : text).split("\n")) {
+            if (TABLE.matcher(line).matches() && line.length() > widest.length()) widest = line;
+        }
+        float density = view.getResources().getDisplayMetrics().scaledDensity;
+        float sp = 11f;
+        android.graphics.Paint paint = new android.graphics.Paint(view.getPaint());
+        while (sp > 8f) {
+            paint.setTextSize(sp * density);
+            if (paint.measureText(widest) <= widthPx) break;
+            sp -= 0.5f;
+        }
+        view.setTextSize(sp);
+        view.setHorizontallyScrolling(false);
+    }
+
     static void save(MainActivity app, String file, String text) {
         pending = text;
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);

@@ -76,6 +76,8 @@ final class CompareHitsPage {
         col.add(buttons);
         this.result = new JTextArea(14, 64);
         this.result.setEditable(false);
+        this.result.setLineWrap(true);
+        this.result.setWrapStyleWord(true);
         this.result.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         this.result.setForeground(FG);
         this.result.setBackground(SURFACE);

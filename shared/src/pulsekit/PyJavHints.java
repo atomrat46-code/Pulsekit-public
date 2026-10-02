@@ -122,15 +122,18 @@ public final class PyJavHints {
       flags.add(flag);
       i = j;
     }
+    int u = blob.indexOf("Usage:");
+    String usageLine = u >= 0 ? ProgramParams.usageLine(blob, u + 6) : null;
     StringBuilder sb = new StringBuilder();
     for (String flag : flags) {
+      // With a Usage line, only its switches: a program's messages may name other programs' switches.
+      if (usageLine != null && !java.util.regex.Pattern.compile("(^|[\\s\\[|])" + java.util.regex.Pattern.quote(flag) + "([\\s\\]|=]|$)").matcher(usageLine).find()) continue;
       if (sb.length() > 0) sb.append(' ');
       sb.append(flag);
     }
-    int u = blob.indexOf("Usage:");
     if (u >= 0) {
       // Java strings split over lines are joined, and the source's closing quote is left out.
-      String usage = "Usage: " + ProgramParams.usageLine(blob, u + 6);
+      String usage = "Usage: " + usageLine;
       if (usage.length() > 220) usage = usage.substring(0, 220);
       if (usage.length() > 7) {
         if (sb.length() > 0) sb.append('\n');

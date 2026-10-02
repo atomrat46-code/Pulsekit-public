@@ -168,6 +168,7 @@ public final class ProgramParams {
     }
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
+    if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
   }
 
   static String ext(String name) {

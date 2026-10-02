@@ -2,12 +2,19 @@
  * CompareHits: how closely drum hits line up, per drum family (kick, snare, cymbals, toms).
  * The same comparison as Pulsekit's File > Compare Hits page.
  *
- *   java CompareHits <input.wav> <drums.mid> [song.mid]
+ *   java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>]
  *     MIDI (and song) against onsets heard in the original WAV, and the song against the MIDI.
- *   java CompareHits <drums.mid> <song.mid>
+ *   java CompareHits <drums.mid> <song.mid> [--log <logfile>]
  *     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
  *
+ *   --log <logfile>  also writes the results to this text file. --log alone writes
+ *                    CompareHits_test_results.txt. In PyJav on Android, a plain file name is saved
+ *                    with the program's other output.
+ *
  * Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
+ * Ends with suggestions for DrumMidi's switches (--sens, --hat, --ride, --crash) from the results.
+ * When the MIDI carries DrumMidi_CRT's settings (it writes them into its MIDI), the suggestions name
+ * the values it used and end with a "Next run:" argument line.
  */
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,21 +25,70 @@ public final class CompareHits {
   private CompareHits() {}
 
 
+  /** Everything printed, for --log. */
+  static final StringBuilder report = new StringBuilder();
+  static String logPath;
+  static final String DEFAULT_LOG = "CompareHits_test_results.txt";
+
+  /** The word after --log is its file name unless it is one of the WAV or MIDI inputs. */
+  static boolean isLogName(String w) {
+    String low = w.toLowerCase(Locale.ROOT);
+    return !(low.endsWith(".wav") || low.endsWith(".wave") || low.endsWith(".mid") || low.endsWith(".midi"));
+  }
+
   public static void main(String[] args) {
     try {
       run(args);
     } catch (Throwable ex) {
       String m = ex.getMessage();
-      System.out.println("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
+      finish("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
     }
+  }
+
+  static void out(String line) {
+    System.out.println(line);
+    report.append(line).append('\n');
+  }
+
+  /** Writes the --log file, then prints the last line (PyJav reads it as the run's status). */
+  static void finish(String last) {
+    report.append(last).append('\n');
+    if (logPath != null) {
+      try {
+        java.io.File f = new java.io.File(logPath);
+        java.io.File parent = f.getAbsoluteFile().getParentFile();
+        if (parent != null && !parent.isDirectory()) parent.mkdirs();
+        java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+        try {
+          fos.write(report.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } finally {
+          fos.close();
+        }
+        System.out.println("Log: " + f.getAbsolutePath());
+      } catch (Exception ex) {
+        System.out.println("Could not write the log " + logPath + ": " + ex.getMessage());
+      }
+    }
+    System.out.println(last);
   }
 
   static void run(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
-    for (String a : args) if (a != null && a.trim().length() > 0) files.add(a.trim());
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i] == null ? "" : args[i].trim();
+      if (a.length() == 0) continue;
+      if ("--log".equals(a)) {
+        // --log alone writes CompareHits_test_results.txt.
+        boolean named = i + 1 < args.length && args[i + 1] != null && args[i + 1].trim().length() > 0
+            && !args[i + 1].trim().startsWith("--") && isLogName(args[i + 1].trim());
+        logPath = named ? args[++i].trim() : DEFAULT_LOG;
+        continue;
+      }
+      files.add(a);
+    }
     if (files.size() < 2) {
-      System.out.println("Failed: need a WAV and a MIDI file, or two MIDI files");
-      System.out.println("Usage: java CompareHits <input.wav> <drums.mid> [song.mid]");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>]");
+      finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
     String first = files.get(0).toLowerCase(Locale.ROOT);
@@ -42,20 +98,33 @@ public final class CompareHits {
       long t0 = System.currentTimeMillis();
       float[][] pcm = readWav(read(files.get(0)));
       audio = audioOnsets(pcm[0], (int) pcm[1][0]);
-      System.out.println(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms", name(files.get(0)),
+      out(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms", name(files.get(0)),
           pcm[0].length / pcm[1][0], System.currentTimeMillis() - t0));
     }
     int at = wav ? 1 : 0;
-    double[][] midi = midiHits(read(files.get(at)));
-    double[][] song = files.size() > at + 1 ? midiHits(read(files.get(at + 1))) : null;
-    System.out.println();
-    if (audio != null) {
-      System.out.println(text(compare("", "WAV", audio, "MIDI", midi, true)));
-      if (song != null) System.out.println(text(compare("", "WAV", audio, "Song", song, true)));
+    byte[] midiBytes = read(files.get(at));
+    double[][] midi = midiHits(midiBytes);
+    java.util.LinkedHashMap<String, String> settings = drumMidiSettings(midiBytes);
+    if (!settings.isEmpty()) {
+      out("DrumMidi settings: " + drumMidiArgsText(settings)
+          + (settings.get("input") != null ? " (made from " + settings.get("input") + ")" : ""));
     }
-    if (song != null) System.out.println(text(compare("", "MIDI", midi, "Song", song, false)));
-    System.out.println(LEGEND);
-    System.out.println("Succeeded: compared " + files.size() + " files");
+    double[][] song = files.size() > at + 1 ? midiHits(read(files.get(at + 1))) : null;
+    out("");
+    Result vsWav = null;
+    Result songVsMidi = null;
+    if (audio != null) {
+      vsWav = compare("", "WAV", audio, "MIDI", midi, true);
+      out(text(vsWav));
+      if (song != null) out(text(compare("", "WAV", audio, "Song", song, true)));
+    }
+    if (song != null) {
+      songVsMidi = compare("", "MIDI", midi, "Song", song, false);
+      out(text(songVsMidi));
+    }
+    out(suggestionsText(suggestions(midi, midiBpm(midiBytes), vsWav, songVsMidi, settings, wav ? name(files.get(0)) : null)));
+    out(LEGEND);
+    finish("Succeeded: compared " + files.size() + " files");
   }
 
   static byte[] read(String path) throws java.io.IOException {
@@ -412,7 +481,7 @@ public final class CompareHits {
       int k = Arrays.binarySearch(test, r);
       if (k < 0) k = -k - 1;
       int best = -1;
-      for (int c = Math.max(0, k - 1); c >= 0 && test[c] >= r - tol; c--) {
+      for (int c = Math.min(k - 1, test.length - 1); c >= 0 && test[c] >= r - tol; c--) {
         if (!used[c] && (best < 0 || Math.abs(test[c] - r) < Math.abs(test[best] - r))) best = c;
       }
       for (int c = k; c < test.length && test[c] <= r + tol; c++) {
@@ -438,6 +507,209 @@ public final class CompareHits {
       sb.append(String.format(Locale.ROOT, "%-8s %6d %6d %8d %7.1f%% %7s %5.1fms%n", row.family, row.ref, row.test, row.matched,
           100 * row.precision(), row.recallShown ? String.format(Locale.ROOT, "%.1f%%", 100 * row.recall()) : "-", row.medianMs));
     }
+    return sb.toString();
+  }
+
+  /** The MIDI file's first tempo in BPM, or 120. */
+  public static double midiBpm(byte[] midi) {
+    if (midi != null) {
+      for (int i = 0; i + 5 < midi.length; i++) {
+        if ((midi[i] & 0xff) == 0xff && midi[i + 1] == 0x51 && midi[i + 2] == 0x03) {
+          int us = ((midi[i + 3] & 0xff) << 16) | ((midi[i + 4] & 0xff) << 8) | (midi[i + 5] & 0xff);
+          if (us > 0) return 60000000.0 / us;
+        }
+      }
+    }
+    return 120;
+  }
+
+  static Row row(Result r, int family) {
+    if (r == null) return null;
+    for (Row row : r.rows) if (row.family.equals(FAMILIES[family])) return row;
+    return null;
+  }
+
+  /**
+   * Settings DrumMidi_CRT writes into its MIDI: a text event "pulsekit-drummidi; key=value; ..."
+   * (input, output, args, sens, hat, tom, ride, crash, bpm, quantize, hpss, tempo). Empty when the
+   * MIDI has none, such as one made by an older DrumMidi or another program.
+   */
+  public static java.util.LinkedHashMap<String, String> drumMidiSettings(byte[] midi) {
+    java.util.LinkedHashMap<String, String> out = new java.util.LinkedHashMap<String, String>();
+    if (midi == null) return out;
+    for (int i = 0; i + 3 < midi.length; i++) {
+      if ((midi[i] & 0xff) != 0xff || midi[i + 1] != 0x01) continue;
+      long[] l = varLen(midi, i + 2, midi.length);
+      int at = (int) l[1];
+      int len = (int) l[0];
+      if (len < 17 || at + len > midi.length) continue;
+      String text = new String(midi, at, len, java.nio.charset.StandardCharsets.UTF_8);
+      if (!text.startsWith("pulsekit-drummidi")) continue;
+      for (String part : text.split(";")) {
+        int eq = part.indexOf('=');
+        if (eq > 0) out.put(part.substring(0, eq).trim(), part.substring(eq + 1).trim());
+      }
+      break;
+    }
+    return out;
+  }
+
+  /** "--sens 0.4 --hat 0.4 ..." as DrumMidi was run, or "its defaults". */
+  public static String drumMidiArgsText(java.util.Map<String, String> settings) {
+    String args = settings.get("args");
+    return args == null || args.length() == 0 ? "its defaults" : args;
+  }
+
+  private static Double num(java.util.Map<String, String> settings, String key) {
+    String v = settings == null ? null : settings.get(key);
+    if (v == null) return null;
+    try {
+      return Double.valueOf(Double.parseDouble(v));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  private static String fmt(double v) {
+    String t = String.format(Locale.ROOT, "%.2f", v);
+    while (t.endsWith("0")) t = t.substring(0, t.length() - 1);
+    if (t.endsWith(".")) t = t.substring(0, t.length() - 1);
+    return t;
+  }
+
+  /** The arguments DrumMidi was run with, with `next` values put in (and added when missing). */
+  static String nextArgs(java.util.Map<String, String> settings, java.util.Map<String, Double> next) {
+    String given = settings == null ? null : settings.get("args");
+    List<String> words = new ArrayList<String>();
+    if (given != null && given.trim().length() > 0) for (String w : given.trim().split("\\s+")) words.add(w);
+    for (java.util.Map.Entry<String, Double> e : next.entrySet()) {
+      String flag = "--" + e.getKey();
+      int at = words.indexOf(flag);
+      if (at >= 0 && at + 1 < words.size()) words.set(at + 1, fmt(e.getValue().doubleValue()));
+      else {
+        words.add(flag);
+        words.add(fmt(e.getValue().doubleValue()));
+      }
+    }
+    StringBuilder sb = new StringBuilder();
+    for (String w : words) {
+      if (sb.length() > 0) sb.append(' ');
+      sb.append(w);
+    }
+    return sb.toString();
+  }
+
+  /**
+   * Hints for DrumMidi's switches from the results: hits per bar in the MIDI, MIDI hits not heard
+   * in the WAV (precision), and WAV cymbals the MIDI missed (recall, the one band that hears only
+   * cymbals). `vsWav` (MIDI against WAV), `songVsMidi` and `wavName` may be null. With the
+   * settings DrumMidi wrote into its MIDI, the hints name the values used and end with a next run.
+   */
+  public static List<String> suggestions(double[][] midi, double bpm, Result vsWav, Result songVsMidi,
+      java.util.Map<String, String> settings, String wavName) {
+    List<String> out = new ArrayList<String>();
+    java.util.LinkedHashMap<String, Double> next = new java.util.LinkedHashMap<String, Double>();
+    String input = settings == null ? null : settings.get("input");
+    if (input != null && wavName != null && wavName.length() > 0 && !sameName(input, wavName)) {
+      out.add("The MIDI was made from " + input + ", but it is compared with " + wavName + ".");
+    }
+    double[] all = all(midi, false);
+    double barSec = 240.0 / Math.max(30, bpm);
+    double bars = all.length < 2 ? 1 : Math.max(1, (all[all.length - 1] - all[0]) / barSec + 1);
+    double kicks = midi[KICK].length / bars;
+    double snares = midi[SNARE].length / bars;
+    double cymbals = midi[CYMBAL].length / bars;
+    Double sens = num(settings, "sens");
+    boolean few = kicks < 1.0 || snares < 0.75;
+    if (few) {
+      if (sens != null) next.put("sens", Double.valueOf(sens.doubleValue() + 0.2));
+      out.add(String.format(Locale.ROOT, "--sens should be greater: only %.1f kicks and %.1f snares per bar were found ", kicks, snares)
+          + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(sens.doubleValue() + 0.2) + ")."
+              : "(raise it by about 0.2, e.g. 0.4 -> 0.6)."));
+    }
+    // Extra kicks often land on bass notes, which the low band also hears, so precision alone misses
+    // them; very many hits per bar is the other sign.
+    boolean many = kicks > 7.0 || snares > 6.0;
+    if (many) {
+      if (sens != null) next.put("sens", Double.valueOf(Math.max(0.1, sens.doubleValue() - 0.2)));
+      out.add(String.format(Locale.ROOT, "--sens may be too high: %.1f kicks and %.1f snares per bar is a lot ", kicks, snares)
+          + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(Math.max(0.1, sens.doubleValue() - 0.2)) + ")."
+              : "(lower it by about 0.2 and compare again)."));
+    }
+    Row k = row(vsWav, KICK);
+    Row sn = row(vsWav, SNARE);
+    if (!few && !many && ((k != null && k.test >= 8 && k.precision() < 0.85) || (sn != null && sn.test >= 8 && sn.precision() < 0.85))) {
+      if (sens != null) next.put("sens", Double.valueOf(Math.max(0.1, sens.doubleValue() - 0.1)));
+      out.add(String.format(Locale.ROOT, "--sens could be lower: %.0f%% of kicks and %.0f%% of snares in the MIDI are not "
+          + "heard in the WAV ", k == null ? 0 : 100 * (1 - k.precision()), sn == null ? 0 : 100 * (1 - sn.precision()))
+          + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(Math.max(0.1, sens.doubleValue() - 0.1)) + ")."
+              : "(lower it by about 0.1)."));
+    }
+    String[] cym = {"hat", "ride", "crash"};
+    Double[] was = {num(settings, "hat"), num(settings, "ride"), num(settings, "crash")};
+    boolean known = was[0] != null && was[1] != null && was[2] != null;
+    Row c = row(vsWav, CYMBAL);
+    if ((c != null && c.ref >= 8 && c.recall() < 0.5) || (vsWav == null && cymbals < 1.0)) {
+      String tail;
+      if (known) {
+        StringBuilder w = new StringBuilder();
+        StringBuilder t = new StringBuilder();
+        for (int i = 0; i < 3; i++) {
+          double v = was[i].doubleValue();
+          double up = Math.max(0.8, v + 0.2);
+          next.put(cym[i], Double.valueOf(up));
+          w.append(i == 0 ? "" : ", ").append(fmt(v));
+          t.append(i == 0 ? "" : ", ").append(fmt(up));
+        }
+        tail = " (they were " + w + "; try " + t + ").";
+      } else {
+        tail = ". Raise them, e.g. to 0.8, or leave them out to follow --sens.";
+      }
+      out.add(c != null
+          ? String.format(Locale.ROOT, "--hat, --ride and --crash need more sensitivity: the MIDI has only %.0f%% of the "
+              + "cymbal hits heard in the WAV (%.1f per bar)", 100 * c.recall(), cymbals) + tail
+          : String.format(Locale.ROOT, "--hat, --ride and --crash may need more sensitivity: only %.1f cymbal hits per bar", cymbals) + tail);
+    } else if (c != null && c.test >= 8 && c.precision() < 0.7) {
+      String tail = ".";
+      if (known) {
+        StringBuilder t = new StringBuilder();
+        for (int i = 0; i < 3; i++) {
+          double down = Math.max(0.1, was[i].doubleValue() - 0.1);
+          next.put(cym[i], Double.valueOf(down));
+          t.append(i == 0 ? "" : ", ").append(fmt(down));
+        }
+        tail = " (try " + t + ").";
+      }
+      out.add(String.format(Locale.ROOT, "--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
+          + "heard in the WAV", 100 * (1 - c.precision())) + tail);
+    }
+    Row sk = row(songVsMidi, KICK);
+    Row ss = row(songVsMidi, SNARE);
+    if ((sk != null && sk.ref >= 8 && sk.recall() < 0.9) || (ss != null && ss.ref >= 8 && ss.recall() < 0.9)) {
+      out.add(String.format(Locale.ROOT, "Not DrumMidi: the song keeps %.0f%% of the MIDI's kicks and %.0f%% of its snares. "
+          + "In Drum Midi Settings, lower \"Merge up to\" or turn off Merge hits, then import again.",
+          sk == null ? 100 : 100 * sk.recall(), ss == null ? 100 : 100 * ss.recall()));
+    }
+    if (out.isEmpty()) out.add("No changes suggested: the hits line up well.");
+    if (!next.isEmpty()) out.add("Next run: " + nextArgs(settings, next));
+    return out;
+  }
+
+  /** The same file, ignoring folders and the copies PyJav and Pulsekit make ("my song.wav" = "my_song.wav"). */
+  static boolean sameName(String a, String b) {
+    return plainName(a).equals(plainName(b));
+  }
+
+  private static String plainName(String path) {
+    String n = path == null ? "" : path;
+    int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+    if (slash >= 0) n = n.substring(slash + 1);
+    return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9.]+", "_");
+  }
+
+  public static String suggestionsText(List<String> lines) {
+    StringBuilder sb = new StringBuilder("Suggestions for DrumMidi:\n");
+    for (String l : lines) sb.append("- ").append(l).append('\n');
     return sb.toString();
   }
 

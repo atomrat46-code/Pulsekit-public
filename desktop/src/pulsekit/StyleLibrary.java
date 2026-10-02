@@ -762,6 +762,11 @@ final class StyleLibrary {
                 JMenuItem make = new JMenuItem("Make song");
                 make.addActionListener(ev -> app.fileSets.makeFileSetSong(key, label));
                 m.add(make);
+                if (app.fileSets.hasSourceMidi(key)) {
+                    JMenuItem compare = new JMenuItem("Compare hits");
+                    compare.addActionListener(ev -> app.fileSets.compareFileSetHits(key, label));
+                    m.add(compare);
+                }
                 String origin = key != null && key.startsWith("f:") ? Engine.fileSetOriginOf(key.substring(2)) : "";
                 if (Engine.fileSetStyleOn(origin)) {
                     JMenuItem style = new JMenuItem("Change style");
@@ -781,6 +786,11 @@ final class StyleLibrary {
         kids.setVisible(open);
         kids.setAlignmentX(0f);
         pack.add(kids);
+        JPanel results = key != null && key.startsWith("f:") ? app.fileSets.resultsRow(key.substring(2), label) : null;
+        if (results != null) {
+            results.setVisible(open);
+            pack.add(results);
+        }
         return pack;
     }
 

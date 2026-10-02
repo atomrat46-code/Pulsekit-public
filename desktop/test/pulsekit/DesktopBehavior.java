@@ -351,6 +351,37 @@ public final class DesktopBehavior {
     out.append("song bar scrolls sideways: ").append(((java.awt.Component) bar).getParent() instanceof javax.swing.JViewport).append('\n');
   }
 
+  void s23_file_set_compare_hits() throws Exception {
+    byte[] midi = Engine.encodeSongMidi(songParts());
+    Engine.stageSourceMidi(midi, "Passing Ships.mid");
+    answers.add("Yes");
+    call("ingest", midi, "Passing Ships.mid");
+    call("showView", "combo");
+    out.append("has source MIDI: ").append(call("hasSourceMidi", "f:Passing Ships")).append('\n');
+    answers.add("Close");
+    call("compareFileSetHits", "f:Passing Ships", "Passing Ships");
+    for (int i = 0; i < 200 && Engine.fileSetResults("Passing Ships") == null; i++) Thread.sleep(50);
+    Thread.sleep(500);
+    idle();
+    String text = Engine.fileSetResults("Passing Ships");
+    out.append("results: ").append(text == null ? "none" : text.substring(0, text.indexOf('\n'))).append(" ... ")
+        .append(text == null ? "" : text.substring(text.lastIndexOf("Succeeded")).trim()).append('\n');
+    final boolean[] row = {false};
+    edt(() -> row[0] = named(frame, "fileset-results"));
+    out.append("row under file set: ").append(row[0]).append('\n');
+    Engine.fileSetAudio.clear();
+    Engine.loadFileSetAudioDir(new File(System.getProperty("user.home"), ".pulsekit/fset-audio"));
+    out.append("kept on disk: ").append(text != null && text.equals(Engine.fileSetResults("Passing Ships"))).append('\n');
+  }
+
+  private static boolean named(java.awt.Component c, String name) {
+    if (name.equals(c.getName())) return true;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) if (named(k, name)) return true;
+    }
+    return false;
+  }
+
   private static List<Engine.Part> songParts() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("rock")), 4));

@@ -2817,6 +2817,24 @@ public final class Engine {
     public byte[] sourceMidi;
     public String sourceMidiName = "";
     public String combinedName = "";
+    /** The last Compare hits results for this file set (HitCompare.RESULTS_FILE), or null. */
+    public String results;
+  }
+
+  public static void rememberFileSetResults(String source, String text) {
+    if (source == null || source.isEmpty() || text == null) return;
+    FileSetAudio cur = fileSetAudio.get(source);
+    if (cur == null) {
+      cur = new FileSetAudio();
+      fileSetAudio.put(source, cur);
+    }
+    cur.results = text;
+  }
+
+  /** Compare hits results kept with the file set, or null. */
+  public static String fileSetResults(String source) {
+    FileSetAudio au = fileSetAudioOf(source);
+    return au == null || au.results == null || au.results.isEmpty() ? null : au.results;
   }
 
   /** Source name → original guitar WAV and optional combined mix. */
@@ -2995,6 +3013,8 @@ public final class Engine {
         rememberFileSetAudio(source, sourceWav, combined, combinedName.isEmpty() ? null : combinedName);
         File mid = new File(kid, "source.mid");
         if (mid.isFile()) rememberFileSetMidi(source, Files.readAllBytes(mid.toPath()), "source.mid");
+        File res = new File(kid, HitCompare.RESULTS_FILE);
+        if (res.isFile()) rememberFileSetResults(source, new String(Files.readAllBytes(res.toPath()), StandardCharsets.UTF_8));
         FileSetAudio loaded = fileSetAudioOf(source);
         File dw = new File(kid, "drum.wav");
         File bw = new File(kid, "bed.wav");
@@ -3019,7 +3039,8 @@ public final class Engine {
         boolean hasSource = au.sourceWav != null && au.sourceWav.length > 0;
         boolean hasMix = au.combinedWav != null && au.combinedWav.length > 0;
         boolean hasMidi = au.sourceMidi != null && au.sourceMidi.length >= 14;
-        if (!hasSource && !hasMix && !hasMidi) continue;
+        boolean hasResults = au.results != null && !au.results.isEmpty();
+        if (!hasSource && !hasMix && !hasMidi && !hasResults) continue;
         File kid = new File(dir, "a" + (i++));
         if (!kid.mkdirs() && !kid.isDirectory()) continue;
         String name = au.combinedName == null ? "" : au.combinedName.replace("\n", " ");
@@ -3030,6 +3051,7 @@ public final class Engine {
         if (au.drumWav != null && au.drumWav.length > 44) Files.write(new File(kid, "drum.wav").toPath(), au.drumWav);
         if (au.bedWav != null && au.bedWav.length > 44) Files.write(new File(kid, "bed.wav").toPath(), au.bedWav);
         if (hasMidi) Files.write(new File(kid, "source.mid").toPath(), au.sourceMidi);
+        if (hasResults) Files.write(new File(kid, HitCompare.RESULTS_FILE).toPath(), au.results.getBytes(StandardCharsets.UTF_8));
       }
     } catch (Exception ignored) { /* optional */ }
   }
@@ -3369,6 +3391,9 @@ public final class Engine {
       files.put(file, midi);
       json.append(",\"sourceMidi\":").append(quote(file));
     }
+    if (au != null && au.results != null && !au.results.isEmpty()) {
+      files.put(HitCompare.RESULTS_FILE, au.results.getBytes(StandardCharsets.UTF_8));
+    }
     if (!set.songs.isEmpty()) json.append(",\"songs\":").append(fileSetSongsJson(set.songs));
     json.append("}");
     LinkedHashMap<String, byte[]> ordered = new LinkedHashMap<String, byte[]>();
@@ -3455,6 +3480,8 @@ public final class Engine {
     set.sourceMidi = sourceMidi;
     set.sourceMidiName = midiKey == null || midiKey.length() == 0 ? (sourceMidi == null ? "" : "source.mid") : midiKey;
     if (sourceMidi != null && sourceMidi.length >= 14) rememberFileSetMidi(set.name, sourceMidi, set.sourceMidiName);
+    byte[] results = files.get(HitCompare.RESULTS_FILE);
+    if (results != null && results.length > 0) rememberFileSetResults(set.name, new String(results, StandardCharsets.UTF_8));
     if ((sourceWav != null && sourceWav.length > 0) || (combinedWav != null && combinedWav.length > 0)) {
       rememberFileSetAudio(set.name, sourceWav, combinedWav, set.combinedName);
     }
