@@ -970,6 +970,9 @@ public class BehaviorTest {
           .append(", chosen ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append('\n');
     }
     out.append("suggested button: ").append(dv.findViewWithTag("params-suggested") != null).append('\n');
+    android.widget.EditText log = (android.widget.EditText) dv.findViewWithTag("params-field:--log");
+    out.append("--log field: ").append(log != null ? log.getHint() : "none").append('\n');
+    log.setText("CompareHits_test_results.txt");
     dv.findViewWithTag("params-file:drums.mid").performClick();
     android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("picker: ").append(pick.getAction()).append('\n');

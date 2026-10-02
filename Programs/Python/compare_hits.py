@@ -2,10 +2,12 @@
 compare_hits.py: how closely drum hits line up, per drum family (kick, snare, cymbals, toms).
 The same comparison as Pulsekit's File > Compare Hits page and Programs/Java/CompareHits.java.
 
-  python compare_hits.py <input.wav> <drums.mid> [song.mid]
+  python compare_hits.py <input.wav> <drums.mid> [song.mid] [--log <logfile>]
     MIDI (and song) against onsets heard in the original WAV, and the song against the MIDI.
-  python compare_hits.py <drums.mid> <song.mid>
+  python compare_hits.py <drums.mid> <song.mid> [--log <logfile>]
     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
+
+  --log <logfile>  also writes the results to this text file, such as CompareHits_test_results.txt.
 
 Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
 Needs numpy.
@@ -201,11 +203,49 @@ def compare(ref_name, ref, test_name, test, audio_ref):
     return "\n".join(lines) + "\n"
 
 
+REPORT = []
+LOG = {"path": None}
+
+
+def out(line=""):
+    print(line)
+    REPORT.append(line)
+
+
+def finish(last):
+    """Writes the --log file, then prints the last line (PyJav reads it as the run's status)."""
+    REPORT.append(last)
+    if LOG["path"]:
+        try:
+            parent = os.path.dirname(os.path.abspath(LOG["path"]))
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent)
+            with open(LOG["path"], "w", encoding="utf-8") as f:
+                f.write("\n".join(REPORT) + "\n")
+            print("Log: %s" % os.path.abspath(LOG["path"]))
+        except Exception as ex:
+            print("Could not write the log %s: %s" % (LOG["path"], ex))
+    print(last)
+
+
 def main(args):
-    files = [a for a in args if a.strip()]
+    files = []
+    i = 0
+    while i < len(args):
+        a = args[i].strip()
+        if a == "--log":
+            if i + 1 >= len(args) or not args[i + 1].strip() or args[i + 1].strip().startswith("--"):
+                finish("Failed: --log needs a file name, such as --log CompareHits_test_results.txt")
+                return
+            LOG["path"] = args[i + 1].strip()
+            i += 2
+            continue
+        if a:
+            files.append(a)
+        i += 1
     if len(files) < 2:
-        print("Failed: need a WAV and a MIDI file, or two MIDI files")
-        print("Usage: python compare_hits.py <input.wav> <drums.mid> [song.mid]")
+        out("Usage: python compare_hits.py <input.wav> <drums.mid> [song.mid] [--log <logfile>]")
+        finish("Failed: need a WAV and a MIDI file, or two MIDI files")
         return
     is_wav = files[0].lower().endswith((".wav", ".wave"))
     audio = None
@@ -213,23 +253,23 @@ def main(args):
         t0 = time.time()
         x, sr = read_wav(files[0])
         audio = audio_onsets(x, sr)
-        print("Read %s: %.1f s, onsets found in %d ms" % (files[0], len(x) / sr, (time.time() - t0) * 1000))
+        out("Read %s: %.1f s, onsets found in %d ms" % (os.path.basename(files[0]), len(x) / sr, (time.time() - t0) * 1000))
     at = 1 if is_wav else 0
     midi = midi_hits(files[at])
     song = midi_hits(files[at + 1]) if len(files) > at + 1 else None
-    print()
+    out()
     if audio is not None:
-        print(compare("WAV", audio, "MIDI", midi, True))
+        out(compare("WAV", audio, "MIDI", midi, True))
         if song is not None:
-            print(compare("WAV", audio, "Song", song, True))
+            out(compare("WAV", audio, "Song", song, True))
     if song is not None:
-        print(compare("MIDI", midi, "Song", song, False))
-    print(LEGEND)
-    print("Succeeded: compared %d files" % len(files))
+        out(compare("MIDI", midi, "Song", song, False))
+    out(LEGEND)
+    finish("Succeeded: compared %d files" % len(files))
 
 
 if __name__ == "__main__":
     try:
         main(sys.argv[1:])
     except Exception as ex:  # report like the other Pulsekit programs
-        print("Failed: %s" % ex)
+        finish("Failed: %s" % ex)

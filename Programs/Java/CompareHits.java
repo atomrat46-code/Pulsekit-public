@@ -2,10 +2,13 @@
  * CompareHits: how closely drum hits line up, per drum family (kick, snare, cymbals, toms).
  * The same comparison as Pulsekit's File > Compare Hits page.
  *
- *   java CompareHits <input.wav> <drums.mid> [song.mid]
+ *   java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>]
  *     MIDI (and song) against onsets heard in the original WAV, and the song against the MIDI.
- *   java CompareHits <drums.mid> <song.mid>
+ *   java CompareHits <drums.mid> <song.mid> [--log <logfile>]
  *     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
+ *
+ *   --log <logfile>  also writes the results to this text file, such as CompareHits_test_results.txt.
+ *                    In PyJav on Android, a plain file name is saved with the program's other output.
  *
  * Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
  */
@@ -18,21 +21,64 @@ public final class CompareHits {
   private CompareHits() {}
 
 
+  /** Everything printed, for --log. */
+  static final StringBuilder report = new StringBuilder();
+  static String logPath;
+
   public static void main(String[] args) {
     try {
       run(args);
     } catch (Throwable ex) {
       String m = ex.getMessage();
-      System.out.println("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
+      finish("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
     }
+  }
+
+  static void out(String line) {
+    System.out.println(line);
+    report.append(line).append('\n');
+  }
+
+  /** Writes the --log file, then prints the last line (PyJav reads it as the run's status). */
+  static void finish(String last) {
+    report.append(last).append('\n');
+    if (logPath != null) {
+      try {
+        java.io.File f = new java.io.File(logPath);
+        java.io.File parent = f.getAbsoluteFile().getParentFile();
+        if (parent != null && !parent.isDirectory()) parent.mkdirs();
+        java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+        try {
+          fos.write(report.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } finally {
+          fos.close();
+        }
+        System.out.println("Log: " + f.getAbsolutePath());
+      } catch (Exception ex) {
+        System.out.println("Could not write the log " + logPath + ": " + ex.getMessage());
+      }
+    }
+    System.out.println(last);
   }
 
   static void run(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
-    for (String a : args) if (a != null && a.trim().length() > 0) files.add(a.trim());
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i] == null ? "" : args[i].trim();
+      if (a.length() == 0) continue;
+      if ("--log".equals(a)) {
+        if (i + 1 >= args.length || args[i + 1].trim().length() == 0 || args[i + 1].trim().startsWith("--")) {
+          finish("Failed: --log needs a file name, such as --log CompareHits_test_results.txt");
+          return;
+        }
+        logPath = args[++i].trim();
+        continue;
+      }
+      files.add(a);
+    }
     if (files.size() < 2) {
-      System.out.println("Failed: need a WAV and a MIDI file, or two MIDI files");
-      System.out.println("Usage: java CompareHits <input.wav> <drums.mid> [song.mid]");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>]");
+      finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
     String first = files.get(0).toLowerCase(Locale.ROOT);
@@ -42,20 +88,20 @@ public final class CompareHits {
       long t0 = System.currentTimeMillis();
       float[][] pcm = readWav(read(files.get(0)));
       audio = audioOnsets(pcm[0], (int) pcm[1][0]);
-      System.out.println(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms", name(files.get(0)),
+      out(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms", name(files.get(0)),
           pcm[0].length / pcm[1][0], System.currentTimeMillis() - t0));
     }
     int at = wav ? 1 : 0;
     double[][] midi = midiHits(read(files.get(at)));
     double[][] song = files.size() > at + 1 ? midiHits(read(files.get(at + 1))) : null;
-    System.out.println();
+    out("");
     if (audio != null) {
-      System.out.println(text(compare("", "WAV", audio, "MIDI", midi, true)));
-      if (song != null) System.out.println(text(compare("", "WAV", audio, "Song", song, true)));
+      out(text(compare("", "WAV", audio, "MIDI", midi, true)));
+      if (song != null) out(text(compare("", "WAV", audio, "Song", song, true)));
     }
-    if (song != null) System.out.println(text(compare("", "MIDI", midi, "Song", song, false)));
-    System.out.println(LEGEND);
-    System.out.println("Succeeded: compared " + files.size() + " files");
+    if (song != null) out(text(compare("", "MIDI", midi, "Song", song, false)));
+    out(LEGEND);
+    finish("Succeeded: compared " + files.size() + " files");
   }
 
   static byte[] read(String path) throws java.io.IOException {
