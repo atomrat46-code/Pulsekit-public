@@ -7,8 +7,9 @@
  *   java CompareHits <drums.mid> <song.mid> [--log <logfile>]
  *     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
  *
- *   --log <logfile>  also writes the results to this text file, such as CompareHits_test_results.txt.
- *                    In PyJav on Android, a plain file name is saved with the program's other output.
+ *   --log <logfile>  also writes the results to this text file. --log alone writes
+ *                    CompareHits_test_results.txt. In PyJav on Android, a plain file name is saved
+ *                    with the program's other output.
  *
  * Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
  */
@@ -24,6 +25,13 @@ public final class CompareHits {
   /** Everything printed, for --log. */
   static final StringBuilder report = new StringBuilder();
   static String logPath;
+  static final String DEFAULT_LOG = "CompareHits_test_results.txt";
+
+  /** The word after --log is its file name unless it is one of the WAV or MIDI inputs. */
+  static boolean isLogName(String w) {
+    String low = w.toLowerCase(Locale.ROOT);
+    return !(low.endsWith(".wav") || low.endsWith(".wave") || low.endsWith(".mid") || low.endsWith(".midi"));
+  }
 
   public static void main(String[] args) {
     try {
@@ -67,11 +75,10 @@ public final class CompareHits {
       String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
       if ("--log".equals(a)) {
-        if (i + 1 >= args.length || args[i + 1].trim().length() == 0 || args[i + 1].trim().startsWith("--")) {
-          finish("Failed: --log needs a file name, such as --log CompareHits_test_results.txt");
-          return;
-        }
-        logPath = args[++i].trim();
+        // --log alone writes CompareHits_test_results.txt.
+        boolean named = i + 1 < args.length && args[i + 1] != null && args[i + 1].trim().length() > 0
+            && !args[i + 1].trim().startsWith("--") && isLogName(args[i + 1].trim());
+        logPath = named ? args[++i].trim() : DEFAULT_LOG;
         continue;
       }
       files.add(a);

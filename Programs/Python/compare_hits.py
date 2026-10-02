@@ -7,7 +7,8 @@ The same comparison as Pulsekit's File > Compare Hits page and Programs/Java/Com
   python compare_hits.py <drums.mid> <song.mid> [--log <logfile>]
     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
 
-  --log <logfile>  also writes the results to this text file, such as CompareHits_test_results.txt.
+  --log <logfile>  also writes the results to this text file. --log alone writes
+                   CompareHits_test_results.txt.
 
 Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
 Needs numpy.
@@ -203,6 +204,7 @@ def compare(ref_name, ref, test_name, test, audio_ref):
     return "\n".join(lines) + "\n"
 
 
+DEFAULT_LOG = "CompareHits_test_results.txt"
 REPORT = []
 LOG = {"path": None}
 
@@ -234,11 +236,11 @@ def main(args):
     while i < len(args):
         a = args[i].strip()
         if a == "--log":
-            if i + 1 >= len(args) or not args[i + 1].strip() or args[i + 1].strip().startswith("--"):
-                finish("Failed: --log needs a file name, such as --log CompareHits_test_results.txt")
-                return
-            LOG["path"] = args[i + 1].strip()
-            i += 2
+            # --log alone writes CompareHits_test_results.txt.
+            nxt = args[i + 1].strip() if i + 1 < len(args) else ""
+            named = nxt and not nxt.startswith("--") and not nxt.lower().endswith((".wav", ".wave", ".mid", ".midi"))
+            LOG["path"] = nxt if named else DEFAULT_LOG
+            i += 2 if named else 1
             continue
         if a:
             files.append(a)
