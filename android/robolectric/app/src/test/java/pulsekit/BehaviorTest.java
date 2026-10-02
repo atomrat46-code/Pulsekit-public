@@ -1204,12 +1204,17 @@ public class BehaviorTest {
     out.append("results start: ").append(body.substring(0, body.indexOf("Song against MIDI"))).append('\n');
     out.append("suggestions: ").append(body.substring(body.indexOf("Suggestions"), body.indexOf("matched:")).trim().replace('\n', '|')).append('\n');
     out.append("results end: ").append(body.substring(body.lastIndexOf("Succeeded"))).append('\n');
-    out.append("save button: ").append(shown.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    View dv = shown.getWindow().getDecorView();
+    out.append("buttons: ").append(((TextView) dv.findViewWithTag("results-save")).getText()).append(" | ")
+        .append(((TextView) dv.findViewWithTag("results-close")).getText()).append('\n');
+    out.append("text box at most 60% of the screen: ").append(((View) text.getParent()).getLayoutParams().height
+        <= Math.max(Math.round(120 * app.getResources().getDisplayMetrics().density), app.getResources().getDisplayMetrics().heightPixels * 0.6f)).append('\n');
     out.append("wraps, no sideways scroll: ").append(text.getParent() instanceof android.widget.ScrollView).append(", text ")
         .append(Math.round(text.getTextSize() / app.getResources().getDisplayMetrics().scaledDensity * 2) / 2.0).append(" sp, window width ")
         .append(shown.getWindow().getAttributes().width == app.getResources().getDisplayMetrics().widthPixels - Math.round(16 * app.getResources().getDisplayMetrics().density)).append('\n');
-    shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    dv.findViewWithTag("results-close").performClick();
     idle();
+    out.append("closed: ").append(!shown.isShowing()).append('\n');
     out.append("row under file set: ").append(root().findViewWithTag("fileset-results") != null).append('\n');
     call("persistLearned");
     this.ctl.pause().stop().destroy();

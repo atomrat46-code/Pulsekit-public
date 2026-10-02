@@ -306,11 +306,13 @@ final class FileSets {
     }
 
     /**
-     * The results text in a dialog as wide as the screen, with Save as. The tables fit across (the
-     * text size shrinks to fit), longer sentences wrap, and the scrollbar stays visible.
+     * The results text in a dialog as wide as the screen. The tables fit across (the text size
+     * shrinks to fit), longer sentences wrap, and the text scrolls inside a box of at most 60% of
+     * the screen height, so the Save and Close buttons below it always show.
      */
     void showResults(java.lang.String title, final java.lang.String text) {
-        int width = app.getResources().getDisplayMetrics().widthPixels;
+        android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        int width = dm.widthPixels;
         android.widget.TextView body = app.text(text, 11, false);
         body.setTypeface(android.graphics.Typeface.MONOSPACE);
         body.setTextColor(FG);
@@ -321,13 +323,34 @@ final class FileSets {
         tall.setVerticalScrollBarEnabled(true);
         tall.setScrollbarFadingEnabled(false);
         tall.addView(body);
+        // Height: the text's own, up to 60% of the screen.
+        body.measure(android.view.View.MeasureSpec.makeMeasureSpec(width - app.dp(48), android.view.View.MeasureSpec.EXACTLY),
+            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+        int boxHeight = Math.min(body.getMeasuredHeight(), (int) (dm.heightPixels * 0.6f));
+        android.widget.LinearLayout content = app.col();
+        content.addView(tall, new android.widget.LinearLayout.LayoutParams(-1, Math.max(app.dp(120), boxHeight)));
+        android.widget.LinearLayout buttons = app.row();
+        buttons.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(12));
+        final android.app.AlertDialog[] holder = new android.app.AlertDialog[1];
+        android.widget.TextView save = app.action("Save as " + pulsekit.HitCompare.RESULTS_FILE, ELEV, FG, v -> {
+            if (holder[0] != null) holder[0].dismiss();
+            pulsekit.SaveText.save(app, pulsekit.HitCompare.RESULTS_FILE, text);
+        });
+        save.setTag("results-save");
+        android.widget.TextView close = app.action("Close", HIT, BG, v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        close.setTag("results-close");
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, app.dp(44), 1f);
+        lp.setMargins(0, 0, app.dp(8), 0);
+        buttons.addView(save, lp);
+        buttons.addView(close, new android.widget.LinearLayout.LayoutParams(app.dp(96), app.dp(44)));
+        content.addView(buttons);
         android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(app)
             .setTitle((java.lang.CharSequence) ("Compare hits \u00b7 " + title))
-            .setView(tall)
-            .setNegativeButton((java.lang.CharSequence) "Close", null)
-            .setPositiveButton((java.lang.CharSequence) ("Save as " + pulsekit.HitCompare.RESULTS_FILE),
-                (d, w) -> pulsekit.SaveText.save(app, pulsekit.HitCompare.RESULTS_FILE, text))
+            .setView(content)
             .show();
+        holder[0] = dialog;
         if (dialog.getWindow() != null) {
             dialog.getWindow().setLayout(width - app.dp(16), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         }
