@@ -53,6 +53,15 @@ public final class FileSetClicks {
             host.fileSets.makeFileSetSong(key, label);
           }
         });
+        if (host.fileSets.hasSourceMidi(key)) {
+          items.add("Compare hits");
+          acts.add(new Runnable() {
+            @Override
+            public void run() {
+              host.fileSets.compareFileSetHits(key, label);
+            }
+          });
+        }
         if (host.fileSets.fileSetStyleOn(key)) {
           items.add("Change style");
           acts.add(new Runnable() {

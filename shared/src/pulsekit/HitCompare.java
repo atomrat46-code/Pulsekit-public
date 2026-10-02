@@ -372,6 +372,41 @@ public final class HitCompare {
     return made != null && !made.parts.isEmpty() ? made : null;
   }
 
+  /** File set menu > Compare hits keeps its results with the set under this name. */
+  public static final String RESULTS_FILE = "CompareHits_test_results.txt";
+
+  /**
+   * File set menu > Compare hits: the results laid out as CompareHits --log writes them, with a
+   * heading naming what was compared. `wav` and `song` may be null.
+   */
+  public static String fileSetLog(String setName, byte[] midi, String midiName, Engine.ImportedSong song,
+      AudioIo.Pcm wav, String wavName) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Compare hits \u00b7 ").append(setName).append('\n');
+    if (wav != null) sb.append("WAV: ").append(wavName).append('\n');
+    sb.append("MIDI: ").append(midiName == null || midiName.isEmpty() ? "source.mid" : midiName).append('\n');
+    if (song != null) sb.append("Song: ").append(song.name).append('\n');
+    double[][] m = midiHits(midi);
+    double[][] s = song == null ? null : songHits(song.parts);
+    if (wav != null) {
+      long t0 = System.currentTimeMillis();
+      double[][] w = audioOnsets(wav.samples, wav.sr);
+      sb.append(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms%n", wavName,
+          wav.samples.length / (double) wav.sr, System.currentTimeMillis() - t0));
+      sb.append('\n');
+      sb.append(text(compare("", "WAV", w, "MIDI", m, true))).append('\n');
+      if (s != null) sb.append(text(compare("", "WAV", w, "Song", s, true))).append('\n');
+    } else {
+      sb.append("No WAV: only the song against the MIDI.\n\n");
+    }
+    if (s != null) sb.append(text(compare("", "MIDI", m, "Song", s, false))).append('\n');
+    else sb.append("No song made from this file set yet. Make song to compare it with the MIDI.\n\n");
+    sb.append(LEGEND).append('\n');
+    int files = 1 + (wav != null ? 1 : 0) + (song != null ? 1 : 0);
+    sb.append("Succeeded: compared ").append(files).append(" files\n");
+    return sb.toString();
+  }
+
   /** The page's report: song against MIDI, then MIDI and song against the WAV when there is one. */
   public static String report(byte[] midi, Engine.ImportedSong song, AudioIo.Pcm wav) {
     StringBuilder sb = new StringBuilder();

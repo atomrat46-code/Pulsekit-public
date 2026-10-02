@@ -249,6 +249,96 @@ final class FileSets {
         line.addView(app.outline("Pause", false, pulsekit.FileSetClicks.filePauseMidi(app)));
         line.addView(app.outline("Stop", false, pulsekit.FileSetClicks.fileStopMidi(app)));
         host.addView(line);
+        android.widget.LinearLayout results = this.pkResultsRow(src);
+        if (results != null) host.addView(results);
+    }
+
+    /** True when the file set keeps a source MIDI, so Compare hits has something to compare. */
+    boolean hasSourceMidi(java.lang.String key) {
+        java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        return pulsekit.Engine.fileSetMidiName(pulsekit.Engine.fileSetMidiKeyForLabel(src)).length() > 0;
+    }
+
+    /**
+     * File set menu > Compare hits: the set's source MIDI against its song and the original WAV
+     * (kept with the set, or the last WAV given to PyJav), as CompareHits --log writes it. The
+     * results are kept with the file set as CompareHits_test_results.txt.
+     */
+    void compareFileSetHits(java.lang.String key, final java.lang.String label) {
+        java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        final java.lang.String midiKey = pulsekit.Engine.fileSetMidiKeyForLabel(src);
+        final byte[] midi = pulsekit.HitCompare.fileSetMidi(midiKey);
+        if (midi == null || midi.length < 14) {
+            app.setNow("This file set keeps no source MIDI");
+            return;
+        }
+        final java.lang.String midiName = pulsekit.Engine.fileSetMidiName(midiKey);
+        pulsekit.Engine.ImportedSong found = pulsekit.HitCompare.songFor(src, app.importedSongs);
+        if (found == null && !midiKey.equals(src)) found = pulsekit.HitCompare.songFor(midiKey, app.importedSongs);
+        final pulsekit.Engine.ImportedSong song = found;
+        final byte[] kept = pulsekit.HitCompare.fileSetWav(midiKey);
+        final java.io.File last = kept == null ? app.compareHits.lastPyJavWav() : null;
+        final java.lang.String shown = label == null || label.length() == 0 ? (src.length() == 0 ? "Other" : src) : label;
+        app.setNow("Comparing hits \u00b7 " + shown);
+        new java.lang.Thread(() -> {
+            java.lang.String text;
+            boolean ok = true;
+            try {
+                byte[] w = kept != null ? kept : (last != null ? pulsekit.CompareHitsPage.readFile(last) : null);
+                java.lang.String wavName = kept != null ? "source.wav (kept with the file set)" : (last != null ? last.getName() : "");
+                text = pulsekit.HitCompare.fileSetLog(shown, midi, midiName, song, w == null ? null : pulsekit.AudioIo.parseWav(w), wavName);
+            } catch (java.lang.Throwable ex) {
+                ok = false;
+                text = "Could not compare: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString());
+            }
+            final java.lang.String result = text;
+            final boolean saved = ok;
+            app.runOnUiThread(() -> {
+                if (saved) {
+                    pulsekit.Engine.rememberFileSetResults(midiKey, result);
+                    pulsekit.Engine.storeFileSetAudioDir(new java.io.File(app.getFilesDir(), "fset-audio"));
+                    app.importLibrary.rebuildImported();
+                }
+                this.showResults(shown, result);
+                app.setNow(saved ? "Compare hits \u00b7 " + shown + " \u00b7 " + pulsekit.HitCompare.RESULTS_FILE : "Could not compare hits");
+            });
+        }).start();
+    }
+
+    /** The results text in a dialog, with Save as. */
+    void showResults(java.lang.String title, final java.lang.String text) {
+        android.widget.TextView body = app.text(text, 11, false);
+        body.setTypeface(android.graphics.Typeface.MONOSPACE);
+        body.setTextColor(FG);
+        body.setTag("fileset-results-text");
+        body.setPadding(app.dp(16), app.dp(8), app.dp(16), app.dp(8));
+        android.widget.HorizontalScrollView wide = new android.widget.HorizontalScrollView(app);
+        wide.addView(body);
+        android.widget.ScrollView tall = new android.widget.ScrollView(app);
+        tall.addView(wide);
+        new android.app.AlertDialog.Builder(app)
+            .setTitle((java.lang.CharSequence) ("Compare hits \u00b7 " + title))
+            .setView(tall)
+            .setNegativeButton((java.lang.CharSequence) "Close", null)
+            .setPositiveButton((java.lang.CharSequence) ("Save as " + pulsekit.HitCompare.RESULTS_FILE),
+                (d, w) -> pulsekit.SaveText.save(app, pulsekit.HitCompare.RESULTS_FILE, text))
+            .show();
+    }
+
+    /** CompareHits_test_results.txt under the file set, with Open and Save. Null when there are none. */
+    android.widget.LinearLayout pkResultsRow(java.lang.String src) {
+        final java.lang.String key = pulsekit.Engine.fileSetMidiKeyForLabel(src == null ? "" : src);
+        final java.lang.String text = pulsekit.Engine.fileSetResults(key);
+        if (text == null) return null;
+        android.widget.LinearLayout line = app.row();
+        line.setTag("fileset-results");
+        line.setPadding(app.dp(8), 0, 0, app.dp(4));
+        android.widget.TextView label = app.text(pulsekit.HitCompare.RESULTS_FILE, 12, false);
+        label.setTextColor(MUTED);
+        line.addView(label, app.flex(1));
+        line.addView(app.outline("Open", false, v -> this.showResults(key.length() == 0 ? "Other" : key, text)));
+        line.addView(app.outline("Save", false, v -> pulsekit.SaveText.save(app, pulsekit.HitCompare.RESULTS_FILE, text)));
+        return line;
     }
 
     void stampPackMark(android.widget.TextView pack, java.lang.String source) {
@@ -668,7 +758,15 @@ final class FileSets {
         line.addView(app.outline("Play", false, pulsekit.FileSetClicks.filePlayMidi(app, src)));
         line.addView(app.outline("Pause", false, pulsekit.FileSetClicks.filePauseMidi(app)));
         line.addView(app.outline("Stop", false, pulsekit.FileSetClicks.fileStopMidi(app)));
-        return line;
+        android.widget.LinearLayout results = this.pkResultsRow(src);
+        if (results == null) return line;
+        // The MIDI row and the Compare hits results row go in together.
+        line.setTag(null);
+        android.widget.LinearLayout both = app.col();
+        both.setTag("sourcemidi");
+        both.addView(line);
+        both.addView(results);
+        return both;
     }
 
     void appendMidiFileRows() {

@@ -222,6 +222,92 @@ final class FileSets {
         }
     }
 
+    /** True when the file set keeps a source MIDI, so Compare hits has something to compare. */
+    boolean hasSourceMidi(String key) {
+        String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        return Engine.fileSetMidiName(Engine.fileSetMidiKeyForLabel(src)).length() > 0;
+    }
+
+    /**
+     * File set menu > Compare hits: the set's source MIDI against its song and the original WAV
+     * (kept with the set, or the last WAV given to PyJav), as CompareHits --log writes it. The
+     * results are kept with the file set as CompareHits_test_results.txt.
+     */
+    void compareFileSetHits(String key, String label) {
+        String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        final String midiKey = Engine.fileSetMidiKeyForLabel(src);
+        final byte[] midi = HitCompare.fileSetMidi(midiKey);
+        if (midi == null || midi.length < 14) {
+            app.setNow("This file set keeps no source MIDI");
+            return;
+        }
+        final String midiName = Engine.fileSetMidiName(midiKey);
+        Engine.ImportedSong found = HitCompare.songFor(src, app.importedSongs);
+        if (found == null && !midiKey.equals(src)) found = HitCompare.songFor(midiKey, app.importedSongs);
+        final Engine.ImportedSong song = found;
+        final byte[] kept = HitCompare.fileSetWav(midiKey);
+        final File last = kept == null ? app.compareHits.lastPyJavWav() : null;
+        final String shown = label == null || label.isEmpty() ? (src.isEmpty() ? "Other" : src) : label;
+        app.setNow("Comparing hits \u00b7 " + shown);
+        new Thread(() -> {
+            String text;
+            boolean ok = true;
+            try {
+                byte[] w = kept != null ? kept : (last != null ? java.nio.file.Files.readAllBytes(last.toPath()) : null);
+                String wavName = kept != null ? "source.wav (kept with the file set)" : (last != null ? last.getName() : "");
+                text = HitCompare.fileSetLog(shown, midi, midiName, song, w == null ? null : AudioIo.parseWav(w), wavName);
+            } catch (Throwable ex) {
+                ok = false;
+                text = "Could not compare: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString());
+            }
+            final String result = text;
+            final boolean saved = ok;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (saved) {
+                    Engine.rememberFileSetResults(midiKey, result);
+                    this.storeAudioDir();
+                    app.styleLibrary.refreshLearnedChips();
+                }
+                app.setNow(saved ? "Compare hits \u00b7 " + shown + " \u00b7 " + HitCompare.RESULTS_FILE : "Could not compare hits");
+                this.showResults(shown, result);
+            });
+        }, "compare-hits").start();
+    }
+
+    /** The results text in a dialog, with Save as. */
+    void showResults(String title, String text) {
+        javax.swing.JTextArea area = new javax.swing.JTextArea(text, 24, 72);
+        area.setEditable(false);
+        area.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+        area.setName("fileset-results-text");
+        Object[] options = {"Save as " + HitCompare.RESULTS_FILE, "Close"};
+        int ans = javax.swing.JOptionPane.showOptionDialog(app, new javax.swing.JScrollPane(area), "Compare hits \u00b7 " + title,
+            javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+        if (ans == 0) SaveText.save(app, HitCompare.RESULTS_FILE, text);
+    }
+
+    /** CompareHits_test_results.txt under the file set, with Open and Save. Null when there are none. */
+    javax.swing.JPanel resultsRow(String src, String label) {
+        final String key = Engine.fileSetMidiKeyForLabel(src == null ? "" : src);
+        final String text = Engine.fileSetResults(key);
+        if (text == null) return null;
+        javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
+        row.setOpaque(false);
+        row.setAlignmentX(0f);
+        row.setName("fileset-results");
+        javax.swing.JLabel name = new javax.swing.JLabel(HitCompare.RESULTS_FILE);
+        name.setForeground(MUTED);
+        row.add(name);
+        javax.swing.JButton open = app.chip("Open", false);
+        open.addActionListener(e -> this.showResults(label == null || label.isEmpty() ? "Other" : label, text));
+        javax.swing.JButton save = app.chip("Save", false);
+        save.addActionListener(e -> SaveText.save(app, HitCompare.RESULTS_FILE, text));
+        row.add(open);
+        row.add(save);
+        row.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
     void storeAudioDir() {
         Engine.storeFileSetAudioDir(new File(app.persistence.pulsekitDir(), "fset-audio"));
     }

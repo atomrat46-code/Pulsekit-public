@@ -1155,6 +1155,69 @@ public class BehaviorTest {
     write("s39_make_song_names_after_file_set", out.toString());
   }
 
+  /** File set menu > Compare hits: results shown, kept under the file set, and still there after a restart. */
+  @Test
+  public void s40_file_set_compare_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    byte[] midi = Engine.encodeSongMidi(parts);
+    Engine.stageSourceMidi(midi, "Passing Ships.mid");
+    call("ingest", midi, "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "combo");
+    idle();
+    TextView pack = null;
+    for (View v : allViews(root())) {
+      if (v instanceof TextView && "pack".equals(v.getTag()) && ((TextView) v).getText().toString().contains("Passing Ships")) pack = (TextView) v;
+    }
+    pack.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    int at = -1;
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+      String item = String.valueOf(menu.getListView().getAdapter().getItem(i));
+      items.append(item).append(" | ");
+      if ("Compare hits".equals(item)) at = i;
+    }
+    out.append("menu: ").append(items).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(at);
+    AlertDialog shown = null;
+    for (int i = 0; i < 400; i++) {
+      idle();
+      Thread.sleep(25);
+      android.app.Dialog d = ShadowDialog.getLatestDialog();
+      if (d != menu && d instanceof AlertDialog && d.isShowing()) {
+        shown = (AlertDialog) d;
+        break;
+      }
+    }
+    TextView text = (TextView) shown.getWindow().getDecorView().findViewWithTag("fileset-results-text");
+    String body = text.getText().toString();
+    out.append("results start: ").append(body.substring(0, body.indexOf("Song against MIDI"))).append('\n');
+    out.append("results end: ").append(body.substring(body.lastIndexOf("Succeeded"))).append('\n');
+    out.append("save button: ").append(shown.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("row under file set: ").append(root().findViewWithTag("fileset-results") != null).append('\n');
+    call("persistLearned");
+    this.ctl.pause().stop().destroy();
+    Engine.fileSetAudio.clear();
+    this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
+    this.app = this.ctl.get();
+    idle();
+    call("show", "combo");
+    idle();
+    out.append("after restart: kept ").append(body.equals(Engine.fileSetResults("Passing Ships")))
+        .append(", row ").append(root().findViewWithTag("fileset-results") != null).append('\n');
+    write("s40_file_set_compare_hits", out.toString());
+  }
+
   private void setField(String name, Object value) throws Exception {
     for (Class<?> c = app.getClass(); c != null; c = c.getSuperclass()) {
       try {
