@@ -1163,7 +1163,9 @@ public class BehaviorTest {
     parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
     parts.add(Engine.fill("toms", 121, 1));
     parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
-    byte[] midi = Engine.encodeSongMidi(parts);
+    // As DrumMidi_CRT writes it: its settings in a text event.
+    byte[] midi = withText(Engine.encodeSongMidi(parts), "pulsekit-drummidi; input=Passing Ships.wav; output=Passing Ships.mid; "
+        + "args=--sens 0.4 --hat 0.4; sens=0.4; hat=0.4; tom=0.4; ride=0.4; crash=0.4; bpm=auto; quantize=off; hpss=on; tempo=121");
     Engine.stageSourceMidi(midi, "Passing Ships.mid");
     call("ingest", midi, "Passing Ships.mid", null);
     idle();
@@ -1200,6 +1202,7 @@ public class BehaviorTest {
     TextView text = (TextView) shown.getWindow().getDecorView().findViewWithTag("fileset-results-text");
     String body = text.getText().toString();
     out.append("results start: ").append(body.substring(0, body.indexOf("Song against MIDI"))).append('\n');
+    out.append("suggestions: ").append(body.substring(body.indexOf("Suggestions"), body.indexOf("matched:")).trim().replace('\n', '|')).append('\n');
     out.append("results end: ").append(body.substring(body.lastIndexOf("Succeeded"))).append('\n');
     out.append("save button: ").append(shown.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
     shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
@@ -1216,6 +1219,32 @@ public class BehaviorTest {
     out.append("after restart: kept ").append(body.equals(Engine.fileSetResults("Passing Ships")))
         .append(", row ").append(root().findViewWithTag("fileset-results") != null).append('\n');
     write("s40_file_set_compare_hits", out.toString());
+  }
+
+  /** The MIDI with a text event added at the start of its first track. */
+  private static byte[] withText(byte[] midi, String text) {
+    byte[] t = text.getBytes(StandardCharsets.UTF_8);
+    java.io.ByteArrayOutputStream ev = new java.io.ByteArrayOutputStream();
+    ev.write(0);
+    ev.write(0xff);
+    ev.write(0x01);
+    int n = t.length;
+    if (n >= 128) ev.write(0x80 | (n >> 7));
+    ev.write(n & 0x7f);
+    ev.write(t, 0, t.length);
+    byte[] e = ev.toByteArray();
+    int at = 14;
+    int len = ((midi[at + 4] & 0xff) << 24) | ((midi[at + 5] & 0xff) << 16) | ((midi[at + 6] & 0xff) << 8) | (midi[at + 7] & 0xff);
+    byte[] out = new byte[midi.length + e.length];
+    System.arraycopy(midi, 0, out, 0, at + 8);
+    System.arraycopy(e, 0, out, at + 8, e.length);
+    System.arraycopy(midi, at + 8, out, at + 8 + e.length, midi.length - at - 8);
+    len += e.length;
+    out[at + 4] = (byte) (len >> 24);
+    out[at + 5] = (byte) (len >> 16);
+    out[at + 6] = (byte) (len >> 8);
+    out[at + 7] = (byte) len;
+    return out;
   }
 
   private void setField(String name, Object value) throws Exception {

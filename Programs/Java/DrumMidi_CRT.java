@@ -24,7 +24,11 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--log [logfile]]
+ *
+ * --log writes the input and output names, the settings and the hits found to a text file
+ * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
+ * event ("pulsekit-drummidi; ..."), so CompareHits can suggest changes to them.
  *
  * --sens sets kick and snare, and every other part that is not given its own value.
  * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
@@ -94,19 +98,78 @@ public class DrumMidi_CRT{
             run(args);
         } catch (Throwable ex) {
             String m = ex.getMessage();
-            System.out.println("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
+            finish("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
         }
     }
 
+    static final String DEFAULT_LOG = "DrumMidi_CRT_log.txt";
+    /** The --log file, or null; and its lines so far. */
+    static String logPath;
+    static final StringBuilder logText = new StringBuilder();
+
+    /** Prints a line and keeps it for the --log file. */
+    static void note(String line) {
+        System.out.println(line);
+        logText.append(line).append('\n');
+    }
+
+    /** Writes the --log file, then prints the last line (PyJav reads it as the run's status). */
+    static void finish(String last) {
+        logText.append(last).append('\n');
+        if (logPath != null) {
+            try {
+                File f = new File(logPath);
+                File parent = f.getAbsoluteFile().getParentFile();
+                if (parent != null && !parent.isDirectory()) parent.mkdirs();
+                FileOutputStream fos = new FileOutputStream(f);
+                try {
+                    fos.write(logText.toString().getBytes("UTF-8"));
+                } finally {
+                    fos.close();
+                }
+                System.out.println("Log: " + f.getAbsolutePath());
+            } catch (Exception ex) {
+                System.out.println("Could not write the log " + logPath + ": " + ex.getMessage());
+            }
+        }
+        System.out.println(last);
+    }
+
+    static String num(double v) {
+        String t = String.format(java.util.Locale.ROOT, "%.2f", v);
+        while (t.endsWith("0")) t = t.substring(0, t.length() - 1);
+        if (t.endsWith(".")) t = t.substring(0, t.length() - 1);
+        return t;
+    }
+
     static void run(String[] args) throws Exception {
+        List<String> rest = new ArrayList<String>();
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i] == null ? "" : args[i].trim();
+            if (a.length() == 0) continue;
+            if ("--log".equals(a)) {
+                // --log alone writes DrumMidi_CRT_log.txt.
+                String nx = i + 1 < args.length && args[i + 1] != null ? args[i + 1].trim() : "";
+                String low = nx.toLowerCase(java.util.Locale.ROOT);
+                boolean named = nx.length() > 0 && !nx.startsWith("--") && !low.endsWith(".wav") && !low.endsWith(".wave")
+                        && !low.endsWith(".mp3") && !low.endsWith(".mid") && !low.endsWith(".midi");
+                logPath = named ? nx : DEFAULT_LOG;
+                if (named) i++;
+                continue;
+            }
+            rest.add(a);
+        }
+        args = rest.toArray(new String[0]);
         if (args.length < 2) {
-            System.out.println("Failed: need an input wav and an output mid");
-            System.out.println("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss]");
+            note("Usage: java DrumMidi <input.wav> <output.mid> "
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--log <logfile>]");
+            finish("Failed: need an input wav and an output mid");
             return;
         }
         File inFile = new File(args[0]);
         File outFile = new File(args[1]);
+        StringBuilder given = new StringBuilder();
+        for (int i = 2; i < args.length; i++) given.append(given.length() == 0 ? "" : " ").append(args[i]);
         double sens = 1.0, hatSens = -1, tomSens = -1, rideSens = -1, crashSens = -1, bpmOverride = 0;
         int quant = 0;
         boolean hpss = true;
@@ -127,12 +190,17 @@ public class DrumMidi_CRT{
         if (rideSens <= 0) rideSens = sens;
         if (crashSens <= 0) crashSens = sens;
 
+        note("DrumMidi_CRT | input " + inFile.getName() + " | output " + outFile.getName());
+        note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
+                + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
+                + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
+                + (hpss ? "" : " --no-hpss"));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
-        System.out.printf("Loaded %.1f s at %.0f Hz%n", audio.samples.length / sr, sr);
+        note(String.format(java.util.Locale.ROOT, "Loaded %.1f s at %.0f Hz", audio.samples.length / sr, sr));
         if (audio.samples.length < FFT_SIZE * 4) {
-            System.out.println("Failed: audio is too short");
+            finish("Failed: audio is too short");
             return;
         }
 
@@ -299,7 +367,7 @@ public class DrumMidi_CRT{
         }
         double[] grid = fitBeatGrid(drums, fps, lo, hi);
         double bpm = grid[0], phaseSec = grid[1];
-        System.out.printf("Tempo: %.2f BPM, first beat near %.3f s%n", bpm, phaseSec);
+        note(String.format(java.util.Locale.ROOT, "Tempo: %.2f BPM, first beat near %.3f s", bpm, phaseSec));
 
         double tickPerSec = bpm / 60.0 * PPQ;
         double gridTicks = quant > 0 ? PPQ * 4.0 / quant : 0;
@@ -310,6 +378,13 @@ public class DrumMidi_CRT{
         events.add(new MidiEv(0, metaMsg(0x51, new byte[] {(byte) (mpq >> 16), (byte) (mpq >> 8), (byte) mpq})));
         events.add(new MidiEv(0, metaMsg(0x58, new byte[] {4, 2, 24, 8})));
         events.add(new MidiEv(0, metaMsg(0x03, "Drums (detected)".getBytes("UTF-8"))));
+        // The settings travel with the MIDI, so CompareHits can suggest changes to them.
+        String stamp = "pulsekit-drummidi; input=" + inFile.getName().replace(';', ',') + "; output=" + outFile.getName().replace(';', ',')
+                + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
+                + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
+                + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
+                + "; hpss=" + (hpss ? "on" : "off") + "; tempo=" + num(bpm);
+        events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
         int kicks = 0, snares = 0, closed = 0, open = 0, rides = 0, crashes = 0, floors = 0, mids = 0, racks = 0;
@@ -337,13 +412,13 @@ public class DrumMidi_CRT{
         }
         File written = writeSmf(outFile, events);
         if (written == null || !written.isFile() || written.length() < 14) {
-            System.out.println("Failed: MIDI file was not written");
+            finish("Failed: MIDI file was not written");
             return;
         }
-        System.out.printf("Wrote %s: %d kicks, %d snares, %d closed hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms%n",
-                written.getName(), kicks, snares, closed, open, rides, crashes, racks, mids, floors);
-        System.out.println("MIDI Extracted to: " + written.getAbsolutePath());
-        System.out.println("Succeeded: " + written.getName());
+        note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
+                written.getName(), kicks, snares, closed, open, rides, crashes, racks, mids, floors));
+        note("MIDI Extracted to: " + written.getAbsolutePath());
+        finish("Succeeded: " + written.getName());
     }
 
     static final class MidiEv {
