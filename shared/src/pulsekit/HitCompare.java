@@ -325,7 +325,7 @@ public final class HitCompare {
       int k = Arrays.binarySearch(test, r);
       if (k < 0) k = -k - 1;
       int best = -1;
-      for (int c = Math.max(0, k - 1); c >= 0 && test[c] >= r - tol; c--) {
+      for (int c = Math.min(k - 1, test.length - 1); c >= 0 && test[c] >= r - tol; c--) {
         if (!used[c] && (best < 0 || Math.abs(test[c] - r) < Math.abs(test[best] - r))) best = c;
       }
       for (int c = k; c < test.length && test[c] <= r + tol; c++) {
@@ -372,6 +372,85 @@ public final class HitCompare {
     return made != null && !made.parts.isEmpty() ? made : null;
   }
 
+  /** The MIDI file's first tempo in BPM, or 120. */
+  public static double midiBpm(byte[] midi) {
+    if (midi != null) {
+      for (int i = 0; i + 5 < midi.length; i++) {
+        if ((midi[i] & 0xff) == 0xff && midi[i + 1] == 0x51 && midi[i + 2] == 0x03) {
+          int us = ((midi[i + 3] & 0xff) << 16) | ((midi[i + 4] & 0xff) << 8) | (midi[i + 5] & 0xff);
+          if (us > 0) return 60000000.0 / us;
+        }
+      }
+    }
+    return 120;
+  }
+
+  static Row row(Result r, int family) {
+    if (r == null) return null;
+    for (Row row : r.rows) if (row.family.equals(FAMILIES[family])) return row;
+    return null;
+  }
+
+  /**
+   * Hints for DrumMidi's switches from the results: hits per bar in the MIDI, MIDI hits not heard
+   * in the WAV (precision), and WAV cymbals the MIDI missed (recall, the one band that hears only
+   * cymbals). `vsWav` (MIDI against WAV) and `songVsMidi` may be null.
+   */
+  public static List<String> suggestions(double[][] midi, double bpm, Result vsWav, Result songVsMidi) {
+    List<String> out = new ArrayList<String>();
+    double[] all = all(midi, false);
+    double barSec = 240.0 / Math.max(30, bpm);
+    double bars = all.length < 2 ? 1 : Math.max(1, (all[all.length - 1] - all[0]) / barSec + 1);
+    double kicks = midi[KICK].length / bars;
+    double snares = midi[SNARE].length / bars;
+    double cymbals = midi[CYMBAL].length / bars;
+    boolean few = kicks < 1.0 || snares < 0.75;
+    if (few) {
+      out.add(String.format(Locale.ROOT, "--sens should be greater: only %.1f kicks and %.1f snares per bar were found "
+          + "(raise it by about 0.2, e.g. 0.4 -> 0.6).", kicks, snares));
+    }
+    // Extra kicks often land on bass notes, which the low band also hears, so precision alone misses
+    // them; very many hits per bar is the other sign.
+    boolean many = kicks > 7.0 || snares > 6.0;
+    if (many) {
+      out.add(String.format(Locale.ROOT, "--sens may be too high: %.1f kicks and %.1f snares per bar is a lot "
+          + "(lower it by about 0.2 and compare again).", kicks, snares));
+    }
+    Row k = row(vsWav, KICK);
+    Row sn = row(vsWav, SNARE);
+    if (!few && !many && ((k != null && k.test >= 8 && k.precision() < 0.85) || (sn != null && sn.test >= 8 && sn.precision() < 0.85))) {
+      out.add(String.format(Locale.ROOT, "--sens could be lower: %.0f%% of kicks and %.0f%% of snares in the MIDI are not "
+          + "heard in the WAV (lower it by about 0.1).",
+          k == null ? 0 : 100 * (1 - k.precision()), sn == null ? 0 : 100 * (1 - sn.precision())));
+    }
+    Row c = row(vsWav, CYMBAL);
+    if ((c != null && c.ref >= 8 && c.recall() < 0.5) || (vsWav == null && cymbals < 1.0)) {
+      out.add(c != null
+          ? String.format(Locale.ROOT, "--hat, --ride and --crash need more sensitivity: the MIDI has only %.0f%% of the "
+              + "cymbal hits heard in the WAV (%.1f per bar). Raise them, e.g. to 0.8, or leave them out to follow --sens.",
+              100 * c.recall(), cymbals)
+          : String.format(Locale.ROOT, "--hat, --ride and --crash may need more sensitivity: only %.1f cymbal hits per bar.", cymbals));
+    } else if (c != null && c.test >= 8 && c.precision() < 0.7) {
+      out.add(String.format(Locale.ROOT, "--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
+          + "heard in the WAV.", 100 * (1 - c.precision())));
+    }
+    Row sk = row(songVsMidi, KICK);
+    Row ss = row(songVsMidi, SNARE);
+    if ((sk != null && sk.ref >= 8 && sk.recall() < 0.9) || (ss != null && ss.ref >= 8 && ss.recall() < 0.9)) {
+      out.add(String.format(Locale.ROOT, "Not DrumMidi: the song keeps %.0f%% of the MIDI's kicks and %.0f%% of its snares. "
+          + "In Drum Midi Settings, lower \"Merge up to\" or turn off Merge hits, then import again.",
+          sk == null ? 100 : 100 * sk.recall(), ss == null ? 100 : 100 * ss.recall()));
+    }
+    if (out.isEmpty()) out.add("No changes suggested: the hits line up well.");
+    return out;
+  }
+
+  public static String suggestionsText(List<String> lines) {
+    StringBuilder sb = new StringBuilder("Suggestions for DrumMidi:\n");
+    for (String l : lines) sb.append("- ").append(l).append('\n');
+    return sb.toString();
+  }
+
   /** File set menu > Compare hits keeps its results with the set under this name. */
   public static final String RESULTS_FILE = "CompareHits_test_results.txt";
 
@@ -388,19 +467,27 @@ public final class HitCompare {
     if (song != null) sb.append("Song: ").append(song.name).append('\n');
     double[][] m = midiHits(midi);
     double[][] s = song == null ? null : songHits(song.parts);
+    Result vsWav = null;
+    Result songVsMidi = null;
     if (wav != null) {
       long t0 = System.currentTimeMillis();
       double[][] w = audioOnsets(wav.samples, wav.sr);
       sb.append(String.format(Locale.ROOT, "Read %s: %.1f s, onsets found in %d ms%n", wavName,
           wav.samples.length / (double) wav.sr, System.currentTimeMillis() - t0));
       sb.append('\n');
-      sb.append(text(compare("", "WAV", w, "MIDI", m, true))).append('\n');
+      vsWav = compare("", "WAV", w, "MIDI", m, true);
+      sb.append(text(vsWav)).append('\n');
       if (s != null) sb.append(text(compare("", "WAV", w, "Song", s, true))).append('\n');
     } else {
       sb.append("No WAV: only the song against the MIDI.\n\n");
     }
-    if (s != null) sb.append(text(compare("", "MIDI", m, "Song", s, false))).append('\n');
-    else sb.append("No song made from this file set yet. Make song to compare it with the MIDI.\n\n");
+    if (s != null) {
+      songVsMidi = compare("", "MIDI", m, "Song", s, false);
+      sb.append(text(songVsMidi)).append('\n');
+    } else {
+      sb.append("No song made from this file set yet. Make song to compare it with the MIDI.\n\n");
+    }
+    sb.append(suggestionsText(suggestions(m, midiBpm(midi), vsWav, songVsMidi))).append('\n');
     sb.append(LEGEND).append('\n');
     int files = 1 + (wav != null ? 1 : 0) + (song != null ? 1 : 0);
     sb.append("Succeeded: compared ").append(files).append(" files\n");
@@ -412,13 +499,17 @@ public final class HitCompare {
     StringBuilder sb = new StringBuilder();
     double[][] m = midiHits(midi);
     double[][] s = song == null ? null : songHits(song.parts);
-    if (s != null) sb.append(text(compare("", "MIDI", m, "Song", s, false))).append('\n');
+    Result songVsMidi = s == null ? null : compare("", "MIDI", m, "Song", s, false);
+    Result vsWav = null;
+    if (songVsMidi != null) sb.append(text(songVsMidi)).append('\n');
     else sb.append("No song made from this file set yet. Make song to compare it with the MIDI.\n\n");
     if (wav != null) {
       double[][] w = audioOnsets(wav.samples, wav.sr);
-      sb.append(text(compare("", "WAV", w, "MIDI", m, true))).append('\n');
+      vsWav = compare("", "WAV", w, "MIDI", m, true);
+      sb.append(text(vsWav)).append('\n');
       if (s != null) sb.append(text(compare("", "WAV", w, "Song", s, true))).append('\n');
     }
+    sb.append(suggestionsText(suggestions(m, midiBpm(midi), vsWav, songVsMidi)));
     return sb.toString().trim();
   }
 

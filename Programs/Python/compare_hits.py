@@ -11,6 +11,7 @@ The same comparison as Pulsekit's File > Compare Hits page and Programs/Java/Com
                    CompareHits_test_results.txt.
 
 Compares hit times, not sound. Hits within 50 ms match, after the best shift within 100 ms.
+Ends with suggestions for DrumMidi's switches (--sens, --hat, --ride, --crash) from the results.
 Needs numpy.
 """
 import os
@@ -187,7 +188,9 @@ def best_offset(ref, test):
 
 
 def compare(ref_name, ref, test_name, test, audio_ref):
+    """The table text, and {family: (ref hits, test hits, matched)} for suggestions()."""
     off = best_offset(ref, test)
+    rows = {}
     lines = ["%s against %s, shifted %+d ms to line up" % (test_name, ref_name, round(off * 1000)),
              "%-8s %6s %6s %8s %8s %7s %7s" % ("", "ref", "test", "matched", "precis.", "recall", "timing")]
     for f, name in enumerate(FAMILIES):
@@ -201,7 +204,68 @@ def compare(ref_name, ref, test_name, test, audio_ref):
         med = 1000 * float(np.median(np.abs(errs))) if errs else 0
         recall = "%.1f%%" % (100 * r) if (not audio_ref or f == CYMBAL) else "-"
         lines.append("%-8s %6d %6d %8d %7.1f%% %7s %5.1fms" % (name, len(a), len(b), m, 100 * p, recall, med))
-    return "\n".join(lines) + "\n"
+        rows[f] = (len(a), len(b), m)
+    return "\n".join(lines) + "\n", rows
+
+
+def midi_bpm(path):
+    """The MIDI file's first tempo in BPM, or 120."""
+    d = open(path, "rb").read()
+    for i in range(len(d) - 5):
+        if d[i] == 0xFF and d[i + 1] == 0x51 and d[i + 2] == 0x03:
+            us = int.from_bytes(d[i + 3:i + 6], "big")
+            if us > 0:
+                return 60000000.0 / us
+    return 120.0
+
+
+def suggestions(midi, bpm, vs_wav, song_vs_midi):
+    """Hints for DrumMidi's switches, as in Pulsekit's HitCompare.suggestions."""
+    out_ = []
+    hits = np.sort(np.concatenate([midi[f] for f in range(len(FAMILIES))]))
+    bar_sec = 240.0 / max(30.0, bpm)
+    bars = 1.0 if len(hits) < 2 else max(1.0, (hits[-1] - hits[0]) / bar_sec + 1)
+    kicks, snares, cymbals = len(midi[KICK]) / bars, len(midi[SNARE]) / bars, len(midi[CYMBAL]) / bars
+
+    def prec(r):
+        return r[2] / r[1] if r and r[1] else 0.0
+
+    def rec(r):
+        return r[2] / r[0] if r and r[0] else 0.0
+
+    few = kicks < 1.0 or snares < 0.75
+    if few:
+        out_.append("--sens should be greater: only %.1f kicks and %.1f snares per bar were found "
+                    "(raise it by about 0.2, e.g. 0.4 -> 0.6)." % (kicks, snares))
+    many = kicks > 7.0 or snares > 6.0
+    if many:
+        out_.append("--sens may be too high: %.1f kicks and %.1f snares per bar is a lot "
+                    "(lower it by about 0.2 and compare again)." % (kicks, snares))
+    k = vs_wav.get(KICK) if vs_wav else None
+    sn = vs_wav.get(SNARE) if vs_wav else None
+    if not few and not many and ((k and k[1] >= 8 and prec(k) < 0.85) or (sn and sn[1] >= 8 and prec(sn) < 0.85)):
+        out_.append("--sens could be lower: %.0f%% of kicks and %.0f%% of snares in the MIDI are not "
+                    "heard in the WAV (lower it by about 0.1)." % (100 * (1 - prec(k)) if k else 0, 100 * (1 - prec(sn)) if sn else 0))
+    c = vs_wav.get(CYMBAL) if vs_wav else None
+    if (c and c[0] >= 8 and rec(c) < 0.5) or (vs_wav is None and cymbals < 1.0):
+        if c:
+            out_.append("--hat, --ride and --crash need more sensitivity: the MIDI has only %.0f%% of the "
+                        "cymbal hits heard in the WAV (%.1f per bar). Raise them, e.g. to 0.8, or leave them out "
+                        "to follow --sens." % (100 * rec(c), cymbals))
+        else:
+            out_.append("--hat, --ride and --crash may need more sensitivity: only %.1f cymbal hits per bar." % cymbals)
+    elif c and c[1] >= 8 and prec(c) < 0.7:
+        out_.append("--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
+                    "heard in the WAV." % (100 * (1 - prec(c))))
+    sk = song_vs_midi.get(KICK) if song_vs_midi else None
+    ss = song_vs_midi.get(SNARE) if song_vs_midi else None
+    if (sk and sk[0] >= 8 and rec(sk) < 0.9) or (ss and ss[0] >= 8 and rec(ss) < 0.9):
+        out_.append("Not DrumMidi: the song keeps %.0f%% of the MIDI's kicks and %.0f%% of its snares. "
+                    "In Drum Midi Settings, lower \"Merge up to\" or turn off Merge hits, then import again."
+                    % (100 * rec(sk) if sk else 100, 100 * rec(ss) if ss else 100))
+    if not out_:
+        out_.append("No changes suggested: the hits line up well.")
+    return "Suggestions for DrumMidi:\n" + "".join("- %s\n" % l for l in out_)
 
 
 DEFAULT_LOG = "CompareHits_test_results.txt"
@@ -260,12 +324,16 @@ def main(args):
     midi = midi_hits(files[at])
     song = midi_hits(files[at + 1]) if len(files) > at + 1 else None
     out()
+    vs_wav = song_vs_midi = None
     if audio is not None:
-        out(compare("WAV", audio, "MIDI", midi, True))
+        text, vs_wav = compare("WAV", audio, "MIDI", midi, True)
+        out(text)
         if song is not None:
-            out(compare("WAV", audio, "Song", song, True))
+            out(compare("WAV", audio, "Song", song, True)[0])
     if song is not None:
-        out(compare("MIDI", midi, "Song", song, False))
+        text, song_vs_midi = compare("MIDI", midi, "Song", song, False)
+        out(text)
+    out(suggestions(midi, midi_bpm(files[at]), vs_wav, song_vs_midi))
     out(LEGEND)
     finish("Succeeded: compared %d files" % len(files))
 
