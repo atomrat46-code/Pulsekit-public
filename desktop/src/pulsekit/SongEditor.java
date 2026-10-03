@@ -911,9 +911,18 @@ final class SongEditor {
                 else app.paintChip((JButton) cs[i], String.valueOf(lane).equals(app.songLane));
             }
             if ("imported".equals(app.songLane)) {
+                List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
                 for (Engine.ImportedSong s : app.importedSongs) {
                     final Engine.ImportedSong item = s;
                     JButton b = app.chip(item.name, item.id.equals(app.importedSongId));
+                    // Songs that belong to a file set have an accent ring.
+                    String set = Engine.fileSetOfSong(item, sources);
+                    if (set != null) {
+                        b.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(HIT, 2),
+                            BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+                        b.setBorderPainted(true);
+                        b.setToolTipText("File set: " + set);
+                    }
                     b.addActionListener(e -> {
                         this.refreshFromFileSet(item);
                         app.importedSongId = item.id;
@@ -1006,6 +1015,15 @@ final class SongEditor {
     /** Right click on a song: Duplicate song, or Delete song after asking. */
     void songMenu(final Engine.ImportedSong song, java.awt.Component at, int x, int y) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        final String set = Engine.fileSetOfSong(song, Engine.fileSetSources(app.learned, app.learnedFills));
+        javax.swing.JMenuItem info = new javax.swing.JMenuItem("Info");
+        info.addActionListener(e -> this.showSongInfo(song));
+        menu.add(info);
+        if (set != null && Engine.fileSetStyleOn(Engine.fileSetOriginOf(set))) {
+            javax.swing.JMenuItem style = new javax.swing.JMenuItem("Change style");
+            style.addActionListener(e -> app.fileSets.promptChangeStyle("f:" + set, set, song));
+            menu.add(style);
+        }
         javax.swing.JMenuItem dup = new javax.swing.JMenuItem("Duplicate song");
         dup.addActionListener(e -> this.duplicateSong(song));
         javax.swing.JMenuItem del = new javax.swing.JMenuItem("Delete song");
@@ -1013,6 +1031,17 @@ final class SongEditor {
         menu.add(dup);
         menu.add(del);
         menu.show(at, x, y);
+    }
+
+    /** Song menu > Info: length, bars, patterns, fills, Fillerns, tempo, file set and style. */
+    void showSongInfo(Engine.ImportedSong song) {
+        String set = Engine.fileSetOfSong(song, Engine.fileSetSources(app.learned, app.learnedFills));
+        String style = set == null ? null : app.fileSets.fileSetStyleLabel("f:" + set);
+        javax.swing.JTextArea area = new javax.swing.JTextArea(Engine.songInfoText(song, set, style));
+        area.setEditable(false);
+        area.setOpaque(false);
+        area.setName("song-info-text");
+        javax.swing.JOptionPane.showMessageDialog(app, area, "Info \u00b7 " + song.name, javax.swing.JOptionPane.PLAIN_MESSAGE);
     }
 
     void duplicateSong(Engine.ImportedSong song) {
@@ -1045,6 +1074,7 @@ final class SongEditor {
         }
         app.persistence.persistLearned();
         this.refreshSong();
+        if ("fsetinfo".equals(app.view)) app.fileSets.reopenInfo();
         app.setNow("Deleted \u00b7 " + song.name);
     }
 }

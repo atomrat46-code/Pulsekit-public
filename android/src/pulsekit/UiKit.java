@@ -63,6 +63,15 @@ abstract class UiKit extends Activity {
         }
     }
 
+    /** A chip with an accent ring: a song that belongs to a file set. */
+    void paintRing(TextView textView, boolean bl) {
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(bl ? FG : ELEV);
+        gradientDrawable.setCornerRadius((float)this.dp(16));
+        gradientDrawable.setStroke(Math.max(2, this.dp(2)), HIT);
+        textView.setBackground((Drawable)gradientDrawable);
+    }
+
     void paintOutline(TextView textView, boolean bl) {
         GradientDrawable gradientDrawable = new GradientDrawable();
         gradientDrawable.setColor(bl ? Color.parseColor((String)"#2A322C") : 0);

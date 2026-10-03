@@ -114,6 +114,12 @@ public final class FileSetClicks {
   }
 
   public static void promptChangeStyle(final MainActivity host, final String key, final String label) {
+    promptChangeStyle(host, key, label, null);
+  }
+
+  /** With `song`: the change rebuilds that song in the new style instead of making a new one. */
+  public static void promptChangeStyle(final MainActivity host, final String key, final String label, Engine.ImportedSong song) {
+    host.fileSets.styleTarget = song;
     final String[] names = host.fileSets.styleDbNames();
     if (names == null || names.length == 0) return;
     final int current = host.fileSets.currentStyleDbIndex(key);

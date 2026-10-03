@@ -847,10 +847,16 @@ final class SongEditor {
         app.timeline.removeAllViews();
         app.songCards.removeAllViews();
         if ("imported".equals(app.songLane) && !app.importedSongs.isEmpty()) {
+            List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
             LinearLayout linearLayout = app.row();
             for (Engine.ImportedSong importedSong : app.importedSongs) {
                 TextView object = app.pill(importedSong.name, importedSong.id.equals(app.importedSongId), arg_0 -> this.refreshSongAction75(importedSong, arg_0));
                 object.setTag((Object)("song-chip:" + importedSong.name));
+                // Songs that belong to a file set have an accent ring.
+                if (Engine.fileSetOfSong(importedSong, sources) != null) {
+                    app.paintRing(object, importedSong.id.equals(app.importedSongId));
+                    object.setContentDescription((CharSequence)("File set song"));
+                }
                 object.setOnLongClickListener(view -> {
                     this.songMenu(importedSong);
                     return true;
@@ -983,12 +989,38 @@ final class SongEditor {
 
     /** Long press on a song: Duplicate song, or Delete song after asking. */
     void songMenu(final Engine.ImportedSong song) {
+        final String set = Engine.fileSetOfSong(song, Engine.fileSetSources(app.learned, app.learnedFills));
+        final List<String> items = new ArrayList<String>();
+        items.add("Info");
+        if (set != null && app.fileSets.fileSetStyleOn("f:" + set)) items.add("Change style");
+        items.add("Duplicate song");
+        items.add("Delete song");
         new android.app.AlertDialog.Builder((Context)app)
             .setTitle((CharSequence)song.name)
-            .setItems(new CharSequence[] {"Duplicate song", "Delete song"}, (d, which) -> {
-                if (which == 0) this.duplicateSong(song);
+            .setItems(items.toArray(new CharSequence[0]), (d, which) -> {
+                String item = items.get(which);
+                if ("Info".equals(item)) this.showSongInfo(song);
+                else if ("Change style".equals(item)) FileSetClicks.promptChangeStyle(app, "f:" + set, set, song);
+                else if ("Duplicate song".equals(item)) this.duplicateSong(song);
                 else this.confirmDeleteSong(song);
             })
+            .show();
+    }
+
+    /** Song menu > Info: length, bars, patterns, fills, Fillerns, tempo, file set and style. */
+    void showSongInfo(Engine.ImportedSong song) {
+        String set = Engine.fileSetOfSong(song, Engine.fileSetSources(app.learned, app.learnedFills));
+        String style = set == null ? null : app.fileSets.fileSetStyleLabel("f:" + set);
+        TextView body = app.text(Engine.songInfoText(song, set, style), 14, false);
+        body.setTextColor(FG);
+        body.setTag((Object)"song-info-text");
+        body.setPadding(app.dp(20), app.dp(8), app.dp(20), app.dp(8));
+        ScrollView scroll = new ScrollView((Context)app);
+        scroll.addView((View)body);
+        new android.app.AlertDialog.Builder((Context)app)
+            .setTitle((CharSequence)song.name)
+            .setView((View)scroll)
+            .setPositiveButton((CharSequence)"Close", null)
             .show();
     }
 
@@ -1024,6 +1056,7 @@ final class SongEditor {
         }
         app.persistence.persistLearned();
         this.refreshSong();
+        if ("fsetinfo".equals(app.view)) app.fileSets.reopenInfo();
         app.setNow("Deleted \u00b7 " + song.name);
     }
 

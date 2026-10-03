@@ -344,6 +344,7 @@ public final class DesktopBehavior {
     out.append("made on import: ");
     for (Engine.ImportedSong s : songs) out.append(s.name).append(" | ");
     out.append('\n');
+    answers.add("Make another");
     edt(() -> call("makeFileSetSong", "f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx"));
     Engine.ImportedSong made = songs.get(0);
     out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append('\n');
@@ -372,6 +373,77 @@ public final class DesktopBehavior {
     Engine.fileSetAudio.clear();
     Engine.loadFileSetAudioDir(new File(System.getProperty("user.home"), ".pulsekit/fset-audio"));
     out.append("kept on disk: ").append(text != null && text.equals(Engine.fileSetResults("Passing Ships"))).append('\n');
+  }
+
+  void s24_file_set_songs() throws Exception {
+    answers.add("No");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    final boolean[] none = {false};
+    edt(() -> none[0] = named(frame, "info-songs"));
+    out.append("info has Songs section: ").append(none[0]).append('\n');
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("first Make song: ").append(songs.size()).append(" song, file set ").append(songs.get(0).fileSet).append('\n');
+    Engine.ImportedSong first = songs.get(0);
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    final boolean[] row = {false};
+    edt(() -> row[0] = named(frame, "info-song:" + first.name));
+    out.append("info lists it: ").append(row[0]).append('\n');
+    answers.add("Replace");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Replace: ").append(songs.size()).append(" song, same ").append(songs.get(0) == first).append('\n');
+    answers.add("Make another");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Make another: ").append(songs.size()).append(" songs\n");
+    answers.add("Open it");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Open it: view ").append(get("view")).append('\n');
+    edt(() -> call("addImportedSong", "Loose song", songParts()));
+    edt(() -> call("refreshSong"));
+    StringBuilder rings = new StringBuilder();
+    for (Engine.ImportedSong x : songs) {
+      final javax.swing.JButton[] b = {null};
+      edt(() -> b[0] = button(frame, x.name));
+      rings.append(x.name).append(b[0] != null && b[0].getToolTipText() != null ? " (ring: " + b[0].getToolTipText() + ")" : "").append(" | ");
+    }
+    out.append("chips: ").append(rings).append('\n');
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    String gone = songs.get(1).name;
+    final boolean[] del = {false};
+    edt(() -> del[0] = named(frame, "info-delete:" + gone));
+    out.append("info has Delete for ").append(gone).append(": ").append(del[0]).append('\n');
+    final Engine.ImportedSong goneSong = songs.get(1);
+    answers.add("OK");
+    call("confirmDeleteSong", goneSong);
+    out.append("after Delete: ").append(songs.size()).append(" songs, view ").append(get("view")).append('\n');
+  }
+
+  void s25_song_info_and_style() throws Exception {
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    Engine.ImportedSong song = songs.get(0);
+    answers.add("OK");
+    edt(() -> call("showSongInfo", song));
+    out.append("songs before style: ").append(songs.size()).append('\n');
+    answers.add("Change style");
+    edt(() -> call("promptChangeStyle", "f:Passing Ships", "Passing Ships", song));
+    out.append("Change style (first in the list): ").append(songs.size()).append(" song, same song ")
+        .append(songs.contains(song)).append(", set style now ").append(call("fileSetStyleLabel", "f:Passing Ships")).append('\n');
+  }
+
+  private static javax.swing.JButton button(java.awt.Component c, String text) {
+    if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+        javax.swing.JButton b = button(k, text);
+        if (b != null) return b;
+      }
+    }
+    return null;
   }
 
   private static boolean named(java.awt.Component c, String name) {
