@@ -156,6 +156,7 @@ final class ProgramMenus {
                 app.pyEditor.scrollTo(0, 0);
             }
             this.editorShowsRun = false;
+            app.codeSave.openedCode(name);
             this.buttons[2].setText("Code · " + name);
             app.setNow("Editing · " + name);
         } catch (Exception e) {

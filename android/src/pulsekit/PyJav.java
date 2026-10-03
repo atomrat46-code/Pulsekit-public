@@ -59,6 +59,7 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
+        app.codeSave.attach(app.pyEditor);
         // A fixed height that scrolls inside, so a long program does not make the page long.
         app.pyEditor.setVerticalScrollBarEnabled(true);
         app.pyEditor.setOnTouchListener((v, ev) -> {

@@ -618,6 +618,7 @@ public final class Pulsekit extends UiKit {
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
     final CompareHitsPage compareHits = new CompareHitsPage(this);
+    final CodeSave codeSave = new CodeSave(this);
     final PromptsPage promptsPage = new PromptsPage(this);
 
 

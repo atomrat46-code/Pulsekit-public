@@ -623,7 +623,11 @@ public class MainActivity extends UiKit {
     protected void onActivityResult(int n, int n2, Intent intent) {
         if (n == 25) {
             super.onActivityResult(n, n2, intent);
-            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakePickedProgram(intent.getData());
+            if (n2 == -1 && intent != null && intent.getData() != null) {
+                String before = this.pyName + "\n" + this.codeSave.text();
+                this.pyJav.pkTakePickedProgram(intent.getData());
+                if (!before.equals(this.pyName + "\n" + this.codeSave.text())) this.codeSave.opened(intent.getData());
+            }
             return;
         }
         if (n == 26) {
@@ -634,6 +638,11 @@ public class MainActivity extends UiKit {
         if (n == 27) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
+            return;
+        }
+        if (n == CodeSave.SAVE_AS) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.codeSave.savedAs(intent.getData());
             return;
         }
         if (n == SaveText.SAVE) {
@@ -897,6 +906,7 @@ public class MainActivity extends UiKit {
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
     final CompareHitsPage compareHits = new CompareHitsPage(this);
+    final CodeSave codeSave = new CodeSave(this);
 
 
     void showFileMenu(View anchor) {
