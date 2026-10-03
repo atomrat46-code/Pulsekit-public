@@ -1,19 +1,15 @@
 package pulsekit;
 
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import javax.swing.JFileChooser;
-import javax.swing.JMenuItem;
-import javax.swing.JPopupMenu;
-import javax.swing.JTextArea;
 
 /**
- * PyJav's code editor: Save and Save as on right click. Save writes back to the file the program
- * was opened from, or to the last Save as place; a bundled program has neither, so Save asks for
- * a place. Binary programs and prompt sheets (whose editor shows only the body) are not saved here.
+ * PyJav's code editor: File > Save code and Save code as, so a right click in the editor is left
+ * alone. Save writes back to the file the program was opened from, or to the last Save as place;
+ * a bundled program has neither, so Save asks for a place. Binary programs and prompt sheets
+ * (whose editor shows only the body) are not saved from here.
  */
 final class CodeSave {
     final Pulsekit app;
@@ -26,38 +22,6 @@ final class CodeSave {
 
     CodeSave(Pulsekit app) {
         this.app = app;
-    }
-
-    void attach(final JTextArea editor) {
-        editor.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) show(e);
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) show(e);
-            }
-
-            void show(MouseEvent e) {
-                JPopupMenu menu = CodeSave.this.menu();
-                if (menu != null) menu.show(editor, e.getX(), e.getY());
-            }
-        });
-    }
-
-    /** The right-click menu, or null when the editor holds nothing to save. */
-    JPopupMenu menu() {
-        if (!this.canSave()) return null;
-        JPopupMenu menu = new JPopupMenu();
-        JMenuItem save = new JMenuItem("Save");
-        save.addActionListener(a -> this.save());
-        JMenuItem saveAs = new JMenuItem("Save as");
-        saveAs.addActionListener(a -> this.saveAs());
-        menu.add(save);
-        menu.add(saveAs);
-        return menu;
     }
 
     boolean canSave() {

@@ -2,21 +2,15 @@ package pulsekit;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.view.ActionMode;
-import android.view.Menu;
-import android.view.MenuItem;
-import android.widget.EditText;
 
 /**
- * PyJav's code editor: Save and Save as in the long-press text menu, beside Cut, Copy and Paste.
- * Save writes back to the file the program was opened from, or to the last Save as place; a
- * bundled program has neither, so Save asks for a place. Binary programs and prompt sheets
- * (whose editor shows only the body) are not saved from here.
+ * PyJav's code editor: File > Save code and Save code as, so the editor's own long-press menu
+ * (Select all, Paste) is left alone. Save writes back to the file the program was opened from, or
+ * to the last Save as place; a bundled program has neither, so Save asks for a place. Binary
+ * programs and prompt sheets (whose editor shows only the body) are not saved from here.
  */
 final class CodeSave {
     static final int SAVE_AS = 32;
-    static final int ID_SAVE = 0x5a01;
-    static final int ID_SAVE_AS = 0x5a02;
 
     final MainActivity app;
     /** Where Save writes, and the editor file it belongs to. */
@@ -31,38 +25,6 @@ final class CodeSave {
 
     CodeSave(MainActivity app) {
         this.app = app;
-    }
-
-    void attach(EditText editor) {
-        ActionMode.Callback menu = new ActionMode.Callback() {
-            @Override
-            public boolean onCreateActionMode(ActionMode mode, Menu m) {
-                if (CodeSave.this.canSave()) {
-                    m.add(Menu.NONE, ID_SAVE, 200, "Save");
-                    m.add(Menu.NONE, ID_SAVE_AS, 201, "Save as");
-                }
-                return true;
-            }
-
-            @Override
-            public boolean onPrepareActionMode(ActionMode mode, Menu m) {
-                return false;
-            }
-
-            @Override
-            public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                if (item.getItemId() == ID_SAVE) CodeSave.this.save();
-                else if (item.getItemId() == ID_SAVE_AS) CodeSave.this.saveAs();
-                else return false;
-                if (mode != null) mode.finish();
-                return true;
-            }
-
-            @Override
-            public void onDestroyActionMode(ActionMode mode) {}
-        };
-        editor.setCustomSelectionActionModeCallback(menu);
-        editor.setCustomInsertionActionModeCallback(menu);
     }
 
     boolean canSave() {

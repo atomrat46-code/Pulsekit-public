@@ -147,7 +147,6 @@ final class PyJav {
         north.add(controls);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
-        app.codeSave.attach(app.pyEditor);
         app.pyEditor.setBackground(ELEV);
         app.pyEditor.setForeground(FG);
         app.pyEditor.setCaretColor(FG);

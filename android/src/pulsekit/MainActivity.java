@@ -921,6 +921,14 @@ public class MainActivity extends UiKit {
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        // PyJav's code editor: saved from here, so its own long-press menu stays Select all, Paste...
+        final boolean codeSavable = this.codeSave.canSave();
+        android.widget.TextView saveCode = this.text("Save code", 14, true);
+        saveCode.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        saveCode.setTextColor(codeSavable ? FG : MUTED);
+        android.widget.TextView saveCodeAs = this.text("Save code as", 14, true);
+        saveCodeAs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        saveCodeAs.setTextColor(codeSavable ? FG : MUTED);
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
@@ -932,6 +940,8 @@ public class MainActivity extends UiKit {
         help.setTextColor("help".equals(this.view) ? FG : MUTED);
         menu.addView(imp);
         menu.addView(exp);
+        menu.addView(saveCode);
+        menu.addView(saveCodeAs);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -942,6 +952,16 @@ public class MainActivity extends UiKit {
         pop.setElevation((float) this.dp(8));
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
+        saveCode.setOnClickListener(v -> {
+            pop.dismiss();
+            if (codeSavable) this.codeSave.save();
+            else this.setNow("Binary programs and prompt sheets are not saved from the code editor");
+        });
+        saveCodeAs.setOnClickListener(v -> {
+            pop.dismiss();
+            if (codeSavable) this.codeSave.saveAs();
+            else this.setNow("Binary programs and prompt sheets are not saved from the code editor");
+        });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));

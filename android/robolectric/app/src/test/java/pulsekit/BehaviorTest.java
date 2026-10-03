@@ -1456,7 +1456,7 @@ public class BehaviorTest {
     write("s45_program_switch_clears_args", out.toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>"));
   }
 
-  /** Long press in PyJav's code editor: Save and Save as beside Cut, Copy and Paste. */
+  /** File > Save code and Save code as, for PyJav's code editor; the editor's own long-press menu is left alone. */
   @Test
   public void s46_code_save() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -1464,42 +1464,45 @@ public class BehaviorTest {
     idle();
     pickFromMenu("Java \u25be", "CutWav.java");
     android.widget.EditText ed = (android.widget.EditText) get("pyEditor");
-    android.view.ActionMode.Callback cb = ed.getCustomSelectionActionModeCallback();
-    out.append("insertion menu too: ").append(ed.getCustomInsertionActionModeCallback() == cb).append('\n');
-    org.robolectric.fakes.RoboMenu menu = new org.robolectric.fakes.RoboMenu(app);
-    cb.onCreateActionMode(null, menu);
-    StringBuilder items = new StringBuilder();
-    for (int i = 0; i < menu.size(); i++) items.append(i == 0 ? "" : ", ").append(menu.getItem(i).getTitle());
-    out.append("menu: ").append(items).append('\n');
-    // A bundled program has no file of its own: Save asks where.
+    out.append("editor menu left alone: ").append(ed.getCustomSelectionActionModeCallback() == null && ed.getCustomInsertionActionModeCallback() == null).append('\n');
+    // A bundled program has no file of its own: Save code asks where.
     ed.setText(ed.getText() + "\n// mine");
-    cb.onActionItemClicked(null, menu.findItem(CodeSave.ID_SAVE));
-    idle();
+    fileMenuItem("Save code");
     android.content.Intent ask = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
-    out.append("Save: ").append(ask.getAction()).append(' ').append(ask.getType()).append(' ')
+    out.append("Save code: ").append(ask.getAction()).append(' ').append(ask.getType()).append(' ')
         .append(ask.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
     File file = new File(app.getCacheDir(), "MyCutWav.java");
     org.robolectric.Shadows.shadowOf(app).receiveResult(ask, android.app.Activity.RESULT_OK, new android.content.Intent().setData(android.net.Uri.fromFile(file)));
     idle();
     out.append("written: ").append(file.isFile() && new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// mine")).append('\n');
-    // Save again: straight to that file.
+    // Save code again: straight to that file.
     ed.setText(ed.getText() + "\n// again");
-    cb.onActionItemClicked(null, menu.findItem(CodeSave.ID_SAVE));
-    idle();
+    fileMenuItem("Save code");
     out.append("second Save asks: ").append(org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult() != null).append('\n');
     out.append("second Save written: ").append(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// again")).append('\n');
-    // Save as always asks.
-    cb.onActionItemClicked(null, menu.findItem(CodeSave.ID_SAVE_AS));
-    idle();
+    // Save code as always asks.
+    fileMenuItem("Save code as");
     android.content.Intent again = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
-    out.append("Save as: ").append(again.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    out.append("Save code as: ").append(again.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
     // A Code menu file is saved under its own name.
     pickFromMenu("Code \u25be", "sogni-client.mjs");
-    cb.onActionItemClicked(null, menu.findItem(CodeSave.ID_SAVE));
-    idle();
+    fileMenuItem("Save code");
     android.content.Intent code = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("Code file Save: ").append(code.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
     write("s46_code_save", out.toString());
+  }
+
+  /** Tap File, then an item in its menu. */
+  private void fileMenuItem(String label) throws Exception {
+    TextView file = findText(root(), "File");
+    if (file == null) throw new AssertionError("no File tab");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView item = findText(pop.getContentView(), label);
+    if (item == null) throw new AssertionError("no File item " + label);
+    item.performClick();
+    idle();
   }
 
   private static int itemIndex(AlertDialog menu, String label) {
