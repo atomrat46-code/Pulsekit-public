@@ -236,7 +236,7 @@ public final class PyJavHints {
       if (line.indexOf(inputPath) < 0) line = line.length() == 0 ? quoted : quoted + " " + line;
     }
     if (out.length() > 0) line = putOutput(line, out);
-    return joinArgs(dedupeArgs(JavaRun.split(line)));
+    return joinArgs(dedupeArgs(JavaRun.split(line), hint));
   }
 
   /** Path passed for --output, -output, -- output, or <output.mid>. Empty if the program has none. */
@@ -303,8 +303,8 @@ public final class PyJavHints {
     if (text == null || text.length() == 0) return false;
     String low = text.toLowerCase();
     if (low.indexOf("<output") >= 0) return true;
-    if (low.indexOf("-- output") >= 0 || low.indexOf("--output") >= 0 || low.indexOf("-output") >= 0) return true;
-    if (low.indexOf("--out") >= 0 || low.indexOf("-out") >= 0) return true;
+    // Whole switches only: --output_file1 (SplitWav) names its own file, it is not PyJav's output.
+    if (java.util.regex.Pattern.compile("(^|[\\s\\[|])(--?\\s?out(put)?)([\\s\\]|=]|$)").matcher(low).find()) return true;
     return outputExt(text) != null;
   }
 
@@ -500,20 +500,30 @@ public final class PyJavHints {
       char c = line.charAt(i);
       if (c != '<' && c != '>') plain.append(c);
     }
-    return dedupeArgs(JavaRun.split(plain.toString()));
+    return dedupeArgs(JavaRun.split(plain.toString()), hint);
   }
 
-  /** One input audio path and one MIDI path. A repeated WAV is dropped. */
-  private static java.util.List<String> dedupeArgs(java.util.List<String> raw) {
+  /**
+   * As many audio paths as the program's usage names (one for DrumMidi; CutWav takes an input and
+   * an output .wav, SplitWav an input and two parts), so an old input left in the arguments is dropped. The same path twice is
+   * always dropped.
+   */
+  private static java.util.List<String> dedupeArgs(java.util.List<String> raw, String hint) {
+    int maxAudio = 0;
+    for (ProgramParams.Param p : ProgramParams.parse(hint)) {
+      // Files given in order (<input.wav> [output.wav]) and switches that take one (--output_file1 <part1.wav>).
+      if (p.ext != null && !"mid".equals(p.ext)) maxAudio++;
+    }
+    if (maxAudio < 1) maxAudio = 1;
     java.util.List<String> out = new java.util.ArrayList<String>();
-    boolean audio = false;
+    int audio = 0;
     boolean mid = false;
     for (int i = 0; i < raw.size(); i++) {
       String t = raw.get(i);
       String low = t.toLowerCase();
       if (low.endsWith(".wav") || low.endsWith(".mp3") || low.endsWith(".aiff") || low.endsWith(".flac")) {
-        if (audio) continue;
-        audio = true;
+        if (out.contains(t) || audio >= maxAudio) continue;
+        audio++;
       } else if (low.endsWith(".mid") || low.endsWith(".midi")) {
         // A program may take several MIDI files (CompareHits); only the same one twice is dropped.
         if (mid && out.contains(t)) continue;
