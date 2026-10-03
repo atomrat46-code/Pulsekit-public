@@ -1052,6 +1052,7 @@ public class BehaviorTest {
     pickFromMenu("Java \u25be", "CompareHits.java");
     TextView log = (TextView) get("pkPyLog");
     log.setText("Song against MIDI\nKick 271 261 188\nSucceeded: compared 3 files");
+    app.pyJav.pkRunLog = log.getText().toString(); // as a run leaves it
     log.performLongClick();
     idle();
     AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
@@ -1434,6 +1435,9 @@ public class BehaviorTest {
     out.append("DrumMidi_CRT args: ").append(args.getText()).append('\n');
     pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CutWav.java");
     out.append("CutWav args: ").append(args.getText()).append('\n');
+    TextView log = (TextView) get("pkPyLog");
+    out.append("below Run: ").append(log.getText()).append('\n');
+    out.append("long press offers save: ").append(log.performLongClick()).append('\n');
     String stale = app.getCacheDir().getAbsolutePath() + "/pyjav-in/output.mid";
     args.setText(stale);
     call("pkOpenParams");

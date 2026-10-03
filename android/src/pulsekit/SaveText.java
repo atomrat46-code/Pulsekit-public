@@ -10,6 +10,7 @@ import android.widget.TextView;
 final class SaveText {
     static final int SAVE = 31;
 
+    /** The file name to offer; null when there is nothing to save. */
     interface Name {
         String get();
     }
@@ -25,6 +26,7 @@ final class SaveText {
             final String text = view.getText() == null ? "" : view.getText().toString();
             if (text.trim().length() == 0) return false;
             final String file = name.get();
+            if (file == null) return false;
             new AlertDialog.Builder(app)
                 .setItems(new String[] {"Save as " + file}, (d, which) -> save(app, file, text))
                 .show();

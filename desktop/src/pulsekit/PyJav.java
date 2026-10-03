@@ -51,6 +51,8 @@ final class PyJav {
     String pyOutputPath;
 
     String pyHintPlain = "";
+    /** What the last run wrote in the output box; only that text can be saved as results. */
+    String runLog;
 
     java.util.List<PyJavRecent.Item> pyRecentItems = new java.util.ArrayList<PyJavRecent.Item>();
 
@@ -152,7 +154,7 @@ final class PyJav {
         JScrollPane scroll = new JScrollPane(app.pyEditor);
         scroll.setBorder(BorderFactory.createLineBorder(BORDER));
         app.pyLog = new JTextArea(6, 40);
-        SaveText.attach(app, app.pyLog, () -> PyJavHints.resultsFileName(app.pyName));
+        SaveText.attach(app, app.pyLog, () -> this.runLog != null && this.runLog.equals(app.pyLog.getText()) ? PyJavHints.resultsFileName(app.pyName) : null);
         app.pyLog.setEditable(false);
         app.pyLog.setLineWrap(true);
         app.pyLog.setWrapStyleWord(true);
@@ -279,6 +281,7 @@ final class PyJav {
             String shown = PromptRun.report(this.promptCategory, "ai", found.grok, found.sogni, found.claude) + "\n" + line + "\nOutput file: " + this.promptOutputName;
             this.writePromptOutput(shown);
             if (app.pyLog != null) app.pyLog.setText(shown);
+            this.runLog = shown;
             app.setNow(line);
             return;
         }
@@ -292,6 +295,7 @@ final class PyJav {
                 shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
                 if (app.pyLog != null) app.pyLog.setText(shown);
+                this.runLog = shown;
                 app.setNow("Grok");
             });
         }, "pulsekit-ai").start();
@@ -432,6 +436,7 @@ final class PyJav {
                 if (app.pyLog != null && status.length() > 0) {
                     app.pyLog.setText(status.toString() + (app.pyLog.getText() == null ? "" : "\n" + app.pyLog.getText()));
                 }
+                if (app.pyLog != null) this.runLog = app.pyLog.getText();
                 if (loaded) app.setNow("Script MIDI · " + name);
             });
         }, "pulsekit-pyjav").start();
@@ -479,7 +484,8 @@ final class PyJav {
         if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile()) {
             app.pyInputPath = this.audioInputPath;
         }
-        if (app.pyLog != null) app.pyLog.setText(this.pyHintPlain);
+        // The hint shows above; the output box is only for what a run writes.
+        if (app.pyLog != null) app.pyLog.setText("Output appears here.");
         if (this.pyHint != null) this.pyHint.setText(hintHtml(this.pyHintPlain));
         this.pyInputToken = PyJavHints.firstInput(this.pyHintPlain);
         File outDir = new File(System.getProperty("user.home", "."), ".pulsekit");
@@ -491,7 +497,6 @@ final class PyJav {
         if (out.length() > 0) {
             this.pyOutputPath = out;
             String note = this.pyHintPlain + "\nOutput file: " + out + "\nExtra args: " + filled;
-            if (app.pyLog != null) app.pyLog.setText(note);
             if (this.pyHint != null) this.pyHint.setText(hintHtml(note));
         }
         if (this.pyInputBtn != null) {

@@ -78,6 +78,8 @@ final class PyJav {
     boolean pkPyRecentMute;
 
     android.widget.TextView pkPyLog;
+    /** What the last run wrote below Run; only that text can be saved as results. */
+    String pkRunLog;
 
     android.widget.TextView pkPyHint;
 
@@ -274,7 +276,8 @@ final class PyJav {
             this.pkPyInputPath = this.pkAudioInputPath;
         }
         if (this.pkPyHint != null) this.pkPyHint.setText(hint);
-        if (this.pkPyLog != null) this.pkPyLog.setText(hint);
+        // The hint shows above; below Run is only for what a run writes.
+        if (this.pkPyLog != null) this.pkPyLog.setText("Output appears here.");
         this.pkPyInputToken = pulsekit.PyJavHints.firstInput(hint);
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();
@@ -285,7 +288,7 @@ final class PyJav {
         if (out.length() > 0) {
             this.pkPyOutputPath = out;
             String note = hint + "\nOutput file: " + out + "\nExtra args: " + filled;
-            if (this.pkPyLog != null) this.pkPyLog.setText(note);
+            if (this.pkPyHint != null) this.pkPyHint.setText(note);
         }
         if (this.pkPyInput == null) return;
         if (this.pkPyInputToken == null) {
@@ -398,7 +401,7 @@ final class PyJav {
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
-        SaveText.attach(app, this.pkPyLog, () -> pulsekit.PyJavHints.resultsFileName(app.pyName));
+        SaveText.attach(app, this.pkPyLog, () -> this.pkLogIsRun() ? pulsekit.PyJavHints.resultsFileName(app.pyName) : null);
         app.pyPane.addView(this.pkPyLog, slot);
     }
 
@@ -461,6 +464,7 @@ final class PyJav {
         String report = this.pkPromptReport == null ? "" : this.pkPromptReport;
         String shown = report.length() == 0 ? line : report + "\n" + line;
         if (this.pkPyLog != null) this.pkPyLog.setText(shown);
+        this.pkRunLog = shown;
         if (this.pkPyHint != null) this.pkPyHint.setText(shown);
         app.setNow(line);
         this.pkSaveInventedOutput(shown);
@@ -742,6 +746,7 @@ final class PyJav {
         android.widget.Toast.makeText(app, status, 1).show();
         this.pkSaveInventedOutput(log);
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
+        this.pkRunLog = log;
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);
@@ -749,7 +754,13 @@ final class PyJav {
             app.setNow(status);
             android.widget.Toast.makeText(app, status, 1).show();
             if (this.pkPyLog != null) this.pkPyLog.setText(status);
+            this.pkRunLog = status;
         }
+    }
+
+    /** True while the text below Run is a run's output, not a hint or a note. */
+    boolean pkLogIsRun() {
+        return this.pkPyLog != null && this.pkRunLog != null && this.pkRunLog.equals(this.pkPyLog.getText().toString());
     }
 
     boolean pkTakeProgram(byte[] data, String name) {

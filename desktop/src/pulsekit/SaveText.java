@@ -12,6 +12,7 @@ import javax.swing.text.JTextComponent;
 
 /** Right click on a results text: save it as a .txt file, such as CompareHits_test_results.txt. */
 final class SaveText {
+    /** The file name to offer; null when there is nothing to save. */
     interface Name {
         String get();
     }
@@ -34,6 +35,7 @@ final class SaveText {
                 String text = view.getText() == null ? "" : view.getText();
                 if (text.trim().length() == 0) return;
                 final String file = name.get();
+                if (file == null) return;
                 JPopupMenu menu = new JPopupMenu();
                 JMenuItem save = new JMenuItem("Save as " + file);
                 save.addActionListener(a -> save(app, file, view.getText()));
