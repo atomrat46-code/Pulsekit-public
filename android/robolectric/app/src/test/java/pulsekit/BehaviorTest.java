@@ -1423,6 +1423,32 @@ public class BehaviorTest {
     write("s44_splitwav_params", out.toString());
   }
 
+  /** Picking CutWav after DrumMidi_CRT: the args field drops DrumMidi's output.mid, and Params does not take it as the input. */
+  @Test
+  public void s45_program_switch_clears_args() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView args = (TextView) get("pkPyArgs");
+    out.append("DrumMidi_CRT args: ").append(args.getText()).append('\n');
+    pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CutWav.java");
+    out.append("CutWav args: ").append(args.getText()).append('\n');
+    String stale = app.getCacheDir().getAbsolutePath() + "/pyjav-in/output.mid";
+    args.setText(stale);
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView chosen = (TextView) dv.findViewWithTag("params-chosen:input.wav");
+    out.append("input chosen: ").append(chosen == null ? "none" : chosen.getText()).append('\n');
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--split_time")).setText("01:00");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("after OK: ").append(args.getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    write("s45_program_switch_clears_args", out.toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>"));
+  }
+
   private static int itemIndex(AlertDialog menu, String label) {
     for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
       if (label.equals(String.valueOf(menu.getListView().getAdapter().getItem(i)))) return i;

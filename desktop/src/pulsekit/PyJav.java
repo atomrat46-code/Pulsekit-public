@@ -485,10 +485,11 @@ final class PyJav {
         File outDir = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (!outDir.isDirectory()) outDir.mkdirs();
         String out = PyJavHints.outputFile(app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
+        // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
+        String filled = PyJavHints.fillArgs("", this.pyHintPlain, this.pyInputToken, app.pyInputPath, outDir.getAbsolutePath());
+        if (this.pyExtra != null) this.pyExtra.setText(filled);
         if (out.length() > 0) {
             this.pyOutputPath = out;
-            String filled = PyJavHints.fillArgs("", this.pyHintPlain, this.pyInputToken, app.pyInputPath, outDir.getAbsolutePath());
-            if (this.pyExtra != null) this.pyExtra.setText(filled);
             String note = this.pyHintPlain + "\nOutput file: " + out + "\nExtra args: " + filled;
             if (app.pyLog != null) app.pyLog.setText(note);
             if (this.pyHint != null) this.pyHint.setText(hintHtml(note));

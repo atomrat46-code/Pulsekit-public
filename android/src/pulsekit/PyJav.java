@@ -279,10 +279,11 @@ final class PyJav {
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();
         String out = pulsekit.PyJavHints.outputFile(this.pkPyInputPath, hint, dir.getAbsolutePath());
+        // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
+        String filled = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(filled);
         if (out.length() > 0) {
             this.pkPyOutputPath = out;
-            String filled = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
-            if (this.pkPyArgs != null) this.pkPyArgs.setText(filled);
             String note = hint + "\nOutput file: " + out + "\nExtra args: " + filled;
             if (this.pkPyLog != null) this.pkPyLog.setText(note);
         }
