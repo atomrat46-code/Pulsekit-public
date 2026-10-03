@@ -411,6 +411,10 @@ final class FileSets {
             javax.swing.JButton open = app.chip("Open", false);
             open.addActionListener(e -> this.openSong(song));
             line.add(open);
+            javax.swing.JButton del = app.chip("Delete", false);
+            del.setName("info-delete:" + song.name);
+            del.addActionListener(e -> app.songEditor.confirmDeleteSong(song));
+            line.add(del);
             box.add(line);
         }
         return box;
@@ -420,7 +424,17 @@ final class FileSets {
         Engine.storeFileSetAudioDir(new File(app.persistence.pulsekitDir(), "fset-audio"));
     }
 
+    /** The file set Info last shown, so it can be shown again after a change. */
+    String infoKey;
+    String infoLabel;
+
+    void reopenInfo() {
+        if (this.infoKey != null) this.openFileSetInfo(this.infoKey, this.infoLabel);
+    }
+
     void openFileSetInfo(String key, String label) {
+        this.infoKey = key;
+        this.infoLabel = label;
         String src = "";
         if (key != null && key.startsWith("f:")) src = key.substring(2);
         java.util.List<Engine.FileSetPart> parts = app.fileSetParts.get(src);

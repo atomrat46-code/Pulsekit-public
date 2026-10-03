@@ -911,9 +911,18 @@ final class SongEditor {
                 else app.paintChip((JButton) cs[i], String.valueOf(lane).equals(app.songLane));
             }
             if ("imported".equals(app.songLane)) {
+                List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
                 for (Engine.ImportedSong s : app.importedSongs) {
                     final Engine.ImportedSong item = s;
                     JButton b = app.chip(item.name, item.id.equals(app.importedSongId));
+                    // Songs that belong to a file set have an accent ring.
+                    String set = Engine.fileSetOfSong(item, sources);
+                    if (set != null) {
+                        b.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(HIT, 2),
+                            BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+                        b.setBorderPainted(true);
+                        b.setToolTipText("File set: " + set);
+                    }
                     b.addActionListener(e -> {
                         this.refreshFromFileSet(item);
                         app.importedSongId = item.id;
@@ -1045,6 +1054,7 @@ final class SongEditor {
         }
         app.persistence.persistLearned();
         this.refreshSong();
+        if ("fsetinfo".equals(app.view)) app.fileSets.reopenInfo();
         app.setNow("Deleted \u00b7 " + song.name);
     }
 }

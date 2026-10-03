@@ -2870,6 +2870,14 @@ public final class Engine {
     return out;
   }
 
+  /** The file set a song belongs to: the one it records, or one it is named after; null for none. */
+  public static String fileSetOfSong(ImportedSong song, List<String> sources) {
+    if (song == null) return null;
+    if (song.fileSet != null && !song.fileSet.isEmpty()) return song.fileSet;
+    if (sources != null) for (String src : sources) if (namedAfter(song.name, src)) return src;
+    return null;
+  }
+
   /** "<set>" or "<set> 2", with the set name cut as song names are. */
   private static boolean namedAfter(String song, String set) {
     if (song == null || set == null) return false;

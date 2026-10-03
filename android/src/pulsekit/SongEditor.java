@@ -847,10 +847,16 @@ final class SongEditor {
         app.timeline.removeAllViews();
         app.songCards.removeAllViews();
         if ("imported".equals(app.songLane) && !app.importedSongs.isEmpty()) {
+            List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
             LinearLayout linearLayout = app.row();
             for (Engine.ImportedSong importedSong : app.importedSongs) {
                 TextView object = app.pill(importedSong.name, importedSong.id.equals(app.importedSongId), arg_0 -> this.refreshSongAction75(importedSong, arg_0));
                 object.setTag((Object)("song-chip:" + importedSong.name));
+                // Songs that belong to a file set have an accent ring.
+                if (Engine.fileSetOfSong(importedSong, sources) != null) {
+                    app.paintRing(object, importedSong.id.equals(app.importedSongId));
+                    object.setContentDescription((CharSequence)("File set song"));
+                }
                 object.setOnLongClickListener(view -> {
                     this.songMenu(importedSong);
                     return true;
@@ -1024,6 +1030,7 @@ final class SongEditor {
         }
         app.persistence.persistLearned();
         this.refreshSong();
+        if ("fsetinfo".equals(app.view)) app.fileSets.reopenInfo();
         app.setNow("Deleted \u00b7 " + song.name);
     }
 

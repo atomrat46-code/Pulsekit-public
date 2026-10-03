@@ -617,6 +617,16 @@ final class FileSets {
         app.show("fsetinfo");
         this.pkShowInfoMidi(key != null && key.startsWith("f:") ? key.substring(2) : "");
         this.pkShowInfoSongs(key, label);
+        this.infoKey = key;
+        this.infoLabel = label;
+    }
+
+    /** The file set Info last shown, so it can be shown again after a change. */
+    java.lang.String infoKey;
+    java.lang.String infoLabel;
+
+    void reopenInfo() {
+        if (this.infoKey != null) this.openFileSetInfo(this.infoKey, this.infoLabel);
     }
 
     /** Info: the songs connected to the file set, each opening in the Song view; or Make song. */
@@ -646,6 +656,9 @@ final class FileSets {
             name.setTextColor(FG);
             line.addView(name, app.flex(1));
             line.addView(app.outline("Open", false, v -> this.openSong(song)));
+            android.widget.TextView del = app.outline("Delete", false, v -> app.songEditor.confirmDeleteSong(song));
+            del.setTag("info-delete:" + song.name);
+            line.addView(del);
             box.addView(line);
         }
         this.infoRows.addView(box, 0);

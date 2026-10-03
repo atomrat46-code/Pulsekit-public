@@ -1286,6 +1286,35 @@ public class BehaviorTest {
     ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
     out.append("Open it: view ").append(get("view")).append(", selected ").append(songs.get(0).id.equals(get("importedSongId"))).append('\n');
+    // A song that is not from a file set has no ring, in Edit and in Play.
+    call("addImportedArrangement", "Loose song", new ArrayList<Engine.Part>(parts));
+    idle();
+    for (String mode : new String[] {"edit", "play"}) {
+      setField("songMode", mode);
+      call("refreshSong");
+      idle();
+      StringBuilder rings = new StringBuilder();
+      for (Engine.ImportedSong x : songs) {
+        View chip = root().findViewWithTag("song-chip:" + x.name);
+        rings.append(x.name).append(chip != null && "File set song".contentEquals(String.valueOf(chip.getContentDescription())) ? " (ring)" : "").append(" | ");
+      }
+      out.append(mode).append(" chips: ").append(rings).append('\n');
+    }
+    setField("songMode", "edit");
+    // Info: Delete after each song, after asking; Info shows the rest.
+    fileSets.openFileSetInfo("f:Passing Ships", "Passing Ships");
+    idle();
+    out.append("info: ").append(texts((ViewGroup) root().findViewWithTag("info-songs"))).append('\n');
+    String gone = songs.get(1).name;
+    for (String answer : new String[] {"Cancel", "Delete"}) {
+      root().findViewWithTag("info-delete:" + gone).performClick();
+      idle();
+      AlertDialog confirm = (AlertDialog) ShadowDialog.getLatestDialog();
+      confirm.getButton("Cancel".equals(answer) ? DialogInterface.BUTTON_NEGATIVE : DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      out.append(answer).append(": ").append(songs.size()).append(" songs, view ").append(get("view")).append('\n');
+    }
+    out.append("info after delete: ").append(texts((ViewGroup) root().findViewWithTag("info-songs"))).append('\n');
     write("s41_file_set_songs", out.toString());
   }
 

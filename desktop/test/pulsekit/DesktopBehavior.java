@@ -400,6 +400,35 @@ public final class DesktopBehavior {
     answers.add("Open it");
     edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
     out.append("Open it: view ").append(get("view")).append('\n');
+    edt(() -> call("addImportedSong", "Loose song", songParts()));
+    edt(() -> call("refreshSong"));
+    StringBuilder rings = new StringBuilder();
+    for (Engine.ImportedSong x : songs) {
+      final javax.swing.JButton[] b = {null};
+      edt(() -> b[0] = button(frame, x.name));
+      rings.append(x.name).append(b[0] != null && b[0].getToolTipText() != null ? " (ring: " + b[0].getToolTipText() + ")" : "").append(" | ");
+    }
+    out.append("chips: ").append(rings).append('\n');
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    String gone = songs.get(1).name;
+    final boolean[] del = {false};
+    edt(() -> del[0] = named(frame, "info-delete:" + gone));
+    out.append("info has Delete for ").append(gone).append(": ").append(del[0]).append('\n');
+    final Engine.ImportedSong goneSong = songs.get(1);
+    answers.add("OK");
+    call("confirmDeleteSong", goneSong);
+    out.append("after Delete: ").append(songs.size()).append(" songs, view ").append(get("view")).append('\n');
+  }
+
+  private static javax.swing.JButton button(java.awt.Component c, String text) {
+    if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+        javax.swing.JButton b = button(k, text);
+        if (b != null) return b;
+      }
+    }
+    return null;
   }
 
   private static boolean named(java.awt.Component c, String name) {
