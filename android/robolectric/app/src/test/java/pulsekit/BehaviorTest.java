@@ -1504,6 +1504,23 @@ public class BehaviorTest {
     write("s46_code_save", out.toString());
   }
 
+  /** PyJav's Scripts menu lists the repo's Prompts folder; a script opens like a .prompt file. */
+  @Test
+  public void s47_scripts_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    out.append("Scripts: ").append(String.join(", ", (String[]) call("list", "Scripts"))).append('\n');
+    pickFromMenu("Scripts \u25be", "sogni.prompt");
+    TextView ed = (TextView) get("pyEditor");
+    out.append("pyName=").append(get("pyName")).append(" run=").append(app.pyJav.pkPromptRun)
+        .append(" editorHasScript=").append(ed.getText().toString().startsWith("npm install -g @sogni-ai/sogni-creative-agent-skill@latest")).append('\n');
+    out.append("button: ").append(findText(root(), "Scripts \u00b7 sogni.prompt") != null).append('\n');
+    pickFromMenu("Java \u25be", "CutWav.java");
+    out.append("after Java pick, Scripts button reset: ").append(findText(root(), "Scripts \u25be") != null).append('\n');
+    write("s47_scripts_menu", out.toString());
+  }
+
   /** Tap File, then an item in its menu. */
   private void fileMenuItem(String label) throws Exception {
     TextView file = findText(root(), "File");

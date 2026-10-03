@@ -13,9 +13,11 @@ javac --release 17 -nowarn -encoding UTF-8 -cp ../shared/libs/jlayer-1_0_1.jar \
 cp src/pulsekit/drum_midi.py ../shared/src/pulsekit/midiutil.py "$OUT/classes/pulsekit/"
 (cd "$OUT/classes" && jar xf ../../../shared/libs/jlayer-1_0_1.jar javazoom)
 
-# PyJav's Java / Python / Code menus. A JAR cannot list a folder, so add an index.
+# PyJav's Java / Python / Code menus, and Scripts from the repo's Prompts folder.
+# A JAR cannot list a folder, so add an index.
 cp -r ../Programs "$OUT/classes/Programs"
-(cd ../Programs && find . -type f ! -name index.txt | sed 's#^\./##' | sort) > "$OUT/classes/Programs/index.txt"
+cp -r ../Prompts "$OUT/classes/Programs/Scripts"
+(cd "$OUT/classes/Programs" && find . -type f ! -name index.txt | sed 's#^\./##' | sort) > "$OUT/classes/Programs/index.txt"
 
 jar cfm "$OUT/Pulsekit.jar" MANIFEST.MF -C "$OUT/classes" .
 echo "Built $(pwd)/$OUT/Pulsekit.jar"

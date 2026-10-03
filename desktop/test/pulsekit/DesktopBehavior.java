@@ -526,6 +526,18 @@ public final class DesktopBehavior {
     out.append("Code file name: ").append(save.name()).append('\n');
   }
 
+  void s30_scripts_menu() throws Exception {
+    call("showView", "py");
+    out.append("Scripts: ").append(String.join(", ", ProgramFiles.list("Scripts"))).append('\n');
+    edt(() -> call("openScript", "sogni.prompt"));
+    javax.swing.JTextArea ed = (javax.swing.JTextArea) get("pyEditor");
+    out.append("pyName=").append(get("pyName")).append(" editorHasScript=")
+        .append(ed.getText().startsWith("npm install -g @sogni-ai/sogni-creative-agent-skill@latest")).append('\n');
+    out.append("button: ").append(button(frame, "Scripts \u00b7 sogni.prompt") != null).append('\n');
+    call("selectListedProgram", "Java", "CutWav.java");
+    out.append("after Java pick, Scripts button reset: ").append(button(frame, "Scripts \u25be") != null).append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

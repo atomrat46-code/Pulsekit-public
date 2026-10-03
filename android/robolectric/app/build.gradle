@@ -32,9 +32,10 @@ def stripManifest = tasks.register('stripManifest') {
 }
 preBuild.dependsOn stripManifest
 
-// Programs/ is packaged as assets/Programs, as android/build.sh does.
+// Programs/ is packaged as assets/Programs, and Prompts/ as assets/Programs/Scripts, as android/build.sh does.
 def copyPrograms = tasks.register('copyPrograms', Copy) {
   from "$ROOT/Programs"
   into "$buildDir/gen-assets/Programs"
+  from("$ROOT/Prompts") { into "Scripts" }
 }
 preBuild.dependsOn copyPrograms
