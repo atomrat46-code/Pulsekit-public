@@ -13,7 +13,8 @@ import static pulsekit.Pulsekit.*;
 final class ProgramMenus {
     // Java and Python pick the program Run executes and show its source in the editor; edits there run.
     // Code opens a file in the editor for editing and never changes what Run executes.
-    static final String[] PROGRAM_KINDS = {"Java", "Python", "Code"};
+    // Scripts lists the repo's Prompts folder (.prompt files); one opens like any .prompt file.
+    static final String[] PROGRAM_KINDS = {"Java", "Python", "Code", "Scripts"};
 
     final Pulsekit app;
 
@@ -26,6 +27,9 @@ final class ProgramMenus {
     String listedName;
 
     String listedKind;
+
+    /** The Scripts file open in PyJav, while it is still the current program. */
+    String scriptName;
 
     /** True while the editor shows the listed program (a Code file was not opened over it). */
     boolean editorShowsListed;
@@ -56,6 +60,7 @@ final class ProgramMenus {
             JMenuItem item = new JMenuItem(name);
             item.addActionListener(e -> {
                 if ("Code".equals(kind)) this.openCodeFile(name);
+                else if ("Scripts".equals(kind)) this.openScript(name);
                 else this.selectListedProgram(kind, name);
             });
             menu.add(item);
@@ -84,6 +89,22 @@ final class ProgramMenus {
             app.pyJav.showPyHint(PyJavHints.status(name, src, data));
             this.paintProgramMenus();
             app.setNow("Run \u00b7 " + name);
+        } catch (Exception ex) {
+            if (app.pyLog != null) app.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
+        }
+    }
+
+    /** Scripts: open a .prompt from the Prompts folder, as a picked .prompt file opens. */
+    void openScript(String name) {
+        try {
+            byte[] data = ProgramFiles.read("Scripts", name);
+            this.scriptName = name;
+            app.pyJav.loadProgram(name, data, false);
+            app.pyInputPath = null;
+            PyJavRecent.remember(app.pyJav.pyRecentDir(), name, "", new String(data, StandardCharsets.UTF_8), null);
+            app.pyJav.reloadPyRecent(0);
+            app.pyJav.showPyHint("Run as bash, cmd, or AI.");
+            app.setNow("Script \u00b7 " + name);
         } catch (Exception ex) {
             if (app.pyLog != null) app.pyLog.setText("Could not open " + name + ": " + ex.getMessage());
         }
@@ -131,6 +152,14 @@ final class ProgramMenus {
             this.programButtons[i].setText(on ? PROGRAM_KINDS[i] + " \u00b7 " + this.listedName : PROGRAM_KINDS[i] + " \u25be");
             this.programButtons[i].setBackground(on ? HIT : ELEV);
             this.programButtons[i].setForeground(on ? BG : FG);
+        }
+        boolean script = this.scriptName != null && this.scriptName.equals(app.pyName);
+        if (!script) this.scriptName = null;
+        JButton s = this.programButtons[3];
+        if (s != null) {
+            s.setText(script ? "Scripts \u00b7 " + this.scriptName : "Scripts \u25be");
+            s.setBackground(script ? HIT : ELEV);
+            s.setForeground(script ? BG : FG);
         }
     }
 }

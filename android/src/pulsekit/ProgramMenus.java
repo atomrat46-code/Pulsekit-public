@@ -18,9 +18,11 @@ import static pulsekit.MainActivity.*;
  *
  * Java and Python pick the program Run executes and show its source in the editor; edits there run.
  * Code opens a file in the editor for editing and never changes what Run executes.
+ * Scripts lists the repo's Prompts folder (.prompt files); one opens like any .prompt, so Run uses
+ * the prompt run modes (bash, cmd, AI).
  */
 final class ProgramMenus {
-    static final String[] KINDS = {"Java", "Python", "Code"};
+    static final String[] KINDS = {"Java", "Python", "Code", "Scripts"};
 
     final MainActivity app;
     final TextView[] buttons = new TextView[KINDS.length];
@@ -29,6 +31,8 @@ final class ProgramMenus {
     String runName;
     String runSource;
     String runKind;
+    /** The Scripts file open in PyJav, while it is still the current program. */
+    String scriptName;
     /** True while the editor shows the listed program (a Code file was not opened over it). */
     boolean editorShowsRun;
 
@@ -44,6 +48,7 @@ final class ProgramMenus {
             final String kind = KINDS[i];
             TextView b = app.action(kind + " ▾", ELEV, FG, v -> this.showMenu(kind));
             b.setSingleLine(true);
+            b.setTextSize(13);
             b.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, app.dp(40), 1.0f);
             lp.setMargins(i == 0 ? 0 : app.dp(3), 0, i == KINDS.length - 1 ? 0 : app.dp(3), 0);
@@ -115,6 +120,8 @@ final class ProgramMenus {
     void pick(String kind, String name) {
         if ("Code".equals(kind)) {
             this.openCode(name);
+        } else if ("Scripts".equals(kind)) {
+            this.openScript(name);
         } else {
             this.selectProgram(kind, name);
         }
@@ -141,6 +148,19 @@ final class ProgramMenus {
             app.pyJav.pkApplyHint(PyJavHints.status(name, src, data));
             this.paint();
             app.setNow("Run · " + name);
+        } catch (Exception e) {
+            app.setNow("Could not open " + name);
+        }
+    }
+
+    /** Scripts: open a .prompt from the Prompts folder, as a picked .prompt file opens. */
+    void openScript(String name) {
+        try {
+            String text = new String(this.read("Scripts", name), StandardCharsets.UTF_8);
+            app.pyJav.pkOpenPromptText(name, text);
+            this.scriptName = app.pyName;
+            this.paint();
+            app.setNow("Script · " + name);
         } catch (Exception e) {
             app.setNow("Could not open " + name);
         }
@@ -189,6 +209,14 @@ final class ProgramMenus {
             this.buttons[i].setText(on ? KINDS[i] + " · " + this.runName : KINDS[i] + " ▾");
             this.buttons[i].setBackground(app.round(on ? HIT : ELEV, 8));
             this.buttons[i].setTextColor(on ? BG : FG);
+        }
+        boolean script = this.scriptName != null && this.scriptName.equals(app.pyName);
+        if (!script) this.scriptName = null;
+        TextView s = this.buttons[3];
+        if (s != null) {
+            s.setText(script ? "Scripts · " + this.scriptName : "Scripts ▾");
+            s.setBackground(app.round(script ? HIT : ELEV, 8));
+            s.setTextColor(script ? BG : FG);
         }
     }
 }

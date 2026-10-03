@@ -1,0 +1,6 @@
+npm install -g @sogni-ai/sogni-creative-agent-skill@latest
+rm -rf /tmp/sogni-skill
+git clone --depth 1 https://github.com/Sogni-AI/sogni-creative-agent-skill /tmp/sogni-skill
+mkdir -p ~/.claude/skills/sogni-creative-agent-skill
+cp -r /tmp/sogni-skill/SKILL.md /tmp/sogni-skill/references /tmp/sogni-skill/skills ~/.claude/skills/sogni-creative-agent-skill/
+apt-get install -y ffmpeg

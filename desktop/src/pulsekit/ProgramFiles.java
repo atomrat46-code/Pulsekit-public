@@ -64,9 +64,15 @@ final class ProgramFiles {
         return Files.readAllBytes(new File(dir, name).toPath());
     }
 
-    /** Programs/KIND next to the working directory or one level up (running from desktop/). */
+    /** Programs/KIND (Scripts: the Prompts folder) next to the working directory or one level up (running from desktop/). */
     private static File folder(String kind) {
         String cwd = System.getProperty("user.dir", ".");
+        if ("Scripts".equals(kind)) {
+            for (File dir : new File[] {new File(cwd, "Prompts"), new File(cwd, "../Prompts")}) {
+                if (dir.isDirectory()) return dir;
+            }
+            return null;
+        }
         for (File base : new File[] {new File(cwd, "Programs"), new File(cwd, "../Programs")}) {
             File dir = new File(base, kind);
             if (dir.isDirectory()) return dir;

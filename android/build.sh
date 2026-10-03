@@ -15,6 +15,7 @@ rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 cp -r assets "$OUT/assets"
 cp ../shared/src/pulsekit/midiutil.py "$OUT/assets/"
 cp -r ../Programs "$OUT/assets/Programs"   # PyJav's Java / Python / Code menus
+cp -r ../Prompts "$OUT/assets/Programs/Scripts"   # PyJav's Scripts menu (the repo's Prompts folder)
 # Each bundled Java program must compile on the phone: the in-app compiler sees only
 # assets/rt.jar (Java 8, no lambdas), so check them against it here.
 for prog in ../Programs/Java/*.java; do
