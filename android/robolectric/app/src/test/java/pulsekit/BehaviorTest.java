@@ -1397,6 +1397,32 @@ public class BehaviorTest {
     write("s43_cutwav_params", out.toString());
   }
 
+  /** SplitWav in PyJav's Java menu; Params: an input file, two optional part names, the switches. */
+  @Test
+  public void s44_splitwav_params() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SplitWav.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("/x/song.wav");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("input button: ").append(dv.findViewWithTag("params-file:input.wav") != null).append('\n');
+    for (String flag : new String[] {"--output_file1", "--output_file2", "--split_time", "--split_lenght", "--trim", "--bpm"}) {
+      android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + flag);
+      out.append(flag).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
+    }
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--output_file1")).setText("first.wav");
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--split_lenght")).setText("29.5");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s44_splitwav_params", out.toString());
+  }
+
   private static int itemIndex(AlertDialog menu, String label) {
     for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
       if (label.equals(String.valueOf(menu.getListView().getAdapter().getItem(i)))) return i;

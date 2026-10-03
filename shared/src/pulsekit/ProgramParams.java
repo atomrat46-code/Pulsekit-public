@@ -169,7 +169,7 @@ public final class ProgramParams {
       if (!p.flag && p.ext != null) p.label = p.token;
       else p.label = s.length() == 0 ? p.token : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
-    if (!p.flag && p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
+    if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";

@@ -457,6 +457,35 @@ public final class DesktopBehavior {
     out.append("cut file: ").append(back == null ? "none" : String.format("%.3f s", back.samples.length / (double) back.sr)).append('\n');
   }
 
+  void s27_splitwav_program() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take two.wav");
+    short[] pcm = new short[22050 * 3];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 22050));
+    byte[] original = AudioIo.encodeWav(pcm, 22050);
+    Files.write(wav.toPath(), original);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SplitWav.java");
+    edt(() -> call("setInputFile", wav));
+    edt(() -> ((JTextField) get("pyExtra")).setText(((JTextField) get("pyExtra")).getText() + " --split_time 0:01"));
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Split") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line).append('\n');
+    }
+    File a = new File(home, "take two_split1.wav");
+    File b = new File(home, "take two_split2.wav");
+    if (a.isFile() && b.isFile()) {
+      AudioIo.Pcm pa = AudioIo.parseWav(Files.readAllBytes(a.toPath()));
+      AudioIo.Pcm pb = AudioIo.parseWav(Files.readAllBytes(b.toPath()));
+      out.append(String.format("parts: %.3f s + %.3f s%n", pa.samples.length / (double) pa.sr, pb.samples.length / (double) pb.sr));
+    } else {
+      out.append("parts: missing\n");
+    }
+  }
+
   private static javax.swing.JButton button(java.awt.Component c, String text) {
     if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
     if (c instanceof java.awt.Container) {
