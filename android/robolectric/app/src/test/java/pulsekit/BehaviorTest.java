@@ -263,10 +263,13 @@ public class BehaviorTest {
     for (String kind : new String[] {"Java", "Python", "Code"}) {
       out.append(kind).append(": ").append(String.join(", ", (String[]) call("list", kind))).append('\n');
     }
-    String editorBefore = ((TextView) get("pyEditor")).getText().toString();
     pickFromMenu("Java \u25be", "DrumMidi_CRT.java");
+    TextView ed = (TextView) get("pyEditor");
     out.append("after Java pick: pyName=").append(get("pyName"))
-        .append(" editorUnchanged=").append(editorBefore.equals(((TextView) get("pyEditor")).getText().toString())).append('\n');
+        .append(" editorShowsSource=").append(ed.getText().toString().contains("public class DrumMidi_CRT")).append('\n');
+    ed.setText(ed.getText() + "\n// edited");
+    String edited = (String) call("sourceToRun");
+    out.append("edit runs: ").append(edited != null && edited.endsWith("// edited")).append('\n');
     pickFromMenu("Code \u25be", "sogni-client.mjs");
     String editor = ((TextView) get("pyEditor")).getText().toString();
     String run = (String) call("sourceToRun");
