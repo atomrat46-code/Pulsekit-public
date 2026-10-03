@@ -322,7 +322,7 @@ final class PyJav {
 
     void runPython() {
         if (app.pyEditor == null) return;
-        final String listed = app.programMenus.listedProgramCurrent() ? app.listedSource : null;
+        final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
         final byte[] bytes = app.pyBytes;
@@ -565,7 +565,7 @@ final class PyJav {
 
     /** The loaded program's text, for its parameters: the listed program, the editor, or a .class/.jar's strings. */
     String programText() {
-        String listed = app.programMenus.listedProgramCurrent() ? app.listedSource : null;
+        String listed = app.programMenus.listedSourceToRun();
         String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText() : "");
         return PyJavHints.programText(app.pyName, src, app.pyBytes);
     }

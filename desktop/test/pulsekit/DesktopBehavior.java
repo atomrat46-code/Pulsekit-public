@@ -493,6 +493,7 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("<input.wav> " + home.getAbsolutePath() + "/.pulsekit/output.mid"));
     call("selectListedProgram", "Java", "CutWav.java");
     out.append("CutWav args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("editor shows CutWav: ").append(((javax.swing.text.JTextComponent) get("pyEditor")).getText().contains("class CutWav")).append('\n');
   }
 
   private static javax.swing.JButton button(java.awt.Component c, String text) {

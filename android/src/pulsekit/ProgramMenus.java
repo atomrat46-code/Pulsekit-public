@@ -16,7 +16,7 @@ import static pulsekit.MainActivity.*;
  * The Java, Python and Code menus on the PyJav page. They list the bundled
  * Programs/Java, Programs/Python and Programs/Code folders (APK assets).
  *
- * Java and Python pick the program Run executes; the editor is left alone.
+ * Java and Python pick the program Run executes and show its source in the editor; edits there run.
  * Code opens a file in the editor for editing and never changes what Run executes.
  */
 final class ProgramMenus {
@@ -29,6 +29,8 @@ final class ProgramMenus {
     String runName;
     String runSource;
     String runKind;
+    /** True while the editor shows the listed program (a Code file was not opened over it). */
+    boolean editorShowsRun;
 
     ProgramMenus(MainActivity app) {
         this.app = app;
@@ -129,6 +131,12 @@ final class ProgramMenus {
             this.runName = name;
             this.runSource = src;
             this.runKind = kind;
+            if (app.pyEditor != null) {
+                app.pyEditor.setText(src);
+                app.pyEditor.setSelection(0);
+                app.pyEditor.scrollTo(0, 0);
+            }
+            this.editorShowsRun = app.pyEditor != null;
             app.pyJav.pkShowPromptModes();
             app.pyJav.pkApplyHint(PyJavHints.status(name, src, data));
             this.paint();
@@ -147,6 +155,7 @@ final class ProgramMenus {
                 app.pyEditor.setSelection(0);
                 app.pyEditor.scrollTo(0, 0);
             }
+            this.editorShowsRun = false;
             this.buttons[2].setText("Code · " + name);
             app.setNow("Editing · " + name);
         } catch (Exception e) {
@@ -154,9 +163,11 @@ final class ProgramMenus {
         }
     }
 
-    /** Source Run should execute: the listed program while it is still current, else null. */
+    /** Source Run should execute: the listed program while it is still current (as edited in the editor), else null. */
     String sourceToRun() {
-        return this.current() ? this.runSource : null;
+        if (!this.current()) return null;
+        if (this.editorShowsRun && app.pyEditor != null) return app.pyEditor.getText().toString();
+        return this.runSource;
     }
 
     /** True while the listed program is still the current program (nothing else was opened since). */
