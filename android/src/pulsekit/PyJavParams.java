@@ -93,7 +93,7 @@ public final class PyJavParams {
       label.setText(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
       label.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
       box.addView(label);
-      if (p.output) {
+      if (p.output && !p.optional) {
         TextView auto = new TextView(activity);
         auto.setText("Named by PyJav from the input file");
         auto.setTextSize(12);

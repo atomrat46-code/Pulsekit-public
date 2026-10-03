@@ -595,7 +595,7 @@ final class PyJav {
             final ProgramParams.Param p = ps.get(i);
             final int index = i;
             form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
-            if (p.output) {
+            if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
                 continue;
             }

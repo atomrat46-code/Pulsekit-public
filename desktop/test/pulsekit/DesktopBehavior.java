@@ -435,6 +435,28 @@ public final class DesktopBehavior {
         .append(songs.contains(song)).append(", set style now ").append(call("fileSetStyleLabel", "f:Passing Ships")).append('\n');
   }
 
+  void s26_cutwav_program() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take one.wav");
+    short[] pcm = new short[22050 * 3];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 22050));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CutWav.java");
+    edt(() -> call("setInputFile", wav));
+    edt(() -> ((JTextField) get("pyExtra")).setText(((JTextField) get("pyExtra")).getText() + " --split_time 0:01"));
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    File cut = new File(home, "take one_cutted.wav");
+    AudioIo.Pcm back = cut.isFile() ? AudioIo.parseWav(Files.readAllBytes(cut.toPath())) : null;
+    out.append("cut file: ").append(back == null ? "none" : String.format("%.3f s", back.samples.length / (double) back.sr)).append('\n');
+  }
+
   private static javax.swing.JButton button(java.awt.Component c, String text) {
     if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
     if (c instanceof java.awt.Container) {
