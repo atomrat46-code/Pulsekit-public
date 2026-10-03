@@ -547,6 +547,14 @@ public final class Pulsekit extends UiKit {
             imp.addActionListener(e -> this.showView("import"));
             JMenuItem exp = new JMenuItem("Export");
             exp.addActionListener(e -> this.showView("export"));
+            // PyJav's code editor is saved from here, not from a right click in it.
+            boolean codeSavable = this.codeSave.canSave();
+            JMenuItem saveCode = new JMenuItem("Save code");
+            saveCode.setEnabled(codeSavable);
+            saveCode.addActionListener(e -> this.codeSave.save());
+            JMenuItem saveCodeAs = new JMenuItem("Save code as");
+            saveCodeAs.setEnabled(codeSavable);
+            saveCodeAs.addActionListener(e -> this.codeSave.saveAs());
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem compare = new JMenuItem("Compare Hits");
@@ -555,6 +563,8 @@ public final class Pulsekit extends UiKit {
             help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
+            menu.add(saveCode);
+            menu.add(saveCodeAs);
             menu.add(midi);
             menu.add(compare);
             menu.add(help);
@@ -618,6 +628,7 @@ public final class Pulsekit extends UiKit {
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
     final CompareHitsPage compareHits = new CompareHitsPage(this);
+    final CodeSave codeSave = new CodeSave(this);
     final PromptsPage promptsPage = new PromptsPage(this);
 
 

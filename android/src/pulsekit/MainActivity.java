@@ -623,7 +623,11 @@ public class MainActivity extends UiKit {
     protected void onActivityResult(int n, int n2, Intent intent) {
         if (n == 25) {
             super.onActivityResult(n, n2, intent);
-            if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakePickedProgram(intent.getData());
+            if (n2 == -1 && intent != null && intent.getData() != null) {
+                String before = this.pyName + "\n" + this.codeSave.text();
+                this.pyJav.pkTakePickedProgram(intent.getData());
+                if (!before.equals(this.pyName + "\n" + this.codeSave.text())) this.codeSave.opened(intent.getData());
+            }
             return;
         }
         if (n == 26) {
@@ -634,6 +638,11 @@ public class MainActivity extends UiKit {
         if (n == 27) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
+            return;
+        }
+        if (n == CodeSave.SAVE_AS) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.codeSave.savedAs(intent.getData());
             return;
         }
         if (n == SaveText.SAVE) {
@@ -897,6 +906,7 @@ public class MainActivity extends UiKit {
     final HelpPage helpPage = new HelpPage(this);
     final DrumMidiSettingsPage drumMidiSettings = new DrumMidiSettingsPage(this);
     final CompareHitsPage compareHits = new CompareHitsPage(this);
+    final CodeSave codeSave = new CodeSave(this);
 
 
     void showFileMenu(View anchor) {
@@ -907,21 +917,34 @@ public class MainActivity extends UiKit {
         menu.setPadding(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
         android.widget.TextView imp = this.text("Import", 14, true);
         imp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        imp.setTextColor("import".equals(this.view) ? FG : MUTED);
+        imp.setTextColor("import".equals(this.view) ? HIT : FG);
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        exp.setTextColor("export".equals(this.view) ? HIT : FG);
+        // PyJav's code editor: saved from here, so its own long-press menu stays Select all, Paste...
+        final boolean codeSavable = this.codeSave.canSave();
+        android.widget.TextView saveCode = this.text("Save code", 14, true);
+        saveCode.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        // Every item reads as available; the page shown is in the accent colour. Dimmed: nothing to save.
+        saveCode.setTextColor(FG);
+        saveCode.setAlpha(codeSavable ? 1f : 0.4f);
+        android.widget.TextView saveCodeAs = this.text("Save code as", 14, true);
+        saveCodeAs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        saveCodeAs.setTextColor(FG);
+        saveCodeAs.setAlpha(codeSavable ? 1f : 0.4f);
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
+        midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        compare.setTextColor("comparehits".equals(this.view) ? FG : MUTED);
+        compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
         android.widget.TextView help = this.text("Help-Android", 14, true);
         help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        help.setTextColor("help".equals(this.view) ? FG : MUTED);
+        help.setTextColor("help".equals(this.view) ? HIT : FG);
         menu.addView(imp);
         menu.addView(exp);
+        menu.addView(saveCode);
+        menu.addView(saveCodeAs);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -932,6 +955,16 @@ public class MainActivity extends UiKit {
         pop.setElevation((float) this.dp(8));
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
+        saveCode.setOnClickListener(v -> {
+            pop.dismiss();
+            if (codeSavable) this.codeSave.save();
+            else this.setNow("Binary programs and prompt sheets are not saved from the code editor");
+        });
+        saveCodeAs.setOnClickListener(v -> {
+            pop.dismiss();
+            if (codeSavable) this.codeSave.saveAs();
+            else this.setNow("Binary programs and prompt sheets are not saved from the code editor");
+        });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));

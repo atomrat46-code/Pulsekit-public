@@ -1456,6 +1456,67 @@ public class BehaviorTest {
     write("s45_program_switch_clears_args", out.toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>"));
   }
 
+  /** File > Save code and Save code as, for PyJav's code editor; the editor's own long-press menu is left alone. */
+  @Test
+  public void s46_code_save() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "CutWav.java");
+    android.widget.EditText ed = (android.widget.EditText) get("pyEditor");
+    TextView fileTab = findText(root(), "File");
+    fileTab.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    ViewGroup items = (ViewGroup) pop.getContentView();
+    StringBuilder looks = new StringBuilder();
+    for (int i = 0; i < items.getChildCount(); i++) {
+      TextView t = (TextView) items.getChildAt(i);
+      looks.append(i == 0 ? "" : ", ").append(t.getText()).append(t.getCurrentTextColor() == UiKit.FG && t.getAlpha() == 1f ? "" : " (dim)");
+    }
+    pop.dismiss();
+    out.append("File menu: ").append(looks).append('\n');
+    out.append("editor menu left alone: ").append(ed.getCustomSelectionActionModeCallback() == null && ed.getCustomInsertionActionModeCallback() == null).append('\n');
+    // A bundled program has no file of its own: Save code asks where.
+    ed.setText(ed.getText() + "\n// mine");
+    fileMenuItem("Save code");
+    android.content.Intent ask = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("Save code: ").append(ask.getAction()).append(' ').append(ask.getType()).append(' ')
+        .append(ask.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    File file = new File(app.getCacheDir(), "MyCutWav.java");
+    org.robolectric.Shadows.shadowOf(app).receiveResult(ask, android.app.Activity.RESULT_OK, new android.content.Intent().setData(android.net.Uri.fromFile(file)));
+    idle();
+    out.append("written: ").append(file.isFile() && new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// mine")).append('\n');
+    // Save code again: straight to that file.
+    ed.setText(ed.getText() + "\n// again");
+    fileMenuItem("Save code");
+    out.append("second Save asks: ").append(org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult() != null).append('\n');
+    out.append("second Save written: ").append(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// again")).append('\n');
+    // Save code as always asks.
+    fileMenuItem("Save code as");
+    android.content.Intent again = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("Save code as: ").append(again.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    // A Code menu file is saved under its own name.
+    pickFromMenu("Code \u25be", "sogni-client.mjs");
+    fileMenuItem("Save code");
+    android.content.Intent code = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    out.append("Code file Save: ").append(code.getStringExtra(android.content.Intent.EXTRA_TITLE)).append('\n');
+    write("s46_code_save", out.toString());
+  }
+
+  /** Tap File, then an item in its menu. */
+  private void fileMenuItem(String label) throws Exception {
+    TextView file = findText(root(), "File");
+    if (file == null) throw new AssertionError("no File tab");
+    file.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    TextView item = findText(pop.getContentView(), label);
+    if (item == null) throw new AssertionError("no File item " + label);
+    item.performClick();
+    idle();
+  }
+
   private static int itemIndex(AlertDialog menu, String label) {
     for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
       if (label.equals(String.valueOf(menu.getListView().getAdapter().getItem(i)))) return i;

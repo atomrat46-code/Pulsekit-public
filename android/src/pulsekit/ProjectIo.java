@@ -371,6 +371,7 @@ final class ProjectIo {
         }
         // Programs (.java, .class, .jar, .js, .ts) open in PyJav.
         if (app.pyJav.pkTakeProgram(byArray, string)) {
+            if (uri != null) app.codeSave.opened(uri);
             return;
         }
         // .prompt sheets open in PyJav with their run mode and references.

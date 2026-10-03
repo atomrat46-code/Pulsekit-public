@@ -496,6 +496,58 @@ public final class DesktopBehavior {
     out.append("editor shows CutWav: ").append(((javax.swing.text.JTextComponent) get("pyEditor")).getText().contains("class CutWav")).append('\n');
   }
 
+  void s29_code_save() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "CutWav.java");
+    CodeSave save = (CodeSave) get("codeSave");
+    String[] items = new String[1];
+    edt(() -> {
+      javax.swing.JPopupMenu menu = this.fileMenu();
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : menu.getComponents()) {
+        if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)");
+      }
+      menu.setVisible(false);
+      items[0] = sb.toString();
+    });
+    out.append("File menu: ").append(items[0]).append('\n');
+    out.append("editor right click left alone: ").append(((javax.swing.JTextArea) get("pyEditor")).getMouseListeners().length).append(" listeners\n");
+    out.append("name: ").append(save.name()).append('\n');
+    javax.swing.JTextArea ed = (javax.swing.JTextArea) get("pyEditor");
+    File file = new File(home, "MyCutWav.java");
+    edt(() -> ed.setText(ed.getText() + "\n// mine"));
+    edt(() -> save.saveTo(file));
+    out.append("written: ").append(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// mine")).append('\n');
+    edt(() -> ed.setText(ed.getText() + "\n// again"));
+    edt(() -> save.save());
+    out.append("Save writes there: ").append(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).endsWith("// again")).append('\n');
+    call("openCodeFile", "sogni-client.mjs");
+    out.append("Code file name: ").append(save.name()).append('\n');
+  }
+
+  /** Opens the File tab's menu and returns it. */
+  private javax.swing.JPopupMenu fileMenu() throws Exception {
+    javax.swing.JButton file = button(frame, "File");
+    file.doClick();
+    for (java.awt.Window w : java.awt.Window.getWindows()) {
+      javax.swing.JPopupMenu m = popup(w);
+      if (m != null && m.isVisible()) return m;
+    }
+    throw new AssertionError("no File menu");
+  }
+
+  private static javax.swing.JPopupMenu popup(java.awt.Component c) {
+    if (c instanceof javax.swing.JPopupMenu) return (javax.swing.JPopupMenu) c;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+        javax.swing.JPopupMenu m = popup(k);
+        if (m != null) return m;
+      }
+    }
+    return null;
+  }
+
   private static javax.swing.JButton button(java.awt.Component c, String text) {
     if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
     if (c instanceof java.awt.Container) {

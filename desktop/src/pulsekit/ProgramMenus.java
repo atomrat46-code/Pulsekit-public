@@ -99,6 +99,7 @@ final class ProgramMenus {
                 app.pyEditor.setCaretPosition(0);
             }
             this.editorShowsListed = false;
+            app.codeSave.openedCode(name);
             if (this.programButtons[2] != null) this.programButtons[2].setText("Code \u00b7 " + name);
             app.setNow("Editing \u00b7 " + name);
         } catch (Exception ex) {
