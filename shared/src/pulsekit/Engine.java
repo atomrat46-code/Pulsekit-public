@@ -2870,6 +2870,75 @@ public final class Engine {
     return out;
   }
 
+  /**
+   * Song menu > Info: length, bars, parts, patterns, fills, Fillerns, rests, tempo, time signature,
+   * hits, and the file set and style it comes from (null when it has none).
+   */
+  public static String songInfoText(ImportedSong song, String fileSet, String style) {
+    List<Part> parts = song == null ? new ArrayList<Part>() : song.parts;
+    double bars = 0;
+    int hits = 0;
+    int minBpm = Integer.MAX_VALUE;
+    int maxBpm = 0;
+    java.util.LinkedHashSet<String> ts = new java.util.LinkedHashSet<String>();
+    java.util.LinkedHashMap<String, Integer> patterns = new java.util.LinkedHashMap<String, Integer>();
+    java.util.LinkedHashMap<String, Integer> fills = new java.util.LinkedHashMap<String, Integer>();
+    java.util.LinkedHashMap<String, Integer> fillerns = new java.util.LinkedHashMap<String, Integer>();
+    int rests = 0;
+    for (Part p : parts) {
+      int reps = Math.max(1, p.repeats);
+      int steps = partStepCount(p);
+      bars += reps * steps / (double) barSteps(p.tsNum, p.tsDen);
+      minBpm = Math.min(minBpm, p.bpm);
+      maxBpm = Math.max(maxBpm, p.bpm);
+      ts.add(p.tsNum + "/" + p.tsDen);
+      int partHits = 0;
+      for (int t = 0; p.cells != null && t < p.cells.length; t++) {
+        for (int k = 0; p.cells[t] != null && k < Math.min(steps, p.cells[t].length); k++) if (p.cells[t][k] > 0) partHits++;
+      }
+      hits += partHits * reps;
+      String name = p.name == null ? "" : p.name;
+      if ("rest".equals(p.kind)) rests += reps;
+      else if ("fill".equals(p.kind)) fills.put(name, Integer.valueOf((fills.containsKey(name) ? fills.get(name).intValue() : 0) + reps));
+      else if (name.contains(" + ")) fillerns.put(name, Integer.valueOf((fillerns.containsKey(name) ? fillerns.get(name).intValue() : 0) + reps));
+      else patterns.put(name, Integer.valueOf((patterns.containsKey(name) ? patterns.get(name).intValue() : 0) + reps));
+    }
+    StringBuilder sb = new StringBuilder();
+    sb.append("Length: ").append(fmtClock(songDurationSec(parts))).append('\n');
+    sb.append("Bars: ").append(Math.round(bars)).append("  \u00b7  Parts: ").append(parts.size()).append('\n');
+    sb.append("Tempo: ").append(parts.isEmpty() ? "-" : (minBpm == maxBpm ? minBpm + " BPM" : minBpm + "\u2013" + maxBpm + " BPM"));
+    StringBuilder tsText = new StringBuilder();
+    for (String t : ts) tsText.append(tsText.length() == 0 ? "" : ", ").append(t);
+    sb.append("  \u00b7  Time signature: ").append(ts.isEmpty() ? "-" : tsText.toString()).append('\n');
+    sb.append("Patterns: ").append(patterns.size()).append(countList(patterns)).append('\n');
+    sb.append("Fills: ").append(fills.size()).append(countList(fills)).append('\n');
+    sb.append("Fillerns: ").append(fillerns.size()).append(countList(fillerns)).append('\n');
+    sb.append("Silent bars: ").append(rests).append('\n');
+    sb.append("Hits: ").append(hits).append('\n');
+    sb.append("File set: ").append(fileSet == null || fileSet.isEmpty() ? "none" : fileSet).append('\n');
+    sb.append("Style: ").append(style == null || style.isEmpty() ? (fileSet == null ? "-" : "as in the source file") : style);
+    return sb.toString();
+  }
+
+  /** " (Pattern 1 x12, Pattern 2 x8, ...)" for the first few, by use. */
+  private static String countList(java.util.LinkedHashMap<String, Integer> uses) {
+    if (uses.isEmpty()) return "";
+    List<Map.Entry<String, Integer>> list = new ArrayList<Map.Entry<String, Integer>>(uses.entrySet());
+    java.util.Collections.sort(list, new java.util.Comparator<Map.Entry<String, Integer>>() {
+      @Override
+      public int compare(Map.Entry<String, Integer> a, Map.Entry<String, Integer> b) {
+        return b.getValue().intValue() - a.getValue().intValue();
+      }
+    });
+    StringBuilder sb = new StringBuilder(" (");
+    for (int i = 0; i < list.size() && i < 4; i++) {
+      if (i > 0) sb.append(", ");
+      sb.append(list.get(i).getKey()).append(" \u00d7").append(list.get(i).getValue());
+    }
+    if (list.size() > 4) sb.append(", \u2026");
+    return sb.append(')').toString();
+  }
+
   /** The file set a song belongs to: the one it records, or one it is named after; null for none. */
   public static String fileSetOfSong(ImportedSong song, List<String> sources) {
     if (song == null) return null;

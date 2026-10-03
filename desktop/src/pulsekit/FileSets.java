@@ -107,6 +107,15 @@ final class FileSets {
     }
 
     void promptChangeStyle(String key, String label) {
+        this.promptChangeStyle(key, label, null);
+    }
+
+    /** Set by the song menu's Change style: the song to rebuild in the new style. */
+    Engine.ImportedSong styleTarget;
+
+    /** With `song`: the change rebuilds that song in the new style instead of making a new one. */
+    void promptChangeStyle(String key, String label, Engine.ImportedSong song) {
+        this.styleTarget = song;
         java.util.List<StyleDb.Row> rows = StyleDb.rows();
         if (rows.isEmpty()) {
             app.setNow("The style database is empty");
@@ -186,14 +195,29 @@ final class FileSets {
         app.persistence.persistLearned();
         app.styleLibrary.refreshLearnedChips();
         if (first != null) app.styleLibrary.loadLearned(first);
-        Engine.ImportedSong made = Engine.fileSetSongMade(shown, app.importedSongs);
-        if (made != null) app.importedSongs.remove(made);
+        Engine.ImportedSong target = this.styleTarget;
+        this.styleTarget = null;
         java.util.List<Engine.Part> song = Engine.songFromFileSet(next);
-        if (song != null && !song.isEmpty()) {
-            app.songEditor.addImportedSong(shown, song);
-            Engine.ImportedSong styled = app.songEditor.importedSong();
-            if (styled != null && !src.isEmpty()) styled.fileSet = src;
-            app.persistence.persistLearned();
+        if (target != null && app.importedSongs.contains(target)) {
+            // From the song menu: that song is rebuilt in the new style and keeps its name.
+            if (song != null && !song.isEmpty()) {
+                target.parts.clear();
+                target.parts.addAll(song);
+                if (!src.isEmpty()) target.fileSet = src;
+                target.fileSetSong = null;
+                app.importedSongId = target.id;
+                app.persistence.persistLearned();
+                app.songEditor.refreshSong();
+            }
+        } else {
+            Engine.ImportedSong made = Engine.fileSetSongMade(shown, app.importedSongs);
+            if (made != null) app.importedSongs.remove(made);
+            if (song != null && !song.isEmpty()) {
+                app.songEditor.addImportedSong(shown, song);
+                Engine.ImportedSong styled = app.songEditor.importedSong();
+                if (styled != null && !src.isEmpty()) styled.fileSet = src;
+                app.persistence.persistLearned();
+            }
         }
         if (back != null) app.showView(back);
         app.setNow("Style · " + row.name);

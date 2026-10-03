@@ -420,6 +420,21 @@ public final class DesktopBehavior {
     out.append("after Delete: ").append(songs.size()).append(" songs, view ").append(get("view")).append('\n');
   }
 
+  void s25_song_info_and_style() throws Exception {
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    Engine.ImportedSong song = songs.get(0);
+    answers.add("OK");
+    edt(() -> call("showSongInfo", song));
+    out.append("songs before style: ").append(songs.size()).append('\n');
+    answers.add("Change style");
+    edt(() -> call("promptChangeStyle", "f:Passing Ships", "Passing Ships", song));
+    out.append("Change style (first in the list): ").append(songs.size()).append(" song, same song ")
+        .append(songs.contains(song)).append(", set style now ").append(call("fileSetStyleLabel", "f:Passing Ships")).append('\n');
+  }
+
   private static javax.swing.JButton button(java.awt.Component c, String text) {
     if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
     if (c instanceof java.awt.Container) {

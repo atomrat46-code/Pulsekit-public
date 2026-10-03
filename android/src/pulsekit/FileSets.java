@@ -621,6 +621,17 @@ final class FileSets {
         this.infoLabel = label;
     }
 
+    /** Set by the song menu's Change style: the song to rebuild in the new style. */
+    pulsekit.Engine.ImportedSong styleTarget;
+
+    /** The style the file set's parts were last given, or "". */
+    java.lang.String fileSetStyleLabel(java.lang.String key) {
+        int i = this.currentStyleDbIndex(key);
+        if (i < 0) return "";
+        java.util.List rows = pulsekit.StyleDb.rows();
+        return i < rows.size() ? ((pulsekit.StyleDb.Row) rows.get(i)).name : "";
+    }
+
     /** The file set Info last shown, so it can be shown again after a change. */
     java.lang.String infoKey;
     java.lang.String infoLabel;
@@ -842,9 +853,24 @@ final class FileSets {
         if (next.parts != null && !next.parts.isEmpty()) this.storeFsetParts(src, next.parts);
         if (pulsekit.Engine.isFileSetOrigin(set.origin)) pulsekit.Engine.rememberFileSetOrigin(src, set.origin);
         app.persistence.persistLearned();
-        pulsekit.Engine.ImportedSong made = pulsekit.Engine.fileSetSongMade(shown, app.importedSongs);
-        if (made != null) app.importedSongs.remove(made);
-        this.makeFileSetSongNow(key, shown);
+        pulsekit.Engine.ImportedSong target = this.styleTarget;
+        this.styleTarget = null;
+        if (target != null && app.importedSongs.contains(target)) {
+            // From the song menu: that song is rebuilt in the new style and keeps its name.
+            java.util.List song = this.buildFileSetSong(key, shown);
+            if (song != null) {
+                target.parts.clear();
+                target.parts.addAll(song);
+                target.fileSet = src;
+                target.fileSetSong = null;
+                app.importedSongId = target.id;
+                app.persistence.persistLearned();
+            }
+        } else {
+            pulsekit.Engine.ImportedSong made = pulsekit.Engine.fileSetSongMade(shown, app.importedSongs);
+            if (made != null) app.importedSongs.remove(made);
+            this.makeFileSetSongNow(key, shown);
+        }
         app.importLibrary.rebuildImported();
         if (back != null) app.show(back);
         app.setNow("Style \u00b7 " + styleName);
