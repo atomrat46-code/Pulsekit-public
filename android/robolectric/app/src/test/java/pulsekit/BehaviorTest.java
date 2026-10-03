@@ -1464,6 +1464,18 @@ public class BehaviorTest {
     idle();
     pickFromMenu("Java \u25be", "CutWav.java");
     android.widget.EditText ed = (android.widget.EditText) get("pyEditor");
+    TextView fileTab = findText(root(), "File");
+    fileTab.performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    ViewGroup items = (ViewGroup) pop.getContentView();
+    StringBuilder looks = new StringBuilder();
+    for (int i = 0; i < items.getChildCount(); i++) {
+      TextView t = (TextView) items.getChildAt(i);
+      looks.append(i == 0 ? "" : ", ").append(t.getText()).append(t.getCurrentTextColor() == UiKit.FG && t.getAlpha() == 1f ? "" : " (dim)");
+    }
+    pop.dismiss();
+    out.append("File menu: ").append(looks).append('\n');
     out.append("editor menu left alone: ").append(ed.getCustomSelectionActionModeCallback() == null && ed.getCustomInsertionActionModeCallback() == null).append('\n');
     // A bundled program has no file of its own: Save code asks where.
     ed.setText(ed.getText() + "\n// mine");

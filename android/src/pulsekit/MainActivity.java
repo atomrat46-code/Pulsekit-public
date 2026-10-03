@@ -917,27 +917,30 @@ public class MainActivity extends UiKit {
         menu.setPadding(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
         android.widget.TextView imp = this.text("Import", 14, true);
         imp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        imp.setTextColor("import".equals(this.view) ? FG : MUTED);
+        imp.setTextColor("import".equals(this.view) ? HIT : FG);
         android.widget.TextView exp = this.text("Export", 14, true);
         exp.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        exp.setTextColor("export".equals(this.view) ? FG : MUTED);
+        exp.setTextColor("export".equals(this.view) ? HIT : FG);
         // PyJav's code editor: saved from here, so its own long-press menu stays Select all, Paste...
         final boolean codeSavable = this.codeSave.canSave();
         android.widget.TextView saveCode = this.text("Save code", 14, true);
         saveCode.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        saveCode.setTextColor(codeSavable ? FG : MUTED);
+        // Every item reads as available; the page shown is in the accent colour. Dimmed: nothing to save.
+        saveCode.setTextColor(FG);
+        saveCode.setAlpha(codeSavable ? 1f : 0.4f);
         android.widget.TextView saveCodeAs = this.text("Save code as", 14, true);
         saveCodeAs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        saveCodeAs.setTextColor(codeSavable ? FG : MUTED);
+        saveCodeAs.setTextColor(FG);
+        saveCodeAs.setAlpha(codeSavable ? 1f : 0.4f);
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        midi.setTextColor("midisettings".equals(this.view) ? FG : MUTED);
+        midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        compare.setTextColor("comparehits".equals(this.view) ? FG : MUTED);
+        compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
         android.widget.TextView help = this.text("Help-Android", 14, true);
         help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        help.setTextColor("help".equals(this.view) ? FG : MUTED);
+        help.setTextColor("help".equals(this.view) ? HIT : FG);
         menu.addView(imp);
         menu.addView(exp);
         menu.addView(saveCode);
