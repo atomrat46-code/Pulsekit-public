@@ -2850,6 +2850,36 @@ public final class Engine {
     return "combined_" + n + ".wav";
   }
 
+  /**
+   * The Imported songs that belong to file set `source` (shown as `label`): made from it or saved
+   * in it, and, for songs made before songs recorded their set, songs named after it.
+   */
+  public static List<ImportedSong> songsOfFileSet(String source, String label, List<ImportedSong> songs) {
+    List<ImportedSong> out = new ArrayList<ImportedSong>();
+    if (songs == null) return out;
+    String src = source == null ? "" : source;
+    String midiKey = fileSetMidiKeyForLabel(src);
+    for (ImportedSong s : songs) {
+      if (s == null || s.parts.isEmpty()) continue;
+      if (s.fileSet != null && !s.fileSet.isEmpty()) {
+        if (s.fileSet.equals(src) || s.fileSet.equals(midiKey)) out.add(s);
+        continue;
+      }
+      if (namedAfter(s.name, label) || namedAfter(s.name, src)) out.add(s);
+    }
+    return out;
+  }
+
+  /** "<set>" or "<set> 2", with the set name cut as song names are. */
+  private static boolean namedAfter(String song, String set) {
+    if (song == null || set == null) return false;
+    String stem = set.trim();
+    if (stem.length() > SONG_NAME_MAX) stem = stem.substring(0, SONG_NAME_MAX).trim();
+    if (stem.isEmpty()) return false;
+    if (song.equals(stem)) return true;
+    return song.startsWith(stem + " ") && song.substring(stem.length() + 1).matches("[0-9]+");
+  }
+
   public static ImportedSong fileSetSongMade(String label, List<ImportedSong> songs) {
     if (label == null || songs == null) return null;
     String stem = label.trim();

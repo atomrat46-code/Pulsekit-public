@@ -616,6 +616,39 @@ final class FileSets {
         }
         app.show("fsetinfo");
         this.pkShowInfoMidi(key != null && key.startsWith("f:") ? key.substring(2) : "");
+        this.pkShowInfoSongs(key, label);
+    }
+
+    /** Info: the songs connected to the file set, each opening in the Song view; or Make song. */
+    void pkShowInfoSongs(final java.lang.String key, final java.lang.String label) {
+        if (this.infoRows == null) return;
+        java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        java.util.List<pulsekit.Engine.ImportedSong> songs = pulsekit.Engine.songsOfFileSet(src, label, app.importedSongs);
+        android.widget.LinearLayout box = app.col();
+        box.setTag("info-songs");
+        box.setPadding(0, 0, 0, app.dp(8));
+        box.addView(app.text(songs.size() == 1 ? "Song" : "Songs", 15, true));
+        if (songs.isEmpty()) {
+            android.widget.LinearLayout line = app.row();
+            android.widget.TextView none = app.text("No song from this file set yet", 13, false);
+            none.setTextColor(MUTED);
+            line.addView(none, app.flex(1));
+            line.addView(app.outline("Make song", false, v -> this.makeFileSetSongNow(key, label)));
+            box.addView(line);
+        }
+        for (final pulsekit.Engine.ImportedSong song : songs) {
+            android.widget.LinearLayout line = app.row();
+            line.setTag("info-song:" + song.name);
+            line.setPadding(0, app.dp(2), 0, app.dp(2));
+            float sec = pulsekit.Engine.songDurationSec(song.parts);
+            android.widget.TextView name = app.text(song.name + "  \u00b7  " + song.parts.size() + " parts \u00b7 "
+                + pulsekit.Engine.fmtClock(sec) + (song.fileSetSong != null ? " \u00b7 saved in the set" : ""), 13, false);
+            name.setTextColor(FG);
+            line.addView(name, app.flex(1));
+            line.addView(app.outline("Open", false, v -> this.openSong(song)));
+            box.addView(line);
+        }
+        this.infoRows.addView(box, 0);
     }
 
     void wireInfoPane() {
@@ -656,13 +689,36 @@ final class FileSets {
         app.show(back);
     }
 
-    public void makeFileSetSong(java.lang.String key, java.lang.String label) {
+    /**
+     * Make song (file set menu or info): when the set already has a song, asks whether to replace
+     * it, make another, or open it.
+     */
+    public void makeFileSetSong(final java.lang.String key, final java.lang.String label) {
+        java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        java.util.List<pulsekit.Engine.ImportedSong> have = pulsekit.Engine.songsOfFileSet(src, label, app.importedSongs);
+        if (have.isEmpty()) {
+            this.makeFileSetSongNow(key, label);
+            return;
+        }
+        final pulsekit.Engine.ImportedSong first = have.get(0);
+        java.lang.String names = first.name + (have.size() > 1 ? " and " + (have.size() - 1) + " more" : "");
+        new android.app.AlertDialog.Builder(app)
+            .setTitle((java.lang.CharSequence) "This file set already has a song")
+            .setMessage((java.lang.CharSequence) (names + ".\n\nReplace it with a new song from the file set, make another song, or open it?"))
+            .setPositiveButton((java.lang.CharSequence) "Replace", (d, w) -> this.replaceFileSetSong(first, key, label))
+            .setNeutralButton((java.lang.CharSequence) "Make another", (d, w) -> this.makeFileSetSongNow(key, label))
+            .setNegativeButton((java.lang.CharSequence) "Open it", (d, w) -> this.openSong(first))
+            .show();
+    }
+
+    /** The song built from the file set, as Make song makes it; null (with a message) when it cannot be. */
+    java.util.List buildFileSetSong(java.lang.String key, java.lang.String label) {
         java.lang.String src = "";
         if (key != null && key.startsWith("f:")) src = key.substring(2);
         pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, label, app.learned, app.learnedFills, app.fillernPairs);
         if (set == null) {
             app.setNow("That file set is empty");
-            return;
+            return null;
         }
         this.ensureFsetInfoMap();
         java.util.List stored = (java.util.List) app.fsetInfoMap.get(src);
@@ -673,8 +729,39 @@ final class FileSets {
         java.util.List song = pulsekit.Engine.songFromFileSet(set);
         if (song == null || song.isEmpty()) {
             app.setNow("Could not make a song from that file set");
-            return;
+            return null;
         }
+        return song;
+    }
+
+    /** Replace: the song's parts are rebuilt from the file set; its name stays. */
+    void replaceFileSetSong(pulsekit.Engine.ImportedSong old, java.lang.String key, java.lang.String label) {
+        java.util.List song = this.buildFileSetSong(key, label);
+        if (song == null) return;
+        java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        old.parts.clear();
+        old.parts.addAll(song);
+        if (src.length() > 0) old.fileSet = src;
+        old.fileSetSong = null;
+        app.persistence.persistLearned();
+        this.openSong(old);
+        app.setNow("Replaced \u00b7 " + old.name);
+    }
+
+    /** Shows the song in the Song view (Imported lane). */
+    void openSong(pulsekit.Engine.ImportedSong song) {
+        app.importedSongId = song.id;
+        app.songLane = "imported";
+        app.show("song");
+        app.songEditor.refreshSong();
+    }
+
+    /** Make another: a new song from the file set, without asking. */
+    public void makeFileSetSongNow(java.lang.String key, java.lang.String label) {
+        java.lang.String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        java.util.List song = this.buildFileSetSong(key, label);
+        if (song == null) return;
         java.lang.String name = label;
         if (name == null || name.length() == 0) name = src.length() == 0 ? "Import" : src;
         app.songEditor.addImportedArrangement(name, song);
@@ -744,7 +831,7 @@ final class FileSets {
         app.persistence.persistLearned();
         pulsekit.Engine.ImportedSong made = pulsekit.Engine.fileSetSongMade(shown, app.importedSongs);
         if (made != null) app.importedSongs.remove(made);
-        this.makeFileSetSong(key, shown);
+        this.makeFileSetSongNow(key, shown);
         app.importLibrary.rebuildImported();
         if (back != null) app.show(back);
         app.setNow("Style \u00b7 " + styleName);

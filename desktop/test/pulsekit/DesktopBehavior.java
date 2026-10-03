@@ -344,6 +344,7 @@ public final class DesktopBehavior {
     out.append("made on import: ");
     for (Engine.ImportedSong s : songs) out.append(s.name).append(" | ");
     out.append('\n');
+    answers.add("Make another");
     edt(() -> call("makeFileSetSong", "f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx"));
     Engine.ImportedSong made = songs.get(0);
     out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append('\n');
@@ -372,6 +373,33 @@ public final class DesktopBehavior {
     Engine.fileSetAudio.clear();
     Engine.loadFileSetAudioDir(new File(System.getProperty("user.home"), ".pulsekit/fset-audio"));
     out.append("kept on disk: ").append(text != null && text.equals(Engine.fileSetResults("Passing Ships"))).append('\n');
+  }
+
+  void s24_file_set_songs() throws Exception {
+    answers.add("No");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Passing Ships.mid");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    final boolean[] none = {false};
+    edt(() -> none[0] = named(frame, "info-songs"));
+    out.append("info has Songs section: ").append(none[0]).append('\n');
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("first Make song: ").append(songs.size()).append(" song, file set ").append(songs.get(0).fileSet).append('\n');
+    Engine.ImportedSong first = songs.get(0);
+    edt(() -> call("openFileSetInfo", "f:Passing Ships", "Passing Ships"));
+    final boolean[] row = {false};
+    edt(() -> row[0] = named(frame, "info-song:" + first.name));
+    out.append("info lists it: ").append(row[0]).append('\n');
+    answers.add("Replace");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Replace: ").append(songs.size()).append(" song, same ").append(songs.get(0) == first).append('\n');
+    answers.add("Make another");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Make another: ").append(songs.size()).append(" songs\n");
+    answers.add("Open it");
+    edt(() -> call("makeFileSetSong", "f:Passing Ships", "Passing Ships"));
+    out.append("Open it: view ").append(get("view")).append('\n');
   }
 
   private static boolean named(java.awt.Component c, String name) {

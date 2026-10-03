@@ -1145,6 +1145,9 @@ public class BehaviorTest {
     FileSets fileSets = (FileSets) get("fileSets");
     fileSets.makeFileSetSong("f:passing ships v10 121 wVqTYx", "passing ships v10 121 wVqTYx");
     idle();
+    // The set already has its import's song: Make song asks; Make another adds one.
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
     Engine.ImportedSong made = songs.get(0);
     out.append("Make song: ").append(made.name).append(", file set ").append(made.fileSet).append(", selected ")
         .append(made.id.equals(get("importedSongId"))).append('\n');
@@ -1227,6 +1230,81 @@ public class BehaviorTest {
     out.append("after restart: kept ").append(body.equals(Engine.fileSetResults("Passing Ships")))
         .append(", row ").append(root().findViewWithTag("fileset-results") != null).append('\n');
     write("s40_file_set_compare_hits", out.toString());
+  }
+
+  /** Info shows the file set's songs; Make song asks when the set has one: Replace, Make another, Open it. */
+  @Test
+  public void s41_file_set_songs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 121, 1));
+    parts.add(Engine.groove("B", 121, Engine.styleCells(Engine.styles().get("funk")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Passing Ships.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    FileSets fileSets = (FileSets) get("fileSets");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    fileSets.openFileSetInfo("f:Passing Ships", "Passing Ships");
+    idle();
+    out.append("info, no song: ").append(texts((ViewGroup) root().findViewWithTag("info-songs"))).append('\n');
+    fileSets.makeFileSetSong("f:Passing Ships", "Passing Ships");
+    idle();
+    out.append("first Make song, no question: ").append(songs.size()).append(" song ").append(songs.get(0).name)
+        .append(", file set ").append(songs.get(0).fileSet).append('\n');
+    Engine.ImportedSong first = songs.get(0);
+    fileSets.openFileSetInfo("f:Passing Ships", "Passing Ships");
+    idle();
+    out.append("info: ").append(texts((ViewGroup) root().findViewWithTag("info-songs"))).append('\n');
+    first.parts.remove(first.parts.size() - 1);
+    int edited = first.parts.size();
+    fileSets.makeFileSetSong("f:Passing Ships", "Passing Ships");
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("asks: ").append(org.robolectric.Shadows.shadowOf(ask).getTitle()).append(" | ")
+        .append(org.robolectric.Shadows.shadowOf(ask).getMessage().toString().replace('\n', ' ')).append(" | ")
+        .append(ask.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append(", ")
+        .append(ask.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append(", ")
+        .append(ask.getButton(DialogInterface.BUTTON_NEGATIVE).getText()).append('\n');
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Replace: ").append(songs.size()).append(" song, same song ").append(songs.get(0) == first)
+        .append(", parts rebuilt ").append(edited).append(" -> ").append(first.parts.size()).append(", view ").append(get("view")).append('\n');
+    fileSets.makeFileSetSong("f:Passing Ships", "Passing Ships");
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("Make another: ");
+    for (Engine.ImportedSong x : songs) out.append(x.name).append(" | ");
+    out.append('\n');
+    call("show", "pattern");
+    idle();
+    fileSets.makeFileSetSong("f:Passing Ships", "Passing Ships");
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("Open it: view ").append(get("view")).append(", selected ").append(songs.get(0).id.equals(get("importedSongId"))).append('\n');
+    write("s41_file_set_songs", out.toString());
+  }
+
+  private static String texts(ViewGroup g) {
+    StringBuilder sb = new StringBuilder();
+    if (g == null) return "none";
+    for (View v : allViewsStatic(g)) {
+      if (v instanceof TextView && ((TextView) v).getText().length() > 0) sb.append(((TextView) v).getText()).append(" / ");
+    }
+    return sb.toString();
+  }
+
+  private static List<View> allViewsStatic(View v) {
+    List<View> out = new ArrayList<>();
+    out.add(v);
+    if (v instanceof ViewGroup) {
+      for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) out.addAll(allViewsStatic(((ViewGroup) v).getChildAt(i)));
+    }
+    return out;
   }
 
   /** The MIDI with a text event added at the start of its first track. */

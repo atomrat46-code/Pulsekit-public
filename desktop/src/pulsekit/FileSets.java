@@ -189,18 +189,47 @@ final class FileSets {
         Engine.ImportedSong made = Engine.fileSetSongMade(shown, app.importedSongs);
         if (made != null) app.importedSongs.remove(made);
         java.util.List<Engine.Part> song = Engine.songFromFileSet(next);
-        if (song != null && !song.isEmpty()) app.songEditor.addImportedSong(shown, song);
+        if (song != null && !song.isEmpty()) {
+            app.songEditor.addImportedSong(shown, song);
+            Engine.ImportedSong styled = app.songEditor.importedSong();
+            if (styled != null && !src.isEmpty()) styled.fileSet = src;
+            app.persistence.persistLearned();
+        }
         if (back != null) app.showView(back);
         app.setNow("Style · " + row.name);
     }
 
+    /**
+     * Make song (file set menu or info): when the set already has a song, asks whether to replace
+     * it, make another, or open it.
+     */
     void makeFileSetSong(String key, String label) {
+        String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        java.util.List<Engine.ImportedSong> have = Engine.songsOfFileSet(src, label, app.importedSongs);
+        if (have.isEmpty()) {
+            this.makeFileSetSongNow(key, label);
+            return;
+        }
+        Engine.ImportedSong first = have.get(0);
+        String names = first.name + (have.size() > 1 ? " and " + (have.size() - 1) + " more" : "");
+        Object[] options = {"Replace", "Make another", "Open it", "Cancel"};
+        int ans = javax.swing.JOptionPane.showOptionDialog(app,
+            names + ".\n\nReplace it with a new song from the file set, make another song, or open it?",
+            "This file set already has a song", javax.swing.JOptionPane.DEFAULT_OPTION,
+            javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (ans == 0) this.replaceFileSetSong(first, key, label);
+        else if (ans == 1) this.makeFileSetSongNow(key, label);
+        else if (ans == 2) this.openSong(first);
+    }
+
+    /** The song built from the file set, as Make song makes it; null (with a message) when it cannot be. */
+    java.util.List<Engine.Part> buildFileSetSong(String key, String label) {
         String src = "";
         if (key != null && key.startsWith("f:")) src = key.substring(2);
         Engine.FileSet set = Engine.collectFset(src, label, app.learned, app.learnedFills, app.fillernPairs);
         if (set == null) {
             app.setNow("That file set is empty");
-            return;
+            return null;
         }
         java.util.List<Engine.FileSetPart> stored = app.fileSetParts.get(src);
         if (stored != null && !stored.isEmpty()) {
@@ -210,8 +239,39 @@ final class FileSets {
         java.util.List<Engine.Part> song = Engine.songFromFileSet(set);
         if (song == null || song.isEmpty()) {
             app.setNow("Could not make a song from that file set");
-            return;
+            return null;
         }
+        return song;
+    }
+
+    /** Replace: the song's parts are rebuilt from the file set; its name stays. */
+    void replaceFileSetSong(Engine.ImportedSong old, String key, String label) {
+        java.util.List<Engine.Part> song = this.buildFileSetSong(key, label);
+        if (song == null) return;
+        String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        old.parts.clear();
+        old.parts.addAll(song);
+        if (!src.isEmpty()) old.fileSet = src;
+        old.fileSetSong = null;
+        app.persistence.persistLearned();
+        this.openSong(old);
+        app.setNow("Replaced \u00b7 " + old.name);
+    }
+
+    /** Shows the song in the Song view (Imported lane). */
+    void openSong(Engine.ImportedSong song) {
+        app.importedSongId = song.id;
+        app.songLane = "imported";
+        app.showView("song");
+        app.songEditor.refreshSong();
+    }
+
+    /** Make another: a new song from the file set, without asking. */
+    void makeFileSetSongNow(String key, String label) {
+        String src = "";
+        if (key != null && key.startsWith("f:")) src = key.substring(2);
+        java.util.List<Engine.Part> song = this.buildFileSetSong(key, label);
+        if (song == null) return;
         String name = label == null || label.isEmpty() ? (src.isEmpty() ? "Import" : src) : label;
         app.songEditor.addImportedSong(name, song);
         // The song belongs to this file set: export names and Compare Hits follow it.
@@ -312,6 +372,50 @@ final class FileSets {
         return row;
     }
 
+    /** Info: the songs connected to the file set, each opening in the Song view; or Make song. */
+    JPanel infoSongs(final String key, final String label) {
+        String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        java.util.List<Engine.ImportedSong> songs = Engine.songsOfFileSet(src, label, app.importedSongs);
+        JPanel box = new JPanel();
+        box.setOpaque(false);
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        box.setAlignmentX(0.0f);
+        box.setName("info-songs");
+        box.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        JLabel head = new JLabel(songs.size() == 1 ? "Song" : "Songs");
+        head.setForeground(FG);
+        head.setFont(head.getFont().deriveFont(java.awt.Font.BOLD));
+        head.setAlignmentX(0.0f);
+        box.add(head);
+        if (songs.isEmpty()) {
+            JPanel line = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
+            line.setOpaque(false);
+            line.setAlignmentX(0.0f);
+            JLabel none = new JLabel("No song from this file set yet");
+            none.setForeground(MUTED);
+            line.add(none);
+            javax.swing.JButton make = app.chip("Make song", false);
+            make.addActionListener(e -> this.makeFileSetSongNow(key, label));
+            line.add(make);
+            box.add(line);
+        }
+        for (final Engine.ImportedSong song : songs) {
+            JPanel line = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
+            line.setOpaque(false);
+            line.setAlignmentX(0.0f);
+            line.setName("info-song:" + song.name);
+            JLabel name = new JLabel(song.name + "  \u00b7  " + song.parts.size() + " parts \u00b7 "
+                + Engine.fmtClock(Engine.songDurationSec(song.parts)) + (song.fileSetSong != null ? " \u00b7 saved in the set" : ""));
+            name.setForeground(FG);
+            line.add(name);
+            javax.swing.JButton open = app.chip("Open", false);
+            open.addActionListener(e -> this.openSong(song));
+            line.add(open);
+            box.add(line);
+        }
+        return box;
+    }
+
     void storeAudioDir() {
         Engine.storeFileSetAudioDir(new File(app.persistence.pulsekitDir(), "fset-audio"));
     }
@@ -332,6 +436,7 @@ final class FileSets {
             this.infoTitle.setText(Engine.fileSetMarked(shown, Engine.fileSetOriginOf(src)));
         }
         if (this.infoRows != null) this.infoRows.removeAll();
+        if (this.infoRows != null) this.infoRows.add(this.infoSongs(key, label));
         int nFill = set == null ? 0 : set.fills.size();
         int nPair = set == null ? 0 : set.fillerns.size();
         if (app.infoStatus != null) {
