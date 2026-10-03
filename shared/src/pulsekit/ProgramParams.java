@@ -274,6 +274,9 @@ public final class ProgramParams {
       } else {
         String v = k < inOrder.size() ? inOrder.get(k) : "";
         k++;
+        // A file of the wrong kind (another program's output.mid in a .wav slot) is not this one's.
+        String has = ext(v);
+        if (p.ext != null && has != null && "mid".equals(has) != "mid".equals(p.ext)) v = "";
         out[i] = v.startsWith("<") ? "" : v;
       }
     }

@@ -486,6 +486,15 @@ public final class DesktopBehavior {
     }
   }
 
+  void s28_program_switch_clears_args() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "DrumMidi_CRT.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("<input.wav> " + home.getAbsolutePath() + "/.pulsekit/output.mid"));
+    call("selectListedProgram", "Java", "CutWav.java");
+    out.append("CutWav args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   private static javax.swing.JButton button(java.awt.Component c, String text) {
     if (c instanceof javax.swing.JButton && text.equals(((javax.swing.JButton) c).getText())) return (javax.swing.JButton) c;
     if (c instanceof java.awt.Container) {
