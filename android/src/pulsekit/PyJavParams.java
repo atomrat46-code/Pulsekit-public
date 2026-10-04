@@ -139,11 +139,7 @@ public final class PyJavParams {
         choose.setText("Choose");
         choose.setTag("params-choose:" + p.token);
         final EditText target = field;
-        choose.setOnClickListener(v -> new AlertDialog.Builder(activity)
-            .setTitle(p.label)
-            .setItems(p.choices, (d, which) -> target.setText(p.choices[which]))
-            .setNegativeButton("Cancel", null)
-            .show());
+        choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choices[at])));
         row.addView(choose);
         box.addView(row);
         continue;

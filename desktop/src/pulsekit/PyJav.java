@@ -672,9 +672,9 @@ final class PyJav {
                 JButton choose = new JButton("Choose");
                 choose.setName("params-choose:" + p.token);
                 choose.addActionListener(e -> {
-                    Object picked = JOptionPane.showInputDialog(app, p.label, "Choose \u00b7 " + p.label, JOptionPane.PLAIN_MESSAGE, null,
-                        p.choices, field.getText().length() > 0 ? field.getText() : p.choices[0]);
-                    if (picked != null) field.setText(picked.toString());
+                    int now = java.util.Arrays.asList(p.choices).indexOf(field.getText().trim());
+                    int picked = SearchList.choose(app, "Choose \u00b7 " + p.label, p.choices, now, now, "Choose");
+                    if (picked >= 0) field.setText(p.choices[picked]);
                 });
                 row.add(field, BorderLayout.CENTER);
                 row.add(choose, BorderLayout.EAST);

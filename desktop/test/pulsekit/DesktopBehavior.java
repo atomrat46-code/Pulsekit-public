@@ -593,6 +593,28 @@ public final class DesktopBehavior {
     }
   }
 
+  /** The Style database / genre list search: "rock" lists every rock style. */
+  void s32_style_search() throws Exception {
+    final String[] names = StyleDb.names();
+    final String[][] got = new String[3][];
+    edt(() -> {
+      SearchList s = new SearchList(names, -1, 0);
+      String[] qs = {"rock", "hiphop", ""};
+      for (int k = 0; k < qs.length; k++) {
+        s.search.setText(qs[k]);
+        String[] shown = new String[s.model.size()];
+        for (int i = 0; i < shown.length; i++) shown[i] = s.model.get(i);
+        got[k] = shown;
+      }
+      s.search.setText("deep h");
+      s.list.setSelectedIndex(0);
+      out.append("deep h, first picked: ").append(names[s.selected()]).append('\n');
+    });
+    out.append("rock: ").append(String.join(" | ", got[0])).append('\n');
+    out.append("hiphop: ").append(String.join(" | ", got[1])).append('\n');
+    out.append("cleared: ").append(got[2].length).append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

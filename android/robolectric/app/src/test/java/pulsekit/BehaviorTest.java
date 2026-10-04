@@ -1549,6 +1549,9 @@ public class BehaviorTest {
     idle();
     AlertDialog genres = (AlertDialog) ShadowDialog.getLatestDialog();
     out.append("genres: ").append(genres.getListView().getAdapter().getCount()).append(", first ").append(genres.getListView().getAdapter().getItem(0)).append('\n');
+    ((android.widget.EditText) genres.getWindow().getDecorView().findViewWithTag("list-search")).setText("deep");
+    idle();
+    out.append("search deep: ").append(listItems(genres)).append('\n');
     org.robolectric.Shadows.shadowOf(genres).clickOnItem(itemIndex(genres, "Deep House"));
     idle();
     ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("funk groove");
@@ -1558,6 +1561,35 @@ public class BehaviorTest {
     idle();
     out.append("args: ").append(args.getText()).append('\n');
     write("s48_sogni_music_params", out.toString());
+  }
+
+  /** The Style database's search box: "rock" lists every rock style; clearing it shows all again. */
+  @Test
+  public void s49_style_database_search() throws Exception {
+    StringBuilder out = new StringBuilder();
+    FileSetClicks.promptChangeStyle(app, "f:none", "none");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText search = (android.widget.EditText) d.getWindow().getDecorView().findViewWithTag("list-search");
+    out.append("all: ").append(d.getListView().getAdapter().getCount()).append('\n');
+    search.setText("rock");
+    idle();
+    out.append("rock: ").append(listItems(d)).append('\n');
+    search.setText("hiphop");
+    idle();
+    out.append("hiphop: ").append(listItems(d)).append('\n');
+    search.setText("");
+    idle();
+    out.append("cleared: ").append(d.getListView().getAdapter().getCount()).append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    write("s49_style_database_search", out.toString());
+  }
+
+  private static String listItems(AlertDialog d) {
+    StringBuilder sb = new StringBuilder();
+    android.widget.ListAdapter a = d.getListView().getAdapter();
+    for (int i = 0; i < a.getCount(); i++) sb.append(i == 0 ? "" : " | ").append(a.getItem(i));
+    return sb.toString();
   }
 
   /** Tap File, then an item in its menu. */
