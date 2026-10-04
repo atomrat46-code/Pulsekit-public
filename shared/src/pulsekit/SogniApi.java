@@ -136,6 +136,11 @@ public final class SogniApi {
     return workflowOf(this.request("GET", "/v1/creative-agent/workflows/" + enc(id), null));
   }
 
+  /** The workflow's event list (what happened, step by step), as Sogni returns it. */
+  public Object events(String id) throws IOException {
+    return this.request("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events", null);
+  }
+
   /**
    * Follows the workflow until it stops (completed, failed, cancelled, or waiting for the user)
    * and returns its record. Reads the event stream, one long request; if that breaks, looks again
@@ -292,13 +297,51 @@ public final class SogniApi {
       }
       return "Sogni is waiting for input: " + (why == null ? "unknown reason" : why);
     }
-    Object err = wf.get("error");
-    if (err instanceof Map) {
-      String msg = str(((Map<?, ?>) err).get("message"));
-      if (msg != null) return msg;
+    List<String> why = new ArrayList<String>();
+    reasons(wf, why);
+    if (!why.isEmpty()) {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < why.size() && i < 3; i++) sb.append(i == 0 ? "" : "; ").append(why.get(i));
+      return sb.toString();
     }
-    if (err != null) return String.valueOf(err);
     return status == null ? "no status" : "workflow " + status;
+  }
+
+  /**
+   * Error text anywhere in a record or event list: values of error, lastError, failureReason,
+   * errorMessage and reason, or the message beside them. The workflow's own "workflow failed"
+   * status says nothing, so the failed step's words are what count.
+   */
+  @SuppressWarnings("unchecked")
+  public static void reasons(Object o, List<String> out) {
+    if (o instanceof Map) {
+      Map<String, Object> m = (Map<String, Object>) o;
+      for (Map.Entry<String, Object> e : m.entrySet()) {
+        String k = e.getKey().toLowerCase();
+        Object v = e.getValue();
+        boolean errorKey = k.equals("error") || k.equals("lasterror") || k.equals("failurereason") || k.equals("errormessage")
+            || k.equals("reason") || k.equals("failure");
+        if (errorKey && v instanceof String) addReason(out, (String) v);
+        else if (errorKey && v instanceof Map) {
+          Map<String, Object> em = (Map<String, Object>) v;
+          String msg = str(em.get("message"));
+          String code = str(em.get("code"));
+          if (msg == null) msg = str(em.get("errorMessage"));
+          if (msg != null) addReason(out, code != null && !msg.contains(code) ? msg + " (" + code + ")" : msg);
+        }
+      }
+      String status = str(m.get("status"));
+      if (status != null && (status.contains("fail") || status.contains("error")) && m.get("message") instanceof String) addReason(out, (String) m.get("message"));
+      for (Object v : m.values()) if (v instanceof Map || v instanceof List) reasons(v, out);
+    } else if (o instanceof List) {
+      for (Object v : (List<Object>) o) reasons(v, out);
+    }
+  }
+
+  static void addReason(List<String> out, String s) {
+    String t = s == null ? "" : s.trim();
+    if (t.length() == 0 || t.equalsIgnoreCase("workflow failed") || out.contains(t)) return;
+    out.add(t);
   }
 
   // ---- HTTP ----
