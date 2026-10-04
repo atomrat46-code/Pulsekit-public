@@ -122,6 +122,13 @@ final class SearchList {
             }
         });
         dialog.show();
+        // A list dialog's window turns the keyboard away (ALT_FOCUSABLE_IM: no text field in a list),
+        // which leaves the search box with no keyboard. Let it in, and let the list shrink above it.
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         return dialog;
     }
 }

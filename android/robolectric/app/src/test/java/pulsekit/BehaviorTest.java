@@ -1572,6 +1572,9 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     android.widget.EditText search = (android.widget.EditText) d.getWindow().getDecorView().findViewWithTag("list-search");
     out.append("all: ").append(d.getListView().getAdapter().getCount()).append('\n');
+    int flags = d.getWindow().getAttributes().flags;
+    out.append("keyboard allowed: ").append((flags & (android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+        | android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)) == 0).append('\n');
     search.setText("rock");
     idle();
     out.append("rock: ").append(listItems(d)).append('\n');
