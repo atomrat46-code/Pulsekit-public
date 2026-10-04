@@ -147,11 +147,11 @@ public final class ArtJava {
       System.setOut(ps);
       System.setErr(ps);
       t.start();
-      t.join(120000L);
+      t.join(JavaRun.RUN_MS);
       if (t.isAlive()) {
         t.interrupt();
         code[0] = 124;
-        ps.println("Timed out (120s).");
+        ps.println("Timed out (" + (JavaRun.RUN_MS / 1000) + "s).");
       }
       ps.flush();
     } finally {
@@ -168,7 +168,7 @@ public final class ArtJava {
         String fn = f.getName();
         if (before.contains(fn)) continue;
         if (fn.equals(skip) || fn.endsWith(".class") || fn.endsWith(".dex") || fn.endsWith(".java")) continue;
-        if (f.length() > 3000000L) continue;
+        if (f.length() > JavaRun.maxFileBytes(fn)) continue;
         byte[] body = read(f);
         files.add(new JavaRun.FileOut(fn, body));
         String saved = publish(ctx, fn, body);

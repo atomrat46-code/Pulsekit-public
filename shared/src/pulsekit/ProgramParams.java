@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 /**
  * PyJav's Params screen (Android and desktop): the parameters a loaded program takes, read from
  * its "Usage:" line (Java strings split over lines are joined) or its argparse add_argument calls.
- * A parameter named like a .wav, .mp3 or .mid file gets a file picker; anything else a text field.
+ * A parameter named like a .wav, .mp3, .mid or .txt file gets a file picker; anything else a text field.
  * Output files are left to PyJav, which names them.
  */
 public final class ProgramParams {
@@ -29,7 +29,7 @@ public final class ProgramParams {
     /** The switch is followed by a value. False for on/off switches such as --no-hpss. */
     public boolean takesValue = true;
     public boolean optional;
-    /** "wav", "mp3" or "mid" when the value is a file of that kind, else null. */
+    /** "wav", "mp3", "mid" or "txt" when the value is a file of that kind, else null. */
     public String ext;
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
@@ -39,7 +39,7 @@ public final class ProgramParams {
     }
   }
 
-  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?)\\b");
+  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt)\\b");
 
   /** The parameters in `text` (a program's source or readable strings), in the order the program lists them. */
   public static List<Param> parse(String text) {
@@ -170,6 +170,7 @@ public final class ProgramParams {
       else p.label = s.length() == 0 ? p.token : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
+    if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
@@ -182,6 +183,16 @@ public final class ProgramParams {
     String e = m.group(1).toLowerCase(Locale.ROOT);
     if (e.startsWith("mid")) return "mid";
     return e.equals("wave") ? "wav" : e;
+  }
+
+  /** "mid", "txt" or "audio" (wav and mp3 stand in for each other). */
+  static String kind(String ext) {
+    return "mid".equals(ext) || "txt".equals(ext) ? ext : "audio";
+  }
+
+  /** A .wav or .mp3 parameter. */
+  public static boolean isAudio(Param p) {
+    return p.ext != null && "audio".equals(kind(p.ext));
   }
 
   private static boolean has(List<Param> ps, String token) {
@@ -276,7 +287,7 @@ public final class ProgramParams {
         k++;
         // A file of the wrong kind (another program's output.mid in a .wav slot) is not this one's.
         String has = ext(v);
-        if (p.ext != null && has != null && "mid".equals(has) != "mid".equals(p.ext)) v = "";
+        if (p.ext != null && has != null && !kind(has).equals(kind(p.ext))) v = "";
         out[i] = v.startsWith("<") ? "" : v;
       }
     }

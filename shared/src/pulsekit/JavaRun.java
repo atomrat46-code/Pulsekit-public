@@ -18,6 +18,16 @@ import java.util.zip.ZipInputStream;
 
 /** Runs Python, Java source, a .class, or a .jar. Used by the PyJav tab. */
 public final class JavaRun {
+  /** How long a Java program may run: SogniMusic waits on Sogni's queue for up to 15 minutes. */
+  public static final long RUN_MS = 20 * 60 * 1000L;
+
+  /** Files a program writes are kept up to 3 MB; audio (a Sogni track, a cut WAV) up to 50 MB. */
+  public static long maxFileBytes(String name) {
+    String low = name == null ? "" : name.toLowerCase();
+    if (low.matches(".*\\.(mp3|wav|wave|flac|m4a|ogg|aac)$")) return 50000000L;
+    return 3000000L;
+  }
+
   public static final class FileOut {
     public final String name;
     public final byte[] bytes;
@@ -488,7 +498,7 @@ public final class JavaRun {
         cmd.addAll(argv);
         for (String a : argv) shown = shown + " " + a;
       }
-      Result ran = withOutsideFiles(exec(dir, cmd, name, shown), argv, dir);
+      Result ran = withOutsideFiles(exec(dir, cmd, name, shown, RUN_MS), argv, dir);
       if (low.endsWith(".java")) {
         List<FileOut> kept = new ArrayList<FileOut>();
         for (FileOut f : ran.files) {
@@ -584,7 +594,7 @@ public final class JavaRun {
     }
     if (proc.isAlive()) {
       proc.destroyForcibly();
-      bos.write("\nTimed out (120s).".getBytes(StandardCharsets.UTF_8));
+      bos.write(("\nTimed out (" + (waitMs / 1000) + "s).").getBytes(StandardCharsets.UTF_8));
     }
     int n;
     while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
@@ -596,8 +606,8 @@ public final class JavaRun {
         if (!f.isFile()) continue;
         String fn = f.getName();
         if (fn.equals(skipName) || fn.startsWith(".")) continue;
+        if (f.length() > maxFileBytes(fn)) continue;
         byte[] data = readFile(f);
-        if (data.length > 3_000_000) continue;
         files.add(new FileOut(fn, data));
       }
     }
