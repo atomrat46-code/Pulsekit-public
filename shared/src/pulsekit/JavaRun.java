@@ -80,32 +80,38 @@ public final class JavaRun {
   }
 
   /** Kit flags when the text mentions them, then the extra command line. */
+  /**
+   * The app's kit settings for a program that mentions them (--bpm, --style, --genre, --bars,
+   * --swing), then the extra args. A switch the extra args already give is not added, so the
+   * command line shows it once (Params' --genre "Rock Ballad", not also --genre House).
+   */
   public static List<String> argvFor(String source, int bpm, String style, int bars, int swing, String extra) {
     List<String> argv = new ArrayList<String>();
     String src = source == null ? "" : source;
-    if (src.contains("--bpm")) {
+    List<String> given = split(extra);
+    if (src.contains("--bpm") && !given.contains("--bpm")) {
       argv.add("--bpm");
       argv.add(Integer.toString(bpm));
     }
-    if (src.contains("--style")) {
+    if (src.contains("--style") && !given.contains("--style")) {
       argv.add("--style");
       argv.add(style == null ? "house" : style);
     }
-    if (src.contains("--genre")) {
-      // The app's style by name (House, Drum & Bass...); a --genre in the extra args comes later and wins.
+    if (src.contains("--genre") && !given.contains("--genre")) {
+      // The app's style by name (House, Drum & Bass...).
       Engine.Style st = Engine.styles().get(style == null ? "house" : style);
       argv.add("--genre");
       argv.add(st != null && st.label != null ? st.label : (style == null ? "house" : style));
     }
-    if (src.contains("--bars")) {
+    if (src.contains("--bars") && !given.contains("--bars")) {
       argv.add("--bars");
       argv.add(Integer.toString(Math.max(1, bars)));
     }
-    if (src.contains("--swing")) {
+    if (src.contains("--swing") && !given.contains("--swing")) {
       argv.add("--swing");
       argv.add(Integer.toString(Math.max(0, swing)));
     }
-    argv.addAll(split(extra));
+    argv.addAll(given);
     return argv;
   }
 

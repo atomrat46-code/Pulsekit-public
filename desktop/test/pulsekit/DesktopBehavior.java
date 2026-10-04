@@ -635,6 +635,13 @@ public final class DesktopBehavior {
     out.append("body: ").append(parsed == null ? "" : parsed.body).append('\n');
   }
 
+  /** The app's kit switches are added only when the extra args do not give them. */
+  void s34_kit_args_once() throws Exception {
+    String src = "Usage: java SogniMusic [--genre style] [--bpm N]";
+    out.append("none given: ").append(JavaRun.argvFor(src, 124, "house", 4, 0, "--prompt x")).append('\n');
+    out.append("genre and bpm given: ").append(JavaRun.argvFor(src, 124, "house", 4, 0, "--genre \"Rock Ballad\" --bpm 120")).append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

@@ -42,8 +42,12 @@ public final class SogniMusic {
     if (code != 0 && System.getProperty("pulsekit.work") == null) System.exit(code);
   }
 
+  /** Printed first, so a run's log shows which SogniMusic ran. */
+  static final String VERSION = "SogniMusic 2026-10-04b";
+
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] args) throws Exception {
+    System.out.println(VERSION);
     String out = null;
     String prompt = null;
     String keyFile = null;
