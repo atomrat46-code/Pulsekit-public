@@ -538,6 +538,61 @@ public final class DesktopBehavior {
     out.append("after Java pick, Scripts button reset: ").append(button(frame, "Scripts \u25be") != null).append('\n');
   }
 
+  /** SogniMusic run through PyJav against a stand-in for Sogni's API on this machine. */
+  void s31_sogni_music_program() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = new byte[4096];
+    for (int i = 0; i < track.length; i++) track[i] = (byte) i;
+    final List<String> seen = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.equals("/v1/creative-agent/workflows/wf7")) {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/take.mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      for (int i = 0; i < 600 && !(log.getText().contains("Saved") || log.getText().contains("Failed") || log.getText().contains("Could not")); i++) Thread.sleep(50);
+      for (String line : log.getText().split("\n")) {
+        if (line.startsWith("Saved") || line.startsWith("Status") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")
+            || line.startsWith("Model") || line.startsWith("Import") || line.startsWith("Music") || line.startsWith("Workflow")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      synchronized (seen) {
+        for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT")).append('\n');
+      }
+      File saved = new File(home, ".pulsekit/sogni_music.mp3");
+      out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

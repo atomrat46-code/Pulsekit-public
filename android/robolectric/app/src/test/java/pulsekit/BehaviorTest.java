@@ -1521,6 +1521,37 @@ public class BehaviorTest {
     write("s47_scripts_menu", out.toString());
   }
 
+  /** SogniMusic in PyJav: Params lists its switches, the key file gets a file button, and an imported WAV is not passed in. */
+  @Test
+  public void s48_sogni_music_params() throws Exception {
+    StringBuilder out = new StringBuilder();
+    short[] pcm = new short[22050];
+    call("ingest", AudioIo.encodeWav(pcm, 22050), "Song take.wav", null);
+    idle();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    TextView args = (TextView) get("pkPyArgs");
+    out.append("args after pick: '").append(args.getText()).append("'\n");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String flag : new String[] {"--prompt", "--bpm", "--duration", "--keyscale", "--timesig", "--model", "--lyrics", "--confirm_cost", "--max_cost"}) {
+      android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + flag);
+      out.append(flag).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
+    }
+    TextView keyFile = (TextView) dv.findViewWithTag("params-file:--key_file");
+    out.append("--key_file button: ").append(keyFile == null ? "none" : keyFile.getText()).append('\n');
+    out.append("input button: ").append(dv.findViewWithTag("params-file:input.wav") != null).append('\n');
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("funk groove, slap bass");
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--bpm")).setText("124");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s48_sogni_music_params", out.toString());
+  }
+
   /** Tap File, then an item in its menu. */
   private void fileMenuItem(String label) throws Exception {
     TextView file = findText(root(), "File");

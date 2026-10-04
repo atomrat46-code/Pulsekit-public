@@ -201,6 +201,18 @@ public final class PyJavHints {
     return sb.toString();
   }
 
+  /**
+   * False when the program's Usage line lists no input file, only an output (SogniMusic's
+   * [output.mp3]): PyJav's input must not land there. A program without a Usage line still
+   * gets the input first.
+   */
+  static boolean takesInput(String hint) {
+    java.util.List<ProgramParams.Param> ps = ProgramParams.fromUsage(hint);
+    if (ps.isEmpty()) return true;
+    for (ProgramParams.Param p : ps) if (!p.flag && !p.output) return true;
+    return false;
+  }
+
   /** Extra-args line with the input and a real output path filled in. */
   public static String fillArgs(String extra, String hint, String inputToken, String inputPath, String outDir) {
     String line = extra == null ? "" : extra.trim();
@@ -233,7 +245,7 @@ public final class PyJavHints {
         i = b + 1;
       }
       line = swapped.toString();
-      if (line.indexOf(inputPath) < 0) line = line.length() == 0 ? quoted : quoted + " " + line;
+      if (line.indexOf(inputPath) < 0 && takesInput(hint)) line = line.length() == 0 ? quoted : quoted + " " + line;
     }
     if (out.length() > 0) line = putOutput(line, out);
     return joinArgs(dedupeArgs(JavaRun.split(line), hint));
@@ -512,7 +524,7 @@ public final class PyJavHints {
     int maxAudio = 0;
     for (ProgramParams.Param p : ProgramParams.parse(hint)) {
       // Files given in order (<input.wav> [output.wav]) and switches that take one (--output_file1 <part1.wav>).
-      if (p.ext != null && !"mid".equals(p.ext)) maxAudio++;
+      if (ProgramParams.isAudio(p)) maxAudio++;
     }
     if (maxAudio < 1) maxAudio = 1;
     java.util.List<String> out = new java.util.ArrayList<String>();

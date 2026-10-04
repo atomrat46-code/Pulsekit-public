@@ -388,6 +388,7 @@ final class PyJav {
                 if (app.pyLog != null) app.pyLog.setText(shown);
                 boolean loaded = false;
                 int midis = 0;
+                int audios = 0;
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
@@ -411,6 +412,11 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
+                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac)$")) {
+                        // Audio a program wrote in its work folder (a SogniMusic track): kept in Downloads, as on Android.
+                        File saved = this.saveProgramAudio(f.name, f.bytes);
+                        status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
+                        if (saved != null) audios++;
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {
@@ -431,7 +437,7 @@ final class PyJav {
                     String first = (nl < 0 ? line : line.substring(0, nl)).trim();
                     if (first.isEmpty()) first = result.code == 0 ? "Prompt finished" : "Prompt failed";
                     status.append(first).append('\n');
-                } else if (midis == 0) status.append("Import failed: no MIDI file was written\n");
+                } else if (midis == 0 && audios == 0) status.append("Import failed: no MIDI file was written\n");
                 if (this.pyHint != null && status.length() > 0) this.pyHint.setText(hintHtml(status.toString().trim()));
                 if (status.length() > 0) app.setNow(status.toString().trim().split("\n")[0]);
                 if (app.pyLog != null && status.length() > 0) {
@@ -441,6 +447,26 @@ final class PyJav {
                 if (loaded) app.setNow("Script MIDI · " + name);
             });
         }, "pulsekit-pyjav").start();
+    }
+
+    /** Writes a program's audio file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
+    File saveProgramAudio(String name, byte[] data) {
+        try {
+            File home = new File(System.getProperty("user.home", "."));
+            File dir = new File(home, "Downloads");
+            if (!dir.isDirectory()) dir = new File(home, ".pulsekit");
+            if (!dir.isDirectory()) dir.mkdirs();
+            String safe = name.replace('\\', '_').replace('/', '_');
+            int dot = safe.lastIndexOf('.');
+            String stem = dot > 0 ? safe.substring(0, dot) : safe;
+            String ext = dot > 0 ? safe.substring(dot) : "";
+            File out = new File(dir, safe);
+            for (int n = 1; out.exists(); n++) out = new File(dir, stem + "(" + n + ")" + ext);
+            Files.write(out.toPath(), data);
+            return out;
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     File pyRecentDir() {
@@ -591,7 +617,7 @@ final class PyJav {
             ProgramParams.Param p = ps.get(i);
             if (p.flag || p.output) continue;
             String input = app.pyInputPath;
-            if (values[i].length() == 0 && input != null && p.ext != null && !"mid".equals(p.ext)
+            if (values[i].length() == 0 && input != null && ProgramParams.isAudio(p)
                 && input.toLowerCase().matches(".*\\.(wav|wave|mp3)$")) values[i] = input;
             break;
         }

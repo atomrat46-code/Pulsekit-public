@@ -13,7 +13,7 @@ import java.util.List;
 
 /**
  * PyJav's Params: the loaded program's parameters, read from its Usage line or argparse calls.
- * A .wav, .mp3 or .mid parameter gets a file button; anything else a text field. Switches are
+ * A .wav, .mp3, .mid or .txt parameter gets a file button; anything else a text field. Switches are
  * saved per program; chosen files go into the arguments.
  */
 public final class PyJavParams {
@@ -52,8 +52,7 @@ public final class PyJavParams {
       for (int i = 0; i < ps.size(); i++) {
         ProgramParams.Param p = ps.get(i);
         if (p.flag || p.output) continue;
-        if (values[i].length() == 0 && input != null && p.ext != null && input.toLowerCase().matches(".*\\.(wav|wave|mp3)$")
-            && !"mid".equals(p.ext)) values[i] = input;
+        if (values[i].length() == 0 && input != null && ProgramParams.isAudio(p) && input.toLowerCase().matches(".*\\.(wav|wave|mp3)$")) values[i] = input;
         break;
       }
     }
