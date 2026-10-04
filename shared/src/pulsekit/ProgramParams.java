@@ -176,6 +176,7 @@ public final class ProgramParams {
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
     if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
+    if (p.flag && p.takesValue && p.token.equals("--timesig") && p.hint.indexOf('|') >= 0) p.hint = "2, 3, 4 or 6 (4 = 4/4, 6 = 6/8)";
     if (p.flag && p.takesValue && p.token.equals("--genre")) {
       p.hint = "the app's style, or one from the list";
       p.choices = StyleDb.names();

@@ -63,14 +63,14 @@ public final class SogniMusic {
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
-      else if (a.equals("--bpm") && i + 1 < args.length) bpm = Double.parseDouble(args[++i]);
-      else if (a.equals("--duration") && i + 1 < args.length) duration = Double.parseDouble(args[++i]);
+      else if (a.equals("--bpm") && i + 1 < args.length) bpm = number(a, args[++i]);
+      else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
       else if (a.equals("--keyscale") && i + 1 < args.length) keyscale = args[++i];
-      else if (a.equals("--timesig") && i + 1 < args.length) timesig = Integer.parseInt(args[++i]);
+      else if (a.equals("--timesig") && i + 1 < args.length) timesig = timesig(args[++i]);
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
-      else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = Double.parseDouble(args[++i]);
+      else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--drums_only")) drumsOnly = true;
@@ -106,6 +106,11 @@ public final class SogniMusic {
       File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt);
       System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getPath());
     }
+    if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
+    if (timesig < 0) {
+      System.out.println("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
+      return 2;
+    }
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
       System.out.println("Failed: --model is turbo, sft or music3");
       return 2;
@@ -125,7 +130,7 @@ public final class SogniMusic {
     System.out.println("Music: " + prompt);
     System.out.println("Model " + model + ", " + SogniApi.number(duration) + " s"
         + (bpm > 0 ? ", " + SogniApi.number(bpm) + " BPM" : "") + (keyscale != null ? ", " + keyscale : "")
-        + (timesig > 0 ? ", " + timesig + "/4" : ""));
+        + (timesig > 0 ? ", " + (timesig == 6 ? "6/8" : timesig + "/4") : ""));
     try {
       String id = api.start(input, confirm, maxCost);
       System.out.println("Workflow: " + id);
@@ -171,7 +176,30 @@ public final class SogniMusic {
 
   static void usage() {
     System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig N] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+  }
+
+  /** A number for `flag`, or NaN after saying what is wrong. */
+  static double number(String flag, String value) {
+    try {
+      return Double.parseDouble(value.trim());
+    } catch (NumberFormatException ex) {
+      System.out.println("Failed: " + flag + " needs a number, not \"" + value + "\"");
+      return Double.NaN;
+    }
+  }
+
+  /**
+   * Beats per bar, as Sogni takes them: 2, 3, 4 or 6 (6/8). "4/4", "3/4", "2/4" and "6/8" are read
+   * the same way. -1 for anything else.
+   */
+  static int timesig(String value) {
+    String v = value == null ? "" : value.trim();
+    if (v.equals("2") || v.equals("2/4")) return 2;
+    if (v.equals("3") || v.equals("3/4")) return 3;
+    if (v.equals("4") || v.equals("4/4")) return 4;
+    if (v.equals("6") || v.equals("6/8")) return 6;
+    return -1;
   }
 
   /** "sogni-" and the genre, spaces and symbols as hyphens ("Deep House" → sogni-Deep-House). */
