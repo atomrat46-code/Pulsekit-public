@@ -666,6 +666,21 @@ final class PyJav {
             field.setName("params-field:" + p.token);
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             fields[i] = field;
+            if (p.choices != null && p.choices.length > 0) {
+                // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                JButton choose = new JButton("Choose");
+                choose.setName("params-choose:" + p.token);
+                choose.addActionListener(e -> {
+                    Object picked = JOptionPane.showInputDialog(app, p.label, "Choose \u00b7 " + p.label, JOptionPane.PLAIN_MESSAGE, null,
+                        p.choices, field.getText().length() > 0 ? field.getText() : p.choices[0]);
+                    if (picked != null) field.setText(picked.toString());
+                });
+                row.add(field, BorderLayout.CENTER);
+                row.add(choose, BorderLayout.EAST);
+                form.add(row);
+                continue;
+            }
             form.add(field);
         }
         JPanel resets = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));

@@ -91,6 +91,12 @@ public final class JavaRun {
       argv.add("--style");
       argv.add(style == null ? "house" : style);
     }
+    if (src.contains("--genre")) {
+      // The app's style by name (House, Drum & Bass...); a --genre in the extra args comes later and wins.
+      Engine.Style st = Engine.styles().get(style == null ? "house" : style);
+      argv.add("--genre");
+      argv.add(st != null && st.label != null ? st.label : (style == null ? "house" : style));
+    }
     if (src.contains("--bars")) {
       argv.add("--bars");
       argv.add(Integer.toString(Math.max(1, bars)));

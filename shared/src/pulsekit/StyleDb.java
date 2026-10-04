@@ -405,6 +405,14 @@ public final class StyleDb {
     }
   }
 
+  /** The database's style names, A–Z (Deep House, Gqom, Schranz...). */
+  public static String[] names() {
+    java.util.List<Row> list = rows();
+    String[] out = new String[list.size()];
+    for (int i = 0; i < out.length; i++) out[i] = list.get(i).name;
+    return out;
+  }
+
   public static java.util.List<Row> rows() {
     java.util.ArrayList<Row> out = new java.util.ArrayList<Row>();
     for (String line : HINTS) {

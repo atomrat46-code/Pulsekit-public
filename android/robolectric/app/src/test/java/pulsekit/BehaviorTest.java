@@ -1537,13 +1537,20 @@ public class BehaviorTest {
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
-    for (String flag : new String[] {"--prompt", "--drums_only", "--instruments", "--bpm", "--duration", "--keyscale", "--timesig", "--model", "--lyrics", "--confirm_cost", "--max_cost"}) {
+    for (String flag : new String[] {"--prompt", "--genre", "--drums_only", "--instruments", "--bpm", "--duration", "--keyscale", "--timesig", "--model", "--lyrics", "--confirm_cost", "--max_cost"}) {
       android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + flag);
       out.append(flag).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
     }
     TextView keyFile = (TextView) dv.findViewWithTag("params-file:--key_file");
     out.append("--key_file button: ").append(keyFile == null ? "none" : keyFile.getText()).append('\n');
     out.append("input button: ").append(dv.findViewWithTag("params-file:input.wav") != null).append('\n');
+    // --genre lists Pulsekit's style database.
+    dv.findViewWithTag("params-choose:--genre").performClick();
+    idle();
+    AlertDialog genres = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("genres: ").append(genres.getListView().getAdapter().getCount()).append(", first ").append(genres.getListView().getAdapter().getItem(0)).append('\n');
+    org.robolectric.Shadows.shadowOf(genres).clickOnItem(itemIndex(genres, "Deep House"));
+    idle();
     ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("funk groove");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--instruments")).setText("slap bass, drums");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--bpm")).setText("124");

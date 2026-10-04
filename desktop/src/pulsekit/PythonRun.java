@@ -84,25 +84,9 @@ public final class PythonRun {
     return out;
   }
 
+  /** The kit switches the program mentions (--bpm, --style, --genre, --bars, --swing), as on Android. */
   public static List<String> kitArgv(String source, int bpm, String style, int bars, int swing) {
-    List<String> argv = new ArrayList<String>();
-    if (source.contains("--bpm")) {
-      argv.add("--bpm");
-      argv.add(Integer.toString(bpm));
-    }
-    if (source.contains("--style")) {
-      argv.add("--style");
-      argv.add(style == null ? "house" : style);
-    }
-    if (source.contains("--bars")) {
-      argv.add("--bars");
-      argv.add(Integer.toString(Math.max(1, bars)));
-    }
-    if (source.contains("--swing")) {
-      argv.add("--swing");
-      argv.add(Integer.toString(Math.max(0, swing)));
-    }
-    return argv;
+    return JavaRun.argvFor(source, bpm, style, bars, swing, "");
   }
 
   public static Result run(String source, String scriptName, List<String> argv) {
