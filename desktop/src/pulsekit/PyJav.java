@@ -412,9 +412,10 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
-                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac)$")) {
-                        // Audio a program wrote in its work folder (a SogniMusic track): kept in Downloads, as on Android.
-                        File saved = this.saveProgramAudio(f.name, f.bytes);
+                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt)$")) {
+                        // Audio or a prompt sheet a program wrote in its work folder (SogniMusic's track and
+                        // --saveprompt): kept in Downloads, as on Android.
+                        File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) audios++;
                     }
@@ -449,8 +450,8 @@ final class PyJav {
         }, "pulsekit-pyjav").start();
     }
 
-    /** Writes a program's audio file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
-    File saveProgramAudio(String name, byte[] data) {
+    /** Writes a program's file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
+    File saveProgramFile(String name, byte[] data) {
         try {
             File home = new File(System.getProperty("user.home", "."));
             File dir = new File(home, "Downloads");

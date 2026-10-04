@@ -26,12 +26,24 @@ import java.util.Map;
  * --genre names the style (any name; PyJav's Params lists Pulsekit's style database, and PyJav
  * passes the app's current style when none is given). It leads the prompt.
  *
+ * --saveprompt also writes the final prompt as sogni-<genre>.prompt: a Pulsekit prompt sheet
+ * (category Music, type AI) that opens in PyJav and the Prompts page. It is written before the key
+ * is checked, so a prompt can be exported without one.
+ *
  * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
  * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
+    int code = run(args);
+    // Inside Pulsekit (PyJav on the phone runs programs in the app's own process, and sets
+    // pulsekit.work) System.exit would close the app, so only a separate run exits with the code.
+    if (code != 0 && System.getProperty("pulsekit.work") == null) System.exit(code);
+  }
+
+  /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
+  static int run(String[] args) throws Exception {
     String out = null;
     String prompt = null;
     String keyFile = null;
@@ -47,6 +59,7 @@ public final class SogniMusic {
     boolean drumsOnly = false;
     String instruments = null;
     String genre = null;
+    boolean savePrompt = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -63,44 +76,49 @@ public final class SogniMusic {
       else if (a.equals("--drums_only")) drumsOnly = true;
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
       else if (a.equals("--genre") && i + 1 < args.length) genre = args[++i];
+      else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
-        return;
+        return 0;
       } else if (!a.startsWith("--") && out == null) out = a;
       else {
         System.out.println("Unknown argument: " + a);
         usage();
-        System.exit(2);
+        return 2;
       }
     }
     if (drumsOnly && instruments != null && instruments.trim().length() > 0) {
       System.out.println("Failed: use --drums_only or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
-      System.exit(2);
+      return 2;
     }
     if (drumsOnly && lyrics != null && lyrics.trim().length() > 0) {
       System.out.println("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
-      System.exit(2);
+      return 2;
     }
     boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
     if ((prompt == null || prompt.trim().length() == 0) && !steered) {
       System.out.println("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
-      System.exit(2);
+      return 2;
     }
     prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
+    if (savePrompt) {
+      File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt);
+      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getPath());
+    }
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
       System.out.println("Failed: --model is turbo, sft or music3");
-      System.exit(2);
+      return 2;
     }
     if (duration < 10 || duration > 600) {
       System.out.println("Failed: --duration is 10 to 600 seconds");
-      System.exit(2);
+      return 2;
     }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
       System.out.println("Failed: no Sogni API key. Set SOGNI_API_KEY, or give --key_file with a text file holding SOGNI_API_KEY=<your key>."
           + " Get the key at https://dashboard.sogni.ai (account menu).");
-      System.exit(1);
+      return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
     String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
@@ -120,7 +138,7 @@ public final class SogniMusic {
       List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
       if (audio.isEmpty()) {
         System.out.println("Failed: " + SogniApi.problem(wf));
-        System.exit(1);
+        return 1;
       }
       String url = SogniApi.str(audio.get(0).get("url"));
       String mime = SogniApi.str(audio.get(0).get("mimeType"));
@@ -143,16 +161,52 @@ public final class SogniMusic {
       System.out.println("Succeeded: " + file.getPath());
     } catch (SogniApi.ApiException ex) {
       System.out.println("Failed: " + ex.getMessage());
-      System.exit(1);
+      return 1;
     } catch (IOException ex) {
       System.out.println("Failed: " + ex.getMessage());
-      System.exit(1);
+      return 1;
     }
+    return 0;
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
+    System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
         + "[--keyscale key] [--timesig N] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+  }
+
+  /** "sogni-" and the genre, spaces and symbols as hyphens ("Deep House" → sogni-Deep-House). */
+  static String promptName(String genre) {
+    String g = genre == null ? "" : genre.trim().replaceAll("[^A-Za-z0-9]+", "-").replaceAll("^-+|-+$", "");
+    return "sogni-" + (g.length() == 0 ? "music" : g);
+  }
+
+  /**
+   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
+   * name, category Music, the model, type AI, then the prompt. Never over an existing file.
+   */
+  static File savePrompt(String name, String model, String prompt) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n\n\n");
+    sb.append("Category: Music\n");
+    sb.append("Model: ").append(model).append('\n');
+    sb.append("Reference file 1: \n");
+    sb.append("Reference file 2: \n");
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt);
+    File file = new File(name + ".prompt");
+    for (int n = 1; file.exists(); n++) file = new File(name + "(" + n + ").prompt");
+    try {
+      FileOutputStream fos = new FileOutputStream(file);
+      try {
+        fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+      return file;
+    } catch (IOException ex) {
+      return null;
+    }
   }
 
   /**

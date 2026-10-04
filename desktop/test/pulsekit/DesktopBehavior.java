@@ -615,6 +615,26 @@ public final class DesktopBehavior {
     out.append("cleared: ").append(got[2].length).append('\n');
   }
 
+  /** SogniMusic --saveprompt through PyJav with no key: the prompt sheet is saved, and the run fails cleanly. */
+  void s33_sogni_save_prompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniMusic.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 400 && !(log.getText().contains("Failed") || log.getText().contains("Succeeded")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Saved") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    File sheet = new File(home, ".pulsekit/sogni-House.prompt");
+    String text = sheet.isFile() ? new String(Files.readAllBytes(sheet.toPath()), StandardCharsets.UTF_8) : "";
+    PromptRun.Sheet parsed = PromptRun.parse(text);
+    out.append("sheet: ").append(parsed == null ? "not a prompt sheet" : "name=" + parsed.name + " category=" + parsed.category
+        + " model=" + parsed.model + " type=" + parsed.type).append('\n');
+    out.append("body: ").append(parsed == null ? "" : parsed.body).append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");
