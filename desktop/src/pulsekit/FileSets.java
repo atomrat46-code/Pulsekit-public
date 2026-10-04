@@ -1,30 +1,23 @@
 package pulsekit;
 
 import java.awt.BorderLayout;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.font.TextAttribute;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.UIManager;
 import pulsekit.AudioIo;
 import pulsekit.Engine;
 
@@ -128,41 +121,9 @@ final class FileSets {
         }
         final int current = StyleDb.indexOf(this.fileSetStyleLabel(key));
         final int initial = current >= 0 ? current : 0;
-        JList<String> list = new JList<String>(names);
-        list.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
-        list.setSelectedIndex(initial);
-        list.setFixedCellHeight(24);
-        list.setVisibleRowCount(16);
-        final Font listFont = UIManager.getFont("List.font");
-        list.setCellRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (c instanceof JLabel) {
-                    JLabel lab = (JLabel) c;
-                    Font base = listFont != null ? listFont : lab.getFont();
-                    if (index == current) {
-                        Map<TextAttribute, Object> attrs = new HashMap<TextAttribute, Object>();
-                        attrs.put(TextAttribute.UNDERLINE, TextAttribute.UNDERLINE_ON);
-                        lab.setFont(base.deriveFont(attrs));
-                    } else {
-                        lab.setFont(base);
-                    }
-                }
-                return c;
-            }
-        });
-        JScrollPane scroll = new JScrollPane(list);
-        scroll.setPreferredSize(new Dimension(380, 320));
-        scroll.getViewport().setViewPosition(new java.awt.Point(0, Math.max(0, (initial - 4) * 24)));
-        list.ensureIndexIsVisible(initial);
-        Object[] options = new Object[] { "Change style", "Cancel" };
-        int ans = JOptionPane.showOptionDialog(
-            app, scroll, "Style database",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-        if (ans != 0) return;
-        int pick = list.getSelectedIndex();
-        if (pick < 0) pick = initial;
+        // A search box above the list: "rock" shows Rock, Hard Rock, Blues Rock...
+        int pick = SearchList.choose(app, "Style database", names, current, initial, "Change style");
+        if (pick < 0) return;
         this.applyFileSetStyle(key, label, rows.get(pick));
     }
 

@@ -405,6 +405,49 @@ public final class StyleDb {
     }
   }
 
+  /**
+   * Positions in `items` whose name (the text before "  ·  ") holds `query`, case and spaces and
+   * hyphens aside, so "rock" finds Rock, Hard Rock, Blues Rock... and "hiphop" finds Hip-Hop.
+   * The name itself first, then names starting with the query, then the rest, each in list order.
+   * An empty query keeps every item.
+   */
+  public static int[] search(String[] items, String query) {
+    String q = query == null ? "" : query.trim().toLowerCase();
+    String qc = compact(q);
+    java.util.List<Integer> exact = new java.util.ArrayList<Integer>();
+    java.util.List<Integer> starts = new java.util.ArrayList<Integer>();
+    java.util.List<Integer> inside = new java.util.ArrayList<Integer>();
+    for (int i = 0; i < items.length; i++) {
+      String name = items[i] == null ? "" : items[i];
+      int dot = name.indexOf("  \u00b7  ");
+      if (dot >= 0) name = name.substring(0, dot);
+      String n = name.trim().toLowerCase();
+      String nc = compact(n);
+      if (q.length() == 0) inside.add(i);
+      else if (n.equals(q) || nc.equals(qc)) exact.add(i);
+      else if (n.startsWith(q) || nc.startsWith(qc)) starts.add(i);
+      else if (n.contains(q) || (qc.length() > 0 && nc.contains(qc))) inside.add(i);
+    }
+    int[] out = new int[exact.size() + starts.size() + inside.size()];
+    int k = 0;
+    for (int i : exact) out[k++] = i;
+    for (int i : starts) out[k++] = i;
+    for (int i : inside) out[k++] = i;
+    return out;
+  }
+
+  private static String compact(String s) {
+    return s.replaceAll("[^\\p{L}\\p{N}&]+", "");
+  }
+
+  /** The database's style names, A–Z (Deep House, Gqom, Schranz...). */
+  public static String[] names() {
+    java.util.List<Row> list = rows();
+    String[] out = new String[list.size()];
+    for (int i = 0; i < out.length; i++) out[i] = list.get(i).name;
+    return out;
+  }
+
   public static java.util.List<Row> rows() {
     java.util.ArrayList<Row> out = new java.util.ArrayList<Row>();
     for (String line : HINTS) {

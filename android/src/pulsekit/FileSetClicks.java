@@ -124,46 +124,13 @@ public final class FileSetClicks {
     if (names == null || names.length == 0) return;
     final int current = host.fileSets.currentStyleDbIndex(key);
     final int initial = current >= 0 ? current : 0;
-    final int[] pick = new int[] { initial };
-    final android.widget.ArrayAdapter<String> rows = new android.widget.ArrayAdapter<String>(
-        host, android.R.layout.select_dialog_singlechoice, android.R.id.text1, names) {
+    // A search box above the list: "rock" shows Rock, Hard Rock, Blues Rock...
+    SearchList.show(host, "Style database", names, current, initial, "Change style", new SearchList.Pick() {
       @Override
-      public android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) {
-        android.view.View view = super.getView(position, convertView, parent);
-        android.widget.TextView tv = (android.widget.TextView) view.findViewById(android.R.id.text1);
-        if (tv != null) {
-          int flags = tv.getPaintFlags();
-          if (position == current) flags |= android.graphics.Paint.UNDERLINE_TEXT_FLAG;
-          else flags &= ~android.graphics.Paint.UNDERLINE_TEXT_FLAG;
-          tv.setPaintFlags(flags);
-        }
-        return view;
-      }
-    };
-    final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(host)
-        .setTitle("Style database")
-        .setSingleChoiceItems(rows, initial, new DialogInterface.OnClickListener() {
-          @Override
-          public void onClick(DialogInterface d, int which) {
-            pick[0] = which;
-          }
-        })
-        .setPositiveButton("Change style", new DialogInterface.OnClickListener() {
-          @Override
-          public void onClick(DialogInterface d, int w) {
-            host.fileSets.applyStylePick(key, label, pick[0]);
-          }
-        })
-        .setNegativeButton("Cancel", null)
-        .create();
-    dialog.setOnShowListener(new DialogInterface.OnShowListener() {
-      @Override
-      public void onShow(DialogInterface d) {
-        android.widget.ListView list = dialog.getListView();
-        if (list != null) list.setSelection(initial);
+      public void picked(int index) {
+        host.fileSets.applyStylePick(key, label, index);
       }
     });
-    dialog.show();
   }
 
   public static View.OnClickListener fileChangeStyle(

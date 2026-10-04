@@ -130,6 +130,20 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (p.choices != null && p.choices.length > 0) {
+        // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(field, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Button choose = new android.widget.Button(activity);
+        choose.setText("Choose");
+        choose.setTag("params-choose:" + p.token);
+        final EditText target = field;
+        choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choices[at])));
+        row.addView(choose);
+        box.addView(row);
+        continue;
+      }
       box.addView(field);
     }
     ScrollView scroll = new ScrollView(activity);

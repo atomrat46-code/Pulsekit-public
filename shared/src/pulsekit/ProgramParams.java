@@ -31,6 +31,8 @@ public final class ProgramParams {
     public boolean optional;
     /** "wav", "mp3", "mid" or "txt" when the value is a file of that kind, else null. */
     public String ext;
+    /** Values to pick from (SogniMusic's --genre: Pulsekit's style database), or null. */
+    public String[] choices;
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
 
@@ -174,6 +176,10 @@ public final class ProgramParams {
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
     if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
+    if (p.flag && p.takesValue && p.token.equals("--genre")) {
+      p.hint = "the app's style, or one from the list";
+      p.choices = StyleDb.names();
+    }
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
