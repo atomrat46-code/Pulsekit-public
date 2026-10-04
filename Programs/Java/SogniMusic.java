@@ -26,6 +26,9 @@ import java.util.Map;
  * --genre names the style (any name; PyJav's Params lists Pulsekit's style database, and PyJav
  * passes the app's current style when none is given). It leads the prompt.
  *
+ * --workflow <id> downloads the result of a run that already finished (the id is printed as
+ * "Workflow: ..."), without starting or paying for a new one.
+ *
  * --saveprompt also writes the final prompt as sogni-<genre>.prompt: a Pulsekit prompt sheet
  * (category Music, type AI) that opens in PyJav and the Prompts page. It is written before the key
  * is checked, so a prompt can be exported without one.
@@ -43,7 +46,7 @@ public final class SogniMusic {
   }
 
   /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-04b";
+  static final String VERSION = "SogniMusic 2026-10-04c";
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] args) throws Exception {
@@ -55,6 +58,7 @@ public final class SogniMusic {
     String model = "turbo";
     String lyrics = null;
     String apiBase = null;
+    String workflowId = null;
     double bpm = 0;
     double duration = 30;
     int timesig = 0;
@@ -76,6 +80,7 @@ public final class SogniMusic {
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
+      else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--drums_only")) drumsOnly = true;
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
@@ -100,13 +105,13 @@ public final class SogniMusic {
       return 2;
     }
     boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
-    if ((prompt == null || prompt.trim().length() == 0) && !steered) {
+    if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {
       System.out.println("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
       return 2;
     }
     prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
-    if (savePrompt) {
+    if (savePrompt && workflowId == null) {
       File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt);
       System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
@@ -141,12 +146,14 @@ public final class SogniMusic {
     }
     SogniApi api = new SogniApi(apiBase, key);
     String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
-    System.out.println("Music: " + prompt);
+    if (workflowId != null) System.out.println("Fetching the result of workflow " + workflowId);
+    else System.out.println("Music: " + prompt);
     System.out.println("Model " + model + ", " + SogniApi.number(duration) + " s"
         + (bpm > 0 ? ", " + SogniApi.number(bpm) + " BPM" : "") + (keyscale != null ? ", " + keyscale : "")
         + (timesig > 0 ? ", " + (timesig == 6 ? "6/8" : timesig + "/4") : ""));
     try {
-      String id = api.start(input, confirm, maxCost);
+      // --workflow fetches a run that already finished (paid for) instead of starting a new one.
+      String id = workflowId != null && workflowId.length() > 0 ? workflowId : api.start(input, confirm, maxCost);
       System.out.println("Workflow: " + id);
       Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
         public void line(String s) {
@@ -190,18 +197,21 @@ public final class SogniMusic {
 
   static void usage() {
     System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
   /**
    * A file in the work folder. On the phone PyJav runs programs inside the app, where a bare name
-   * would not land in PyJav's folder (the process's own folder is not user.dir), so names are
-   * placed under user.dir; an absolute path stays as given.
+   * would land in the process's own folder ("/", read-only), so names are placed under PyJav's
+   * work folder (pulsekit.work, else user.dir); an absolute path stays as given.
    */
   static File inWork(String name) {
     File f = new File(name);
     if (f.isAbsolute()) return f;
-    return new File(System.getProperty("user.dir", "."), name);
+    // Android ignores setting user.dir (it stays "/", read-only), so PyJav's own pulsekit.work comes first.
+    String work = System.getProperty("pulsekit.work");
+    if (work == null || work.length() == 0) work = System.getProperty("user.dir", ".");
+    return new File(work, name);
   }
 
   /**
