@@ -22,6 +22,10 @@ import java.util.Map;
  *
  * The default model is turbo (ACE-Step): quick, cheap, and it keeps the exact BPM, key and time
  * signature, which suits drum work. music3 (MiniMax Music 3) sings better but costs about 20x.
+ *
+ * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
+ * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
+ * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
@@ -37,6 +41,8 @@ public final class SogniMusic {
     int timesig = 0;
     double maxCost = 0;
     boolean confirm = false;
+    boolean drumsOnly = false;
+    String instruments = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -50,6 +56,8 @@ public final class SogniMusic {
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = Double.parseDouble(args[++i]);
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
       else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--drums_only")) drumsOnly = true;
+      else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return;
@@ -60,11 +68,21 @@ public final class SogniMusic {
         System.exit(2);
       }
     }
-    if (prompt == null || prompt.trim().length() == 0) {
-      System.out.println("Failed: --prompt is required, for example --prompt \"funk groove, slap bass, tight drums\"");
+    if (drumsOnly && instruments != null && instruments.trim().length() > 0) {
+      System.out.println("Failed: use --drums_only or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
+      System.exit(2);
+    }
+    if (drumsOnly && lyrics != null && lyrics.trim().length() > 0) {
+      System.out.println("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
+      System.exit(2);
+    }
+    boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0);
+    if ((prompt == null || prompt.trim().length() == 0) && !steered) {
+      System.out.println("Failed: give --prompt, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
       System.exit(2);
     }
+    prompt = musicPrompt(prompt, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
       System.out.println("Failed: --model is turbo, sft or music3");
       System.exit(2);
@@ -128,8 +146,43 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniMusic [output.mp3] --prompt <text> [--bpm N] [--duration seconds] [--keyscale key] [--timesig N] "
-        + "[--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+    System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
+        + "[--keyscale key] [--timesig N] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N]");
+  }
+
+  /**
+   * The prompt sent to Sogni: the style description, then the instrumentation. --drums_only asks
+   * for a solo drum kit; --instruments "bass, rhodes" for those instruments alone. Without lyrics
+   * the track is asked to be instrumental.
+   */
+  static String musicPrompt(String prompt, boolean drumsOnly, String instruments, boolean lyrics) {
+    StringBuilder sb = new StringBuilder();
+    String style = prompt == null ? "" : prompt.trim();
+    if (drumsOnly) {
+      sb.append("Solo drum kit, drums only");
+      if (style.length() > 0) sb.append(", ").append(style);
+      else sb.append(", tight groove");
+      sb.append(". Kick, snare, hi-hat and cymbals only: no bass, no guitar, no keys, no synths, no melody, no chords, no vocals. Dry, clear drum recording.");
+      return sb.toString();
+    }
+    List<String> list = new ArrayList<String>();
+    if (instruments != null) {
+      for (String part : instruments.split("[,;/]")) {
+        String t = part.trim();
+        if (t.length() > 0) list.add(t);
+      }
+    }
+    if (list.isEmpty()) return style;
+    if (style.length() > 0) sb.append(style).append(". ");
+    sb.append(lyrics ? "Only these instruments: " : "Instrumental, only these instruments: ");
+    for (int i = 0; i < list.size(); i++) {
+      if (i > 0) sb.append(i == list.size() - 1 ? " and " : ", ");
+      sb.append(list.get(i));
+    }
+    sb.append(". No other instruments");
+    if (!lyrics) sb.append(", no vocals");
+    sb.append('.');
+    return sb.toString();
   }
 
   /** Sogni's hosted API: a copy of shared/src/pulsekit/SogniApi.java (android/build.sh checks they match). */

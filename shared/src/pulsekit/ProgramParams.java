@@ -90,6 +90,8 @@ public final class ProgramParams {
     }
     for (; i < words.size(); i++) {
       String w = words.get(i);
+      // A shortened Usage line (PyJav's hint keeps 220 characters) can end inside a bracket: stop there.
+      if (w.startsWith("[") && !w.endsWith("]") || w.startsWith("<") && !w.endsWith(">")) break;
       boolean optional = w.startsWith("[");
       String inner = optional ? w.substring(1, w.length() - 1).trim() : w;
       if (inner.startsWith("-")) {
@@ -170,7 +172,8 @@ public final class ProgramParams {
       else p.label = s.length() == 0 ? p.token : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
-    if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
+    if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
+    if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";

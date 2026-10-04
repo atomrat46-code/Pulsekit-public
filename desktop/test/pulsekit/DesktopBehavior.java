@@ -575,7 +575,7 @@ public final class DesktopBehavior {
       Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
       call("showView", "py");
       call("selectListedProgram", "Java", "SogniMusic.java");
-      edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --drums_only --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       for (int i = 0; i < 600 && !(log.getText().contains("Saved") || log.getText().contains("Failed") || log.getText().contains("Could not")); i++) Thread.sleep(50);
