@@ -93,10 +93,76 @@ final class AudioOffer {
         }
     }
 
-    /** Picks DrumMidi_CRT, which takes the audio input, and (when `run`) runs it. */
-    static void makeDrumMidi(MainActivity app, boolean run) {
+    /**
+     * Picks DrumMidi_CRT, which takes the audio input, and (when `run`) runs it. DrumMidi_CRT reads
+     * WAV only, so an MP3 input is first turned into a WAV beside it (in the background).
+     */
+    static void makeDrumMidi(final MainActivity app, final boolean run) {
+        String input = app.pyJav.pkAudioInputPath;
+        if (input == null || !input.toLowerCase().endsWith(".mp3")) {
+            pickDrumMidi(app, run);
+            return;
+        }
+        app.setNow("Making a WAV for DrumMidi_CRT\u2026");
+        toWav(app, new java.io.File(input), new Done() {
+            @Override
+            public void done(java.io.File wav, String error) {
+                if (wav != null) app.pyJav.pkAudioInputPath = wav.getAbsolutePath();
+                else app.setNow("Could not make a WAV: " + error);
+                pickDrumMidi(app, run && wav != null);
+            }
+        });
+    }
+
+    static void pickDrumMidi(MainActivity app, boolean run) {
         app.programMenus.selectProgram("Java", "DrumMidi_CRT.java");
         if (run) app.pyJav.pkRunPyJav();
+    }
+
+    interface Done {
+        void done(java.io.File wav, String error);
+    }
+
+    /**
+     * Decodes an MP3 to a mono 16-bit WAV at its own sample rate, beside it (song.mp3 → song.wav), off
+     * the UI thread; `done` runs on the UI thread with the WAV, or null and why not.
+     */
+    static void toWav(final MainActivity app, final java.io.File mp3, final Done done) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                java.io.File wav = null;
+                String error = null;
+                try {
+                    java.io.FileInputStream in = new java.io.FileInputStream(mp3);
+                    ProjectIo.Decoded d;
+                    try {
+                        d = ProjectIo.decodeNative(in.getFD());
+                    } finally {
+                        in.close();
+                    }
+                    String name = mp3.getName();
+                    java.io.File out = new java.io.File(mp3.getParentFile(), name.substring(0, name.length() - 4) + ".wav");
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                    try {
+                        fos.write(AudioIo.encodeWav(d.mono, d.rate));
+                    } finally {
+                        fos.close();
+                    }
+                    wav = out;
+                } catch (Throwable ex) {
+                    error = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                }
+                final java.io.File made = wav;
+                final String why = error;
+                app.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        done.done(made, why);
+                    }
+                });
+            }
+        }, "pulsekit-mp3-wav").start();
     }
 
     static void stop() {

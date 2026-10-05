@@ -467,7 +467,7 @@ final class PyJav {
             + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         if (ans == 0) {
-            this.audioInputPath = audio.getAbsolutePath();
+            this.audioInputPath = this.asWav(audio).getAbsolutePath();
             app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.java");
             this.runPython();
         } else if (ans == 1) {
@@ -476,6 +476,21 @@ final class PyJav {
             } catch (Exception ex) {
                 app.setNow("Could not open a player for " + audio.getName());
             }
+        }
+    }
+
+    /** An MP3 as a mono 16-bit WAV beside it (song.mp3 → song.wav); other files, or a failed decode, as they are. */
+    File asWav(File audio) {
+        if (audio == null || !audio.getName().toLowerCase().endsWith(".mp3")) return audio;
+        try {
+            AudioIo.Pcm pcm = Mp3Decode.parse(Files.readAllBytes(audio.toPath()));
+            String name = audio.getName();
+            File wav = new File(audio.getParentFile(), name.substring(0, name.length() - 4) + ".wav");
+            Files.write(wav.toPath(), AudioIo.encodeWav(AudioIo.floatsToShorts(pcm.samples), pcm.sr));
+            return wav;
+        } catch (Exception ex) {
+            app.setNow("Could not make a WAV from " + audio.getName() + "; using the MP3");
+            return audio;
         }
     }
 
@@ -567,6 +582,8 @@ final class PyJav {
 
     /** Imported WAV or MP3 becomes the input of the PyJav program, e.g. MidiDrumGen.java. */
     void useAudioInput(File file) {
+        // Most programs (DrumMidi_CRT) read WAV only: an MP3 is given as a WAV made beside it.
+        file = this.asWav(file);
         this.audioInputPath = file.getAbsolutePath();
         app.showView("py");
         this.setInputFile(file);

@@ -540,9 +540,43 @@ final class ProjectIo {
 
     short[] decodeWithExtractor(Uri uri) throws Exception {
         int n;
-        MediaExtractor mediaExtractor = new MediaExtractor();
         ParcelFileDescriptor parcelFileDescriptor = app.getContentResolver().openFileDescriptor(uri, "r");
-        mediaExtractor.setDataSource(parcelFileDescriptor.getFileDescriptor());
+        Decoded decoded;
+        try {
+            decoded = decodeNative(parcelFileDescriptor.getFileDescriptor());
+        } finally {
+            parcelFileDescriptor.close();
+        }
+        short[] sArray = decoded.mono;
+        int n3 = decoded.rate;
+        if (n3 != 22050) {
+            double d = (double)n3 / 22050.0;
+            n = Math.max(1, (int)Math.floor((double)sArray.length / d));
+            short[] sArray2 = new short[n];
+            for (int i = 0; i < n; ++i) {
+                sArray2[i] = sArray[Math.min(sArray.length - 1, (int)Math.floor((double)i * d))];
+            }
+            return sArray2;
+        }
+        return sArray;
+    }
+
+    /** Decoded audio: mono 16-bit samples at the file's own rate. */
+    static final class Decoded {
+        final short[] mono;
+        final int rate;
+
+        Decoded(short[] mono, int rate) {
+            this.mono = mono;
+            this.rate = rate;
+        }
+    }
+
+    /** Decodes an MP3 (or any audio Android reads) to mono at its own sample rate. */
+    static Decoded decodeNative(java.io.FileDescriptor fd) throws Exception {
+        int n;
+        MediaExtractor mediaExtractor = new MediaExtractor();
+        mediaExtractor.setDataSource(fd);
         int n2 = 0;
         MediaFormat mediaFormat = null;
         for (int i = 0; i < mediaExtractor.getTrackCount(); ++i) {
@@ -555,7 +589,6 @@ final class ProjectIo {
         }
         if (mediaFormat == null) {
             mediaExtractor.release();
-            parcelFileDescriptor.close();
             throw new IllegalArgumentException("No audio track");
         }
         mediaExtractor.selectTrack(n2);
@@ -606,7 +639,6 @@ final class ProjectIo {
         mediaCodec.stop();
         mediaCodec.release();
         mediaExtractor.release();
-        parcelFileDescriptor.close();
         byte[] byArray = byteArrayOutputStream.toByteArray();
         int n7 = byArray.length / 2 / Math.max(1, n4);
         short[] sArray = new short[n7];
@@ -618,16 +650,7 @@ final class ProjectIo {
             }
             sArray[i] = (short)(n8 / n4);
         }
-        if (n3 != 22050) {
-            double d = (double)n3 / 22050.0;
-            n = Math.max(1, (int)Math.floor((double)sArray.length / d));
-            short[] sArray2 = new short[n];
-            for (int i = 0; i < n; ++i) {
-                sArray2[i] = sArray[Math.min(sArray.length - 1, (int)Math.floor((double)i * d))];
-            }
-            return sArray2;
-        }
-        return sArray;
+        return new Decoded(sArray, n3);
     }
 
 

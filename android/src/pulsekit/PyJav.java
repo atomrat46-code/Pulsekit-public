@@ -1052,6 +1052,16 @@ final class PyJav {
             app.show("py");
             this.pkUseInputPath(this.pkAudioInputPath);
             app.setNow("PyJav input \u00b7 " + base);
+            if (base.toLowerCase().endsWith(".mp3")) {
+                // Most programs (DrumMidi_CRT) read WAV only: a WAV beside the MP3 becomes the input once it is made.
+                final String mp3 = out.getAbsolutePath();
+                AudioOffer.toWav(app, out, (wav, error) -> {
+                    if (wav == null || !mp3.equals(this.pkAudioInputPath)) return;
+                    this.pkAudioInputPath = wav.getAbsolutePath();
+                    if (mp3.equals(this.pkPyInputPath)) this.pkUseInputPath(this.pkAudioInputPath);
+                    app.setNow("PyJav input \u00b7 " + wav.getName());
+                });
+            }
             Toast.makeText((Context)app, (CharSequence)(base + " is the PyJav input. Run MidiDrumGen.java to make MIDI."), (int)1).show();
         }
         catch (Exception exception) {

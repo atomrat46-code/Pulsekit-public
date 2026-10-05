@@ -1662,7 +1662,11 @@ public class BehaviorTest {
     params.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
     AudioOffer.makeDrumMidi(app, false);
-    idle();
+    // An MP3 is turned into a WAV first, off the UI thread (here the stand-in bytes do not decode, so the MP3 stays).
+    for (int i = 0; i < 100 && !"DrumMidi_CRT.java".equals(get("pyName")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
     out.append("Make drum MIDI: ").append(get("pyName")).append(", args ")
         .append(args.getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     write("s51_audio_offer", out.toString());
