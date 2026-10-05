@@ -660,12 +660,12 @@ public final class DesktopBehavior {
       String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
-              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "data:image/png;base64,...")));
+              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+", "data:image/$1;base64,...")));
       String type = "application/json";
       String reply;
       if (path.equals("/v1/models")) {
         reply = "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}";
-      } else if (path.equals("/v1/chat/completions") && body.contains("Draw ten kits")) {
+      } else if (path.startsWith("/v1/chat/") && body.contains("Draw ten kits")) {
         // Past the Unlimited Plan's fair use limit Sogni refuses the task.
         byte[] no = "{\"error\":{\"message\":\"Daily fair use limit reached\"}}".getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "application/json");
@@ -674,6 +674,25 @@ public final class DesktopBehavior {
         ex.getResponseBody().write(no);
         ex.close();
         return;
+      } else if (path.equals("/v1/chat/runs")) {
+        // Unlimited Plan: a durable chat run; Sogni runs the tools on its side.
+        reply = "{\"data\":{\"run\":{\"runId\":\"" + (body.contains("Animate it") ? "run2" : "run1") + "\",\"status\":\"queued\"}}}";
+      } else if (path.matches("/v1/chat/runs/run[12]/events/stream")) {
+        type = "text/event-stream";
+        reply = "event: run_status\ndata: {\"status\":\"running\"}\n\n"
+            + "data: {\"sequence\":1,\"type\":\"tool_call_dispatched\",\"payload\":{\"toolCallId\":\"t1\",\"toolName\":\"generate_image\"}}\n\n"
+            + "data: {\"sequence\":2,\"type\":\"tool_call_progress\",\"payload\":{\"toolCallId\":\"t1\",\"progress\":0.5,\"stepLabel\":\"Rendering\",\"etaSeconds\":40}}\n\n"
+            + "data: {\"sequence\":3,\"type\":\"tool_call_resolved\",\"payload\":{\"toolCallId\":\"t1\",\"toolName\":\"generate_image\",\"status\":\"ok\"}}\n\n"
+            + "data: {\"sequence\":4,\"type\":\"run_completed\",\"payload\":{}}\n\n";
+      } else if (path.equals("/v1/chat/runs/run1")) {
+        reply = "{\"data\":{\"run\":{\"runId\":\"run1\",\"status\":\"completed\",\"finalResponse\":{\"content\":\"Making your kit picture now.\"},"
+            + "\"artifacts\":[{\"id\":\"a1\",\"url\":\"http://127.0.0.1:" + port + "/files/kit.png\",\"mediaType\":\"image\"}],\"childWorkflowIds\":[]}}}";
+      } else if (path.equals("/v1/chat/runs/run2")) {
+        // A run whose results are in the workflow it started.
+        reply = "{\"data\":{\"run\":{\"runId\":\"run2\",\"status\":\"completed\",\"request\":{\"model\":\"deepseek-v4-flash-vision-exp-dspark-1m\","
+            + "\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Animate it\\n\\nPicture wide.jpg is attached as media_ref_1.\"}]}]},"
+            + "\"messages\":[{\"role\":\"assistant\",\"content\":\"Animating it now.\"}],"
+            + "\"artifacts\":[],\"childWorkflowIds\":[\"wf9\"]}}}";
       } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tool_execution\":true")) {
         // Unlimited Plan: Sogni runs the tool in the chat and names the workflow it started.
         reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Making your kit picture now.\"}}],"
@@ -748,11 +767,22 @@ public final class DesktopBehavior {
       Files.write(track.toPath(), new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4});
       File webp = new File(home, "photo.webp");
       Files.write(webp.toPath(), new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '});
-      // Pictures bigger than the 1024 px Sogni shows the chat model: a PNG is sent as a smaller copy.
+      // Pictures bigger than the 1024 px Sogni shows the chat model: SogniChat sends a PNG as a smaller
+      // copy; the app makes one of a JPEG (--seen_copy), turned upright by its EXIF orientation.
       File tall = new File(home, "tall.png");
       javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(832, 1248, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", tall);
       File wide = new File(home, "wide.jpg");
       javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(1300, 700, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", wide);
+      // A camera photo stored on its side (EXIF orientation 6: turn 90 degrees to view).
+      byte[] stored = Files.readAllBytes(wide.toPath());
+      byte[] exif = {(byte) 0xFF, (byte) 0xE1, 0, 34, 'E', 'x', 'i', 'f', 0, 0, 'M', 'M', 0, 42, 0, 0, 0, 8,
+        0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0};
+      byte[] photo = new byte[stored.length + exif.length];
+      System.arraycopy(stored, 0, photo, 0, 2);
+      System.arraycopy(exif, 0, photo, 2, exif.length);
+      System.arraycopy(stored, 2, photo, 2 + exif.length, stored.length - 2);
+      File sideways = new File(home, "sideways.jpg");
+      Files.write(sideways.toPath(), photo);
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
@@ -777,6 +807,9 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + tall.getAbsolutePath() + "\"",
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
+        "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
+        // A chat run started earlier (one that timed out here) is followed again by its id.
+        "--run run2",
         "--models",
         "--max_tokens lots",
       };
@@ -784,7 +817,7 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         // A run that makes a picture shows it; Close the dialog.
-        if (extra.contains("--run_tools") || extra.contains("--unlimited")) answers.add("Close");
+        if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
         for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);

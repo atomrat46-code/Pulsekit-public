@@ -36,6 +36,7 @@ final class DrumMidiSettingsPage {
         }
         ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
         ProgramFolder.init(new java.io.File(app.getFilesDir(), "sogni"));
+        PictureCopies.shrinker = new PictureShrink();
         SogniHistory.init(new java.io.File(app.getFilesDir(), "sogni"));
         LinearLayout pane = app.col();
         pane.setVisibility(View.GONE);

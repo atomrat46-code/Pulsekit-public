@@ -224,6 +224,10 @@ public final class ProgramParams {
       p.label = "Output name";
       p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...";
     }
+    if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
+      p.label = "Follow chat run (id)";
+      p.hint = "a run id from an earlier log, e.g. after a time-out";
+    }
     if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
       p.label = "Continue from saved chat";
       p.hint = "a sogni-chat .txt from an earlier run";

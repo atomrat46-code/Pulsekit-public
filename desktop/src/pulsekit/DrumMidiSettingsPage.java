@@ -187,6 +187,7 @@ final class DrumMidiSettingsPage {
         }
         ApiKeys.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         ProgramFolder.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+        PictureCopies.shrinker = new PictureShrink();
         SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         JPanel col = new JPanel();
         col.setOpaque(false);

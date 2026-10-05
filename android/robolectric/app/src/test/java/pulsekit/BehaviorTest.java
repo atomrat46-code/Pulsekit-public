@@ -1673,6 +1673,58 @@ public class BehaviorTest {
     write("s56_style_meter", out.toString());
   }
 
+  /**
+   * SogniChat and a JPEG bigger than the 1024 px Sogni shows the chat model: the app makes a smaller
+   * copy, turned upright by its EXIF orientation, and passes it as --seen_copy.
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s57_picture_copies() throws Exception {
+    StringBuilder out = new StringBuilder();
+    out.append("shrinker: ").append(PictureCopies.shrinker == null ? "none" : PictureCopies.shrinker.getClass().getSimpleName()).append('\n');
+    android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(1300, 700, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+    b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, jpeg);
+    byte[] stored = jpeg.toByteArray();
+    java.io.File dir = app.getCacheDir();
+    java.io.File wide = new java.io.File(dir, "wide.jpg");
+    java.nio.file.Files.write(wide.toPath(), stored);
+    // The same picture as a camera stores a photo taken on its side (EXIF orientation 6).
+    byte[] exif = {(byte) 0xFF, (byte) 0xE1, 0, 34, 'E', 'x', 'i', 'f', 0, 0, 'M', 'M', 0, 42, 0, 0, 0, 8,
+      0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0};
+    byte[] photo = new byte[stored.length + exif.length];
+    System.arraycopy(stored, 0, photo, 0, 2);
+    System.arraycopy(exif, 0, photo, 2, exif.length);
+    System.arraycopy(stored, 2, photo, 2 + exif.length, stored.length - 2);
+    java.io.File sideways = new java.io.File(dir, "sideways.jpg");
+    java.nio.file.Files.write(sideways.toPath(), photo);
+    java.io.File small = new java.io.File(dir, "small.jpg");
+    android.graphics.Bitmap s = android.graphics.Bitmap.createBitmap(800, 600, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream sj = new java.io.ByteArrayOutputStream();
+    s.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, sj);
+    java.nio.file.Files.write(small.toPath(), sj.toByteArray());
+    out.append("orientation: ").append(PictureCopies.exifOrientation(photo)).append('\n');
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Describe",
+        "--file", wide.getAbsolutePath(), "--file", sideways.getAbsolutePath(), "--file", small.getAbsolutePath()));
+    java.util.List<java.io.File> made = new java.util.ArrayList<java.io.File>();
+    java.util.List<String> got = PictureCopies.withCopies(argv, made);
+    for (int i = 0; i < got.size(); i++) {
+      String a = got.get(i);
+      if (i > 0 && "--seen_copy".equals(got.get(i - 1))) {
+        int[] px = PictureCopies.jpegSize(java.nio.file.Files.readAllBytes(new java.io.File(a).toPath()));
+        out.append(new java.io.File(a).getName()).append(" (").append(px[0]).append('x').append(px[1]).append(") ");
+      } else {
+        out.append(a.startsWith(dir.getAbsolutePath()) ? new java.io.File(a).getName() : a).append(' ');
+      }
+    }
+    out.append('\n');
+    PictureCopies.clean(made);
+    boolean left = false;
+    for (java.io.File f : made) if (f.exists()) left = true;
+    out.append("copies left after the run: ").append(left).append('\n');
+    write("s57_picture_copies", out.toString());
+  }
+
   /** MidiDrumGen in the Java menu: Params lists its switches, with a style list and on/off checkboxes. */
   @Test
   public void s55_midi_drum_gen() throws Exception {
