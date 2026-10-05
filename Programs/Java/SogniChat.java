@@ -201,9 +201,21 @@ public final class SogniChat {
         if (a.data == null) continue;
         Map<String, Object> ref = api.uploadMedia(a.kind, a.mime, a.data, media.size() + 1, a.name);
         a.ref = SogniApi.str(ref.get("id"));
+        a.url = SogniApi.str(ref.get("url"));
         media.add(ref);
         System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
         a.data = null;
+      }
+      // A chat run (Unlimited Plan) takes pictures as uploaded URLs: the model sees the smaller copy of a big one.
+      int views = 0;
+      for (Attachment a : attached) {
+        if (!unlimited || a.seen == null) continue;
+        if (!a.shrunk && a.url != null) {
+          a.seenUrl = a.url;
+          continue;
+        }
+        String copy = a.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-seen" + ("image/png".equals(a.seenMime) ? ".png" : ".jpg");
+        a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
       }
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
@@ -217,6 +229,12 @@ public final class SogniChat {
       sent.add(question);
       for (Attachment a : attached) if (a.image != null) sent.add(a.image);
       turns.add(sent.toArray(new String[0]));
+      List<String[]> runTurns = new ArrayList<String[]>(turns);
+      if (unlimited) {
+        List<String> linked = new ArrayList<String>(sent.subList(0, 2));
+        for (Attachment a : attached) if (a.seenUrl != null) linked.add(a.seenUrl);
+        runTurns.set(runTurns.size() - 1, linked.toArray(new String[0]));
+      }
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
       if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
@@ -236,11 +254,48 @@ public final class SogniChat {
       if (runTools && !unlimited && !media.isEmpty()) {
         System.out.println("Note: uploaded files reach Sogni's tools inside the chat (Unlimited Plan); a proposed call run by --run_tools does not get them");
       }
-      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null, unlimited, media));
-      String reply = SogniApi.chatReply(payload);
-      List<String[]> calls = SogniApi.chatToolCalls(payload);
-      List<String> started = SogniApi.chatWorkflows(payload);
-      if ((reply == null || reply.length() == 0) && calls.isEmpty() && started.isEmpty()) {
+      Object payload = null;
+      String reply;
+      List<String[]> calls = new ArrayList<String[]>();
+      List<String> started = new ArrayList<String>();
+      List<Map<String, Object>> runMedia = new ArrayList<Map<String, Object>>();
+      String stopped = null;
+      if (unlimited) {
+        // A durable chat run: Sogni runs the model and the tools on its side and the run goes on
+        // if the connection drops, so a video that takes minutes does not time out the request.
+        Map<String, Object> run = api.startChatRun(SogniApi.chatRunInput(chosen, system, runTurns, (int) maxTokens, thinking, media));
+        String runId = SogniApi.str(run.get("runId"));
+        if (runId == null) runId = SogniApi.str(run.get("id"));
+        if (runId == null) {
+          System.out.println("Failed: Sogni did not say which chat run it started");
+          return 1;
+        }
+        System.out.println("Chat run " + runId + " started; following it");
+        run = api.waitForRun(runId, 30 * 60 * 1000L, new SogniApi.Log() {
+          public void line(String s) {
+            System.out.println(s);
+          }
+        });
+        String status = SogniApi.str(run.get("status"));
+        reply = SogniApi.runReply(run);
+        runMedia = SogniApi.runArtifacts(run);
+        if (runMedia.isEmpty()) started = SogniApi.runWorkflows(run);
+        if (!"completed".equals(status)) {
+          String why = SogniApi.runProblem(run);
+          stopped = "the chat run " + runId + " " + ("waiting_for_user".equals(status) ? "is waiting" : status == null ? "stopped" : status.replace('_', ' '))
+              + (why != null ? ": " + why : "");
+          if (runMedia.isEmpty() && started.isEmpty() && (reply == null || reply.length() == 0)) {
+            System.out.println("Failed: " + stopped);
+            return 1;
+          }
+        }
+      } else {
+        payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null, false, media));
+        reply = SogniApi.chatReply(payload);
+        calls = SogniApi.chatToolCalls(payload);
+        started = SogniApi.chatWorkflows(payload);
+      }
+      if ((reply == null || reply.length() == 0) && calls.isEmpty() && started.isEmpty() && runMedia.isEmpty()) {
         System.out.println("Failed: Sogni sent no reply text" + (thinking ? " (with --thinking the answer can run out of tokens: raise --max_tokens)" : ""));
         return 1;
       }
@@ -256,7 +311,8 @@ public final class SogniChat {
       System.out.println();
       System.out.println(reply);
       System.out.println();
-      String usage = SogniApi.chatUsage(payload);
+      if (stopped != null) System.out.println("Note: " + stopped);
+      String usage = payload == null ? null : SogniApi.chatUsage(payload);
       if (usage != null) System.out.println("Tokens: " + usage);
       turns.add(new String[] {"assistant", reply});
       // An output name is a base: the chat is <name>.txt and results <name>-1.png...; an extension given is dropped.
@@ -266,7 +322,11 @@ public final class SogniChat {
       else System.out.println("Wrote " + saved.getName());
       List<String> made = new ArrayList<String>();
       if (saved != null) made.add(saved.getName());
-      if (unlimited && !started.isEmpty()) {
+      if (unlimited && !runMedia.isEmpty()) {
+        // The chat run made them: keep them beside the conversation.
+        List<String> kept = saveMedia(api, runMedia, name.replaceAll("\\.[^.]*$", ""));
+        made.addAll(kept);
+      } else if (unlimited && !started.isEmpty()) {
         // Sogni ran the tools in the chat: follow what it started and keep the results.
         List<String> results = follow(api, started, name.replaceAll("\\.[^.]*$", ""));
         if (results == null) return 1;
@@ -352,6 +412,11 @@ public final class SogniChat {
       return null;
     }
     for (String n : notes) System.out.println("Note: " + n);
+    return saveMedia(api, media, stem);
+  }
+
+  /** Downloads each result and saves it as <stem>-1.png, <stem>-2.mp4...; returns the names saved. */
+  static List<String> saveMedia(SogniApi api, List<Map<String, Object>> media, String stem) throws IOException {
     List<String> names = new ArrayList<String>();
     for (int i = 0; i < media.size(); i++) {
       String url = SogniApi.str(media.get(i).get("url"));
@@ -400,8 +465,17 @@ public final class SogniChat {
     /** The file's MIME type, and its bytes until it is uploaded for Sogni's tools (null when it is not). */
     String mime;
     byte[] data;
-    /** Its media reference once uploaded (media_ref_1...), or null. */
+    /** Its media reference once uploaded (media_ref_1...), and the uploaded file's URL; null when not uploaded. */
     String ref;
+    String url;
+    /**
+     * The picture the model sees (the file, or a smaller copy: shrunk), for a chat run, which takes
+     * pictures as uploaded URLs; seenUrl once uploaded.
+     */
+    byte[] seen;
+    String seenMime;
+    boolean shrunk;
+    String seenUrl;
     /** For the log: "notes.txt, 34 characters". */
     String what;
   }
@@ -502,7 +576,12 @@ public final class SogniChat {
         return null;
       }
       // The model sees a PNG or JPEG picture; with the tools on, every file is also uploaded for them.
-      if (inline != null) a.image = "data:" + inlineMime + ";base64," + base64(inline);
+      if (inline != null) {
+        a.image = "data:" + inlineMime + ";base64," + base64(inline);
+        a.seen = inline;
+        a.seenMime = inlineMime;
+        a.shrunk = inline != data;
+      }
       if (tools) a.data = data;
       a.what = ("image".equals(a.kind) ? "picture " : a.kind + " ") + f.getName() + ", " + size(data.length);
       return a;
@@ -1345,6 +1424,59 @@ public final class SogniChat {
     /** As above, with uploaded files (uploadMedia) as media_references, for Sogni's tools to work on. */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute,
         List<Map<String, Object>> media) {
+      Map<String, Object> body = new LinkedHashMap<String, Object>();
+      body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
+      body.put("messages", chatMessages(system, turns));
+      if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
+      body.put("token_type", "spark");
+      body.put("app_source", APP_SOURCE);
+      body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
+      body.put("sogni_tool_execution", Boolean.valueOf(execute && tools != null && tools.length() > 0));
+      Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
+      kwargs.put("enable_thinking", Boolean.valueOf(thinking));
+      body.put("chat_template_kwargs", kwargs);
+      if (media != null && !media.isEmpty()) body.put("media_references", media);
+      return toJson(body);
+    }
+
+    /**
+     * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
+     * tools on its side and the run goes on when the connection drops, so a long job (a video) does
+     * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
+     * Pictures in `turns` are uploaded URLs (a run takes no data: URIs); `media` are the uploads
+     * (uploadMedia), named as media references and as the run's starting media.
+     */
+    public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {
+      Map<String, Object> body = new LinkedHashMap<String, Object>();
+      body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
+      body.put("messages", chatMessages(system, turns));
+      Map<String, Object> sampling = new LinkedHashMap<String, Object>();
+      if (maxTokens > 0) sampling.put("max_tokens", Integer.valueOf(maxTokens));
+      sampling.put("think", Boolean.valueOf(thinking));
+      body.put("sampling", sampling);
+      body.put("token_type", "spark");
+      body.put("app_source", APP_SOURCE);
+      if (media != null && !media.isEmpty()) {
+        body.put("media_references", media);
+        Map<String, Object> context = new LinkedHashMap<String, Object>();
+        List<Object> images = new ArrayList<Object>(), videos = new ArrayList<Object>(), audio = new ArrayList<Object>();
+        for (Map<String, Object> m : media) {
+          String kind = str(m.get("kind"));
+          ("video".equals(kind) ? videos : "audio".equals(kind) ? audio : images).add(m.get("url"));
+        }
+        context.put("images", new ArrayList<Object>());
+        context.put("videos", new ArrayList<Object>());
+        context.put("audio", new ArrayList<Object>());
+        context.put("uploadedImages", images);
+        context.put("uploadedVideos", videos);
+        context.put("uploadedAudio", audio);
+        body.put("media_context", context);
+      }
+      return toJson(body);
+    }
+
+    /** OpenAI-style messages: the system text, then each turn; a turn's entries after its text are picture URLs. */
+    static List<Object> chatMessages(String system, List<String[]> turns) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -1371,19 +1503,7 @@ public final class SogniChat {
         m.put("content", parts);
         messages.add(m);
       }
-      Map<String, Object> body = new LinkedHashMap<String, Object>();
-      body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
-      body.put("messages", messages);
-      if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
-      body.put("token_type", "spark");
-      body.put("app_source", APP_SOURCE);
-      body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
-      body.put("sogni_tool_execution", Boolean.valueOf(execute && tools != null && tools.length() > 0));
-      Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
-      kwargs.put("enable_thinking", Boolean.valueOf(thinking));
-      body.put("chat_template_kwargs", kwargs);
-      if (media != null && !media.isEmpty()) body.put("media_references", media);
-      return toJson(body);
+      return messages;
     }
 
     static Map<String, Object> message(String role, String text) {
@@ -1553,6 +1673,186 @@ public final class SogniChat {
       }
     }
 
+    /** Starts a durable chat run (chatRunInput); returns its record (runId, status). */
+    public Map<String, Object> startChatRun(String inputJson) throws IOException {
+      return runOf(this.request("POST", "/v1/chat/runs", inputJson));
+    }
+
+    /** A chat run's record: status, finalResponse, artifacts, childWorkflowIds, failureReason, waiting. */
+    public Map<String, Object> chatRun(String id) throws IOException {
+      return runOf(this.request("GET", "/v1/chat/runs/" + enc(id), null));
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> runOf(Object payload) throws IOException {
+      if (!(payload instanceof Map)) throw new IOException("Unexpected reply from Sogni");
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object data = p.get("data");
+      if (data instanceof Map && ((Map<String, Object>) data).get("run") instanceof Map) return (Map<String, Object>) ((Map<String, Object>) data).get("run");
+      if (p.get("run") instanceof Map) return (Map<String, Object>) p.get("run");
+      if (data instanceof Map) return (Map<String, Object>) data;
+      return p;
+    }
+
+    /**
+     * Follows a chat run until it stops (completed, partial_failure, failed, cancelled, or waiting
+     * for the user) and returns its record. Reads the run's event stream, telling what the tools do;
+     * if that breaks, looks again every 20 seconds.
+     */
+    public Map<String, Object> waitForRun(String id, long timeoutMs, Log log) throws IOException {
+      long end = System.currentTimeMillis() + timeoutMs;
+      String last = null;
+      try {
+        this.runStream(id, end, log);
+      } catch (IOException ex) {
+        if (log != null) log.line("Event stream stopped (" + ex.getMessage() + "); checking every 20 s");
+      }
+      while (true) {
+        Map<String, Object> run;
+        try {
+          run = this.chatRun(id);
+        } catch (ApiException ex) {
+          if (ex.status != 429 && ex.status < 500) throw ex;
+          int wait = Math.max(ex.retryAfter, 20);
+          if (log != null) log.line("Sogni asks to wait (" + ex.getMessage() + "); again in " + wait + " s");
+          sleep(wait * 1000L);
+          continue;
+        }
+        String status = str(run.get("status"));
+        if (status != null && !status.equals(last) && !isDone(status) && log != null) log.line("Status: " + status);
+        last = status;
+        if (isDone(status)) return run;
+        if (System.currentTimeMillis() > end) throw new IOException("Timed out; the chat run " + id + " is still " + status + " on Sogni");
+        sleep(20000L);
+      }
+    }
+
+    /** Reads a chat run's events until it stops or the stream ends, telling each tool call and its progress. */
+    @SuppressWarnings("unchecked")
+    void runStream(String id, long end, Log log) throws IOException {
+      HttpURLConnection c = this.open("GET", "/v1/chat/runs/" + enc(id) + "/events/stream");
+      c.setRequestProperty("Accept", "text/event-stream");
+      c.setReadTimeout((int) Math.max(1000L, Math.min(Integer.MAX_VALUE, end - System.currentTimeMillis())));
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+      try {
+        StringBuilder data = new StringBuilder();
+        String event = null;
+        long shownTens = -1;
+        String shownStep = null;
+        String line;
+        while ((line = in.readLine()) != null) {
+          if (line.startsWith("event:")) {
+            event = line.substring(6).trim();
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            data.append(data.length() > 0 ? "\n" : "").append(line.substring(5).trim());
+            continue;
+          }
+          if (line.length() > 0 || data.length() == 0) continue;
+          Map<String, Object> ev = null;
+          try {
+            Object o = parseJson(data.toString());
+            if (o instanceof Map) ev = (Map<String, Object>) o;
+          } catch (RuntimeException ignored) {
+            // Not JSON: a keep-alive or a note.
+          }
+          data.setLength(0);
+          String name = event;
+          event = null;
+          if (ev == null) continue;
+          String type = str(ev.get("type"));
+          if (type == null) type = name;
+          Map<String, Object> pay = ev.get("payload") instanceof Map ? (Map<String, Object>) ev.get("payload") : ev;
+          if ("run_status".equals(type) || "run_status".equals(name)) {
+            if (isDone(str(pay.get("status")))) break;
+            continue;
+          }
+          String tool = str(pay.get("toolName"));
+          if (tool == null) tool = str(pay.get("name"));
+          if ("tool_call_dispatched".equals(type)) {
+            if (log != null) log.line("Tool: " + (tool == null ? "started" : tool));
+            shownTens = -1;
+            shownStep = null;
+          } else if ("tool_call_progress".equals(type)) {
+            String step = str(pay.get("stepLabel"));
+            if (step == null) step = str(pay.get("jobLabel"));
+            if (step != null && !step.equals(shownStep)) {
+              if (log != null) log.line("  " + step);
+              shownStep = step;
+            }
+            if (pay.get("progress") instanceof Number) {
+              double p = ((Number) pay.get("progress")).doubleValue();
+              long pct = Math.round(p <= 1 ? p * 100 : p);
+              if (pct / 10 != shownTens) {
+                shownTens = pct / 10;
+                Object eta = pay.get("etaSeconds");
+                if (log != null) log.line("  " + pct + "%" + (eta instanceof Number ? ", about " + Math.round(((Number) eta).doubleValue()) + " s left" : ""));
+              }
+            }
+          } else if ("tool_call_resolved".equals(type)) {
+            String st = str(pay.get("status"));
+            if (log != null) log.line("Tool finished" + (tool == null ? "" : ": " + tool) + (st == null ? "" : " (" + st + ")"));
+          } else if ("run_waiting_for_user".equals(type) || "run_completed".equals(type) || "run_failed".equals(type)
+              || "run_partial_failure".equals(type) || "run_cancelled".equals(type)) {
+            break;
+          }
+        }
+      } finally {
+        in.close();
+        c.disconnect();
+      }
+    }
+
+    /** The run's answer: finalResponse.content, else its last assistant message; without a <think> part. Null if none. */
+    @SuppressWarnings("unchecked")
+    public static String runReply(Map<String, Object> run) {
+      String text = null;
+      if (run.get("finalResponse") instanceof Map) text = str(((Map<String, Object>) run.get("finalResponse")).get("content"));
+      if ((text == null || text.trim().length() == 0) && run.get("messages") instanceof List) {
+        for (Object o : (List<Object>) run.get("messages")) {
+          if (!(o instanceof Map) || !"assistant".equals(str(((Map<String, Object>) o).get("role")))) continue;
+          Object c = ((Map<String, Object>) o).get("content");
+          if (c instanceof String && ((String) c).trim().length() > 0) text = (String) c;
+        }
+      }
+      if (text == null) return null;
+      return text.replaceAll("(?s)<think>.*?</think>", "").trim();
+    }
+
+    /** The pictures, audio and video a chat run made (its artifacts), once each. */
+    public static List<Map<String, Object>> runArtifacts(Map<String, Object> run) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectMedia(run.get("artifacts"), out);
+      return out;
+    }
+
+    /** The workflow ids a chat run started (childWorkflowIds); empty when none. */
+    @SuppressWarnings("unchecked")
+    public static List<String> runWorkflows(Map<String, Object> run) {
+      List<String> out = new ArrayList<String>();
+      if (run.get("childWorkflowIds") instanceof List) {
+        for (Object o : (List<Object>) run.get("childWorkflowIds")) if (str(o) != null) out.add(str(o));
+      }
+      return out;
+    }
+
+    /** Why a chat run stopped short: its failure reason, or what it waits for. */
+    @SuppressWarnings("unchecked")
+    public static String runProblem(Map<String, Object> run) {
+      String why = str(run.get("failureReason"));
+      if (why == null) why = str(run.get("cancellationReason"));
+      if (why == null && run.get("waiting") instanceof Map) {
+        Map<String, Object> w = (Map<String, Object>) run.get("waiting");
+        String reason = str(w.get("reason"));
+        String message = str(w.get("message"));
+        why = "cost_approval_required".equals(reason) ? "it waits for a cost approval" : message != null ? message : reason != null ? "it waits: " + reason.replace('_', ' ') : null;
+      }
+      return why;
+    }
+
     /** Reads the workflow's event stream until a final status or the stream ends; returns the last status seen. */
     String stream(String id, long end, Log log) throws IOException {
       HttpURLConnection c = this.open("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events/stream");
@@ -1640,6 +1940,11 @@ public final class SogniChat {
         String v = str(m.get(k));
         if (v != null && v.indexOf('/') > 0) return v;
       }
+      // A chat run's artifacts name only the kind.
+      String kind = str(m.get("mediaType"));
+      if ("video".equals(kind)) return "video/mp4";
+      if ("image".equals(kind)) return "image/png";
+      if ("audio".equals(kind)) return "audio/mpeg";
       return null;
     }
 

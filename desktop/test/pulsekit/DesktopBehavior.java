@@ -665,7 +665,7 @@ public final class DesktopBehavior {
       String reply;
       if (path.equals("/v1/models")) {
         reply = "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}";
-      } else if (path.equals("/v1/chat/completions") && body.contains("Draw ten kits")) {
+      } else if (path.startsWith("/v1/chat/") && body.contains("Draw ten kits")) {
         // Past the Unlimited Plan's fair use limit Sogni refuses the task.
         byte[] no = "{\"error\":{\"message\":\"Daily fair use limit reached\"}}".getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "application/json");
@@ -674,6 +674,23 @@ public final class DesktopBehavior {
         ex.getResponseBody().write(no);
         ex.close();
         return;
+      } else if (path.equals("/v1/chat/runs")) {
+        // Unlimited Plan: a durable chat run; Sogni runs the tools on its side.
+        reply = "{\"data\":{\"run\":{\"runId\":\"" + (body.contains("Animate it") ? "run2" : "run1") + "\",\"status\":\"queued\"}}}";
+      } else if (path.matches("/v1/chat/runs/run[12]/events/stream")) {
+        type = "text/event-stream";
+        reply = "event: run_status\ndata: {\"status\":\"running\"}\n\n"
+            + "data: {\"sequence\":1,\"type\":\"tool_call_dispatched\",\"payload\":{\"toolCallId\":\"t1\",\"toolName\":\"generate_image\"}}\n\n"
+            + "data: {\"sequence\":2,\"type\":\"tool_call_progress\",\"payload\":{\"toolCallId\":\"t1\",\"progress\":0.5,\"stepLabel\":\"Rendering\",\"etaSeconds\":40}}\n\n"
+            + "data: {\"sequence\":3,\"type\":\"tool_call_resolved\",\"payload\":{\"toolCallId\":\"t1\",\"toolName\":\"generate_image\",\"status\":\"ok\"}}\n\n"
+            + "data: {\"sequence\":4,\"type\":\"run_completed\",\"payload\":{}}\n\n";
+      } else if (path.equals("/v1/chat/runs/run1")) {
+        reply = "{\"data\":{\"run\":{\"runId\":\"run1\",\"status\":\"completed\",\"finalResponse\":{\"content\":\"Making your kit picture now.\"},"
+            + "\"artifacts\":[{\"id\":\"a1\",\"url\":\"http://127.0.0.1:" + port + "/files/kit.png\",\"mediaType\":\"image\"}],\"childWorkflowIds\":[]}}}";
+      } else if (path.equals("/v1/chat/runs/run2")) {
+        // A run whose results are in the workflow it started.
+        reply = "{\"data\":{\"run\":{\"runId\":\"run2\",\"status\":\"completed\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Animating it now.\"}],"
+            + "\"artifacts\":[],\"childWorkflowIds\":[\"wf9\"]}}}";
       } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tool_execution\":true")) {
         // Unlimited Plan: Sogni runs the tool in the chat and names the workflow it started.
         reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Making your kit picture now.\"}}],"
