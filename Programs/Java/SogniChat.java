@@ -79,6 +79,9 @@ public final class SogniChat {
   /** The largest picture sent (7 MB; a data: URI is a third bigger). */
   static final int IMAGE_MAX = 7 * 1024 * 1024;
 
+  /** The longest side, in pixels, of a picture shown to the chat model (Sogni's limit). */
+  static final int INLINE_SIDE = 1024;
+
   /** The largest file uploaded for Sogni's tools (Sogni's own limit: 100 MB). */
   static final int UPLOAD_MAX = 100 * 1024 * 1024;
 
@@ -277,7 +280,8 @@ public final class SogniChat {
     } catch (SogniApi.ApiException ex) {
       boolean picture = false;
       for (Attachment a : attached) if (a.image != null) picture = true;
-      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400
+      String said = String.valueOf(ex.getMessage()).toLowerCase();
+      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400 && !said.contains("dimension") && !said.contains("exceeds")
           ? " (a picture needs a model that sees pictures: try --model deepseek-v4-flash-vision-exp-dspark-1m)" : ""));
       if (unlimited && fairUse(ex)) {
         System.out.println("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
@@ -444,7 +448,28 @@ public final class SogniChat {
       a.kind = media[0];
       a.mime = media[1];
       boolean seen = "image/png".equals(a.mime) || "image/jpeg".equals(a.mime);
-      if (!tools && !(seen && data.length <= IMAGE_MAX)) {
+      byte[] inline = seen && data.length <= IMAGE_MAX ? data : null;
+      int[] px = seen ? pixelSize(data) : null;
+      if (inline != null && px != null && Math.max(px[0], px[1]) > INLINE_SIDE) {
+        // Sogni shows the chat model pictures of up to 1024 px on the longest side: a PNG is sent as
+        // a smaller copy; the tools still get the whole file.
+        inline = "image/png".equals(a.mime) ? smallerPng(data, INLINE_SIDE) : null;
+        int[] small = inline == null ? null : pixelSize(inline);
+        String big = f.getName() + " is " + px[0] + "x" + px[1] + " pixels";
+        if (small != null) {
+          System.out.println("Note: " + big + "; the chat model sees a " + small[0] + "x" + small[1] + " copy (Sogni shows it pictures of up to "
+              + INLINE_SIDE + " px on the longest side)" + (tools ? "; the tools get the full picture" : ""));
+        } else if (tools) {
+          System.out.println("Note: " + big + ", more than the " + INLINE_SIDE + " px on the longest side Sogni shows the chat model,"
+              + " so only the tools get it (uploaded at full size)");
+        } else {
+          System.out.println("Failed: " + big + "; Sogni shows the chat model pictures of up to " + INLINE_SIDE + " px on the longest side."
+              + " Save it smaller or as a PNG (SogniChat sends a smaller copy of a PNG), or tick Offer Sogni tools, Run proposed tool calls"
+              + " or Unlimited Plan, and the file is uploaded for the tools at full size.");
+          return null;
+        }
+      }
+      if (!tools && inline == null) {
         System.out.println("Failed: " + f.getName() + " is " + ("image".equals(a.kind) ? "a picture the chat model cannot see (send a PNG or JPEG of up to "
             + (IMAGE_MAX / (1024 * 1024)) + " MB)" : a.kind + ", which the chat model cannot " + ("audio".equals(a.kind) ? "hear" : "watch"))
             + ". Sogni's tools can use it: tick Offer Sogni tools, Run proposed tool calls or Unlimited Plan, and the file is uploaded for them.");
@@ -455,7 +480,7 @@ public final class SogniChat {
         return null;
       }
       // The model sees a PNG or JPEG picture; with the tools on, every file is also uploaded for them.
-      if (seen && data.length <= IMAGE_MAX) a.image = "data:" + a.mime + ";base64," + base64(data);
+      if (inline != null) a.image = "data:" + a.mime + ";base64," + base64(inline);
       if (tools) a.data = data;
       a.what = ("image".equals(a.kind) ? "picture " : a.kind + " ") + f.getName() + ", " + size(data.length);
       return a;
@@ -499,6 +524,191 @@ public final class SogniChat {
     if (d.length >= 8 && (d[0] & 0xff) == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') return "image/png";
     if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
     return null;
+  }
+
+  /** {width, height} of a PNG (its IHDR) or a JPEG (its SOF marker), or null when unread. */
+  static int[] pixelSize(byte[] d) {
+    String type = pictureType(d);
+    if ("image/png".equals(type)) return d.length >= 24 && starts(d, 12, "IHDR") ? new int[] {bigInt(d, 16), bigInt(d, 20)} : null;
+    if (!"image/jpeg".equals(type)) return null;
+    int i = 2;
+    while (i + 9 < d.length) {
+      if ((d[i] & 0xff) != 0xff) return null;
+      int m = d[i + 1] & 0xff;
+      if (m == 0xff) {
+        i++;
+        continue;
+      }
+      if (m == 0x01 || (m >= 0xd0 && m <= 0xd8)) {
+        i += 2;
+        continue;
+      }
+      if (m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc) {
+        return new int[] {((d[i + 7] & 0xff) << 8) | (d[i + 8] & 0xff), ((d[i + 5] & 0xff) << 8) | (d[i + 6] & 0xff)};
+      }
+      i += 2 + (((d[i + 2] & 0xff) << 8) | (d[i + 3] & 0xff));
+    }
+    return null;
+  }
+
+  static int bigInt(byte[] d, int at) {
+    return ((d[at] & 0xff) << 24) | ((d[at + 1] & 0xff) << 16) | ((d[at + 2] & 0xff) << 8) | (d[at + 3] & 0xff);
+  }
+
+  /**
+   * A PNG at most `side` pixels on its longest side, made by averaging the pixels (no java.awt or
+   * javax.imageio on Android). Reads 8- and 16-bit grey, RGB, palette, grey+alpha and RGBA PNGs
+   * that are not interlaced; null for others or a damaged file.
+   */
+  static byte[] smallerPng(byte[] d, int side) {
+    try {
+      int w = 0, h = 0, depth = 0, type = -1;
+      byte[] palette = null, alpha = null;
+      ByteArrayOutputStream idat = new ByteArrayOutputStream();
+      for (int i = 8; i + 8 <= d.length; ) {
+        int len = bigInt(d, i), at = i + 8;
+        if (len < 0 || at + len > d.length) return null;
+        String kind = new String(d, i + 4, 4, StandardCharsets.ISO_8859_1);
+        if (kind.equals("IHDR")) {
+          w = bigInt(d, at);
+          h = bigInt(d, at + 4);
+          depth = d[at + 8] & 0xff;
+          type = d[at + 9] & 0xff;
+          if (d[at + 12] != 0) return null;
+        } else if (kind.equals("PLTE")) {
+          palette = java.util.Arrays.copyOfRange(d, at, at + len);
+        } else if (kind.equals("tRNS")) {
+          alpha = java.util.Arrays.copyOfRange(d, at, at + len);
+        } else if (kind.equals("IDAT")) {
+          idat.write(d, at, len);
+        } else if (kind.equals("IEND")) {
+          break;
+        }
+        i = at + len + 4;
+      }
+      int channels = type == 0 || type == 3 ? 1 : type == 2 ? 3 : type == 4 ? 2 : type == 6 ? 4 : 0;
+      if (w <= 0 || h <= 0 || channels == 0 || (depth != 8 && depth != 16) || (type == 3 && (palette == null || depth != 8))) return null;
+      int longest = Math.max(w, h);
+      if (longest <= side) return d;
+      int nw = Math.max(1, (int) ((long) w * side / longest)), nh = Math.max(1, (int) ((long) h * side / longest));
+      boolean keepAlpha = type == 4 || type == 6 || (type == 3 && alpha != null);
+      int step = depth / 8, bpp = channels * step;
+      InputStream in = new java.util.zip.InflaterInputStream(new java.io.ByteArrayInputStream(idat.toByteArray()));
+      byte[] row = new byte[w * bpp], prev = new byte[w * bpp];
+      long[] sum = new long[nw * 4];
+      int[] count = new int[nw];
+      ByteArrayOutputStream raw = new ByteArrayOutputStream();
+      int done = 0;
+      for (int y = 0; y < h; y++) {
+        int filter = in.read();
+        if (filter < 0) return null;
+        for (int got = 0; got < row.length; ) {
+          int n = in.read(row, got, row.length - got);
+          if (n < 0) return null;
+          got += n;
+        }
+        unfilter(filter, row, prev, bpp);
+        int oy = (int) ((long) y * nh / h);
+        for (; done < oy; done++) shrunkRow(raw, sum, count, keepAlpha);
+        for (int x = 0; x < w; x++) {
+          int p = x * bpp, r, g, b, a = 255;
+          if (type == 3) {
+            int idx = row[p] & 0xff;
+            if (idx * 3 + 2 >= palette.length) return null;
+            r = palette[idx * 3] & 0xff;
+            g = palette[idx * 3 + 1] & 0xff;
+            b = palette[idx * 3 + 2] & 0xff;
+            if (alpha != null && idx < alpha.length) a = alpha[idx] & 0xff;
+          } else if (type == 0 || type == 4) {
+            r = g = b = row[p] & 0xff;
+            if (type == 4) a = row[p + step] & 0xff;
+          } else {
+            r = row[p] & 0xff;
+            g = row[p + step] & 0xff;
+            b = row[p + 2 * step] & 0xff;
+            if (type == 6) a = row[p + 3 * step] & 0xff;
+          }
+          int ox = (int) ((long) x * nw / w);
+          sum[ox * 4] += r;
+          sum[ox * 4 + 1] += g;
+          sum[ox * 4 + 2] += b;
+          sum[ox * 4 + 3] += a;
+          count[ox]++;
+        }
+        byte[] t = prev;
+        prev = row;
+        row = t;
+      }
+      for (; done < nh; done++) shrunkRow(raw, sum, count, keepAlpha);
+      ByteArrayOutputStream png = new ByteArrayOutputStream();
+      png.write(new byte[] {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'});
+      byte[] head = new byte[13];
+      putInt(head, 0, nw);
+      putInt(head, 4, nh);
+      head[8] = 8;
+      head[9] = (byte) (keepAlpha ? 6 : 2);
+      pngChunk(png, "IHDR", head);
+      ByteArrayOutputStream packed = new ByteArrayOutputStream();
+      java.util.zip.Deflater deflater = new java.util.zip.Deflater(9);
+      java.util.zip.DeflaterOutputStream z = new java.util.zip.DeflaterOutputStream(packed, deflater);
+      z.write(raw.toByteArray());
+      z.close();
+      deflater.end();
+      pngChunk(png, "IDAT", packed.toByteArray());
+      pngChunk(png, "IEND", new byte[0]);
+      return png.toByteArray();
+    } catch (Exception ex) {
+      return null;
+    }
+  }
+
+  /** Undoes a PNG row's filter in place; `prev` is the row above, already undone. */
+  static void unfilter(int filter, byte[] row, byte[] prev, int bpp) throws IOException {
+    if (filter == 0) return;
+    for (int i = 0; i < row.length; i++) {
+      int a = i >= bpp ? row[i - bpp] & 0xff : 0, b = prev[i] & 0xff, c = i >= bpp ? prev[i - bpp] & 0xff : 0, add;
+      if (filter == 1) add = a;
+      else if (filter == 2) add = b;
+      else if (filter == 3) add = (a + b) / 2;
+      else if (filter == 4) {
+        int p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else throw new IOException("bad PNG filter " + filter);
+      row[i] = (byte) (row[i] + add);
+    }
+  }
+
+  /** Writes one row of the smaller picture (the averages so far) and starts the next. */
+  static void shrunkRow(ByteArrayOutputStream raw, long[] sum, int[] count, boolean keepAlpha) {
+    raw.write(0);
+    for (int x = 0; x < count.length; x++) {
+      int n = Math.max(1, count[x]);
+      for (int c = 0; c < (keepAlpha ? 4 : 3); c++) raw.write((int) (sum[x * 4 + c] / n));
+      count[x] = 0;
+      for (int c = 0; c < 4; c++) sum[x * 4 + c] = 0;
+    }
+  }
+
+  static void putInt(byte[] d, int at, int v) {
+    d[at] = (byte) (v >>> 24);
+    d[at + 1] = (byte) (v >>> 16);
+    d[at + 2] = (byte) (v >>> 8);
+    d[at + 3] = (byte) v;
+  }
+
+  static void pngChunk(ByteArrayOutputStream png, String kind, byte[] data) {
+    byte[] len = new byte[4];
+    putInt(len, 0, data.length);
+    byte[] name = kind.getBytes(StandardCharsets.ISO_8859_1);
+    java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+    crc.update(name);
+    crc.update(data);
+    byte[] check = new byte[4];
+    putInt(check, 0, (int) crc.getValue());
+    png.write(len, 0, 4);
+    png.write(name, 0, 4);
+    png.write(data, 0, data.length);
+    png.write(check, 0, 4);
   }
 
   /** Base64 without java.util.Base64 (Android before API 26 has none). */

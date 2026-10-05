@@ -12,7 +12,7 @@ import java.util.*;
  * The tempo stays in the style's range from the style database (Hard Rock 112-145): a tempo given
  * outside it is moved to the nearest end, unless --any-tempo.
  * --timesig sets the meter (default: the style's, 4/4 for most; PyJav passes the app's when it is not
- * 4/4; styles such as Ballad 6/8, Slow Blues (12/8) and Waltz (3/4) have their own): a simple meter
+ * 4/4; styles such as Ballad 6/8, Slip Jig (9/8), Slow Blues (12/8) and Waltz (3/4) have their own): a simple meter
  * plays the style's bar cut or extended to its length, 6/8, 9/8 and 12/8 a dotted-quarter feel,
  * their fills taking the bar's second half in eighths (as Pulsekit's 6/8 and 12/8 fills do).
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
@@ -284,6 +284,7 @@ public class MidiDrumGen {
             "Ballad 6/8|ballad68|60|50|72|0.3|0.9|6|0|6/8\n" +
             "Afro 6/8|latin|110|96|125|0.5|0.5|6|0|6/8\n" +
             "Irish Jig|folk|116|100|130|0.4|0.6|6|0|6/8\n" +
+            "Slip Jig|slipjig98|120|100|140|0.4|0.6|9|0|9/8\n" +
             "Slow Blues|blues128|60|48|72|0.3|0.9|12|0|12/8\n" +
             "Doo-Wop|popballad|66|56|78|0.3|0.9|12|0|12/8\n" +
             "Waltz|popballad|96|84|180|0.3|0.6|3|0|3/4\n" +
@@ -326,6 +327,7 @@ public class MidiDrumGen {
                     case "metal": case "progmetal": intensity = 9; break;
                     case "rockballad": case "popballad": case "metalballad": case "ballad68": intensity = 4; break;
                     case "blues128": swing = 0.0; intensity = 4; break;
+                    case "slipjig98": intensity = 6; break;
                     case "funk": hats = "16ths"; swing = 0.18; break;
                     case "latin": hats = "16ths"; intensity = 7; break;
                     case "pop": intensity = 5; break;
@@ -350,6 +352,7 @@ public class MidiDrumGen {
                 else if (base.equals("progmetal")) internalBase = "metal";
                 else if (base.equals("rockballad") || base.equals("popballad") || base.equals("metalballad") || base.equals("ballad68")) internalBase = "rock";
                 else if (base.equals("blues128")) internalBase = "blues_shuffle";
+                else if (base.equals("slipjig98")) internalBase = "rock";
                 else if (base.equals("latin")) internalBase = "reggaeton";
 
                 BASE_STYLES.put(id, internalBase);

@@ -748,6 +748,11 @@ public final class DesktopBehavior {
       Files.write(track.toPath(), new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4});
       File webp = new File(home, "photo.webp");
       Files.write(webp.toPath(), new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '});
+      // Pictures bigger than the 1024 px Sogni shows the chat model: a PNG is sent as a smaller copy.
+      File tall = new File(home, "tall.png");
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(832, 1248, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", tall);
+      File wide = new File(home, "wide.jpg");
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(1300, 700, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", wide);
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
@@ -769,6 +774,9 @@ public final class DesktopBehavior {
         "--prompt \"Make a video for this song with this kit\" --file \"" + track.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\" --unlimited",
         "--prompt \"What is this?\" --file \"" + track.getAbsolutePath() + "\"",
         "--prompt \"Restyle it\" --file \"" + webp.getAbsolutePath() + "\" --tools",
+        "--prompt \"Describe it\" --file \"" + tall.getAbsolutePath() + "\"",
+        "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
+        "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--models",
         "--max_tokens lots",
       };
@@ -803,7 +811,7 @@ public final class DesktopBehavior {
   /** Picking Ballad 6/8 or Slow Blues 12/8 sets the time signature; a 4/4 style after it sets 4/4 back, a hand-set one stays. */
   void s39_style_meter() throws Exception {
     StyleLibrary lib = (StyleLibrary) get("styleLibrary");
-    for (String id : new String[] {"ballad68", "rock", "blues128", "hardrock"}) {
+    for (String id : new String[] {"ballad68", "rock", "blues128", "hardrock", "slipjig98", "folk"}) {
       edt(() -> lib.loadStyle(id, false));
       int steps = (Integer) get("steps");
       int[][] cells = (int[][]) get("cells");
