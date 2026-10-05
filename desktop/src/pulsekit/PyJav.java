@@ -671,6 +671,8 @@ final class PyJav {
         }
         final String[] before = values.clone();
         final JTextField[] fields = new JTextField[ps.size()];
+        // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
+        final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
         for (int i = 0; i < ps.size(); i++) {
             final ProgramParams.Param p = ps.get(i);
@@ -678,6 +680,13 @@ final class PyJav {
             form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
             if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
+                continue;
+            }
+            if (p.flag && !p.takesValue) {
+                javax.swing.JCheckBox check = new javax.swing.JCheckBox("On", DrumMidiArgs.on(values[i]));
+                check.setName("params-check:" + p.token);
+                checks[i] = check;
+                form.add(check);
                 continue;
             }
             if (p.isFile()) {
@@ -733,11 +742,17 @@ final class PyJav {
         }
         JPanel resets = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton defaults = new JButton("Reset to defaults");
-        defaults.addActionListener(e -> { for (JTextField f : fields) if (f != null) f.setText(""); });
+        defaults.addActionListener(e -> {
+            for (JTextField f : fields) if (f != null) f.setText("");
+            for (javax.swing.JCheckBox c : checks) if (c != null) c.setSelected(false);
+        });
         resets.add(defaults);
         if (ProgramParams.hasSuggested(ps)) {
             JButton suggested = new JButton("Reset to suggested values");
-            suggested.addActionListener(e -> { for (int i = 0; i < fields.length; i++) if (fields[i] != null) fields[i].setText(ps.get(i).suggested); });
+            suggested.addActionListener(e -> {
+                for (int i = 0; i < fields.length; i++) if (fields[i] != null) fields[i].setText(ps.get(i).suggested);
+                for (int i = 0; i < checks.length; i++) if (checks[i] != null) checks[i].setSelected(DrumMidiArgs.on(ps.get(i).suggested));
+            });
             resets.add(suggested);
         }
         JPanel box = new JPanel(new BorderLayout(0, 8));
@@ -753,6 +768,7 @@ final class PyJav {
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (ans != JOptionPane.OK_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
+        for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
         String input = null;
         boolean newInput = false;

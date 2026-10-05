@@ -531,53 +531,58 @@ public final class HitCompare {
           + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(Math.max(0.1, sens.doubleValue() - 0.1)) + ")."
               : "(lower it by about 0.1)."));
     }
-    String[] cym = {"hat", "ride", "crash"};
-    Double[] was = {num(settings, "hat"), num(settings, "ride"), num(settings, "crash")};
-    Row c = row(vsWav, CYMBAL);
-    // On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
-    // stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
-    double crashes = kinds == null ? 0 : kinds[2] / bars;
-    double hatsRides = kinds == null ? 0 : (kinds[0] + kinds[1]) / bars;
-    boolean lowered = false;
-    if (crashes > 0.75) {
-      lowered = true;
-      out.add(String.format(Locale.ROOT, "--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
-          + "section (about one every 4 to 8 bars)", crashes)
-          + step(next, new String[] {"crash"}, new Double[] {was[2]}, -0.1, ". Lower it by about 0.1."));
-    }
-    double hats = kinds == null ? 0 : kinds[0] / bars;
-    double rides = kinds == null ? 0 : kinds[1] / bars;
-    if (hatsRides > 16) {
-      lowered = true;
-      out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
-          + "16th-note groove plays", hatsRides)
-          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
-    } else if (hats > 2 && rides > 2) {
-      // A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
-      lowered = true;
-      out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
-          + "together, where a drummer keeps time on one of them", hats, rides)
-          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
-    } else if (rides > 1.5 && was[1] != null && was[1].doubleValue() > CYMBAL_MAX) {
-      // Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
-      lowered = true;
-      out.add(String.format(Locale.ROOT, "--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
-          + "cymbal wash and guitars", rides, fmt(CYMBAL_MAX))
-          + step(next, new String[] {"ride"}, new Double[] {was[1]}, -0.1, ". Lower it to " + fmt(CYMBAL_MAX) + "."));
-    }
-    boolean fewCymbals = cymbals < 2.0 && (c != null ? c.ref >= 8 && c.recall() < 0.5 : vsWav == null);
-    boolean room = was[0] == null || was[1] == null || was[0].doubleValue() < CYMBAL_MAX || was[1].doubleValue() < CYMBAL_MAX;
-    if (!lowered && fewCymbals && room) {
-      // Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
-      out.add(String.format(Locale.ROOT, "--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar", cymbals)
-          + (c != null ? String.format(Locale.ROOT, " (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
-              + "guitars, so this is a hint)", 100 * c.recall()) : "")
-          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, 0.1,
-              ". Raise them by about 0.1, to no more than " + fmt(CYMBAL_MAX) + "."));
-    } else if (!lowered && c != null && c.test >= 8 && c.precision() < 0.7) {
-      out.add(String.format(Locale.ROOT, "--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
-          + "heard in the WAV", 100 * (1 - c.precision()))
-          + step(next, cym, was, -0.1, ". Lower them by about 0.1."));
+    // --no-cymbals: DrumMidi left hats, rides and crashes out on purpose (they are played in on the pads).
+    if ("off".equals(settings == null ? null : settings.get("cymbals"))) {
+      out.add("Cymbals were left out (--no-cymbals), so there is no hat, ride or crash advice.");
+    } else {
+      String[] cym = {"hat", "ride", "crash"};
+      Double[] was = {num(settings, "hat"), num(settings, "ride"), num(settings, "crash")};
+      Row c = row(vsWav, CYMBAL);
+      // On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
+      // stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
+      double crashes = kinds == null ? 0 : kinds[2] / bars;
+      double hatsRides = kinds == null ? 0 : (kinds[0] + kinds[1]) / bars;
+      boolean lowered = false;
+      if (crashes > 0.75) {
+        lowered = true;
+        out.add(String.format(Locale.ROOT, "--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
+            + "section (about one every 4 to 8 bars)", crashes)
+            + step(next, new String[] {"crash"}, new Double[] {was[2]}, -0.1, ". Lower it by about 0.1."));
+      }
+      double hats = kinds == null ? 0 : kinds[0] / bars;
+      double rides = kinds == null ? 0 : kinds[1] / bars;
+      if (hatsRides > 16) {
+        lowered = true;
+        out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
+            + "16th-note groove plays", hatsRides)
+            + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
+      } else if (hats > 2 && rides > 2) {
+        // A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
+        lowered = true;
+        out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
+            + "together, where a drummer keeps time on one of them", hats, rides)
+            + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
+      } else if (rides > 1.5 && was[1] != null && was[1].doubleValue() > CYMBAL_MAX) {
+        // Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
+        lowered = true;
+        out.add(String.format(Locale.ROOT, "--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
+            + "cymbal wash and guitars", rides, fmt(CYMBAL_MAX))
+            + step(next, new String[] {"ride"}, new Double[] {was[1]}, -0.1, ". Lower it to " + fmt(CYMBAL_MAX) + "."));
+      }
+      boolean fewCymbals = cymbals < 2.0 && (c != null ? c.ref >= 8 && c.recall() < 0.5 : vsWav == null);
+      boolean room = was[0] == null || was[1] == null || was[0].doubleValue() < CYMBAL_MAX || was[1].doubleValue() < CYMBAL_MAX;
+      if (!lowered && fewCymbals && room) {
+        // Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
+        out.add(String.format(Locale.ROOT, "--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar", cymbals)
+            + (c != null ? String.format(Locale.ROOT, " (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
+                + "guitars, so this is a hint)", 100 * c.recall()) : "")
+            + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, 0.1,
+                ". Raise them by about 0.1, to no more than " + fmt(CYMBAL_MAX) + "."));
+      } else if (!lowered && c != null && c.test >= 8 && c.precision() < 0.7) {
+        out.add(String.format(Locale.ROOT, "--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
+            + "heard in the WAV", 100 * (1 - c.precision()))
+            + step(next, cym, was, -0.1, ". Lower them by about 0.1."));
+      }
     }
     Row sk = row(songVsMidi, KICK);
     Row ss = row(songVsMidi, SNARE);

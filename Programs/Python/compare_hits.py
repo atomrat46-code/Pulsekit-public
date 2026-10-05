@@ -337,51 +337,55 @@ def suggestions(midi, bpm, vs_wav, song_vs_midi, settings=None, wav_name=None, k
                     % (100 * (1 - prec(k)) if k else 0, 100 * (1 - prec(sn)) if sn else 0)
                     + ("(it was %s; try %s)." % (fmt(sens), fmt(max(0.1, sens - 0.1))) if sens is not None
                        else "(lower it by about 0.1)."))
-    cym = ["hat", "ride", "crash"]
-    was = [number(x) for x in cym]
-    c = vs_wav.get(CYMBAL) if vs_wav else None
-    # On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
-    # stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
-    crashes = kinds[2] / bars if kinds else 0.0
-    hats_rides = (kinds[0] + kinds[1]) / bars if kinds else 0.0
-    lowered = False
-    if crashes > 0.75:
-        lowered = True
-        out_.append("--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
-                    "section (about one every 4 to 8 bars)" % crashes
-                    + step(nxt, ["crash"], [was[2]], -0.1, ". Lower it by about 0.1."))
-    hats = kinds[0] / bars if kinds else 0.0
-    rides = kinds[1] / bars if kinds else 0.0
-    if hats_rides > 16:
-        lowered = True
-        out_.append("--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
-                    "16th-note groove plays" % hats_rides
-                    + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
-    elif hats > 2 and rides > 2:
-        # A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
-        lowered = True
-        out_.append("--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
-                    "together, where a drummer keeps time on one of them" % (hats, rides)
-                    + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
-    elif rides > 1.5 and was[1] is not None and was[1] > CYMBAL_MAX:
-        # Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
-        lowered = True
-        out_.append("--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
-                    "cymbal wash and guitars" % (rides, fmt(CYMBAL_MAX))
-                    + step(nxt, ["ride"], [was[1]], -0.1, ". Lower it to %s." % fmt(CYMBAL_MAX)))
-    few_cymbals = cymbals < 2.0 and ((c[0] >= 8 and rec(c) < 0.5) if c else vs_wav is None)
-    room = was[0] is None or was[1] is None or was[0] < CYMBAL_MAX or was[1] < CYMBAL_MAX
-    if not lowered and few_cymbals and room:
-        # Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
-        out_.append("--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar" % cymbals
-                    + (" (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
-                       "guitars, so this is a hint)" % (100 * rec(c)) if c else "")
-                    + step(nxt, ["hat", "ride"], was[:2], 0.1,
-                           ". Raise them by about 0.1, to no more than %s." % fmt(CYMBAL_MAX)))
-    elif not lowered and c and c[1] >= 8 and prec(c) < 0.7:
-        out_.append("--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
-                    "heard in the WAV" % (100 * (1 - prec(c)))
-                    + step(nxt, cym, was, -0.1, ". Lower them by about 0.1."))
+    # --no-cymbals: DrumMidi left hats, rides and crashes out on purpose (they are played in on the pads).
+    if settings.get("cymbals") == "off":
+        out_.append("Cymbals were left out (--no-cymbals), so there is no hat, ride or crash advice.")
+    else:
+        cym = ["hat", "ride", "crash"]
+        was = [number(x) for x in cym]
+        c = vs_wav.get(CYMBAL) if vs_wav else None
+        # On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
+        # stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
+        crashes = kinds[2] / bars if kinds else 0.0
+        hats_rides = (kinds[0] + kinds[1]) / bars if kinds else 0.0
+        lowered = False
+        if crashes > 0.75:
+            lowered = True
+            out_.append("--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
+                        "section (about one every 4 to 8 bars)" % crashes
+                        + step(nxt, ["crash"], [was[2]], -0.1, ". Lower it by about 0.1."))
+        hats = kinds[0] / bars if kinds else 0.0
+        rides = kinds[1] / bars if kinds else 0.0
+        if hats_rides > 16:
+            lowered = True
+            out_.append("--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
+                        "16th-note groove plays" % hats_rides
+                        + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
+        elif hats > 2 and rides > 2:
+            # A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
+            lowered = True
+            out_.append("--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
+                        "together, where a drummer keeps time on one of them" % (hats, rides)
+                        + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
+        elif rides > 1.5 and was[1] is not None and was[1] > CYMBAL_MAX:
+            # Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
+            lowered = True
+            out_.append("--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
+                        "cymbal wash and guitars" % (rides, fmt(CYMBAL_MAX))
+                        + step(nxt, ["ride"], [was[1]], -0.1, ". Lower it to %s." % fmt(CYMBAL_MAX)))
+        few_cymbals = cymbals < 2.0 and ((c[0] >= 8 and rec(c) < 0.5) if c else vs_wav is None)
+        room = was[0] is None or was[1] is None or was[0] < CYMBAL_MAX or was[1] < CYMBAL_MAX
+        if not lowered and few_cymbals and room:
+            # Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
+            out_.append("--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar" % cymbals
+                        + (" (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
+                           "guitars, so this is a hint)" % (100 * rec(c)) if c else "")
+                        + step(nxt, ["hat", "ride"], was[:2], 0.1,
+                               ". Raise them by about 0.1, to no more than %s." % fmt(CYMBAL_MAX)))
+        elif not lowered and c and c[1] >= 8 and prec(c) < 0.7:
+            out_.append("--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
+                        "heard in the WAV" % (100 * (1 - prec(c)))
+                        + step(nxt, cym, was, -0.1, ". Lower them by about 0.1."))
     sk = song_vs_midi.get(KICK) if song_vs_midi else None
     ss = song_vs_midi.get(SNARE) if song_vs_midi else None
     if (sk and sk[0] >= 8 and rec(sk) < 0.9) or (ss and ss[0] >= 8 and rec(ss) < 0.9):

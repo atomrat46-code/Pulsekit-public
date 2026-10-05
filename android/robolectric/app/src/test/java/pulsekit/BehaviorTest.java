@@ -847,6 +847,24 @@ public class BehaviorTest {
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("defaults: ").append(args.getText()).append('\n');
+    // Kick, snare and toms only: a checkbox; the switch reaches the arguments and Params reopens ticked.
+    call("pkOpenParams");
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.CheckBox noCymbals = (android.widget.CheckBox) d.getWindow().getDecorView().findViewWithTag("params-check:--no-cymbals");
+    out.append("no-cymbals box: ").append(noCymbals.getText()).append(", ticked ").append(noCymbals.isChecked()).append('\n');
+    noCymbals.setChecked(true);
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("no cymbals: ").append(args.getText()).append('\n');
+    call("pkOpenParams");
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("reopened ticked: ").append(((android.widget.CheckBox) d.getWindow().getDecorView().findViewWithTag("params-check:--no-cymbals")).isChecked()).append('\n');
+    d.getWindow().getDecorView().findViewWithTag("params-defaults").performClick();
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("defaults again: ").append(args.getText()).append('\n');
     write("s30_drummidi_params_resets", out.toString());
   }
 
@@ -1394,7 +1412,8 @@ public class BehaviorTest {
       out.append(flag).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
     }
     ((android.widget.EditText) dv.findViewWithTag("params-field:--split_time")).setText("02:45");
-    ((android.widget.EditText) dv.findViewWithTag("params-field:--trim")).setText("1");
+    out.append("--trim checkbox: ").append(dv.findViewWithTag("params-check:--trim") != null).append('\n');
+    ((android.widget.CheckBox) dv.findViewWithTag("params-check:--trim")).setChecked(true);
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("args: ").append(args.getText()).append('\n');

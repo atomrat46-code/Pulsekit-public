@@ -30,7 +30,7 @@ public final class PyJavParams {
   /** Params for the DrumMidi switches, as before programs listed their own. */
   public static void open(final Activity activity, final String program, String extra) {
     open(activity, program, extra, "Usage: java DrumMidi <input.wav> <output.mid> [--sens N] [--hat N] [--tom N] [--ride N] "
-        + "[--crash N] [--bpm N] [--quantize N] [--no-hpss]");
+        + "[--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals]");
   }
 
   public static void open(final Activity activity, final String program, final String extra, String programText) {
@@ -57,6 +57,8 @@ public final class PyJavParams {
       }
     }
     final EditText[] fields = new EditText[ps.size()];
+    // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
+    final android.widget.CheckBox[] checks = new android.widget.CheckBox[ps.size()];
     int pad = dp(activity, 12);
     LinearLayout box = new LinearLayout(activity);
     box.setOrientation(LinearLayout.VERTICAL);
@@ -74,6 +76,7 @@ public final class PyJavParams {
       resets.addView(suggested, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
       suggested.setOnClickListener(v -> {
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) fields[i].setText(ps.get(i).suggested);
+        for (int i = 0; i < checks.length; i++) if (checks[i] != null) checks[i].setChecked(DrumMidiArgs.on(ps.get(i).suggested));
       });
     }
     box.addView(resets);
@@ -84,10 +87,21 @@ public final class PyJavParams {
     box.addView(note);
     defaults.setOnClickListener(v -> {
       for (EditText f : fields) if (f != null) f.setText("");
+      for (android.widget.CheckBox c : checks) if (c != null) c.setChecked(false);
     });
     for (int i = 0; i < ps.size(); i++) {
       final ProgramParams.Param p = ps.get(i);
       final int index = i;
+      if (p.flag && !p.takesValue) {
+        android.widget.CheckBox check = new android.widget.CheckBox(activity);
+        check.setText(p.label + "  " + p.token);
+        check.setTag("params-check:" + p.token);
+        check.setChecked(DrumMidiArgs.on(values[i]));
+        check.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+        checks[i] = check;
+        box.addView(check);
+        continue;
+      }
       TextView label = new TextView(activity);
       label.setText(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
       label.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
@@ -157,6 +171,7 @@ public final class PyJavParams {
           public void onClick(android.content.DialogInterface dialog, int which) {
             for (int i = 0; i < fields.length; i++) {
               if (fields[i] != null) values[i] = fields[i].getText() == null ? "" : fields[i].getText().toString();
+              if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
             }
             String switches = ProgramParams.build(ps, values);
             activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();
