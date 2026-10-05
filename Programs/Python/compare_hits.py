@@ -48,8 +48,9 @@ def var_len(d, p):
     return v, p
 
 
-def midi_hits(path):
-    """Hit times in seconds, sorted, one array per family. Follows tempo changes."""
+def midi_hits(path, kinds=None):
+    """Hit times in seconds, sorted, one array per family. Follows tempo changes.
+    With `kinds` (a list of three), also counts hat, ride and crash notes into it."""
     if not os.path.isfile(path):
         raise FileNotFoundError("No such file: %s" % os.path.basename(path))
     d = open(path, "rb").read()
@@ -107,6 +108,13 @@ def midi_hits(path):
         f = FAMILY.get(note)
         if f is not None:
             out[f].append(seconds(tick))
+        if kinds is not None:
+            if note in (42, 44, 46):
+                kinds[0] += 1
+            elif note in (51, 53, 59):
+                kinds[1] += 1
+            elif note in (49, 52, 55, 57):
+                kinds[2] += 1
     return [np.array(sorted(x)) for x in out]
 
 
@@ -262,7 +270,24 @@ def next_args(settings, nxt):
     return " ".join(words)
 
 
-def suggestions(midi, bpm, vs_wav, song_vs_midi, settings=None, wav_name=None):
+# Hat, ride and crash are raised no further than this: higher, cymbal wash becomes hits.
+CYMBAL_MAX = 0.6
+
+
+def step(nxt, keys, was, d, unknown):
+    """Moves each switch by d for the next run (raised to no more than CYMBAL_MAX; lowered to no less
+    than 0.1, twice as far from CYMBAL_MAX up) and says so; `unknown` when the values used are not known."""
+    if any(v is None for v in was):
+        return unknown
+    # From CYMBAL_MAX and up a step down is twice as big: those values are well into the noise.
+    to = [max(v, min(CYMBAL_MAX, v + d)) if d > 0 else max(0.1, v + (2 * d if v >= CYMBAL_MAX else d)) for v in was]
+    for key, v in zip(keys, to):
+        nxt[key] = v
+    return " (%s %s; try %s)." % ("it was" if len(keys) == 1 else "they were",
+                                  ", ".join(fmt(v) for v in was), ", ".join(fmt(v) for v in to))
+
+
+def suggestions(midi, bpm, vs_wav, song_vs_midi, settings=None, wav_name=None, kinds=None):
     """Hints for DrumMidi's switches, as in Pulsekit's HitCompare.suggestions."""
     settings = settings or {}
     out_ = []
@@ -313,30 +338,43 @@ def suggestions(midi, bpm, vs_wav, song_vs_midi, settings=None, wav_name=None):
                        else "(lower it by about 0.1)."))
     cym = ["hat", "ride", "crash"]
     was = [number(x) for x in cym]
-    known = all(v is not None for v in was)
     c = vs_wav.get(CYMBAL) if vs_wav else None
-    if (c and c[0] >= 8 and rec(c) < 0.5) or (vs_wav is None and cymbals < 1.0):
-        if known:
-            ups = [max(0.8, v + 0.2) for v in was]
-            for key, up in zip(cym, ups):
-                nxt[key] = up
-            tail = " (they were %s; try %s)." % (", ".join(fmt(v) for v in was), ", ".join(fmt(v) for v in ups))
-        else:
-            tail = ". Raise them, e.g. to 0.8, or leave them out to follow --sens."
-        if c:
-            out_.append("--hat, --ride and --crash need more sensitivity: the MIDI has only %.0f%% of the "
-                        "cymbal hits heard in the WAV (%.1f per bar)" % (100 * rec(c), cymbals) + tail)
-        else:
-            out_.append("--hat, --ride and --crash may need more sensitivity: only %.1f cymbal hits per bar" % cymbals + tail)
-    elif c and c[1] >= 8 and prec(c) < 0.7:
-        tail = "."
-        if known:
-            downs = [max(0.1, v - 0.1) for v in was]
-            for key, down in zip(cym, downs):
-                nxt[key] = down
-            tail = " (try %s)." % ", ".join(fmt(v) for v in downs)
+    # On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
+    # stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
+    crashes = kinds[2] / bars if kinds else 0.0
+    hats_rides = (kinds[0] + kinds[1]) / bars if kinds else 0.0
+    lowered = False
+    if crashes > 0.75:
+        lowered = True
+        out_.append("--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
+                    "section (about one every 4 to 8 bars)" % crashes
+                    + step(nxt, ["crash"], [was[2]], -0.1, ". Lower it by about 0.1."))
+    hats = kinds[0] / bars if kinds else 0.0
+    rides = kinds[1] / bars if kinds else 0.0
+    if hats_rides > 16:
+        lowered = True
+        out_.append("--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
+                    "16th-note groove plays" % hats_rides
+                    + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
+    elif hats > 2 and rides > 2:
+        # A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
+        lowered = True
+        out_.append("--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
+                    "together, where a drummer keeps time on one of them" % (hats, rides)
+                    + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
+    few_cymbals = cymbals < 2.0 and ((c[0] >= 8 and rec(c) < 0.5) if c else vs_wav is None)
+    room = was[0] is None or was[1] is None or was[0] < CYMBAL_MAX or was[1] < CYMBAL_MAX
+    if not lowered and few_cymbals and room:
+        # Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
+        out_.append("--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar" % cymbals
+                    + (" (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
+                       "guitars, so this is a hint)" % (100 * rec(c)) if c else "")
+                    + step(nxt, ["hat", "ride"], was[:2], 0.1,
+                           ". Raise them by about 0.1, to no more than %s." % fmt(CYMBAL_MAX)))
+    elif not lowered and c and c[1] >= 8 and prec(c) < 0.7:
         out_.append("--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
-                    "heard in the WAV" % (100 * (1 - prec(c))) + tail)
+                    "heard in the WAV" % (100 * (1 - prec(c)))
+                    + step(nxt, cym, was, -0.1, ". Lower them by about 0.1."))
     sk = song_vs_midi.get(KICK) if song_vs_midi else None
     ss = song_vs_midi.get(SNARE) if song_vs_midi else None
     if (sk and sk[0] >= 8 and rec(sk) < 0.9) or (ss and ss[0] >= 8 and rec(ss) < 0.9):
@@ -403,7 +441,8 @@ def main(args):
         audio = audio_onsets(x, sr)
         out("Read %s: %.1f s, onsets found in %d ms" % (os.path.basename(files[0]), len(x) / sr, (time.time() - t0) * 1000))
     at = 1 if is_wav else 0
-    midi = midi_hits(files[at])
+    kinds = [0, 0, 0]
+    midi = midi_hits(files[at], kinds)
     settings = drum_midi_settings(files[at])
     if settings:
         out("DrumMidi settings: %s%s" % (settings.get("args") or "its defaults",
@@ -419,7 +458,7 @@ def main(args):
     if song is not None:
         text, song_vs_midi = compare("MIDI", midi, "Song", song, False)
         out(text)
-    out(suggestions(midi, midi_bpm(files[at]), vs_wav, song_vs_midi, settings, os.path.basename(files[0]) if is_wav else None))
+    out(suggestions(midi, midi_bpm(files[at]), vs_wav, song_vs_midi, settings, os.path.basename(files[0]) if is_wav else None, kinds))
     out(LEGEND)
     finish("Succeeded: compared %d files" % len(files))
 
