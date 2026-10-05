@@ -1622,6 +1622,35 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** A run that made an audio file (SogniMusic's track) offers Play and Make drum MIDI; the track becomes the input. */
+  @Test
+  public void s51_audio_offer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--genre House --drums_only");
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni_music.mp3", new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniMusic 2026\nWrote sogni_music.mp3 (1 KB)\nSucceeded: sogni_music.mp3", files, 0));
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(" / ")
+        .append(d.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append(", ")
+        .append(d.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append(", ")
+        .append(d.getButton(DialogInterface.BUTTON_NEGATIVE).getText()).append('\n');
+    out.append("input: ").append(app.pyJav.pkAudioInputPath.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("SogniMusic args kept: ").append(args.getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    AudioOffer.makeDrumMidi(app, false);
+    idle();
+    out.append("Make drum MIDI: ").append(get("pyName")).append(", args ")
+        .append(args.getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    write("s51_audio_offer", out.toString());
+  }
+
   /** Tap File, then an item in its menu. */
   private void fileMenuItem(String label) throws Exception {
     TextView file = findText(root(), "File");

@@ -388,6 +388,7 @@ final class PyJav {
                 boolean loaded = false;
                 int midis = 0;
                 int audios = 0;
+                java.util.Map<String, File> savedAudio = new java.util.HashMap<String, File>();
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
@@ -416,7 +417,10 @@ final class PyJav {
                         // --saveprompt): kept in Downloads, as on Android.
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
-                        if (saved != null) audios++;
+                        if (saved != null) {
+                            audios++;
+                            savedAudio.put(f.name, saved);
+                        }
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {
@@ -445,8 +449,33 @@ final class PyJav {
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
                 if (loaded) app.setNow("Script MIDI · " + name);
+                // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
+                String made = PyJavHints.madeAudio(result.log);
+                if (made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
             });
         }, "pulsekit-pyjav").start();
+    }
+
+    /**
+     * After a run that made an audio file: Make drum MIDI (the file becomes the audio input and
+     * DrumMidi_CRT runs on it, importing the drums as a file set), Play (the system player), or Close.
+     */
+    void offerAudio(File audio) {
+        Object[] options = new Object[] {"Make drum MIDI", "Play", "Close"};
+        int ans = JOptionPane.showOptionDialog(app, audio.getName() + " is saved in " + audio.getParent() + ".\n\n"
+            + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        if (ans == 0) {
+            this.audioInputPath = audio.getAbsolutePath();
+            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.java");
+            this.runPython();
+        } else if (ans == 1) {
+            try {
+                java.awt.Desktop.getDesktop().open(audio);
+            } catch (Exception ex) {
+                app.setNow("Could not open a player for " + audio.getName());
+            }
+        }
     }
 
     /** Writes a program's file to ~/Downloads (or ~/.pulsekit), never over an existing file. */

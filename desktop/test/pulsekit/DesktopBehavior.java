@@ -575,6 +575,7 @@ public final class DesktopBehavior {
       Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
       call("showView", "py");
       call("selectListedProgram", "Java", "SogniMusic.java");
+      answers.add("Make drum MIDI");
       edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --drums_only --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
@@ -588,6 +589,9 @@ public final class DesktopBehavior {
       }
       File saved = new File(home, ".pulsekit/sogni_music.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
+      for (int i = 0; i < 100 && !"DrumMidi_CRT.java".equals(get("pyName")); i++) Thread.sleep(50);
+      out.append("after Make drum MIDI: ").append(get("pyName")).append(", input ")
+          .append(String.valueOf(get("pyInputPath")).replace(home.getAbsolutePath(), "~")).append('\n');
     } finally {
       server.stop(0);
     }
@@ -623,7 +627,8 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !(log.getText().contains("Failed") || log.getText().contains("Succeeded")); i++) Thread.sleep(50);
+    // Pulsekit's own "Saved ..." line comes after the program's output, so wait for it.
+    for (int i = 0; i < 400 && !(log.getText().contains("Saved " + home.getAbsolutePath()) || log.getText().contains("Could not save")); i++) Thread.sleep(50);
     for (String line : log.getText().split("\n")) {
       if (line.startsWith("Saved") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
