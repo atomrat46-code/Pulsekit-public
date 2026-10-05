@@ -16,10 +16,12 @@ final class DrumMidiSettingsPage {
     static final String PREFS = "pulsekit-drum-midi";
     static final String KEY = "settings";
     static final int PICK_KEY = 33;
+    static final int PICK_FOLDER = 34;
 
     final MainActivity app;
     TextView hitsLabel;
     TextView keyStatus;
+    TextView folderStatus;
 
     DrumMidiSettingsPage(MainActivity app) {
         this.app = app;
@@ -33,6 +35,7 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.reset();
         }
         ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
+        ProgramFolder.init(new java.io.File(app.getFilesDir(), "sogni"));
         SogniHistory.init(new java.io.File(app.getFilesDir(), "sogni"));
         LinearLayout pane = app.col();
         pane.setVisibility(View.GONE);
@@ -63,6 +66,7 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on));
         body.addView(this.fillernDefaultGroup());
         body.addView(this.keyGroup());
+        body.addView(this.folderGroup());
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();
@@ -173,6 +177,59 @@ final class DrumMidiSettingsPage {
         row.addView(clear, new LinearLayout.LayoutParams(-2, app.dp(40)));
         item.addView(row);
         return item;
+    }
+
+    /**
+     * Program files folder: where PyJav keeps what programs make (SogniChat's replies and results,
+     * SogniMusic's tracks). Downloads unless a folder is chosen with the system picker, which lets
+     * Pulsekit write there from then on.
+     */
+    View folderGroup() {
+        LinearLayout item = app.col();
+        item.setPadding(0, app.dp(18), 0, app.dp(4));
+        item.addView(app.text("Program files folder", 15, true));
+        TextView sub = app.text("Where PyJav keeps the files programs make: SogniChat's replies, pictures, audio and video, "
+            + "SogniMusic's tracks, CutWav's cuts. Downloads unless you choose a folder.", 12, false);
+        sub.setTextColor(MUTED);
+        item.addView(sub);
+        this.folderStatus = app.text(ProgramFolder.label(), 14, false);
+        this.folderStatus.setTextColor(FG);
+        this.folderStatus.setTag("program-folder-status");
+        this.folderStatus.setPadding(0, app.dp(6), 0, app.dp(6));
+        item.addView(this.folderStatus);
+        LinearLayout row = app.row();
+        TextView choose = app.action("Choose folder", ELEV, FG, v -> {
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            app.startActivityForResult(intent, PICK_FOLDER);
+        });
+        choose.setTag("program-folder-choose");
+        TextView downloads = app.action("Use Downloads", ELEV, FG, v -> {
+            ProgramFolder.clear();
+            this.folderStatus.setText(ProgramFolder.label());
+            app.setNow("Program files go to Downloads");
+        });
+        downloads.setTag("program-folder-clear");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, app.dp(40));
+        lp.setMargins(0, 0, app.dp(8), 0);
+        row.addView(choose, lp);
+        row.addView(downloads, new LinearLayout.LayoutParams(-2, app.dp(40)));
+        item.addView(row);
+        return item;
+    }
+
+    /** The picker's folder: Pulsekit keeps permission to write there and uses it from now on. */
+    void takeFolder(android.net.Uri tree) {
+        try {
+            app.getContentResolver().takePersistableUriPermission(tree,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            ProgramFolder.set(tree.toString());
+            app.setNow("Program files go to " + ProgramFolder.label());
+        } catch (Exception ex) {
+            app.setNow("Could not use that folder" + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+        }
+        if (this.folderStatus != null) this.folderStatus.setText(ProgramFolder.label());
     }
 
     /** The picker's file: its key is kept, or the page says why not. */

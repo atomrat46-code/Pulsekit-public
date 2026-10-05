@@ -509,12 +509,13 @@ final class PyJav {
         }
     }
 
-    /** Writes a program's file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
+    /** Writes a program's file to the program files folder (else ~/Downloads, or ~/.pulsekit), never over an existing file. */
     File saveProgramFile(String name, byte[] data) {
         try {
             File home = new File(System.getProperty("user.home", "."));
-            File dir = new File(home, "Downloads");
-            if (!dir.isDirectory()) dir = new File(home, ".pulsekit");
+            // The program files folder from Drum Midi Settings, else ~/Downloads (or ~/.pulsekit).
+            File dir = ProgramFolder.get() != null ? new File(ProgramFolder.get()) : new File(home, "Downloads");
+            if (ProgramFolder.get() == null && !dir.isDirectory()) dir = new File(home, ".pulsekit");
             if (!dir.isDirectory()) dir.mkdirs();
             String safe = name.replace('\\', '_').replace('/', '_');
             int dot = safe.lastIndexOf('.');

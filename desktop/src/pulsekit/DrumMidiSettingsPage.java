@@ -107,6 +107,65 @@ final class DrumMidiSettingsPage {
         col.add(row);
     }
 
+    JLabel folderStatus;
+
+    /**
+     * Program files folder: where PyJav keeps what programs make (SogniChat's replies and results,
+     * SogniMusic's tracks). ~/Downloads unless a folder is chosen.
+     */
+    void addFolderGroup(JPanel col) {
+        col.add(Box.createVerticalStrut(18));
+        JLabel head = new JLabel("Program files folder");
+        head.setFont(new Font("SansSerif", Font.BOLD, 15));
+        head.setForeground(FG);
+        head.setAlignmentX(0.0f);
+        col.add(head);
+        JLabel note = new JLabel("<html><body style='width:480px'>Where PyJav keeps the files programs make: SogniChat's replies, "
+            + "pictures, audio and video, SogniMusic's tracks, CutWav's cuts. Downloads unless you choose a folder.</body></html>");
+        note.setForeground(MUTED);
+        note.setAlignmentX(0.0f);
+        col.add(note);
+        this.folderStatus = new JLabel(ProgramFolder.label());
+        this.folderStatus.setName("program-folder-status");
+        this.folderStatus.setForeground(FG);
+        this.folderStatus.setAlignmentX(0.0f);
+        col.add(this.folderStatus);
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        row.setOpaque(false);
+        row.setAlignmentX(0.0f);
+        JButton choose = app.outline("Choose folder", false);
+        choose.setName("program-folder-choose");
+        choose.addActionListener(e -> {
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser(ProgramFolder.get());
+            chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            this.takeFolder(chooser.getSelectedFile());
+        });
+        JButton downloads = app.outline("Use Downloads", false);
+        downloads.setName("program-folder-clear");
+        downloads.addActionListener(e -> {
+            ProgramFolder.clear();
+            this.folderStatus.setText(ProgramFolder.label());
+            app.setNow("Program files go to Downloads");
+        });
+        row.add(choose);
+        row.add(downloads);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        col.add(row);
+    }
+
+    /** The chosen folder: program files go there from now on. */
+    void takeFolder(File dir) {
+        try {
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("it is not a folder");
+            ProgramFolder.set(dir.getAbsolutePath());
+            app.setNow("Program files go to " + ProgramFolder.label());
+        } catch (Exception ex) {
+            app.setNow("Could not use that folder" + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+        }
+        if (this.folderStatus != null) this.folderStatus.setText(ProgramFolder.label());
+    }
+
     /** The chosen file: its key is kept, or the status says why not. */
     void takeKey(File file) {
         try {
@@ -127,6 +186,7 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.reset();
         }
         ApiKeys.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+        ProgramFolder.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         JPanel col = new JPanel();
         col.setOpaque(false);
@@ -212,6 +272,7 @@ final class DrumMidiSettingsPage {
             col.add(r);
         }
         this.addKeyGroup(col);
+        this.addFolderGroup(col);
         col.add(Box.createVerticalStrut(16));
         JButton reset = app.outline("Reset to defaults", false);
         reset.setAlignmentX(0.0f);

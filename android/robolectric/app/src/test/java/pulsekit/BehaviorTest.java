@@ -1641,6 +1641,23 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
+  @Test
+  public void s53_program_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumMidiSettingsPage page = app.drumMidiSettings;
+    out.append("before: ").append(page.folderStatus.getText()).append('\n');
+    page.takeFolder(android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2FSogni"));
+    out.append("after: ").append(page.folderStatus.getText()).append('\n');
+    // A folder that cannot be written (here: no such provider) leaves the file in Downloads.
+    out.append("published: ").append(ArtJava.publish(app, "kit-ideas-1.png", new byte[] {1, 2, 3}) != null).append('\n');
+    ProgramFolder.init(new java.io.File(app.getFilesDir(), "sogni"));
+    out.append("kept: ").append(ProgramFolder.label()).append('\n');
+    root().findViewWithTag("program-folder-clear").performClick();
+    out.append("cleared: ").append(page.folderStatus.getText()).append('\n');
+    write("s53_program_folder", out.toString());
+  }
+
   /** SogniChat: Params has a text-file picker for --file and checkboxes for --thinking and --models; a run's reply is its verdict. */
   @Test
   public void s52_sogni_chat() throws Exception {
