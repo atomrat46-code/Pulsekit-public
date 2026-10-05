@@ -829,6 +829,21 @@ public final class DesktopBehavior {
     for (String line : log.getText().split("\n")) {
       if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
+    // The app's time signature (here 3/4) goes to MidiDrumGen as --timesig; 4/4 is not passed.
+    out.append("argv 6/8: ").append(JavaRun.argvFor("[--timesig 3/4]", 120, "house", 4, 0, "", 6, 8)).append('\n');
+    out.append("argv 4/4: ").append(JavaRun.argvFor("[--timesig 3/4]", 120, "house", 4, 0, "", 4, 4)).append('\n');
+    out.append("argv own: ").append(JavaRun.argvFor("[--timesig 3/4]", 120, "house", 4, 0, "--timesig 7/8", 6, 8)).append('\n');
+    set("tsNum", 3);
+    answers.add("Yes");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 4"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("$ java") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
+    }
+    set("tsNum", 4);
   }
 
   /** Program files folder: a chosen folder gets the files programs make, kept across starts; "Use Downloads" goes back. */

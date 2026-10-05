@@ -74,6 +74,11 @@ public final class PythonRun {
     return JavaRun.argvFor(source, bpm, style, bars, swing, extra);
   }
 
+  /** As above, with the app's time signature (passed as --timesig unless 4/4). */
+  public static List<String> kitArgv(String source, int bpm, String style, int bars, int swing, String extra, int tsNum, int tsDen) {
+    return JavaRun.argvFor(source, bpm, style, bars, swing, extra, tsNum, tsDen);
+  }
+
   public static Result run(String source, String scriptName, List<String> argv) {
     String py = findPython();
     if (py == null) {

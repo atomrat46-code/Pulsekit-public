@@ -514,7 +514,7 @@ final class PyJav {
             if (this.pkPyHint != null) this.pkPyHint.setText(pulsekit.PyJavHints.outputNotice(filled, hint, this.pkPyInputPath, dir.getAbsolutePath()));
         } else {
             int swing = app.swingBar != null ? app.swingBar.getVal() : 0;
-            argv = pulsekit.JavaRun.argvFor(src, app.bpm(), app.style, app.bars, swing, extra);
+            argv = pulsekit.JavaRun.argvFor(src, app.bpm(), app.style, app.bars, swing, extra, app.tsNum, app.tsDen);
         }
         if (name.toLowerCase().endsWith(".prompt")) {
             argv.add("--pk-run");
