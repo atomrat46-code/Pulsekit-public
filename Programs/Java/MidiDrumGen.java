@@ -11,13 +11,15 @@ import java.util.*;
  * The output file is given alone or with --output (default drum_track_full_db.mid).
  * The tempo stays in the style's range from the style database (Hard Rock 112-145): a tempo given
  * outside it is moved to the nearest end, unless --any-tempo.
+ * --timesig sets the meter (default 4/4; PyJav passes the app's when it is not 4/4): a simple meter
+ * plays the style's bar cut or extended to its length, 6/8, 9/8 and 12/8 a dotted-quarter feel.
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
  * app's 12 for 0.12), and the MIDI goes into PyJav's work folder, so it is imported.
  */
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo]";
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
@@ -370,8 +372,14 @@ public class MidiDrumGen {
         int humanize;
         int ppq = 480;
         Set<String> used = new HashSet<>();
+        /** Only hits from winStart up to winEnd (the bar being written) are kept: a pattern longer than the bar is cut. */
+        double winStart = -1e9, winEnd = 1e9;
 
         public DrumWriter(int tempo, int humanize) {
+            this(tempo, humanize, 4, 4);
+        }
+
+        public DrumWriter(int tempo, int humanize, int tsNum, int tsDen) {
             this.humanize = humanize;
             try {
                 sequence = new Sequence(Sequence.PPQ, ppq);
@@ -387,7 +395,7 @@ public class MidiDrumGen {
                 tempoMsg.setMessage(0x51, tempoBytes, 3);
                 track.add(new MidiEvent(tempoMsg, 0));
 
-                byte[] tsBytes = new byte[]{4, 2, 24, 8};
+                byte[] tsBytes = new byte[]{(byte) tsNum, (byte) (31 - Integer.numberOfLeadingZeros(tsDen)), 24, 8};
                 MetaMessage tsMsg = new MetaMessage();
                 tsMsg.setMessage(0x58, tsBytes, 4);
                 track.add(new MidiEvent(tsMsg, 0));
@@ -396,7 +404,13 @@ public class MidiDrumGen {
             }
         }
 
+        public void window(double start, double end) {
+            winStart = start;
+            winEnd = end;
+        }
+
         public void add(int pitch, double t, double dur, int vel, String tag) {
+            if (t < winStart - 1e-6 || t >= winEnd - 1e-6) return;
             String key = pitch + ":" + String.format(Locale.US, "%.4f", t);
             if (used.contains(key)) return;
             used.add(key);
@@ -671,10 +685,22 @@ public class MidiDrumGen {
 
     public static void arrange(DrumWriter w, String rawStyle, int bars, double swing, int intensity,
                                String hatsMode, boolean crashes, boolean fills, boolean halfTime) {
+        arrange(w, rawStyle, bars, swing, intensity, hatsMode, crashes, fills, halfTime, 4, 4);
+    }
+
+    /**
+     * The bars in a time signature. A simple meter (3/4, 5/4, 7/8) plays the style's 4/4 bar cut to
+     * the bar's length, a longer bar going on from the pattern's start (5/4: one more beat); a fill
+     * ends on the bar's last beat. A compound meter (6/8, 9/8, 12/8) has its own dotted-quarter feel.
+     */
+    public static void arrange(DrumWriter w, String rawStyle, int bars, double swing, int intensity,
+                               String hatsMode, boolean crashes, boolean fills, boolean halfTime, int tsNum, int tsDen) {
         String s = resolveStyle(rawStyle);
+        double barQ = tsNum * 4.0 / tsDen;
+        boolean compound = tsDen == 8 && tsNum % 3 == 0 && tsNum >= 6;
 
         for (int bar = 0; bar < bars; bar++) {
-            double t0 = bar * 4.0;
+            double t0 = bar * barQ;
             double phase = (double) bar / Math.max(1, bars);
 
             boolean isFill = false;
@@ -688,24 +714,46 @@ public class MidiDrumGen {
                 }
             }
 
-            if (isFill && !s.equals("gabber")) {
-                fill(w, t0, size, intensity);
-                if (bar == bars - 1) {
-                    w.add(CRASH, t0 + 3.99, 2.2, 124, "out");
-                    w.add(CRASH2, t0 + 3.99, 2.2, 108, "out2");
-                    w.add(KICK, t0 + 3.99, 0.7, 127, "outk");
-                }
-                continue;
-            }
-
             String section = "verse";
             if (phase >= 0.75 && halfTime) section = "half";
             else if (phase >= 0.5) section = "chorus";
             else if (phase >= 0.25) section = "drive";
 
+            if (isFill && !s.equals("gabber")) {
+                // A bar longer than 4/4 plays its groove first; the fill takes the last four beats (or the whole bar).
+                if (barQ > 4) {
+                    w.window(t0, t0 + barQ - 4);
+                    playBar(w, t0, bar, s, rawStyle, section, swing, intensity, hatsMode, crashes, true);
+                }
+                w.window(t0, t0 + barQ);
+                fill(w, t0 + barQ - 4, size, intensity);
+                if (bar == bars - 1) {
+                    w.add(CRASH, t0 + barQ - 0.01, 2.2, 124, "out");
+                    w.add(CRASH2, t0 + barQ - 0.01, 2.2, 108, "out2");
+                    w.add(KICK, t0 + barQ - 0.01, 0.7, 127, "outk");
+                }
+                w.window(-1e9, 1e9);
+                continue;
+            }
+
+            w.window(t0, t0 + barQ);
+            if (compound) {
+                compoundBar(w, t0, tsNum, bar, s, section, swing, intensity, crashes);
+            } else {
+                for (double start = t0; start < t0 + barQ - 1e-6; start += 4.0) {
+                    playBar(w, start, bar, s, rawStyle, section, swing, intensity, hatsMode, crashes, start == t0);
+                }
+            }
+            w.window(-1e9, 1e9);
+        }
+    }
+
+    /** One 4/4 bar of the style from t0: kick and snare, the bar's crash (when `first`), and the hats or ride. */
+    static void playBar(DrumWriter w, double t0, int bar, String s, String rawStyle, String section, double swing,
+                        int intensity, String hatsMode, boolean crashes, boolean first) {
             grooveKickSnare(w, t0, rawStyle, section, intensity);
 
-            if (crashes && (bar == 0 || (section.equals("chorus") && Math.abs((bar * 4) % 8) < 1e-6))) {
+            if (first && crashes && (bar == 0 || (section.equals("chorus") && Math.abs((bar * 4) % 8) < 1e-6))) {
                 w.add(CRASH, t0, 1.7, (bar == 0 || section.equals("chorus")) ? 118 : 96, "cr");
             }
 
@@ -728,6 +776,56 @@ public class MidiDrumGen {
             } else {
                 hats8ths(w, t0, swing, intensity >= 6, section.equals("drive") && bar % 2 == 1);
             }
+    }
+
+    /**
+     * A compound-meter bar (6/8, 9/8, 12/8): pulses of a dotted quarter (three eighths). The kick on
+     * the odd pulses and the snare on the even ones (four-on-the-floor styles: a kick on every pulse
+     * and a clap on the even ones), eighths on the hats (the ride in a heavy style's chorus) with the
+     * pulses accented, and a pickup kick before the snare outside the verse.
+     */
+    static void compoundBar(DrumWriter w, double t0, int tsNum, int bar, String s, String section, double swing,
+                            int intensity, boolean crashes) {
+        int pulses = tsNum / 3;
+        int kickV = Math.min(127, 114 + intensity);
+        int sn = Math.min(127, 108 + intensity);
+        boolean floor = Arrays.asList("house", "disco", "techno", "trance", "synthwave", "gabber", "reggaeton").contains(s);
+        boolean heavy = Arrays.asList("hard_rock", "metal", "punk", "thrash_metal", "pop_punk", "rock", "doom_metal").contains(s);
+        for (int p = 0; p < pulses; p++) {
+            double pt = t0 + p * 1.5;
+            if (floor) {
+                w.add(KICK, pt, 0.4, p == 0 ? kickV : kickV - 6, "k");
+                if (p % 2 == 1) w.add(CLAP, pt, 0.35, sn, "cl");
+            } else if (p % 2 == 0) {
+                w.add(KICK, pt, 0.4, p == 0 ? kickV : kickV - 8, "k");
+                if (!section.equals("verse")) w.add(KICK, pt + 1.0, 0.22, kickV - 18, "k");
+            } else {
+                w.add(SNARE, pt, 0.35, sn, "s");
+            }
+        }
+        boolean ride = heavy && section.equals("chorus");
+        for (int i = 0; i < tsNum; i++) {
+            double t = t0 + i * 0.5;
+            int v = i % 3 == 0 ? (ride ? 96 : 90) : (ride ? 66 : 60);
+            w.add(ride ? RIDE : CLOSED_HH, swingTime(t, swing), ride ? 0.4 : 0.3, v, ride ? "rd" : "hh");
+        }
+        if (crashes && (bar == 0 || (section.equals("chorus") && bar % 2 == 0))) w.add(CRASH, t0, 1.7, 116, "cr");
+    }
+
+    /**
+     * A time signature: "3/4", "6/8", "7/8"... (1 to 16 beats of a half, quarter, eighth or sixteenth),
+     * or a plain number as SogniMusic takes it: 6, 9 or 12 for /8, else /4. Null when it is neither.
+     */
+    static int[] timesig(String value) {
+        String v = value == null ? "" : value.trim();
+        try {
+            int slash = v.indexOf('/');
+            int num = Integer.parseInt(slash < 0 ? v : v.substring(0, slash).trim());
+            int den = slash < 0 ? (num == 6 || num == 9 || num == 12 ? 8 : 4) : Integer.parseInt(v.substring(slash + 1).trim());
+            if (num < 1 || num > 16 || (den != 2 && den != 4 && den != 8 && den != 16)) return null;
+            return new int[] {num, den};
+        } catch (NumberFormatException ex) {
+            return null;
         }
     }
 
@@ -739,6 +837,7 @@ public class MidiDrumGen {
         int humanize = 4;
         boolean fills = true, crashes = true, halfTime = true;
         boolean anyTempo = false;
+        int tsNum = 4, tsDen = 4;
         String output = "drum_track_full_db.mid";
 
         for (int i = 0; i < args.length; i++) {
@@ -757,6 +856,16 @@ public class MidiDrumGen {
                 case "--half-time": halfTime = true; break;
                 case "--no-half-time": halfTime = false; break;
                 case "--any-tempo": anyTempo = true; break;
+                case "--timesig": {
+                    int[] ts = timesig(args[++i]);
+                    if (ts == null) {
+                        System.out.println("Failed: --timesig is beats over a note value, such as 3/4, 6/8 or 7/8 (also 3 for 3/4, 6 for 6/8)");
+                        return;
+                    }
+                    tsNum = ts[0];
+                    tsDen = ts[1];
+                    break;
+                }
                 case "--output": case "-o": output = args[++i]; break;
                 case "-h": case "--help": System.out.println(USAGE); return;
                 default:
@@ -786,14 +895,14 @@ public class MidiDrumGen {
         String fHats = hats.equals("auto") ? d.hats : hats;
         int fHumanize = clamp(humanize, 0, 12);
 
-        DrumWriter w = new DrumWriter(fTempo, fHumanize);
-        arrange(w, style, fBars, fSwing, fIntensity, fHats, crashes, fills, halfTime);
+        DrumWriter w = new DrumWriter(fTempo, fHumanize, tsNum, tsDen);
+        arrange(w, style, fBars, fSwing, fIntensity, fHats, crashes, fills, halfTime, tsNum, tsDen);
         // In PyJav (pulsekit.work set) a bare name goes in its work folder, so the MIDI is imported.
         String work = System.getProperty("pulsekit.work");
         if (work != null && work.length() > 0 && !new File(output).isAbsolute()) output = new File(work, output).getPath();
         w.write(output);
 
-        System.out.printf(Locale.US, "Wrote %s (style=%s base=%s tempo=%d bars=%d swing=%.2f intensity=%d hats=%s)\n",
-                new File(output).getName(), style, resolveStyle(style), fTempo, fBars, fSwing, fIntensity, fHats);
+        System.out.printf(Locale.US, "Wrote %s (style=%s base=%s tempo=%d timesig=%d/%d bars=%d swing=%.2f intensity=%d hats=%s)\n",
+                new File(output).getName(), style, resolveStyle(style), fTempo, tsNum, tsDen, fBars, fSwing, fIntensity, fHats);
     }
 }

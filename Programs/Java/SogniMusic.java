@@ -64,6 +64,7 @@ public final class SogniMusic {
     double bpm = 0;
     double duration = 30;
     int timesig = 0;
+    String timesigText = null;
     double maxCost = 0;
     boolean confirm = false;
     boolean drumsOnly = false;
@@ -76,7 +77,10 @@ public final class SogniMusic {
       else if (a.equals("--bpm") && i + 1 < args.length) bpm = number(a, args[++i]);
       else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
       else if (a.equals("--keyscale") && i + 1 < args.length) keyscale = args[++i];
-      else if (a.equals("--timesig") && i + 1 < args.length) timesig = timesig(args[++i]);
+      else if (a.equals("--timesig") && i + 1 < args.length) {
+        timesigText = args[++i];
+        timesig = timesig(timesigText);
+      }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -123,6 +127,11 @@ public final class SogniMusic {
       keyscale = k;
     } else {
       keyscale = null;
+    }
+    if (timesig < 0 && timesigText != null && timesigText.trim().matches("\\d{1,2}\\s*/\\s*(2|4|8|16)")) {
+      // A real meter Sogni cannot make (PyJav passes the app's, such as 5/4 or 7/8): Sogni's default is used.
+      System.out.println("Note: Sogni makes 2/4, 3/4, 4/4 or 6/8, not " + timesigText.trim() + "; the music uses Sogni's default (4/4)");
+      timesig = 0;
     }
     if (timesig < 0) {
       System.out.println("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");

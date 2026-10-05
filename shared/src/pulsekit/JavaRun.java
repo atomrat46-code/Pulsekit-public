@@ -87,6 +87,11 @@ public final class JavaRun {
    * "Rock Ballad", not also --genre House).
    */
   public static List<String> argvFor(String source, int bpm, String style, int bars, int swing, String extra) {
+    return argvFor(source, bpm, style, bars, swing, extra, 4, 4);
+  }
+
+  /** As above, with the app's time signature: passed as --timesig N/D to a program that takes it, unless 4/4. */
+  public static List<String> argvFor(String source, int bpm, String style, int bars, int swing, String extra, int tsNum, int tsDen) {
     List<String> argv = new ArrayList<String>();
     String src = source == null ? "" : source;
     List<String> given = split(extra);
@@ -111,6 +116,11 @@ public final class JavaRun {
     if (src.contains("--swing") && !given.contains("--swing")) {
       argv.add("--swing");
       argv.add(Integer.toString(Math.max(0, swing)));
+    }
+    if (src.contains("--timesig") && !given.contains("--timesig") && tsNum > 0 && tsDen > 0 && !(tsNum == 4 && tsDen == 4)) {
+      // The app's time signature (MidiDrumGen, SogniMusic); 4/4 is every program's own default.
+      argv.add("--timesig");
+      argv.add(tsNum + "/" + tsDen);
     }
     String key = ApiKeys.path();
     if (key != null && src.contains("--key_file") && !given.contains("--key_file")) {

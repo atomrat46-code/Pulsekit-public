@@ -361,7 +361,7 @@ final class PyJav {
         if ((app.pyInputPath != null && app.pyInputPath.length() > 0) || outPath.length() > 0) {
             argv = PyJavHints.programArgs(filled, this.pyInputToken, app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
         } else {
-            argv = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra);
+            argv = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra, app.tsNum, app.tsDen);
         }
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
