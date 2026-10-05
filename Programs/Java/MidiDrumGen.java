@@ -11,7 +11,8 @@ import java.util.*;
  * The output file is given alone or with --output (default drum_track_full_db.mid).
  * The tempo stays in the style's range from the style database (Hard Rock 112-145): a tempo given
  * outside it is moved to the nearest end, unless --any-tempo.
- * --timesig sets the meter (default 4/4; PyJav passes the app's when it is not 4/4): a simple meter
+ * --timesig sets the meter (default: the style's, 4/4 for most; PyJav passes the app's when it is not
+ * 4/4; styles such as Ballad 6/8, Slow Blues (12/8) and Waltz (3/4) have their own): a simple meter
  * plays the style's bar cut or extended to its length, 6/8, 9/8 and 12/8 a dotted-quarter feel.
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
  * app's 12 for 0.12), and the MIDI goes into PyJav's work folder, so it is imported.
@@ -34,6 +35,8 @@ public class MidiDrumGen {
         int tempo, bars, intensity;
         /** The style's tempo range in the style database (0 when it has none). */
         int minTempo, maxTempo;
+        /** The style's time signature (the database's tenth column; 4/4 when it has none). */
+        int tsNum = 4, tsDen = 4;
         double swing;
         String hats;
 
@@ -276,7 +279,14 @@ public class MidiDrumGen {
             "Darkstep|dnb|174|166|182|0.3|0.5|14|0\n" +
             "Techstep|dnb|174|166|180|0.35|0.55|14|0\n" +
             "Atmospheric DnB|dnb|170|162|178|0.25|0.6|10|0\n" +
-            "Sambass|dnb|172|164|180|0.4|0.55|12|0";
+            "Sambass|dnb|172|164|180|0.4|0.55|12|0\n" +
+            "Ballad 6/8|rockballad|60|50|72|0.3|0.9|6|0|6/8\n" +
+            "Afro 6/8|latin|110|96|125|0.5|0.5|6|0|6/8\n" +
+            "Irish Jig|folk|116|100|130|0.4|0.6|6|0|6/8\n" +
+            "Slow Blues|funk|60|48|72|0.3|0.9|12|0|12/8\n" +
+            "Doo-Wop|popballad|66|56|78|0.3|0.9|12|0|12/8\n" +
+            "Waltz|popballad|96|84|180|0.3|0.6|3|0|3/4\n" +
+            "Jazz Waltz|funk|150|120|200|0.3|0.6|6|0|3/4";
 
     static {
         List<String> EXACT = Arrays.asList(
@@ -324,6 +334,11 @@ public class MidiDrumGen {
                 DefaultArgs styleArgs = new DefaultArgs(tempo, 16, swing, intensity, hats);
                 styleArgs.minTempo = minTempo;
                 styleArgs.maxTempo = maxTempo;
+                int[] meter = p.length >= 10 ? timesig(p[9]) : null;
+                if (meter != null) {
+                    styleArgs.tsNum = meter[0];
+                    styleArgs.tsDen = meter[1];
+                }
                 DEFAULTS.put(id, styleArgs);
 
                 String internalBase = base;
@@ -723,7 +738,8 @@ public class MidiDrumGen {
                 // A bar longer than 4/4 plays its groove first; the fill takes the last four beats (or the whole bar).
                 if (barQ > 4) {
                     w.window(t0, t0 + barQ - 4);
-                    playBar(w, t0, bar, s, rawStyle, section, swing, intensity, hatsMode, crashes, true);
+                    if (compound) compoundBar(w, t0, tsNum, bar, s, section, swing, intensity, crashes);
+                    else playBar(w, t0, bar, s, rawStyle, section, swing, intensity, hatsMode, crashes, true);
                 }
                 w.window(t0, t0 + barQ);
                 fill(w, t0 + barQ - 4, size, intensity);
@@ -838,6 +854,7 @@ public class MidiDrumGen {
         boolean fills = true, crashes = true, halfTime = true;
         boolean anyTempo = false;
         int tsNum = 4, tsDen = 4;
+        boolean tsGiven = false;
         String output = "drum_track_full_db.mid";
 
         for (int i = 0; i < args.length; i++) {
@@ -864,6 +881,7 @@ public class MidiDrumGen {
                     }
                     tsNum = ts[0];
                     tsDen = ts[1];
+                    tsGiven = true;
                     break;
                 }
                 case "--output": case "-o": output = args[++i]; break;
@@ -895,6 +913,11 @@ public class MidiDrumGen {
         String fHats = hats.equals("auto") ? d.hats : hats;
         int fHumanize = clamp(humanize, 0, 12);
 
+        // A style in another meter (Ballad 6/8, Waltz) plays in it unless --timesig says otherwise.
+        if (!tsGiven && known != null) {
+            tsNum = known.tsNum;
+            tsDen = known.tsDen;
+        }
         DrumWriter w = new DrumWriter(fTempo, fHumanize, tsNum, tsDen);
         arrange(w, style, fBars, fSwing, fIntensity, fHats, crashes, fills, halfTime, tsNum, tsDen);
         // In PyJav (pulsekit.work set) a bare name goes in its work folder, so the MIDI is imported.

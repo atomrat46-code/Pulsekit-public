@@ -25,6 +25,11 @@ for prog in SogniMusic SogniChat; do
     echo "Programs/Java/$prog.java's SogniApi copy differs from shared/src/pulsekit/SogniApi.java" >&2; exit 1
   fi
 done
+# MidiDrumGen.java carries a copy of the style database (shared StyleDb); keep them the same.
+style_rows() { grep -o '"[^"|]*|[a-z]*|[0-9]*|[0-9]*|[0-9]*|[^"]*' "$1" | tr -d '"' | sed 's/\\n$//' | sort; }
+if ! diff <(style_rows ../shared/src/pulsekit/StyleDb.java) <(style_rows ../Programs/Java/MidiDrumGen.java) >/dev/null; then
+  echo "Programs/Java/MidiDrumGen.java's style table differs from shared/src/pulsekit/StyleDb.java" >&2; exit 1
+fi
 # Each bundled Java program must compile on the phone: the in-app compiler sees only
 # assets/rt.jar (Java 8, no lambdas), so check them against it here.
 for prog in ../Programs/Java/*.java; do

@@ -844,6 +844,16 @@ public final class DesktopBehavior {
       if (line.startsWith("$ java") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
     set("tsNum", 4);
+    // A style in another meter in the style database plays in it.
+    answers.add("Yes");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Ballad 6/8\" --bars 4"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
+    }
   }
 
   /** Program files folder: a chosen folder gets the files programs make, kept across starts; "Use Downloads" goes back. */
