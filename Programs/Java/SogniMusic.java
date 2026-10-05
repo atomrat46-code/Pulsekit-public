@@ -553,13 +553,37 @@ public final class SogniMusic {
 
     /**
      * A plain text chat request: no Sogni tools, so the reply is text only. `turns` are
-     * {role, text} pairs ("user" or "assistant") after the optional system text; maxTokens 0 leaves
-     * Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
+     * {role, text} pairs ("user" or "assistant") after the optional system text; a user turn can add
+     * pictures after its text, as data: URIs (PNG or JPEG), which a vision model sees. maxTokens 0
+     * leaves Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
-      for (String[] t : turns) messages.add(message(t[0], t[1]));
+      for (String[] t : turns) {
+        if (t.length <= 2) {
+          messages.add(message(t[0], t[1]));
+          continue;
+        }
+        // Text and pictures in one message, as OpenAI-style vision input.
+        List<Object> parts = new ArrayList<Object>();
+        Map<String, Object> text = new LinkedHashMap<String, Object>();
+        text.put("type", "text");
+        text.put("text", t[1]);
+        parts.add(text);
+        for (int i = 2; i < t.length; i++) {
+          Map<String, Object> url = new LinkedHashMap<String, Object>();
+          url.put("url", t[i]);
+          Map<String, Object> image = new LinkedHashMap<String, Object>();
+          image.put("type", "image_url");
+          image.put("image_url", url);
+          parts.add(image);
+        }
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put("role", t[0]);
+        m.put("content", parts);
+        messages.add(m);
+      }
       Map<String, Object> body = new LinkedHashMap<String, Object>();
       body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
       body.put("messages", messages);

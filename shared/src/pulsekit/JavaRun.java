@@ -254,6 +254,7 @@ public final class JavaRun {
       if (argv != null) cmd.addAll(argv);
       String shown = "$ " + node + (ts ? " --experimental-strip-types " : " ") + name;
       if (argv != null) for (String a : argv) shown = shown + " " + a;
+      java.util.Map<String, Long> stamps = stamps(argv);
       Result ran = exec(dir, cmd, name, shown, 120000L);
       log.append(ran.log);
       List<FileOut> files = new ArrayList<FileOut>();
@@ -262,7 +263,7 @@ public final class JavaRun {
         if ("package.json".equals(fn) || "package-lock.json".equals(fn)) continue;
         files.add(ran.files.get(i));
       }
-      return withOutsideFiles(new Result(log.toString(), files, ran.code), argv, dir);
+      return withOutsideFiles(new Result(log.toString(), files, ran.code), argv, dir, stamps);
     } catch (Exception ex) {
       return new Result("Could not run Node.js: " + ex.getMessage(), Collections.<FileOut>emptyList(), 1);
     } finally {
@@ -516,7 +517,8 @@ public final class JavaRun {
         cmd.addAll(argv);
         for (String a : argv) shown = shown + " " + a;
       }
-      Result ran = withOutsideFiles(exec(dir, cmd, name, shown, RUN_MS), argv, dir);
+      java.util.Map<String, Long> stamps = stamps(argv);
+      Result ran = withOutsideFiles(exec(dir, cmd, name, shown, RUN_MS), argv, dir, stamps);
       if (low.endsWith(".java")) {
         List<FileOut> kept = new ArrayList<FileOut>();
         for (FileOut f : ran.files) {
@@ -566,14 +568,31 @@ public final class JavaRun {
     }
   }
 
-  /** MIDI written to an absolute extra-arg path, outside the temp folder. */
-  private static Result withOutsideFiles(Result ran, List<String> argv, File dir) {
+  /** Each argument that names a file, with its modification time before the run (0 when there is none yet). */
+  private static java.util.Map<String, Long> stamps(List<String> argv) {
+    java.util.Map<String, Long> out = new java.util.HashMap<String, Long>();
+    if (argv == null) return out;
+    for (String a : argv) {
+      File f = new File(a);
+      out.put(a, Long.valueOf(f.isFile() ? f.lastModified() : 0L));
+    }
+    return out;
+  }
+
+  /**
+   * MIDI written to an absolute extra-arg path, outside the temp folder. Only a file the run made or
+   * changed (`before`: stamps from before it): a MIDI given as input (SogniChat --file song.mid) is
+   * not the program's output.
+   */
+  private static Result withOutsideFiles(Result ran, List<String> argv, File dir, java.util.Map<String, Long> before) {
     if (ran == null || argv == null || argv.isEmpty()) return ran;
     List<FileOut> files = new ArrayList<FileOut>(ran.files);
     for (int i = 0; i < argv.size(); i++) {
       File f = new File(argv.get(i));
       if (!f.isFile()) continue;
       if (dir != null && dir.equals(f.getParentFile())) continue;
+      Long was = before.get(argv.get(i));
+      if (was != null && was.longValue() != 0L && was.longValue() == f.lastModified()) continue;
       String low = f.getName().toLowerCase();
       if (!low.endsWith(".mid") && !low.endsWith(".midi") && !low.endsWith(".sng")) continue;
       boolean seen = false;
