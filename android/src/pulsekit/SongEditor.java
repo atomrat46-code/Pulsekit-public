@@ -733,7 +733,7 @@ final class SongEditor {
         if (string != null && (string.startsWith("l:") || string.startsWith("v:"))) {
             return app.styleLibrary.fillCellsFor(string);
         }
-        return Engine.buildFill(string, nArray != null ? nArray : app.cells, app.style);
+        return Engine.buildFill(string, nArray != null ? nArray : app.cells, app.style, app.tsNum, app.tsDen);
     }
 
     void applySongPick(String string, String string2, int n) {

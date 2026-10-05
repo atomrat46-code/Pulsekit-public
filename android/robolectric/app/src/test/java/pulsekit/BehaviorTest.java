@@ -1655,6 +1655,12 @@ public class BehaviorTest {
       for (int i = 0; i < app.steps; i++) kick.append(app.cells[Engine.track("kick")][i] > 0 ? 'X' : '-');
       out.append(id).append(": ").append(app.tsNum).append('/').append(app.tsDen).append(", ").append(app.steps).append(" steps, bpm ")
           .append(app.bpm()).append(", kick ").append(kick).append('\n');
+      StringBuilder toms = new StringBuilder();
+      for (int i = 0; i < app.steps; i++) {
+        boolean tom = app.fillPat[Engine.track("htom")][i] > 0 || app.fillPat[Engine.track("mtom")][i] > 0 || app.fillPat[Engine.track("ltom")][i] > 0;
+        toms.append(tom ? 'T' : '-');
+      }
+      out.append("  fill ").append(app.fillId).append(" toms ").append(toms).append('\n');
     }
     // A time signature set by hand stays when a 4/4 style is picked.
     app.tsNumField.setText("3");

@@ -892,6 +892,61 @@ public final class Engine {
     return out;
   }
 
+  /**
+   * The fill for the app's time signature. 4/4 and the other simple meters use the 16-step fill
+   * above; a compound meter (6/8, 9/8, 12/8) gets a fill in its own pulse: the groove's bar, then
+   * its second half (6/8: the last pulse; 12/8: the last two) turned into the fill in eighths.
+   */
+  public static int[][] buildFill(String fillId, int[][] groove, String style, int tsNum, int tsDen) {
+    int num = clampTsNum(tsNum);
+    int den = clampTsDen(tsDen);
+    if (!(den == 8 && num % 3 == 0 && num >= 6)) return buildFill(fillId, groove, style);
+    return compoundFill(fillId, groove, barSteps(num, den));
+  }
+
+  /** A fill for a compound bar of `len` 16th steps (pulses of 6): see buildFill. */
+  static int[][] compoundFill(String fillId, int[][] groove, int len) {
+    if ("rest".equals(fillId)) return emptyCells();
+    int[][] out = emptyCells();
+    for (int t = 0; t < TRACK_ID.length; t++) {
+      if (groove == null || groove[t] == null) continue;
+      for (int i = 0; i < len && i < groove[t].length; i++) out[t][i] = groove[t][i];
+    }
+    int pulses = Math.max(1, len / 6);
+    int from = (pulses - Math.max(1, pulses / 2)) * 6;
+    // The fill's half is cleared of the groove's drums and cymbals, then written.
+    String[] cleared = {"kick", "dkick", "snare", "clap", "rim", "chh", "ohh", "ride", "ltom", "mtom", "htom"};
+    for (String id : cleared) for (int i = from; i < len; i++) out[track(id)][i] = 0;
+    int eighths = (len - from) / 2;
+    if ("roll".equals(fillId)) {
+      // A snare roll in 16ths, louder to the end, with a kick under its start and the last step.
+      for (int i = from; i < len; i++) out[track("snare")][i] = 64 + (63 * (i - from)) / Math.max(1, len - from - 1);
+      out[track("kick")][from] = 127;
+      out[track("kick")][len - 1] = 127;
+    } else if ("crash".equals(fillId)) {
+      // Crash and kick on each pulse of the half, the snare between, an open hat into the next bar.
+      for (int i = from; i < len; i += 6) {
+        out[track("crash")][i] = 127;
+        out[track("kick")][i] = 127;
+        if (i + 3 < len) out[track("snare")][i + 3] = 110;
+      }
+      out[track("ohh")][len - 2] = 100;
+    } else if ("break".equals(fillId)) {
+      // The groove stops: only a crash on the last step leads into the next bar.
+      out[track("crash")][len - 1] = 127;
+    } else {
+      // Toms down in eighths (rack, mid, floor; a third each), a 16th floor tom into the next bar.
+      String[] toms = {"htom", "mtom", "ltom"};
+      for (int k = 0; k < eighths; k++) {
+        String tom = toms[Math.min(2, (k * 3) / Math.max(1, eighths))];
+        out[track(tom)][from + 2 * k] = 96 + (24 * k) / Math.max(1, eighths - 1);
+      }
+      out[track("ltom")][len - 1] = 120;
+      out[track("kick")][from] = 110;
+    }
+    return out;
+  }
+
   public static String fillLabel(String id) {
     for (int i = 0; i < FILL_ID.length; i++) {
       if (FILL_ID[i].equals(id)) return FILL_LABEL[i];

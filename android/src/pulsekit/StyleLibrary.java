@@ -116,7 +116,7 @@ final class StyleLibrary {
         app.fillId = string;
         int[][] nArray = this.fillCellsFor(string);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, 16);
+            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, Engine.MAX_STEPS);
         }
         Engine.zeroCells(app.fillLens);
         boolean bl = app.fillVariated = string != null && string.startsWith("v:");
@@ -136,9 +136,9 @@ final class StyleLibrary {
         if (this.customFill()) {
             return;
         }
-        int[][] nArray = Engine.buildFill(app.fillId, app.cells, app.style);
+        int[][] nArray = Engine.buildFill(app.fillId, app.cells, app.style, app.tsNum, app.tsDen);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, 16);
+            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, Engine.MAX_STEPS);
         }
     }
 
@@ -158,7 +158,7 @@ final class StyleLibrary {
                 return Engine.copyCells(learnedFill.cells);
             }
         }
-        return Engine.buildFill(string, app.cells, app.style);
+        return Engine.buildFill(string, app.cells, app.style, app.tsNum, app.tsDen);
     }
 
     String fillLabel(String string) {
@@ -351,7 +351,7 @@ final class StyleLibrary {
             app.fillLast = true;
         } else if ("random-fill".equals(string)) {
             object = Engine.randomFillId(random);
-            Engine.stampFillLastBar(nArray, Engine.buildFill((String)object, app.cells, app.style), app.steps, Engine.barSteps(app.tsNum, app.tsDen));
+            Engine.stampFillLastBar(nArray, Engine.buildFill((String)object, app.cells, app.style, app.tsNum, app.tsDen), app.steps, Engine.barSteps(app.tsNum, app.tsDen));
             string2 = Engine.fillLabel((String)object).toLowerCase();
             app.fillLast = true;
         } else {

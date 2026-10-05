@@ -741,7 +741,7 @@ final class SongEditor {
         if (id != null && (id.startsWith("l:") || id.startsWith("v:") || id.startsWith("p:"))) {
             return app.styleLibrary.fillCellsFor(id);
         }
-        return Engine.buildFill(id, groove != null ? groove : app.cells, app.style);
+        return Engine.buildFill(id, groove != null ? groove : app.cells, app.style, app.tsNum, app.tsDen);
     }
 
     /** Right click on a part of an imported song: replace it with a Fillern. */

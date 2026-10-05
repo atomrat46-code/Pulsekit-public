@@ -161,7 +161,7 @@ final class StyleLibrary {
                 }
             }
         }
-        return Engine.buildFill(id, app.cells, app.style);
+        return Engine.buildFill(id, app.cells, app.style, app.tsNum, app.tsDen);
     }
 
     String fillLabel(String id) {
@@ -217,7 +217,7 @@ final class StyleLibrary {
             app.fillLast = true;
         } else if ("random-fill".equals(mode)) {
             String fid = Engine.randomFillId(rng);
-            Engine.stampFillLastBar(next, Engine.buildFill(fid, app.cells, app.style), app.steps, Engine.barSteps(app.tsNum, app.tsDen));
+            Engine.stampFillLastBar(next, Engine.buildFill(fid, app.cells, app.style, app.tsNum, app.tsDen), app.steps, Engine.barSteps(app.tsNum, app.tsDen));
             tag = Engine.fillLabel(fid).toLowerCase();
             app.fillLast = true;
         } else {
@@ -849,7 +849,7 @@ final class StyleLibrary {
         app.fillId = string;
         int[][] nArray = this.fillCellsFor(string);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, 16);
+            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, Engine.MAX_STEPS);
         }
         Engine.zeroCells(app.fillLens);
         this.refreshFills();
@@ -867,9 +867,9 @@ final class StyleLibrary {
 
     void syncBuiltinFill() {
         if (this.customFill()) return;
-        int[][] src = Engine.buildFill(app.fillId, app.cells, app.style);
+        int[][] src = Engine.buildFill(app.fillId, app.cells, app.style, app.tsNum, app.tsDen);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-            System.arraycopy(src[i], 0, app.fillPat[i], 0, 16);
+            System.arraycopy(src[i], 0, app.fillPat[i], 0, Engine.MAX_STEPS);
         }
     }
 
