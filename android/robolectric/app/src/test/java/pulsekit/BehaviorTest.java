@@ -1666,6 +1666,8 @@ public class BehaviorTest {
     out.append("--max_cost hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--max_cost")).getHint()).append('\n');
     out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
         .append(", hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--system")).getHint()).append('\n');
+    out.append("output: ").append(findText(dv, "Output name  (optional)") != null).append(", hint ")
+        .append(((android.widget.EditText) dv.findViewWithTag("params-field:output_name")).getHint()).append('\n');
     out.append("--prompt hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).getHint()).append('\n');
     // Chat model: a list of Sogni's chat models; picking one fills in its id.
     dv.findViewWithTag("params-choose:--model").performClick();

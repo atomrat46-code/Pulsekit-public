@@ -211,6 +211,11 @@ public final class ProgramParams {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 10; empty for no limit";
     }
+    if (!p.flag && p.output && chat) {
+      // SogniChat's output is a base name for everything it saves, not one file.
+      p.label = "Output name";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...";
+    }
     if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
       p.label = "Continue from saved chat";
       p.hint = "a sogni-chat .txt from an earlier run";

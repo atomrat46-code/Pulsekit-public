@@ -34,7 +34,9 @@ import java.util.Map;
  *     tools to work on: edit or animate a picture, a video to a song, a video restyled.
  *   The saved conversation names these files; --continue does not send them again. --system says how to
  * answer ("You are a drum teacher. Answer briefly."). The reply is printed and saved as a .txt
- * (sogni-chat-<first words>.txt, or the name given), which lands in Downloads on the phone.
+ * (sogni-chat-<first words>.txt), which lands in Downloads on the phone. An output name given
+ * first (kit-ideas) names everything a run saves: kit-ideas.txt, and any tool results
+ * kit-ideas-1.png, kit-ideas-2.mp3...; the extensions come from what Sogni sends.
  *
  * --models lists the chat models Sogni offers; --model picks one.
  *
@@ -243,7 +245,8 @@ public final class SogniChat {
       String usage = SogniApi.chatUsage(payload);
       if (usage != null) System.out.println("Tokens: " + usage);
       turns.add(new String[] {"assistant", reply});
-      String name = out != null ? out : before != null ? continuedName(new File(earlier.trim()).getName(), exchanges(turns)) : replyName(prompt, files.isEmpty() ? null : files.get(0));
+      // An output name is a base: the chat is <name>.txt and results <name>-1.png...; an extension given is dropped.
+      String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + ".txt" : before != null ? continuedName(new File(earlier.trim()).getName(), exchanges(turns)) : replyName(prompt, files.isEmpty() ? null : files.get(0));
       File saved = save(name, transcript(chosen, system, turns));
       if (saved == null) System.out.println("Could not save the reply (it is in the log above)");
       else System.out.println("Wrote " + saved.getName());
@@ -289,7 +292,7 @@ public final class SogniChat {
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
+    System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
         + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
   }
 

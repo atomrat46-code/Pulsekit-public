@@ -754,6 +754,8 @@ public final class DesktopBehavior {
         // Tools offered: the proposed call is shown and kept, not run; then run under a cost limit.
         "--prompt \"Draw a drum kit\" --tools",
         "--prompt \"Draw a drum kit\" --run_tools --max_cost 5 --confirm_cost",
+        // An output name names the conversation and the results; a given extension is dropped.
+        "kit-ideas.png --prompt \"Draw a drum kit\" --unlimited",
         "--prompt \"Draw a drum kit\" --unlimited",
         "--prompt \"Draw ten kits\" --unlimited",
         // Files for the tools: uploaded, then named in the request as media references.
