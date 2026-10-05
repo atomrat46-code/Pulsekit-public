@@ -800,6 +800,27 @@ public final class DesktopBehavior {
     }
   }
 
+  /** MidiDrumGen in the Java menu: its switches come from its Usage line, and a run's MIDI is imported. */
+  void s38_midi_drum_gen() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replaceAll("<[^>]+>", "|")).append('\n');
+    List<ProgramParams.Param> ps = ProgramParams.parse((String) call("programText"));
+    for (ProgramParams.Param p : ps) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+          .append(p.choices != null ? " choices " + p.choices.length : "").append('\n');
+    }
+    answers.add("Yes");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Hard Rock\" --bars 4"));
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Wrote") || line.startsWith("Import") || line.startsWith("$ java") || line.contains("rror")) out.append("log: ").append(line).append('\n');
+    }
+  }
+
   /** Program files folder: a chosen folder gets the files programs make, kept across starts; "Use Downloads" goes back. */
   void s37_program_folder() throws Exception {
     File home = new File(System.getProperty("user.home"));

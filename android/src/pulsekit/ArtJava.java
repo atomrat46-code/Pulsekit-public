@@ -24,6 +24,8 @@ public final class ArtJava {
   private static DexClassLoader ecjLoader;
   private static DexClassLoader dxLoader;
   private static File rtJar;
+  /** assets/javax-midi.jar: javax.sound.midi for programs, which Android and rt.jar lack. */
+  private static File midiJar;
   private static File resDir;
 
   private ArtJava() {}
@@ -78,6 +80,9 @@ public final class ArtJava {
         return fail("Pick a .py, .java, .class, or .jar file.");
       }
       if (!low.endsWith(".jar")) {
+        // Android has no javax.sound.midi: a program that writes MIDI with it (MidiDrumGen) gets
+        // the bundled stand-in, as a jar does in prepareJar.
+        if (mentions(clsDir, "javax/sound/midi".getBytes("UTF-8"))) addMidiStandIn(ctx, clsDir);
         String dexed = dexInto(new File(work, "pgm.dex"), clsDir);
         if (dexed != null) return new JavaRun.Result(dexed, empty(), 1);
         return invoke(ctx, work, new File(work, "pgm.dex"), main, argv, logHead, n);
@@ -247,9 +252,11 @@ public final class ArtJava {
         .newInstance(pw, pw, Boolean.FALSE, null);
     em.getField("systemExitWhenFinished").setBoolean(compiler, false);
     String rt = rtJar.getAbsolutePath();
+    // javax.sound.midi (MidiDrumGen) compiles against the bundled stand-in; addMidiStandIn ships it.
+    String cp = midiJar != null ? rt + File.pathSeparator + midiJar.getAbsolutePath() : rt;
     boolean ok = ((Boolean) em.getMethod("compile", String[].class).invoke(compiler, (Object) new String[] {
         "-bootclasspath", rt,
-        "-classpath", rt,
+        "-classpath", cp,
         "-1.8",
         "-encoding", "UTF-8",
         "-proc:none",
@@ -381,6 +388,32 @@ public final class ArtJava {
       }
     }
     return out;
+  }
+
+  /** True when a .class file under `dir` holds these bytes. */
+  private static boolean mentions(File dir, byte[] want) throws Exception {
+    File[] kids = dir.listFiles();
+    if (kids == null) return false;
+    for (File f : kids) {
+      if (f.isDirectory() && mentions(f, want)) return true;
+      if (f.isFile() && f.getName().endsWith(".class") && indexOf(read(f), want) >= 0) return true;
+    }
+    return false;
+  }
+
+  /** Puts the bundled javax.sound.midi classes (assets/javax-midi.jar) beside a program's own classes. */
+  private static void addMidiStandIn(Context ctx, File clsDir) throws Exception {
+    ZipFile lib = new ZipFile(assetFile(ctx, "javax-midi.jar"));
+    try {
+      java.util.Enumeration<? extends ZipEntry> entries = lib.entries();
+      while (entries.hasMoreElements()) {
+        ZipEntry entry = entries.nextElement();
+        if (entry.isDirectory() || !entry.getName().endsWith(".class")) continue;
+        write(new File(clsDir, entry.getName()), readStream(lib.getInputStream(entry)));
+      }
+    } finally {
+      lib.close();
+    }
   }
 
   private static boolean jarMentions(File jar, String needle) throws Exception {
@@ -526,9 +559,10 @@ public final class ArtJava {
   }
 
   private static void ensure(Context ctx) throws Exception {
-    if (ecjLoader != null && dxLoader != null && rtJar != null && rtJar.isFile()) return;
+    if (ecjLoader != null && dxLoader != null && rtJar != null && rtJar.isFile() && midiJar != null && midiJar.isFile()) return;
     File dir = ctx.getDir("art", 0);
     rtJar = extract(ctx, dir, "rt.jar");
+    midiJar = extract(ctx, dir, "javax-midi.jar");
     File ecjDex = extract(ctx, dir, "ecj.dex");
     File dxDex = extract(ctx, dir, "dx.dex");
     File resZip = extract(ctx, dir, "ecj-res.zip");

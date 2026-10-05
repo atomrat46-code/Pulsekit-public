@@ -1641,6 +1641,30 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** MidiDrumGen in the Java menu: Params lists its switches, with a style list and on/off checkboxes. */
+  @Test
+  public void s55_midi_drum_gen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MidiDrumGen.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace('\n', '|')).append('\n');
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("--style choose: ").append(dv.findViewWithTag("params-choose:--style") != null).append('\n');
+    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time"}) {
+      out.append(t).append(" box: ").append(dv.findViewWithTag("params-check:" + t) != null).append('\n');
+    }
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--style")).setText("Hard Rock");
+    ((android.widget.CheckBox) dv.findViewWithTag("params-check:--no-fills")).setChecked(true);
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s55_midi_drum_gen", out.toString());
+  }
+
   /** A run that made a picture (SogniChat's tool result) shows it in a Picture ready dialog. */
   @Test
   public void s54_picture_offer() throws Exception {
