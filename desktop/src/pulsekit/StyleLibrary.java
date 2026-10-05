@@ -32,14 +32,29 @@ final class StyleLibrary {
         }
         app.style = string;
         app.styleChosen = true;
+        // A style in another meter (Ballad 6/8, Slow Blues 12/8) sets the time signature; a 4/4 style
+        // after it sets 4/4 back, but a time signature set by hand stays.
+        int[] meter = Engine.styleMeter(string);
+        boolean other = meter[0] != 4 || meter[1] != 4;
+        if (other && (app.tsNum != meter[0] || app.tsDen != meter[1])) {
+            app.gridEditor.applyTimeSig(meter[0], meter[1]);
+            app.tsFromStyle = true;
+        } else if (!other && app.tsFromStyle) {
+            app.gridEditor.applyTimeSig(4, 4);
+            app.tsFromStyle = false;
+        } else if (other) {
+            app.tsFromStyle = true;
+        }
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, app.cells[i], 0, Engine.MAX_STEPS);
         }
         Engine.zeroCells(app.lens);
-        if (app.steps == Engine.MAX_STEPS) {
-            Engine.tileSteps(app.cells, Engine.STEPS, Engine.MAX_STEPS);
-            Engine.tileSteps(app.lens, Engine.STEPS, Engine.MAX_STEPS);
+        // A doubled grid repeats the style's bar (16 steps in 4/4, 12 in 6/8).
+        int bar = Engine.barSteps(app.tsNum, app.tsDen);
+        if (app.steps == bar * 2) {
+            Engine.tileSteps(app.cells, bar, app.steps);
+            Engine.tileSteps(app.lens, bar, app.steps);
         }
         if (!bl) {
             app.tempoBar.setVal(Engine.clampBpm(style.bpm));

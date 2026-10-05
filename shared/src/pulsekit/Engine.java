@@ -367,7 +367,18 @@ public final class Engine {
     add(m, "ukg", "UKG", 132, "X-----x-X-------", "----------------", "----X-------X---", "----x-------x---", "------o---------",
         "--x---x---x---x-", "x-------x-------", "x---------------", "--o-------o-----", "----------------",
         "----------------", "------------x---");
+    // Styles in another meter: their rows are one bar of it in 16th steps (6/8: 12, 12/8: 24); picking
+    // one sets the app's time signature (styleMeter).
+    add(m, "ballad68", "Ballad 6/8", 60, "X---------x-", "------------", "------X-----", "------------", "------------", "x-o-o-x-o-o-", "------------", "x-----------", "------------", "------------", "------------", "------------");
+    add(m, "blues128", "Slow Blues 12/8", 60, "X---------x-X-----------", "------------------------", "------X-----------X-----", "------------------------", "------------------------", "x-o-o-x-o-o-x-o-o-x-o-o-", "------------------------", "x-----------------------", "------------------------", "------------------------", "------------------------", "----------------------o-");
     return m;
+  }
+
+  /** A style's time signature {num, den}: 6/8 and 12/8 for the styles in those meters, else 4/4. */
+  public static int[] styleMeter(String id) {
+    if ("ballad68".equals(id)) return new int[] {6, 8};
+    if ("blues128".equals(id)) return new int[] {12, 8};
+    return new int[] {4, 4};
   }
 
   private static void add(Map<String, Style> m, String id, String label, int bpm, String... rows) {
@@ -383,6 +394,8 @@ public final class Engine {
     if ("progmetal".equals(id)) return 2;
     if ("metal".equals(id)) return 4;
     if ("rockballad".equals(id) || "pop".equals(id)) return 10;
+    // 6/8 and 12/8 already swing in threes.
+    if ("ballad68".equals(id) || "blues128".equals(id)) return 0;
     if ("folk".equals(id)) return 6;
     if ("funk".equals(id)) return 28;
     if ("breakbeat".equals(id)) return 16;
@@ -395,7 +408,7 @@ public final class Engine {
     if ("dnb".equals(id) || "progmetal".equals(id)) return 8;
     if ("techno".equals(id) || "metal".equals(id) || "breakbeat".equals(id)) return 7;
     if ("trap".equals(id) || "hardrock".equals(id) || "funk".equals(id) || "latin".equals(id) || "ukg".equals(id)) return 6;
-    if ("rockballad".equals(id) || "popballad".equals(id)) return 3;
+    if ("rockballad".equals(id) || "popballad".equals(id) || "ballad68".equals(id) || "blues128".equals(id)) return 3;
     if ("hiphop".equals(id) || "boombap".equals(id) || "metalballad".equals(id)) return 4;
     return 5;
   }
@@ -404,7 +417,7 @@ public final class Engine {
     if (id != null && id.isEmpty()) return 0;
     if ("boombap".equals(id)) return 30;
     if ("hiphop".equals(id)) return 28;
-    if ("rockballad".equals(id) || "popballad".equals(id)) return 24;
+    if ("rockballad".equals(id) || "popballad".equals(id) || "ballad68".equals(id) || "blues128".equals(id)) return 24;
     if ("trap".equals(id) || "funk".equals(id)) return 22;
     if ("breakbeat".equals(id)) return 20;
     if ("house".equals(id) || "metalballad".equals(id) || "latin".equals(id)) return 18;
@@ -604,7 +617,8 @@ public final class Engine {
     int[][] cells = emptyCells();
     for (int t = 0; t < TRACK_ID.length; t++) {
       String row = t < rows.length ? rows[t] : "----------------";
-      for (int i = 0; i < STEPS; i++) {
+      // A style in another meter has a longer bar (12/8: 24 steps).
+      for (int i = 0; i < Math.max(STEPS, Math.min(MAX_STEPS, row.length())); i++) {
         char c = i < row.length() ? row.charAt(i) : '-';
         cells[t][i] = c == 'X' ? 127 : c == 'x' ? 100 : c == 'o' ? 64 : 0;
       }

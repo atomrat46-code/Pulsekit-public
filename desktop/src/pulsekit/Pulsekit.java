@@ -138,6 +138,8 @@ public final class Pulsekit extends UiKit {
 
     /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
     boolean styleChosen;
+    /** The time signature was set by picking a style in another meter (Ballad 6/8), so a 4/4 style sets 4/4 back. */
+    boolean tsFromStyle;
 
     String view = "pattern";
 
@@ -300,8 +302,14 @@ public final class Pulsekit extends UiKit {
         this.gridEditor.styleNumField(this.tsDenField, 14);
         this.tsNumField.setHorizontalAlignment(4);
         this.tsDenField.setHorizontalAlignment(2);
-        this.gridEditor.bindNumField(this.tsNumField, 1, 16, n -> this.gridEditor.applyTimeSig(n, this.tsDen));
-        this.gridEditor.bindNumField(this.tsDenField, 2, 16, n -> this.gridEditor.applyTimeSig(this.tsNum, n));
+        this.gridEditor.bindNumField(this.tsNumField, 1, 16, n -> {
+            if (n != this.tsNum) this.tsFromStyle = false;
+            this.gridEditor.applyTimeSig(n, this.tsDen);
+        });
+        this.gridEditor.bindNumField(this.tsDenField, 2, 16, n -> {
+            if (n != this.tsDen) this.tsFromStyle = false;
+            this.gridEditor.applyTimeSig(this.tsNum, n);
+        });
         JLabel slash = new JLabel("/");
         slash.setForeground(MUTED);
         slash.setFont(new Font("Monospaced", 1, 18));

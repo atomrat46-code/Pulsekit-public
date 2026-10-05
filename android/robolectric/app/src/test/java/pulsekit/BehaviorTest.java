@@ -1641,6 +1641,32 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** Picking Ballad 6/8 or Slow Blues 12/8 sets the time signature; a 4/4 style after it sets 4/4 back, a hand-set one stays. */
+  @Test
+  public void s56_style_meter() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "pattern");
+    idle();
+    String[] picks = {"ballad68", "rock", "blues128", "hardrock"};
+    for (String id : picks) {
+      app.styleLibrary.loadStyle(id, false);
+      idle();
+      StringBuilder kick = new StringBuilder();
+      for (int i = 0; i < app.steps; i++) kick.append(app.cells[Engine.track("kick")][i] > 0 ? 'X' : '-');
+      out.append(id).append(": ").append(app.tsNum).append('/').append(app.tsDen).append(", ").append(app.steps).append(" steps, bpm ")
+          .append(app.bpm()).append(", kick ").append(kick).append('\n');
+    }
+    // A time signature set by hand stays when a 4/4 style is picked.
+    app.tsNumField.setText("3");
+    app.tsNumField.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+    idle();
+    app.styleLibrary.loadStyle("rock", false);
+    idle();
+    out.append("hand-set 3/4, then rock: ").append(app.tsNum).append('/').append(app.tsDen).append(", ").append(app.steps).append(" steps\n");
+    out.append("style names: ").append(java.util.Arrays.asList(Engine.styles().get("ballad68").label, Engine.styles().get("blues128").label)).append('\n');
+    write("s56_style_meter", out.toString());
+  }
+
   /** MidiDrumGen in the Java menu: Params lists its switches, with a style list and on/off checkboxes. */
   @Test
   public void s55_midi_drum_gen() throws Exception {

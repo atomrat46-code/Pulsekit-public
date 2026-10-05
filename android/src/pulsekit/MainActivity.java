@@ -211,6 +211,8 @@ public class MainActivity extends UiKit {
     String style = "house";
     /** False until a pattern is chosen: the startup House pattern is not shown as selected. */
     boolean styleChosen;
+    /** The time signature was set by picking a style in another meter (Ballad 6/8), so a 4/4 style sets 4/4 back. */
+    boolean tsFromStyle;
 
     String view = "pattern";
 
@@ -346,8 +348,14 @@ public class MainActivity extends UiKit {
                 this.bpmBar.setVal(n);
             }
         });
-        this.gridEditor.bindNumField(this.tsNumField, 1, 16, n -> this.gridEditor.applyTimeSig(n, this.tsDen));
-        this.gridEditor.bindNumField(this.tsDenField, 2, 16, n -> this.gridEditor.applyTimeSig(this.tsNum, n));
+        this.gridEditor.bindNumField(this.tsNumField, 1, 16, n -> {
+            if (n != this.tsNum) this.tsFromStyle = false;
+            this.gridEditor.applyTimeSig(n, this.tsDen);
+        });
+        this.gridEditor.bindNumField(this.tsDenField, 2, 16, n -> {
+            if (n != this.tsDen) this.tsFromStyle = false;
+            this.gridEditor.applyTimeSig(this.tsNum, n);
+        });
         this.muteBtn = this.outline("Mute", false, view -> {
             this.muted = !this.muted;
             this.muteBtn.setText((CharSequence)(this.muted ? "Unmute" : "Mute"));
