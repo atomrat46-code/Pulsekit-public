@@ -198,6 +198,15 @@ public final class JavaRun {
       return PromptRun.run(source == null ? "" : source, type);
     }
     if (low.endsWith(".java") || low.endsWith(".jar") || low.endsWith(".class")) {
+      if (PictureCopies.wants(n)) {
+        // SogniChat: big JPEG pictures get a smaller copy for the chat model to see.
+        List<File> made = new ArrayList<File>();
+        try {
+          return runJava(n, source, bytes, PictureCopies.withCopies(argv, made));
+        } finally {
+          PictureCopies.clean(made);
+        }
+      }
       return runJava(n, source, bytes, argv);
     }
     if (isNode(low)) return runNode(n, source == null ? "" : source, argv);

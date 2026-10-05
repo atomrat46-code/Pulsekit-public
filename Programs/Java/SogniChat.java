@@ -32,6 +32,9 @@ import java.util.Map;
  *     GIF), audio (MP3, WAV, FLAC, M4A) and video (MP4, MOV, WebM) up to 100 MB: each is uploaded to
  *     Sogni's media storage, as Sogni's CLI does, and named in the request (media_ref_1...) for the
  *     tools to work on: edit or animate a picture, a video to a song, a video restyled.
+ *   A picture bigger than the 1024 px on its longest side that Sogni shows the chat model is sent
+ *   as a smaller copy: SogniChat shrinks a PNG itself; for a JPEG, --seen_copy <smaller picture>
+ *   after its --file gives the copy (Pulsekit makes one before the run). The tools get the whole file.
  *   The saved conversation names these files; --continue does not send them again. --system says how to
  * answer ("You are a drum teacher. Answer briefly."). The reply is printed and saved as a .txt
  * (sogni-chat-<first words>.txt), which lands in Downloads on the phone. An output name given
@@ -93,6 +96,7 @@ public final class SogniChat {
     String prompt = null;
     String system = null;
     List<String> files = new ArrayList<String>();
+    List<String> copies = new ArrayList<String>();
     String earlier = null;
     String model = null;
     String keyFile = null;
@@ -111,7 +115,14 @@ public final class SogniChat {
       else if (a.equals("--system") && i + 1 < args.length) system = args[++i];
       else if (a.equals("--file") && i + 1 < args.length) {
         String f = args[++i].trim();
-        if (f.length() > 0) files.add(f);
+        if (f.length() > 0) {
+          files.add(f);
+          copies.add(null);
+        }
+      }
+      else if (a.equals("--seen_copy") && i + 1 < args.length) {
+        String c = args[++i].trim();
+        if (!copies.isEmpty() && c.length() > 0) copies.set(copies.size() - 1, c);
       }
       else if (a.equals("--continue") && i + 1 < args.length) earlier = args[++i];
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
@@ -143,8 +154,8 @@ public final class SogniChat {
     // With Sogni's tools on, pictures, audio and video are uploaded for the tools to work on.
     boolean toolsOn = tools || runTools || unlimited;
     List<Attachment> attached = new ArrayList<Attachment>();
-    for (String f : files) {
-      Attachment a = attachment(new File(f), toolsOn);
+    for (int k = 0; k < files.size(); k++) {
+      Attachment a = attachment(new File(files.get(k)), toolsOn, copies.get(k));
       if (a == null) return 2;
       attached.add(a);
     }
@@ -427,7 +438,7 @@ public final class SogniChat {
   }
 
   /** A --file read by its contents: MIDI (MThd), a PNG or JPEG picture, or text. Null after saying why. */
-  static Attachment attachment(File f, boolean tools) {
+  static Attachment attachment(File f, boolean tools, String copy) {
     byte[] data = readBytes(f, "--file");
     if (data == null) return null;
     Attachment a = new Attachment();
@@ -449,8 +460,19 @@ public final class SogniChat {
       a.mime = media[1];
       boolean seen = "image/png".equals(a.mime) || "image/jpeg".equals(a.mime);
       byte[] inline = seen && data.length <= IMAGE_MAX ? data : null;
+      String inlineMime = a.mime;
       int[] px = seen ? pixelSize(data) : null;
-      if (inline != null && px != null && Math.max(px[0], px[1]) > INLINE_SIDE) {
+      byte[] given = copy == null ? null : readBytes(new File(copy), "--seen_copy");
+      int[] givenPx = given == null ? null : pixelSize(given);
+      if (seen && givenPx != null && Math.max(givenPx[0], givenPx[1]) <= INLINE_SIDE && given.length <= IMAGE_MAX) {
+        // A smaller copy made before the run (Pulsekit makes one of a big JPEG): the model sees it.
+        inline = given;
+        inlineMime = pictureType(given);
+        if (px != null) {
+          System.out.println("Note: " + f.getName() + " is " + px[0] + "x" + px[1] + " pixels; the chat model sees a " + givenPx[0] + "x" + givenPx[1]
+              + " copy (Sogni shows it pictures of up to " + INLINE_SIDE + " px on the longest side)" + (tools ? "; the tools get the full picture" : ""));
+        }
+      } else if (inline != null && px != null && Math.max(px[0], px[1]) > INLINE_SIDE) {
         // Sogni shows the chat model pictures of up to 1024 px on the longest side: a PNG is sent as
         // a smaller copy; the tools still get the whole file.
         inline = "image/png".equals(a.mime) ? smallerPng(data, INLINE_SIDE) : null;
@@ -480,7 +502,7 @@ public final class SogniChat {
         return null;
       }
       // The model sees a PNG or JPEG picture; with the tools on, every file is also uploaded for them.
-      if (inline != null) a.image = "data:" + a.mime + ";base64," + base64(inline);
+      if (inline != null) a.image = "data:" + inlineMime + ";base64," + base64(inline);
       if (tools) a.data = data;
       a.what = ("image".equals(a.kind) ? "picture " : a.kind + " ") + f.getName() + ", " + size(data.length);
       return a;

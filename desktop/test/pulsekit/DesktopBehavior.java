@@ -660,7 +660,7 @@ public final class DesktopBehavior {
       String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
-              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "data:image/png;base64,...")));
+              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+", "data:image/$1;base64,...")));
       String type = "application/json";
       String reply;
       if (path.equals("/v1/models")) {
@@ -748,11 +748,22 @@ public final class DesktopBehavior {
       Files.write(track.toPath(), new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4});
       File webp = new File(home, "photo.webp");
       Files.write(webp.toPath(), new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '});
-      // Pictures bigger than the 1024 px Sogni shows the chat model: a PNG is sent as a smaller copy.
+      // Pictures bigger than the 1024 px Sogni shows the chat model: SogniChat sends a PNG as a smaller
+      // copy; the app makes one of a JPEG (--seen_copy), turned upright by its EXIF orientation.
       File tall = new File(home, "tall.png");
       javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(832, 1248, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", tall);
       File wide = new File(home, "wide.jpg");
       javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(1300, 700, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", wide);
+      // A camera photo stored on its side (EXIF orientation 6: turn 90 degrees to view).
+      byte[] stored = Files.readAllBytes(wide.toPath());
+      byte[] exif = {(byte) 0xFF, (byte) 0xE1, 0, 34, 'E', 'x', 'i', 'f', 0, 0, 'M', 'M', 0, 42, 0, 0, 0, 8,
+        0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0};
+      byte[] photo = new byte[stored.length + exif.length];
+      System.arraycopy(stored, 0, photo, 0, 2);
+      System.arraycopy(exif, 0, photo, 2, exif.length);
+      System.arraycopy(stored, 2, photo, 2 + exif.length, stored.length - 2);
+      File sideways = new File(home, "sideways.jpg");
+      Files.write(sideways.toPath(), photo);
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
@@ -777,6 +788,7 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + tall.getAbsolutePath() + "\"",
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
+        "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
         "--models",
         "--max_tokens lots",
       };
