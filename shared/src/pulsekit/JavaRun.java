@@ -79,11 +79,11 @@ public final class JavaRun {
     return out;
   }
 
-  /** Kit flags when the text mentions them, then the extra command line. */
   /**
    * The app's kit settings for a program that mentions them (--bpm, --style, --genre, --bars,
-   * --swing), then the extra args. A switch the extra args already give is not added, so the
-   * command line shows it once (Params' --genre "Rock Ballad", not also --genre House).
+   * --swing, and --key_file when a Sogni key file is set), then the extra args. A switch the
+   * extra args already give is not added, so the command line shows it once (Params' --genre
+   * "Rock Ballad", not also --genre House).
    */
   public static List<String> argvFor(String source, int bpm, String style, int bars, int swing, String extra) {
     List<String> argv = new ArrayList<String>();
@@ -110,6 +110,12 @@ public final class JavaRun {
     if (src.contains("--swing") && !given.contains("--swing")) {
       argv.add("--swing");
       argv.add(Integer.toString(Math.max(0, swing)));
+    }
+    String key = ApiKeys.path();
+    if (key != null && src.contains("--key_file") && !given.contains("--key_file")) {
+      // The key file from File > Drum Midi Settings.
+      argv.add("--key_file");
+      argv.add(key);
     }
     argv.addAll(given);
     return argv;

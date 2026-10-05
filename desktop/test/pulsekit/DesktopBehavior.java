@@ -642,6 +642,20 @@ public final class DesktopBehavior {
     out.append("genre and bpm given: ").append(JavaRun.argvFor(src, 124, "house", 4, 0, "--genre \"Rock Ballad\" --bpm 120")).append('\n');
   }
 
+  /** Drum Midi Settings' Sogni API key file on the desktop: kept in ~/.pulsekit, passed as --key_file. */
+  void s35_sogni_key_setting() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    out.append("before: ").append(page.keyStatus.getText()).append('\n');
+    File key = new File(home, "creds.txt");
+    Files.write(key.toPath(), "abcd1234efgh5678\n".getBytes(StandardCharsets.UTF_8));
+    edt(() -> page.takeKey(key));
+    out.append("after: ").append(page.keyStatus.getText()).append('\n');
+    out.append("path: ").append(ApiKeys.path().replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("argv: ").append(String.join(" ", JavaRun.argvFor("[--key_file credentials.txt]", 120, "house", 4, 0, "")).replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("own --key_file wins: ").append(JavaRun.argvFor("[--key_file credentials.txt]", 120, "house", 4, 0, "--key_file other.txt")).append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

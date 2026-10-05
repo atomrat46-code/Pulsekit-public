@@ -1595,6 +1595,33 @@ public class BehaviorTest {
     return sb.toString();
   }
 
+  /** Drum Midi Settings' Sogni API key file: kept privately, shown masked, passed to SogniMusic as --key_file. */
+  @Test
+  public void s50_sogni_key_setting() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    TextView status = (TextView) root().findViewWithTag("sogni-key-status");
+    out.append("before: ").append(status.getText()).append('\n');
+    File bad = new File(app.getCacheDir(), "notes.txt");
+    Files.write(bad.toPath(), "hello".getBytes(StandardCharsets.UTF_8));
+    page.takeKey(android.net.Uri.fromFile(bad));
+    out.append("no key in file, still: ").append(status.getText()).append('\n');
+    File key = new File(app.getCacheDir(), "my key.txt");
+    Files.write(key.toPath(), "# Sogni\nSOGNI_API_KEY=\"abcd1234efgh5678\"\n".getBytes(StandardCharsets.UTF_8));
+    page.takeKey(android.net.Uri.fromFile(key));
+    out.append("after: ").append(status.getText()).append('\n');
+    String path = ApiKeys.path();
+    out.append("kept privately: ").append(path != null && path.startsWith(app.getFilesDir().getAbsolutePath())).append('\n');
+    out.append("kept text: ").append(new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8).trim().replace("abcd1234efgh", "…")).append('\n');
+    out.append("findKey: ").append("abcd1234efgh5678".equals(SogniApi.findKey(null))).append('\n');
+    java.util.List<String> argv = JavaRun.argvFor("Usage: java SogniMusic [--key_file credentials.txt]", 120, "house", 4, 0, "--prompt x");
+    out.append("argv: ").append(String.join(" ", argv).replace(app.getFilesDir().getAbsolutePath(), "<files>")).append('\n');
+    root().findViewWithTag("sogni-key-clear").performClick();
+    idle();
+    out.append("cleared: ").append(status.getText()).append(", argv ").append(JavaRun.argvFor("[--key_file x.txt]", 120, "house", 4, 0, "")).append('\n');
+    write("s50_sogni_key_setting", out.toString());
+  }
+
   /** Tap File, then an item in its menu. */
   private void fileMenuItem(String label) throws Exception {
     TextView file = findText(root(), "File");
