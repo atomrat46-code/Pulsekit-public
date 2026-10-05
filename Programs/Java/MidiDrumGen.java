@@ -9,13 +9,15 @@ import java.util.*;
  * Deep House, Boom Bap...), with fills, crashes and a half-time last quarter.
  *
  * The output file is given alone or with --output (default drum_track_full_db.mid).
+ * The tempo stays in the style's range from the style database (Hard Rock 112-145): a tempo given
+ * outside it is moved to the nearest end, unless --any-tempo.
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
  * app's 12 for 0.12), and the MIDI goes into PyJav's work folder, so it is imported.
  */
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time]";
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
@@ -28,6 +30,8 @@ public class MidiDrumGen {
 
     public static class DefaultArgs {
         int tempo, bars, intensity;
+        /** The style's tempo range in the style database (0 when it has none). */
+        int minTempo, maxTempo;
         double swing;
         String hats;
 
@@ -292,6 +296,8 @@ public class MidiDrumGen {
 
                 String base = p[1];
                 int tempo = Integer.parseInt(p[2]);
+                int minTempo = p.length >= 5 ? Integer.parseInt(p[3]) : 0;
+                int maxTempo = p.length >= 5 ? Integer.parseInt(p[4]) : 0;
 
                 double swing = 0.0;
                 int intensity = 6;
@@ -313,7 +319,10 @@ public class MidiDrumGen {
                     case "dnb": hats = "16ths"; intensity = 8; break;
                 }
 
-                DEFAULTS.put(id, new DefaultArgs(tempo, 16, swing, intensity, hats));
+                DefaultArgs styleArgs = new DefaultArgs(tempo, 16, swing, intensity, hats);
+                styleArgs.minTempo = minTempo;
+                styleArgs.maxTempo = maxTempo;
+                DEFAULTS.put(id, styleArgs);
 
                 String internalBase = base;
                 if (base.equals("ukg")) internalBase = "uk_garage";
@@ -729,6 +738,7 @@ public class MidiDrumGen {
         String hats = "auto";
         int humanize = 4;
         boolean fills = true, crashes = true, halfTime = true;
+        boolean anyTempo = false;
         String output = "drum_track_full_db.mid";
 
         for (int i = 0; i < args.length; i++) {
@@ -746,6 +756,7 @@ public class MidiDrumGen {
                 case "--no-crashes": crashes = false; break;
                 case "--half-time": halfTime = true; break;
                 case "--no-half-time": halfTime = false; break;
+                case "--any-tempo": anyTempo = true; break;
                 case "--output": case "-o": output = args[++i]; break;
                 case "-h": case "--help": System.out.println(USAGE); return;
                 default:
@@ -758,6 +769,16 @@ public class MidiDrumGen {
 
         DefaultArgs d = DEFAULTS.getOrDefault(style, DEFAULTS.get("hard_rock"));
         int fTempo = clamp(tempo != null ? tempo : d.tempo, 40, 300);
+        // A tempo given (--tempo, or PyJav's --bpm) stays in the style's range from the style database,
+        // unless --any-tempo. A style the database does not have keeps any tempo.
+        DefaultArgs known = DEFAULTS.get(style);
+        if (known != null && known.minTempo > 0 && known.maxTempo >= known.minTempo && !anyTempo
+                && (fTempo < known.minTempo || fTempo > known.maxTempo)) {
+            int inRange = clamp(fTempo, known.minTempo, known.maxTempo);
+            System.out.printf(Locale.US, "Tempo %d is outside %s's range %d-%d: using %d (--any-tempo keeps %d)\n",
+                    fTempo, style, known.minTempo, known.maxTempo, inRange, fTempo);
+            fTempo = inRange;
+        }
         int fBars = clamp(bars != null ? bars : d.bars, 1, 64);
         // A swing above 1 is a percent (PyJav passes the app's swing, e.g. 12): 12 means 0.12.
         double fSwing = clampDouble(swing != null ? (swing > 1 ? swing / 100.0 : swing) : d.swing, 0.0, 0.5);
