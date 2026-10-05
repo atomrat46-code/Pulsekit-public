@@ -244,7 +244,7 @@ public final class StyleDb {
     "Ballad 6/8|ballad68|60|50|72|0.3|0.9|6|0|6/8",
     "Afro 6/8|latin|110|96|125|0.5|0.5|6|0|6/8",
     "Irish Jig|folk|116|100|130|0.4|0.6|6|0|6/8",
-    "Slip Jig|folk|120|100|140|0.4|0.6|9|0|9/8",
+    "Slip Jig|slipjig98|120|100|140|0.4|0.6|9|0|9/8",
     "Slow Blues|blues128|60|48|72|0.3|0.9|12|0|12/8",
     "Doo-Wop|popballad|66|56|78|0.3|0.9|12|0|12/8",
     "Waltz|popballad|96|84|180|0.3|0.6|3|0|3/4",
@@ -261,7 +261,7 @@ public final class StyleDb {
     if ("trap".equals(kit)) return "trap";
     if ("funk".equals(kit) || "blues128".equals(kit)) return "funk";
     if ("latin".equals(kit)) return "latin";
-    if ("folk".equals(kit)) return "folk";
+    if ("folk".equals(kit) || "slipjig98".equals(kit)) return "folk";
     if ("breakbeat".equals(kit)) return "breaks";
     if ("dnb".equals(kit)) return "dnb";
     return "pop";

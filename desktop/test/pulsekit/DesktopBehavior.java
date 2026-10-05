@@ -803,7 +803,7 @@ public final class DesktopBehavior {
   /** Picking Ballad 6/8 or Slow Blues 12/8 sets the time signature; a 4/4 style after it sets 4/4 back, a hand-set one stays. */
   void s39_style_meter() throws Exception {
     StyleLibrary lib = (StyleLibrary) get("styleLibrary");
-    for (String id : new String[] {"ballad68", "rock", "blues128", "hardrock"}) {
+    for (String id : new String[] {"ballad68", "rock", "blues128", "hardrock", "slipjig98", "folk"}) {
       edt(() -> lib.loadStyle(id, false));
       int steps = (Integer) get("steps");
       int[][] cells = (int[][]) get("cells");

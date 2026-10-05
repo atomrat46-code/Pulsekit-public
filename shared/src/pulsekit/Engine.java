@@ -367,17 +367,19 @@ public final class Engine {
     add(m, "ukg", "UKG", 132, "X-----x-X-------", "----------------", "----X-------X---", "----x-------x---", "------o---------",
         "--x---x---x---x-", "x-------x-------", "x---------------", "--o-------o-----", "----------------",
         "----------------", "------------x---");
-    // Styles in another meter: their rows are one bar of it in 16th steps (6/8: 12, 12/8: 24); picking
+    // Styles in another meter: their rows are one bar of it in 16th steps (6/8: 12, 9/8: 18, 12/8: 24); picking
     // one sets the app's time signature (styleMeter).
     add(m, "ballad68", "Ballad 6/8", 60, "X---------x-", "------------", "------X-----", "------------", "------------", "x-o-o-x-o-o-", "------------", "x-----------", "------------", "------------", "------------", "------------");
     add(m, "blues128", "Slow Blues 12/8", 60, "X---------x-X-----------", "------------------------", "------X-----------X-----", "------------------------", "------------------------", "x-o-o-x-o-o-x-o-o-x-o-o-", "------------------------", "x-----------------------", "------------------------", "------------------------", "------------------------", "----------------------o-");
+    add(m, "slipjig98", "Slip Jig 9/8", 120, "X-----------X----x", "------------------", "------X-----------", "------------------", "------------------", "x-o-o-x-o-o-x-o-o-", "------------------", "x-----------------", "------------------", "------------------", "------------------", "------------------");
     return m;
   }
 
-  /** A style's time signature {num, den}: 6/8 and 12/8 for the styles in those meters, else 4/4. */
+  /** A style's time signature {num, den}: 6/8, 9/8 and 12/8 for the styles in those meters, else 4/4. */
   public static int[] styleMeter(String id) {
     if ("ballad68".equals(id)) return new int[] {6, 8};
     if ("blues128".equals(id)) return new int[] {12, 8};
+    if ("slipjig98".equals(id)) return new int[] {9, 8};
     return new int[] {4, 4};
   }
 
@@ -395,7 +397,7 @@ public final class Engine {
     if ("metal".equals(id)) return 4;
     if ("rockballad".equals(id) || "pop".equals(id)) return 10;
     // 6/8 and 12/8 already swing in threes.
-    if ("ballad68".equals(id) || "blues128".equals(id)) return 0;
+    if ("ballad68".equals(id) || "blues128".equals(id) || "slipjig98".equals(id)) return 0;
     if ("folk".equals(id)) return 6;
     if ("funk".equals(id)) return 28;
     if ("breakbeat".equals(id)) return 16;

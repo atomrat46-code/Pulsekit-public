@@ -1647,7 +1647,7 @@ public class BehaviorTest {
     StringBuilder out = new StringBuilder();
     call("show", "pattern");
     idle();
-    String[] picks = {"ballad68", "rock", "blues128", "hardrock"};
+    String[] picks = {"ballad68", "rock", "blues128", "hardrock", "slipjig98", "folk"};
     for (String id : picks) {
       app.styleLibrary.loadStyle(id, false);
       idle();
