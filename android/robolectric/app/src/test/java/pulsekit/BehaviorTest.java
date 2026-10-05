@@ -1657,6 +1657,9 @@ public class BehaviorTest {
     out.append("--file picker: ").append(dv.findViewWithTag("params-file:--file") != null).append('\n');
     out.append("--thinking box: ").append(dv.findViewWithTag("params-check:--thinking") != null).append('\n');
     out.append("--models box: ").append(dv.findViewWithTag("params-check:--models") != null).append('\n');
+    out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
+        .append(", hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--system")).getHint()).append('\n');
+    out.append("--prompt hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).getHint()).append('\n');
     ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("Suggest one fill");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--system")).setText("Answer briefly.");
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();

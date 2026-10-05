@@ -55,7 +55,9 @@ public final class ProgramParams {
     List<Param> out = fromUsage(text);
     if (out.isEmpty()) out = fromArgparse(text);
     boolean drumMidi = has(out, "--sens") && has(out, "--no-hpss");
-    for (Param p : out) known(p, drumMidi);
+    // SogniChat: --prompt is a question and --system the role and way to answer, not a music description.
+    boolean chat = has(out, "--prompt") && has(out, "--system");
+    for (Param p : out) known(p, drumMidi, chat);
     return out;
   }
 
@@ -168,7 +170,7 @@ public final class ProgramParams {
   }
 
   /** Labels, hints and suggested values for DrumMidi's switches; a readable label for anything else. */
-  private static void known(Param p, boolean drumMidi) {
+  private static void known(Param p, boolean drumMidi, boolean chat) {
     int i = drumMidi && p.flag ? DrumMidiArgs.index(p.token) : -1;
     if (i >= 0) {
       p.label = DrumMidiArgs.LABELS[i];
@@ -181,7 +183,11 @@ public final class ProgramParams {
       else p.label = s.length() == 0 ? p.token : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
-    if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
+    if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = chat ? "your question" : "genre, mood, instruments";
+    if (p.flag && p.takesValue && p.token.equals("--system") && chat) {
+      p.label = "System role/answer";
+      p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
+    }
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
     if (p.flag && p.takesValue && p.token.equals("--keyscale") && p.hint.equals("key")) p.hint = "e.g. C major, A minor (or C, Am)";
     if (p.flag && p.takesValue && p.token.equals("--timesig") && p.hint.indexOf('|') >= 0) p.hint = "2, 3, 4 or 6 (4 = 4/4, 6 = 6/8)";
