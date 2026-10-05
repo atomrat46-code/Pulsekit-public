@@ -897,7 +897,14 @@ public class MidiDrumGen {
         }
     }
 
+    /**
+     * The work folder this run writes in (pulsekit.work in PyJav), read when the run starts: the
+     * setting is the whole app's, and a later run would change it.
+     */
+    static String work;
+
     public static void main(String[] args) {
+        work = System.getProperty("pulsekit.work");
         String style = "hard_rock";
         Integer tempo = null, bars = null, intensity = null;
         Double swing = null;
@@ -973,7 +980,6 @@ public class MidiDrumGen {
         DrumWriter w = new DrumWriter(fTempo, fHumanize, tsNum, tsDen);
         arrange(w, style, fBars, fSwing, fIntensity, fHats, crashes, fills, halfTime, tsNum, tsDen);
         // In PyJav (pulsekit.work set) a bare name goes in its work folder, so the MIDI is imported.
-        String work = System.getProperty("pulsekit.work");
         if (work != null && work.length() > 0 && !new File(output).isAbsolute()) output = new File(work, output).getPath();
         w.write(output);
 
