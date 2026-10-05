@@ -1641,6 +1641,37 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** SogniChat: Params has a text-file picker for --file and checkboxes for --thinking and --models; a run's reply is its verdict. */
+  @Test
+  public void s52_sogni_chat() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniChat.java");
+    TextView args = (TextView) get("pkPyArgs");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace('\n', '|')).append('\n');
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("--file picker: ").append(dv.findViewWithTag("params-file:--file") != null).append('\n');
+    out.append("--thinking box: ").append(dv.findViewWithTag("params-check:--thinking") != null).append('\n');
+    out.append("--models box: ").append(dv.findViewWithTag("params-check:--models") != null).append('\n');
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("Suggest one fill");
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--system")).setText("Answer briefly.");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-chat-suggest-one-fill.txt", "Try a snare roll.\n".getBytes("UTF-8")));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniChat 2026-10-05\nModel qwen3.6-35b-a3b-gguf-iq4xs\nPrompt: Suggest one fill\n\nTry a snare roll.\n\n"
+        + "Tokens: 42 in, 7 out\nWrote sogni-chat-suggest-one-fill.txt\nSucceeded: sogni-chat-suggest-one-fill.txt", files, 0));
+    idle();
+    out.append("verdict: ").append(((TextView) get("pkPyHint")).getText()).append('\n');
+    out.append("audio offer: ").append(ShadowDialog.getLatestDialog() != d && ShadowDialog.getLatestDialog() != null && ShadowDialog.getLatestDialog().isShowing()).append('\n');
+    write("s52_sogni_chat", out.toString());
+  }
+
   /** A run that made an audio file (SogniMusic's track) offers Play and Make drum MIDI; the track becomes the input. */
   @Test
   public void s51_audio_offer() throws Exception {
