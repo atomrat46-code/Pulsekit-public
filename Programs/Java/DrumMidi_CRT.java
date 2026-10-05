@@ -93,7 +93,14 @@ public class DrumMidi_CRT{
         }
     }
 
+    /**
+     * pulsekit.work, user.dir and java.io.tmpdir as they were when the run started: in PyJav they
+     * are the whole app's settings, and a run started meanwhile would change them.
+     */
+    static String[] startDirs;
+
     public static void main(String[] args) throws Exception {
+        startDirs = new String[] {System.getProperty("pulsekit.work"), System.getProperty("user.dir"), System.getProperty("java.io.tmpdir")};
         try {
             run(args);
         } catch (Throwable ex) {
@@ -526,9 +533,9 @@ public class DrumMidi_CRT{
         boolean onRoot = path != null && path.startsWith("/") && path.indexOf('/', 1) < 0;
         if (out.isAbsolute() && !onRoot && !"/".equals(path)) return out;
         String dir = null;
-        String[] keys = {"pulsekit.work", "user.dir", "java.io.tmpdir"};
-        for (int i = 0; i < keys.length; i++) {
-            String d = System.getProperty(keys[i]);
+        String[] dirs = dirs();
+        for (int i = 0; i < dirs.length; i++) {
+            String d = dirs[i];
             if (d == null || d.length() < 2 || "/".equals(d) || ".".equals(d)) continue;
             File f = new File(d);
             if (f.isDirectory() && f.canWrite()) { dir = f.getAbsolutePath(); break; }
@@ -539,11 +546,17 @@ public class DrumMidi_CRT{
         return new File(dir, name);
     }
 
+    /** The folders a bare output name may go in, as they were when the run started (now, if run() was called directly). */
+    static String[] dirs() {
+        if (startDirs != null) return startDirs;
+        return new String[] {System.getProperty("pulsekit.work"), System.getProperty("user.dir"), System.getProperty("java.io.tmpdir")};
+    }
+
     static File writtenFile(File outFile) {
         if (outFile.isFile() && outFile.length() > 0) return outFile;
-        String[] keys = {"pulsekit.work", "user.dir", "java.io.tmpdir"};
-        for (int i = 0; i < keys.length; i++) {
-            String dir = System.getProperty(keys[i]);
+        String[] dirs = dirs();
+        for (int i = 0; i < dirs.length; i++) {
+            String dir = dirs[i];
             if (dir == null || dir.length() < 2) continue;
             File alt = new File(dir, outFile.getName());
             if (alt.isFile() && alt.length() > 0) return alt;

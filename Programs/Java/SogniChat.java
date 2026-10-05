@@ -90,8 +90,17 @@ public final class SogniChat {
   /** The largest file uploaded for Sogni's tools (Sogni's own limit: 100 MB). */
   static final int UPLOAD_MAX = 100 * 1024 * 1024;
 
+  /**
+   * The work folder this run writes in, read when the run starts. On the phone PyJav runs programs
+   * inside the app and gives each run its own folder through pulsekit.work, one setting for the
+   * whole app: a run still waiting when the next one starts would otherwise save into that one's
+   * folder, and its file would be reported by the wrong run.
+   */
+  static String work;
+
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
+    work = System.getProperty("pulsekit.work");
     System.out.println(VERSION);
     String[] args = tidy(typed);
     String out = null;
@@ -1257,10 +1266,9 @@ public final class SogniChat {
   static File inWork(String name) {
     File f = new File(name);
     if (f.isAbsolute()) return f;
-    // Android ignores setting user.dir (it stays "/", read-only), so PyJav's own pulsekit.work comes first.
-    String work = System.getProperty("pulsekit.work");
-    if (work == null || work.length() == 0) work = System.getProperty("user.dir", ".");
-    return new File(work, name);
+    // Android ignores setting user.dir (it stays "/", read-only), so PyJav's own work folder comes first.
+    String dir = work != null && work.length() > 0 ? work : System.getProperty("user.dir", ".");
+    return new File(dir, name);
   }
 
   /**
