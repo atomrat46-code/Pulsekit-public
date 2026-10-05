@@ -40,6 +40,11 @@ import java.util.Map;
  * caps it in capacity units, --confirm_cost confirms the charge), follows it, and saves what it
  * made beside the conversation (<name>-1.png, <name>-2.mp3...).
  *
+ * --unlimited is for a Sogni Unlimited Plan, where cost does not matter and only Sogni's daily and
+ * monthly fair use limits apply: Sogni runs the tools inside the chat, and SogniChat follows the
+ * workflows it started and saves their results the same way. Past a fair use limit Sogni refuses
+ * the task until the limit renews, and SogniChat says so.
+ *
  * The saved file is the whole conversation (model, system text, each question and reply), so
  * --continue <that file> goes on from it: the earlier turns are sent again with the new --prompt,
  * and the longer conversation is saved as a new file (sogni-chat-<words>-2.txt, -3...). Its model
@@ -85,6 +90,7 @@ public final class SogniChat {
     boolean models = false;
     boolean tools = false;
     boolean runTools = false;
+    boolean unlimited = false;
     boolean confirm = false;
     double maxCost = 0;
     for (int i = 0; i < args.length; i++) {
@@ -104,6 +110,7 @@ public final class SogniChat {
       else if (a.equals("--models")) models = true;
       else if (a.equals("--tools")) tools = true;
       else if (a.equals("--run_tools")) runTools = true;
+      else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("-h") || a.equals("--help")) {
@@ -182,20 +189,27 @@ public final class SogniChat {
       for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
       System.out.println(shown);
       // --run_tools offers the tools too; the model only proposes calls, which run below as a workflow.
-      boolean offered = tools || runTools;
-      if (offered) System.out.println("Sogni tools: offered" + (runTools ? "; proposed calls run as a workflow (paid"
-          + (maxCost > 0 ? ", at most " + SogniApi.number(maxCost) + " capacity units" : "") + ")" : "; proposed calls are shown, not run"));
-      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null));
+      // --unlimited (an Unlimited Plan: no cost, only fair use limits) lets Sogni run them in the chat.
+      boolean offered = tools || runTools || unlimited;
+      if (unlimited) {
+        System.out.println("Sogni tools: Unlimited Plan, run in the chat (no cost limit; Sogni's daily and monthly fair use limits apply)");
+        if (maxCost > 0) System.out.println("Note: --max_cost is not used with the Unlimited Plan");
+      } else if (offered) {
+        System.out.println("Sogni tools: offered" + (runTools ? "; proposed calls run as a workflow (paid"
+            + (maxCost > 0 ? ", at most " + SogniApi.number(maxCost) + " capacity units" : "") + ")" : "; proposed calls are shown, not run"));
+      }
+      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null, unlimited));
       String reply = SogniApi.chatReply(payload);
       List<String[]> calls = SogniApi.chatToolCalls(payload);
-      if ((reply == null || reply.length() == 0) && calls.isEmpty()) {
+      List<String> started = SogniApi.chatWorkflows(payload);
+      if ((reply == null || reply.length() == 0) && calls.isEmpty() && started.isEmpty()) {
         System.out.println("Failed: Sogni sent no reply text" + (thinking ? " (with --thinking the answer can run out of tokens: raise --max_tokens)" : ""));
         return 1;
       }
       if (reply == null) reply = "";
       if (!calls.isEmpty()) {
         // The saved conversation keeps the proposal, so a --continue knows what was suggested.
-        StringBuilder proposed = new StringBuilder(reply.length() > 0 ? reply + "\n\n" : "").append("[Sogni tool calls proposed]");
+        StringBuilder proposed = new StringBuilder(reply.length() > 0 ? reply + "\n\n" : "").append(unlimited ? "[Sogni tool calls]" : "[Sogni tool calls proposed]");
         for (String[] c : calls) proposed.append("\n- ").append(c[0]).append(' ').append(c[1]);
         reply = proposed.toString();
       }
@@ -213,7 +227,17 @@ public final class SogniChat {
       else System.out.println("Wrote " + saved.getName());
       List<String> made = new ArrayList<String>();
       if (saved != null) made.add(saved.getName());
-      if (!calls.isEmpty() && !runTools) {
+      if (unlimited && !started.isEmpty()) {
+        // Sogni ran the tools in the chat: follow what it started and keep the results.
+        List<String> results = follow(api, started, name.replaceAll("\\.[^.]*$", ""));
+        if (results == null) return 1;
+        made.addAll(results);
+      } else if (unlimited && !calls.isEmpty()) {
+        // The model proposed calls but Sogni started nothing: run them, with no cost limit.
+        List<String> results = runCalls(api, calls, name.replaceAll("\\.[^.]*$", ""), true, 0);
+        if (results == null) return 1;
+        made.addAll(results);
+      } else if (!calls.isEmpty() && !runTools) {
         System.out.println("Not run: tick Run tools (--run_tools) to run the proposed " + (calls.size() == 1 ? "call" : "calls")
             + " (paid; --max_cost limits the spend). --continue with this conversation keeps the proposal.");
       } else if (!calls.isEmpty()) {
@@ -230,6 +254,10 @@ public final class SogniChat {
       for (Attachment a : attached) if (a.image != null) picture = true;
       System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400
           ? " (a picture needs a model that sees pictures: try --model deepseek-v4-flash-vision-exp-dspark-1m)" : ""));
+      if (unlimited && fairUse(ex)) {
+        System.out.println("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
+            + (ex.retryAfter > 0 ? " (Sogni says in about " + wait(ex.retryAfter) + ")" : "") + ".");
+      }
       return 1;
     } catch (IOException ex) {
       System.out.println("Failed: " + ex.getMessage());
@@ -240,7 +268,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
   }
 
   /**
@@ -250,18 +278,40 @@ public final class SogniChat {
    */
   static List<String> runCalls(SogniApi api, List<String[]> calls, String stem, boolean confirm, double maxCost) throws IOException {
     String id = api.start(SogniApi.toolsInput("Pulsekit chat", calls), confirm, maxCost);
-    System.out.println("Workflow: " + id);
-    Map<String, Object> wf = api.waitFor(id, 20 * 60 * 1000L, new SogniApi.Log() {
-      public void line(String s) {
-        System.out.println(s);
+    List<String> ids = new ArrayList<String>();
+    ids.add(id);
+    return follow(api, ids, stem);
+  }
+
+  /**
+   * Follows these workflows to their end and saves every picture, audio and video they made as
+   * <stem>-1.png, <stem>-2.mp3...: the file names, or null after saying why nothing was made.
+   */
+  static List<String> follow(SogniApi api, List<String> ids, String stem) throws IOException {
+    List<Map<String, Object>> media = new ArrayList<Map<String, Object>>();
+    List<String> notes = new ArrayList<String>();
+    for (String id : ids) {
+      System.out.println("Workflow: " + id);
+      Map<String, Object> wf = api.waitFor(id, 20 * 60 * 1000L, new SogniApi.Log() {
+        public void line(String s) {
+          System.out.println(s);
+        }
+      });
+      List<Map<String, Object>> found = SogniApi.mediaArtifacts(wf);
+      media.addAll(found);
+      String status = SogniApi.str(wf.get("status"));
+      if (found.isEmpty()) {
+        String why = SogniApi.problem(wf);
+        notes.add(id + ": " + (why != null ? why : "status " + status));
+      } else if (!"completed".equals(status)) {
+        System.out.println("Note: workflow " + id + " " + status);
       }
-    });
-    List<Map<String, Object>> media = SogniApi.mediaArtifacts(wf);
+    }
     if (media.isEmpty()) {
-      String why = SogniApi.problem(wf);
-      System.out.println("Failed: the workflow made no picture, audio or video" + (why != null ? ": " + why : " (status " + SogniApi.str(wf.get("status")) + ")"));
+      System.out.println("Failed: no picture, audio or video was made (" + join(notes) + ")");
       return null;
     }
+    for (String n : notes) System.out.println("Note: " + n);
     List<String> names = new ArrayList<String>();
     for (int i = 0; i < media.size(); i++) {
       String url = SogniApi.str(media.get(i).get("url"));
@@ -275,9 +325,20 @@ public final class SogniChat {
       System.out.println("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
       names.add(file.getName());
     }
-    String status = SogniApi.str(wf.get("status"));
-    if (!"completed".equals(status)) System.out.println("Note: workflow " + status);
     return names;
+  }
+
+  /** A refusal for Sogni's fair use limits: a rate limit (429), or a message about a daily or monthly limit. */
+  static boolean fairUse(SogniApi.ApiException ex) {
+    String m = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+    return ex.status == 429 || m.contains("fair use") || m.contains("daily limit") || m.contains("monthly limit") || m.contains("quota");
+  }
+
+  /** "3 h 20 min", "12 min" or "45 s" for a wait in seconds. */
+  static String wait(int seconds) {
+    if (seconds >= 3600) return (seconds / 3600) + " h " + ((seconds % 3600) / 60) + " min";
+    if (seconds >= 60) return (seconds / 60) + " min";
+    return seconds + " s";
   }
 
   /** "a, b, c". */
@@ -947,6 +1008,15 @@ public final class SogniChat {
      * calls (chatToolCalls), which the caller may run as a workflow (toolsInput, start) under a cost limit.
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools) {
+      return chatInput(model, system, turns, maxTokens, thinking, tools, false);
+    }
+
+    /**
+     * As above; `execute` lets Sogni run the tools inside the chat (sogni_tool_execution), with no cost
+     * check here: for an Unlimited Plan, where only Sogni's fair use limits apply. The reply then names
+     * the workflows it started (chatWorkflows).
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -980,7 +1050,7 @@ public final class SogniChat {
       body.put("token_type", "spark");
       body.put("app_source", APP_SOURCE);
       body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
-      body.put("sogni_tool_execution", Boolean.FALSE);
+      body.put("sogni_tool_execution", Boolean.valueOf(execute && tools != null && tools.length() > 0));
       Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
       body.put("chat_template_kwargs", kwargs);
@@ -1058,6 +1128,27 @@ public final class SogniChat {
         if (name == null) continue;
         Object args = f.get("arguments");
         out.add(new String[] {name, args == null ? "{}" : args instanceof String ? (String) args : toJson(args)});
+      }
+      return out;
+    }
+
+    /** The workflow ids a chat reply says Sogni started (creative_workflows), in order; empty when none. */
+    @SuppressWarnings("unchecked")
+    public static List<String> chatWorkflows(Object payload) {
+      List<String> out = new ArrayList<String>();
+      if (!(payload instanceof Map)) return out;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object list = p.get("creative_workflows");
+      if (list == null) list = p.get("creativeWorkflows");
+      if (list == null && p.get("data") instanceof Map) {
+        Map<String, Object> d = (Map<String, Object>) p.get("data");
+        list = d.get("creative_workflows") != null ? d.get("creative_workflows") : d.get("creativeWorkflows");
+      }
+      if (!(list instanceof List)) return out;
+      for (Object o : (List<Object>) list) {
+        String id = o instanceof Map ? str(((Map<String, Object>) o).get("workflowId")) : str(o);
+        if (id == null && o instanceof Map) id = str(((Map<String, Object>) o).get("id"));
+        if (id != null && !out.contains(id)) out.add(id);
       }
       return out;
     }

@@ -206,6 +206,7 @@ public final class ProgramParams {
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
     if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
     if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+    if (p.flag && chat && p.token.equals("--unlimited")) p.label = "Unlimited Plan (Sogni runs tools in the chat; fair use limits apply)";
     if (p.flag && p.takesValue && chat && p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 10; empty for no limit";

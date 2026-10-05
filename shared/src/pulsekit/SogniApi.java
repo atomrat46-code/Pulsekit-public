@@ -179,6 +179,15 @@ public final class SogniApi {
    * calls (chatToolCalls), which the caller may run as a workflow (toolsInput, start) under a cost limit.
    */
   public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools) {
+    return chatInput(model, system, turns, maxTokens, thinking, tools, false);
+  }
+
+  /**
+   * As above; `execute` lets Sogni run the tools inside the chat (sogni_tool_execution), with no cost
+   * check here: for an Unlimited Plan, where only Sogni's fair use limits apply. The reply then names
+   * the workflows it started (chatWorkflows).
+   */
+  public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute) {
     List<Object> messages = new ArrayList<Object>();
     if (system != null && system.trim().length() > 0) messages.add(message("system", system));
     for (String[] t : turns) {
@@ -212,7 +221,7 @@ public final class SogniApi {
     body.put("token_type", "spark");
     body.put("app_source", APP_SOURCE);
     body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
-    body.put("sogni_tool_execution", Boolean.FALSE);
+    body.put("sogni_tool_execution", Boolean.valueOf(execute && tools != null && tools.length() > 0));
     Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
     kwargs.put("enable_thinking", Boolean.valueOf(thinking));
     body.put("chat_template_kwargs", kwargs);
@@ -290,6 +299,27 @@ public final class SogniApi {
       if (name == null) continue;
       Object args = f.get("arguments");
       out.add(new String[] {name, args == null ? "{}" : args instanceof String ? (String) args : toJson(args)});
+    }
+    return out;
+  }
+
+  /** The workflow ids a chat reply says Sogni started (creative_workflows), in order; empty when none. */
+  @SuppressWarnings("unchecked")
+  public static List<String> chatWorkflows(Object payload) {
+    List<String> out = new ArrayList<String>();
+    if (!(payload instanceof Map)) return out;
+    Map<String, Object> p = (Map<String, Object>) payload;
+    Object list = p.get("creative_workflows");
+    if (list == null) list = p.get("creativeWorkflows");
+    if (list == null && p.get("data") instanceof Map) {
+      Map<String, Object> d = (Map<String, Object>) p.get("data");
+      list = d.get("creative_workflows") != null ? d.get("creative_workflows") : d.get("creativeWorkflows");
+    }
+    if (!(list instanceof List)) return out;
+    for (Object o : (List<Object>) list) {
+      String id = o instanceof Map ? str(((Map<String, Object>) o).get("workflowId")) : str(o);
+      if (id == null && o instanceof Map) id = str(((Map<String, Object>) o).get("id"));
+      if (id != null && !out.contains(id)) out.add(id);
     }
     return out;
   }

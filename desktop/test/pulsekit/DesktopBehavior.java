@@ -663,6 +663,19 @@ public final class DesktopBehavior {
       String reply;
       if (path.equals("/v1/models")) {
         reply = "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}";
+      } else if (path.equals("/v1/chat/completions") && body.contains("Draw ten kits")) {
+        // Past the Unlimited Plan's fair use limit Sogni refuses the task.
+        byte[] no = "{\"error\":{\"message\":\"Daily fair use limit reached\"}}".getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "application/json");
+        ex.getResponseHeaders().set("Retry-After", "5400");
+        ex.sendResponseHeaders(429, no.length);
+        ex.getResponseBody().write(no);
+        ex.close();
+        return;
+      } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tool_execution\":true")) {
+        // Unlimited Plan: Sogni runs the tool in the chat and names the workflow it started.
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Making your kit picture now.\"}}],"
+            + "\"creative_workflows\":[{\"workflowId\":\"wf9\",\"status\":\"queued\"}]}";
       } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tools\":\"creative-tools\"")) {
         // With the tools offered, the model proposes a call instead of answering in text.
         reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Here is a kit picture.\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\","
@@ -727,6 +740,8 @@ public final class DesktopBehavior {
         // Tools offered: the proposed call is shown and kept, not run; then run under a cost limit.
         "--prompt \"Draw a drum kit\" --tools",
         "--prompt \"Draw a drum kit\" --run_tools --max_cost 5 --confirm_cost",
+        "--prompt \"Draw a drum kit\" --unlimited",
+        "--prompt \"Draw ten kits\" --unlimited",
         "--models",
         "--max_tokens lots",
       };
