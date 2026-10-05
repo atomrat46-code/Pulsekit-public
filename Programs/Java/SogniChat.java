@@ -1,5 +1,6 @@
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,31 +15,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SogniMusic: music from a text description, made on Sogni's GPU network (generate_music).
+ * SogniChat: a question to Sogni's hosted chat model (Sogni Intelligence), answered in text.
  *
- * The API key comes from SOGNI_API_KEY, from --key_file (a text file with SOGNI_API_KEY=... or the
- * key alone), or from ~/.config/sogni/credentials. On the phone, choose the key file in Params:
- * PyJav copies it into its own folder. Each run spends Sogni credit (Spark) on your account.
+ * Plain text chat: Sogni's creative tools are off, so a reply never starts a paid image or music
+ * job; the chat itself spends a little Sogni credit (Spark). The key is found as SogniMusic finds
+ * it: SOGNI_API_KEY, --key_file, the key file in File > Drum Midi Settings, or
+ * ~/.config/sogni/credentials.
  *
- * The default model is turbo (ACE-Step): quick, cheap, and it keeps the exact BPM, key and time
- * signature, which suits drum work. music3 (MiniMax Music 3) sings better but costs about 20x.
+ * --prompt is the question. --file adds a text file after it (a CompareHits or DrumMidi log, a
+ * lyric sheet, notes); a Pulsekit .prompt sheet gives its prompt text. --system says how to
+ * answer ("You are a drum teacher. Answer briefly."). The reply is printed and saved as a .txt
+ * (sogni-chat-<first words>.txt, or the name given), which lands in Downloads on the phone.
  *
- * --genre names the style (any name; PyJav's Params lists Pulsekit's style database, and PyJav
- * passes the app's current style when none is given). It leads the prompt.
- *
- * --workflow <id> downloads the result of a run that already finished (the id is printed as
- * "Workflow: ..."), without starting or paying for a new one.
- *
- * --saveprompt also writes the final prompt as sogni-<genre>.prompt: a Pulsekit prompt sheet
- * (category Music, type AI) that opens in PyJav and the Prompts page. A line of the settings
- * (tempo, duration, time signature, key) follows the prompt. It is written before the key is
- * checked, so a prompt can be exported without one.
- *
- * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
- * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
- * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
+ * --models lists the chat models Sogni offers; --model picks one.
  */
-public final class SogniMusic {
+public final class SogniChat {
   public static void main(String[] args) throws Exception {
     int code = run(args);
     // Inside Pulsekit (PyJav on the phone runs programs in the app's own process, and sets
@@ -46,8 +37,11 @@ public final class SogniMusic {
     if (code != 0 && System.getProperty("pulsekit.work") == null) System.exit(code);
   }
 
-  /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-05c";
+  /** Printed first, so a run's log shows which SogniChat ran. */
+  static final String VERSION = "SogniChat 2026-10-05";
+
+  /** The most of a --file that is sent: chat models read a limited amount of text. */
+  static final int FILE_MAX = 60000;
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
@@ -55,39 +49,25 @@ public final class SogniMusic {
     String[] args = tidy(typed);
     String out = null;
     String prompt = null;
+    String system = null;
+    String file = null;
+    String model = null;
     String keyFile = null;
-    String keyscale = null;
-    String model = "turbo";
-    String lyrics = null;
     String apiBase = null;
-    String workflowId = null;
-    double bpm = 0;
-    double duration = 30;
-    int timesig = 0;
-    double maxCost = 0;
-    boolean confirm = false;
-    boolean drumsOnly = false;
-    String instruments = null;
-    String genre = null;
-    boolean savePrompt = false;
+    double maxTokens = 0;
+    boolean thinking = false;
+    boolean models = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
-      else if (a.equals("--bpm") && i + 1 < args.length) bpm = number(a, args[++i]);
-      else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
-      else if (a.equals("--keyscale") && i + 1 < args.length) keyscale = args[++i];
-      else if (a.equals("--timesig") && i + 1 < args.length) timesig = timesig(args[++i]);
-      else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
-      else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
+      else if (a.equals("--system") && i + 1 < args.length) system = args[++i];
+      else if (a.equals("--file") && i + 1 < args.length) file = args[++i];
+      else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
+      else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
-      else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
-      else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
-      else if (a.equals("--confirm_cost")) confirm = true;
-      else if (a.equals("--drums_only")) drumsOnly = true;
-      else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
-      else if (a.equals("--genre") && i + 1 < args.length) genre = args[++i];
-      else if (a.equals("--saveprompt")) savePrompt = true;
+      else if (a.equals("--thinking")) thinking = true;
+      else if (a.equals("--models")) models = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -98,48 +78,22 @@ public final class SogniMusic {
         return 2;
       }
     }
-    if (drumsOnly && instruments != null && instruments.trim().length() > 0) {
-      System.out.println("Failed: use --drums_only or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
+    if (Double.isNaN(maxTokens)) return 2;
+    if (maxTokens < 0 || maxTokens > 32000) {
+      System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
       return 2;
     }
-    if (drumsOnly && lyrics != null && lyrics.trim().length() > 0) {
-      System.out.println("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
-      return 2;
+    String attached = null;
+    if (file != null && file.trim().length() > 0) {
+      attached = fileText(new File(file.trim()));
+      if (attached == null) return 2;
     }
-    boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
-    if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {
-      System.out.println("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
+    boolean asked = (prompt != null && prompt.trim().length() > 0) || attached != null;
+    if (!asked && !models) {
+      System.out.println("Failed: give --prompt (the question), --file (a text file to send), or both, "
+          + "for example --prompt \"Suggest a fill for a rock groove at 120 BPM\"");
       usage();
       return 2;
-    }
-    prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
-    if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
-    if (keyscale != null && keyscale.trim().length() > 0) {
-      String k = keyscale(keyscale);
-      if (k == null) {
-        System.out.println("Failed: --keyscale is a key and mode, such as \"C major\", \"A minor\", \"F# minor\" or \"Bb major\" (also C, Am, F#m)");
-        return 2;
-      }
-      keyscale = k;
-    } else {
-      keyscale = null;
-    }
-    if (timesig < 0) {
-      System.out.println("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
-      return 2;
-    }
-    if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
-      System.out.println("Failed: --model is turbo, sft or music3");
-      return 2;
-    }
-    if (duration < 10 || duration > 600) {
-      System.out.println("Failed: --duration is 10 to 600 seconds");
-      return 2;
-    }
-    if (savePrompt && workflowId == null) {
-      // After the checks, so the sheet holds the settings as sent ("C major", not "c").
-      File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt + settingsLine(bpm, duration, timesig, keyscale));
-      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
@@ -148,47 +102,45 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
-    String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
-    if (workflowId != null) System.out.println("Fetching the result of workflow " + workflowId);
-    else System.out.println("Music: " + prompt);
-    System.out.println("Model " + model + ", " + SogniApi.number(duration) + " s"
-        + (bpm > 0 ? ", " + SogniApi.number(bpm) + " BPM" : "") + (keyscale != null ? ", " + keyscale : "")
-        + (timesig > 0 ? ", " + (timesig == 6 ? "6/8" : timesig + "/4") : ""));
+    // A long answer takes a while to write; the reply comes in one piece.
+    api.timeoutMs = 180000;
     try {
-      // --workflow fetches a run that already finished (paid for) instead of starting a new one.
-      String id = workflowId != null && workflowId.length() > 0 ? workflowId : api.start(input, confirm, maxCost);
-      System.out.println("Workflow: " + id);
-      Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
-        public void line(String s) {
-          System.out.println(s);
+      if (models) {
+        List<String> ids = api.chatModels();
+        System.out.println("Chat models (" + ids.size() + "):");
+        for (String id : ids) System.out.println("  " + id + (id.equals(SogniApi.CHAT_MODEL) ? "  (default)" : ""));
+        if (!asked) {
+          System.out.println("Succeeded: listed " + ids.size() + " models");
+          return 0;
         }
-      });
-      String status = SogniApi.str(wf.get("status"));
-      List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
-      if (audio.isEmpty()) {
-        System.out.println("Failed: " + why(api, id, wf));
+      }
+      String question = question(prompt, file, attached);
+      List<String[]> turns = new ArrayList<String[]>();
+      turns.add(new String[] {"user", question});
+      String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
+      System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
+      if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
+      System.out.println("Prompt: " + (prompt == null ? "" : prompt.trim())
+          + (attached != null ? (prompt == null || prompt.trim().length() == 0 ? "" : " ") + "[+ " + new File(file.trim()).getName() + ", " + attached.length() + " characters]" : ""));
+      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking));
+      String reply = SogniApi.chatReply(payload);
+      if (reply == null || reply.length() == 0) {
+        System.out.println("Failed: Sogni sent no reply text" + (thinking ? " (with --thinking the answer can run out of tokens: raise --max_tokens)" : ""));
         return 1;
       }
-      String url = SogniApi.str(audio.get(0).get("url"));
-      String mime = SogniApi.str(audio.get(0).get("mimeType"));
-      String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
-      // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
-      File file = inWork(out != null ? out : trackName(genre, id) + ext);
-      // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
-      String given = SogniApi.extension(file.getName(), null);
-      if (given != null && !given.equals(ext)) file = new File(file.getPath().substring(0, file.getPath().length() - given.length()) + ext);
-      String stem = file.getPath().substring(0, file.getPath().length() - (SogniApi.extension(file.getName(), null) == null ? 0 : ext.length()));
-      for (int n = 1; file.exists(); n++) file = new File(stem + "(" + n + ")" + ext);
-      byte[] data = api.download(url);
-      FileOutputStream fos = new FileOutputStream(file);
-      try {
-        fos.write(data);
-      } finally {
-        fos.close();
+      System.out.println();
+      System.out.println(reply);
+      System.out.println();
+      String usage = SogniApi.chatUsage(payload);
+      if (usage != null) System.out.println("Tokens: " + usage);
+      File saved = save(out != null ? out : replyName(prompt, file), reply);
+      if (saved == null) {
+        System.out.println("Could not save the reply (it is in the log above)");
+        System.out.println("Succeeded");
+      } else {
+        System.out.println("Wrote " + saved.getName());
+        System.out.println("Succeeded: " + saved.getName());
       }
-      System.out.println("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      if (!"completed".equals(status)) System.out.println("Note: workflow " + status);
-      System.out.println("Succeeded: " + file.getName());
     } catch (SogniApi.ApiException ex) {
       System.out.println("Failed: " + ex.getMessage());
       return 1;
@@ -200,8 +152,92 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
+    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt] [--system text] [--model id] "
+        + "[--max_tokens N] [--thinking] [--models] [--key_file credentials.txt]");
+  }
+
+  /** What is sent: the prompt, then the file under its name. */
+  static String question(String prompt, String file, String attached) {
+    String p = prompt == null ? "" : prompt.trim();
+    if (attached == null) return p;
+    String head = "File " + new File(file.trim()).getName() + ":\n";
+    return p.length() == 0 ? head + attached : p + "\n\n" + head + attached;
+  }
+
+  /**
+   * A text file's contents, cut to FILE_MAX characters; a Pulsekit .prompt sheet (PKPROMPT1) gives
+   * the prompt after its "---" line. Null, after saying why, when it cannot be read.
+   */
+  static String fileText(File f) {
+    if (!f.isFile()) {
+      System.out.println("Failed: --file " + f.getName() + " was not found");
+      return null;
+    }
+    String text;
+    try {
+      InputStream in = new FileInputStream(f);
+      try {
+        text = new String(SogniApi.readAll(in), StandardCharsets.UTF_8);
+      } finally {
+        in.close();
+      }
+    } catch (IOException ex) {
+      System.out.println("Failed: could not read " + f.getName() + ": " + ex.getMessage());
+      return null;
+    }
+    if (text.indexOf('\0') >= 0) {
+      System.out.println("Failed: " + f.getName() + " is not a text file (send a .txt, a log or a .prompt)");
+      return null;
+    }
+    if (text.startsWith("PKPROMPT1")) {
+      int at = text.indexOf("\n---\n");
+      if (at >= 0) text = text.substring(at + 5);
+    }
+    text = text.trim();
+    if (text.length() == 0) {
+      System.out.println("Failed: " + f.getName() + " is empty");
+      return null;
+    }
+    if (text.length() > FILE_MAX) {
+      System.out.println("Note: " + f.getName() + " is long; its first " + FILE_MAX + " characters are sent");
+      text = text.substring(0, FILE_MAX);
+    }
+    return text;
+  }
+
+  /** sogni-chat-suggest-a-fill-for.txt: the first words of the prompt (or the file's name). */
+  static String replyName(String prompt, String file) {
+    String from = prompt != null && prompt.trim().length() > 0 ? prompt : (file == null ? "" : new File(file.trim()).getName().replaceAll("\\.[^.]*$", ""));
+    StringBuilder sb = new StringBuilder();
+    int words = 0;
+    for (String w : from.toLowerCase().split("[^a-z0-9]+")) {
+      if (w.length() == 0) continue;
+      if (sb.length() > 0) sb.append('-');
+      sb.append(w);
+      if (++words == 4 || sb.length() > 30) break;
+    }
+    return "sogni-chat" + (sb.length() > 0 ? "-" + sb : "") + ".txt";
+  }
+
+  /** Writes the reply beside the program's other files, never over an existing file. Null if it could not. */
+  static File save(String name, String reply) {
+    File file = inWork(name);
+    String path = file.getPath();
+    int dot = path.lastIndexOf('.');
+    String stem = dot > path.lastIndexOf(File.separatorChar) ? path.substring(0, dot) : path;
+    String ext = dot > path.lastIndexOf(File.separatorChar) ? path.substring(dot) : "";
+    for (int n = 1; file.exists(); n++) file = new File(stem + "(" + n + ")" + ext);
+    try {
+      FileOutputStream fos = new FileOutputStream(file);
+      try {
+        fos.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+      return file;
+    } catch (IOException ex) {
+      return null;
+    }
   }
 
   /**
@@ -219,57 +255,8 @@ public final class SogniMusic {
   }
 
   /**
-   * Why a run made no audio: the failed step's own words, from the record or the event list. When
-   * Sogni gives none, the record is saved as sogni_workflow_failed.json to look at.
-   */
-  static String why(SogniApi api, String id, Map<String, Object> wf) {
-    String why = SogniApi.problem(wf);
-    if (!why.startsWith("workflow ")) return why;
-    try {
-      List<String> found = new ArrayList<String>();
-      SogniApi.reasons(api.events(id), found);
-      if (!found.isEmpty()) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < found.size() && i < 3; i++) sb.append(i == 0 ? "" : "; ").append(found.get(i));
-        return sb.toString();
-      }
-    } catch (IOException ignored) {
-      // Fall back to the saved record.
-    }
-    try {
-      File raw = inWork("sogni_workflow_failed.json");
-      FileOutputStream fos = new FileOutputStream(raw);
-      try {
-        fos.write(SogniApi.toJson(wf).getBytes(StandardCharsets.UTF_8));
-      } finally {
-        fos.close();
-      }
-      return why + " (Sogni gave no reason; the workflow record is saved as " + raw.getName() + ")";
-    } catch (IOException ex) {
-      return why;
-    }
-  }
-
-  /**
-   * A key as Sogni takes it ("C major", "F# minor"): from "c", "Am", "f#m", "Bb", "a minor" and the
-   * like. Null when it is not a key.
-   */
-  static String keyscale(String value) {
-    java.util.regex.Matcher m = java.util.regex.Pattern
-        .compile("^\\s*([A-Ga-g])\\s*(#|b|\u266f|\u266d|sharp|flat)?\\s*(m|min|minor|maj|major)?\\s*$", java.util.regex.Pattern.CASE_INSENSITIVE)
-        .matcher(value);
-    if (!m.matches()) return null;
-    String note = m.group(1).toUpperCase();
-    String acc = m.group(2) == null ? "" : m.group(2).toLowerCase();
-    if (acc.equals("\u266f") || acc.equals("sharp")) acc = "#";
-    if (acc.equals("\u266d") || acc.equals("flat")) acc = "b";
-    String mode = m.group(3) == null ? "" : m.group(3).toLowerCase();
-    return note + acc + (mode.startsWith("m") && !mode.startsWith("maj") ? " minor" : " major");
-  }
-
-  /**
-   * Arguments as typed by hand: "--workflow wf_1" given as one argument becomes the switch and its
-   * value, and a switch given twice in a row (--workflow --workflow wf_1) counts once.
+   * Arguments as typed by hand: "--prompt hello" given as one argument becomes the switch and its
+   * value, and a switch given twice in a row (--prompt --prompt hello) counts once.
    */
   static String[] tidy(String[] args) {
     List<String> out = new ArrayList<String>();
@@ -301,117 +288,7 @@ public final class SogniMusic {
     }
   }
 
-  /**
-   * Beats per bar, as Sogni takes them: 2, 3, 4 or 6 (6/8). "4/4", "3/4", "2/4" and "6/8" are read
-   * the same way. -1 for anything else.
-   */
-  static int timesig(String value) {
-    String v = value == null ? "" : value.trim();
-    if (v.equals("2") || v.equals("2/4")) return 2;
-    if (v.equals("3") || v.equals("3/4")) return 3;
-    if (v.equals("4") || v.equals("4/4")) return 4;
-    if (v.equals("6") || v.equals("6/8")) return 6;
-    return -1;
-  }
-
-  /**
-   * The musical settings under the prompt in a saved sheet, as Sogni's own tools write them into a
-   * prompt: "\n\nTempo: 120 BPM. Duration: 120 s. Time signature: 4/4. Key: C major." Unset ones
-   * are left out.
-   */
-  static String settingsLine(double bpm, double duration, int timesig, String keyscale) {
-    StringBuilder sb = new StringBuilder();
-    if (bpm > 0) sb.append("Tempo: ").append(SogniApi.number(bpm)).append(" BPM. ");
-    if (duration > 0) sb.append("Duration: ").append(SogniApi.number(duration)).append(" s. ");
-    if (timesig > 0) sb.append("Time signature: ").append(timesig == 6 ? "6/8" : timesig + "/4").append(". ");
-    if (keyscale != null && keyscale.length() > 0) sb.append("Key: ").append(keyscale).append(". ");
-    return sb.length() == 0 ? "" : "\n\n" + sb.toString().trim();
-  }
-
-  /** sogni-<genre>-<first 8 signs of the run's id>: each run's track gets its own name. */
-  static String trackName(String genre, String workflowId) {
-    String id = workflowId == null ? "" : workflowId;
-    int us = id.lastIndexOf('_');
-    if (us >= 0) id = id.substring(us + 1);
-    id = id.replaceAll("[^A-Za-z0-9]", "");
-    if (id.length() > 8) id = id.substring(0, 8);
-    return promptName(genre) + (id.length() == 0 ? "" : "-" + id);
-  }
-
-  /** "sogni-" and the genre, spaces and symbols as hyphens ("Deep House" → sogni-Deep-House). */
-  static String promptName(String genre) {
-    String g = genre == null ? "" : genre.trim().replaceAll("[^A-Za-z0-9]+", "-").replaceAll("^-+|-+$", "");
-    return "sogni-" + (g.length() == 0 ? "music" : g);
-  }
-
-  /**
-   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
-   * name, category Music, the model, type AI, then the prompt. Never over an existing file.
-   */
-  static File savePrompt(String name, String model, String prompt) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("PKPROMPT1\n").append(name).append("\n\n\n\n\n");
-    sb.append("Category: Music\n");
-    sb.append("Model: ").append(model).append('\n');
-    sb.append("Reference file 1: \n");
-    sb.append("Reference file 2: \n");
-    sb.append("Type: ai\n");
-    sb.append("---\n");
-    sb.append(prompt);
-    File file = inWork(name + ".prompt");
-    for (int n = 1; file.exists(); n++) file = inWork(name + "(" + n + ").prompt");
-    try {
-      FileOutputStream fos = new FileOutputStream(file);
-      try {
-        fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-      } finally {
-        fos.close();
-      }
-      return file;
-    } catch (IOException ex) {
-      return null;
-    }
-  }
-
-  /**
-   * The prompt sent to Sogni: the genre and style description, then the instrumentation.
-   * --drums_only asks for a solo drum kit; --instruments "bass, rhodes" for those instruments
-   * alone. Without lyrics the track is asked to be instrumental.
-   */
-  static String musicPrompt(String prompt, String genre, boolean drumsOnly, String instruments, boolean lyrics) {
-    StringBuilder sb = new StringBuilder();
-    String g = genre == null ? "" : genre.trim();
-    String style = prompt == null ? "" : prompt.trim();
-    if (drumsOnly) {
-      sb.append("Solo drum kit, drums only");
-      if (g.length() > 0) sb.append(", ").append(g).append(" drum pattern");
-      if (style.length() > 0) sb.append(", ").append(style);
-      else if (g.length() == 0) sb.append(", tight groove");
-      sb.append(". Kick, snare, hi-hat and cymbals only: no bass, no guitar, no keys, no synths, no melody, no chords, no vocals. Dry, clear drum recording.");
-      return sb.toString();
-    }
-    if (g.length() > 0) style = style.length() > 0 ? g + ", " + style : g;
-    List<String> list = new ArrayList<String>();
-    if (instruments != null) {
-      for (String part : instruments.split("[,;/]")) {
-        String t = part.trim();
-        if (t.length() > 0) list.add(t);
-      }
-    }
-    if (list.isEmpty()) return style;
-    if (style.length() > 0) sb.append(style).append(". ");
-    sb.append(lyrics ? "Only these instruments: " : "Instrumental, only these instruments: ");
-    for (int i = 0; i < list.size(); i++) {
-      if (i > 0) sb.append(i == list.size() - 1 ? " and " : ", ");
-      sb.append(list.get(i));
-    }
-    sb.append(". No other instruments");
-    if (!lyrics) sb.append(", no vocals");
-    sb.append('.');
-    return sb.toString();
-  }
-
-  /** Sogni's hosted API: a copy of shared/src/pulsekit/SogniApi.java (android/build.sh checks they match). */
+  /** shared/src/pulsekit/SogniApi.java, copied here (programs see only the Java runtime); android/build.sh checks they match. */
   static final class SogniApi {
     // --- SogniApi begin ---
     public static final String BASE = "https://api.sogni.ai";

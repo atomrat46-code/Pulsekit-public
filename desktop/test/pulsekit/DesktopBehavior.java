@@ -649,6 +649,66 @@ public final class DesktopBehavior {
   }
 
   /** Drum Midi Settings' Sogni API key file on the desktop: kept in ~/.pulsekit, passed as --key_file. */
+  /** SogniChat: the prompt plus a text file go to Sogni's chat with its tools off; the reply is printed and saved. */
+  void s36_sogni_chat() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> seen = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
+      String reply = path.equals("/v1/models")
+          ? "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}"
+          : "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>a fill</think>\\nTry a snare roll into the crash.\"}}],"
+              + "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}";
+      byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
+      ex.getResponseHeaders().set("Content-Type", "application/json");
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File notes = new File(home, "notes.txt");
+      Files.write(notes.toPath(), "Kick on 1 and 3, snare on 2 and 4.\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniChat.java");
+      out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "--prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\"",
+        "--models",
+        "--max_tokens lots",
+      };
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+          out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      synchronized (seen) {
+        for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat"))::iterator) {
+          out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim()).append('\n');
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
   void s35_sogni_key_setting() throws Exception {
     File home = new File(System.getProperty("user.home"));
     DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");

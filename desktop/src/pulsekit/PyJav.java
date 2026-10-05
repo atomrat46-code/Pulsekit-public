@@ -388,6 +388,7 @@ final class PyJav {
                 boolean loaded = false;
                 int midis = 0;
                 int audios = 0;
+                int texts = 0;
                 java.util.Map<String, File> savedAudio = new java.util.HashMap<String, File>();
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
@@ -421,6 +422,11 @@ final class PyJav {
                             audios++;
                             savedAudio.put(f.name, saved);
                         }
+                    } else if (lower.endsWith(".txt")) {
+                        // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android.
+                        File saved = this.saveProgramFile(f.name, f.bytes);
+                        status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
+                        if (saved != null) texts++;
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {
@@ -441,7 +447,15 @@ final class PyJav {
                     String first = (nl < 0 ? line : line.substring(0, nl)).trim();
                     if (first.isEmpty()) first = result.code == 0 ? "Prompt finished" : "Prompt failed";
                     status.append(first).append('\n');
-                } else if (midis == 0 && audios == 0) status.append("Import failed: no MIDI file was written\n");
+                } else if (midis == 0 && audios == 0 && texts == 0) {
+                    // A program that says how it went (SogniChat --models, a bad argument) is believed, as on Android.
+                    String verdict = null;
+                    for (String line : (result.log == null ? "" : result.log).split("\n")) {
+                        String t = line.trim();
+                        if (t.startsWith("Succeeded") || t.startsWith("Failed:")) verdict = t;
+                    }
+                    status.append(verdict != null ? verdict : "Import failed: no MIDI file was written").append('\n');
+                }
                 if (this.pyHint != null && status.length() > 0) this.pyHint.setText(hintHtml(status.toString().trim()));
                 if (status.length() > 0) app.setNow(status.toString().trim().split("\n")[0]);
                 if (app.pyLog != null && status.length() > 0) {

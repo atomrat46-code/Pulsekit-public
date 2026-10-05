@@ -19,9 +19,10 @@ import java.util.Map;
  * what it made. Music first (generate_music); the same calls serve any hosted tool.
  *
  * Plain requests only (no WebSocket, no SDK), so it works on Android, on the desktop, and in
- * sandboxes that block WebSockets. Java 8 without lambdas: Programs/Java/SogniMusic.java carries
- * a copy of this class (between the SogniApi begin/end lines), compiled by PyJav's on-phone
- * compiler; android/build.sh checks the two copies match.
+ * sandboxes that block WebSockets. Java 8 without lambdas: Programs/Java/SogniMusic.java and
+ * SogniChat.java carry a copy of this class (between the SogniApi begin/end lines), compiled by
+ * PyJav's on-phone compiler; android/build.sh checks the copies match. Chat is plain
+ * /v1/chat/completions with Sogni's tools off: text in, text out.
  */
 public final class SogniApi {
   // --- SogniApi begin ---
@@ -155,6 +156,98 @@ public final class SogniApi {
   /** The workflow's event list (what happened, step by step), as Sogni returns it. */
   public Object events(String id) throws IOException {
     return this.request("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events", null);
+  }
+
+  // ---- Chat (Sogni Intelligence, OpenAI-style /v1/chat/completions) ----
+
+  /** The hosted chat model Sogni's own tools use by default. */
+  public static final String CHAT_MODEL = "qwen3.6-35b-a3b-gguf-iq4xs";
+
+  /**
+   * A plain text chat request: no Sogni tools, so the reply is text only. `turns` are
+   * {role, text} pairs ("user" or "assistant") after the optional system text; maxTokens 0 leaves
+   * Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
+   */
+  public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
+    List<Object> messages = new ArrayList<Object>();
+    if (system != null && system.trim().length() > 0) messages.add(message("system", system));
+    for (String[] t : turns) messages.add(message(t[0], t[1]));
+    Map<String, Object> body = new LinkedHashMap<String, Object>();
+    body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
+    body.put("messages", messages);
+    if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
+    body.put("token_type", "spark");
+    body.put("app_source", APP_SOURCE);
+    body.put("sogni_tools", Boolean.FALSE);
+    body.put("sogni_tool_execution", Boolean.FALSE);
+    Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
+    kwargs.put("enable_thinking", Boolean.valueOf(thinking));
+    body.put("chat_template_kwargs", kwargs);
+    return toJson(body);
+  }
+
+  static Map<String, Object> message(String role, String text) {
+    Map<String, Object> m = new LinkedHashMap<String, Object>();
+    m.put("role", role);
+    m.put("content", text);
+    return m;
+  }
+
+  /** Sends a chat request (chatInput) and returns Sogni's reply as it came. */
+  public Object chat(String inputJson) throws IOException {
+    return this.request("POST", "/v1/chat/completions", inputJson);
+  }
+
+  /** The reply's text (choices[0].message.content, also inside "data"), without a <think> part; null if none. */
+  @SuppressWarnings("unchecked")
+  public static String chatReply(Object payload) {
+    if (!(payload instanceof Map)) return null;
+    Map<String, Object> p = (Map<String, Object>) payload;
+    Object data = p.get("data");
+    if (!(p.get("choices") instanceof List) && data instanceof Map) p = (Map<String, Object>) data;
+    Object choices = p.get("choices");
+    if (!(choices instanceof List) || ((List<Object>) choices).isEmpty()) return null;
+    Object first = ((List<Object>) choices).get(0);
+    if (!(first instanceof Map)) return null;
+    Object m = ((Map<String, Object>) first).get("message");
+    if (!(m instanceof Map)) m = ((Map<String, Object>) first).get("delta");
+    if (!(m instanceof Map)) return null;
+    String text = str(((Map<String, Object>) m).get("content"));
+    if (text == null) return null;
+    int close = text.lastIndexOf("</think>");
+    if (close >= 0) text = text.substring(close + 8);
+    return text.trim();
+  }
+
+  /** "120 in, 340 out" from the reply's token counts, or null. */
+  @SuppressWarnings("unchecked")
+  public static String chatUsage(Object payload) {
+    if (!(payload instanceof Map)) return null;
+    Object u = ((Map<String, Object>) payload).get("usage");
+    if (!(u instanceof Map) && ((Map<String, Object>) payload).get("data") instanceof Map) u = ((Map<String, Object>) ((Map<String, Object>) payload).get("data")).get("usage");
+    if (!(u instanceof Map)) return null;
+    Object inN = ((Map<String, Object>) u).get("prompt_tokens");
+    Object outN = ((Map<String, Object>) u).get("completion_tokens");
+    String in = inN instanceof Number ? number(((Number) inN).doubleValue()) : str(inN);
+    String out = outN instanceof Number ? number(((Number) outN).doubleValue()) : str(outN);
+    if (in == null && out == null) return null;
+    return (in == null ? "?" : in) + " in, " + (out == null ? "?" : out) + " out";
+  }
+
+  /** The chat model ids Sogni offers (/v1/models). */
+  @SuppressWarnings("unchecked")
+  public List<String> chatModels() throws IOException {
+    Object payload = this.request("GET", "/v1/models", null);
+    List<String> out = new ArrayList<String>();
+    Object list = payload instanceof Map ? ((Map<String, Object>) payload).get("data") : payload;
+    if (list instanceof Map) list = ((Map<String, Object>) list).get("data");
+    if (list instanceof List) {
+      for (Object o : (List<Object>) list) {
+        String id = o instanceof Map ? str(((Map<String, Object>) o).get("id")) : str(o);
+        if (id != null) out.add(id);
+      }
+    }
+    return out;
   }
 
   /**
