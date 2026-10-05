@@ -752,6 +752,8 @@ final class PyJav {
         if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
         // Pictures it made (SogniChat's tool results) are shown.
         if (status.startsWith("Succeeded")) PictureOffer.offer(app, result);
+        // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
+        if (status.startsWith("Succeeded")) VideoOffer.offer(app, result);
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);

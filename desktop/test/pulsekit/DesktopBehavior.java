@@ -950,7 +950,11 @@ public final class DesktopBehavior {
         "--prompt Walk --resolution 4k",
         "--image \"" + garden.getAbsolutePath() + "\"",
       };
-      for (String extra : runs) {
+      // The runs that make a clip show the Video ready dialog; Close it.
+      java.util.Set<Integer> clips = new java.util.HashSet<Integer>(java.util.Arrays.asList(0, 1, 2, 4));
+      for (int r = 0; r < runs.length; r++) {
+        final String extra = runs[r];
+        if (clips.contains(r)) answers.add("Close");
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
@@ -962,6 +966,13 @@ public final class DesktopBehavior {
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
       }
+      // Play opens a player page with the phone's controls (Java plays no video itself).
+      File clip = new File(home, ".pulsekit/walk.mp4");
+      File page = (File) call("videoPage", clip);
+      String html = new String(Files.readAllBytes(page.toPath()), StandardCharsets.UTF_8);
+      out.append("player page ").append(page.getName()).append(": video src ").append(html.contains("src=\"" + clip.toURI()) ? "the saved clip" : "?");
+      for (String id : new String[] {"play", "stop", "mute", "volume", "level"}) out.append(", ").append(id).append(html.contains("id=\"" + id + "\"") ? " yes" : " NO");
+      out.append('\n');
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
       }
