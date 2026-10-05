@@ -658,7 +658,9 @@ public final class DesktopBehavior {
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
       String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-      seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
+      seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
+          + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
+              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "data:image/png;base64,...")));
       String type = "application/json";
       String reply;
       if (path.equals("/v1/models")) {
@@ -689,6 +691,14 @@ public final class DesktopBehavior {
       } else if (path.equals("/v1/creative-agent/workflows/wf9")) {
         reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
             + "/files/kit.png\",\"mimeType\":\"image/png\"}]}}}";
+      } else if (path.startsWith("/v1/image/uploadUrl") || path.startsWith("/v1/media/uploadUrl")) {
+        // Uploads for Sogni's tools: a signed URL to PUT the file to, then where it can be read.
+        reply = "{\"data\":{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put" + path.substring(path.indexOf('?')) + "\"}}";
+      } else if (path.startsWith("/v1/image/downloadUrl") || path.startsWith("/v1/media/downloadUrl")) {
+        String q = path.substring(path.indexOf("id=") + 3);
+        reply = "{\"data\":{\"downloadUrl\":\"https://store.example/" + q.replaceAll("&.*", "") + "\"}}";
+      } else if (path.startsWith("/put")) {
+        reply = "";
       } else if (path.startsWith("/files/")) {
         type = "image/png";
         reply = "PNGDATA";
@@ -727,6 +737,10 @@ public final class DesktopBehavior {
       Files.write(picture.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1, 2, 3});
       File junk = new File(home, "data.bin");
       Files.write(junk.toPath(), new byte[] {1, 0, 2, 0, 3});
+      File track = new File(home, "song.mp3");
+      Files.write(track.toPath(), new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4});
+      File webp = new File(home, "photo.webp");
+      Files.write(webp.toPath(), new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '});
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
@@ -742,6 +756,10 @@ public final class DesktopBehavior {
         "--prompt \"Draw a drum kit\" --run_tools --max_cost 5 --confirm_cost",
         "--prompt \"Draw a drum kit\" --unlimited",
         "--prompt \"Draw ten kits\" --unlimited",
+        // Files for the tools: uploaded, then named in the request as media references.
+        "--prompt \"Make a video for this song with this kit\" --file \"" + track.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\" --unlimited",
+        "--prompt \"What is this?\" --file \"" + track.getAbsolutePath() + "\"",
+        "--prompt \"Restyle it\" --file \"" + webp.getAbsolutePath() + "\" --tools",
         "--models",
         "--max_tokens lots",
       };

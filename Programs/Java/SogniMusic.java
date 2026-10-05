@@ -576,6 +576,12 @@ public final class SogniMusic {
      * the workflows it started (chatWorkflows).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute) {
+      return chatInput(model, system, turns, maxTokens, thinking, tools, execute, null);
+    }
+
+    /** As above, with uploaded files (uploadMedia) as media_references, for Sogni's tools to work on. */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute,
+        List<Map<String, Object>> media) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -613,6 +619,7 @@ public final class SogniMusic {
       Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
       body.put("chat_template_kwargs", kwargs);
+      if (media != null && !media.isEmpty()) body.put("media_references", media);
       return toJson(body);
     }
 
@@ -931,6 +938,71 @@ public final class SogniMusic {
         if (path.contains("ogg")) return ".ogg";
       }
       return fallback;
+    }
+
+    /**
+     * Uploads a file to Sogni's media storage, as Sogni's own CLI does, and returns it as a
+     * media_references entry: {id media_ref_<n>, kind, mime_type, url, filename, ...}. `kind` is
+     * "image", "audio" or "video"; `n` counts the request's files from 1. The file is stored for the
+     * hosted tools (edit_image, animate_photo, sound_to_video, video_to_video...) to read.
+     */
+    public Map<String, Object> uploadMedia(String kind, String mime, byte[] data, int n, String filename) throws IOException {
+      String id = "media_ref_" + n;
+      String jobId = "pulsekit-" + System.currentTimeMillis() + "-" + n + "-" + Long.toHexString(Double.doubleToLongBits(Math.random()) & 0xffffffffL);
+      String type = "audio".equals(kind) ? "referenceAudio" : "video".equals(kind) ? "referenceVideo" : "contextImage" + Math.min(n, 16);
+      String query = "?type=" + enc(type) + "&jobId=" + enc(jobId) + "&contentType=" + enc(mime) + ("image".equals(kind) ? "&imageId=" : "&id=") + enc(id);
+      String endpoint = "image".equals(kind) ? "/v1/image/" : "/v1/media/";
+      String uploadUrl = storedUrl(this.request("GET", endpoint + "uploadUrl" + query, null), "uploadUrl");
+      this.put(uploadUrl, mime, data);
+      String url = storedUrl(this.request("GET", endpoint + "downloadUrl" + query, null), "downloadUrl");
+      Map<String, Object> ref = new LinkedHashMap<String, Object>();
+      ref.put("id", id);
+      ref.put("source", APP_SOURCE);
+      ref.put("flag", "audio".equals(kind) ? "--ref-audio" : "video".equals(kind) ? "--ref-video" : "-c/--context");
+      ref.put("kind", kind);
+      ref.put("mime_type", mime);
+      ref.put("url", url);
+      ref.put("filename", filename);
+      ref.put("byte_length", Integer.valueOf(data.length));
+      ref.put("prompt_label", filename);
+      Map<String, Object> storage = new LinkedHashMap<String, Object>();
+      storage.put("jobId", jobId);
+      storage.put("type", type);
+      ref.put("storage", storage);
+      return ref;
+    }
+
+    /** The uploadUrl or downloadUrl in Sogni's reply (also inside "data"). */
+    @SuppressWarnings("unchecked")
+    static String storedUrl(Object payload, String key) throws IOException {
+      if (payload instanceof Map) {
+        Map<String, Object> p = (Map<String, Object>) payload;
+        String v = str(p.get(key));
+        if (v == null && p.get("data") instanceof Map) v = str(((Map<String, Object>) p.get("data")).get(key));
+        if (v != null && v.length() > 0) return v;
+      }
+      throw new IOException("Sogni did not return " + key + " for the upload");
+    }
+
+    /** Sends a file to a signed upload URL (no key: the URL carries its own permission). */
+    void put(String url, String mime, byte[] data) throws IOException {
+      HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+      c.setRequestMethod("PUT");
+      c.setConnectTimeout(this.timeoutMs);
+      c.setReadTimeout(Math.max(this.timeoutMs, 300000));
+      c.setDoOutput(true);
+      c.setFixedLengthStreamingMode(data.length);
+      c.setRequestProperty("Content-Type", mime);
+      if (url.startsWith(this.base + "/")) this.authorize(c);
+      OutputStream out = c.getOutputStream();
+      try {
+        out.write(data);
+      } finally {
+        out.close();
+      }
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      c.disconnect();
     }
 
     /** Downloads a result URL (signed; no key is sent to hosts other than the API). */

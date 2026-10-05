@@ -27,8 +27,12 @@ import java.util.Map;
  *     its prompt text;
  *   - MIDI, turned into text the model can read: tempo, time signature, then each track bar by bar
  *     with its notes (drum names on channel 10);
- *   - a PNG or JPEG picture, sent as an image for a model that sees pictures. The saved
- *     conversation names the picture, and --continue does not send it again. --system says how to
+ *   - a PNG or JPEG picture, sent as an image for a model that sees pictures;
+ *   - with Sogni's tools on (--tools, --run_tools, --unlimited), also pictures (PNG, JPEG, WebP,
+ *     GIF), audio (MP3, WAV, FLAC, M4A) and video (MP4, MOV, WebM) up to 100 MB: each is uploaded to
+ *     Sogni's media storage, as Sogni's CLI does, and named in the request (media_ref_1...) for the
+ *     tools to work on: edit or animate a picture, a video to a song, a video restyled.
+ *   The saved conversation names these files; --continue does not send them again. --system says how to
  * answer ("You are a drum teacher. Answer briefly."). The reply is printed and saved as a .txt
  * (sogni-chat-<first words>.txt, or the name given), which lands in Downloads on the phone.
  *
@@ -72,6 +76,9 @@ public final class SogniChat {
 
   /** The largest picture sent (7 MB; a data: URI is a third bigger). */
   static final int IMAGE_MAX = 7 * 1024 * 1024;
+
+  /** The largest file uploaded for Sogni's tools (Sogni's own limit: 100 MB). */
+  static final int UPLOAD_MAX = 100 * 1024 * 1024;
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
@@ -128,9 +135,11 @@ public final class SogniChat {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
       return 2;
     }
+    // With Sogni's tools on, pictures, audio and video are uploaded for the tools to work on.
+    boolean toolsOn = tools || runTools || unlimited;
     List<Attachment> attached = new ArrayList<Attachment>();
     for (String f : files) {
-      Attachment a = attachment(new File(f));
+      Attachment a = attachment(new File(f), toolsOn);
       if (a == null) return 2;
       attached.add(a);
     }
@@ -170,6 +179,16 @@ public final class SogniChat {
           return 0;
         }
       }
+      // Files for the tools go to Sogni's media storage first; the request then names them.
+      List<Map<String, Object>> media = new ArrayList<Map<String, Object>>();
+      for (Attachment a : attached) {
+        if (a.data == null) continue;
+        Map<String, Object> ref = api.uploadMedia(a.kind, a.mime, a.data, media.size() + 1, a.name);
+        a.ref = SogniApi.str(ref.get("id"));
+        media.add(ref);
+        System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
+        a.data = null;
+      }
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
       if (before != null) {
@@ -190,7 +209,7 @@ public final class SogniChat {
       System.out.println(shown);
       // --run_tools offers the tools too; the model only proposes calls, which run below as a workflow.
       // --unlimited (an Unlimited Plan: no cost, only fair use limits) lets Sogni run them in the chat.
-      boolean offered = tools || runTools || unlimited;
+      boolean offered = toolsOn;
       if (unlimited) {
         System.out.println("Sogni tools: Unlimited Plan, run in the chat (no cost limit; Sogni's daily and monthly fair use limits apply)");
         if (maxCost > 0) System.out.println("Note: --max_cost is not used with the Unlimited Plan");
@@ -198,7 +217,10 @@ public final class SogniChat {
         System.out.println("Sogni tools: offered" + (runTools ? "; proposed calls run as a workflow (paid"
             + (maxCost > 0 ? ", at most " + SogniApi.number(maxCost) + " capacity units" : "") + ")" : "; proposed calls are shown, not run"));
       }
-      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null, unlimited));
+      if (runTools && !unlimited && !media.isEmpty()) {
+        System.out.println("Note: uploaded files reach Sogni's tools inside the chat (Unlimited Plan); a proposed call run by --run_tools does not get them");
+      }
+      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null, unlimited, media));
       String reply = SogniApi.chatReply(payload);
       List<String[]> calls = SogniApi.chatToolCalls(payload);
       List<String> started = SogniApi.chatWorkflows(payload);
@@ -348,30 +370,57 @@ public final class SogniChat {
     return sb.toString();
   }
 
-  /** A --file as it is sent: text (a text file, or a MIDI file read out), or a picture. */
+  /** A --file as it is sent: text (a text file, or a MIDI file read out), a picture, audio or video. */
   static final class Attachment {
     String name;
-    /** The text sent after the prompt, or null for a picture. */
+    /** "text", "image", "audio" or "video". */
+    String kind = "text";
+    /** The text sent after the prompt, or null for a picture, audio or video. */
     String text;
-    /** A picture as a data: URI, or null. */
+    /** A picture as a data: URI the model sees, or null. */
     String image;
+    /** The file's MIME type, and its bytes until it is uploaded for Sogni's tools (null when it is not). */
+    String mime;
+    byte[] data;
+    /** Its media reference once uploaded (media_ref_1...), or null. */
+    String ref;
     /** For the log: "notes.txt, 34 characters". */
     String what;
   }
 
-  /** What is sent as text: the prompt, then each file under its name (a picture is named; it goes with the message). */
+  /**
+   * What is sent as text: the prompt, then each file under its name. A picture, audio or video is
+   * named (the picture also goes with the message); uploaded ones are listed by their media
+   * reference, as Sogni's own CLI lists them, so the tools can be pointed at them.
+   */
   static String question(String prompt, List<Attachment> attached) {
     StringBuilder sb = new StringBuilder(prompt == null ? "" : prompt.trim());
+    StringBuilder refs = new StringBuilder();
     for (Attachment a : attached) {
       if (sb.length() > 0) sb.append("\n\n");
-      if (a.image != null) sb.append("Picture ").append(a.name).append(" is attached.");
-      else sb.append("File ").append(a.name).append(":\n").append(a.text);
+      if ("text".equals(a.kind)) {
+        sb.append("File ").append(a.name).append(":\n").append(a.text);
+        continue;
+      }
+      String what = "image".equals(a.kind) ? "Picture" : "audio".equals(a.kind) ? "Audio" : "Video";
+      sb.append(what).append(' ').append(a.name).append(" is attached").append(a.ref != null ? " as " + a.ref : "").append('.');
+      if (a.ref != null) {
+        String flag = "audio".equals(a.kind) ? "--ref-audio" : "video".equals(a.kind) ? "--ref-video" : "-c/--context";
+        refs.append("\n- ").append(a.ref).append(' ').append(a.kind).append(" (").append(flag).append("): ").append(a.name);
+      }
     }
+    if (refs.length() > 0) sb.append("\n\nAPI media references:").append(refs);
     return sb.toString();
   }
 
+  /** "820 KB" or "3.4 MB". */
+  static String size(long bytes) {
+    if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
+    return beats(bytes / (1024.0 * 1024.0)) + " MB";
+  }
+
   /** A --file read by its contents: MIDI (MThd), a PNG or JPEG picture, or text. Null after saying why. */
-  static Attachment attachment(File f) {
+  static Attachment attachment(File f, boolean tools) {
     byte[] data = readBytes(f, "--file");
     if (data == null) return null;
     Attachment a = new Attachment();
@@ -387,21 +436,59 @@ public final class SogniChat {
       a.what = f.getName() + " as text, " + a.text.length() + " characters";
       return a;
     }
-    String mime = pictureType(data);
-    if (mime != null) {
-      if (data.length > IMAGE_MAX) {
-        System.out.println("Failed: " + f.getName() + " is " + (data.length / (1024 * 1024)) + " MB; send a picture of up to "
-            + (IMAGE_MAX / (1024 * 1024)) + " MB (a smaller size or a JPEG)");
+    String[] media = mediaType(data);
+    if (media != null) {
+      a.kind = media[0];
+      a.mime = media[1];
+      boolean seen = "image/png".equals(a.mime) || "image/jpeg".equals(a.mime);
+      if (!tools && !(seen && data.length <= IMAGE_MAX)) {
+        System.out.println("Failed: " + f.getName() + " is " + ("image".equals(a.kind) ? "a picture the chat model cannot see (send a PNG or JPEG of up to "
+            + (IMAGE_MAX / (1024 * 1024)) + " MB)" : a.kind + ", which the chat model cannot " + ("audio".equals(a.kind) ? "hear" : "watch"))
+            + ". Sogni's tools can use it: tick Offer Sogni tools, Run proposed tool calls or Unlimited Plan, and the file is uploaded for them.");
         return null;
       }
-      a.image = "data:" + mime + ";base64," + base64(data);
-      a.what = "picture " + f.getName() + ", " + (data.length / 1024) + " KB";
+      if (data.length > UPLOAD_MAX) {
+        System.out.println("Failed: " + f.getName() + " is " + size(data.length) + "; Sogni takes files of up to " + size(UPLOAD_MAX));
+        return null;
+      }
+      // The model sees a PNG or JPEG picture; with the tools on, every file is also uploaded for them.
+      if (seen && data.length <= IMAGE_MAX) a.image = "data:" + a.mime + ";base64," + base64(data);
+      if (tools) a.data = data;
+      a.what = ("image".equals(a.kind) ? "picture " : a.kind + " ") + f.getName() + ", " + size(data.length);
       return a;
     }
     a.text = fileText(f);
     if (a.text == null) return null;
     a.what = f.getName() + ", " + a.text.length() + " characters";
     return a;
+  }
+
+  /**
+   * {kind, MIME type} from a file's first bytes, for what Sogni's tools take: PNG, JPEG, WebP or GIF
+   * pictures, MP3, WAV, FLAC or M4A audio, MP4, MOV or WebM video. Null for anything else.
+   */
+  static String[] mediaType(byte[] d) {
+    String picture = pictureType(d);
+    if (picture != null) return new String[] {"image", picture};
+    if (starts(d, 0, "RIFF") && starts(d, 8, "WEBP")) return new String[] {"image", "image/webp"};
+    if (starts(d, 0, "GIF8")) return new String[] {"image", "image/gif"};
+    if (starts(d, 0, "RIFF") && starts(d, 8, "WAVE")) return new String[] {"audio", "audio/wav"};
+    if (starts(d, 0, "fLaC")) return new String[] {"audio", "audio/flac"};
+    if (starts(d, 0, "ID3") || (d.length >= 2 && (d[0] & 0xff) == 0xff && (d[1] & 0xe0) == 0xe0)) return new String[] {"audio", "audio/mpeg"};
+    if (starts(d, 4, "ftyp")) {
+      String brand = d.length >= 12 ? new String(d, 8, 4, StandardCharsets.ISO_8859_1) : "";
+      if (brand.startsWith("M4A") || brand.startsWith("M4B")) return new String[] {"audio", "audio/mp4"};
+      if (brand.startsWith("qt")) return new String[] {"video", "video/quicktime"};
+      return new String[] {"video", "video/mp4"};
+    }
+    if (d.length >= 4 && (d[0] & 0xff) == 0x1a && (d[1] & 0xff) == 0x45 && (d[2] & 0xff) == 0xdf && (d[3] & 0xff) == 0xa3) return new String[] {"video", "video/webm"};
+    return null;
+  }
+
+  static boolean starts(byte[] d, int at, String text) {
+    if (d.length < at + text.length()) return false;
+    for (int i = 0; i < text.length(); i++) if (d[at + i] != (byte) text.charAt(i)) return false;
+    return true;
   }
 
   /** "image/png" or "image/jpeg" from the file's first bytes, else null. */
@@ -457,7 +544,7 @@ public final class SogniChat {
     String text = new String(data, StandardCharsets.UTF_8);
     if (text.indexOf('\0') >= 0) {
       System.out.println("Failed: " + f.getName() + " is not a text file"
-          + ("--file".equals(flag) ? ", a MIDI file or a PNG or JPEG picture" : " (pick a sogni-chat .txt)"));
+          + ("--file".equals(flag) ? ", a MIDI file, a picture, audio or video" : " (pick a sogni-chat .txt)"));
       return null;
     }
     return text.replace("\r\n", "\n");
@@ -1017,6 +1104,12 @@ public final class SogniChat {
      * the workflows it started (chatWorkflows).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute) {
+      return chatInput(model, system, turns, maxTokens, thinking, tools, execute, null);
+    }
+
+    /** As above, with uploaded files (uploadMedia) as media_references, for Sogni's tools to work on. */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute,
+        List<Map<String, Object>> media) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -1054,6 +1147,7 @@ public final class SogniChat {
       Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
       body.put("chat_template_kwargs", kwargs);
+      if (media != null && !media.isEmpty()) body.put("media_references", media);
       return toJson(body);
     }
 
@@ -1372,6 +1466,71 @@ public final class SogniChat {
         if (path.contains("ogg")) return ".ogg";
       }
       return fallback;
+    }
+
+    /**
+     * Uploads a file to Sogni's media storage, as Sogni's own CLI does, and returns it as a
+     * media_references entry: {id media_ref_<n>, kind, mime_type, url, filename, ...}. `kind` is
+     * "image", "audio" or "video"; `n` counts the request's files from 1. The file is stored for the
+     * hosted tools (edit_image, animate_photo, sound_to_video, video_to_video...) to read.
+     */
+    public Map<String, Object> uploadMedia(String kind, String mime, byte[] data, int n, String filename) throws IOException {
+      String id = "media_ref_" + n;
+      String jobId = "pulsekit-" + System.currentTimeMillis() + "-" + n + "-" + Long.toHexString(Double.doubleToLongBits(Math.random()) & 0xffffffffL);
+      String type = "audio".equals(kind) ? "referenceAudio" : "video".equals(kind) ? "referenceVideo" : "contextImage" + Math.min(n, 16);
+      String query = "?type=" + enc(type) + "&jobId=" + enc(jobId) + "&contentType=" + enc(mime) + ("image".equals(kind) ? "&imageId=" : "&id=") + enc(id);
+      String endpoint = "image".equals(kind) ? "/v1/image/" : "/v1/media/";
+      String uploadUrl = storedUrl(this.request("GET", endpoint + "uploadUrl" + query, null), "uploadUrl");
+      this.put(uploadUrl, mime, data);
+      String url = storedUrl(this.request("GET", endpoint + "downloadUrl" + query, null), "downloadUrl");
+      Map<String, Object> ref = new LinkedHashMap<String, Object>();
+      ref.put("id", id);
+      ref.put("source", APP_SOURCE);
+      ref.put("flag", "audio".equals(kind) ? "--ref-audio" : "video".equals(kind) ? "--ref-video" : "-c/--context");
+      ref.put("kind", kind);
+      ref.put("mime_type", mime);
+      ref.put("url", url);
+      ref.put("filename", filename);
+      ref.put("byte_length", Integer.valueOf(data.length));
+      ref.put("prompt_label", filename);
+      Map<String, Object> storage = new LinkedHashMap<String, Object>();
+      storage.put("jobId", jobId);
+      storage.put("type", type);
+      ref.put("storage", storage);
+      return ref;
+    }
+
+    /** The uploadUrl or downloadUrl in Sogni's reply (also inside "data"). */
+    @SuppressWarnings("unchecked")
+    static String storedUrl(Object payload, String key) throws IOException {
+      if (payload instanceof Map) {
+        Map<String, Object> p = (Map<String, Object>) payload;
+        String v = str(p.get(key));
+        if (v == null && p.get("data") instanceof Map) v = str(((Map<String, Object>) p.get("data")).get(key));
+        if (v != null && v.length() > 0) return v;
+      }
+      throw new IOException("Sogni did not return " + key + " for the upload");
+    }
+
+    /** Sends a file to a signed upload URL (no key: the URL carries its own permission). */
+    void put(String url, String mime, byte[] data) throws IOException {
+      HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+      c.setRequestMethod("PUT");
+      c.setConnectTimeout(this.timeoutMs);
+      c.setReadTimeout(Math.max(this.timeoutMs, 300000));
+      c.setDoOutput(true);
+      c.setFixedLengthStreamingMode(data.length);
+      c.setRequestProperty("Content-Type", mime);
+      if (url.startsWith(this.base + "/")) this.authorize(c);
+      OutputStream out = c.getOutputStream();
+      try {
+        out.write(data);
+      } finally {
+        out.close();
+      }
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      c.disconnect();
     }
 
     /** Downloads a result URL (signed; no key is sent to hosts other than the API). */
