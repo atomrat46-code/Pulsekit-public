@@ -869,6 +869,112 @@ public final class DesktopBehavior {
     out.append("hand-set 3/4, then rock: ").append(get("tsNum")).append('/').append(get("tsDen")).append(", ").append(get("steps")).append(" steps\n");
   }
 
+  /** SogniVideo: a picture animated with MiniMax H3 FastH3 as a Sogni workflow, against a stand-in Sogni server. */
+  void s40_sogni_video() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> seen = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB")
+          + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
+              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB")));
+      String type = "application/json";
+      String reply;
+      int code = 200;
+      if (path.equals("/v1/creative-agent/workflows")) {
+        reply = body.contains("Too much") ? "{\"message\":\"Daily fair use limit reached\"}" : "{\"data\":{\"workflow\":{\"workflowId\":\"wv1\",\"status\":\"queued\"}}}";
+        if (body.contains("Too much")) code = 429;
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n";
+      } else if (path.equals("/v1/creative-agent/workflows/wv1")) {
+        // The uploaded picture is in the record's input too; the clip is the artifact.
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wv1\",\"status\":\"completed\","
+            + "\"input\":{\"mediaReferences\":[{\"url\":\"https://store.example/garden.png\",\"mime_type\":\"image/png\"}]},"
+            + "\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port + "/files/clip.mp4\",\"mediaType\":\"video\"}]}}}";
+      } else if (path.startsWith("/v1/image/uploadUrl")) {
+        reply = "{\"data\":{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put" + path.substring(path.indexOf('?')) + "\"}}";
+      } else if (path.startsWith("/v1/image/downloadUrl")) {
+        String q = path.substring(path.indexOf("imageId=") + 8);
+        reply = "{\"data\":{\"downloadUrl\":\"https://store.example/" + q.replaceAll("&.*", "") + "\"}}";
+      } else if (path.startsWith("/put")) {
+        reply = "";
+      } else if (path.equals("/files/clip.mp4")) {
+        byte[] clip = new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2', 0, 0, 0, 0, 'm', 'p', '4', '2', 'i', 's', 'o', 'm'};
+        ex.getResponseHeaders().set("Content-Type", "video/mp4");
+        ex.sendResponseHeaders(200, clip.length);
+        ex.getResponseBody().write(clip);
+        ex.close();
+        return;
+      } else {
+        reply = "{}";
+      }
+      byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(code, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File garden = new File(home, "garden.png");
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(832, 1248, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", garden);
+      File last = new File(home, "gate.jpg");
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(832, 1248, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", last);
+      File notes = new File(home, "notes.txt");
+      Files.write(notes.toPath(), "not a picture\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniVideo.java");
+      out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replaceAll("<[^>]+>", "|").replace(home.getAbsolutePath(), "~")).append('\n');
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.ext != null ? " file " + p.ext : "").append(p.choices != null ? " choices " + java.util.Arrays.asList(p.choiceValues) : "")
+            .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5",
+        "walk.mp4 --prompt \"The gate swings open\" --image \"" + garden.getAbsolutePath() + "\" --end_image \"" + last.getAbsolutePath()
+            + "\" --resolution 1080p --no_audio --exact_prompt --unlimited",
+        "--prompt \"Rain on a tin roof at night, slow push-in\" --aspect 16:9 --max_cost 50 --confirm_cost",
+        "--prompt \"Too much\" --unlimited",
+        "--workflow wv1",
+        "--prompt Walk --image \"" + notes.getAbsolutePath() + "\"",
+        "--prompt Walk --end_image \"" + last.getAbsolutePath() + "\"",
+        "--prompt Walk --duration 20",
+        "--prompt Walk --resolution 4k",
+        "--image \"" + garden.getAbsolutePath() + "\"",
+      };
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+          out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      synchronized (seen) {
+        for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(sogni-video|walk).*")).sorted()::iterator) {
+          out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f)).append(" bytes\n");
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** MidiDrumGen in the Java menu: its switches come from its Usage line, and a run's MIDI is imported. */
   void s38_midi_drum_gen() throws Exception {
     call("showView", "py");

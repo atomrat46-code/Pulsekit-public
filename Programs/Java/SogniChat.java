@@ -1407,13 +1407,77 @@ public final class SogniChat {
       return toJson(input);
     }
 
+    /**
+     * A one-step MiniMax H3 FastH3 video workflow. With no picture it is text-to-video
+     * (generate_video); one picture (the first upload) is the start frame (animate_photo); two are
+     * the first and last frames. `resolution` 768 or 0 is FastH3's own 768p canvas; 720, 1080 or 1440
+     * pick the two-stage engine, which renders a canvas and delivers it at twice the size. Zero
+     * duration is Sogni's default (5 s; H3 makes 5.17 to 15.08 s). `exact` sends the prompt as
+     * written; `audio` false asks for a silent clip; `aspect` ("16:9", "9:16"...) only when given.
+     */
+    public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      args.put("videoModel", videoModel(pictures, resolution));
+      if (duration > 0) args.put("duration", Double.valueOf(duration));
+      args.put("targetResolution", Integer.valueOf(resolution == 720 || resolution == 1080 || resolution == 1440 ? resolution : 768));
+      if (!audio) args.put("generateAudio", Boolean.FALSE);
+      if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
+      if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+      args.put("numberOfVariations", Integer.valueOf(1));
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "video");
+      step.put("toolName", pictures > 0 ? "animate_photo" : "generate_video");
+      step.put("arguments", args);
+      if (pictures > 0) {
+        // The uploaded pictures (media_references, in order) are the frames: -1 the first upload, -2 the second.
+        args.put("sourceImageIndex", Integer.valueOf(-1));
+        args.put("frameRole", pictures >= 2 ? "both" : "start");
+        if (pictures >= 2) args.put("endImageIndex", Integer.valueOf(-2));
+        List<Object> deps = new ArrayList<Object>();
+        for (int i = 0; i < Math.min(pictures, 2); i++) {
+          Map<String, Object> d = new LinkedHashMap<String, Object>();
+          d.put("sourceStepId", "$input_media");
+          d.put("targetArgument", i == 0 ? "sourceImageIndex" : "endImageIndex");
+          d.put("transform", "image_index");
+          d.put("sourceArtifactIndex", Integer.valueOf(i));
+          d.put("mediaType", "image");
+          d.put("required", Boolean.TRUE);
+          deps.add(d);
+        }
+        step.put("dependsOn", deps);
+      }
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /** The FastH3 selector: t2v, i2v (a start frame) or flf2v (first and last frames); -2stage for 720, 1080 or 1440. */
+    public static String videoModel(int pictures, int resolution) {
+      String mode = pictures >= 2 ? "flf2v" : pictures == 1 ? "i2v" : "t2v";
+      return "minimax-h3-fasth3-" + mode + "-turbo" + (resolution == 720 || resolution == 1080 || resolution == 1440 ? "-2stage" : "");
+    }
+
     /** Starts a workflow from input JSON ({"steps": [...]}) and returns its id. */
     public String start(String inputJson, boolean confirmCost, double maxCost) throws IOException {
+      return this.start(inputJson, confirmCost, maxCost, null, null);
+    }
+
+    /**
+     * As above, with uploaded files (uploadMedia) as media_references for the steps, and a billing
+     * mode ("subscription" for an Unlimited Plan; null for Sogni's default).
+     */
+    public String start(String inputJson, boolean confirmCost, double maxCost, List<Map<String, Object>> media, String billingMode) throws IOException {
       StringBuilder body = new StringBuilder();
       body.append("{\"input\":").append(inputJson);
       body.append(",\"token_type\":\"spark\",\"app_source\":").append(quote(APP_SOURCE));
       if (confirmCost) body.append(",\"confirm_cost\":true");
       if (maxCost > 0) body.append(",\"max_estimated_capacity_units\":").append(number(maxCost));
+      if (media != null && !media.isEmpty()) body.append(",\"media_references\":").append(toJson(media));
+      if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
       body.append('}');
       Map<String, Object> wf = workflowOf(this.request("POST", "/v1/creative-agent/workflows", body.toString()));
       String id = str(wf.get("workflowId"));
@@ -1979,6 +2043,20 @@ public final class SogniChat {
     public static List<Map<String, Object>> audioArtifacts(Object record) {
       List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
       collectAudio(record, out);
+      return out;
+    }
+
+    /** The video results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
+    @SuppressWarnings("unchecked")
+    public static List<Map<String, Object>> videoArtifacts(Map<String, Object> record) {
+      List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), found);
+      if (found.isEmpty()) collectMedia(record, found);
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      for (Map<String, Object> m : found) {
+        String ext = mediaExtension(str(m.get("url")), mimeOf(m), "");
+        if (ext.equals(".mp4") || ext.equals(".webm") || ext.equals(".mov")) out.add(m);
+      }
       return out;
     }
 
