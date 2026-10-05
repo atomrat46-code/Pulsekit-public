@@ -659,12 +659,31 @@ public final class DesktopBehavior {
       String path = ex.getRequestURI().toString();
       String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
-      String reply = path.equals("/v1/models")
-          ? "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}"
-          : "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>a fill</think>\\nTry a snare roll into the crash.\"}}],"
-              + "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}";
+      String type = "application/json";
+      String reply;
+      if (path.equals("/v1/models")) {
+        reply = "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}";
+      } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tools\":\"creative-tools\"")) {
+        // With the tools offered, the model proposes a call instead of answering in text.
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Here is a kit picture.\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\","
+            + "\"function\":{\"name\":\"generate_image\",\"arguments\":\"{\\\"prompt\\\":\\\"a red drum kit\\\"}\"}}]}}]}";
+      } else if (path.equals("/v1/chat/completions")) {
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>a fill</think>\\nTry a snare roll into the crash.\"}}],"
+            + "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}";
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n";
+      } else if (path.equals("/v1/creative-agent/workflows/wf9")) {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/kit.png\",\"mimeType\":\"image/png\"}]}}}";
+      } else if (path.startsWith("/files/")) {
+        type = "image/png";
+        reply = "PNGDATA";
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}";
+      }
       byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
-      ex.getResponseHeaders().set("Content-Type", "application/json");
+      ex.getResponseHeaders().set("Content-Type", type);
       ex.sendResponseHeaders(200, bytes.length);
       ex.getResponseBody().write(bytes);
       ex.close();
@@ -705,6 +724,9 @@ public final class DesktopBehavior {
         "--continue \"" + old.getAbsolutePath() + "\"",
         "--prompt \"What does this groove play?\" --file \"" + song.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\"",
         "--prompt Hi --file \"" + junk.getAbsolutePath() + "\"",
+        // Tools offered: the proposed call is shown and kept, not run; then run under a cost limit.
+        "--prompt \"Draw a drum kit\" --tools",
+        "--prompt \"Draw a drum kit\" --run_tools --max_cost 5 --confirm_cost",
         "--models",
         "--max_tokens lots",
       };
@@ -724,7 +746,7 @@ public final class DesktopBehavior {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
       }
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
-        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat"))::iterator) {
+        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
           out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim()).append('\n');
         }
       }

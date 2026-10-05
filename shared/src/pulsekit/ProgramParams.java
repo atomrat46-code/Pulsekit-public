@@ -203,6 +203,13 @@ public final class ProgramParams {
       p.ext = "any";
       p.label = "File (text, MIDI or picture)";
     }
+    if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
+    if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
+    if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+    if (p.flag && p.takesValue && chat && p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 10; empty for no limit";
+    }
     if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
       p.label = "Continue from saved chat";
       p.hint = "a sogni-chat .txt from an earlier run";

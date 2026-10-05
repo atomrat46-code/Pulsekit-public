@@ -34,6 +34,12 @@ import java.util.Map;
  *
  * --models lists the chat models Sogni offers; --model picks one.
  *
+ * --tools offers the model Sogni's creative tools (generate_image, generate_music, edit_image...).
+ * The chat never runs them itself: the model proposes tool calls, which are shown and kept in the
+ * saved conversation. --run_tools runs the proposed calls as a Sogni workflow (paid: --max_cost
+ * caps it in capacity units, --confirm_cost confirms the charge), follows it, and saves what it
+ * made beside the conversation (<name>-1.png, <name>-2.mp3...).
+ *
  * The saved file is the whole conversation (model, system text, each question and reply), so
  * --continue <that file> goes on from it: the earlier turns are sent again with the new --prompt,
  * and the longer conversation is saved as a new file (sogni-chat-<words>-2.txt, -3...). Its model
@@ -77,6 +83,10 @@ public final class SogniChat {
     double maxTokens = 0;
     boolean thinking = false;
     boolean models = false;
+    boolean tools = false;
+    boolean runTools = false;
+    boolean confirm = false;
+    double maxCost = 0;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -92,6 +102,10 @@ public final class SogniChat {
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
       else if (a.equals("--thinking")) thinking = true;
       else if (a.equals("--models")) models = true;
+      else if (a.equals("--tools")) tools = true;
+      else if (a.equals("--run_tools")) runTools = true;
+      else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -102,7 +116,7 @@ public final class SogniChat {
         return 2;
       }
     }
-    if (Double.isNaN(maxTokens)) return 2;
+    if (Double.isNaN(maxTokens) || Double.isNaN(maxCost)) return 2;
     if (maxTokens < 0 || maxTokens > 32000) {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
       return 2;
@@ -167,11 +181,23 @@ public final class SogniChat {
       StringBuilder shown = new StringBuilder("Prompt: ").append(prompt == null ? "" : prompt.trim());
       for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
       System.out.println(shown);
-      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking));
+      // --run_tools offers the tools too; the model only proposes calls, which run below as a workflow.
+      boolean offered = tools || runTools;
+      if (offered) System.out.println("Sogni tools: offered" + (runTools ? "; proposed calls run as a workflow (paid"
+          + (maxCost > 0 ? ", at most " + SogniApi.number(maxCost) + " capacity units" : "") + ")" : "; proposed calls are shown, not run"));
+      Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking, offered ? "creative-tools" : null));
       String reply = SogniApi.chatReply(payload);
-      if (reply == null || reply.length() == 0) {
+      List<String[]> calls = SogniApi.chatToolCalls(payload);
+      if ((reply == null || reply.length() == 0) && calls.isEmpty()) {
         System.out.println("Failed: Sogni sent no reply text" + (thinking ? " (with --thinking the answer can run out of tokens: raise --max_tokens)" : ""));
         return 1;
+      }
+      if (reply == null) reply = "";
+      if (!calls.isEmpty()) {
+        // The saved conversation keeps the proposal, so a --continue knows what was suggested.
+        StringBuilder proposed = new StringBuilder(reply.length() > 0 ? reply + "\n\n" : "").append("[Sogni tool calls proposed]");
+        for (String[] c : calls) proposed.append("\n- ").append(c[0]).append(' ').append(c[1]);
+        reply = proposed.toString();
       }
       // The saved conversation keeps the question's text; a picture is named in it, not stored.
       turns.set(turns.size() - 1, new String[] {"user", question});
@@ -183,13 +209,22 @@ public final class SogniChat {
       turns.add(new String[] {"assistant", reply});
       String name = out != null ? out : before != null ? continuedName(new File(earlier.trim()).getName(), exchanges(turns)) : replyName(prompt, files.isEmpty() ? null : files.get(0));
       File saved = save(name, transcript(chosen, system, turns));
-      if (saved == null) {
-        System.out.println("Could not save the reply (it is in the log above)");
-        System.out.println("Succeeded");
-      } else {
-        System.out.println("Wrote " + saved.getName());
-        System.out.println("Succeeded: " + saved.getName());
+      if (saved == null) System.out.println("Could not save the reply (it is in the log above)");
+      else System.out.println("Wrote " + saved.getName());
+      List<String> made = new ArrayList<String>();
+      if (saved != null) made.add(saved.getName());
+      if (!calls.isEmpty() && !runTools) {
+        System.out.println("Not run: tick Run tools (--run_tools) to run the proposed " + (calls.size() == 1 ? "call" : "calls")
+            + " (paid; --max_cost limits the spend). --continue with this conversation keeps the proposal.");
+      } else if (!calls.isEmpty()) {
+        String stem = name.replaceAll("\\.[^.]*$", "");
+        List<String> results = runCalls(api, calls, stem, confirm, maxCost);
+        if (results == null) return 1;
+        made.addAll(results);
+      } else if (offered) {
+        System.out.println("No tool calls: the model answered in text");
       }
+      System.out.println(made.isEmpty() ? "Succeeded" : "Succeeded: " + join(made));
     } catch (SogniApi.ApiException ex) {
       boolean picture = false;
       for (Attachment a : attached) if (a.image != null) picture = true;
@@ -205,7 +240,51 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+  }
+
+  /**
+   * Runs the model's tool calls as one Sogni workflow (a step each), follows it, and saves what it
+   * made as <stem>-1.png, <stem>-2.mp3...: the file names, or null after saying why it failed.
+   * Steps run side by side; a call that needs another's result is not linked to it.
+   */
+  static List<String> runCalls(SogniApi api, List<String[]> calls, String stem, boolean confirm, double maxCost) throws IOException {
+    String id = api.start(SogniApi.toolsInput("Pulsekit chat", calls), confirm, maxCost);
+    System.out.println("Workflow: " + id);
+    Map<String, Object> wf = api.waitFor(id, 20 * 60 * 1000L, new SogniApi.Log() {
+      public void line(String s) {
+        System.out.println(s);
+      }
+    });
+    List<Map<String, Object>> media = SogniApi.mediaArtifacts(wf);
+    if (media.isEmpty()) {
+      String why = SogniApi.problem(wf);
+      System.out.println("Failed: the workflow made no picture, audio or video" + (why != null ? ": " + why : " (status " + SogniApi.str(wf.get("status")) + ")"));
+      return null;
+    }
+    List<String> names = new ArrayList<String>();
+    for (int i = 0; i < media.size(); i++) {
+      String url = SogniApi.str(media.get(i).get("url"));
+      String ext = SogniApi.mediaExtension(url, SogniApi.mimeOf(media.get(i)), ".bin");
+      byte[] data = api.download(url);
+      File file = saveData(stem + "-" + (i + 1) + ext, data);
+      if (file == null) {
+        System.out.println("Could not save " + stem + "-" + (i + 1) + ext);
+        continue;
+      }
+      System.out.println("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+      names.add(file.getName());
+    }
+    String status = SogniApi.str(wf.get("status"));
+    if (!"completed".equals(status)) System.out.println("Note: workflow " + status);
+    return names;
+  }
+
+  /** "a, b, c". */
+  static String join(List<String> names) {
+    StringBuilder sb = new StringBuilder();
+    for (String n : names) sb.append(sb.length() > 0 ? ", " : "").append(n);
+    return sb.toString();
   }
 
   /** A --file as it is sent: text (a text file, or a MIDI file read out), or a picture. */
@@ -622,6 +701,27 @@ public final class SogniChat {
     return "sogni-chat" + (sb.length() > 0 ? "-" + sb : "") + ".txt";
   }
 
+  /** Writes a result beside the program's other files, never over an existing file. Null if it could not. */
+  static File saveData(String name, byte[] data) {
+    File file = inWork(name);
+    String path = file.getPath();
+    int dot = path.lastIndexOf('.');
+    String stem = dot > path.lastIndexOf(File.separatorChar) ? path.substring(0, dot) : path;
+    String ext = dot > path.lastIndexOf(File.separatorChar) ? path.substring(dot) : "";
+    for (int n = 1; file.exists(); n++) file = new File(stem + "(" + n + ")" + ext);
+    try {
+      FileOutputStream fos = new FileOutputStream(file);
+      try {
+        fos.write(data);
+      } finally {
+        fos.close();
+      }
+      return file;
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
   /** Writes the reply beside the program's other files, never over an existing file. Null if it could not. */
   static File save(String name, String reply) {
     File file = inWork(name);
@@ -838,6 +938,15 @@ public final class SogniChat {
      * leaves Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
+      return chatInput(model, system, turns, maxTokens, thinking, null);
+    }
+
+    /**
+     * As above, with Sogni's tool surface offered to the model ("creative-tools"), or null for none.
+     * The tools are never run by the chat (sogni_tool_execution false): the model only proposes tool
+     * calls (chatToolCalls), which the caller may run as a workflow (toolsInput, start) under a cost limit.
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -870,7 +979,7 @@ public final class SogniChat {
       if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
       body.put("token_type", "spark");
       body.put("app_source", APP_SOURCE);
-      body.put("sogni_tools", Boolean.FALSE);
+      body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
       body.put("sogni_tool_execution", Boolean.FALSE);
       Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
@@ -924,6 +1033,55 @@ public final class SogniChat {
       String out = outN instanceof Number ? number(((Number) outN).doubleValue()) : str(outN);
       if (in == null && out == null) return null;
       return (in == null ? "?" : in) + " in, " + (out == null ? "?" : out) + " out";
+    }
+
+    /** The tool calls in a chat reply, as {name, arguments JSON}; empty when the model proposed none. */
+    @SuppressWarnings("unchecked")
+    public static List<String[]> chatToolCalls(Object payload) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (!(payload instanceof Map)) return out;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      if (!(p.get("choices") instanceof List) && p.get("data") instanceof Map) p = (Map<String, Object>) p.get("data");
+      Object choices = p.get("choices");
+      if (!(choices instanceof List) || ((List<Object>) choices).isEmpty() || !(((List<Object>) choices).get(0) instanceof Map)) return out;
+      Map<String, Object> first = (Map<String, Object>) ((List<Object>) choices).get(0);
+      Object m = first.get("message") instanceof Map ? first.get("message") : first.get("delta");
+      if (!(m instanceof Map)) return out;
+      Object calls = ((Map<String, Object>) m).get("tool_calls");
+      if (calls == null) calls = ((Map<String, Object>) m).get("toolCalls");
+      if (!(calls instanceof List)) return out;
+      for (Object c : (List<Object>) calls) {
+        if (!(c instanceof Map)) continue;
+        Object fn = ((Map<String, Object>) c).get("function");
+        Map<String, Object> f = fn instanceof Map ? (Map<String, Object>) fn : (Map<String, Object>) c;
+        String name = str(f.get("name"));
+        if (name == null) continue;
+        Object args = f.get("arguments");
+        out.add(new String[] {name, args == null ? "{}" : args instanceof String ? (String) args : toJson(args)});
+      }
+      return out;
+    }
+
+    /** A workflow input that runs these tool calls ({name, arguments JSON}), one step each. */
+    public static String toolsInput(String title, List<String[]> calls) {
+      List<Object> steps = new ArrayList<Object>();
+      for (int i = 0; i < calls.size(); i++) {
+        Object args;
+        try {
+          args = parseJson(calls.get(i)[1]);
+        } catch (RuntimeException ex) {
+          args = null;
+        }
+        Map<String, Object> step = new LinkedHashMap<String, Object>();
+        step.put("id", "step" + (i + 1));
+        step.put("toolName", calls.get(i)[0]);
+        step.put("arguments", args instanceof Map ? args : new LinkedHashMap<String, Object>());
+        steps.add(step);
+      }
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
     }
 
     /** The chat model ids Sogni offers (/v1/models). */
@@ -1031,6 +1189,58 @@ public final class SogniChat {
       List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
       collectAudio(record, out);
       return out;
+    }
+
+    /** Every picture, audio and video result in a workflow record (url plus its details), once each. */
+    public static List<Map<String, Object>> mediaArtifacts(Object record) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectMedia(record, out);
+      return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    static void collectMedia(Object o, List<Map<String, Object>> out) {
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String url = str(m.get("url"));
+        if (url != null && url.startsWith("http") && mediaExtension(url, mimeOf(m), null) != null) {
+          for (Map<String, Object> seen : out) if (url.equals(seen.get("url"))) return;
+          out.add(m);
+          return;
+        }
+        for (Object v : m.values()) collectMedia(v, out);
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) collectMedia(v, out);
+      }
+    }
+
+    /** The MIME type a result names (mimeType, mediaType, contentType or type), or null. */
+    public static String mimeOf(Map<String, Object> m) {
+      for (String k : new String[] {"mimeType", "mediaType", "contentType", "type"}) {
+        String v = str(m.get(k));
+        if (v != null && v.indexOf('/') > 0) return v;
+      }
+      return null;
+    }
+
+    /** A picture's, video's or audio file's extension from its URL path, else its MIME type; fallback when neither says. */
+    public static String mediaExtension(String url, String mime, String fallback) {
+      String path = url == null ? "" : url.toLowerCase();
+      int q = path.indexOf('?');
+      if (q >= 0) path = path.substring(0, q);
+      for (String e : new String[] {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".glb"}) if (path.endsWith(e)) return e;
+      String audio = extension(url, null);
+      if (audio != null) return audio;
+      String t = mime == null ? "" : mime.toLowerCase();
+      if (t.startsWith("image/png")) return ".png";
+      if (t.startsWith("image/jpeg") || t.startsWith("image/jpg")) return ".jpg";
+      if (t.startsWith("image/webp")) return ".webp";
+      if (t.startsWith("image/gif")) return ".gif";
+      if (t.startsWith("video/mp4")) return ".mp4";
+      if (t.startsWith("video/webm")) return ".webm";
+      if (t.startsWith("video/quicktime")) return ".mov";
+      if (t.startsWith("audio/")) return extension(t, ".mp3");
+      return fallback;
     }
 
     @SuppressWarnings("unchecked")

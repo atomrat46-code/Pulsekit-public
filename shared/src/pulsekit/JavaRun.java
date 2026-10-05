@@ -24,7 +24,8 @@ public final class JavaRun {
   /** Files a program writes are kept up to 3 MB; audio (a Sogni track, a cut WAV) up to 50 MB. */
   public static long maxFileBytes(String name) {
     String low = name == null ? "" : name.toLowerCase();
-    if (low.matches(".*\\.(mp3|wav|wave|flac|m4a|ogg|aac)$")) return 50000000L;
+    // Audio, pictures and video a program made (SogniMusic's track, SogniChat's tool results).
+    if (low.matches(".*\\.(mp3|wav|wave|flac|m4a|ogg|aac|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) return 50000000L;
     return 3000000L;
   }
 

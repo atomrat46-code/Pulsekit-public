@@ -413,9 +413,9 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
-                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt)$")) {
-                        // Audio or a prompt sheet a program wrote in its work folder (SogniMusic's track and
-                        // --saveprompt): kept in Downloads, as on Android.
+                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) {
+                        // Audio, a prompt sheet, a picture or a video a program wrote in its work folder (SogniMusic's
+                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android.
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) {

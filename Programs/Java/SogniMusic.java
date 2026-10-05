@@ -558,6 +558,15 @@ public final class SogniMusic {
      * leaves Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
+      return chatInput(model, system, turns, maxTokens, thinking, null);
+    }
+
+    /**
+     * As above, with Sogni's tool surface offered to the model ("creative-tools"), or null for none.
+     * The tools are never run by the chat (sogni_tool_execution false): the model only proposes tool
+     * calls (chatToolCalls), which the caller may run as a workflow (toolsInput, start) under a cost limit.
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
       for (String[] t : turns) {
@@ -590,7 +599,7 @@ public final class SogniMusic {
       if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
       body.put("token_type", "spark");
       body.put("app_source", APP_SOURCE);
-      body.put("sogni_tools", Boolean.FALSE);
+      body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
       body.put("sogni_tool_execution", Boolean.FALSE);
       Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
@@ -644,6 +653,55 @@ public final class SogniMusic {
       String out = outN instanceof Number ? number(((Number) outN).doubleValue()) : str(outN);
       if (in == null && out == null) return null;
       return (in == null ? "?" : in) + " in, " + (out == null ? "?" : out) + " out";
+    }
+
+    /** The tool calls in a chat reply, as {name, arguments JSON}; empty when the model proposed none. */
+    @SuppressWarnings("unchecked")
+    public static List<String[]> chatToolCalls(Object payload) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (!(payload instanceof Map)) return out;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      if (!(p.get("choices") instanceof List) && p.get("data") instanceof Map) p = (Map<String, Object>) p.get("data");
+      Object choices = p.get("choices");
+      if (!(choices instanceof List) || ((List<Object>) choices).isEmpty() || !(((List<Object>) choices).get(0) instanceof Map)) return out;
+      Map<String, Object> first = (Map<String, Object>) ((List<Object>) choices).get(0);
+      Object m = first.get("message") instanceof Map ? first.get("message") : first.get("delta");
+      if (!(m instanceof Map)) return out;
+      Object calls = ((Map<String, Object>) m).get("tool_calls");
+      if (calls == null) calls = ((Map<String, Object>) m).get("toolCalls");
+      if (!(calls instanceof List)) return out;
+      for (Object c : (List<Object>) calls) {
+        if (!(c instanceof Map)) continue;
+        Object fn = ((Map<String, Object>) c).get("function");
+        Map<String, Object> f = fn instanceof Map ? (Map<String, Object>) fn : (Map<String, Object>) c;
+        String name = str(f.get("name"));
+        if (name == null) continue;
+        Object args = f.get("arguments");
+        out.add(new String[] {name, args == null ? "{}" : args instanceof String ? (String) args : toJson(args)});
+      }
+      return out;
+    }
+
+    /** A workflow input that runs these tool calls ({name, arguments JSON}), one step each. */
+    public static String toolsInput(String title, List<String[]> calls) {
+      List<Object> steps = new ArrayList<Object>();
+      for (int i = 0; i < calls.size(); i++) {
+        Object args;
+        try {
+          args = parseJson(calls.get(i)[1]);
+        } catch (RuntimeException ex) {
+          args = null;
+        }
+        Map<String, Object> step = new LinkedHashMap<String, Object>();
+        step.put("id", "step" + (i + 1));
+        step.put("toolName", calls.get(i)[0]);
+        step.put("arguments", args instanceof Map ? args : new LinkedHashMap<String, Object>());
+        steps.add(step);
+      }
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
     }
 
     /** The chat model ids Sogni offers (/v1/models). */
@@ -751,6 +809,58 @@ public final class SogniMusic {
       List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
       collectAudio(record, out);
       return out;
+    }
+
+    /** Every picture, audio and video result in a workflow record (url plus its details), once each. */
+    public static List<Map<String, Object>> mediaArtifacts(Object record) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectMedia(record, out);
+      return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    static void collectMedia(Object o, List<Map<String, Object>> out) {
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String url = str(m.get("url"));
+        if (url != null && url.startsWith("http") && mediaExtension(url, mimeOf(m), null) != null) {
+          for (Map<String, Object> seen : out) if (url.equals(seen.get("url"))) return;
+          out.add(m);
+          return;
+        }
+        for (Object v : m.values()) collectMedia(v, out);
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) collectMedia(v, out);
+      }
+    }
+
+    /** The MIME type a result names (mimeType, mediaType, contentType or type), or null. */
+    public static String mimeOf(Map<String, Object> m) {
+      for (String k : new String[] {"mimeType", "mediaType", "contentType", "type"}) {
+        String v = str(m.get(k));
+        if (v != null && v.indexOf('/') > 0) return v;
+      }
+      return null;
+    }
+
+    /** A picture's, video's or audio file's extension from its URL path, else its MIME type; fallback when neither says. */
+    public static String mediaExtension(String url, String mime, String fallback) {
+      String path = url == null ? "" : url.toLowerCase();
+      int q = path.indexOf('?');
+      if (q >= 0) path = path.substring(0, q);
+      for (String e : new String[] {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".glb"}) if (path.endsWith(e)) return e;
+      String audio = extension(url, null);
+      if (audio != null) return audio;
+      String t = mime == null ? "" : mime.toLowerCase();
+      if (t.startsWith("image/png")) return ".png";
+      if (t.startsWith("image/jpeg") || t.startsWith("image/jpg")) return ".jpg";
+      if (t.startsWith("image/webp")) return ".webp";
+      if (t.startsWith("image/gif")) return ".gif";
+      if (t.startsWith("video/mp4")) return ".mp4";
+      if (t.startsWith("video/webm")) return ".webm";
+      if (t.startsWith("video/quicktime")) return ".mov";
+      if (t.startsWith("audio/")) return extension(t, ".mp3");
+      return fallback;
     }
 
     @SuppressWarnings("unchecked")

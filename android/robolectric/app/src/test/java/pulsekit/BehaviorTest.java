@@ -1660,6 +1660,10 @@ public class BehaviorTest {
         .append(", label ").append(findText(dv, "Continue from saved chat  --continue") != null).append('\n');
     out.append("--thinking box: ").append(dv.findViewWithTag("params-check:--thinking") != null).append('\n');
     out.append("--models box: ").append(dv.findViewWithTag("params-check:--models") != null).append('\n');
+    for (String t : new String[] {"--tools", "--run_tools", "--confirm_cost"}) {
+      out.append(t).append(" box: ").append(((android.widget.CheckBox) dv.findViewWithTag("params-check:" + t)).getText()).append('\n');
+    }
+    out.append("--max_cost hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--max_cost")).getHint()).append('\n');
     out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
         .append(", hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--system")).getHint()).append('\n');
     out.append("--prompt hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).getHint()).append('\n');
