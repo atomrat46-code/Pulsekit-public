@@ -696,6 +696,12 @@ public final class CompareHits {
       out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
           + "together, where a drummer keeps time on one of them", hats, rides)
           + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
+    } else if (rides > 1.5 && was[1] != null && was[1].doubleValue() > CYMBAL_MAX) {
+      // Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
+      lowered = true;
+      out.add(String.format(Locale.ROOT, "--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
+          + "cymbal wash and guitars", rides, fmt(CYMBAL_MAX))
+          + step(next, new String[] {"ride"}, new Double[] {was[1]}, -0.1, ". Lower it to " + fmt(CYMBAL_MAX) + "."));
     }
     boolean fewCymbals = cymbals < 2.0 && (c != null ? c.ref >= 8 && c.recall() < 0.5 : vsWav == null);
     boolean room = was[0] == null || was[1] == null || was[0].doubleValue() < CYMBAL_MAX || was[1].doubleValue() < CYMBAL_MAX;
@@ -735,12 +741,15 @@ public final class CompareHits {
     return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9.]+", "_");
   }
 
-  /** Hat, ride and crash are raised no further than this: higher, cymbal wash becomes hits. */
-  static final double CYMBAL_MAX = 0.6;
+  /**
+   * Hat, ride and crash are raised no further than this, and a value above it is lowered straight to
+   * it: DrumMidi's cymbal hits rise steeply above 0.4 (a hard rock mix: 19 crashes at 0.4, 102 at 0.6).
+   */
+  static final double CYMBAL_MAX = 0.4;
 
   /**
    * Moves each switch by `d` for the next run (raised to no more than CYMBAL_MAX; lowered to no less
-   * than 0.1, twice as far from CYMBAL_MAX up) and says so; `unknown` when the values used are not known.
+   * than 0.1, and from above CYMBAL_MAX straight to it) and says so; `unknown` when the values used are not known.
    */
   static String step(java.util.Map<String, Double> next, String[] keys, Double[] was, double d, String unknown) {
     StringBuilder w = new StringBuilder();
@@ -748,8 +757,8 @@ public final class CompareHits {
     for (int i = 0; i < keys.length; i++) {
       if (was[i] == null) return unknown;
       double v = was[i].doubleValue();
-      // From CYMBAL_MAX and up a step down is twice as big: those values are well into the noise.
-      double to = d > 0 ? Math.max(v, Math.min(CYMBAL_MAX, v + d)) : Math.max(0.1, v + (v >= CYMBAL_MAX ? 2 * d : d));
+      // Above CYMBAL_MAX a step down goes straight to it: a smaller step still leaves the noise.
+      double to = d > 0 ? Math.max(v, Math.min(CYMBAL_MAX, v + d)) : v > CYMBAL_MAX ? CYMBAL_MAX : Math.max(0.1, v + d);
       next.put(keys[i], Double.valueOf(to));
       w.append(i == 0 ? "" : ", ").append(fmt(v));
       t.append(i == 0 ? "" : ", ").append(fmt(to));

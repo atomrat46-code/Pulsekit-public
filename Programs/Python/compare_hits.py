@@ -270,17 +270,18 @@ def next_args(settings, nxt):
     return " ".join(words)
 
 
-# Hat, ride and crash are raised no further than this: higher, cymbal wash becomes hits.
-CYMBAL_MAX = 0.6
+# Hat, ride and crash are raised no further than this, and a value above it is lowered straight to
+# it: DrumMidi's cymbal hits rise steeply above 0.4 (a hard rock mix: 19 crashes at 0.4, 102 at 0.6).
+CYMBAL_MAX = 0.4
 
 
 def step(nxt, keys, was, d, unknown):
     """Moves each switch by d for the next run (raised to no more than CYMBAL_MAX; lowered to no less
-    than 0.1, twice as far from CYMBAL_MAX up) and says so; `unknown` when the values used are not known."""
+    than 0.1, and from above CYMBAL_MAX straight to it) and says so; `unknown` when the values used are not known."""
     if any(v is None for v in was):
         return unknown
-    # From CYMBAL_MAX and up a step down is twice as big: those values are well into the noise.
-    to = [max(v, min(CYMBAL_MAX, v + d)) if d > 0 else max(0.1, v + (2 * d if v >= CYMBAL_MAX else d)) for v in was]
+    # Above CYMBAL_MAX a step down goes straight to it: a smaller step still leaves the noise.
+    to = [max(v, min(CYMBAL_MAX, v + d)) if d > 0 else (CYMBAL_MAX if v > CYMBAL_MAX else max(0.1, v + d)) for v in was]
     for key, v in zip(keys, to):
         nxt[key] = v
     return " (%s %s; try %s)." % ("it was" if len(keys) == 1 else "they were",
@@ -362,6 +363,12 @@ def suggestions(midi, bpm, vs_wav, song_vs_midi, settings=None, wav_name=None, k
         out_.append("--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
                     "together, where a drummer keeps time on one of them" % (hats, rides)
                     + step(nxt, ["hat", "ride"], was[:2], -0.1, ". Lower them by about 0.1."))
+    elif rides > 1.5 and was[1] is not None and was[1] > CYMBAL_MAX:
+        # Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
+        lowered = True
+        out_.append("--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
+                    "cymbal wash and guitars" % (rides, fmt(CYMBAL_MAX))
+                    + step(nxt, ["ride"], [was[1]], -0.1, ". Lower it to %s." % fmt(CYMBAL_MAX)))
     few_cymbals = cymbals < 2.0 and ((c[0] >= 8 and rec(c) < 0.5) if c else vs_wav is None)
     room = was[0] is None or was[1] is None or was[0] < CYMBAL_MAX or was[1] < CYMBAL_MAX
     if not lowered and few_cymbals and room:
