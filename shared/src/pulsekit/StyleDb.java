@@ -8,7 +8,7 @@ import java.util.Map;
 public final class StyleDb {
   private StyleDb() {}
 
-  /** name|kit|bpm|lo|hi|four|back|hats|dkick */
+  /** name|kit|bpm|lo|hi|four|back|hats|dkick, and for a style not in 4/4 its time signature (|6/8) */
   private static final String[] HINTS = {
     "House|house|124|118|130|1|0.9|8|0",
     "Deep House|house|122|116|126|1|0.7|8|0",
@@ -240,6 +240,14 @@ public final class StyleDb {
     "Techstep|dnb|174|166|180|0.35|0.55|14|0",
     "Atmospheric DnB|dnb|170|162|178|0.25|0.6|10|0",
     "Sambass|dnb|172|164|180|0.4|0.55|12|0",
+    // Styles in another meter: a tenth column, its time signature (MidiDrumGen plays it; others are 4/4).
+    "Ballad 6/8|rockballad|60|50|72|0.3|0.9|6|0|6/8",
+    "Afro 6/8|latin|110|96|125|0.5|0.5|6|0|6/8",
+    "Irish Jig|folk|116|100|130|0.4|0.6|6|0|6/8",
+    "Slow Blues|funk|60|48|72|0.3|0.9|12|0|12/8",
+    "Doo-Wop|popballad|66|56|78|0.3|0.9|12|0|12/8",
+    "Waltz|popballad|96|84|180|0.3|0.6|3|0|3/4",
+    "Jazz Waltz|funk|150|120|200|0.3|0.6|6|0|3/4",
   };
 
   public static String familyOf(String kit) {
