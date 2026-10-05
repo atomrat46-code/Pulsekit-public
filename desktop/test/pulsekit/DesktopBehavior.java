@@ -658,13 +658,55 @@ public final class DesktopBehavior {
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
       String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-      seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
-      String reply = path.equals("/v1/models")
-          ? "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}"
-          : "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>a fill</think>\\nTry a snare roll into the crash.\"}}],"
-              + "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}";
+      seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
+          + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
+              : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "data:image/png;base64,...")));
+      String type = "application/json";
+      String reply;
+      if (path.equals("/v1/models")) {
+        reply = "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.6-35b-a3b-gguf-iq4xs\"},{\"id\":\"other-llm\"}]}";
+      } else if (path.equals("/v1/chat/completions") && body.contains("Draw ten kits")) {
+        // Past the Unlimited Plan's fair use limit Sogni refuses the task.
+        byte[] no = "{\"error\":{\"message\":\"Daily fair use limit reached\"}}".getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "application/json");
+        ex.getResponseHeaders().set("Retry-After", "5400");
+        ex.sendResponseHeaders(429, no.length);
+        ex.getResponseBody().write(no);
+        ex.close();
+        return;
+      } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tool_execution\":true")) {
+        // Unlimited Plan: Sogni runs the tool in the chat and names the workflow it started.
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Making your kit picture now.\"}}],"
+            + "\"creative_workflows\":[{\"workflowId\":\"wf9\",\"status\":\"queued\"}]}";
+      } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tools\":\"creative-tools\"")) {
+        // With the tools offered, the model proposes a call instead of answering in text.
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Here is a kit picture.\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\","
+            + "\"function\":{\"name\":\"generate_image\",\"arguments\":\"{\\\"prompt\\\":\\\"a red drum kit\\\"}\"}}]}}]}";
+      } else if (path.equals("/v1/chat/completions")) {
+        reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>a fill</think>\\nTry a snare roll into the crash.\"}}],"
+            + "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}";
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n";
+      } else if (path.equals("/v1/creative-agent/workflows/wf9")) {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/kit.png\",\"mimeType\":\"image/png\"}]}}}";
+      } else if (path.startsWith("/v1/image/uploadUrl") || path.startsWith("/v1/media/uploadUrl")) {
+        // Uploads for Sogni's tools: a signed URL to PUT the file to, then where it can be read.
+        reply = "{\"data\":{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put" + path.substring(path.indexOf('?')) + "\"}}";
+      } else if (path.startsWith("/v1/image/downloadUrl") || path.startsWith("/v1/media/downloadUrl")) {
+        String q = path.substring(path.indexOf("id=") + 3);
+        reply = "{\"data\":{\"downloadUrl\":\"https://store.example/" + q.replaceAll("&.*", "") + "\"}}";
+      } else if (path.startsWith("/put")) {
+        reply = "";
+      } else if (path.startsWith("/files/")) {
+        type = "image/png";
+        reply = "PNGDATA";
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}";
+      }
       byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
-      ex.getResponseHeaders().set("Content-Type", "application/json");
+      ex.getResponseHeaders().set("Content-Type", type);
       ex.sendResponseHeaders(200, bytes.length);
       ex.getResponseBody().write(bytes);
       ex.close();
@@ -695,6 +737,10 @@ public final class DesktopBehavior {
       Files.write(picture.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1, 2, 3});
       File junk = new File(home, "data.bin");
       Files.write(junk.toPath(), new byte[] {1, 0, 2, 0, 3});
+      File track = new File(home, "song.mp3");
+      Files.write(track.toPath(), new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4});
+      File webp = new File(home, "photo.webp");
+      Files.write(webp.toPath(), new byte[] {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '});
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
@@ -705,6 +751,17 @@ public final class DesktopBehavior {
         "--continue \"" + old.getAbsolutePath() + "\"",
         "--prompt \"What does this groove play?\" --file \"" + song.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\"",
         "--prompt Hi --file \"" + junk.getAbsolutePath() + "\"",
+        // Tools offered: the proposed call is shown and kept, not run; then run under a cost limit.
+        "--prompt \"Draw a drum kit\" --tools",
+        "--prompt \"Draw a drum kit\" --run_tools --max_cost 5 --confirm_cost",
+        // An output name names the conversation and the results; a given extension is dropped.
+        "kit-ideas.png --prompt \"Draw a drum kit\" --unlimited",
+        "--prompt \"Draw a drum kit\" --unlimited",
+        "--prompt \"Draw ten kits\" --unlimited",
+        // Files for the tools: uploaded, then named in the request as media references.
+        "--prompt \"Make a video for this song with this kit\" --file \"" + track.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\" --unlimited",
+        "--prompt \"What is this?\" --file \"" + track.getAbsolutePath() + "\"",
+        "--prompt \"Restyle it\" --file \"" + webp.getAbsolutePath() + "\" --tools",
         "--models",
         "--max_tokens lots",
       };
@@ -724,7 +781,7 @@ public final class DesktopBehavior {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
       }
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
-        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat"))::iterator) {
+        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
           out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim()).append('\n');
         }
       }

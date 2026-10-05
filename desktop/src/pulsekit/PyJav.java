@@ -413,9 +413,9 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
-                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt)$")) {
-                        // Audio or a prompt sheet a program wrote in its work folder (SogniMusic's track and
-                        // --saveprompt): kept in Downloads, as on Android.
+                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) {
+                        // Audio, a prompt sheet, a picture or a video a program wrote in its work folder (SogniMusic's
+                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android.
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) {
@@ -685,6 +685,8 @@ final class PyJav {
         }
         final String[] before = values.clone();
         final JTextField[] fields = new JTextField[ps.size()];
+        // A prompt or system text: a wrapping area of a few lines that scrolls.
+        final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
@@ -733,6 +735,16 @@ final class PyJav {
                 form.add(row);
                 continue;
             }
+            if (ProgramParams.longText(p)) {
+                javax.swing.JTextArea area = new javax.swing.JTextArea(values[i], 3, 24);
+                area.setLineWrap(true);
+                area.setWrapStyleWord(true);
+                area.setName("params-field:" + p.token);
+                if (p.hint.length() > 0) area.setToolTipText(p.hint);
+                areas[i] = area;
+                form.add(new javax.swing.JScrollPane(area));
+                continue;
+            }
             JTextField field = new JTextField(values[i], 10);
             field.setName("params-field:" + p.token);
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
@@ -758,6 +770,7 @@ final class PyJav {
         JButton defaults = new JButton("Reset to defaults");
         defaults.addActionListener(e -> {
             for (JTextField f : fields) if (f != null) f.setText("");
+            for (javax.swing.JTextArea a : areas) if (a != null) a.setText("");
             for (javax.swing.JCheckBox c : checks) if (c != null) c.setSelected(false);
         });
         resets.add(defaults);
@@ -765,6 +778,7 @@ final class PyJav {
             JButton suggested = new JButton("Reset to suggested values");
             suggested.addActionListener(e -> {
                 for (int i = 0; i < fields.length; i++) if (fields[i] != null) fields[i].setText(ps.get(i).suggested);
+                for (int i = 0; i < areas.length; i++) if (areas[i] != null) areas[i].setText(ps.get(i).suggested);
                 for (int i = 0; i < checks.length; i++) if (checks[i] != null) checks[i].setSelected(DrumMidiArgs.on(ps.get(i).suggested));
             });
             resets.add(suggested);
@@ -782,6 +796,7 @@ final class PyJav {
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (ans != JOptionPane.OK_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
+        for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
         String input = null;

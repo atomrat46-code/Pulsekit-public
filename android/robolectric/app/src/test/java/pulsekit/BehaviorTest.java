@@ -1655,13 +1655,19 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
     out.append("--file picker: ").append(((TextView) dv.findViewWithTag("params-file:--file")).getText())
-        .append(", label ").append(findText(dv, "File (text, MIDI or picture)  --file") != null).append('\n');
+        .append(", label ").append(findText(dv, "File (text, MIDI, picture, audio or video)  --file") != null).append('\n');
     out.append("--continue picker: ").append(dv.findViewWithTag("params-file:--continue") != null)
         .append(", label ").append(findText(dv, "Continue from saved chat  --continue") != null).append('\n');
     out.append("--thinking box: ").append(dv.findViewWithTag("params-check:--thinking") != null).append('\n');
     out.append("--models box: ").append(dv.findViewWithTag("params-check:--models") != null).append('\n');
+    for (String t : new String[] {"--tools", "--run_tools", "--unlimited", "--confirm_cost"}) {
+      out.append(t).append(" box: ").append(((android.widget.CheckBox) dv.findViewWithTag("params-check:" + t)).getText()).append('\n');
+    }
+    out.append("--max_cost hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--max_cost")).getHint()).append('\n');
     out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
         .append(", hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--system")).getHint()).append('\n');
+    out.append("output: ").append(findText(dv, "Output name  (optional)") != null).append(", hint ")
+        .append(((android.widget.EditText) dv.findViewWithTag("params-field:output_name")).getHint()).append('\n');
     out.append("--prompt hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).getHint()).append('\n');
     // Chat model: a list of Sogni's chat models; picking one fills in its id.
     dv.findViewWithTag("params-choose:--model").performClick();
@@ -1671,7 +1677,11 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf(models).clickOnItem(1);
     idle();
     out.append("--model field: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--model")).getText()).append('\n');
-    ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("Suggest one fill");
+    android.widget.EditText promptField = (android.widget.EditText) dv.findViewWithTag("params-field:--prompt");
+    out.append("prompt field: lines up to ").append(promptField.getMaxLines())
+        .append(", one line ").append((promptField.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) == 0).append('\n');
+    // Typed over two lines, it is still one argument.
+    promptField.setText("Suggest\none fill");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--system")).setText("Answer briefly.");
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();

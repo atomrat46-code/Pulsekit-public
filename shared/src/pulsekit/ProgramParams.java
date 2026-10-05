@@ -199,9 +199,22 @@ public final class ProgramParams {
       p.choiceValues = CHAT_MODELS;
     }
     if (p.flag && p.takesValue && p.token.equals("--file") && chat) {
-      // SogniChat reads text, MIDI and pictures: any file can be picked.
+      // SogniChat reads text, MIDI, pictures, audio and video: any file can be picked.
       p.ext = "any";
-      p.label = "File (text, MIDI or picture)";
+      p.label = "File (text, MIDI, picture, audio or video)";
+    }
+    if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
+    if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
+    if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+    if (p.flag && chat && p.token.equals("--unlimited")) p.label = "Unlimited Plan (Sogni runs tools in the chat; fair use limits apply)";
+    if (p.flag && p.takesValue && chat && p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 10; empty for no limit";
+    }
+    if (!p.flag && p.output && chat) {
+      // SogniChat's output is a base name for everything it saves, not one file.
+      p.label = "Output name";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...";
     }
     if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
       p.label = "Continue from saved chat";
@@ -251,6 +264,18 @@ public final class ProgramParams {
   /** "mid", "txt", "any" (SogniChat's --file) or "audio" (wav and mp3 stand in for each other). */
   static String kind(String ext) {
     return "mid".equals(ext) || "txt".equals(ext) || "any".equals(ext) ? ext : "audio";
+  }
+
+  /** A switch that takes a sentence or more (a prompt, a system text, lyrics), shown as a field of several lines. */
+  public static boolean longText(Param p) {
+    if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
+    String t = p.token;
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments");
+  }
+
+  /** A several-line field's text as one argument: lines joined with spaces. */
+  public static String oneLine(String text) {
+    return text == null ? "" : text.trim().replaceAll("\\s*\\n\\s*", " ");
   }
 
   /** A .wav or .mp3 parameter. */
