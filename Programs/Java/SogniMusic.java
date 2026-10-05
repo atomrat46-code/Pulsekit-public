@@ -46,11 +46,12 @@ public final class SogniMusic {
   }
 
   /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-04c";
+  static final String VERSION = "SogniMusic 2026-10-05";
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
-  static int run(String[] args) throws Exception {
+  static int run(String[] typed) throws Exception {
     System.out.println(VERSION);
+    String[] args = tidy(typed);
     String out = null;
     String prompt = null;
     String keyFile = null;
@@ -261,6 +262,30 @@ public final class SogniMusic {
     if (acc.equals("\u266d") || acc.equals("flat")) acc = "b";
     String mode = m.group(3) == null ? "" : m.group(3).toLowerCase();
     return note + acc + (mode.startsWith("m") && !mode.startsWith("maj") ? " minor" : " major");
+  }
+
+  /**
+   * Arguments as typed by hand: "--workflow wf_1" given as one argument becomes the switch and its
+   * value, and a switch given twice in a row (--workflow --workflow wf_1) counts once.
+   */
+  static String[] tidy(String[] args) {
+    List<String> out = new ArrayList<String>();
+    for (String a : args) {
+      String t = a == null ? "" : a.trim();
+      int sp = t.startsWith("--") ? t.indexOf(' ') : -1;
+      List<String> parts = new ArrayList<String>();
+      if (sp > 0) {
+        parts.add(t.substring(0, sp));
+        parts.add(t.substring(sp + 1).trim());
+      } else {
+        parts.add(a);
+      }
+      for (String p : parts) {
+        if (p.startsWith("--") && !out.isEmpty() && p.equals(out.get(out.size() - 1))) continue;
+        out.add(p);
+      }
+    }
+    return out.toArray(new String[0]);
   }
 
   /** A number for `flag`, or NaN after saying what is wrong. */

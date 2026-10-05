@@ -212,6 +212,13 @@ public final class ProgramParams {
     return e.equals("wave") ? "wav" : e;
   }
 
+  /** A value typed with its switch in front ("--workflow wf_1" in the --workflow field) without it. */
+  static String withoutOwnSwitch(Param p, String v) {
+    String t = v.trim();
+    while (t.equals(p.token) || t.startsWith(p.token + " ") || t.startsWith(p.token + "=")) t = t.substring(p.token.length()).replaceFirst("^[\\s=]+", "");
+    return t;
+  }
+
   /** "mid", "txt" or "audio" (wav and mp3 stand in for each other). */
   static String kind(String ext) {
     return "mid".equals(ext) || "txt".equals(ext) ? ext : "audio";
@@ -257,6 +264,8 @@ public final class ProgramParams {
         if (DrumMidiArgs.on(v)) append(sb, p.token);
         continue;
       }
+      v = withoutOwnSwitch(p, v);
+      if (v.length() == 0) continue;
       append(sb, p.token);
       append(sb, quote(v));
     }
