@@ -59,8 +59,11 @@ public final class ProgramParams {
     boolean chat = has(out, "--prompt") && has(out, "--system");
     // MidiDrumGen: --style takes Pulsekit's style names.
     boolean drumGen = has(out, "--style") && has(out, "--intensity");
+    // SogniVideo: pictures to animate, and MiniMax H3's sizes.
+    boolean video = has(out, "--image") && has(out, "--end_image");
     for (Param p : out) {
       known(p, drumMidi, chat);
+      if (video) knownVideo(p);
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";
         p.choices = StyleDb.names();
@@ -255,6 +258,43 @@ public final class ProgramParams {
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
+  }
+
+  /** SogniVideo's labels: pictures are picked as files, the resolution from MiniMax H3's sizes. */
+  private static void knownVideo(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-video-<first words>.mp4";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
+      if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "what happens: the motion, the camera, the sound";
+    if (p.token.equals("--image")) {
+      p.ext = "any";
+      p.label = "Picture to animate (first frame)";
+      p.hint = "optional; without one the clip comes from the prompt alone";
+    }
+    if (p.token.equals("--end_image")) {
+      p.ext = "any";
+      p.label = "Last frame picture";
+      p.hint = "optional; the clip moves from the first picture to this one";
+    }
+    if (p.token.equals("--duration")) p.hint = "5 to 15 seconds (default 5)";
+    if (p.token.equals("--resolution")) {
+      p.hint = "768 (default), or a two-stage size";
+      p.choices = new String[] {"768 (FastH3, about 4 Spark/s)", "720 two-stage (about 4 Spark/s)", "1080 two-stage (about 10 Spark/s)", "1440 two-stage, 2K (about 16 Spark/s)"};
+      p.choiceValues = new String[] {"768", "720", "1080", "1440"};
+    }
+    if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty keeps the picture's shape";
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 100; empty for no limit";
+    }
   }
 
   static String ext(String name) {

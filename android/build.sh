@@ -20,7 +20,7 @@ cp -r ../Programs "$OUT/assets/Programs"   # PyJav's Java / Python / Code menus
 cp -r ../Prompts "$OUT/assets/Programs/Scripts"   # PyJav's Scripts menu (the repo's Prompts folder)
 # SogniMusic.java and SogniChat.java carry a copy of shared SogniApi (programs see only rt.jar); keep them the same.
 sogni_body() { sed -n '/--- SogniApi begin ---/,/--- SogniApi end ---/p' "$1" | sed 's/^ *//'; }
-for prog in SogniMusic SogniChat; do
+for prog in SogniMusic SogniChat SogniVideo; do
   if ! diff <(sogni_body ../shared/src/pulsekit/SogniApi.java) <(sogni_body ../Programs/Java/$prog.java) >/dev/null; then
     echo "Programs/Java/$prog.java's SogniApi copy differs from shared/src/pulsekit/SogniApi.java" >&2; exit 1
   fi
