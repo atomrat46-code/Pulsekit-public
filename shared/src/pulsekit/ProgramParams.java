@@ -170,6 +170,14 @@ public final class ProgramParams {
   }
 
   /** Labels, hints and suggested values for DrumMidi's switches; a readable label for anything else. */
+  /** The chat models Sogni offered (SogniChat --models, October 2026), the default first. */
+  static final String[] CHAT_MODELS = {
+    "qwen3.6-35b-a3b-gguf-iq4xs", "deepseek-v4-flash-vision-exp-dspark-1m", "qwen3.5-35b-a3b-abliterated-gguf-q4km"
+  };
+  static final String[] CHAT_MODEL_LABELS = {
+    "qwen3.6-35b-a3b-gguf-iq4xs (default)", "deepseek-v4-flash-vision-exp-dspark-1m", "qwen3.5-35b-a3b-abliterated-gguf-q4km"
+  };
+
   private static void known(Param p, boolean drumMidi, boolean chat) {
     int i = drumMidi && p.flag ? DrumMidiArgs.index(p.token) : -1;
     if (i >= 0) {
@@ -184,6 +192,12 @@ public final class ProgramParams {
     }
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
     if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = chat ? "your question" : "genre, mood, instruments";
+    if (p.flag && p.takesValue && p.token.equals("--model") && chat) {
+      p.label = "Chat model";
+      p.hint = "empty for the default, or one from the list";
+      p.choices = CHAT_MODEL_LABELS;
+      p.choiceValues = CHAT_MODELS;
+    }
     if (p.flag && p.takesValue && p.token.equals("--system") && chat) {
       p.label = "System role/answer";
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";

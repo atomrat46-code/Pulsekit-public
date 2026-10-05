@@ -1660,6 +1660,14 @@ public class BehaviorTest {
     out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
         .append(", hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--system")).getHint()).append('\n');
     out.append("--prompt hint: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).getHint()).append('\n');
+    // Chat model: a list of Sogni's chat models; picking one fills in its id.
+    dv.findViewWithTag("params-choose:--model").performClick();
+    idle();
+    AlertDialog models = (AlertDialog) ShadowDialog.getLatestDialog();
+    for (int i = 0; i < models.getListView().getAdapter().getCount(); i++) out.append("model choice: ").append(models.getListView().getAdapter().getItem(i)).append('\n');
+    org.robolectric.Shadows.shadowOf(models).clickOnItem(1);
+    idle();
+    out.append("--model field: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--model")).getText()).append('\n');
     ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("Suggest one fill");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--system")).setText("Answer briefly.");
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
