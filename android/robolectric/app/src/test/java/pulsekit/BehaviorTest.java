@@ -1641,6 +1641,60 @@ public class BehaviorTest {
     write("s50_sogni_key_setting", out.toString());
   }
 
+  /** MidiDrumGen in the Java menu: Params lists its switches, with a style list and on/off checkboxes. */
+  @Test
+  public void s55_midi_drum_gen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MidiDrumGen.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace('\n', '|')).append('\n');
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("--style choose: ").append(dv.findViewWithTag("params-choose:--style") != null).append('\n');
+    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time"}) {
+      out.append(t).append(" box: ").append(dv.findViewWithTag("params-check:" + t) != null).append('\n');
+    }
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--style")).setText("Hard Rock");
+    ((android.widget.CheckBox) dv.findViewWithTag("params-check:--no-fills")).setChecked(true);
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s55_midi_drum_gen", out.toString());
+  }
+
+  /** A run that made a picture (SogniChat's tool result) shows it in a Picture ready dialog. */
+  @Test
+  public void s54_picture_offer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniChat.java");
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(4, 4, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("kit-ideas.txt", "SogniChat conversation\n".getBytes("UTF-8")));
+    files.add(new JavaRun.FileOut("kit-ideas-1.png", png.toByteArray()));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniChat 2026-10-06\nWrote kit-ideas-1.png (1 KB)\nSucceeded: kit-ideas.txt, kit-ideas-1.png", files, 0));
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(", ")
+        .append(d.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    out.append("shows picture: ").append(d.getWindow().getDecorView().findViewWithTag("picture-offer:kit-ideas-1.png") != null).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    // A run with no picture shows none.
+    files.clear();
+    files.add(new JavaRun.FileOut("reply.txt", "hi\n".getBytes("UTF-8")));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniChat 2026-10-06\nSucceeded: reply.txt", files, 0));
+    idle();
+    out.append("after a text-only run: ").append(ShadowDialog.getLatestDialog() == d || !ShadowDialog.getLatestDialog().isShowing() ? "no dialog" : "a dialog").append('\n');
+    write("s54_picture_offer", out.toString());
+  }
+
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
   @Test
   public void s53_program_folder() throws Exception {

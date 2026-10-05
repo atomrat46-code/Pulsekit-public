@@ -750,6 +750,8 @@ final class PyJav {
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
         // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
         if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
+        // Pictures it made (SogniChat's tool results) are shown.
+        if (status.startsWith("Succeeded")) PictureOffer.offer(app, result);
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);

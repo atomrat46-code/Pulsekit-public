@@ -57,7 +57,15 @@ public final class ProgramParams {
     boolean drumMidi = has(out, "--sens") && has(out, "--no-hpss");
     // SogniChat: --prompt is a question and --system the role and way to answer, not a music description.
     boolean chat = has(out, "--prompt") && has(out, "--system");
-    for (Param p : out) known(p, drumMidi, chat);
+    // MidiDrumGen: --style takes Pulsekit's style names.
+    boolean drumGen = has(out, "--style") && has(out, "--intensity");
+    for (Param p : out) {
+      known(p, drumMidi, chat);
+      if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
+        p.hint = "the app's style, or one from the list";
+        p.choices = StyleDb.names();
+      }
+    }
     return out;
   }
 

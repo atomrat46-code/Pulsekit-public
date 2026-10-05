@@ -30,7 +30,7 @@ done
 for prog in ../Programs/Java/*.java; do
   mkdir -p "$OUT/program-check"
   javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none -proc:none \
-    -bootclasspath assets/rt.jar -classpath assets/rt.jar -d "$OUT/program-check" "$prog" \
+    -bootclasspath assets/rt.jar -classpath assets/rt.jar:assets/javax-midi.jar -d "$OUT/program-check" "$prog" \
     || { echo "$prog does not compile with PyJav's on-phone compiler (assets/rt.jar)" >&2; exit 1; }
 done
 rm -rf "$OUT/program-check"

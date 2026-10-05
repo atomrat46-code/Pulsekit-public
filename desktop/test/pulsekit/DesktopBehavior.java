@@ -700,8 +700,15 @@ public final class DesktopBehavior {
       } else if (path.startsWith("/put")) {
         reply = "";
       } else if (path.startsWith("/files/")) {
-        type = "image/png";
-        reply = "PNGDATA";
+        // A real 2x2 picture, so the picture dialog can show it.
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+        byte[] picture = png.toByteArray();
+        ex.getResponseHeaders().set("Content-Type", "image/png");
+        ex.sendResponseHeaders(200, picture.length);
+        ex.getResponseBody().write(picture);
+        ex.close();
+        return;
       } else {
         reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}";
       }
@@ -768,6 +775,8 @@ public final class DesktopBehavior {
       for (String extra : runs) {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        // A run that makes a picture shows it; Close the dialog.
+        if (extra.contains("--run_tools") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
         for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
@@ -782,11 +791,33 @@ public final class DesktopBehavior {
       }
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
-          out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim()).append('\n');
+          String shown = f.toString().endsWith(".txt") ? new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim() : Files.size(f) + " bytes";
+          out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(shown).append('\n');
         }
       }
     } finally {
       server.stop(0);
+    }
+  }
+
+  /** MidiDrumGen in the Java menu: its switches come from its Usage line, and a run's MIDI is imported. */
+  void s38_midi_drum_gen() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replaceAll("<[^>]+>", "|")).append('\n');
+    List<ProgramParams.Param> ps = ProgramParams.parse((String) call("programText"));
+    for (ProgramParams.Param p : ps) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+          .append(p.choices != null ? " choices " + p.choices.length : "").append('\n');
+    }
+    answers.add("Yes");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Hard Rock\" --bars 4"));
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Wrote") || line.startsWith("Import") || line.startsWith("$ java") || line.contains("rror")) out.append("log: ").append(line).append('\n');
     }
   }
 

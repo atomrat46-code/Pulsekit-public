@@ -390,6 +390,7 @@ final class PyJav {
                 int audios = 0;
                 int texts = 0;
                 java.util.Map<String, File> savedAudio = new java.util.HashMap<String, File>();
+                java.util.List<File> savedPictures = new java.util.ArrayList<File>();
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
@@ -421,6 +422,7 @@ final class PyJav {
                         if (saved != null) {
                             audios++;
                             savedAudio.put(f.name, saved);
+                            if (lower.matches(".*\\.(png|jpe?g|webp|gif)$")) savedPictures.add(saved);
                         }
                     } else if (lower.endsWith(".txt")) {
                         // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android.
@@ -467,8 +469,50 @@ final class PyJav {
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
                 if (made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                // Pictures it made (SogniChat's tool results) are shown.
+                if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
             });
         }, "pulsekit-pyjav").start();
+    }
+
+    /**
+     * After a run that made pictures: each is shown under its name, scaled to fit, with Open (the
+     * system viewer, for the first) and Close. A picture Java cannot read (WebP) is named only.
+     */
+    void offerPictures(java.util.List<File> pictures) {
+        JPanel col = new JPanel();
+        col.setLayout(new javax.swing.BoxLayout(col, javax.swing.BoxLayout.Y_AXIS));
+        for (File f : pictures) {
+            java.awt.image.BufferedImage img = null;
+            try {
+                img = javax.imageio.ImageIO.read(f);
+            } catch (Exception ignored) {
+                img = null;
+            }
+            JLabel name = new JLabel(f.getName() + (img == null ? " (no preview)" : ""));
+            name.setAlignmentX(0.0f);
+            col.add(name);
+            if (img == null) continue;
+            double scale = Math.min(1.0, 480.0 / Math.max(img.getWidth(), img.getHeight()));
+            java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
+            JLabel view = new JLabel(new javax.swing.ImageIcon(shown));
+            view.setName("picture-offer:" + f.getName());
+            view.setAlignmentX(0.0f);
+            col.add(view);
+            col.add(javax.swing.Box.createVerticalStrut(8));
+        }
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
+        scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(560, col.getPreferredSize().height + 8)));
+        Object[] options = new Object[] {"Open", "Close"};
+        int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+        if (ans == 0) {
+            try {
+                java.awt.Desktop.getDesktop().open(pictures.get(0));
+            } catch (Exception ex) {
+                app.setNow("Could not open a viewer for " + pictures.get(0).getName());
+            }
+        }
     }
 
     /**
