@@ -592,6 +592,33 @@ public final class SogniApi {
     return text.replaceAll("(?s)<think>.*?</think>", "").trim();
   }
 
+  /** The question a chat run answers: its last user message's text (request.messages, else messages); null if none. */
+  @SuppressWarnings("unchecked")
+  public static String runQuestion(Map<String, Object> run) {
+    Object list = run.get("request") instanceof Map ? ((Map<String, Object>) run.get("request")).get("messages") : null;
+    if (!(list instanceof List) || ((List<Object>) list).isEmpty()) list = run.get("messages");
+    if (!(list instanceof List)) return null;
+    String text = null;
+    for (Object o : (List<Object>) list) {
+      if (!(o instanceof Map) || !"user".equals(str(((Map<String, Object>) o).get("role")))) continue;
+      Object c = ((Map<String, Object>) o).get("content");
+      if (c instanceof String) text = (String) c;
+      if (c instanceof List) {
+        for (Object part : (List<Object>) c) {
+          if (part instanceof Map && "text".equals(str(((Map<String, Object>) part).get("type")))) text = str(((Map<String, Object>) part).get("text"));
+        }
+      }
+    }
+    return text == null || text.trim().length() == 0 ? null : text.trim();
+  }
+
+  /** The chat model a run used (request.model, else model); null if it does not say. */
+  @SuppressWarnings("unchecked")
+  public static String runModel(Map<String, Object> run) {
+    String m = run.get("request") instanceof Map ? str(((Map<String, Object>) run.get("request")).get("model")) : null;
+    return m != null ? m : str(run.get("model"));
+  }
+
   /** The pictures, audio and video a chat run made (its artifacts), once each. */
   public static List<Map<String, Object>> runArtifacts(Map<String, Object> run) {
     List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();

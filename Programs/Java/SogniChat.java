@@ -50,8 +50,10 @@ import java.util.Map;
  * made beside the conversation (<name>-1.png, <name>-2.mp3...).
  *
  * --unlimited is for a Sogni Unlimited Plan, where cost does not matter and only Sogni's daily and
- * monthly fair use limits apply: Sogni runs the tools inside the chat, and SogniChat follows the
- * workflows it started and saves their results the same way. Past a fair use limit Sogni refuses
+ * monthly fair use limits apply: the question goes to Sogni as a durable chat run, where Sogni runs
+ * the model and its tools; SogniChat follows the run (the tools' progress) and saves its reply and
+ * results the same way. The run goes on at Sogni when the connection drops or SogniChat stops
+ * waiting (30 minutes): --run <run id> (the id is in the log) follows it again and keeps what it made. Past a fair use limit Sogni refuses
  * the task until the limit renews, and SogniChat says so.
  *
  * The saved file is the whole conversation (model, system text, each question and reply), so
@@ -109,6 +111,7 @@ public final class SogniChat {
     boolean unlimited = false;
     boolean confirm = false;
     double maxCost = 0;
+    String rejoin = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -136,6 +139,10 @@ public final class SogniChat {
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
+      else if (a.equals("--run") && i + 1 < args.length) {
+        String id = args[++i].trim();
+        if (id.length() > 0) rejoin = id;
+      }
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -151,6 +158,16 @@ public final class SogniChat {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
       return 2;
     }
+    if (rejoin != null) {
+      // --run follows a chat run started earlier: its question is already at Sogni.
+      if ((prompt != null && prompt.trim().length() > 0) || !files.isEmpty()) {
+        System.out.println("Note: --run follows chat run " + rejoin + "; --prompt and --file are not sent");
+      }
+      prompt = null;
+      files.clear();
+      copies.clear();
+      unlimited = true;
+    }
     // With Sogni's tools on, pictures, audio and video are uploaded for the tools to work on.
     boolean toolsOn = tools || runTools || unlimited;
     List<Attachment> attached = new ArrayList<Attachment>();
@@ -165,7 +182,7 @@ public final class SogniChat {
       if (before == null) return 2;
     }
     boolean asked = (prompt != null && prompt.trim().length() > 0) || !attached.isEmpty();
-    if (!asked && !models) {
+    if (!asked && !models && rejoin == null) {
       System.out.println(before != null
           ? "Failed: give --prompt with the next question to continue " + new File(earlier.trim()).getName()
           : "Failed: give --prompt (the question), --file (a text, MIDI or picture file to send), or both, "
@@ -236,15 +253,19 @@ public final class SogniChat {
         runTurns.set(runTurns.size() - 1, linked.toArray(new String[0]));
       }
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
-      System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
-      if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
-      StringBuilder shown = new StringBuilder("Prompt: ").append(prompt == null ? "" : prompt.trim());
-      for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
-      System.out.println(shown);
+      if (rejoin == null) {
+        System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
+        if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
+        StringBuilder shown = new StringBuilder("Prompt: ").append(prompt == null ? "" : prompt.trim());
+        for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
+        System.out.println(shown);
+      }
       // --run_tools offers the tools too; the model only proposes calls, which run below as a workflow.
       // --unlimited (an Unlimited Plan: no cost, only fair use limits) lets Sogni run them in the chat.
       boolean offered = toolsOn;
-      if (unlimited) {
+      if (rejoin != null) {
+        System.out.println("Sogni tools: Unlimited Plan, the chat run " + rejoin + " started earlier");
+      } else if (unlimited) {
         System.out.println("Sogni tools: Unlimited Plan, run in the chat (no cost limit; Sogni's daily and monthly fair use limits apply)");
         if (maxCost > 0) System.out.println("Note: --max_cost is not used with the Unlimited Plan");
       } else if (offered) {
@@ -263,19 +284,42 @@ public final class SogniChat {
       if (unlimited) {
         // A durable chat run: Sogni runs the model and the tools on its side and the run goes on
         // if the connection drops, so a video that takes minutes does not time out the request.
-        Map<String, Object> run = api.startChatRun(SogniApi.chatRunInput(chosen, system, runTurns, (int) maxTokens, thinking, media));
-        String runId = SogniApi.str(run.get("runId"));
-        if (runId == null) runId = SogniApi.str(run.get("id"));
+        String runId = rejoin;
         if (runId == null) {
-          System.out.println("Failed: Sogni did not say which chat run it started");
+          Map<String, Object> begun = api.startChatRun(SogniApi.chatRunInput(chosen, system, runTurns, (int) maxTokens, thinking, media));
+          runId = SogniApi.str(begun.get("runId"));
+          if (runId == null) runId = SogniApi.str(begun.get("id"));
+          if (runId == null) {
+            System.out.println("Failed: Sogni did not say which chat run it started");
+            return 1;
+          }
+        }
+        System.out.println("Chat run " + runId + (rejoin == null ? " started" : "") + "; following it (if this stops, --run " + runId + " follows it again)");
+        Map<String, Object> run;
+        try {
+          run = api.waitForRun(runId, 30 * 60 * 1000L, new SogniApi.Log() {
+            public void line(String s) {
+              System.out.println(s);
+            }
+          });
+        } catch (SogniApi.ApiException ex) {
+          throw ex;
+        } catch (IOException ex) {
+          System.out.println("Failed: " + ex.getMessage() + ". The run goes on at Sogni: --run " + runId + " follows it again and keeps what it made.");
           return 1;
         }
-        System.out.println("Chat run " + runId + " started; following it");
-        run = api.waitForRun(runId, 30 * 60 * 1000L, new SogniApi.Log() {
-          public void line(String s) {
-            System.out.println(s);
+        if (rejoin != null) {
+          // The conversation saved is the run's own question and its answer.
+          String q = SogniApi.runQuestion(run);
+          if (q != null) {
+            question = q;
+            prompt = q.split("\n\n")[0];
           }
-        });
+          String m = SogniApi.runModel(run);
+          if (m != null) chosen = m;
+          System.out.println("Model " + chosen);
+          System.out.println("Prompt: " + (prompt == null ? "(not given by Sogni)" : prompt));
+        }
         String status = SogniApi.str(run.get("status"));
         reply = SogniApi.runReply(run);
         runMedia = SogniApi.runArtifacts(run);
@@ -368,7 +412,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
   }
 
   /**
@@ -1820,6 +1864,33 @@ public final class SogniChat {
       }
       if (text == null) return null;
       return text.replaceAll("(?s)<think>.*?</think>", "").trim();
+    }
+
+    /** The question a chat run answers: its last user message's text (request.messages, else messages); null if none. */
+    @SuppressWarnings("unchecked")
+    public static String runQuestion(Map<String, Object> run) {
+      Object list = run.get("request") instanceof Map ? ((Map<String, Object>) run.get("request")).get("messages") : null;
+      if (!(list instanceof List) || ((List<Object>) list).isEmpty()) list = run.get("messages");
+      if (!(list instanceof List)) return null;
+      String text = null;
+      for (Object o : (List<Object>) list) {
+        if (!(o instanceof Map) || !"user".equals(str(((Map<String, Object>) o).get("role")))) continue;
+        Object c = ((Map<String, Object>) o).get("content");
+        if (c instanceof String) text = (String) c;
+        if (c instanceof List) {
+          for (Object part : (List<Object>) c) {
+            if (part instanceof Map && "text".equals(str(((Map<String, Object>) part).get("type")))) text = str(((Map<String, Object>) part).get("text"));
+          }
+        }
+      }
+      return text == null || text.trim().length() == 0 ? null : text.trim();
+    }
+
+    /** The chat model a run used (request.model, else model); null if it does not say. */
+    @SuppressWarnings("unchecked")
+    public static String runModel(Map<String, Object> run) {
+      String m = run.get("request") instanceof Map ? str(((Map<String, Object>) run.get("request")).get("model")) : null;
+      return m != null ? m : str(run.get("model"));
     }
 
     /** The pictures, audio and video a chat run made (its artifacts), once each. */

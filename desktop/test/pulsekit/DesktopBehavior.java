@@ -689,7 +689,9 @@ public final class DesktopBehavior {
             + "\"artifacts\":[{\"id\":\"a1\",\"url\":\"http://127.0.0.1:" + port + "/files/kit.png\",\"mediaType\":\"image\"}],\"childWorkflowIds\":[]}}}";
       } else if (path.equals("/v1/chat/runs/run2")) {
         // A run whose results are in the workflow it started.
-        reply = "{\"data\":{\"run\":{\"runId\":\"run2\",\"status\":\"completed\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Animating it now.\"}],"
+        reply = "{\"data\":{\"run\":{\"runId\":\"run2\",\"status\":\"completed\",\"request\":{\"model\":\"deepseek-v4-flash-vision-exp-dspark-1m\","
+            + "\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Animate it\\n\\nPicture wide.jpg is attached as media_ref_1.\"}]}]},"
+            + "\"messages\":[{\"role\":\"assistant\",\"content\":\"Animating it now.\"}],"
             + "\"artifacts\":[],\"childWorkflowIds\":[\"wf9\"]}}}";
       } else if (path.equals("/v1/chat/completions") && body.contains("\"sogni_tool_execution\":true")) {
         // Unlimited Plan: Sogni runs the tool in the chat and names the workflow it started.
@@ -806,6 +808,8 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
+        // A chat run started earlier (one that timed out here) is followed again by its id.
+        "--run run2",
         "--models",
         "--max_tokens lots",
       };
@@ -813,7 +817,7 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         // A run that makes a picture shows it; Close the dialog.
-        if (extra.contains("--run_tools") || extra.contains("--unlimited")) answers.add("Close");
+        if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
         for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
