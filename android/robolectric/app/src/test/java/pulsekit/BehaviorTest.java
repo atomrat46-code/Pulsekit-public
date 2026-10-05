@@ -1677,7 +1677,11 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf(models).clickOnItem(1);
     idle();
     out.append("--model field: ").append(((android.widget.EditText) dv.findViewWithTag("params-field:--model")).getText()).append('\n');
-    ((android.widget.EditText) dv.findViewWithTag("params-field:--prompt")).setText("Suggest one fill");
+    android.widget.EditText promptField = (android.widget.EditText) dv.findViewWithTag("params-field:--prompt");
+    out.append("prompt field: lines up to ").append(promptField.getMaxLines())
+        .append(", one line ").append((promptField.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) == 0).append('\n');
+    // Typed over two lines, it is still one argument.
+    promptField.setText("Suggest\none fill");
     ((android.widget.EditText) dv.findViewWithTag("params-field:--system")).setText("Answer briefly.");
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();

@@ -266,6 +266,18 @@ public final class ProgramParams {
     return "mid".equals(ext) || "txt".equals(ext) || "any".equals(ext) ? ext : "audio";
   }
 
+  /** A switch that takes a sentence or more (a prompt, a system text, lyrics), shown as a field of several lines. */
+  public static boolean longText(Param p) {
+    if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
+    String t = p.token;
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments");
+  }
+
+  /** A several-line field's text as one argument: lines joined with spaces. */
+  public static String oneLine(String text) {
+    return text == null ? "" : text.trim().replaceAll("\\s*\\n\\s*", " ");
+  }
+
   /** A .wav or .mp3 parameter. */
   public static boolean isAudio(Param p) {
     return p.ext != null && "audio".equals(kind(p.ext));

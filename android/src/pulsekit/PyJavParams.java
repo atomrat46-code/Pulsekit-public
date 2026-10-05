@@ -138,8 +138,25 @@ public final class PyJavParams {
         continue;
       }
       EditText field = new EditText(activity);
-      field.setSingleLine(true);
-      field.setInputType(InputType.TYPE_CLASS_TEXT);
+      if (ProgramParams.longText(p)) {
+        // A prompt or system text: wrapped over several lines, scrolling inside the field. The
+        // dialog scrolls too, so a drag in the field is kept for the field while it can scroll.
+        field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        field.setSingleLine(false);
+        field.setHorizontallyScrolling(false);
+        field.setMinLines(2);
+        field.setMaxLines(6);
+        field.setVerticalScrollBarEnabled(true);
+        field.setMovementMethod(android.text.method.ScrollingMovementMethod.getInstance());
+        field.setOnTouchListener((v, ev) -> {
+          if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
+          if ((ev.getAction() & android.view.MotionEvent.ACTION_MASK) == android.view.MotionEvent.ACTION_UP) v.getParent().requestDisallowInterceptTouchEvent(false);
+          return false;
+        });
+      } else {
+        field.setSingleLine(true);
+        field.setInputType(InputType.TYPE_CLASS_TEXT);
+      }
       field.setHint(p.hint);
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
@@ -171,6 +188,8 @@ public final class PyJavParams {
           public void onClick(android.content.DialogInterface dialog, int which) {
             for (int i = 0; i < fields.length; i++) {
               if (fields[i] != null) values[i] = fields[i].getText() == null ? "" : fields[i].getText().toString();
+              // A several-line field is one argument: its lines joined.
+              if (fields[i] != null && ProgramParams.longText(ps.get(i))) values[i] = ProgramParams.oneLine(values[i]);
               if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
             }
             String switches = ProgramParams.build(ps, values);
