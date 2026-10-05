@@ -645,6 +645,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.drumMidiSettings.takeKey(intent.getData());
             return;
         }
+        if (n == DrumMidiSettingsPage.PICK_FOLDER) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.drumMidiSettings.takeFolder(intent.getData());
+            return;
+        }
         if (n == CodeSave.SAVE_AS) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.codeSave.savedAs(intent.getData());

@@ -668,10 +668,15 @@ public final class ArtJava {
     return new JavaRun.Result(msg, empty(), 1);
   }
 
-  /** Copy a program output file to Download. Android opens relative paths on "/", which is read-only. */
+  /**
+   * Copy a program output file to the program files folder chosen in Drum Midi Settings, else to
+   * Download. Android opens relative paths on "/", which is read-only.
+   */
   static String publish(Context ctx, String name, byte[] data) {
     if (ctx == null || name == null || data == null) return null;
     String safe = name.replace('\\', '_').replace('/', '_');
+    String chosen = toFolder(ctx, safe, data);
+    if (chosen != null) return chosen;
     if (android.os.Build.VERSION.SDK_INT >= 29) {
       try {
         android.content.ContentValues v = new android.content.ContentValues();
@@ -698,6 +703,33 @@ public final class ArtJava {
       write(new File(dir, safe), data);
       return dir.getAbsolutePath() + "/" + safe;
     } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  /**
+   * Writes the file into the chosen folder (a document tree), which names a second copy
+   * "name (1).ext" itself. Null when none is chosen or it cannot be written (permission gone, folder
+   * removed): the file then goes to Download as before.
+   */
+  private static String toFolder(Context ctx, String safe, byte[] data) {
+    String tree = ProgramFolder.get();
+    if (tree == null || android.os.Build.VERSION.SDK_INT < 21) return null;
+    try {
+      android.net.Uri treeUri = android.net.Uri.parse(tree);
+      android.net.Uri dir = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri,
+          android.provider.DocumentsContract.getTreeDocumentId(treeUri));
+      android.net.Uri file = android.provider.DocumentsContract.createDocument(ctx.getContentResolver(), dir, mimeOf(safe), safe);
+      if (file == null) return null;
+      java.io.OutputStream os = ctx.getContentResolver().openOutputStream(file);
+      if (os == null) return null;
+      try {
+        os.write(data);
+      } finally {
+        os.close();
+      }
+      return ProgramFolder.label() + "/" + safe;
+    } catch (Throwable ex) {
       return null;
     }
   }

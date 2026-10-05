@@ -790,6 +790,26 @@ public final class DesktopBehavior {
     }
   }
 
+  /** Program files folder: a chosen folder gets the files programs make, kept across starts; "Use Downloads" goes back. */
+  void s37_program_folder() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    out.append("before: ").append(page.folderStatus.getText()).append('\n');
+    File chosen = new File(home, "Sogni results");
+    edt(() -> page.takeFolder(chosen));
+    out.append("after: ").append(page.folderStatus.getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    File saved = (File) call("saveProgramFile", "kit-ideas-1.png", "PNG".getBytes(StandardCharsets.UTF_8));
+    File again = (File) call("saveProgramFile", "kit-ideas-1.png", "PNG".getBytes(StandardCharsets.UTF_8));
+    out.append("saved: ").append(saved.getAbsolutePath().replace(home.getAbsolutePath(), "~")).append(", then ")
+        .append(again.getName()).append('\n');
+    ProgramFolder.init(new File(home, ".pulsekit"));
+    out.append("kept: ").append(ProgramFolder.label().replace(home.getAbsolutePath(), "~")).append('\n');
+    edt(() -> ((javax.swing.JButton) component(frame, "program-folder-clear")).doClick());
+    out.append("cleared: ").append(page.folderStatus.getText()).append('\n');
+    File plain = (File) call("saveProgramFile", "reply.txt", "hi".getBytes(StandardCharsets.UTF_8));
+    out.append("then saved: ").append(plain.getAbsolutePath().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   void s35_sogni_key_setting() throws Exception {
     File home = new File(System.getProperty("user.home"));
     DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
@@ -831,6 +851,17 @@ public final class DesktopBehavior {
       for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
         javax.swing.JButton b = button(k, text);
         if (b != null) return b;
+      }
+    }
+    return null;
+  }
+
+  private static java.awt.Component component(java.awt.Component c, String name) {
+    if (name.equals(c.getName())) return c;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+        java.awt.Component found = component(k, name);
+        if (found != null) return found;
       }
     }
     return null;
