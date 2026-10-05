@@ -241,10 +241,10 @@ public final class StyleDb {
     "Atmospheric DnB|dnb|170|162|178|0.25|0.6|10|0",
     "Sambass|dnb|172|164|180|0.4|0.55|12|0",
     // Styles in another meter: a tenth column, its time signature (MidiDrumGen plays it; others are 4/4).
-    "Ballad 6/8|rockballad|60|50|72|0.3|0.9|6|0|6/8",
+    "Ballad 6/8|ballad68|60|50|72|0.3|0.9|6|0|6/8",
     "Afro 6/8|latin|110|96|125|0.5|0.5|6|0|6/8",
     "Irish Jig|folk|116|100|130|0.4|0.6|6|0|6/8",
-    "Slow Blues|funk|60|48|72|0.3|0.9|12|0|12/8",
+    "Slow Blues|blues128|60|48|72|0.3|0.9|12|0|12/8",
     "Doo-Wop|popballad|66|56|78|0.3|0.9|12|0|12/8",
     "Waltz|popballad|96|84|180|0.3|0.6|3|0|3/4",
     "Jazz Waltz|funk|150|120|200|0.3|0.6|6|0|3/4",
@@ -255,10 +255,10 @@ public final class StyleDb {
     if ("ukg".equals(kit)) return "ukg";
     if ("rock".equals(kit) || "hardrock".equals(kit)) return "rock";
     if ("metal".equals(kit) || "progmetal".equals(kit)) return "metal";
-    if ("rockballad".equals(kit) || "metalballad".equals(kit) || "popballad".equals(kit)) return "ballad";
+    if ("rockballad".equals(kit) || "metalballad".equals(kit) || "popballad".equals(kit) || "ballad68".equals(kit)) return "ballad";
     if ("hiphop".equals(kit) || "boombap".equals(kit)) return "hiphop";
     if ("trap".equals(kit)) return "trap";
-    if ("funk".equals(kit)) return "funk";
+    if ("funk".equals(kit) || "blues128".equals(kit)) return "funk";
     if ("latin".equals(kit)) return "latin";
     if ("folk".equals(kit)) return "folk";
     if ("breakbeat".equals(kit)) return "breaks";
@@ -288,6 +288,9 @@ public final class StyleDb {
       String[] p = row.split("\\|");
       if (p.length < 9) continue;
       String kit = p[1];
+      // A groove in another meter (Ballad 6/8) is never guessed for a 4/4 file.
+      int[] meter = Engine.styleMeter(kit);
+      if (meter[0] != 4 || meter[1] != 4) continue;
       int hbpm = Integer.parseInt(p[2]);
       int lo = Integer.parseInt(p[3]);
       int hi = Integer.parseInt(p[4]);

@@ -303,6 +303,19 @@ final class StyleLibrary {
         }
         app.style = string;
         app.styleChosen = true;
+        // A style in another meter (Ballad 6/8, Slow Blues 12/8) sets the time signature; a 4/4 style
+        // after it sets 4/4 back, but a time signature set by hand stays.
+        int[] meter = Engine.styleMeter(string);
+        boolean other = meter[0] != 4 || meter[1] != 4;
+        if (other && (app.tsNum != meter[0] || app.tsDen != meter[1])) {
+            app.gridEditor.applyTimeSig(meter[0], meter[1]);
+            app.tsFromStyle = true;
+        } else if (!other && app.tsFromStyle) {
+            app.gridEditor.applyTimeSig(4, 4);
+            app.tsFromStyle = false;
+        } else if (other) {
+            app.tsFromStyle = true;
+        }
         int[][] nArray = Engine.rowsToCells(style.rows);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             System.arraycopy(nArray[i], 0, app.cells[i], 0, 32);

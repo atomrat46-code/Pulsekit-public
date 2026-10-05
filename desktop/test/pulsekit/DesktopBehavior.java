@@ -800,6 +800,27 @@ public final class DesktopBehavior {
     }
   }
 
+  /** Picking Ballad 6/8 or Slow Blues 12/8 sets the time signature; a 4/4 style after it sets 4/4 back, a hand-set one stays. */
+  void s39_style_meter() throws Exception {
+    StyleLibrary lib = (StyleLibrary) get("styleLibrary");
+    for (String id : new String[] {"ballad68", "rock", "blues128", "hardrock"}) {
+      edt(() -> lib.loadStyle(id, false));
+      int steps = (Integer) get("steps");
+      int[][] cells = (int[][]) get("cells");
+      StringBuilder kick = new StringBuilder();
+      for (int i = 0; i < steps; i++) kick.append(cells[Engine.track("kick")][i] > 0 ? 'X' : '-');
+      out.append(id).append(": ").append(get("tsNum")).append('/').append(get("tsDen")).append(", ").append(steps)
+          .append(" steps, kick ").append(kick).append('\n');
+    }
+    edt(() -> {
+      JTextField num = (JTextField) get("tsNumField");
+      num.setText("3");
+      num.postActionEvent();
+    });
+    edt(() -> lib.loadStyle("rock", false));
+    out.append("hand-set 3/4, then rock: ").append(get("tsNum")).append('/').append(get("tsDen")).append(", ").append(get("steps")).append(" steps\n");
+  }
+
   /** MidiDrumGen in the Java menu: its switches come from its Usage line, and a run's MIDI is imported. */
   void s38_midi_drum_gen() throws Exception {
     call("showView", "py");

@@ -26,7 +26,7 @@ for prog in SogniMusic SogniChat; do
   fi
 done
 # MidiDrumGen.java carries a copy of the style database (shared StyleDb); keep them the same.
-style_rows() { grep -o '"[^"|]*|[a-z]*|[0-9]*|[0-9]*|[0-9]*|[^"]*' "$1" | tr -d '"' | sed 's/\\n$//' | sort; }
+style_rows() { grep -o '"[^"|]*|[a-z0-9]*|[0-9]*|[0-9]*|[0-9]*|[^"]*' "$1" | tr -d '"' | sed 's/\\n$//' | sort; }
 if ! diff <(style_rows ../shared/src/pulsekit/StyleDb.java) <(style_rows ../Programs/Java/MidiDrumGen.java) >/dev/null; then
   echo "Programs/Java/MidiDrumGen.java's style table differs from shared/src/pulsekit/StyleDb.java" >&2; exit 1
 fi
