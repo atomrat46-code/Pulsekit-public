@@ -597,7 +597,7 @@ public class DrumMidi_CRT{
             Class<?> hook = Class.forName("javazoom.jl.decoder.JavaLayerHook");
             installJl(utils, hook);
         } catch (ClassNotFoundException missing) {
-            throw new Exception("MP3 needs DrumMidi.jar. This single file reads WAV.");
+            throw new Exception("MP3 needs DrumMidi_CRT.jar (PyJav's Java menu). This single file reads WAV.");
         }
         Object bs = bitC.getConstructor(InputStream.class).newInstance(new ByteArrayInputStream(d));
         Object dec = decC.newInstance();

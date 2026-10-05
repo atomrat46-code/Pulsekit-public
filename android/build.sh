@@ -14,6 +14,8 @@ rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/dex"
 # 1. Resources + manifest (assets plus the shared midiutil.py and Programs/)
 cp -r assets "$OUT/assets"
 cp ../shared/src/pulsekit/midiutil.py "$OUT/assets/"
+# DrumMidi_CRT.jar (DrumMidi_CRT with an MP3 decoder) follows DrumMidi_CRT.java.
+python3 ../tools/make_drummidi_jar.py
 cp -r ../Programs "$OUT/assets/Programs"   # PyJav's Java / Python / Code menus
 cp -r ../Prompts "$OUT/assets/Programs/Scripts"   # PyJav's Scripts menu (the repo's Prompts folder)
 # SogniMusic.java carries a copy of shared SogniApi (programs see only rt.jar); keep them the same.

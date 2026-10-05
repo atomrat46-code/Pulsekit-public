@@ -1661,14 +1661,15 @@ public class BehaviorTest {
     out.append("--workflow field: ").append(((android.widget.EditText) pv.findViewWithTag("params-field:--workflow")).getText()).append('\n');
     params.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
+    // DrumMidi_CRT.jar reads the MP3 itself.
+    out.append("Java menu: ").append(java.util.Arrays.toString(app.programMenus.list("Java"))).append('\n');
     AudioOffer.makeDrumMidi(app, false);
-    // An MP3 is turned into a WAV first, off the UI thread (here the stand-in bytes do not decode, so the MP3 stays).
-    for (int i = 0; i < 100 && !"DrumMidi_CRT.java".equals(get("pyName")); i++) {
-      Thread.sleep(20);
-      idle();
-    }
+    idle();
     out.append("Make drum MIDI: ").append(get("pyName")).append(", args ")
         .append(args.getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("editor: ").append(((TextView) get("pyEditor")).getText().toString().replace("\n", " | ")).append('\n');
+    out.append("runs the jar: ").append(get("pkPyBytes") != null && app.programMenus.current() && "".equals(app.programMenus.sourceToRun())).append('\n');
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>").replace("\n", " | ")).append('\n');
     write("s51_audio_offer", out.toString());
   }
 

@@ -17,6 +17,7 @@ import static pulsekit.MainActivity.*;
  * Programs/Java, Programs/Python and Programs/Code folders (APK assets).
  *
  * Java and Python pick the program Run executes and show its source in the editor; edits there run.
+ * A listed .jar (DrumMidi_CRT.jar, which reads MP3 too) runs as it is.
  * Code opens a file in the editor for editing and never changes what Run executes.
  * Scripts lists the repo's Prompts folder (.prompt files); one opens like any .prompt, so Run uses
  * the prompt run modes (bash, cmd, AI).
@@ -35,6 +36,8 @@ final class ProgramMenus {
     String scriptName;
     /** True while the editor shows the listed program (a Code file was not opened over it). */
     boolean editorShowsRun;
+    /** A listed .jar or .class: the bytes Run executes (null for source). */
+    byte[] runBytes;
 
     ProgramMenus(MainActivity app) {
         this.app = app;
@@ -63,7 +66,7 @@ final class ProgramMenus {
         if (name == null) return null;
         for (String kind : new String[] {"Java", "Python"}) {
             for (String n : this.list(kind)) {
-                if (!n.equals(name)) continue;
+                if (!n.equals(name) || n.toLowerCase().endsWith(".jar") || n.toLowerCase().endsWith(".class")) continue;
                 try {
                     return new String(this.read(kind, n), StandardCharsets.UTF_8);
                 } catch (Exception e) {
@@ -131,19 +134,23 @@ final class ProgramMenus {
     void selectProgram(String kind, String name) {
         try {
             byte[] data = this.read(kind, name);
-            String src = new String(data, StandardCharsets.UTF_8);
+            String low = name.toLowerCase();
+            boolean binary = low.endsWith(".jar") || low.endsWith(".class");
+            // A .jar or .class runs as it is; the editor only names it.
+            String src = binary ? "" : new String(data, StandardCharsets.UTF_8);
             app.pyName = name;
-            app.pkPyBytes = null;
+            app.pkPyBytes = binary ? data : null;
             app.pyJav.pkPyInputPath = null;
             this.runName = name;
             this.runSource = src;
             this.runKind = kind;
+            this.runBytes = app.pkPyBytes;
             if (app.pyEditor != null) {
-                app.pyEditor.setText(src);
+                app.pyEditor.setText(binary ? "// " + name + "\n// Binary. Run uses this file.\n" : src);
                 app.pyEditor.setSelection(0);
                 app.pyEditor.scrollTo(0, 0);
             }
-            this.editorShowsRun = app.pyEditor != null;
+            this.editorShowsRun = app.pyEditor != null && !binary;
             app.pyJav.pkShowPromptModes();
             app.pyJav.pkApplyHint(PyJavHints.status(name, src, data));
             this.paint();
@@ -193,7 +200,7 @@ final class ProgramMenus {
 
     /** True while the listed program is still the current program (nothing else was opened since). */
     boolean current() {
-        return this.runName != null && this.runName.equals(app.pyName) && app.pkPyBytes == null;
+        return this.runName != null && this.runName.equals(app.pyName) && app.pkPyBytes == this.runBytes;
     }
 
     /** Button labels: the selected Java/Python program, or the plain menu name. */
@@ -202,6 +209,7 @@ final class ProgramMenus {
             this.runName = null;
             this.runSource = null;
             this.runKind = null;
+            this.runBytes = null;
         }
         for (int i = 0; i < 2; i++) {
             if (this.buttons[i] == null) continue;

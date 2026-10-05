@@ -122,7 +122,7 @@ public final class CompareHits {
       songVsMidi = compare("", "MIDI", midi, "Song", song, false);
       out(text(songVsMidi));
     }
-    out(suggestionsText(suggestions(midi, midiBpm(midiBytes), vsWav, songVsMidi, settings, wav ? name(files.get(0)) : null)));
+    out(suggestionsText(suggestions(midi, cymbalKinds(midiBytes), midiBpm(midiBytes), vsWav, songVsMidi, settings, wav ? name(files.get(0)) : null)));
     out(LEGEND);
     finish("Succeeded: compared " + files.size() + " files");
   }
@@ -209,6 +209,11 @@ public final class CompareHits {
 
   /** Hit times in seconds, sorted, one array per family. */
   public static double[][] midiHits(byte[] midi) {
+    return midiHits(midi, null);
+  }
+
+  /** As above, also counting hat, ride and crash notes into `kinds` when it is given. */
+  static double[][] midiHits(byte[] midi, int[] kinds) {
     List<long[]> notes = new ArrayList<long[]>();
     List<long[]> tempos = new ArrayList<long[]>();
     if (midi == null || midi.length < 14) return empty();
@@ -268,8 +273,21 @@ public final class CompareHits {
     for (long[] n : notes) {
       int f = family((int) n[1]);
       if (f >= 0) out.get(f).add(Double.valueOf(tickSeconds(n[0], tempos, ppq)));
+      if (kinds != null) {
+        int note = (int) n[1];
+        if (note == 42 || note == 44 || note == 46) kinds[0]++;
+        else if (note == 51 || note == 53 || note == 59) kinds[1]++;
+        else if (note == 49 || note == 52 || note == 55 || note == 57) kinds[2]++;
+      }
     }
     return arrays(out);
+  }
+
+  /** How many hat, ride and crash notes the MIDI has: {hats, rides, crashes}. */
+  public static int[] cymbalKinds(byte[] midi) {
+    int[] kinds = new int[3];
+    midiHits(midi, kinds);
+    return kinds;
   }
 
   private static double tickSeconds(long tick, List<long[]> tempos, int ppq) {
@@ -607,6 +625,12 @@ public final class CompareHits {
    */
   public static List<String> suggestions(double[][] midi, double bpm, Result vsWav, Result songVsMidi,
       java.util.Map<String, String> settings, String wavName) {
+    return suggestions(midi, null, bpm, vsWav, songVsMidi, settings, wavName);
+  }
+
+  /** As above, with the MIDI's hat, ride and crash counts (cymbalKinds) to judge how busy the cymbals are. */
+  public static List<String> suggestions(double[][] midi, int[] kinds, double bpm, Result vsWav, Result songVsMidi,
+      java.util.Map<String, String> settings, String wavName) {
     List<String> out = new ArrayList<String>();
     java.util.LinkedHashMap<String, Double> next = new java.util.LinkedHashMap<String, Double>();
     String input = settings == null ? null : settings.get("input");
@@ -647,41 +671,51 @@ public final class CompareHits {
     }
     String[] cym = {"hat", "ride", "crash"};
     Double[] was = {num(settings, "hat"), num(settings, "ride"), num(settings, "crash")};
-    boolean known = was[0] != null && was[1] != null && was[2] != null;
     Row c = row(vsWav, CYMBAL);
-    if ((c != null && c.ref >= 8 && c.recall() < 0.5) || (vsWav == null && cymbals < 1.0)) {
-      String tail;
-      if (known) {
-        StringBuilder w = new StringBuilder();
-        StringBuilder t = new StringBuilder();
-        for (int i = 0; i < 3; i++) {
-          double v = was[i].doubleValue();
-          double up = Math.max(0.8, v + 0.2);
-          next.put(cym[i], Double.valueOf(up));
-          w.append(i == 0 ? "" : ", ").append(fmt(v));
-          t.append(i == 0 ? "" : ", ").append(fmt(up));
-        }
-        tail = " (they were " + w + "; try " + t + ").";
-      } else {
-        tail = ". Raise them, e.g. to 0.8, or leave them out to follow --sens.";
-      }
-      out.add(c != null
-          ? String.format(Locale.ROOT, "--hat, --ride and --crash need more sensitivity: the MIDI has only %.0f%% of the "
-              + "cymbal hits heard in the WAV (%.1f per bar)", 100 * c.recall(), cymbals) + tail
-          : String.format(Locale.ROOT, "--hat, --ride and --crash may need more sensitivity: only %.1f cymbal hits per bar", cymbals) + tail);
-    } else if (c != null && c.test >= 8 && c.precision() < 0.7) {
-      String tail = ".";
-      if (known) {
-        StringBuilder t = new StringBuilder();
-        for (int i = 0; i < 3; i++) {
-          double down = Math.max(0.1, was[i].doubleValue() - 0.1);
-          next.put(cym[i], Double.valueOf(down));
-          t.append(i == 0 ? "" : ", ").append(fmt(down));
-        }
-        tail = " (try " + t + ").";
-      }
+    // On a full mix the WAV's top band also hears cymbal wash, guitars and vocals, so cymbal recall
+    // stays low even when the MIDI has plenty. The MIDI's own crashes, rides and hats come first.
+    double crashes = kinds == null ? 0 : kinds[2] / bars;
+    double hatsRides = kinds == null ? 0 : (kinds[0] + kinds[1]) / bars;
+    boolean lowered = false;
+    if (crashes > 0.75) {
+      lowered = true;
+      out.add(String.format(Locale.ROOT, "--crash may be too high: %.1f crashes per bar, where a crash usually marks a new "
+          + "section (about one every 4 to 8 bars)", crashes)
+          + step(next, new String[] {"crash"}, new Double[] {was[2]}, -0.1, ". Lower it by about 0.1."));
+    }
+    double hats = kinds == null ? 0 : kinds[0] / bars;
+    double rides = kinds == null ? 0 : kinds[1] / bars;
+    if (hatsRides > 16) {
+      lowered = true;
+      out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: %.1f hat and ride hits per bar is more than a "
+          + "16th-note groove plays", hatsRides)
+          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
+    } else if (hats > 2 && rides > 2) {
+      // A drummer keeps time on the hats or the ride; both all the way through is cymbal wash turned into hits.
+      lowered = true;
+      out.add(String.format(Locale.ROOT, "--hat and --ride may be too high: the MIDI plays %.1f hats and %.1f rides per bar "
+          + "together, where a drummer keeps time on one of them", hats, rides)
+          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, -0.1, ". Lower them by about 0.1."));
+    } else if (rides > 1.5 && was[1] != null && was[1].doubleValue() > CYMBAL_MAX) {
+      // Above CYMBAL_MAX the ride band turns cymbal wash and guitars into a ride on most beats.
+      lowered = true;
+      out.add(String.format(Locale.ROOT, "--ride may be too high: %.1f rides per bar, and above %s the ride picks up "
+          + "cymbal wash and guitars", rides, fmt(CYMBAL_MAX))
+          + step(next, new String[] {"ride"}, new Double[] {was[1]}, -0.1, ". Lower it to " + fmt(CYMBAL_MAX) + "."));
+    }
+    boolean fewCymbals = cymbals < 2.0 && (c != null ? c.ref >= 8 && c.recall() < 0.5 : vsWav == null);
+    boolean room = was[0] == null || was[1] == null || was[0].doubleValue() < CYMBAL_MAX || was[1].doubleValue() < CYMBAL_MAX;
+    if (!lowered && fewCymbals && room) {
+      // Hats and ride only, a little at a time: high values turn cymbal wash into a crash on every beat.
+      out.add(String.format(Locale.ROOT, "--hat and --ride may need more sensitivity: only %.1f cymbal hits per bar", cymbals)
+          + (c != null ? String.format(Locale.ROOT, " (%.0f%% of the WAV's high-band hits; that band also hears cymbal wash and "
+              + "guitars, so this is a hint)", 100 * c.recall()) : "")
+          + step(next, new String[] {"hat", "ride"}, new Double[] {was[0], was[1]}, 0.1,
+              ". Raise them by about 0.1, to no more than " + fmt(CYMBAL_MAX) + "."));
+    } else if (!lowered && c != null && c.test >= 8 && c.precision() < 0.7) {
       out.add(String.format(Locale.ROOT, "--hat, --ride and --crash could be lower: %.0f%% of the MIDI's cymbal hits are not "
-          + "heard in the WAV", 100 * (1 - c.precision())) + tail);
+          + "heard in the WAV", 100 * (1 - c.precision()))
+          + step(next, cym, was, -0.1, ". Lower them by about 0.1."));
     }
     Row sk = row(songVsMidi, KICK);
     Row ss = row(songVsMidi, SNARE);
@@ -705,6 +739,31 @@ public final class CompareHits {
     int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
     if (slash >= 0) n = n.substring(slash + 1);
     return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9.]+", "_");
+  }
+
+  /**
+   * Hat, ride and crash are raised no further than this, and a value above it is lowered straight to
+   * it: DrumMidi's cymbal hits rise steeply above 0.4 (a hard rock mix: 19 crashes at 0.4, 102 at 0.6).
+   */
+  static final double CYMBAL_MAX = 0.4;
+
+  /**
+   * Moves each switch by `d` for the next run (raised to no more than CYMBAL_MAX; lowered to no less
+   * than 0.1, and from above CYMBAL_MAX straight to it) and says so; `unknown` when the values used are not known.
+   */
+  static String step(java.util.Map<String, Double> next, String[] keys, Double[] was, double d, String unknown) {
+    StringBuilder w = new StringBuilder();
+    StringBuilder t = new StringBuilder();
+    for (int i = 0; i < keys.length; i++) {
+      if (was[i] == null) return unknown;
+      double v = was[i].doubleValue();
+      // Above CYMBAL_MAX a step down goes straight to it: a smaller step still leaves the noise.
+      double to = d > 0 ? Math.max(v, Math.min(CYMBAL_MAX, v + d)) : v > CYMBAL_MAX ? CYMBAL_MAX : Math.max(0.1, v + d);
+      next.put(keys[i], Double.valueOf(to));
+      w.append(i == 0 ? "" : ", ").append(fmt(v));
+      t.append(i == 0 ? "" : ", ").append(fmt(to));
+    }
+    return " (" + (keys.length == 1 ? "it was " : "they were ") + w + "; try " + t + ").";
   }
 
   public static String suggestionsText(List<String> lines) {

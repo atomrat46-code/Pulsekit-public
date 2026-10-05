@@ -44,7 +44,7 @@ final class ProgramFiles {
         if (name == null) return null;
         for (String kind : new String[] {"Java", "Python"}) {
             for (String n : list(kind)) {
-                if (!n.equals(name)) continue;
+                if (!n.equals(name) || n.toLowerCase().endsWith(".jar") || n.toLowerCase().endsWith(".class")) continue;
                 try {
                     return new String(read(kind, n), java.nio.charset.StandardCharsets.UTF_8);
                 } catch (Exception e) {

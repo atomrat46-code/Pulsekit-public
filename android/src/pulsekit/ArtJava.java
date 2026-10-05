@@ -702,11 +702,19 @@ public final class ArtJava {
     }
   }
 
+  /**
+   * Android's own type for the extension (audio/mpeg for .mp3, audio/x-wav for .wav), so Downloads
+   * keeps the extension last and numbers a second copy "name (1).mp3", not "name.mp3(1)".
+   */
   private static String mimeOf(String name) {
     String n = name.toLowerCase();
+    int dot = n.lastIndexOf('.');
+    String known = dot < 0 ? null : android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(n.substring(dot + 1));
+    if (known != null) return known;
     if (n.endsWith(".mid") || n.endsWith(".midi")) return "audio/midi";
-    if (n.endsWith(".wav")) return "audio/wav";
-    if (n.endsWith(".txt")) return "text/plain";
+    if (n.endsWith(".mp3")) return "audio/mpeg";
+    if (n.endsWith(".wav")) return "audio/x-wav";
+    if (n.endsWith(".txt") || n.endsWith(".prompt")) return "text/plain";
     return "application/octet-stream";
   }
 

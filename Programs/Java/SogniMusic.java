@@ -30,8 +30,9 @@ import java.util.Map;
  * "Workflow: ..."), without starting or paying for a new one.
  *
  * --saveprompt also writes the final prompt as sogni-<genre>.prompt: a Pulsekit prompt sheet
- * (category Music, type AI) that opens in PyJav and the Prompts page. It is written before the key
- * is checked, so a prompt can be exported without one.
+ * (category Music, type AI) that opens in PyJav and the Prompts page. A line of the settings
+ * (tempo, duration, time signature, key) follows the prompt. It is written before the key is
+ * checked, so a prompt can be exported without one.
  *
  * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
  * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
@@ -46,7 +47,7 @@ public final class SogniMusic {
   }
 
   /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-05";
+  static final String VERSION = "SogniMusic 2026-10-05c";
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
@@ -112,10 +113,6 @@ public final class SogniMusic {
       return 2;
     }
     prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
-    if (savePrompt && workflowId == null) {
-      File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt);
-      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
-    }
     if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
     if (keyscale != null && keyscale.trim().length() > 0) {
       String k = keyscale(keyscale);
@@ -138,6 +135,11 @@ public final class SogniMusic {
     if (duration < 10 || duration > 600) {
       System.out.println("Failed: --duration is 10 to 600 seconds");
       return 2;
+    }
+    if (savePrompt && workflowId == null) {
+      // After the checks, so the sheet holds the settings as sent ("C major", not "c").
+      File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt + settingsLine(bpm, duration, timesig, keyscale));
+      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
@@ -170,7 +172,8 @@ public final class SogniMusic {
       String url = SogniApi.str(audio.get(0).get("url"));
       String mime = SogniApi.str(audio.get(0).get("mimeType"));
       String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
-      File file = inWork(out != null ? out : "sogni_music" + ext);
+      // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
+      File file = inWork(out != null ? out : trackName(genre, id) + ext);
       // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
       String given = SogniApi.extension(file.getName(), null);
       if (given != null && !given.equals(ext)) file = new File(file.getPath().substring(0, file.getPath().length() - given.length()) + ext);
@@ -309,6 +312,30 @@ public final class SogniMusic {
     if (v.equals("4") || v.equals("4/4")) return 4;
     if (v.equals("6") || v.equals("6/8")) return 6;
     return -1;
+  }
+
+  /**
+   * The musical settings under the prompt in a saved sheet, as Sogni's own tools write them into a
+   * prompt: "\n\nTempo: 120 BPM. Duration: 120 s. Time signature: 4/4. Key: C major." Unset ones
+   * are left out.
+   */
+  static String settingsLine(double bpm, double duration, int timesig, String keyscale) {
+    StringBuilder sb = new StringBuilder();
+    if (bpm > 0) sb.append("Tempo: ").append(SogniApi.number(bpm)).append(" BPM. ");
+    if (duration > 0) sb.append("Duration: ").append(SogniApi.number(duration)).append(" s. ");
+    if (timesig > 0) sb.append("Time signature: ").append(timesig == 6 ? "6/8" : timesig + "/4").append(". ");
+    if (keyscale != null && keyscale.length() > 0) sb.append("Key: ").append(keyscale).append(". ");
+    return sb.length() == 0 ? "" : "\n\n" + sb.toString().trim();
+  }
+
+  /** sogni-<genre>-<first 8 signs of the run's id>: each run's track gets its own name. */
+  static String trackName(String genre, String workflowId) {
+    String id = workflowId == null ? "" : workflowId;
+    int us = id.lastIndexOf('_');
+    if (us >= 0) id = id.substring(us + 1);
+    id = id.replaceAll("[^A-Za-z0-9]", "");
+    if (id.length() > 8) id = id.substring(0, 8);
+    return promptName(genre) + (id.length() == 0 ? "" : "-" + id);
   }
 
   /** "sogni-" and the genre, spaces and symbols as hyphens ("Deep House" → sogni-Deep-House). */
