@@ -5,6 +5,7 @@ import android.content.DialogInterface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.VideoView;
 import java.io.File;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
@@ -1777,6 +1778,47 @@ public class BehaviorTest {
     idle();
     out.append("after a text-only run: ").append(ShadowDialog.getLatestDialog() == d || !ShadowDialog.getLatestDialog().isShowing() ? "no dialog" : "a dialog").append('\n');
     write("s54_picture_offer", out.toString());
+  }
+
+  /** A run that made a video (SogniVideo's clip) shows a Video ready dialog: Play/Pause, Stop, Mute and a volume slider. */
+  @Test
+  public void s58_video_offer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("shortsuli.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo 2026-10-06\nWrote shortsuli.mp4 (0 KB)\nSucceeded: shortsuli.mp4", files, 0));
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(", ").append(d.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    VideoView view = (VideoView) dv.findViewWithTag("video-offer:view");
+    out.append("plays: ").append(view == null ? "no view" : new java.io.File(org.robolectric.Shadows.shadowOf(view).getVideoPath()).getName()).append('\n');
+    TextView play = (TextView) dv.findViewWithTag("video-offer:play");
+    TextView mute = (TextView) dv.findViewWithTag("video-offer:mute");
+    TextView level = (TextView) dv.findViewWithTag("video-offer:level");
+    android.widget.SeekBar volume = (android.widget.SeekBar) dv.findViewWithTag("video-offer:volume");
+    VideoOffer.Player p = VideoOffer.last;
+    out.append("start: ").append(play.getText()).append(", ").append(mute.getText()).append(", volume ").append(level.getText()).append('\n');
+    play.performClick();
+    out.append("Play: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    play.performClick();
+    out.append("Pause: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    play.performClick();
+    dv.findViewWithTag("video-offer:stop").performClick();
+    out.append("Stop: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    mute.performClick();
+    out.append("Mute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(p.gain()).append('\n');
+    volume.setProgress(40);
+    out.append("volume 40 while muted: ").append(level.getText()).append(", gain ").append(p.gain()).append('\n');
+    mute.performClick();
+    out.append("Unmute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(p.gain()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append('\n');
+    write("s58_video_offer", out.toString());
   }
 
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */

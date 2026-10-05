@@ -391,6 +391,7 @@ final class PyJav {
                 int texts = 0;
                 java.util.Map<String, File> savedAudio = new java.util.HashMap<String, File>();
                 java.util.List<File> savedPictures = new java.util.ArrayList<File>();
+                java.util.List<File> savedVideos = new java.util.ArrayList<File>();
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
@@ -423,6 +424,7 @@ final class PyJav {
                             audios++;
                             savedAudio.put(f.name, saved);
                             if (lower.matches(".*\\.(png|jpe?g|webp|gif)$")) savedPictures.add(saved);
+                            if (lower.matches(".*\\.(mp4|m4v|webm|mov)$")) savedVideos.add(saved);
                         }
                     } else if (lower.endsWith(".txt")) {
                         // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android.
@@ -471,6 +473,8 @@ final class PyJav {
                 if (made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // Pictures it made (SogniChat's tool results) are shown.
                 if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
+                // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
+                if (!savedVideos.isEmpty() && result.code == 0) this.offerVideo(savedVideos.get(0), savedVideos.size());
             });
         }, "pulsekit-pyjav").start();
     }
@@ -513,6 +517,55 @@ final class PyJav {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
         }
+    }
+
+    /**
+     * After a run that made a video: Play opens a player page in the browser (Java has no video
+     * decoder) with the same controls as on the phone: Play/Pause, Stop, Mute and a volume slider.
+     * Open uses the system player; Close leaves it saved.
+     */
+    void offerVideo(File video, int count) {
+        Object[] options = new Object[] {"Play", "Open", "Close"};
+        String more = count > 1 ? "\n" + (count - 1) + " more " + (count == 2 ? "video is" : "videos are") + " saved beside it." : "";
+        int ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
+            + "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume.", "Video ready",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        try {
+            if (ans == 0) java.awt.Desktop.getDesktop().browse(this.videoPage(video).toURI());
+            else if (ans == 1) java.awt.Desktop.getDesktop().open(video);
+        } catch (Exception ex) {
+            app.setNow("Could not open a player for " + video.getName());
+        }
+    }
+
+    /** A player page for `video` in the temp folder: the clip with Play/Pause, Stop, Mute and a volume slider. */
+    File videoPage(File video) throws java.io.IOException {
+        File dir = new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-player");
+        if (!dir.isDirectory()) dir.mkdirs();
+        String name = video.getName().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+        String src = video.toURI().toString().replace("\"", "%22");
+        String html = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+            + "<title>" + name + "</title>\n<style>\n"
+            + "body{margin:0;background:#111;color:#eee;font:15px sans-serif;display:flex;flex-direction:column;align-items:center;padding:16px}\n"
+            + "video{max-width:100%;max-height:70vh;background:#000;border-radius:8px}\n"
+            + ".bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;justify-content:center}\n"
+            + "button{background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:16px;padding:7px 16px;font:inherit;cursor:pointer}\n"
+            + "button.on{background:#c7f04b;color:#111;border-color:#c7f04b}\ninput[type=range]{width:200px}\n</style></head>\n<body>\n"
+            + "<div>" + name + "</div>\n"
+            + "<video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline></video>\n"
+            + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button></div>\n"
+            + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"100\"> <span id=\"level\">100%</span></div>\n"
+            + "<script>\n"
+            + "var v=document.getElementById('v'),play=document.getElementById('play'),mute=document.getElementById('mute'),vol=document.getElementById('volume'),level=document.getElementById('level');\n"
+            + "function show(){play.textContent=v.paused?'Play':'Pause';mute.textContent=v.muted?'Unmute':'Mute';mute.className=v.muted?'on':'';level.textContent=v.muted?'muted':vol.value+'%';}\n"
+            + "play.onclick=function(){if(v.paused)v.play();else v.pause();};\n"
+            + "document.getElementById('stop').onclick=function(){v.pause();v.currentTime=0;};\n"
+            + "mute.onclick=function(){v.muted=!v.muted;show();};\n"
+            + "vol.oninput=function(){v.volume=vol.value/100;show();};\n"
+            + "v.onplay=v.onpause=v.onended=show;\nshow();\n</script>\n</body></html>\n";
+        File page = new File(dir, video.getName().replaceAll("[^A-Za-z0-9._-]", "_") + ".html");
+        Files.write(page.toPath(), html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return page;
     }
 
     /**
