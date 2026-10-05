@@ -819,6 +819,16 @@ public final class DesktopBehavior {
     for (String line : log.getText().split("\n")) {
       if (line.startsWith("Wrote") || line.startsWith("Import") || line.startsWith("$ java") || line.contains("rror")) out.append("log: ").append(line).append('\n');
     }
+    // A tempo outside the style's range in the style database is moved into it.
+    answers.add("Yes");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Techno --tempo 90 --bars 4"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
+    }
   }
 
   /** Program files folder: a chosen folder gets the files programs make, kept across starts; "Use Downloads" goes back. */
