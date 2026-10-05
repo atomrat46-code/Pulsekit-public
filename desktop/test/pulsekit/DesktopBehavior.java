@@ -679,8 +679,32 @@ public final class DesktopBehavior {
       call("selectListedProgram", "Java", "SogniChat.java");
       out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      // A MIDI file (a kick and a hat on the drum channel, C4 on channel 1), a picture, and a file of neither kind.
+      File song = new File(home, "groove.mid");
+      Files.write(song.toPath(), new byte[] {
+        'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 1, (byte) 0xE0,
+        'M', 'T', 'r', 'k', 0, 0, 0, 44,
+        0, (byte) 0xFF, 0x51, 3, 0x07, (byte) 0xA1, 0x20,
+        0, (byte) 0xFF, 0x58, 4, 4, 2, 24, 8,
+        0, (byte) 0x99, 36, 100, 0, 42, 90,
+        (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0, 42, 0,
+        0, (byte) 0x90, 60, 80,
+        (byte) 0x87, 0x40, (byte) 0x80, 60, 0,
+        0, (byte) 0xFF, 0x2F, 0});
+      File picture = new File(home, "kit.png");
+      Files.write(picture.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1, 2, 3});
+      File junk = new File(home, "data.bin");
+      Files.write(junk.toPath(), new byte[] {1, 0, 2, 0, 3});
+      File old = new File(home, "old reply.txt");
+      Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
         "--prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\"",
+        // The saved conversation goes on: its system text and earlier turns are sent again.
+        "--continue \"" + new File(home, ".pulsekit/sogni-chat-suggest-one-fill.txt").getAbsolutePath() + "\" --prompt \"And a longer one?\"",
+        "--continue \"" + old.getAbsolutePath() + "\" --prompt \"Why?\"",
+        "--continue \"" + old.getAbsolutePath() + "\"",
+        "--prompt \"What does this groove play?\" --file \"" + song.getAbsolutePath() + "\" --file \"" + picture.getAbsolutePath() + "\"",
+        "--prompt Hi --file \"" + junk.getAbsolutePath() + "\"",
         "--models",
         "--max_tokens lots",
       };

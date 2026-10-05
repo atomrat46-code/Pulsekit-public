@@ -22,12 +22,23 @@ import java.util.Map;
  * it: SOGNI_API_KEY, --key_file, the key file in File > Drum Midi Settings, or
  * ~/.config/sogni/credentials.
  *
- * --prompt is the question. --file adds a text file after it (a CompareHits or DrumMidi log, a
- * lyric sheet, notes); a Pulsekit .prompt sheet gives its prompt text. --system says how to
+ * --prompt is the question. --file adds a file after it, and can be given more than once:
+ *   - text (a CompareHits or DrumMidi log, a lyric sheet, notes); a Pulsekit .prompt sheet gives
+ *     its prompt text;
+ *   - MIDI, turned into text the model can read: tempo, time signature, then each track bar by bar
+ *     with its notes (drum names on channel 10);
+ *   - a PNG or JPEG picture, sent as an image for a model that sees pictures. The saved
+ *     conversation names the picture, and --continue does not send it again. --system says how to
  * answer ("You are a drum teacher. Answer briefly."). The reply is printed and saved as a .txt
  * (sogni-chat-<first words>.txt, or the name given), which lands in Downloads on the phone.
  *
  * --models lists the chat models Sogni offers; --model picks one.
+ *
+ * The saved file is the whole conversation (model, system text, each question and reply), so
+ * --continue <that file> goes on from it: the earlier turns are sent again with the new --prompt,
+ * and the longer conversation is saved as a new file (sogni-chat-<words>-2.txt, -3...). Its model
+ * and system text carry on unless --model or --system are given. A file holding only a reply
+ * (from SogniChat before this) continues as that one reply.
  */
 public final class SogniChat {
   public static void main(String[] args) throws Exception {
@@ -38,10 +49,18 @@ public final class SogniChat {
   }
 
   /** Printed first, so a run's log shows which SogniChat ran. */
-  static final String VERSION = "SogniChat 2026-10-05";
+  static final String VERSION = "SogniChat 2026-10-06";
+
+  /** The first line of a saved conversation, and the lines that start each turn in it. */
+  static final String HEAD = "SogniChat conversation";
+  static final String YOU = "=== You ===";
+  static final String SOGNI = "=== Sogni ===";
 
   /** The most of a --file that is sent: chat models read a limited amount of text. */
   static final int FILE_MAX = 60000;
+
+  /** The largest picture sent (7 MB; a data: URI is a third bigger). */
+  static final int IMAGE_MAX = 7 * 1024 * 1024;
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
@@ -50,7 +69,8 @@ public final class SogniChat {
     String out = null;
     String prompt = null;
     String system = null;
-    String file = null;
+    List<String> files = new ArrayList<String>();
+    String earlier = null;
     String model = null;
     String keyFile = null;
     String apiBase = null;
@@ -61,7 +81,11 @@ public final class SogniChat {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
       else if (a.equals("--system") && i + 1 < args.length) system = args[++i];
-      else if (a.equals("--file") && i + 1 < args.length) file = args[++i];
+      else if (a.equals("--file") && i + 1 < args.length) {
+        String f = args[++i].trim();
+        if (f.length() > 0) files.add(f);
+      }
+      else if (a.equals("--continue") && i + 1 < args.length) earlier = args[++i];
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -83,18 +107,29 @@ public final class SogniChat {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
       return 2;
     }
-    String attached = null;
-    if (file != null && file.trim().length() > 0) {
-      attached = fileText(new File(file.trim()));
-      if (attached == null) return 2;
+    List<Attachment> attached = new ArrayList<Attachment>();
+    for (String f : files) {
+      Attachment a = attachment(new File(f));
+      if (a == null) return 2;
+      attached.add(a);
     }
-    boolean asked = (prompt != null && prompt.trim().length() > 0) || attached != null;
+    Conversation before = null;
+    if (earlier != null && earlier.trim().length() > 0) {
+      before = conversation(new File(earlier.trim()));
+      if (before == null) return 2;
+    }
+    boolean asked = (prompt != null && prompt.trim().length() > 0) || !attached.isEmpty();
     if (!asked && !models) {
-      System.out.println("Failed: give --prompt (the question), --file (a text file to send), or both, "
-          + "for example --prompt \"Suggest a fill for a rock groove at 120 BPM\"");
+      System.out.println(before != null
+          ? "Failed: give --prompt with the next question to continue " + new File(earlier.trim()).getName()
+          : "Failed: give --prompt (the question), --file (a text, MIDI or picture file to send), or both, "
+              + "for example --prompt \"Suggest a fill for a rock groove at 120 BPM\"");
       usage();
       return 2;
     }
+    // A continued conversation keeps its model and system text unless new ones are given.
+    if (before != null && (model == null || model.length() == 0)) model = before.model;
+    if (before != null && (system == null || system.trim().length() == 0)) system = before.system;
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
       System.out.println("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
@@ -114,26 +149,40 @@ public final class SogniChat {
           return 0;
         }
       }
-      String question = question(prompt, file, attached);
+      String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
-      turns.add(new String[] {"user", question});
+      if (before != null) {
+        turns.addAll(before.turns);
+        System.out.println("Continuing " + new File(earlier.trim()).getName() + ": " + exchanges(before.turns) + " earlier "
+            + (exchanges(before.turns) == 1 ? "exchange" : "exchanges"));
+      }
+      List<String> sent = new ArrayList<String>();
+      sent.add("user");
+      sent.add(question);
+      for (Attachment a : attached) if (a.image != null) sent.add(a.image);
+      turns.add(sent.toArray(new String[0]));
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
       if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
-      System.out.println("Prompt: " + (prompt == null ? "" : prompt.trim())
-          + (attached != null ? (prompt == null || prompt.trim().length() == 0 ? "" : " ") + "[+ " + new File(file.trim()).getName() + ", " + attached.length() + " characters]" : ""));
+      StringBuilder shown = new StringBuilder("Prompt: ").append(prompt == null ? "" : prompt.trim());
+      for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
+      System.out.println(shown);
       Object payload = api.chat(SogniApi.chatInput(chosen, system, turns, (int) maxTokens, thinking));
       String reply = SogniApi.chatReply(payload);
       if (reply == null || reply.length() == 0) {
         System.out.println("Failed: Sogni sent no reply text" + (thinking ? " (with --thinking the answer can run out of tokens: raise --max_tokens)" : ""));
         return 1;
       }
+      // The saved conversation keeps the question's text; a picture is named in it, not stored.
+      turns.set(turns.size() - 1, new String[] {"user", question});
       System.out.println();
       System.out.println(reply);
       System.out.println();
       String usage = SogniApi.chatUsage(payload);
       if (usage != null) System.out.println("Tokens: " + usage);
-      File saved = save(out != null ? out : replyName(prompt, file), reply);
+      turns.add(new String[] {"assistant", reply});
+      String name = out != null ? out : before != null ? continuedName(new File(earlier.trim()).getName(), exchanges(turns)) : replyName(prompt, files.isEmpty() ? null : files.get(0));
+      File saved = save(name, transcript(chosen, system, turns));
       if (saved == null) {
         System.out.println("Could not save the reply (it is in the log above)");
         System.out.println("Succeeded");
@@ -142,7 +191,10 @@ public final class SogniChat {
         System.out.println("Succeeded: " + saved.getName());
       }
     } catch (SogniApi.ApiException ex) {
-      System.out.println("Failed: " + ex.getMessage());
+      boolean picture = false;
+      for (Attachment a : attached) if (a.image != null) picture = true;
+      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400
+          ? " (a picture needs a model that sees pictures: try --model deepseek-v4-flash-vision-exp-dspark-1m)" : ""));
       return 1;
     } catch (IOException ex) {
       System.out.println("Failed: " + ex.getMessage());
@@ -152,16 +204,87 @@ public final class SogniChat {
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt] [--system text] [--model id] "
+    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
         + "[--max_tokens N] [--thinking] [--models] [--key_file credentials.txt]");
   }
 
-  /** What is sent: the prompt, then the file under its name. */
-  static String question(String prompt, String file, String attached) {
-    String p = prompt == null ? "" : prompt.trim();
-    if (attached == null) return p;
-    String head = "File " + new File(file.trim()).getName() + ":\n";
-    return p.length() == 0 ? head + attached : p + "\n\n" + head + attached;
+  /** A --file as it is sent: text (a text file, or a MIDI file read out), or a picture. */
+  static final class Attachment {
+    String name;
+    /** The text sent after the prompt, or null for a picture. */
+    String text;
+    /** A picture as a data: URI, or null. */
+    String image;
+    /** For the log: "notes.txt, 34 characters". */
+    String what;
+  }
+
+  /** What is sent as text: the prompt, then each file under its name (a picture is named; it goes with the message). */
+  static String question(String prompt, List<Attachment> attached) {
+    StringBuilder sb = new StringBuilder(prompt == null ? "" : prompt.trim());
+    for (Attachment a : attached) {
+      if (sb.length() > 0) sb.append("\n\n");
+      if (a.image != null) sb.append("Picture ").append(a.name).append(" is attached.");
+      else sb.append("File ").append(a.name).append(":\n").append(a.text);
+    }
+    return sb.toString();
+  }
+
+  /** A --file read by its contents: MIDI (MThd), a PNG or JPEG picture, or text. Null after saying why. */
+  static Attachment attachment(File f) {
+    byte[] data = readBytes(f, "--file");
+    if (data == null) return null;
+    Attachment a = new Attachment();
+    a.name = f.getName();
+    if (data.length >= 4 && data[0] == 'M' && data[1] == 'T' && data[2] == 'h' && data[3] == 'd') {
+      a.text = midiText(f.getName(), data);
+      if (a.text == null) return null;
+      if (a.text.length() > FILE_MAX) {
+        int cut = a.text.lastIndexOf('\n', FILE_MAX);
+        a.text = a.text.substring(0, cut > 0 ? cut : FILE_MAX) + "\n(the rest of the song is left out: too long to send)";
+        System.out.println("Note: " + f.getName() + " is long; its first part is sent");
+      }
+      a.what = f.getName() + " as text, " + a.text.length() + " characters";
+      return a;
+    }
+    String mime = pictureType(data);
+    if (mime != null) {
+      if (data.length > IMAGE_MAX) {
+        System.out.println("Failed: " + f.getName() + " is " + (data.length / (1024 * 1024)) + " MB; send a picture of up to "
+            + (IMAGE_MAX / (1024 * 1024)) + " MB (a smaller size or a JPEG)");
+        return null;
+      }
+      a.image = "data:" + mime + ";base64," + base64(data);
+      a.what = "picture " + f.getName() + ", " + (data.length / 1024) + " KB";
+      return a;
+    }
+    a.text = fileText(f);
+    if (a.text == null) return null;
+    a.what = f.getName() + ", " + a.text.length() + " characters";
+    return a;
+  }
+
+  /** "image/png" or "image/jpeg" from the file's first bytes, else null. */
+  static String pictureType(byte[] d) {
+    if (d.length >= 8 && (d[0] & 0xff) == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') return "image/png";
+    if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
+    return null;
+  }
+
+  /** Base64 without java.util.Base64 (Android before API 26 has none). */
+  static String base64(byte[] d) {
+    String abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    StringBuilder sb = new StringBuilder((d.length + 2) / 3 * 4);
+    for (int i = 0; i < d.length; i += 3) {
+      int b0 = d[i] & 0xff;
+      int b1 = i + 1 < d.length ? d[i + 1] & 0xff : 0;
+      int b2 = i + 2 < d.length ? d[i + 2] & 0xff : 0;
+      int v = (b0 << 16) | (b1 << 8) | b2;
+      sb.append(abc.charAt((v >> 18) & 63)).append(abc.charAt((v >> 12) & 63));
+      sb.append(i + 1 < d.length ? abc.charAt((v >> 6) & 63) : '=');
+      sb.append(i + 2 < d.length ? abc.charAt(v & 63) : '=');
+    }
+    return sb.toString();
   }
 
   /**
@@ -169,26 +292,8 @@ public final class SogniChat {
    * the prompt after its "---" line. Null, after saying why, when it cannot be read.
    */
   static String fileText(File f) {
-    if (!f.isFile()) {
-      System.out.println("Failed: --file " + f.getName() + " was not found");
-      return null;
-    }
-    String text;
-    try {
-      InputStream in = new FileInputStream(f);
-      try {
-        text = new String(SogniApi.readAll(in), StandardCharsets.UTF_8);
-      } finally {
-        in.close();
-      }
-    } catch (IOException ex) {
-      System.out.println("Failed: could not read " + f.getName() + ": " + ex.getMessage());
-      return null;
-    }
-    if (text.indexOf('\0') >= 0) {
-      System.out.println("Failed: " + f.getName() + " is not a text file (send a .txt, a log or a .prompt)");
-      return null;
-    }
+    String text = readText(f, "--file");
+    if (text == null) return null;
     if (text.startsWith("PKPROMPT1")) {
       int at = text.indexOf("\n---\n");
       if (at >= 0) text = text.substring(at + 5);
@@ -203,6 +308,304 @@ public final class SogniChat {
       text = text.substring(0, FILE_MAX);
     }
     return text;
+  }
+
+  /** A text file's contents, or null after saying why (`flag` names the switch it came from). */
+  static String readText(File f, String flag) {
+    byte[] data = readBytes(f, flag);
+    if (data == null) return null;
+    String text = new String(data, StandardCharsets.UTF_8);
+    if (text.indexOf('\0') >= 0) {
+      System.out.println("Failed: " + f.getName() + " is not a text file"
+          + ("--file".equals(flag) ? ", a MIDI file or a PNG or JPEG picture" : " (pick a sogni-chat .txt)"));
+      return null;
+    }
+    return text.replace("\r\n", "\n");
+  }
+
+  /** A file's bytes, or null after saying why (`flag` names the switch it came from). */
+  static byte[] readBytes(File f, String flag) {
+    if (!f.isFile()) {
+      System.out.println("Failed: " + flag + " " + f.getName() + " was not found");
+      return null;
+    }
+    try {
+      InputStream in = new FileInputStream(f);
+      try {
+        return SogniApi.readAll(in);
+      } finally {
+        in.close();
+      }
+    } catch (IOException ex) {
+      System.out.println("Failed: could not read " + f.getName() + ": " + ex.getMessage());
+      return null;
+    }
+  }
+
+  // ---- MIDI as text ----
+
+  /** General MIDI drum names (channel 10), by note number. */
+  static final String[] DRUMS = {
+    "Acoustic kick", "Kick", "Side stick", "Snare", "Clap", "Electric snare", "Low floor tom", "Closed hat",
+    "High floor tom", "Pedal hat", "Low tom", "Open hat", "Low-mid tom", "High-mid tom", "Crash", "High tom",
+    "Ride", "China", "Ride bell", "Tambourine", "Splash", "Cowbell", "Crash 2", "Vibraslap", "Ride 2",
+    "High bongo", "Low bongo", "Muted high conga", "Open high conga", "Low conga", "High timbale",
+    "Low timbale", "High agogo", "Low agogo", "Cabasa", "Maracas", "Short whistle", "Long whistle",
+    "Short guiro", "Long guiro", "Claves", "High wood block", "Low wood block", "Muted cuica", "Open cuica",
+    "Muted triangle", "Open triangle"
+  };
+  static final String[] NOTES = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+
+  /**
+   * A MIDI file as text a chat model can read: the tempo and time signature, then each track (and
+   * channel) bar by bar, "Bar 3 | 1: Kick, Closed hat | 1.5: Closed hat | 2: Snare". Beats count
+   * quarter notes from 1; a pitched note shows its length in beats, C4 (0.5). Null after saying why.
+   */
+  static String midiText(String name, byte[] b) {
+    try {
+      int division = u16(b, 12);
+      if ((division & 0x8000) != 0 || division == 0) {
+        System.out.println("Failed: " + name + " counts time in SMPTE frames, which SogniChat does not read");
+        return null;
+      }
+      int format = u16(b, 8);
+      int tracks = u16(b, 10);
+      // {track, channel, tick, key, velocity, length in ticks (-1 until its note-off)}
+      List<long[]> notes = new ArrayList<long[]>();
+      Map<Integer, String> names = new LinkedHashMap<Integer, String>();
+      double bpm = 0;
+      int num = 0;
+      int den = 4;
+      int tempos = 0;
+      int sigs = 0;
+      long last = 0;
+      int pos = 8 + (int) u32(b, 4);
+      for (int t = 0; t < tracks && pos + 8 <= b.length; t++) {
+        int len = (int) u32(b, pos + 4);
+        boolean track = b[pos] == 'M' && b[pos + 1] == 'T' && b[pos + 2] == 'r' && b[pos + 3] == 'k';
+        int end = Math.min(b.length, pos + 8 + len);
+        int p = pos + 8;
+        pos = pos + 8 + len;
+        if (!track) continue;
+        long tick = 0;
+        int status = 0;
+        Map<Integer, long[]> open = new LinkedHashMap<Integer, long[]>();
+        while (p < end) {
+          long[] delta = varLen(b, p);
+          tick += delta[0];
+          p = (int) delta[1];
+          int c = b[p] & 0xff;
+          if (c == 0xff) {
+            int type = b[p + 1] & 0xff;
+            long[] l = varLen(b, p + 2);
+            int at = (int) l[1];
+            int n = (int) l[0];
+            if (type == 0x51 && n >= 3) {
+              double next = 60000000.0 / (((b[at] & 0xff) << 16) | ((b[at + 1] & 0xff) << 8) | (b[at + 2] & 0xff));
+              if (bpm == 0) bpm = next;
+              else if (Math.abs(next - bpm) > 0.01) tempos++;
+            } else if (type == 0x58 && n >= 2) {
+              if (num == 0) {
+                num = b[at] & 0xff;
+                den = 1 << (b[at + 1] & 0xff);
+              } else {
+                sigs++;
+              }
+            } else if (type == 0x03 && n > 0 && !names.containsKey(Integer.valueOf(t))) {
+              names.put(Integer.valueOf(t), new String(b, at, n, StandardCharsets.UTF_8).trim());
+            }
+            p = at + n;
+          } else if (c == 0xf0 || c == 0xf7) {
+            long[] l = varLen(b, p + 1);
+            p = (int) (l[1] + l[0]);
+          } else {
+            if (c >= 0x80) {
+              status = c;
+              p++;
+            }
+            int kind = status & 0xf0;
+            int ch = status & 0x0f;
+            if (kind == 0xc0 || kind == 0xd0) {
+              p += 1;
+              continue;
+            }
+            int key = b[p] & 0x7f;
+            int vel = b[p + 1] & 0x7f;
+            p += 2;
+            Integer slot = Integer.valueOf(ch * 128 + key);
+            if (kind == 0x90 && vel > 0) {
+              long[] note = {t, ch, tick, key, vel, -1};
+              notes.add(note);
+              open.put(slot, note);
+              last = Math.max(last, tick);
+            } else if (kind == 0x80 || kind == 0x90) {
+              long[] note = open.remove(slot);
+              if (note != null) note[5] = tick - note[2];
+            }
+          }
+        }
+      }
+      if (num == 0) num = 4;
+      if (bpm == 0) bpm = 120;
+      double beatsPerBar = num * 4.0 / den;
+      long barTicks = Math.max(1, Math.round(division * beatsPerBar));
+      StringBuilder sb = new StringBuilder();
+      sb.append("MIDI ").append(name).append(": format ").append(format).append(", ").append(tracks).append(tracks == 1 ? " track" : " tracks")
+          .append(", ").append(notes.size()).append(" notes\n");
+      sb.append("Tempo ").append(beats(bpm)).append(" BPM").append(tempos > 0 ? " (then " + tempos + " tempo changes)" : "")
+          .append(", time signature ").append(num).append('/').append(den).append(sigs > 0 ? " (then " + sigs + " changes)" : "")
+          .append(", ").append(last / barTicks + 1).append(" bars. Beats count quarter notes from 1.\n");
+      if (notes.isEmpty()) return sb.append("(no notes)\n").toString();
+      // One section per track and channel, in the order they first play.
+      List<String> order = new ArrayList<String>();
+      Map<String, List<long[]>> sections = new LinkedHashMap<String, List<long[]>>();
+      for (long[] n : notes) {
+        String k = n[0] + ":" + n[1];
+        if (!sections.containsKey(k)) {
+          sections.put(k, new ArrayList<long[]>());
+          order.add(k);
+        }
+        sections.get(k).add(n);
+      }
+      for (String k : order) {
+        List<long[]> list = sections.get(k);
+        int t = (int) list.get(0)[0];
+        int ch = (int) list.get(0)[1];
+        boolean drums = ch == 9;
+        String trackName = names.get(Integer.valueOf(t));
+        sb.append("\nTrack ").append(t + 1).append(trackName != null && trackName.length() > 0 ? " \"" + trackName + "\"" : "")
+            .append(", channel ").append(ch + 1).append(drums ? " (drums)" : "").append(": ").append(list.size()).append(" notes\n");
+        java.util.Collections.sort(list, new java.util.Comparator<long[]>() {
+          public int compare(long[] x, long[] y) {
+            return x[2] != y[2] ? (x[2] < y[2] ? -1 : 1) : (int) (x[3] - y[3]);
+          }
+        });
+        long bar = -1;
+        long at = -1;
+        StringBuilder line = null;
+        for (long[] n : list) {
+          long nb = n[2] / barTicks;
+          if (nb != bar) {
+            if (line != null) sb.append(line).append('\n');
+            bar = nb;
+            at = -1;
+            line = new StringBuilder("Bar ").append(nb + 1);
+          }
+          if (n[2] != at) {
+            at = n[2];
+            line.append(" | ").append(beats(1 + (n[2] - nb * barTicks) / (double) division)).append(": ");
+          } else {
+            line.append(", ");
+          }
+          int key = (int) n[3];
+          if (drums) line.append(key >= 35 && key - 35 < DRUMS.length ? DRUMS[key - 35] : "Drum " + key);
+          else line.append(NOTES[key % 12]).append(key / 12 - 1).append(n[5] > 0 ? " (" + beats(n[5] / (double) division) + ")" : "");
+        }
+        if (line != null) sb.append(line).append('\n');
+      }
+      return sb.toString();
+    } catch (RuntimeException ex) {
+      System.out.println("Failed: " + name + " could not be read as MIDI (" + ex + ")");
+      return null;
+    }
+  }
+
+  /** 1, 1.5, 2.25: a beat position or length, to two decimals. */
+  static String beats(double v) {
+    String t = String.format(java.util.Locale.ROOT, "%.2f", v);
+    while (t.endsWith("0")) t = t.substring(0, t.length() - 1);
+    if (t.endsWith(".")) t = t.substring(0, t.length() - 1);
+    return t;
+  }
+
+  static int u16(byte[] b, int at) {
+    return ((b[at] & 0xff) << 8) | (b[at + 1] & 0xff);
+  }
+
+  static long u32(byte[] b, int at) {
+    return ((long) (b[at] & 0xff) << 24) | ((b[at + 1] & 0xff) << 16) | ((b[at + 2] & 0xff) << 8) | (b[at + 3] & 0xff);
+  }
+
+  /** A MIDI variable-length number at `at`: {value, index after it}. */
+  static long[] varLen(byte[] b, int at) {
+    long v = 0;
+    int p = at;
+    for (int i = 0; i < 4; i++) {
+      int c = b[p++] & 0xff;
+      v = (v << 7) | (c & 0x7f);
+      if ((c & 0x80) == 0) break;
+    }
+    return new long[] {v, p};
+  }
+
+  /** A saved conversation: its model and system text (null when it had none) and its turns as {role, text}. */
+  static final class Conversation {
+    String model;
+    String system;
+    final List<String[]> turns = new ArrayList<String[]>();
+  }
+
+  /**
+   * The conversation saved in `f` (transcript writes it). A file without the SogniChat heading is
+   * an earlier reply on its own, and continues as that reply. Null, after saying why, if unreadable.
+   */
+  static Conversation conversation(File f) {
+    String text = readText(f, "--continue");
+    if (text == null) return null;
+    Conversation c = new Conversation();
+    if (!text.startsWith(HEAD)) {
+      if (text.trim().length() == 0) {
+        System.out.println("Failed: " + f.getName() + " is empty");
+        return null;
+      }
+      c.turns.add(new String[] {"assistant", text.trim()});
+      return c;
+    }
+    String role = null;
+    StringBuilder body = new StringBuilder();
+    for (String line : text.split("\n", -1)) {
+      if (line.equals(YOU) || line.equals(SOGNI)) {
+        if (role != null) c.turns.add(new String[] {role, body.toString().trim()});
+        role = line.equals(YOU) ? "user" : "assistant";
+        body.setLength(0);
+      } else if (role != null) {
+        body.append(line).append('\n');
+      } else if (line.startsWith("Model: ")) {
+        c.model = line.substring(7).trim();
+      } else if (line.startsWith("System: ")) {
+        c.system = line.substring(8).trim();
+      }
+    }
+    if (role != null) c.turns.add(new String[] {role, body.toString().trim()});
+    if (c.turns.isEmpty()) {
+      System.out.println("Failed: " + f.getName() + " holds no questions or replies to continue");
+      return null;
+    }
+    return c;
+  }
+
+  /** The conversation as it is saved: a heading, the model and system text, then each turn under its marker. */
+  static String transcript(String model, String system, List<String[]> turns) {
+    StringBuilder sb = new StringBuilder(HEAD).append('\n');
+    sb.append("Model: ").append(model).append('\n');
+    if (system != null && system.trim().length() > 0) sb.append("System: ").append(system.trim().replaceAll("\\s*\n\\s*", " ")).append('\n');
+    for (String[] t : turns) sb.append('\n').append("user".equals(t[0]) ? YOU : SOGNI).append('\n').append(t[1].trim()).append('\n');
+    return sb.toString();
+  }
+
+  /** Questions answered: the replies in `turns`. */
+  static int exchanges(List<String[]> turns) {
+    int n = 0;
+    for (String[] t : turns) if ("assistant".equals(t[0])) n++;
+    return n;
+  }
+
+  /** sogni-chat-suggest-a-fill-3.txt for the third exchange of sogni-chat-suggest-a-fill(1).txt or -2.txt. */
+  static String continuedName(String from, int exchanges) {
+    String stem = from.replaceAll("\\.[^.]*$", "");
+    stem = stem.replaceAll("\\s*\\(\\d+\\)$", "").replaceAll("-\\d+$", "");
+    if (stem.length() == 0) stem = "sogni-chat";
+    return stem + "-" + exchanges + ".txt";
   }
 
   /** sogni-chat-suggest-a-fill-for.txt: the first words of the prompt (or the file's name). */
@@ -430,13 +833,37 @@ public final class SogniChat {
 
     /**
      * A plain text chat request: no Sogni tools, so the reply is text only. `turns` are
-     * {role, text} pairs ("user" or "assistant") after the optional system text; maxTokens 0 leaves
-     * Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
+     * {role, text} pairs ("user" or "assistant") after the optional system text; a user turn can add
+     * pictures after its text, as data: URIs (PNG or JPEG), which a vision model sees. maxTokens 0
+     * leaves Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
      */
     public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
       List<Object> messages = new ArrayList<Object>();
       if (system != null && system.trim().length() > 0) messages.add(message("system", system));
-      for (String[] t : turns) messages.add(message(t[0], t[1]));
+      for (String[] t : turns) {
+        if (t.length <= 2) {
+          messages.add(message(t[0], t[1]));
+          continue;
+        }
+        // Text and pictures in one message, as OpenAI-style vision input.
+        List<Object> parts = new ArrayList<Object>();
+        Map<String, Object> text = new LinkedHashMap<String, Object>();
+        text.put("type", "text");
+        text.put("text", t[1]);
+        parts.add(text);
+        for (int i = 2; i < t.length; i++) {
+          Map<String, Object> url = new LinkedHashMap<String, Object>();
+          url.put("url", t[i]);
+          Map<String, Object> image = new LinkedHashMap<String, Object>();
+          image.put("type", "image_url");
+          image.put("image_url", url);
+          parts.add(image);
+        }
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put("role", t[0]);
+        m.put("content", parts);
+        messages.add(m);
+      }
       Map<String, Object> body = new LinkedHashMap<String, Object>();
       body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
       body.put("messages", messages);

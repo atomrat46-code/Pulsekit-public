@@ -706,12 +706,12 @@ final class PyJav {
             if (p.isFile()) {
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
-                JButton pick = new JButton("Choose ." + p.ext);
+                JButton pick = new JButton("any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 pick.addActionListener(e -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
-                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
+                    if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());

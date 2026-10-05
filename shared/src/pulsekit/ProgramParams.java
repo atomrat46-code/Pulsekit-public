@@ -198,6 +198,15 @@ public final class ProgramParams {
       p.choices = CHAT_MODEL_LABELS;
       p.choiceValues = CHAT_MODELS;
     }
+    if (p.flag && p.takesValue && p.token.equals("--file") && chat) {
+      // SogniChat reads text, MIDI and pictures: any file can be picked.
+      p.ext = "any";
+      p.label = "File (text, MIDI or picture)";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
+      p.label = "Continue from saved chat";
+      p.hint = "a sogni-chat .txt from an earlier run";
+    }
     if (p.flag && p.takesValue && p.token.equals("--system") && chat) {
       p.label = "System role/answer";
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
@@ -239,9 +248,9 @@ public final class ProgramParams {
     return t;
   }
 
-  /** "mid", "txt" or "audio" (wav and mp3 stand in for each other). */
+  /** "mid", "txt", "any" (SogniChat's --file) or "audio" (wav and mp3 stand in for each other). */
   static String kind(String ext) {
-    return "mid".equals(ext) || "txt".equals(ext) ? ext : "audio";
+    return "mid".equals(ext) || "txt".equals(ext) || "any".equals(ext) ? ext : "audio";
   }
 
   /** A .wav or .mp3 parameter. */
@@ -343,7 +352,7 @@ public final class ProgramParams {
         k++;
         // A file of the wrong kind (another program's output.mid in a .wav slot) is not this one's.
         String has = ext(v);
-        if (p.ext != null && has != null && !kind(has).equals(kind(p.ext))) v = "";
+        if (p.ext != null && !"any".equals(p.ext) && has != null && !kind(has).equals(kind(p.ext))) v = "";
         out[i] = v.startsWith("<") ? "" : v;
       }
     }

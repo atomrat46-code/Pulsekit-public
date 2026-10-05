@@ -117,7 +117,7 @@ public final class PyJavParams {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         android.widget.Button pick = new android.widget.Button(activity);
-        pick.setText("Choose ." + p.ext);
+        pick.setText("any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
         pick.setTag("params-file:" + p.token);
         final TextView chosen = new TextView(activity);
         chosen.setTag("params-chosen:" + p.token);
