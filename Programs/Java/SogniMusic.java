@@ -46,7 +46,7 @@ public final class SogniMusic {
   }
 
   /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-05";
+  static final String VERSION = "SogniMusic 2026-10-05b";
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
@@ -170,7 +170,8 @@ public final class SogniMusic {
       String url = SogniApi.str(audio.get(0).get("url"));
       String mime = SogniApi.str(audio.get(0).get("mimeType"));
       String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
-      File file = inWork(out != null ? out : "sogni_music" + ext);
+      // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
+      File file = inWork(out != null ? out : trackName(genre, id) + ext);
       // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
       String given = SogniApi.extension(file.getName(), null);
       if (given != null && !given.equals(ext)) file = new File(file.getPath().substring(0, file.getPath().length() - given.length()) + ext);
@@ -309,6 +310,16 @@ public final class SogniMusic {
     if (v.equals("4") || v.equals("4/4")) return 4;
     if (v.equals("6") || v.equals("6/8")) return 6;
     return -1;
+  }
+
+  /** sogni-<genre>-<first 8 signs of the run's id>: each run's track gets its own name. */
+  static String trackName(String genre, String workflowId) {
+    String id = workflowId == null ? "" : workflowId;
+    int us = id.lastIndexOf('_');
+    if (us >= 0) id = id.substring(us + 1);
+    id = id.replaceAll("[^A-Za-z0-9]", "");
+    if (id.length() > 8) id = id.substring(0, 8);
+    return promptName(genre) + (id.length() == 0 ? "" : "-" + id);
   }
 
   /** "sogni-" and the genre, spaces and symbols as hyphens ("Deep House" → sogni-Deep-House). */
