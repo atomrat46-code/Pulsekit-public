@@ -361,8 +361,7 @@ final class PyJav {
         if ((app.pyInputPath != null && app.pyInputPath.length() > 0) || outPath.length() > 0) {
             argv = PyJavHints.programArgs(filled, this.pyInputToken, app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
         } else {
-            argv = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal());
-            argv.addAll(PythonRun.splitArgv(extra));
+            argv = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra);
         }
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
@@ -389,6 +388,7 @@ final class PyJav {
                 boolean loaded = false;
                 int midis = 0;
                 int audios = 0;
+                java.util.Map<String, File> savedAudio = new java.util.HashMap<String, File>();
                 StringBuilder status = new StringBuilder();
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
@@ -412,11 +412,15 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
-                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac)$")) {
-                        // Audio a program wrote in its work folder (a SogniMusic track): kept in Downloads, as on Android.
-                        File saved = this.saveProgramAudio(f.name, f.bytes);
+                    } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt)$")) {
+                        // Audio or a prompt sheet a program wrote in its work folder (SogniMusic's track and
+                        // --saveprompt): kept in Downloads, as on Android.
+                        File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
-                        if (saved != null) audios++;
+                        if (saved != null) {
+                            audios++;
+                            savedAudio.put(f.name, saved);
+                        }
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {
@@ -444,13 +448,54 @@ final class PyJav {
                     app.pyLog.setText(status.toString() + (app.pyLog.getText() == null ? "" : "\n" + app.pyLog.getText()));
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
+                SogniHistory.record(result.log, System.currentTimeMillis());
                 if (loaded) app.setNow("Script MIDI · " + name);
+                // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
+                String made = PyJavHints.madeAudio(result.log);
+                if (made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
             });
         }, "pulsekit-pyjav").start();
     }
 
-    /** Writes a program's audio file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
-    File saveProgramAudio(String name, byte[] data) {
+    /**
+     * After a run that made an audio file: Make drum MIDI (the file becomes the audio input and
+     * DrumMidi_CRT runs on it, importing the drums as a file set), Play (the system player), or Close.
+     */
+    void offerAudio(File audio) {
+        Object[] options = new Object[] {"Make drum MIDI", "Play", "Close"};
+        int ans = JOptionPane.showOptionDialog(app, audio.getName() + " is saved in " + audio.getParent() + ".\n\n"
+            + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        if (ans == 0) {
+            this.audioInputPath = this.asWav(audio).getAbsolutePath();
+            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.java");
+            this.runPython();
+        } else if (ans == 1) {
+            try {
+                java.awt.Desktop.getDesktop().open(audio);
+            } catch (Exception ex) {
+                app.setNow("Could not open a player for " + audio.getName());
+            }
+        }
+    }
+
+    /** An MP3 as a mono 16-bit WAV beside it (song.mp3 → song.wav); other files, or a failed decode, as they are. */
+    File asWav(File audio) {
+        if (audio == null || !audio.getName().toLowerCase().endsWith(".mp3")) return audio;
+        try {
+            AudioIo.Pcm pcm = Mp3Decode.parse(Files.readAllBytes(audio.toPath()));
+            String name = audio.getName();
+            File wav = new File(audio.getParentFile(), name.substring(0, name.length() - 4) + ".wav");
+            Files.write(wav.toPath(), AudioIo.encodeWav(AudioIo.floatsToShorts(pcm.samples), pcm.sr));
+            return wav;
+        } catch (Exception ex) {
+            app.setNow("Could not make a WAV from " + audio.getName() + "; using the MP3");
+            return audio;
+        }
+    }
+
+    /** Writes a program's file to ~/Downloads (or ~/.pulsekit), never over an existing file. */
+    File saveProgramFile(String name, byte[] data) {
         try {
             File home = new File(System.getProperty("user.home", "."));
             File dir = new File(home, "Downloads");
@@ -537,6 +582,8 @@ final class PyJav {
 
     /** Imported WAV or MP3 becomes the input of the PyJav program, e.g. MidiDrumGen.java. */
     void useAudioInput(File file) {
+        // Most programs (DrumMidi_CRT) read WAV only: an MP3 is given as a WAV made beside it.
+        file = this.asWav(file);
         this.audioInputPath = file.getAbsolutePath();
         app.showView("py");
         this.setInputFile(file);
@@ -672,9 +719,9 @@ final class PyJav {
                 JButton choose = new JButton("Choose");
                 choose.setName("params-choose:" + p.token);
                 choose.addActionListener(e -> {
-                    int now = java.util.Arrays.asList(p.choices).indexOf(field.getText().trim());
+                    int now = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices).indexOf(field.getText().trim());
                     int picked = SearchList.choose(app, "Choose \u00b7 " + p.label, p.choices, now, now, "Choose");
-                    if (picked >= 0) field.setText(p.choices[picked]);
+                    if (picked >= 0) field.setText(p.choiceValue(picked));
                 });
                 row.add(field, BorderLayout.CENTER);
                 row.add(choose, BorderLayout.EAST);

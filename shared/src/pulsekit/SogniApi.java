@@ -57,35 +57,51 @@ public final class SogniApi {
     this.apiKey = apiKey;
   }
 
+  /** The key file set in Pulsekit's settings (File > Drum Midi Settings), or null. Set by ApiKeys. */
+  public static String keyFileSetting;
+
   /**
-   * The API key: SOGNI_API_KEY in the environment, else SOGNI_API_KEY=... in keyFile (when
-   * given), else in ~/.config/sogni/credentials. Null when none is found.
+   * The API key: SOGNI_API_KEY in the environment, else SOGNI_API_KEY=... (or the key alone) in
+   * keyFile when given, in the settings' key file, or in ~/.config/sogni/credentials. Null when
+   * none is found.
    */
   public static String findKey(String keyFile) {
     String env = System.getenv("SOGNI_API_KEY");
     if (env != null && env.trim().length() > 0) return env.trim();
     List<File> files = new ArrayList<File>();
     if (keyFile != null && keyFile.length() > 0) files.add(new File(keyFile));
+    if (keyFileSetting != null && keyFileSetting.length() > 0) files.add(new File(keyFileSetting));
     String home = System.getProperty("user.home");
     if (home != null) files.add(new File(home, ".config/sogni/credentials"));
     for (File f : files) {
-      if (!f.isFile()) continue;
-      try {
-        String text = new String(readAll(new java.io.FileInputStream(f)), StandardCharsets.UTF_8);
-        for (String line : text.split("\r?\n")) {
-          String t = line.trim();
-          if (t.startsWith("export ")) t = t.substring(7).trim();
-          if (t.startsWith("SOGNI_API_KEY=")) {
-            String v = t.substring(14).trim();
-            if (v.length() > 1 && (v.startsWith("\"") && v.endsWith("\"") || v.startsWith("'") && v.endsWith("'"))) v = v.substring(1, v.length() - 1);
-            if (v.length() > 0) return v;
-          }
-          // A file holding only the key.
-          if (t.length() >= 16 && t.indexOf('=') < 0 && t.indexOf(' ') < 0 && !t.startsWith("#")) return t;
-        }
-      } catch (IOException ignored) {
-        // Try the next place.
+      String k = keyIn(f);
+      if (k != null) return k;
+    }
+    return null;
+  }
+
+  /** The key in a file: a SOGNI_API_KEY=... line, or a line holding only the key. Null if none. */
+  public static String keyIn(File f) {
+    if (f == null || !f.isFile()) return null;
+    try {
+      return keyInText(new String(readAll(new java.io.FileInputStream(f)), StandardCharsets.UTF_8));
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  public static String keyInText(String text) {
+    if (text == null) return null;
+    for (String line : text.split("\r?\n")) {
+      String t = line.trim();
+      if (t.startsWith("export ")) t = t.substring(7).trim();
+      if (t.startsWith("SOGNI_API_KEY=")) {
+        String v = t.substring(14).trim();
+        if (v.length() > 1 && (v.startsWith("\"") && v.endsWith("\"") || v.startsWith("'") && v.endsWith("'"))) v = v.substring(1, v.length() - 1);
+        if (v.length() > 0) return v;
       }
+      // A file holding only the key.
+      if (t.length() >= 16 && t.indexOf('=') < 0 && t.indexOf(' ') < 0 && !t.startsWith("#")) return t;
     }
     return null;
   }
@@ -134,6 +150,11 @@ public final class SogniApi {
   /** The workflow record. */
   public Map<String, Object> workflow(String id) throws IOException {
     return workflowOf(this.request("GET", "/v1/creative-agent/workflows/" + enc(id), null));
+  }
+
+  /** The workflow's event list (what happened, step by step), as Sogni returns it. */
+  public Object events(String id) throws IOException {
+    return this.request("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events", null);
   }
 
   /**
@@ -292,13 +313,51 @@ public final class SogniApi {
       }
       return "Sogni is waiting for input: " + (why == null ? "unknown reason" : why);
     }
-    Object err = wf.get("error");
-    if (err instanceof Map) {
-      String msg = str(((Map<?, ?>) err).get("message"));
-      if (msg != null) return msg;
+    List<String> why = new ArrayList<String>();
+    reasons(wf, why);
+    if (!why.isEmpty()) {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < why.size() && i < 3; i++) sb.append(i == 0 ? "" : "; ").append(why.get(i));
+      return sb.toString();
     }
-    if (err != null) return String.valueOf(err);
     return status == null ? "no status" : "workflow " + status;
+  }
+
+  /**
+   * Error text anywhere in a record or event list: values of error, lastError, failureReason,
+   * errorMessage and reason, or the message beside them. The workflow's own "workflow failed"
+   * status says nothing, so the failed step's words are what count.
+   */
+  @SuppressWarnings("unchecked")
+  public static void reasons(Object o, List<String> out) {
+    if (o instanceof Map) {
+      Map<String, Object> m = (Map<String, Object>) o;
+      for (Map.Entry<String, Object> e : m.entrySet()) {
+        String k = e.getKey().toLowerCase();
+        Object v = e.getValue();
+        boolean errorKey = k.equals("error") || k.equals("lasterror") || k.equals("failurereason") || k.equals("errormessage")
+            || k.equals("reason") || k.equals("failure");
+        if (errorKey && v instanceof String) addReason(out, (String) v);
+        else if (errorKey && v instanceof Map) {
+          Map<String, Object> em = (Map<String, Object>) v;
+          String msg = str(em.get("message"));
+          String code = str(em.get("code"));
+          if (msg == null) msg = str(em.get("errorMessage"));
+          if (msg != null) addReason(out, code != null && !msg.contains(code) ? msg + " (" + code + ")" : msg);
+        }
+      }
+      String status = str(m.get("status"));
+      if (status != null && (status.contains("fail") || status.contains("error")) && m.get("message") instanceof String) addReason(out, (String) m.get("message"));
+      for (Object v : m.values()) if (v instanceof Map || v instanceof List) reasons(v, out);
+    } else if (o instanceof List) {
+      for (Object v : (List<Object>) o) reasons(v, out);
+    }
+  }
+
+  static void addReason(List<String> out, String s) {
+    String t = s == null ? "" : s.trim();
+    if (t.length() == 0 || t.equalsIgnoreCase("workflow failed") || out.contains(t)) return;
+    out.add(t);
   }
 
   // ---- HTTP ----

@@ -61,6 +61,63 @@ final class DrumMidiSettingsPage {
         return box;
     }
 
+    JLabel keyStatus;
+
+    /**
+     * Sogni API key file: chosen once, kept in ~/.pulsekit (owner only), and passed as --key_file to
+     * programs that take one (SogniMusic). Reset to defaults leaves it alone.
+     */
+    void addKeyGroup(JPanel col) {
+        col.add(Box.createVerticalStrut(18));
+        JLabel head = new JLabel("Sogni API key file");
+        head.setFont(new Font("SansSerif", Font.BOLD, 15));
+        head.setForeground(FG);
+        head.setAlignmentX(0.0f);
+        col.add(head);
+        JLabel note = new JLabel("<html><body style='width:480px'>A text file with SOGNI_API_KEY=&lt;your key&gt; (or the key alone). "
+            + "Pulsekit keeps a private copy and gives it to every program that takes --key_file, such as SogniMusic.</body></html>");
+        note.setForeground(MUTED);
+        note.setAlignmentX(0.0f);
+        col.add(note);
+        this.keyStatus = new JLabel(ApiKeys.status());
+        this.keyStatus.setName("sogni-key-status");
+        this.keyStatus.setForeground(FG);
+        this.keyStatus.setAlignmentX(0.0f);
+        col.add(this.keyStatus);
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        row.setOpaque(false);
+        row.setAlignmentX(0.0f);
+        JButton choose = app.outline("Choose file", false);
+        choose.setName("sogni-key-choose");
+        choose.addActionListener(e -> {
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            if (chooser.showOpenDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            this.takeKey(chooser.getSelectedFile());
+        });
+        JButton clear = app.outline("Clear", false);
+        clear.setName("sogni-key-clear");
+        clear.addActionListener(e -> {
+            ApiKeys.clear();
+            this.keyStatus.setText(ApiKeys.status());
+            app.setNow("Sogni key cleared");
+        });
+        row.add(choose);
+        row.add(clear);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        col.add(row);
+    }
+
+    /** The chosen file: its key is kept, or the status says why not. */
+    void takeKey(File file) {
+        try {
+            String masked = ApiKeys.store(Files.readAllBytes(file.toPath()));
+            app.setNow("Sogni key set (ends " + masked + ")");
+        } catch (Exception ex) {
+            app.setNow(ex.getMessage() == null ? "Could not read that file" : ex.getMessage());
+        }
+        if (this.keyStatus != null) this.keyStatus.setText(ApiKeys.status());
+    }
+
     /** File > Drum Midi Settings: how a MIDI drum track becomes a file set on import. */
     JPanel buildDrumMidiPage() {
         try {
@@ -69,6 +126,8 @@ final class DrumMidiSettingsPage {
         } catch (Exception ex) {
             MidiImportSettings.reset();
         }
+        ApiKeys.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+        SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         JPanel col = new JPanel();
         col.setOpaque(false);
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
@@ -152,6 +211,7 @@ final class DrumMidiSettingsPage {
             fdRadios[i] = r;
             col.add(r);
         }
+        this.addKeyGroup(col);
         col.add(Box.createVerticalStrut(16));
         JButton reset = app.outline("Reset to defaults", false);
         reset.setAlignmentX(0.0f);

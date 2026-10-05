@@ -11,8 +11,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /** Runs a Pulsekit Python script with the computer's Python 3 and bundled midiutil. */
 public final class PythonRun {
@@ -71,22 +69,9 @@ public final class PythonRun {
     return all;
   }
 
-  public static List<String> splitArgv(String line) {
-    List<String> out = new ArrayList<String>();
-    if (line == null || line.trim().isEmpty()) return out;
-    Matcher m = Pattern.compile("\"([^\"]*)\"|'([^']*)'|(\\S+)").matcher(line.trim());
-    while (m.find()) {
-      String a = m.group(1);
-      if (a == null) a = m.group(2);
-      if (a == null) a = m.group(3);
-      if (a != null && !a.isEmpty()) out.add(a);
-    }
-    return out;
-  }
-
-  /** The kit switches the program mentions (--bpm, --style, --genre, --bars, --swing), as on Android. */
-  public static List<String> kitArgv(String source, int bpm, String style, int bars, int swing) {
-    return JavaRun.argvFor(source, bpm, style, bars, swing, "");
+  /** The kit switches the program mentions (--bpm, --style, --genre, --bars, --swing) and the extra args, as on Android. */
+  public static List<String> kitArgv(String source, int bpm, String style, int bars, int swing, String extra) {
+    return JavaRun.argvFor(source, bpm, style, bars, swing, extra);
   }
 
   public static Result run(String source, String scriptName, List<String> argv) {

@@ -15,9 +15,11 @@ import static pulsekit.MainActivity.*;
 final class DrumMidiSettingsPage {
     static final String PREFS = "pulsekit-drum-midi";
     static final String KEY = "settings";
+    static final int PICK_KEY = 33;
 
     final MainActivity app;
     TextView hitsLabel;
+    TextView keyStatus;
 
     DrumMidiSettingsPage(MainActivity app) {
         this.app = app;
@@ -30,6 +32,8 @@ final class DrumMidiSettingsPage {
         } catch (Throwable ignored) {
             MidiImportSettings.reset();
         }
+        ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
+        SogniHistory.init(new java.io.File(app.getFilesDir(), "sogni"));
         LinearLayout pane = app.col();
         pane.setVisibility(View.GONE);
         pane.setBackgroundColor(BG);
@@ -58,6 +62,7 @@ final class DrumMidiSettingsPage {
             "Off: silent bars are dropped and the song closes up around them.",
             MidiImportSettings.keepSilent, on -> MidiImportSettings.keepSilent = on));
         body.addView(this.fillernDefaultGroup());
+        body.addView(this.keyGroup());
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();
@@ -129,6 +134,56 @@ final class DrumMidiSettingsPage {
         }
         item.addView(group);
         return item;
+    }
+
+    /**
+     * Sogni API key file: chosen once, kept in Pulsekit's private folder, and passed as --key_file to
+     * programs that take one (SogniMusic). Reset to defaults leaves it alone.
+     */
+    View keyGroup() {
+        LinearLayout item = app.col();
+        item.setPadding(0, app.dp(18), 0, app.dp(4));
+        item.addView(app.text("Sogni API key file", 15, true));
+        TextView sub = app.text("A text file with SOGNI_API_KEY=<your key> (or the key alone). Pulsekit keeps a private copy and "
+            + "gives it to every program that takes --key_file, such as SogniMusic.", 12, false);
+        sub.setTextColor(MUTED);
+        item.addView(sub);
+        this.keyStatus = app.text(ApiKeys.status(), 14, false);
+        this.keyStatus.setTextColor(FG);
+        this.keyStatus.setTag("sogni-key-status");
+        this.keyStatus.setPadding(0, app.dp(6), 0, app.dp(6));
+        item.addView(this.keyStatus);
+        LinearLayout row = app.row();
+        TextView choose = app.action("Choose file", ELEV, FG, v -> {
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            app.startActivityForResult(intent, PICK_KEY);
+        });
+        choose.setTag("sogni-key-choose");
+        TextView clear = app.action("Clear", ELEV, FG, v -> {
+            ApiKeys.clear();
+            this.keyStatus.setText(ApiKeys.status());
+            app.setNow("Sogni key cleared");
+        });
+        clear.setTag("sogni-key-clear");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, app.dp(40));
+        lp.setMargins(0, 0, app.dp(8), 0);
+        row.addView(choose, lp);
+        row.addView(clear, new LinearLayout.LayoutParams(-2, app.dp(40)));
+        item.addView(row);
+        return item;
+    }
+
+    /** The picker's file: its key is kept, or the page says why not. */
+    void takeKey(android.net.Uri uri) {
+        try {
+            String masked = ApiKeys.store(app.projectIo.readUri(uri));
+            app.setNow("Sogni key set (ends " + masked + ")");
+        } catch (Exception ex) {
+            app.setNow(ex.getMessage() == null ? "Could not read that file" : ex.getMessage());
+        }
+        if (this.keyStatus != null) this.keyStatus.setText(ApiKeys.status());
     }
 
     /** Merge up to N hits, with − and + buttons. */

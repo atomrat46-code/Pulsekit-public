@@ -33,6 +33,13 @@ public final class ProgramParams {
     public String ext;
     /** Values to pick from (SogniMusic's --genre: Pulsekit's style database), or null. */
     public String[] choices;
+    /** What each choice puts in the field, when it differs from its label (--workflow: the id); else null. */
+    public String[] choiceValues;
+
+    /** The value a picked choice puts in the field. */
+    public String choiceValue(int i) {
+      return this.choiceValues != null && i < this.choiceValues.length ? this.choiceValues[i] : this.choices[i];
+    }
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
 
@@ -176,9 +183,20 @@ public final class ProgramParams {
     if (p.output && p.optional && p.hint.length() == 0) p.hint = "optional; the program picks a name";
     if (p.flag && p.takesValue && p.token.equals("--prompt")) p.hint = "genre, mood, instruments";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
+    if (p.flag && p.takesValue && p.token.equals("--keyscale") && p.hint.equals("key")) p.hint = "e.g. C major, A minor (or C, Am)";
+    if (p.flag && p.takesValue && p.token.equals("--timesig") && p.hint.indexOf('|') >= 0) p.hint = "2, 3, 4 or 6 (4 = 4/4, 6 = 6/8)";
     if (p.flag && p.takesValue && p.token.equals("--genre")) {
       p.hint = "the app's style, or one from the list";
       p.choices = StyleDb.names();
+    }
+    if (p.flag && p.takesValue && p.token.equals("--workflow")) {
+      // Runs PyJav saw start, newest first: picking one fills in its id.
+      String[][] runs = SogniHistory.choices();
+      p.hint = runs == null ? "a Workflow: id from a run's log" : "a past run, from the list";
+      if (runs != null) {
+        p.choices = runs[0];
+        p.choiceValues = runs[1];
+      }
     }
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
@@ -192,6 +210,13 @@ public final class ProgramParams {
     String e = m.group(1).toLowerCase(Locale.ROOT);
     if (e.startsWith("mid")) return "mid";
     return e.equals("wave") ? "wav" : e;
+  }
+
+  /** A value typed with its switch in front ("--workflow wf_1" in the --workflow field) without it. */
+  static String withoutOwnSwitch(Param p, String v) {
+    String t = v.trim();
+    while (t.equals(p.token) || t.startsWith(p.token + " ") || t.startsWith(p.token + "=")) t = t.substring(p.token.length()).replaceFirst("^[\\s=]+", "");
+    return t;
   }
 
   /** "mid", "txt" or "audio" (wav and mp3 stand in for each other). */
@@ -239,6 +264,8 @@ public final class ProgramParams {
         if (DrumMidiArgs.on(v)) append(sb, p.token);
         continue;
       }
+      v = withoutOwnSwitch(p, v);
+      if (v.length() == 0) continue;
       append(sb, p.token);
       append(sb, quote(v));
     }

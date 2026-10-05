@@ -575,6 +575,7 @@ public final class DesktopBehavior {
       Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
       call("showView", "py");
       call("selectListedProgram", "Java", "SogniMusic.java");
+      answers.add("Make drum MIDI");
       edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --drums_only --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
@@ -588,6 +589,10 @@ public final class DesktopBehavior {
       }
       File saved = new File(home, ".pulsekit/sogni_music.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
+      for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, 20)).append('\n');
+      for (int i = 0; i < 100 && !("DrumMidi_CRT.java".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
+      out.append("after Make drum MIDI: ").append(get("pyName")).append(", input ")
+          .append(String.valueOf(get("pyInputPath")).replace(home.getAbsolutePath(), "~")).append('\n');
     } finally {
       server.stop(0);
     }
@@ -613,6 +618,48 @@ public final class DesktopBehavior {
     out.append("rock: ").append(String.join(" | ", got[0])).append('\n');
     out.append("hiphop: ").append(String.join(" | ", got[1])).append('\n');
     out.append("cleared: ").append(got[2].length).append('\n');
+  }
+
+  /** SogniMusic --saveprompt through PyJav with no key: the prompt sheet is saved, and the run fails cleanly. */
+  void s33_sogni_save_prompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniMusic.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    // Pulsekit's own "Saved ..." line comes after the program's output, so wait for it.
+    for (int i = 0; i < 400 && !(log.getText().contains("Saved " + home.getAbsolutePath()) || log.getText().contains("Could not save")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Saved") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    File sheet = new File(home, ".pulsekit/sogni-House.prompt");
+    String text = sheet.isFile() ? new String(Files.readAllBytes(sheet.toPath()), StandardCharsets.UTF_8) : "";
+    PromptRun.Sheet parsed = PromptRun.parse(text);
+    out.append("sheet: ").append(parsed == null ? "not a prompt sheet" : "name=" + parsed.name + " category=" + parsed.category
+        + " model=" + parsed.model + " type=" + parsed.type).append('\n');
+    out.append("body: ").append(parsed == null ? "" : parsed.body).append('\n');
+  }
+
+  /** The app's kit switches are added only when the extra args do not give them. */
+  void s34_kit_args_once() throws Exception {
+    String src = "Usage: java SogniMusic [--genre style] [--bpm N]";
+    out.append("none given: ").append(JavaRun.argvFor(src, 124, "house", 4, 0, "--prompt x")).append('\n');
+    out.append("genre and bpm given: ").append(JavaRun.argvFor(src, 124, "house", 4, 0, "--genre \"Rock Ballad\" --bpm 120")).append('\n');
+  }
+
+  /** Drum Midi Settings' Sogni API key file on the desktop: kept in ~/.pulsekit, passed as --key_file. */
+  void s35_sogni_key_setting() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    out.append("before: ").append(page.keyStatus.getText()).append('\n');
+    File key = new File(home, "creds.txt");
+    Files.write(key.toPath(), "abcd1234efgh5678\n".getBytes(StandardCharsets.UTF_8));
+    edt(() -> page.takeKey(key));
+    out.append("after: ").append(page.keyStatus.getText()).append('\n');
+    out.append("path: ").append(ApiKeys.path().replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("argv: ").append(String.join(" ", JavaRun.argvFor("[--key_file credentials.txt]", 120, "house", 4, 0, "")).replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("own --key_file wins: ").append(JavaRun.argvFor("[--key_file credentials.txt]", 120, "house", 4, 0, "--key_file other.txt")).append('\n');
   }
 
   /** Opens the File tab's menu and returns it. */

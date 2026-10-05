@@ -11,6 +11,23 @@ public final class PyJavHints {
   private PyJavHints() {}
 
   /** File name for saving a program's output, such as "CompareHits_test_results.txt". */
+  /**
+   * The audio file a run says it made: the name in its last "Succeeded: name.mp3" line (a .mp3,
+   * .wav, .flac, .m4a or .ogg), or null. SogniMusic's track is offered for playing and drum MIDI.
+   */
+  public static String madeAudio(String log) {
+    if (log == null) return null;
+    String found = null;
+    for (String line : log.split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Succeeded: ")) found = t.substring(11).trim();
+    }
+    if (found == null || found.indexOf(',') >= 0) return null;
+    int slash = Math.max(found.lastIndexOf('/'), found.lastIndexOf('\\'));
+    if (slash >= 0) found = found.substring(slash + 1);
+    return found.toLowerCase().matches(".+\\.(mp3|wav|flac|m4a|ogg)") ? found : null;
+  }
+
   public static String resultsFileName(String program) {
     String n = program == null ? "" : program.trim();
     int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));

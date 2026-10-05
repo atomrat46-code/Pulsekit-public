@@ -747,6 +747,9 @@ final class PyJav {
         this.pkSaveInventedOutput(log);
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
+        pulsekit.SogniHistory.record(log, System.currentTimeMillis());
+        // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
+        if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);
@@ -1049,6 +1052,16 @@ final class PyJav {
             app.show("py");
             this.pkUseInputPath(this.pkAudioInputPath);
             app.setNow("PyJav input \u00b7 " + base);
+            if (base.toLowerCase().endsWith(".mp3")) {
+                // Most programs (DrumMidi_CRT) read WAV only: a WAV beside the MP3 becomes the input once it is made.
+                final String mp3 = out.getAbsolutePath();
+                AudioOffer.toWav(app, out, (wav, error) -> {
+                    if (wav == null || !mp3.equals(this.pkAudioInputPath)) return;
+                    this.pkAudioInputPath = wav.getAbsolutePath();
+                    if (mp3.equals(this.pkPyInputPath)) this.pkUseInputPath(this.pkAudioInputPath);
+                    app.setNow("PyJav input \u00b7 " + wav.getName());
+                });
+            }
             Toast.makeText((Context)app, (CharSequence)(base + " is the PyJav input. Run MidiDrumGen.java to make MIDI."), (int)1).show();
         }
         catch (Exception exception) {

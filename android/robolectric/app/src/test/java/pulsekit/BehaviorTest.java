@@ -1537,7 +1537,7 @@ public class BehaviorTest {
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
-    for (String flag : new String[] {"--prompt", "--genre", "--drums_only", "--instruments", "--bpm", "--duration", "--keyscale", "--timesig", "--model", "--lyrics", "--confirm_cost", "--max_cost"}) {
+    for (String flag : new String[] {"--prompt", "--genre", "--saveprompt", "--drums_only", "--instruments", "--bpm", "--duration", "--keyscale", "--timesig", "--model", "--lyrics", "--confirm_cost", "--max_cost"}) {
       android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + flag);
       out.append(flag).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
     }
@@ -1593,6 +1593,83 @@ public class BehaviorTest {
     android.widget.ListAdapter a = d.getListView().getAdapter();
     for (int i = 0; i < a.getCount(); i++) sb.append(i == 0 ? "" : " | ").append(a.getItem(i));
     return sb.toString();
+  }
+
+  /** Drum Midi Settings' Sogni API key file: kept privately, shown masked, passed to SogniMusic as --key_file. */
+  @Test
+  public void s50_sogni_key_setting() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    TextView status = (TextView) root().findViewWithTag("sogni-key-status");
+    out.append("before: ").append(status.getText()).append('\n');
+    File bad = new File(app.getCacheDir(), "notes.txt");
+    Files.write(bad.toPath(), "hello".getBytes(StandardCharsets.UTF_8));
+    page.takeKey(android.net.Uri.fromFile(bad));
+    out.append("no key in file, still: ").append(status.getText()).append('\n');
+    File key = new File(app.getCacheDir(), "my key.txt");
+    Files.write(key.toPath(), "# Sogni\nSOGNI_API_KEY=\"abcd1234efgh5678\"\n".getBytes(StandardCharsets.UTF_8));
+    page.takeKey(android.net.Uri.fromFile(key));
+    out.append("after: ").append(status.getText()).append('\n');
+    String path = ApiKeys.path();
+    out.append("kept privately: ").append(path != null && path.startsWith(app.getFilesDir().getAbsolutePath())).append('\n');
+    out.append("kept text: ").append(new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8).trim().replace("abcd1234efgh", "…")).append('\n');
+    out.append("findKey: ").append("abcd1234efgh5678".equals(SogniApi.findKey(null))).append('\n');
+    java.util.List<String> argv = JavaRun.argvFor("Usage: java SogniMusic [--key_file credentials.txt]", 120, "house", 4, 0, "--prompt x");
+    out.append("argv: ").append(String.join(" ", argv).replace(app.getFilesDir().getAbsolutePath(), "<files>")).append('\n');
+    root().findViewWithTag("sogni-key-clear").performClick();
+    idle();
+    out.append("cleared: ").append(status.getText()).append(", argv ").append(JavaRun.argvFor("[--key_file x.txt]", 120, "house", 4, 0, "")).append('\n');
+    write("s50_sogni_key_setting", out.toString());
+  }
+
+  /** A run that made an audio file (SogniMusic's track) offers Play and Make drum MIDI; the track becomes the input. */
+  @Test
+  public void s51_audio_offer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--genre House --drums_only");
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni_music.mp3", new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniMusic 2026\nMusic: Rock Ballad. Instrumental, only drums\nWorkflow: wf_durable_workflow_abc123\n"
+        + "Status: running\nStatus: completed\nWrote sogni_music.mp3 (1 KB)\nSucceeded: sogni_music.mp3", files, 0));
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(" / ")
+        .append(d.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append(", ")
+        .append(d.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append(", ")
+        .append(d.getButton(DialogInterface.BUTTON_NEGATIVE).getText()).append('\n');
+    out.append("input: ").append(app.pyJav.pkAudioInputPath.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("SogniMusic args kept: ").append(args.getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // The run's workflow is remembered: Params' --workflow lists it, and picking it fills in the id.
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    out.append("--workflow hint: ").append(((android.widget.EditText) pv.findViewWithTag("params-field:--workflow")).getHint()).append('\n');
+    pv.findViewWithTag("params-choose:--workflow").performClick();
+    idle();
+    AlertDialog runs = (AlertDialog) ShadowDialog.getLatestDialog();
+    String label = String.valueOf(runs.getListView().getAdapter().getItem(0));
+    out.append("runs: ").append(runs.getListView().getAdapter().getCount()).append(", first ").append(label.substring(label.indexOf(" \u00b7 ") + 3)).append('\n');
+    org.robolectric.Shadows.shadowOf(runs).clickOnItem(0);
+    idle();
+    out.append("--workflow field: ").append(((android.widget.EditText) pv.findViewWithTag("params-field:--workflow")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    AudioOffer.makeDrumMidi(app, false);
+    // An MP3 is turned into a WAV first, off the UI thread (here the stand-in bytes do not decode, so the MP3 stays).
+    for (int i = 0; i < 100 && !"DrumMidi_CRT.java".equals(get("pyName")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("Make drum MIDI: ").append(get("pyName")).append(", args ")
+        .append(args.getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    write("s51_audio_offer", out.toString());
   }
 
   /** Tap File, then an item in its menu. */
