@@ -320,7 +320,7 @@ final class ProjectIo {
         app.styleLibrary.addPluginStyle(style);
         int[][] nArray = Engine.dubFill();
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, 16);
+            System.arraycopy(nArray[i], 0, app.fillPat[i], 0, Math.min(Engine.MAX_STEPS, nArray[i].length));
         }
         app.pluginGhostHats = true;
         app.styleLibrary.loadStyle("dub", false);

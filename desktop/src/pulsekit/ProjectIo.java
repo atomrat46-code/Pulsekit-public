@@ -189,7 +189,7 @@ final class ProjectIo {
             Engine.PlugFill f = incoming.fills.get(0);
             app.fillId = "p:" + incoming.id + "/" + f.id;
             for (int t = 0; t < Engine.TRACK_ID.length; t++) {
-                System.arraycopy(f.cells[t], 0, app.fillPat[t], 0, Math.min(16, f.cells[t].length));
+                System.arraycopy(f.cells[t], 0, app.fillPat[t], 0, Math.min(Engine.MAX_STEPS, f.cells[t].length));
             }
             app.styleLibrary.refreshFills();
         }

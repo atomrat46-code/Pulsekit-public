@@ -811,6 +811,13 @@ public final class DesktopBehavior {
       for (int i = 0; i < steps; i++) kick.append(cells[Engine.track("kick")][i] > 0 ? 'X' : '-');
       out.append(id).append(": ").append(get("tsNum")).append('/').append(get("tsDen")).append(", ").append(steps)
           .append(" steps, kick ").append(kick).append('\n');
+      int[][] fill = (int[][]) get("fillPat");
+      StringBuilder toms = new StringBuilder();
+      for (int i = 0; i < steps; i++) {
+        boolean tom = fill[Engine.track("htom")][i] > 0 || fill[Engine.track("mtom")][i] > 0 || fill[Engine.track("ltom")][i] > 0;
+        toms.append(tom ? 'T' : '-');
+      }
+      out.append("  fill ").append(get("fillId")).append(" toms ").append(toms).append('\n');
     }
     edt(() -> {
       JTextField num = (JTextField) get("tsNumField");
