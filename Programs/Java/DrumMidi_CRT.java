@@ -24,7 +24,7 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--log [logfile]]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--log [logfile]]
  *
  * --log writes the input and output names, the settings and the hits found to a text file
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
@@ -162,7 +162,7 @@ public class DrumMidi_CRT{
         args = rest.toArray(new String[0]);
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--log <logfile>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--log <logfile>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -173,6 +173,8 @@ public class DrumMidi_CRT{
         double sens = 1.0, hatSens = -1, tomSens = -1, rideSens = -1, crashSens = -1, bpmOverride = 0;
         int quant = 0;
         boolean hpss = true;
+        // Kick, snare and toms only: hats, rides and crashes can be played in later on the pads.
+        boolean cymbals = true;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -183,6 +185,7 @@ public class DrumMidi_CRT{
             else if ("--bpm".equals(opt)) bpmOverride = Double.parseDouble(args[++i]);
             else if ("--quantize".equals(opt)) quant = Integer.parseInt(args[++i]);
             else if ("--no-hpss".equals(opt)) hpss = false;
+            else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -194,7 +197,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss"));
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals"));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -305,7 +308,7 @@ public class DrumMidi_CRT{
             if (near(bodyRise, t) >= SNARE_BODY_RISE && near(bodyRise, t) > near(lowRise, t)) mark(busy, t, 2);
         }
         for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) mark(busy, p.intValue(), 2);
-        List<Integer> hatPeaks = pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3);
+        List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
         for (int i = 0; i < hatPeaks.size(); i++) {
             int t = hatPeaks.get(i).intValue();
             if (snare[t] > 1.0 && hat[t] < snare[t]) continue;
@@ -314,7 +317,7 @@ public class DrumMidi_CRT{
             boolean open = openHat(hatRaw, hatPeaks, i);
             hits.add(new Hit(t * (double) HOP / sr, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
-        List<Integer> ridePeaks = pickPeaks(ride, (BASE_DELTA * 0.9) / Math.max(0.05, rideSens), 5);
+        List<Integer> ridePeaks = cymbals ? pickPeaks(ride, (BASE_DELTA * 0.9) / Math.max(0.05, rideSens), 5) : new ArrayList<Integer>();
         for (int i = 0; i < ridePeaks.size(); i++) {
             int t = ridePeaks.get(i).intValue();
             if (!rideRings(rideEnergy, t)) continue;
@@ -323,7 +326,7 @@ public class DrumMidi_CRT{
             if (hat[t] > ride[t] * 1.35) continue;
             hits.add(new Hit(t * (double) HOP / sr, RIDE_NOTE, ride[t]));
         }
-        List<Integer> crashPeaks = pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32);
+        List<Integer> crashPeaks = cymbals ? pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32) : new ArrayList<Integer>();
         for (int i = 0; i < crashPeaks.size(); i++) {
             int t = crashPeaks.get(i).intValue();
             if (!isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
@@ -383,7 +386,7 @@ public class DrumMidi_CRT{
                 + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
                 + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
                 + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
-                + "; hpss=" + (hpss ? "on" : "off") + "; tempo=" + num(bpm);
+                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + "; tempo=" + num(bpm);
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
