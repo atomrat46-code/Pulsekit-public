@@ -13,7 +13,8 @@ import java.util.*;
  * outside it is moved to the nearest end, unless --any-tempo.
  * --timesig sets the meter (default: the style's, 4/4 for most; PyJav passes the app's when it is not
  * 4/4; styles such as Ballad 6/8, Slow Blues (12/8) and Waltz (3/4) have their own): a simple meter
- * plays the style's bar cut or extended to its length, 6/8, 9/8 and 12/8 a dotted-quarter feel.
+ * plays the style's bar cut or extended to its length, 6/8, 9/8 and 12/8 a dotted-quarter feel,
+ * their fills taking the bar's second half in eighths (as Pulsekit's 6/8 and 12/8 fills do).
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
  * app's 12 for 0.12), and the MIDI goes into PyJav's work folder, so it is imported.
  */
@@ -736,6 +737,24 @@ public class MidiDrumGen {
             else if (phase >= 0.5) section = "chorus";
             else if (phase >= 0.25) section = "drive";
 
+            if (isFill && !s.equals("gabber") && compound) {
+                // A compound bar keeps its groove for the first half and fills the second, in its own pulse
+                // (as Pulsekit's 6/8 and 12/8 fills do).
+                int pulses = tsNum / 3;
+                double from = t0 + (pulses - Math.max(1, pulses / 2)) * 1.5;
+                w.window(t0, from);
+                compoundBar(w, t0, tsNum, bar, s, section, swing, intensity, crashes);
+                w.window(from, t0 + barQ);
+                compoundFill(w, from, t0 + barQ, size, intensity);
+                if (bar == bars - 1) {
+                    w.add(CRASH, t0 + barQ - 0.01, 2.2, 124, "out");
+                    w.add(CRASH2, t0 + barQ - 0.01, 2.2, 108, "out2");
+                    w.add(KICK, t0 + barQ - 0.01, 0.7, 127, "outk");
+                }
+                w.window(-1e9, 1e9);
+                continue;
+            }
+
             if (isFill && !s.equals("gabber")) {
                 // A bar longer than 4/4 plays its groove first; the fill takes the last four beats (or the whole bar).
                 if (barQ > 4) {
@@ -794,6 +813,34 @@ public class MidiDrumGen {
             } else {
                 hats8ths(w, t0, swing, intensity >= 6, section.equals("drive") && bar % 2 == 1);
             }
+    }
+
+    /**
+     * A fill over the second half of a compound bar, from `start` to `end` (beats), in eighths:
+     * small, rack, mid and floor toms down in eighths with a 16th floor tom into the next bar (Pulsekit's
+     * Toms fill); med, a snare roll in 16ths, louder to the end (its Snare roll); big, the toms with a
+     * crash and a kick on each pulse.
+     */
+    static void compoundFill(DrumWriter w, double start, double end, String size, int intensity) {
+        int sn = Math.min(127, 108 + intensity);
+        int eighths = (int) Math.round((end - start) / 0.5);
+        if (size.equals("med")) {
+            int n = eighths * 2;
+            for (int i = 0; i < n; i++) w.add(SNARE, start + i * 0.25, 0.12, 64 + (63 * i) / Math.max(1, n - 1), "rl");
+            w.add(KICK, start, 0.3, 120, "k");
+            w.add(KICK, end - 0.25, 0.2, 124, "k");
+            return;
+        }
+        int[] toms = {HIGH_TOM, MID_TOM, FLOOR_TOM};
+        for (int k = 0; k < eighths; k++) {
+            w.add(toms[Math.min(2, (k * 3) / Math.max(1, eighths))], start + k * 0.5, 0.2, Math.min(127, sn - 16 + (24 * k) / Math.max(1, eighths - 1)), "f");
+        }
+        w.add(FLOOR_TOM, end - 0.25, 0.18, 120, "f");
+        w.add(KICK, start, 0.3, 110, "k");
+        if (size.equals("big")) {
+            w.add(CRASH, start, 1.4, 118, "cr");
+            for (double pt = start; pt < end - 1e-6; pt += 1.5) w.add(KICK, pt, 0.3, 120, "k");
+        }
     }
 
     /**
