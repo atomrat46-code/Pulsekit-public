@@ -1633,7 +1633,8 @@ public class BehaviorTest {
     args.setText("--genre House --drums_only");
     java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
     files.add(new JavaRun.FileOut("sogni_music.mp3", new byte[] {'I', 'D', '3', 4, 0, 0, 0, 0}));
-    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniMusic 2026\nWrote sogni_music.mp3 (1 KB)\nSucceeded: sogni_music.mp3", files, 0));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniMusic 2026\nMusic: Rock Ballad. Instrumental, only drums\nWorkflow: wf_durable_workflow_abc123\n"
+        + "Status: running\nStatus: completed\nWrote sogni_music.mp3 (1 KB)\nSucceeded: sogni_music.mp3", files, 0));
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(" / ")
@@ -1643,6 +1644,22 @@ public class BehaviorTest {
     out.append("input: ").append(app.pyJav.pkAudioInputPath.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     out.append("SogniMusic args kept: ").append(args.getText()).append('\n');
     d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // The run's workflow is remembered: Params' --workflow lists it, and picking it fills in the id.
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    out.append("--workflow hint: ").append(((android.widget.EditText) pv.findViewWithTag("params-field:--workflow")).getHint()).append('\n');
+    pv.findViewWithTag("params-choose:--workflow").performClick();
+    idle();
+    AlertDialog runs = (AlertDialog) ShadowDialog.getLatestDialog();
+    String label = String.valueOf(runs.getListView().getAdapter().getItem(0));
+    out.append("runs: ").append(runs.getListView().getAdapter().getCount()).append(", first ").append(label.substring(label.indexOf(" \u00b7 ") + 3)).append('\n');
+    org.robolectric.Shadows.shadowOf(runs).clickOnItem(0);
+    idle();
+    out.append("--workflow field: ").append(((android.widget.EditText) pv.findViewWithTag("params-field:--workflow")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
     AudioOffer.makeDrumMidi(app, false);
     idle();

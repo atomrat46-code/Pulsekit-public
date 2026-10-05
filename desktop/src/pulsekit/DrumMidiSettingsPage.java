@@ -127,6 +127,7 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.reset();
         }
         ApiKeys.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+        SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         JPanel col = new JPanel();
         col.setOpaque(false);
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));

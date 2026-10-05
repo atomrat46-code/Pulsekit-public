@@ -139,7 +139,7 @@ public final class PyJavParams {
         choose.setText("Choose");
         choose.setTag("params-choose:" + p.token);
         final EditText target = field;
-        choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choices[at])));
+        choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choiceValue(at))));
         row.addView(choose);
         box.addView(row);
         continue;

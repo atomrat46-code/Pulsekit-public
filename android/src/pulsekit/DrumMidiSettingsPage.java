@@ -33,6 +33,7 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.reset();
         }
         ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
+        SogniHistory.init(new java.io.File(app.getFilesDir(), "sogni"));
         LinearLayout pane = app.col();
         pane.setVisibility(View.GONE);
         pane.setBackgroundColor(BG);

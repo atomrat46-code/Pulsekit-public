@@ -448,6 +448,7 @@ final class PyJav {
                     app.pyLog.setText(status.toString() + (app.pyLog.getText() == null ? "" : "\n" + app.pyLog.getText()));
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
+                SogniHistory.record(result.log, System.currentTimeMillis());
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
@@ -701,9 +702,9 @@ final class PyJav {
                 JButton choose = new JButton("Choose");
                 choose.setName("params-choose:" + p.token);
                 choose.addActionListener(e -> {
-                    int now = java.util.Arrays.asList(p.choices).indexOf(field.getText().trim());
+                    int now = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices).indexOf(field.getText().trim());
                     int picked = SearchList.choose(app, "Choose \u00b7 " + p.label, p.choices, now, now, "Choose");
-                    if (picked >= 0) field.setText(p.choices[picked]);
+                    if (picked >= 0) field.setText(p.choiceValue(picked));
                 });
                 row.add(field, BorderLayout.CENTER);
                 row.add(choose, BorderLayout.EAST);

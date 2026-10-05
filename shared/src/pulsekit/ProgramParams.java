@@ -33,6 +33,13 @@ public final class ProgramParams {
     public String ext;
     /** Values to pick from (SogniMusic's --genre: Pulsekit's style database), or null. */
     public String[] choices;
+    /** What each choice puts in the field, when it differs from its label (--workflow: the id); else null. */
+    public String[] choiceValues;
+
+    /** The value a picked choice puts in the field. */
+    public String choiceValue(int i) {
+      return this.choiceValues != null && i < this.choiceValues.length ? this.choiceValues[i] : this.choices[i];
+    }
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
 
@@ -181,6 +188,15 @@ public final class ProgramParams {
     if (p.flag && p.takesValue && p.token.equals("--genre")) {
       p.hint = "the app's style, or one from the list";
       p.choices = StyleDb.names();
+    }
+    if (p.flag && p.takesValue && p.token.equals("--workflow")) {
+      // Runs PyJav saw start, newest first: picking one fills in its id.
+      String[][] runs = SogniHistory.choices();
+      p.hint = runs == null ? "a Workflow: id from a run's log" : "a past run, from the list";
+      if (runs != null) {
+        p.choices = runs[0];
+        p.choiceValues = runs[1];
+      }
     }
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
