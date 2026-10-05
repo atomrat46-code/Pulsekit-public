@@ -198,6 +198,10 @@ public final class ProgramParams {
       p.choices = CHAT_MODEL_LABELS;
       p.choiceValues = CHAT_MODELS;
     }
+    if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
+      p.label = "Continue from saved chat";
+      p.hint = "a sogni-chat .txt from an earlier run";
+    }
     if (p.flag && p.takesValue && p.token.equals("--system") && chat) {
       p.label = "System role/answer";
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";

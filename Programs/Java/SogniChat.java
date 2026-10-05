@@ -28,6 +28,12 @@ import java.util.Map;
  * (sogni-chat-<first words>.txt, or the name given), which lands in Downloads on the phone.
  *
  * --models lists the chat models Sogni offers; --model picks one.
+ *
+ * The saved file is the whole conversation (model, system text, each question and reply), so
+ * --continue <that file> goes on from it: the earlier turns are sent again with the new --prompt,
+ * and the longer conversation is saved as a new file (sogni-chat-<words>-2.txt, -3...). Its model
+ * and system text carry on unless --model or --system are given. A file holding only a reply
+ * (from SogniChat before this) continues as that one reply.
  */
 public final class SogniChat {
   public static void main(String[] args) throws Exception {
@@ -38,7 +44,12 @@ public final class SogniChat {
   }
 
   /** Printed first, so a run's log shows which SogniChat ran. */
-  static final String VERSION = "SogniChat 2026-10-05";
+  static final String VERSION = "SogniChat 2026-10-06";
+
+  /** The first line of a saved conversation, and the lines that start each turn in it. */
+  static final String HEAD = "SogniChat conversation";
+  static final String YOU = "=== You ===";
+  static final String SOGNI = "=== Sogni ===";
 
   /** The most of a --file that is sent: chat models read a limited amount of text. */
   static final int FILE_MAX = 60000;
@@ -51,6 +62,7 @@ public final class SogniChat {
     String prompt = null;
     String system = null;
     String file = null;
+    String earlier = null;
     String model = null;
     String keyFile = null;
     String apiBase = null;
@@ -62,6 +74,7 @@ public final class SogniChat {
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
       else if (a.equals("--system") && i + 1 < args.length) system = args[++i];
       else if (a.equals("--file") && i + 1 < args.length) file = args[++i];
+      else if (a.equals("--continue") && i + 1 < args.length) earlier = args[++i];
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -88,13 +101,23 @@ public final class SogniChat {
       attached = fileText(new File(file.trim()));
       if (attached == null) return 2;
     }
+    Conversation before = null;
+    if (earlier != null && earlier.trim().length() > 0) {
+      before = conversation(new File(earlier.trim()));
+      if (before == null) return 2;
+    }
     boolean asked = (prompt != null && prompt.trim().length() > 0) || attached != null;
     if (!asked && !models) {
-      System.out.println("Failed: give --prompt (the question), --file (a text file to send), or both, "
-          + "for example --prompt \"Suggest a fill for a rock groove at 120 BPM\"");
+      System.out.println(before != null
+          ? "Failed: give --prompt with the next question to continue " + new File(earlier.trim()).getName()
+          : "Failed: give --prompt (the question), --file (a text file to send), or both, "
+              + "for example --prompt \"Suggest a fill for a rock groove at 120 BPM\"");
       usage();
       return 2;
     }
+    // A continued conversation keeps its model and system text unless new ones are given.
+    if (before != null && (model == null || model.length() == 0)) model = before.model;
+    if (before != null && (system == null || system.trim().length() == 0)) system = before.system;
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
       System.out.println("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
@@ -116,6 +139,11 @@ public final class SogniChat {
       }
       String question = question(prompt, file, attached);
       List<String[]> turns = new ArrayList<String[]>();
+      if (before != null) {
+        turns.addAll(before.turns);
+        System.out.println("Continuing " + new File(earlier.trim()).getName() + ": " + exchanges(before.turns) + " earlier "
+            + (exchanges(before.turns) == 1 ? "exchange" : "exchanges"));
+      }
       turns.add(new String[] {"user", question});
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
@@ -133,7 +161,9 @@ public final class SogniChat {
       System.out.println();
       String usage = SogniApi.chatUsage(payload);
       if (usage != null) System.out.println("Tokens: " + usage);
-      File saved = save(out != null ? out : replyName(prompt, file), reply);
+      turns.add(new String[] {"assistant", reply});
+      String name = out != null ? out : before != null ? continuedName(new File(earlier.trim()).getName(), exchanges(turns)) : replyName(prompt, file);
+      File saved = save(name, transcript(chosen, system, turns));
       if (saved == null) {
         System.out.println("Could not save the reply (it is in the log above)");
         System.out.println("Succeeded");
@@ -152,7 +182,7 @@ public final class SogniChat {
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt] [--system text] [--model id] "
+    System.out.println("Usage: java SogniChat [output.txt] [--prompt text] [--file notes.txt] [--continue chat.txt] [--system text] [--model id] "
         + "[--max_tokens N] [--thinking] [--models] [--key_file credentials.txt]");
   }
 
@@ -169,8 +199,28 @@ public final class SogniChat {
    * the prompt after its "---" line. Null, after saying why, when it cannot be read.
    */
   static String fileText(File f) {
+    String text = readText(f, "--file");
+    if (text == null) return null;
+    if (text.startsWith("PKPROMPT1")) {
+      int at = text.indexOf("\n---\n");
+      if (at >= 0) text = text.substring(at + 5);
+    }
+    text = text.trim();
+    if (text.length() == 0) {
+      System.out.println("Failed: " + f.getName() + " is empty");
+      return null;
+    }
+    if (text.length() > FILE_MAX) {
+      System.out.println("Note: " + f.getName() + " is long; its first " + FILE_MAX + " characters are sent");
+      text = text.substring(0, FILE_MAX);
+    }
+    return text;
+  }
+
+  /** A text file's contents, or null after saying why (`flag` names the switch it came from). */
+  static String readText(File f, String flag) {
     if (!f.isFile()) {
-      System.out.println("Failed: --file " + f.getName() + " was not found");
+      System.out.println("Failed: " + flag + " " + f.getName() + " was not found");
       return null;
     }
     String text;
@@ -189,20 +239,77 @@ public final class SogniChat {
       System.out.println("Failed: " + f.getName() + " is not a text file (send a .txt, a log or a .prompt)");
       return null;
     }
-    if (text.startsWith("PKPROMPT1")) {
-      int at = text.indexOf("\n---\n");
-      if (at >= 0) text = text.substring(at + 5);
+    return text.replace("\r\n", "\n");
+  }
+
+  /** A saved conversation: its model and system text (null when it had none) and its turns as {role, text}. */
+  static final class Conversation {
+    String model;
+    String system;
+    final List<String[]> turns = new ArrayList<String[]>();
+  }
+
+  /**
+   * The conversation saved in `f` (transcript writes it). A file without the SogniChat heading is
+   * an earlier reply on its own, and continues as that reply. Null, after saying why, if unreadable.
+   */
+  static Conversation conversation(File f) {
+    String text = readText(f, "--continue");
+    if (text == null) return null;
+    Conversation c = new Conversation();
+    if (!text.startsWith(HEAD)) {
+      if (text.trim().length() == 0) {
+        System.out.println("Failed: " + f.getName() + " is empty");
+        return null;
+      }
+      c.turns.add(new String[] {"assistant", text.trim()});
+      return c;
     }
-    text = text.trim();
-    if (text.length() == 0) {
-      System.out.println("Failed: " + f.getName() + " is empty");
+    String role = null;
+    StringBuilder body = new StringBuilder();
+    for (String line : text.split("\n", -1)) {
+      if (line.equals(YOU) || line.equals(SOGNI)) {
+        if (role != null) c.turns.add(new String[] {role, body.toString().trim()});
+        role = line.equals(YOU) ? "user" : "assistant";
+        body.setLength(0);
+      } else if (role != null) {
+        body.append(line).append('\n');
+      } else if (line.startsWith("Model: ")) {
+        c.model = line.substring(7).trim();
+      } else if (line.startsWith("System: ")) {
+        c.system = line.substring(8).trim();
+      }
+    }
+    if (role != null) c.turns.add(new String[] {role, body.toString().trim()});
+    if (c.turns.isEmpty()) {
+      System.out.println("Failed: " + f.getName() + " holds no questions or replies to continue");
       return null;
     }
-    if (text.length() > FILE_MAX) {
-      System.out.println("Note: " + f.getName() + " is long; its first " + FILE_MAX + " characters are sent");
-      text = text.substring(0, FILE_MAX);
-    }
-    return text;
+    return c;
+  }
+
+  /** The conversation as it is saved: a heading, the model and system text, then each turn under its marker. */
+  static String transcript(String model, String system, List<String[]> turns) {
+    StringBuilder sb = new StringBuilder(HEAD).append('\n');
+    sb.append("Model: ").append(model).append('\n');
+    if (system != null && system.trim().length() > 0) sb.append("System: ").append(system.trim().replaceAll("\\s*\n\\s*", " ")).append('\n');
+    for (String[] t : turns) sb.append('\n').append("user".equals(t[0]) ? YOU : SOGNI).append('\n').append(t[1].trim()).append('\n');
+    return sb.toString();
+  }
+
+  /** Questions answered: the replies in `turns`. */
+  static int exchanges(List<String[]> turns) {
+    int n = 0;
+    for (String[] t : turns) if ("assistant".equals(t[0])) n++;
+    return n;
+  }
+
+  /** sogni-chat-suggest-a-fill-3.txt for the third exchange of sogni-chat-suggest-a-fill(1).txt or -2.txt. */
+  static String continuedName(String from, int exchanges) {
+    String stem = from.replaceAll("\\.[^.]*$", "");
+    stem = stem.replaceAll("\\s*\\(\\d+\\)$", "").replaceAll("-\\d+$", "");
+    if (stem.length() == 0) stem = "sogni-chat";
+    return stem + "-" + exchanges + ".txt";
   }
 
   /** sogni-chat-suggest-a-fill-for.txt: the first words of the prompt (or the file's name). */

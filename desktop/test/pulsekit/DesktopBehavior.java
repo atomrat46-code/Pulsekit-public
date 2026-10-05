@@ -679,8 +679,14 @@ public final class DesktopBehavior {
       call("selectListedProgram", "Java", "SogniChat.java");
       out.append("hint: ").append(((javax.swing.JLabel) get("pyHint")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      File old = new File(home, "old reply.txt");
+      Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
       String[] runs = {
         "--prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\"",
+        // The saved conversation goes on: its system text and earlier turns are sent again.
+        "--continue \"" + new File(home, ".pulsekit/sogni-chat-suggest-one-fill.txt").getAbsolutePath() + "\" --prompt \"And a longer one?\"",
+        "--continue \"" + old.getAbsolutePath() + "\" --prompt \"Why?\"",
+        "--continue \"" + old.getAbsolutePath() + "\"",
         "--models",
         "--max_tokens lots",
       };

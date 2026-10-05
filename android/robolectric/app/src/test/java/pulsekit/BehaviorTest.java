@@ -1655,6 +1655,8 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
     out.append("--file picker: ").append(dv.findViewWithTag("params-file:--file") != null).append('\n');
+    out.append("--continue picker: ").append(dv.findViewWithTag("params-file:--continue") != null)
+        .append(", label ").append(findText(dv, "Continue from saved chat  --continue") != null).append('\n');
     out.append("--thinking box: ").append(dv.findViewWithTag("params-check:--thinking") != null).append('\n');
     out.append("--models box: ").append(dv.findViewWithTag("params-check:--models") != null).append('\n');
     out.append("--system label: ").append(findText(dv, "System role/answer  --system") != null)
