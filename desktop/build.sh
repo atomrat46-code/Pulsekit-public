@@ -15,6 +15,8 @@ cp src/pulsekit/drum_midi.py ../shared/src/pulsekit/midiutil.py "$OUT/classes/pu
 
 # PyJav's Java / Python / Code menus, and Scripts from the repo's Prompts folder.
 # A JAR cannot list a folder, so add an index.
+# DrumMidi_CRT.jar (DrumMidi_CRT with an MP3 decoder) follows DrumMidi_CRT.java.
+python3 ../tools/make_drummidi_jar.py
 cp -r ../Programs "$OUT/classes/Programs"
 cp -r ../Prompts "$OUT/classes/Programs/Scripts"
 (cd "$OUT/classes/Programs" && find . -type f ! -name index.txt | sed 's#^\./##' | sort) > "$OUT/classes/Programs/index.txt"

@@ -49,3 +49,7 @@ programs differently (Termux on Android, Termux for Windows and a JDK on the PC)
 Importing a WAV or MP3 makes it the input file of the PyJav program, so a
 program such as `Programs/Java/DrumMidi_CRT.java` can turn it into MIDI. The earlier
 Isolate, Analyze and Compose features were removed from both editions.
+
+`Programs/Java/DrumMidi_CRT.jar` is DrumMidi_CRT with JLayer's MP3 decoder, so it reads
+MP3 as well as WAV on the phone and the PC (PyJav's Java menu lists it). Both build
+scripts remake it from `DrumMidi_CRT.java` with `tools/make_drummidi_jar.py`.

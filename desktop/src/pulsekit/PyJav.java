@@ -459,7 +459,7 @@ final class PyJav {
 
     /**
      * After a run that made an audio file: Make drum MIDI (the file becomes the audio input and
-     * DrumMidi_CRT runs on it, importing the drums as a file set), Play (the system player), or Close.
+     * DrumMidi_CRT.jar runs on it, importing the drums as a file set), Play (the system player), or Close.
      */
     void offerAudio(File audio) {
         Object[] options = new Object[] {"Make drum MIDI", "Play", "Close"};
@@ -467,8 +467,9 @@ final class PyJav {
             + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         if (ans == 0) {
-            this.audioInputPath = this.asWav(audio).getAbsolutePath();
-            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.java");
+            // DrumMidi_CRT.jar carries an MP3 decoder, so the audio is given as it is.
+            this.audioInputPath = audio.getAbsolutePath();
+            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
             this.runPython();
         } else if (ans == 1) {
             try {

@@ -590,7 +590,7 @@ public final class DesktopBehavior {
       File saved = new File(home, ".pulsekit/sogni-House-wf7.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
       for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, 20)).append('\n');
-      for (int i = 0; i < 100 && !("DrumMidi_CRT.java".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
+      for (int i = 0; i < 100 && !("DrumMidi_CRT.jar".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
       out.append("after Make drum MIDI: ").append(get("pyName")).append(", input ")
           .append(String.valueOf(get("pyInputPath")).replace(home.getAbsolutePath(), "~")).append('\n');
     } finally {

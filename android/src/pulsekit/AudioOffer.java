@@ -94,28 +94,11 @@ final class AudioOffer {
     }
 
     /**
-     * Picks DrumMidi_CRT, which takes the audio input, and (when `run`) runs it. DrumMidi_CRT reads
-     * WAV only, so an MP3 input is first turned into a WAV beside it (in the background).
+     * Picks DrumMidi_CRT.jar, which takes the audio input, and (when `run`) runs it. The jar carries
+     * JLayer's MP3 decoder, so an MP3 input is given as it is.
      */
     static void makeDrumMidi(final MainActivity app, final boolean run) {
-        String input = app.pyJav.pkAudioInputPath;
-        if (input == null || !input.toLowerCase().endsWith(".mp3")) {
-            pickDrumMidi(app, run);
-            return;
-        }
-        app.setNow("Making a WAV for DrumMidi_CRT\u2026");
-        toWav(app, new java.io.File(input), new Done() {
-            @Override
-            public void done(java.io.File wav, String error) {
-                if (wav != null) app.pyJav.pkAudioInputPath = wav.getAbsolutePath();
-                else app.setNow("Could not make a WAV: " + error);
-                pickDrumMidi(app, run && wav != null);
-            }
-        });
-    }
-
-    static void pickDrumMidi(MainActivity app, boolean run) {
-        app.programMenus.selectProgram("Java", "DrumMidi_CRT.java");
+        app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
         if (run) app.pyJav.pkRunPyJav();
     }
 

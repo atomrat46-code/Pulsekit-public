@@ -28,6 +28,9 @@ final class ProgramMenus {
 
     String listedKind;
 
+    /** A listed .jar or .class: the bytes Run executes (null for source). */
+    byte[] listedBytes;
+
     /** The Scripts file open in PyJav, while it is still the current program. */
     String scriptName;
 
@@ -72,19 +75,23 @@ final class ProgramMenus {
     void selectListedProgram(String kind, String name) {
         try {
             byte[] data = ProgramFiles.read(kind, name);
-            String src = new String(data, StandardCharsets.UTF_8);
+            String low = name.toLowerCase();
+            boolean binary = low.endsWith(".jar") || low.endsWith(".class");
+            // A .jar or .class runs as it is; the editor only names it.
+            String src = binary ? "" : new String(data, StandardCharsets.UTF_8);
             app.pyName = name;
-            app.pyBytes = null;
+            app.pyBytes = binary ? data : null;
             app.pyInputPath = null;
             this.listedName = name;
             app.listedSource = src;
             this.listedKind = kind;
+            this.listedBytes = app.pyBytes;
             if (app.pyEditor != null) {
-                app.pyEditor.setEditable(true);
-                app.pyEditor.setText(src);
+                app.pyEditor.setEditable(!binary);
+                app.pyEditor.setText(binary ? "// " + name + "\n// Binary program. Run uses this file.\n// Extra args are passed to java.\n" : src);
                 app.pyEditor.setCaretPosition(0);
             }
-            this.editorShowsListed = app.pyEditor != null;
+            this.editorShowsListed = app.pyEditor != null && !binary;
             app.pyJav.showPromptModes();
             app.pyJav.showPyHint(PyJavHints.status(name, src, data));
             this.paintProgramMenus();
@@ -137,13 +144,14 @@ final class ProgramMenus {
 
     /** True while the listed program is still the current program (nothing else was opened since). */
     boolean listedProgramCurrent() {
-        return this.listedName != null && this.listedName.equals(app.pyName) && app.pyBytes == null;
+        return this.listedName != null && this.listedName.equals(app.pyName) && app.pyBytes == this.listedBytes;
     }
 
     void paintProgramMenus() {
         if (this.listedName != null && !this.listedProgramCurrent()) {
             this.listedName = null;
             app.listedSource = null;
+            this.listedBytes = null;
             this.listedKind = null;
         }
         for (int i = 0; i < 2; i++) {
