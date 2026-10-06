@@ -673,6 +673,8 @@ public final class Pulsekit extends UiKit {
         if (bl2) {
             this.songEditor.refreshSong();
         }
+        // The prompt library may have changed (a run, an import): the Prompts page reads it again.
+        if (prompts) this.promptsPage.rebuild();
         if (pattern) {
             this.fillLast = false;
             this.setNow(null);

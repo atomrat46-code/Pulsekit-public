@@ -1211,6 +1211,114 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * The Prompts page: the old single sheet moved into the library, categories and subcategories,
+   * a prompt's editor (type chips under Code, files from disk and from the DB, preview, rename and
+   * delete), versions (save, load, mark final), result text, Export .prompt and Open in PyJav
+   * with its reference file.
+   */
+  void s43_prompts_page() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, ".pulsekit");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    PromptDb db = (PromptDb) get("promptDb");
+    // The earlier desktop page's sheet and its file move in once.
+    Files.write(new File(dir, "prompts.txt").toPath(), PromptRun.encode("Old idea", "", "", "pic.png", "", "Draw a drum kit").getBytes(StandardCharsets.UTF_8));
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    Files.write(new File(dir, "prompt-ref-1.png").toPath(), png.toByteArray());
+    call("showView", "prompts");
+    out.append("old sheet: ").append(new File(dir, "prompts.txt").isFile() ? "still there" : "moved").append(", ")
+        .append(new File(dir, "prompts.txt.moved").isFile()).append('\n');
+    PromptVault vault = PromptDb.vault();
+    StringBuilder cats = new StringBuilder();
+    for (PromptVault.Category c : vault.mains()) cats.append(c.name).append(' ');
+    out.append("categories: ").append(cats.toString().trim()).append('\n');
+    out.append("chips: ").append(named(frame, "category:General")).append(", prompt shown: ").append(named(frame, "prompt:Old idea")).append('\n');
+    edt(() -> ((javax.swing.JButton) component(frame, "prompt:Old idea")).doClick());
+    out.append("editor: title=").append(page.promptTitle.getText()).append(", body=").append(page.promptBody.getText())
+        .append(", ref1=").append(page.promptRef1.getText()).append(", ai box=").append(named(frame, "prompt-ai")).append('\n');
+    // A subcategory of Code: its prompts have a type.
+    long code = 0;
+    for (PromptVault.Category c : vault.mains()) if ("Code".equals(c.name)) code = c.id;
+    long py = vault.addSubcategory(code, "python");
+    long id = vault.addPrompt(py, "Make hats");
+    edt(() -> page.openPrompt(id));
+    out.append("type chips: ").append(named(frame, "prompt-type:python")).append(", type ").append(page.codeType).append('\n');
+    edt(() -> {
+      page.promptDescription.setText("Writes a hats MIDI");
+      page.promptBody.setText("print('hats')");
+      page.promptModel.setText("none");
+      ((javax.swing.JButton) component(frame, "prompt-type:java")).doClick();
+      ((javax.swing.JButton) component(frame, "prompt-save")).doClick();
+    });
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    // A file from disk goes in at once; the DB button offers what is stored.
+    short[] tone = new short[2205];
+    File wav = new File(home, "hat.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
+    edt(() -> page.takeFile(1, wav));
+    out.append("ref1: ").append(page.promptRef1.getText()).append('\n');
+    PromptVault.StoredFile pic = null;
+    for (PromptVault.StoredFile f : PromptDb.stored(false)) if ("pic.png".equals(f.name)) pic = f;
+    final PromptVault.StoredFile picked = pic;
+    edt(() -> page.rebuild());
+    out.append("DB button: ").append(named(frame, "prompt-db:2")).append('\n');
+    edt(() -> page.useStored(picked, 2));
+    out.append("ref2: ").append(page.promptRef2.getText()).append('\n');
+    // Preview: a picture with zoom.
+    answers.add("Close");
+    edt(() -> ((javax.swing.JButton) component(frame, "prompt-preview:2")).doClick());
+    out.append("preview: ").append(((JDialog) get("lastPreview")).getTitle()).append('\n');
+    // Rename the second file, then delete it.
+    answers.add("OK");
+    edt(() -> {
+      javax.swing.JPopupMenu m = page.slotMenu(2);
+      ((javax.swing.JMenuItem) m.getComponent(0)).doClick();
+    });
+    out.append("ref2 after rename (kept name): ").append(page.promptRef2.getText()).append('\n');
+    answers.add("Delete");
+    edt(() -> ((javax.swing.JMenuItem) page.slotMenu(2).getComponent(1)).doClick());
+    out.append("ref2 after delete: ").append(page.promptRef2.getText()).append('\n');
+    // Versions: save another (the first stays final), mark the new one final, load the first.
+    edt(() -> {
+      page.promptBody.setText("print('hats v2')");
+      ((javax.swing.JButton) component(frame, "prompt-save")).doClick();
+    });
+    out.append("versions: ").append(vault.versions(id).size()).append(", buttons ").append(named(frame, "version:v1")).append(" v1 mark ").append(named(frame, "version-final:v1"))
+        .append(", v2 mark ").append(named(frame, "version-final:v2")).append('\n');
+    out.append("final: ").append(vault.finalVersion(id).body).append('\n');
+    edt(() -> ((javax.swing.JButton) component(frame, "version-final:v2")).doClick());
+    out.append("final: ").append(vault.finalVersion(id).body).append('\n');
+    edt(() -> ((javax.swing.JButton) component(frame, "version:v1")).doClick());
+    out.append("loaded v1: ").append(page.promptBody.getText()).append(", type ").append(page.codeType).append('\n');
+    // Result text.
+    edt(() -> ((javax.swing.JButton) component(frame, "prompt-result-text")).doClick());
+    edt(() -> {
+      page.resultTextArea.setText("hats.mid made");
+      ((javax.swing.JButton) component(frame, "result-text-save")).doClick();
+      ((javax.swing.JButton) component(frame, "result-text-back")).doClick();
+    });
+    out.append("result text: ").append(vault.version(page.loadedVersionId).resultText).append(", button ")
+        .append(((javax.swing.JButton) component(frame, "prompt-result-text")).getText()).append('\n');
+    // Export and Open in PyJav.
+    File exported = new File(home, "Make hats");
+    edt(() -> page.exportTo(exported));
+    String sheet = new String(Files.readAllBytes(new File(home, "Make hats.prompt").toPath()), StandardCharsets.UTF_8);
+    for (String line : sheet.split("\n")) if (!line.startsWith("Version:")) out.append("sheet: ").append(line).append('\n');
+    edt(() -> page.openPrompt(vault.prompts(vault.mains().get(0).id).get(0).id));
+    edt(() -> ((javax.swing.JButton) component(frame, "prompt-open-pyjav")).doClick());
+    out.append("pyjav: ").append(get("pyName")).append(", input ").append(new File((String) get("pyInputPath")).getName()).append('\n');
+    out.append("log: ").append(((javax.swing.JTextArea) get("pyLog")).getText().replace(home.getAbsolutePath(), "~").replace("\n", " | ")).append('\n');
+    // A category is renamed and deleted from its menu.
+    call("showView", "prompts");
+    edt(() -> ((javax.swing.JButton) component(frame, "prompts-back")).doClick());
+    answers.add("Delete");
+    edt(() -> ((javax.swing.JMenuItem) page.categoryMenu(py, "python", true).getComponent(1)).doClick());
+    out.append("after deleting python: ").append(vault.category(py) == null ? "gone" : "kept").append(", prompt ").append(vault.prompt(id) == null ? "gone" : "kept").append('\n');
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

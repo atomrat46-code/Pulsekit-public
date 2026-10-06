@@ -202,6 +202,7 @@ final class PyJav {
             PyJavRecent.remember(this.pyRecentDir(), name, "", src, binary ? data : null);
             this.reloadPyRecent(0);
             this.showPyHint(status);
+            if (low.endsWith(".prompt")) this.loadPromptRefs(src);
         } catch (Exception ex) {
             if (app.pyLog != null) app.pyLog.setText("Could not open that file: " + ex.getMessage());
         }
@@ -384,6 +385,15 @@ final class PyJav {
                 String shown = result.log == null || result.log.isEmpty() ? "(no output)" : result.log;
                 if (promptProg && this.promptOutputName.length() > 0) shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
+                // What the prompt made is kept as its result file in the prompt library, when it has none yet.
+                if (promptProg && this.pyOutputPath != null && this.promptOutputName.length() > 0) {
+                    try {
+                        File made = new File(this.pyOutputPath);
+                        if (made.isFile()) PromptDb.storeResult(this.promptSource, this.promptOutputName, Files.readAllBytes(made.toPath()));
+                    } catch (Exception ignored) {
+                        // kept on disk only
+                    }
+                }
                 if (app.pyLog != null) app.pyLog.setText(shown);
                 boolean loaded = false;
                 int midis = 0;
@@ -1054,6 +1064,27 @@ final class PyJav {
         if (this.pyHint != null) this.pyHint.setText(hintHtml(note));
     }
 
+    /** The opened prompt sheet as it was read (its name, category and reference file names), for the prompt library. */
+    String promptSource = "";
+
+    /**
+     * An opened .prompt's reference files out of the prompt library (its final version, or the one
+     * with its file names), into PyJav's input folder; the first is the run's input. Says which.
+     */
+    void loadPromptRefs(String text) {
+        PromptDb.Refs refs = PromptDb.refsFor(text, app.pyName);
+        if (refs.description.length() > 0) this.promptDescription = refs.description;
+        if (refs.resultName.length() > 0 && (this.promptResult == null || this.promptResult.isEmpty())) this.promptResult = refs.resultName;
+        if (refs.ref1Path.length() > 0 && (app.pyInputPath == null || app.pyInputPath.isEmpty())) app.pyInputPath = refs.ref1Path;
+        if (app.pyEditor != null) {
+            String now = app.pyEditor.getText();
+            String next = PromptRun.withoutDescription(this.promptDescription, now);
+            if (!now.equals(next)) app.pyEditor.setText(next);
+        }
+        if (app.pyLog != null) app.pyLog.setText(refs.note);
+        if (this.pyHint != null) this.pyHint.setText(hintHtml(this.pyHintPlain + "\n" + refs.note));
+    }
+
     void loadProgram(String name, byte[] data, boolean binary) {
         this.rememberProgram(name, data, binary, true);
     }
@@ -1068,6 +1099,7 @@ final class PyJav {
             } else {
                 String text = new String(data, StandardCharsets.UTF_8);
                 if (app.pyName.toLowerCase().endsWith(".prompt")) {
+                    this.promptSource = text;
                     PromptRun.Sheet sheet = PromptRun.parse(text);
                     this.promptCategory = sheet == null || sheet.category == null ? "" : sheet.category;
                     this.promptModel = sheet == null || sheet.model == null ? "" : sheet.model;
