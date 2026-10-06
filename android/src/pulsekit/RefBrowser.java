@@ -61,17 +61,29 @@ final class RefBrowser {
         return out;
     }
 
+    /** What to do with the picked file, copied into PyJav's input folder (its name, and the copy). */
+    interface Picked {
+        void picked(String name, java.io.File file);
+    }
+
     static void browse(final Activity activity, final String[] values, final int index, final TextView label) {
         browse(activity, values, index, label, false);
     }
 
-    /** `sounds`: only sound files are listed (DrumMidi's audio input). */
+    /** For a Params file row: the pick fills it. `sounds`: only sound files are listed (an audio input). */
     static void browse(final Activity activity, final String[] values, final int index, final TextView label, boolean sounds) {
-        // Reference files first, as before; result files when there are no reference files.
-        browse(activity, values, index, label, files(activity, false, sounds).isEmpty(), sounds);
+        browse(activity, sounds, (name, file) -> {
+            values[index] = file.getAbsolutePath();
+            label.setText(name + " \u00b7 from DB");
+        });
     }
 
-    static void browse(final Activity activity, final String[] values, final int index, final TextView label, final boolean results, final boolean sounds) {
+    /** Reference files first, as before; result files when there are no reference files. */
+    static void browse(final Activity activity, boolean sounds, Picked picked) {
+        browse(activity, files(activity, false, sounds).isEmpty(), sounds, picked);
+    }
+
+    static void browse(final Activity activity, final boolean results, final boolean sounds, final Picked picked) {
         final List<PromptVault.StoredFile> files = files(activity, results, sounds);
         final PromptVault vault;
         try {
@@ -98,7 +110,7 @@ final class RefBrowser {
             kind.setEnabled(showResults != results);
             kind.setOnClickListener(v -> {
                 if (dialog[0] != null) dialog[0].dismiss();
-                browse(activity, values, index, label, showResults, sounds);
+                browse(activity, showResults, sounds, picked);
             });
             kinds.addView(kind, new LinearLayout.LayoutParams(0, -2, 1f));
         }
@@ -148,7 +160,7 @@ final class RefBrowser {
             sub.setMaxLines(1);
             card.addView(sub);
             card.setOnClickListener(v -> {
-                if (use(activity, vault, file, values, index, label) && dialog[0] != null) dialog[0].dismiss();
+                if (use(activity, vault, file, picked) && dialog[0] != null) dialog[0].dismiss();
             });
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(cell, -2);
             if (i % 2 == 1) cardLp.leftMargin = gap;
@@ -179,8 +191,8 @@ final class RefBrowser {
         }, "pulsekit-ref-thumbs").start();
     }
 
-    /** Copies the stored file into PyJav's input folder for the row; false when it cannot. */
-    static boolean use(Activity activity, PromptVault vault, PromptVault.StoredFile file, String[] values, int index, TextView label) {
+    /** Copies the stored file into PyJav's input folder and hands it on; false when it cannot. */
+    static boolean use(Activity activity, PromptVault vault, PromptVault.StoredFile file, Picked picked) {
         try {
             byte[] bytes = vault.fileBytes(file.versionId, file.which);
             if (bytes == null || bytes.length == 0) return false;
@@ -193,8 +205,7 @@ final class RefBrowser {
             } finally {
                 fos.close();
             }
-            values[index] = out.getAbsolutePath();
-            label.setText(file.name + " · from DB");
+            picked.picked(file.name, out);
             return true;
         } catch (Exception ex) {
             return false;
