@@ -1593,6 +1593,33 @@ public final class DesktopBehavior {
     out.append("args again: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
   }
 
+  /**
+   * Export screen: "Export supported media files to DB also". Off, an export only writes the
+   * file; on, Pattern / Fill MIDI, WAV, MP3 and Song MIDI exports also go into the prompt library
+   * as reference files under the names they were saved as; SF2 is left out. Kept across starts.
+   */
+  void s50_export_to_db() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("loadStyle", "rock", false);
+    call("showView", "export");
+    javax.swing.JCheckBox box = (javax.swing.JCheckBox) component(frame, "export-to-db");
+    out.append("checkbox: ").append(box.getText()).append(", ").append(box.isSelected()).append('\n');
+    String[][] runs = {{"saveMidi", "pattern"}, {"on", ""}, {"saveMidi", "pattern"}, {"saveMidi", "fill"}, {"saveWav", ""}, {"saveMp3", ""}, {"saveSf2", ""}, {"saveSongMidi", ""}};
+    for (String[] r : runs) {
+      if (r[0].equals("on")) {
+        edt(box::doClick);
+        continue;
+      }
+      answers.add("Save");
+      if (r[1].isEmpty()) call(r[0]);
+      else call(r[0], r[1]);
+      out.append(r[0]).append(r[1].isEmpty() ? "" : " " + r[1]).append(": ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+      edt(() -> ((Pulsekit) frame).setNow(null));
+    }
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("ref: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/export-settings.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
@@ -1704,8 +1731,15 @@ public final class DesktopBehavior {
           if (!(w instanceof JDialog) || !w.isShowing() || seen.contains(w)) continue;
           seen.add(w);
           JDialog d = (JDialog) w;
+          // A dialog that closes by itself (a progress note) can be gone before it is read: it is left alone.
+          if (d.getRootPane() == null || !d.isDisplayable()) continue;
           StringBuilder text = new StringBuilder("dialog \"" + d.getTitle() + "\":");
-          for (String s : texts(d.getContentPane())) text.append(" [").append(s).append(']');
+          try {
+            for (String s : texts(d.getContentPane())) text.append(" [").append(s).append(']');
+          } catch (NullPointerException closed) {
+            if (d.getRootPane() == null || !d.isDisplayable()) continue;
+            throw closed;
+          }
           dialogs.add(text.toString());
           List<String> want = new ArrayList<String>();
           synchronized (answers) {

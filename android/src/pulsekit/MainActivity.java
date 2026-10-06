@@ -780,7 +780,15 @@ public class MainActivity extends UiKit {
             object = this.getContentResolver().openOutputStream(uri);
             ((OutputStream)object).write(byArray);
             ((OutputStream)object).close();
-            Toast.makeText((Context)this, (CharSequence)"Saved", (int)0).show();
+            // Export screen: a MIDI, WAV or MP3 also into the prompt library when "Export supported media files to DB also" is on.
+            String kind = n == 8 || n == 17 ? "mid" : n == 10 || n == 20 ? "wav" : n == 11 || n == 21 ? "mp3" : null;
+            String toDb = "";
+            if (kind != null) {
+                String dbName = DbImport.displayName(this, uri);
+                if (!ExportDb.supported(dbName)) dbName = dbName + "." + kind;
+                toDb = ExportDb.store(this.getFilesDir(), dbName, byArray);
+            }
+            Toast.makeText((Context)this, (CharSequence)(toDb.isEmpty() ? "Saved" : "Saved, " + toDb), (int)(toDb.isEmpty() ? 0 : 1)).show();
         }
         catch (Exception exception) {
             Toast.makeText((Context)this, (CharSequence)exception.getMessage(), (int)1).show();
