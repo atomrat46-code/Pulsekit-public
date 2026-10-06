@@ -908,7 +908,19 @@ final class PyJav {
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                 });
-                if (p.refs) {
+                if (p.newChat) {
+                    // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
+                    JButton fresh = new JButton("New chat");
+                    fresh.setName("params-newchat:" + p.token);
+                    fresh.addActionListener(e -> {
+                        values[index] = "";
+                        chosen.setText("None");
+                    });
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    picks.add(pick);
+                    picks.add(fresh);
+                    row.add(picks, BorderLayout.WEST);
+                } else if (p.refs) {
                     // A file can also come from the prompt library (its reference or result files); greyed when it has none.
                     // An audio row lists only sound files (DrumMidi's input also MIDI files, played with the kit to a WAV),
                     // a MIDI row only MIDI files.

@@ -49,6 +49,8 @@ public final class ProgramParams {
     public boolean midiAsAudio;
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
+    /** SogniChat's saved chat to continue: the row has New chat, which clears it (the next run starts a new chat). */
+    public boolean newChat;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -254,6 +256,7 @@ public final class ProgramParams {
     if (p.flag && p.takesValue && p.token.equals("--continue") && chat) {
       p.label = "Continue from saved chat";
       p.hint = "a sogni-chat .txt from an earlier run";
+      p.newChat = true;
     }
     if (p.flag && p.takesValue && p.token.equals("--system") && chat) {
       p.label = "System role/answer";
