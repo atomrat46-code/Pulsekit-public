@@ -2469,6 +2469,50 @@ public class BehaviorTest {
   }
 
   /**
+   * JoinVideo (PyJav's Java menu): Params has video a and video b (Choose .mp4 and Browse DB,
+   * videos only), Video b first, an output name and Add to DB; a run with --addtodb keeps the joined
+   * video in the prompt library as a result file.
+   */
+  @Test
+  public void s69_join_video() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    PromptVault.open(app.getFilesDir()).addLibraryFile("stored.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'}, "Imported", 1);
+    PromptVault.open(app.getFilesDir()).addLibraryFile("loop.wav", new byte[] {'R', 'I', 'F', 'F'}, "Imported", 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "JoinVideo.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"video_a.mp4", "video_b.mp4"}) {
+      TextView pick = (TextView) dv.findViewWithTag("params-file:" + t);
+      View db = dv.findViewWithTag("params-db:" + t);
+      out.append(t).append(": ").append(pick == null ? "no file row" : pick.getText()).append(", Browse DB ").append(db == null ? "none" : db.isEnabled() ? "on" : "off").append('\n');
+    }
+    for (String t : new String[] {"--b_first", "--addtodb"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.getText()).append('\n');
+    }
+    out.append("output: ").append(dv.findViewWithTag("params-field:output.mp4") != null ? "a field" : "none").append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // Browse DB on a video row lists the library's videos only.
+    out.append("videos in the library: ").append(RefBrowser.allFiles(app, RefBrowser.VIDEOS).size()).append(" of ").append(RefBrowser.allFiles(app, null).size()).append('\n');
+    // A run with --addtodb: the joined video goes into the library as a result file.
+    app.pyJav.pkLastArgv = java.util.Arrays.asList("/sdcard/a.mp4", "/sdcard/b.mp4", "both.mp4", "--addtodb");
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("both.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2', 0, 0, 0, 0, 'm', 'p', '4', '2', 'i', 's', 'o', 'm'}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Joined a.mp4 and then b.mp4: wrote both.mp4 (1 KB)\nAdd to DB: both.mp4\nSucceeded: both.mp4", files, 0));
+    idle();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    write("s69_join_video", out.toString());
+  }
+
+  /**
    * SogniVideo: Join with this video. In Params the file buttons work only when it is ticked, and
    * unticking clears the video. After a run, the joined clip (<clip>-merged.mp4) goes into the prompt
    * library as a result file and is the one the Video ready dialog shows; Join is unticked (out of

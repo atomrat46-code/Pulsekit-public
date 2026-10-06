@@ -25,6 +25,11 @@ for prog in SogniMusic SogniChat SogniVideo; do
     echo "Programs/Java/$prog.java's SogniApi copy differs from shared/src/pulsekit/SogniApi.java" >&2; exit 1
   fi
 done
+# JoinVideo.java carries a copy of SogniVideo's Mp4Join (programs are one file each); keep them the same.
+mp4join() { sed -n '/--- Mp4Join begin ---/,/--- Mp4Join end ---/p' "$1"; }
+if ! diff <(mp4join ../Programs/Java/SogniVideo.java) <(mp4join ../Programs/Java/JoinVideo.java) >/dev/null; then
+  echo "Programs/Java/JoinVideo.java's Mp4Join copy differs from Programs/Java/SogniVideo.java" >&2; exit 1
+fi
 # MidiDrumGen.java carries a copy of the style database (shared StyleDb); keep them the same.
 style_rows() { grep -o '"[^"|]*|[a-z0-9]*|[0-9]*|[0-9]*|[0-9]*|[^"]*' "$1" | tr -d '"' | sed 's/\\n$//' | sort; }
 if ! diff <(style_rows ../shared/src/pulsekit/StyleDb.java) <(style_rows ../Programs/Java/MidiDrumGen.java) >/dev/null; then

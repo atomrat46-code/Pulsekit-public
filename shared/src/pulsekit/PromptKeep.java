@@ -117,6 +117,31 @@ final class PromptKeep {
         return note.toString();
     }
 
+    /**
+     * JoinVideo with --addtodb: the joined video into the prompt library on its own, as a result
+     * file. Returns a line for the log, or "" without --addtodb or a joined video.
+     */
+    static String keepJoined(File dir, JavaRun.Result result, List<String> argv) {
+        if (dir == null || result == null || result.files == null || result.code != 0 || argv == null || !argv.contains("--addtodb")) return "";
+        StringBuilder note = new StringBuilder();
+        for (JavaRun.FileOut f : result.files) {
+            String low = f.name == null ? "" : f.name.toLowerCase();
+            if (!low.matches(".+\\.(mp4|m4v|mov)") || f.bytes == null || f.bytes.length == 0) continue;
+            note.append(note.length() > 0 ? "\n" : "");
+            if (f.bytes.length > MAX_BYTES) {
+                note.append("Prompt library: ").append(f.name).append(" is over 16 MB, so it is not kept there");
+                continue;
+            }
+            try {
+                PromptVault.open(dir).addLibraryFile(f.name, f.bytes, "JoinVideo", 3);
+                note.append("Prompt library: ").append(f.name).append(" (result file)");
+            } catch (Exception ex) {
+                note.append("Prompt library: could not store ").append(f.name).append(ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+            }
+        }
+        return note.toString();
+    }
+
     /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */
     static String keepOutput(File dir, JavaRun.Result result, List<String> argv, String program, boolean audio) {
         if (dir == null || result == null || result.files == null || result.code != 0) return "";
