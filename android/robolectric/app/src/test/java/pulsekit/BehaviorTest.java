@@ -2251,6 +2251,28 @@ public class BehaviorTest {
     dm.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("  args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    // CompareHits in PyJav: its input.wav row gets the sound-only Browse DB too.
+    pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CompareHits.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog ch = (AlertDialog) ShadowDialog.getLatestDialog();
+    View chv = ch.getWindow().getDecorView();
+    android.widget.Button chDb = (android.widget.Button) chv.findViewWithTag("params-db:input.wav");
+    out.append("CompareHits input Browse DB: ").append(chDb == null ? "none" : chDb.isEnabled() ? "enabled" : "greyed")
+        .append(", MIDI rows ").append(chv.findViewWithTag("params-db:drums.mid") == null ? "without" : "with").append(" it\n");
+    ch.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // The Compare Hits page: Browse DB next to Pick WAV.
+    app.compareHits.refresh();
+    TextView pageDb = (TextView) root().findViewWithTag("compare-browse-db");
+    out.append("Compare Hits page Browse DB: ").append(pageDb == null ? "none" : pageDb.isEnabled() ? "enabled" : "greyed").append('\n');
+    pageDb.performClick();
+    idle();
+    View pb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    out.append("  sound browser: loop.wav ").append(pb.findViewWithTag("refs-pick:loop.wav") != null).append(", krea.png ").append(pb.findViewWithTag("refs-pick:krea.png") != null).append('\n');
+    pb.findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("  original WAV: ").append(app.compareHits.wavLabel.getText()).append(", ").append(app.compareHits.pickedWav == null ? 0 : app.compareHits.pickedWav.length).append(" bytes\n");
     write("s61_db_import", out.toString());
   }
 

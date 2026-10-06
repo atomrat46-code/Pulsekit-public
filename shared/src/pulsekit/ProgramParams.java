@@ -61,12 +61,14 @@ public final class ProgramParams {
     boolean chat = has(out, "--prompt") && has(out, "--system");
     // MidiDrumGen: --style takes Pulsekit's style names.
     boolean drumGen = has(out, "--style") && has(out, "--intensity");
+    // CompareHits: a WAV and two MIDI files (the source and the song).
+    boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
     for (Param p : out) {
       known(p, drumMidi, chat);
-      // DrumMidi's audio input can also come from the prompt library (Browse DB, sound files only).
-      if (drumMidi && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // DrumMidi's and CompareHits' audio input can also come from the prompt library (Browse DB, sound files only).
+      if ((drumMidi || compareHits) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       if (video) knownVideo(p);
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";

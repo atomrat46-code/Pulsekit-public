@@ -30,6 +30,8 @@ final class CompareHitsPage {
     TextView wavLabel;
     TextView result;
     TextView compareBtn;
+    /** Browse DB: the WAV from the prompt library's sound files. */
+    TextView browseDb;
     boolean running;
 
     CompareHitsPage(MainActivity app) {
@@ -65,6 +67,10 @@ final class CompareHitsPage {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, app.dp(40));
         lp.setMargins(0, 0, app.dp(8), 0);
         buttons.addView(pick, lp);
+        // The WAV can also come from the prompt library's sound files; greyed while it keeps none.
+        this.browseDb = app.action("Browse DB", ELEV, FG, v -> RefBrowser.browse(app, true, (name, file) -> this.takeDbWav(name, file)));
+        this.browseDb.setTag("compare-browse-db");
+        buttons.addView(this.browseDb, lp);
         buttons.addView(this.compareBtn, new LinearLayout.LayoutParams(-2, app.dp(40)));
         body.addView(buttons);
         this.result = app.text("", 12, false);
@@ -126,6 +132,11 @@ final class CompareHitsPage {
             this.setsBox.addView(chip, lp);
         }
         this.paintWav();
+        if (this.browseDb != null) {
+            boolean any = !RefBrowser.allFiles(app, true).isEmpty();
+            this.browseDb.setEnabled(any);
+            this.browseDb.setAlpha(any ? 1f : 0.4f);
+        }
     }
 
     void paintWav() {
@@ -154,6 +165,25 @@ final class CompareHitsPage {
             }
         }
         return best;
+    }
+
+    /** A WAV picked with Browse DB from the prompt library. */
+    void takeDbWav(String name, java.io.File file) {
+        try {
+            java.io.FileInputStream in = new java.io.FileInputStream(file);
+            try {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[65536];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                this.pickedWav = out.toByteArray();
+            } finally {
+                in.close();
+            }
+            this.pickedWavName = name + " (from DB)";
+            this.paintWav();
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+        }
     }
 
     void pickWav() {
