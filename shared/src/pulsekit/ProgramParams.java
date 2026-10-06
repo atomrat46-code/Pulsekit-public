@@ -63,14 +63,16 @@ public final class ProgramParams {
     boolean drumGen = has(out, "--style") && has(out, "--intensity");
     // SplitWav: one WAV split in two (--output_file1, --output_file2).
     boolean splitWav = has(out, "--output_file1") && has(out, "--output_file2");
+    // CutWav: one WAV cut at a time or size (--split_time).
+    boolean cutWav = has(out, "--split_time");
     // CompareHits: a WAV and two MIDI files (the source and the song).
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
     for (Param p : out) {
       known(p, drumMidi, chat);
-      // DrumMidi's, CompareHits' and SplitWav's audio input can also come from the prompt library (Browse DB, sound files only).
-      if ((drumMidi || compareHits || splitWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
+      if ((drumMidi || compareHits || splitWav || cutWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);

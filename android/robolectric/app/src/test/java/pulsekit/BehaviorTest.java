@@ -2293,6 +2293,25 @@ public class BehaviorTest {
     sw.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("  args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    // CutWav's input.wav: the sound-only Browse DB as well (its output.wav is named by PyJav, no button).
+    pickFromMenu("Java \u00b7 SplitWav.java", "CutWav.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog cw = (AlertDialog) ShadowDialog.getLatestDialog();
+    View cwv = cw.getWindow().getDecorView();
+    android.widget.Button cwDb = (android.widget.Button) cwv.findViewWithTag("params-db:input.wav");
+    out.append("CutWav input Browse DB: ").append(cwDb == null ? "none" : cwDb.isEnabled() ? "enabled" : "greyed")
+        .append(", output.wav ").append(cwv.findViewWithTag("params-db:output.wav") == null ? "without" : "with").append(" it\n");
+    cwDb.performClick();
+    idle();
+    View cwb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    out.append("  sound browser: loop.wav ").append(cwb.findViewWithTag("refs-pick:loop.wav") != null).append(", krea.png ")
+        .append(cwb.findViewWithTag("refs-pick:krea.png") != null).append('\n');
+    cwb.findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    cw.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("  args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     // The Compare Hits page: Browse DB next to Pick WAV.
     app.compareHits.refresh();
     TextView pageDb = (TextView) root().findViewWithTag("compare-browse-db");
