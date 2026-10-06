@@ -269,6 +269,7 @@ public final class ProgramParams {
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       return;

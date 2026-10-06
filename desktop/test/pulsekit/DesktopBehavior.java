@@ -938,7 +938,7 @@ public final class DesktopBehavior {
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String[] runs = {
-        "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5",
+        "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5 --saveprompt",
         "walk.mp4 --prompt \"The gate swings open\" --image \"" + garden.getAbsolutePath() + "\" --end_image \"" + last.getAbsolutePath()
             + "\" --resolution 1080p --no_audio --exact_prompt --unlimited",
         "--prompt \"Rain on a tin roof at night, slow push-in\" --aspect 16:9 --max_cost 50 --confirm_cost",
@@ -979,6 +979,12 @@ public final class DesktopBehavior {
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(sogni-video|walk).*")).sorted()::iterator) {
           out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f)).append(" bytes\n");
+          if (f.toString().endsWith(".prompt")) {
+            // The sheet opens in PyJav and the Prompts page: read it as they do.
+            PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
+            out.append("  sheet: ").append(sheet.name).append(", category ").append(sheet.category).append(", model ").append(sheet.model)
+                .append(", type ").append(sheet.type).append("\n  body: ").append(sheet.body.replace("\n", "|")).append('\n');
+          }
         }
       }
     } finally {

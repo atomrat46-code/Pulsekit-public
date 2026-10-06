@@ -35,6 +35,11 @@ import java.util.Map;
  * --confirm_cost confirms the charge. --unlimited is for a Sogni Unlimited Plan: the subscription
  * pays, and only Sogni's daily and monthly fair use limits apply.
  *
+ * --saveprompt also writes the prompt as sogni-video-<first words>.prompt: a Pulsekit prompt sheet
+ * (category video, type AI) that opens in PyJav and the Prompts page. A line of the settings
+ * (duration, resolution, shape, sound, the pictures) follows the prompt. It is written before the
+ * key is checked, so a prompt can be kept without one.
+ *
  * The clip is saved as sogni-video-<first words>.mp4 (or the output name given), which lands in
  * Downloads on the phone. --workflow <id> downloads the clip of a run that already finished (the id
  * is printed as "Workflow: ..."), without starting or paying for a new one.
@@ -81,6 +86,7 @@ public final class SogniVideo {
     boolean unlimited = false;
     boolean silent = false;
     boolean exact = false;
+    boolean savePrompt = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -91,6 +97,7 @@ public final class SogniVideo {
       else if (a.equals("--aspect") && i + 1 < args.length) aspect = args[++i].trim();
       else if (a.equals("--no_audio")) silent = true;
       else if (a.equals("--exact_prompt")) exact = true;
+      else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -149,6 +156,13 @@ public final class SogniVideo {
         pictureTypes.add(pictureType(data));
         pictureNames.add(f.getName());
       }
+    }
+    if (savePrompt && workflowId == null) {
+      // After the checks, so the sheet holds the settings as sent (1440 for "2K").
+      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
+      File sheet = savePrompt(sheetName, "Sogni " + SogniApi.videoModel(pictures.size(), resolution),
+          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames));
+      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
@@ -221,7 +235,7 @@ public final class SogniVideo {
 
   static void usage() {
     System.out.println("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--unlimited] [--key_file credentials.txt] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
@@ -264,6 +278,39 @@ public final class SogniVideo {
     if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
     if (d.length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F' && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P') return "image/webp";
     return null;
+  }
+
+  /**
+   * The clip's settings under the prompt in a saved sheet: "\n\nDuration: 5 s. Resolution: 768p.
+   * Shape: 16:9. Sound: none. First frame: garden.png." Defaults (with sound, the picture's own
+   * shape) are left out.
+   */
+  static String settingsLine(double duration, int resolution, String aspect, boolean silent, List<String> pictures) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Duration: ").append(SogniApi.number(duration)).append(" s. ");
+    sb.append("Resolution: ").append(resolution == 1440 ? "2K" : resolution + "p").append(resolution == 768 ? "" : " (two-stage)").append(". ");
+    if (aspect != null) sb.append("Shape: ").append(aspect).append(". ");
+    if (silent) sb.append("Sound: none. ");
+    if (pictures.size() > 0) sb.append("First frame: ").append(pictures.get(0)).append(". ");
+    if (pictures.size() > 1) sb.append("Last frame: ").append(pictures.get(1)).append(". ");
+    return "\n\n" + sb.toString().trim();
+  }
+
+  /**
+   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
+   * name, category video, the model, type AI, then the prompt. Never over an existing file.
+   */
+  static File savePrompt(String name, String model, String prompt) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n\n\n");
+    sb.append("Category: video\n");
+    sb.append("Model: ").append(model).append('\n');
+    sb.append("Reference file 1: \n");
+    sb.append("Reference file 2: \n");
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt);
+    return saveData(name + ".prompt", sb.toString().getBytes(StandardCharsets.UTF_8));
   }
 
   /** sogni-video-<first words of the prompt>, or sogni-video-<run> when there is no prompt. */

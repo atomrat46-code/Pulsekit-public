@@ -1787,6 +1787,16 @@ public class BehaviorTest {
     call("show", "py");
     idle();
     pickFromMenu("Java \u25be", "SogniVideo.java");
+    // Params: --saveprompt is a checkbox, as for SogniMusic.
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.CheckBox save = (android.widget.CheckBox) params.getWindow().getDecorView().findViewWithTag("params-check:--saveprompt");
+    out.append("saveprompt checkbox: ").append(save == null ? "none" : save.getText()).append('\n');
+    save.setChecked(true);
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
     java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
     files.add(new JavaRun.FileOut("shortsuli.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
     app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo 2026-10-06\nWrote shortsuli.mp4 (0 KB)\nSucceeded: shortsuli.mp4", files, 0));
