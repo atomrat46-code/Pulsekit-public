@@ -2468,6 +2468,41 @@ public class BehaviorTest {
     write("s53_program_folder", out.toString());
   }
 
+  /**
+   * Export screen: "Export supported media files to DB also". Off, an export only writes the
+   * file; on, a MIDI, WAV or MP3 export also goes into the prompt library as a reference file under
+   * the name it was saved as (its extension added when it had none); SF2 is left out. Kept across starts.
+   */
+  @Test
+  public void s64_export_to_db() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "export");
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) root().findViewWithTag("export-to-db");
+    out.append("checkbox: ").append(box.getText()).append(", ").append(box.isChecked()).append('\n');
+    java.io.File dir = new java.io.File(app.getCacheDir(), "exports");
+    dir.mkdirs();
+    // {what, file chosen in the picker}
+    Object[][] runs = {{"pattern", "off.mid"}, {"pattern", "groove.mid"}, {"fill", "fill no ext"}, {10, "beat.wav"}, {11, "beat.mp3"}, {12, "kit.sf2"}, {17, "song.mid"}};
+    for (int i = 0; i < runs.length; i++) {
+      if (i == 1) box.setChecked(true);
+      if (runs[i][0] instanceof String) app.projectIo.saveMidi((String) runs[i][0]);
+      else app.projectIo.saveKind((Integer) runs[i][0]);
+      org.robolectric.shadows.ShadowActivity.IntentForResult picker = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult();
+      java.io.File file = new java.io.File(dir, (String) runs[i][1]);
+      app.onActivityResult(picker.requestCode, -1, new android.content.Intent().setData(android.net.Uri.fromFile(file)));
+      idle();
+      out.append(runs[i][1]).append(": written ").append(file.length() > 0).append(", toast ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+    }
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) {
+      out.append("ref: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    }
+    out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.EXPORT_TO_DB, false)).append('\n');
+    box.setChecked(false);
+    write("s64_export_to_db", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {

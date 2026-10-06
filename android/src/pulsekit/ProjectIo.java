@@ -54,10 +54,37 @@ final class ProjectIo {
     }
 
     /** Builds the Export page. */
+    /** Export to DB: its own setting. */
+    static final String EXPORT_PREFS = "pulsekit-export";
+    static final String EXPORT_TO_DB = "toDb";
+
     void buildExportPane(FrameLayout frameLayout) {
         app.exportPane = app.col();
         app.exportPane.setVisibility(8);
         app.exportPane.addView((View)app.text("Export", 18, true));
+        // MIDI, WAV and MP3 exports can also go into the prompt library, as reference files.
+        try {
+            ExportDb.on = app.getSharedPreferences(EXPORT_PREFS, 0).getBoolean(EXPORT_TO_DB, false);
+        } catch (Throwable ignored) {
+            // off for this session
+        }
+        android.widget.CheckBox toDb = new android.widget.CheckBox(app);
+        toDb.setText("Export supported media files to DB also");
+        toDb.setTag("export-to-db");
+        toDb.setTextColor(FG);
+        toDb.setButtonTintList(android.content.res.ColorStateList.valueOf(FG));
+        toDb.setChecked(ExportDb.on);
+        toDb.setOnCheckedChangeListener((b, on) -> {
+            ExportDb.on = on;
+            try {
+                app.getSharedPreferences(EXPORT_PREFS, 0).edit().putBoolean(EXPORT_TO_DB, on).apply();
+            } catch (Throwable ignored) {
+                // the setting stays for this session
+            }
+        });
+        app.exportPane.addView((View)toDb);
+        android.widget.TextView toDbNote = app.hint("MIDI, WAV and MP3 exports are added to the prompt library too, as reference files.");
+        app.exportPane.addView((View)toDbNote);
         app.exportPane.addView((View)app.hint("Project"));
         LinearLayout linearLayout17 = app.row();
         linearLayout17.addView((View)app.action("PRJ", HIT, BG, view -> this.saveKind(15)), (ViewGroup.LayoutParams)app.flexBtn());

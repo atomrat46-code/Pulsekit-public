@@ -110,6 +110,24 @@ final class ProjectIo {
         jLabel.setFont(new Font("SansSerif", 1, 20));
         jLabel.setForeground(FG);
         jPanel2.add(jLabel);
+        // MIDI, WAV and MP3 exports can also go into the prompt library, as reference files.
+        ExportDb.on = this.loadExportToDb();
+        javax.swing.JCheckBox toDb = new javax.swing.JCheckBox("Export supported media files to DB also", ExportDb.on);
+        toDb.setName("export-to-db");
+        toDb.setOpaque(false);
+        toDb.setForeground(FG);
+        toDb.setAlignmentX(0.0f);
+        toDb.addActionListener(e -> {
+            ExportDb.on = toDb.isSelected();
+            this.saveExportToDb();
+        });
+        jPanel2.add(Box.createVerticalStrut(8));
+        jPanel2.add(toDb);
+        JLabel toDbNote = new JLabel("MIDI, WAV and MP3 exports are added to the prompt library too, as reference files.");
+        toDbNote.setForeground(MUTED);
+        toDbNote.setAlignmentX(0.0f);
+        toDbNote.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 24, 0, 0));
+        jPanel2.add(toDbNote);
         jPanel2.add(this.exportSection("Project", new JComponent[] {
             app.action("PRJ", HIT, BG, () -> this.savePrj()),
             app.action("PKP", ELEV, FG, () -> this.savePkp()),
@@ -137,6 +155,42 @@ final class ProjectIo {
         }));
         jPanel.add((Component)jPanel2, "North");
         return jPanel;
+    }
+
+    File exportSettingsFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "export-settings.txt");
+    }
+
+    boolean loadExportToDb() {
+        try {
+            File f = this.exportSettingsFile();
+            return f.isFile() && new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains("toDb=1");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    void saveExportToDb() {
+        try {
+            File f = this.exportSettingsFile();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), ("toDb=" + (ExportDb.on ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // the setting stays for this session
+        }
+    }
+
+    /**
+     * After an export of kind `ext` (mid, wav, mp3...): a MIDI, WAV or MP3 also into the prompt
+     * library when the Export screen says so, under the name it was saved as (with its extension
+     * added when the name was typed without one).
+     */
+    void exportToDb(File saved, byte[] bytes, String ext) {
+        if (!ExportDb.supported("export." + ext)) return;
+        String name = saved.getName();
+        if (!ExportDb.supported(name)) name = name + "." + ext;
+        String toDb = ExportDb.store(PromptDb.dir(), name, bytes);
+        if (!toDb.isEmpty()) app.setNow("Saved " + saved.getName() + ", " + toDb);
     }
 
     JPanel exportSection(String title, JComponent[] buttons) {
@@ -285,6 +339,7 @@ final class ProjectIo {
             byte[] byArray = Engine.encodeMidi(cells, lens, app.bpm(), steps, app.tsNum, app.tsDen);
             Files.write(jFileChooser.getSelectedFile().toPath(), byArray, new OpenOption[0]);
             app.setNow("Saved " + name);
+            this.exportToDb(jFileChooser.getSelectedFile(), byArray, "mid");
         }
         catch (Exception exception) {
             JOptionPane.showMessageDialog(app, "Could not save MIDI: " + exception.getMessage());
@@ -668,6 +723,7 @@ final class ProjectIo {
         }
         try {
             Files.write(jFileChooser.getSelectedFile().toPath(), byArray, new OpenOption[0]);
+            this.exportToDb(jFileChooser.getSelectedFile(), byArray, string3);
         }
         catch (Exception exception) {
             JOptionPane.showMessageDialog(app, "Could not save " + string2 + ": " + exception.getMessage());
