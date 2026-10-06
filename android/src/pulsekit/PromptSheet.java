@@ -54,6 +54,8 @@ public final class PromptSheet {
   private static int dbFor;
   private static int previewBack;
   private static boolean refsOpen;
+  /** The Result files gallery (the same view as Ref files, over the result files). */
+  private static boolean resultsOpen;
   private static boolean resultTextOpen;
   private static int refsToken;
   private static float previewZoom = 1f;
@@ -231,7 +233,7 @@ public final class PromptSheet {
       col.addView(label(activity, "The encrypted database could not be opened.", 14, "#ECEBE6", false));
     } else if (previewBack != 0) {
       buildPreview(activity, col);
-    } else if (refsOpen) {
+    } else if (refsOpen || resultsOpen) {
       buildRefGallery(activity, col);
     } else if (dbFor == 1 || dbFor == 2 || dbFor == 3) {
       buildDb(activity, col);
@@ -254,6 +256,12 @@ public final class PromptSheet {
       rebuild(activity);
     });
     col.addView(refs, buttonLp(activity));
+    TextView results = button(activity, "Result files", "#1B1D1F", "#ECEBE6");
+    results.setOnClickListener(v -> {
+      resultsOpen = true;
+      rebuild(activity);
+    });
+    col.addView(results, buttonLp(activity));
     col.addView(caption(activity, "CATEGORIES"));
     col.addView(categoryBlock(activity, false));
     TextView addCat = button(activity, "New category", "#1B1D1F", "#ECEBE6");
@@ -318,11 +326,14 @@ public final class PromptSheet {
     TextView back = button(activity, "Back", "#1B1D1F", "#ECEBE6");
     back.setOnClickListener(v -> {
       refsOpen = false;
+      resultsOpen = false;
       rebuild(activity);
     });
     col.addView(back, buttonLp(activity));
-    col.addView(caption(activity, "REFERENCE FILES"));
-    List<PromptVault.StoredFile> files = vault.referenceFiles();
+    // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
+    boolean results = resultsOpen && !refsOpen;
+    col.addView(caption(activity, results ? "RESULT FILES" : "REFERENCE FILES"));
+    List<PromptVault.StoredFile> files = results ? vault.resultFiles() : vault.referenceFiles();
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;

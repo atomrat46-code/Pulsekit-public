@@ -1916,6 +1916,22 @@ public class BehaviorTest {
     java.io.File picked = new java.io.File(args.replaceAll(".*--image \"?([^\"]+?)\"?( --.*)?$", "$1"));
     out.append("args: ").append(args.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     out.append("picked file: ").append(picked.getName()).append(", ").append(picked.length()).append(" bytes\n");
+    // Prompts page: Result files, beside Ref files, shows the stored results (the clip) as Ref files shows references.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    TextView resultsButton = findText(pane, "Result files");
+    out.append("prompts page: Ref files ").append(findText(pane, "Ref files") != null).append(", Result files ").append(resultsButton != null).append('\n');
+    resultsButton.performClick();
+    idle();
+    out.append("result gallery: ").append(findText(pane, "RESULT FILES") != null ? "RESULT FILES" : "?").append(", clip card ")
+        .append(findText(pane, "sogni-video-she-walks.mp4") != null).append(", picture card ").append(findText(pane, "garden.png") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("ref gallery: ").append(findText(pane, "REFERENCE FILES") != null ? "REFERENCE FILES" : "?").append(", picture card ")
+        .append(findText(pane, "garden.png") != null).append(", clip card ").append(findText(pane, "sogni-video-she-walks.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
     write("s59_prompt_keep", out.toString());
   }
 
