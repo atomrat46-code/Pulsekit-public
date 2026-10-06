@@ -1365,6 +1365,54 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * Ref files gallery video previews: Make video previews (n) opens one browser tab (the test
+   * stands in for it); the first frame it sends back is kept encrypted in ~/.pulsekit/thumbs and
+   * shows on the video's card when the gallery opens again, and the button is gone.
+   */
+  void s45_video_previews() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    java.util.List<java.net.URI> opened = java.util.Collections.synchronizedList(new ArrayList<java.net.URI>());
+    PromptDb.browser = opened::add;
+    byte[] video = new byte[3000];
+    video[0] = 0x1a;
+    video[1] = 0x45;
+    video[2] = (byte) 0xdf;
+    video[3] = (byte) 0xa3;
+    PromptDb.vault().addLibraryFile("clip.webm", video, "Imported", 1);
+    PromptDb.vault().addLibraryFile("again.webm", video, "Imported", 1);
+    answers.add("Make video previews (1)");
+    SwingUtilities.invokeLater(() -> db.gallery(false));
+    for (int i = 0; i < 100 && opened.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append("opened: ").append(opened.size()).append(", status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    String base = opened.get(0).toString().replace("/page", "/");
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "video/0").openConnection();
+    out.append("video 0: ").append(c.getResponseCode()).append(' ').append(c.getContentType()).append(", ").append(c.getInputStream().readAllBytes().length).append(" bytes\n");
+    c = (java.net.HttpURLConnection) new java.net.URL(base + "video/1").openConnection();
+    out.append("video 1: ").append(c.getResponseCode()).append('\n');
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream jpg = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "jpg", jpg);
+    out.append("thumb: ").append(post(base + "thumb/0", jpg.toByteArray())).append(", done: ").append(post(base + "done", new byte[0])).append('\n');
+    JDialog first = (JDialog) get("lastGallery");
+    answers.add("Close");
+    for (int i = 0; i < 100 && get("lastGallery") == first; i++) Thread.sleep(100);
+    idle();
+    JDialog again = (JDialog) get("lastGallery");
+    for (int i = 0; i < 100 && again.isShowing(); i++) Thread.sleep(100);
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    javax.swing.JButton card = (javax.swing.JButton) component(again, "gallery:clip.webm");
+    out.append("card preview: ").append(card.getIcon() != null ? card.getIcon().getIconWidth() + "x" + card.getIcon().getIconHeight() : "none")
+        .append(", second card: ").append(((javax.swing.JButton) component(again, "gallery:again.webm")).getIcon() != null)
+        .append(", button: ").append(named(again, "make-video-previews")).append('\n');
+    File[] thumbs = new File(home, ".pulsekit/thumbs").listFiles();
+    byte[] sealed = Files.readAllBytes(thumbs[0].toPath());
+    out.append("cache: ").append(thumbs.length).append(" file, ").append(thumbs[0].getName().length()).append("-char name, encrypted ")
+        .append(!(sealed[0] == (byte) 0xff && sealed[1] == (byte) 0xd8)).append(", reads back ").append(java.util.Arrays.equals(ThumbCache.get(video), jpg.toByteArray())).append('\n');
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
