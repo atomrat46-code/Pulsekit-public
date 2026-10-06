@@ -668,6 +668,8 @@ public final class Pulsekit extends UiKit {
         boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
             || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
         if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
+        // Without the bar there is no Stop: a beat or song that was playing stops here.
+        if (noTransport && this.sequencer != null && this.sequencer.isRunning()) this.playback.stop();
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
         this.fillHost.setVisible(bl);

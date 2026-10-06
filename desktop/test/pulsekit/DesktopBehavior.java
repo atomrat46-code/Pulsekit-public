@@ -1666,6 +1666,32 @@ public final class DesktopBehavior {
       call("showView", v);
       out.append(v).append(": ").append(((javax.swing.JPanel) get("transportBar")).isVisible() ? "bar" : "no bar").append('\n');
     }
+    // Playing, a page with the bar keeps playing; one without it stops. This machine has no MIDI
+    // synth, so a stand-in sequencer plays: running until stopped.
+    final boolean[] running = new boolean[1];
+    javax.sound.midi.Sequencer seq = (javax.sound.midi.Sequencer) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {javax.sound.midi.Sequencer.class}, (proxy, m, a) -> {
+          switch (m.getName()) {
+            case "isRunning": return running[0];
+            case "start": running[0] = true; return null;
+            case "stop": running[0] = false; return null;
+            case "hashCode": return System.identityHashCode(proxy);
+            case "equals": return proxy == a[0];
+            default: return m.getReturnType() == boolean.class ? Boolean.FALSE : m.getReturnType() == int.class ? (Object) 0
+                : m.getReturnType() == long.class ? (Object) 0L : m.getReturnType() == float.class ? (Object) 0f : null;
+          }
+        });
+    set("sequencer", seq);
+    for (String v : new String[] {"song", "import", "py", "pads"}) {
+      call("showView", "pattern");
+      running[0] = true;
+      edt(() -> ((javax.swing.JButton) get("playBtn")).setText("Pause"));
+      call("showView", v);
+      out.append("playing, then ").append(v).append(": ").append(running[0] ? "still playing" : "stopped")
+          .append(", Play reads ").append(((javax.swing.JButton) get("playBtn")).getText()).append('\n');
+    }
+    running[0] = false;
+    set("sequencer", null);
   }
 
   private static int post(String url, byte[] body) throws Exception {

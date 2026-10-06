@@ -1066,6 +1066,8 @@ public class MainActivity extends UiKit {
         boolean noTransport = pr || help || midi || compare || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
             || "py".equals(this.view);
         if (this.transportBar != null) this.transportBar.setVisibility(noTransport ? 8 : 0);
+        // Without the bar there is no Stop: a beat or song that was playing stops here.
+        if (noTransport && this.playing) this.playback.stop();
         if (this.helpPane != null) {
             this.helpPane.setVisibility(help ? 0 : 8);
             if (help) this.helpPane.bringToFront();
