@@ -43,6 +43,9 @@ import java.util.concurrent.Executors;
 final class MediaBrowser {
     static final int PICK_DIR = 37;
     static final int PAGE = 48;
+    /** Where Loop videos is kept. */
+    static final String PREFS = "pulsekit-media";
+    static final String SETTINGS = "settings";
 
     /** The browser shown last, for the tests. */
     static MediaBrowser last;
@@ -94,6 +97,15 @@ final class MediaBrowser {
         }
     }
 
+    /** Loop videos and the player's last volume, zoom and speed (MediaDir.encode), from the app's preferences. */
+    static void load(MainActivity app) {
+        MediaDir.decode(app.getSharedPreferences(PREFS, 0).getString(SETTINGS, null));
+    }
+
+    static void save(MainActivity app) {
+        app.getSharedPreferences(PREFS, 0).edit().putString(SETTINGS, MediaDir.encode()).apply();
+    }
+
     /** Opens the Media browser on `dir`: a granted folder's content:// address, or a path. */
     static MediaBrowser open(MainActivity app, String dir) {
         if (dir == null || dir.trim().length() == 0) {
@@ -121,13 +133,209 @@ final class MediaBrowser {
             }
             b = new MediaBrowser(app, null, new File(d).getAbsolutePath());
         }
+        load(app);
+        // The folder picked, and the folder it was last in under it (when it is still there).
+        b.root = b.tree != null ? d : b.path.get(0);
+        for (String under : MediaDir.pathFor(b.root)) {
+            boolean there = b.tree != null ? b.list(under) != null
+                : new File(under).isDirectory() && under.startsWith(b.root + File.separator);
+            if (!there) break;
+            b.path.add(under);
+        }
         last = b;
         b.show();
         return b;
     }
 
+    /** The folder picked, as Params gives it: what the last folder opened is remembered under. */
+    String root;
+
     private String here() {
         return this.path.get(this.path.size() - 1);
+    }
+
+    /** The folder shown, as its default playlist knows it: the path, or the granted folder and the document id. */
+    String folderKey() {
+        return this.tree == null ? here() : this.tree.toString() + "|" + here();
+    }
+
+    TextView playlistButton;
+
+    /** The Playlist (n) button: shown once this folder's playlist has a file. */
+    void paintPlaylist() {
+        if (this.playlistButton == null) return;
+        int n = MediaPlaylist.items(this.app.getFilesDir(), this.folderKey()).size();
+        this.playlistButton.setText(MediaPlaylist.button(n));
+        this.playlistButton.setVisibility(n > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    /** The thumbnail shown while a playlist item is held, for the tests. */
+    static android.widget.PopupWindow lastPeek;
+    static ImageView lastPeekImage;
+
+    static TextView lastPeekInfo;
+
+    /**
+     * A playlist item's thumbnail over the list, while it is held (a sound shows its type), with a
+     * video's length and resolution or a picture's dimensions and size under it.
+     */
+    void peek(View anchor, final MediaDir.Entry e) {
+        this.unpeek();
+        int side = Math.min(this.app.getResources().getDisplayMetrics().widthPixels, this.app.getResources().getDisplayMetrics().heightPixels) * 6 / 10;
+        LinearLayout col = this.app.col();
+        col.setBackgroundColor(0xee000000);
+        col.setPadding(this.app.dp(6), this.app.dp(6), this.app.dp(6), this.app.dp(6));
+        FrameLayout box = new FrameLayout(this.app);
+        TextView mark = this.app.text(ext(e.name) + "\n" + e.name, 15, true);
+        mark.setGravity(Gravity.CENTER);
+        mark.setTextColor(UiKit.MUTED);
+        box.addView(mark, new FrameLayout.LayoutParams(-1, -1));
+        final ImageView image = new ImageView(this.app);
+        image.setTag("playlist-peek");
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        box.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        col.addView(box, new LinearLayout.LayoutParams(-1, side));
+        final TextView info = this.app.text("", 14, false);
+        info.setTag("playlist-peek-info");
+        info.setGravity(Gravity.CENTER);
+        info.setPadding(0, this.app.dp(6), 0, this.app.dp(2));
+        col.addView(info, new LinearLayout.LayoutParams(-1, -2));
+        // Not touchable: the finger's release still reaches the list, which closes it.
+        final android.widget.PopupWindow pop = new android.widget.PopupWindow(col, side, -2, false);
+        pop.setTouchable(false);
+        pop.setOutsideTouchable(false);
+        lastPeek = pop;
+        lastPeekImage = image;
+        lastPeekInfo = info;
+        pop.showAtLocation(anchor.getRootView(), Gravity.CENTER, 0, 0);
+        if (e.kind != MediaDir.PICTURE && e.kind != MediaDir.VIDEO) return;
+        final Bitmap have = THUMBS.get(key(e));
+        if (have != null) image.setImageBitmap(have);
+        final int px = side;
+        READER.execute(() -> {
+            final Bitmap b = have != null ? null : this.thumb(e, px);
+            final String line = this.info(e);
+            this.main.post(() -> {
+                if (lastPeek != pop || !pop.isShowing()) return;
+                if (b != null) image.setImageBitmap(b);
+                info.setText(line);
+            });
+        });
+    }
+
+    /** A video's length and resolution, a picture's dimensions and size in MB (MediaDir.info); empty when unknown. */
+    String info(MediaDir.Entry e) {
+        Uri u = this.uri(e);
+        long bytes = e.size;
+        try {
+            if (e.kind == MediaDir.PICTURE) {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                InputStream in = this.app.getContentResolver().openInputStream(u);
+                try {
+                    BitmapFactory.decodeStream(in, null, bounds);
+                } finally {
+                    if (in != null) in.close();
+                }
+                if (bytes <= 0 && this.tree == null) bytes = new File(e.id).length();
+                return MediaDir.info(MediaDir.PICTURE, bounds.outWidth, bounds.outHeight, 0, bytes);
+            }
+            if (e.kind == MediaDir.VIDEO) {
+                long len = 0;
+                int w = 0, h = 0;
+                MediaMetadataRetriever media = new MediaMetadataRetriever();
+                try {
+                    if (this.tree == null) media.setDataSource(e.id);
+                    else media.setDataSource(this.app, u);
+                    len = number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+                    w = (int) number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                    h = (int) number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                    long turn = number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+                    // A phone video filmed upright is stored on its side.
+                    if (turn == 90 || turn == 270) {
+                        int t = w;
+                        w = h;
+                        h = t;
+                    }
+                } catch (Exception ignored) {
+                    // the file's own headers, below
+                } finally {
+                    try {
+                        media.release();
+                    } catch (Exception ignored) {}
+                }
+                if ((len <= 0 || w <= 0) && this.tree == null) {
+                    long[] head = MediaDir.mp4Info(new File(e.id));
+                    if (head != null) {
+                        if (len <= 0) len = head[0];
+                        if (w <= 0) {
+                            w = (int) head[1];
+                            h = (int) head[2];
+                        }
+                    }
+                }
+                return MediaDir.info(MediaDir.VIDEO, w, h, len, bytes);
+            }
+        } catch (Throwable ignored) {
+            // unknown
+        }
+        return "";
+    }
+
+    private static long number(String s) {
+        try {
+            return s == null ? 0 : Long.parseLong(s.trim());
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
+    void unpeek() {
+        if (lastPeek != null && lastPeek.isShowing()) lastPeek.dismiss();
+    }
+
+    /** The playlist window shown last, for the tests. */
+    static AlertDialog lastPlaylist;
+
+    /** This folder's default playlist: its files, in order; a tap plays or opens one as its thumbnail does. */
+    void playlist() {
+        final List<MediaDir.Entry> items = new ArrayList<MediaDir.Entry>();
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) {
+            MediaDir.Entry e = new MediaDir.Entry();
+            e.id = it.id;
+            e.name = it.name;
+            e.size = it.size;
+            e.kind = MediaDir.kind(it.name);
+            items.add(e);
+        }
+        LinearLayout list = this.app.col();
+        list.setPadding(this.app.dp(16), this.app.dp(6), this.app.dp(16), this.app.dp(6));
+        for (int i = 0; i < items.size(); i++) {
+            final MediaDir.Entry e = items.get(i);
+            String what = e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video" : "sound";
+            TextView row = this.app.text((i + 1) + ".  " + e.name + "   \u00b7 " + what, 15, false);
+            row.setTag("playlist-item:" + e.name);
+            row.setPadding(0, this.app.dp(10), 0, this.app.dp(10));
+            row.setOnClickListener(v -> this.openEntry(e, items));
+            // Holding it shows its thumbnail; letting go closes it (and opens nothing).
+            row.setOnLongClickListener(v -> {
+                this.peek(v, e);
+                return true;
+            });
+            row.setOnTouchListener((v, ev) -> {
+                int act = ev.getActionMasked();
+                if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) this.unpeek();
+                return false;
+            });
+            list.addView(row);
+        }
+        ScrollView scroll = new ScrollView(this.app);
+        scroll.addView(list);
+        lastPlaylist = new AlertDialog.Builder(this.app)
+            .setTitle("Playlist \u00b7 " + this.label())
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .show();
     }
 
     /** The folder's entries, shown in order; null when it cannot be read. */
@@ -203,6 +411,11 @@ final class MediaBrowser {
 
     /** Opens folder `at` (already on the path) at its first page. */
     private void load(String at) {
+        // Remembered: this folder, for the next time the Media browser opens on the same one.
+        if (this.root != null) {
+            MediaDir.remember(this.root, this.path.subList(1, this.path.size()));
+            save(this.app);
+        }
         List<MediaDir.Entry> got = this.list(at);
         this.entries = got == null ? new ArrayList<MediaDir.Entry>() : got;
         this.page = 0;
@@ -237,6 +450,23 @@ final class MediaBrowser {
         summary.setTextColor(UiKit.MUTED);
         summary.setPadding(0, 0, 0, this.app.dp(6));
         this.body.addView(summary);
+        android.widget.CheckBox loop = new android.widget.CheckBox(this.app);
+        loop.setText("Loop videos");
+        loop.setTag("media-loop");
+        loop.setTextColor(UiKit.FG);
+        loop.setChecked(MediaDir.loopVideos);
+        loop.setOnCheckedChangeListener((x, on) -> {
+            MediaDir.loopVideos = on;
+            save(this.app);
+        });
+        // Playlist (n) beside it, once this folder's playlist has a file.
+        LinearLayout loopRow = this.app.row();
+        loopRow.addView(loop, new LinearLayout.LayoutParams(0, -2, 1f));
+        this.playlistButton = this.app.pill("Playlist", false, v -> this.playlist());
+        this.playlistButton.setTag("media-playlist");
+        loopRow.addView(this.playlistButton);
+        this.body.addView(loopRow);
+        this.paintPlaylist();
         if (this.path.size() > 1) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
@@ -251,6 +481,9 @@ final class MediaBrowser {
         final int cell = (this.app.getResources().getDisplayMetrics().widthPixels - this.app.dp(96)) / 3;
         LinearLayout row = null;
         final List<ImageView> views = new ArrayList<ImageView>();
+        // The files already in this folder's playlist get a ☰ badge.
+        final java.util.Set<String> listed = new java.util.HashSet<String>();
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) listed.add(it.id);
         final List<MediaDir.Entry> wanted = new ArrayList<MediaDir.Entry>();
         for (int i = from; i < to; i++) {
             final MediaDir.Entry e = this.entries.get(i);
@@ -277,6 +510,7 @@ final class MediaBrowser {
                 box.addView(play, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END));
                 play.setPadding(this.app.dp(4), 0, this.app.dp(6), this.app.dp(2));
             }
+            if (!e.folder && listed.contains(e.id)) this.badge(box, e);
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
             TextView name = this.app.text(e.name, 11, false);
             name.setMaxLines(2);
@@ -287,6 +521,13 @@ final class MediaBrowser {
                 if (e.folder) this.openFolder(e);
                 else this.openEntry(e);
             });
+            // A long press on a file: Add to DB (reference or result file), Add to default playlist.
+            if (!e.folder) {
+                card.setOnLongClickListener(v -> {
+                    this.menu(e);
+                    return true;
+                });
+            }
             row.addView(card, new LinearLayout.LayoutParams(0, -2, 1f));
             if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
                 Bitmap have = THUMBS.get(key(e));
@@ -337,6 +578,78 @@ final class MediaBrowser {
 
     private String key(MediaDir.Entry e) {
         return (this.tree == null ? "" : this.tree.toString()) + "|" + e.id + "|" + e.size;
+    }
+
+    /** The menu shown last, for the tests. */
+    static AlertDialog lastMenu;
+
+    /** A file's long-press menu (MediaDir.MENU). */
+    void menu(final MediaDir.Entry e) {
+        lastMenu = new AlertDialog.Builder(this.app)
+            .setTitle(e.name)
+            // A file already in the playlist: its third item takes it out.
+            .setItems(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id) ? MediaDir.MENU_LISTED : MediaDir.MENU,
+                (d, which) -> this.app.setNow(this.menuPicked(e, which)))
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** What a menu item does: 0 and 1 add the file to the prompt library, 2 adds it to the default playlist (or takes it out when it is in). Returns the status line. */
+    String menuPicked(MediaDir.Entry e, int which) {
+        if (which == 2) {
+            View card = this.body.findViewWithTag("media-card:" + e.name);
+            FrameLayout box = card instanceof LinearLayout && ((LinearLayout) card).getChildAt(0) instanceof FrameLayout ? (FrameLayout) ((LinearLayout) card).getChildAt(0) : null;
+            if (MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id)) {
+                // Remove from default playlist: the badge goes at once.
+                String said = MediaPlaylist.remove(this.app.getFilesDir(), this.folderKey(), e.id, e.name);
+                this.paintPlaylist();
+                View badge = box == null ? null : box.findViewWithTag("media-in-playlist:" + e.name);
+                if (badge != null) box.removeView(badge);
+                return said;
+            }
+            String said = MediaPlaylist.add(this.app.getFilesDir(), this.folderKey(), e.id, e.name, e.size);
+            this.paintPlaylist();
+            // Its card gets the badge at once.
+            if (box != null) this.badge(box, e);
+            return said;
+        }
+        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
+        byte[] bytes;
+        try {
+            bytes = this.read(e);
+        } catch (Exception ex) {
+            return "Could not read " + e.name;
+        }
+        return MediaDir.addToDb(this.app.getFilesDir(), e.name, bytes, which == 1);
+    }
+
+    /** The file's bytes (up to the library's 16 MB, plus one to tell). */
+    private byte[] read(MediaDir.Entry e) throws Exception {
+        InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > 16 * 1024 * 1024) break;
+            }
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /** The ☰ badge in a card's top left corner: the file is in this folder's playlist. */
+    void badge(FrameLayout box, MediaDir.Entry e) {
+        if (box.findViewWithTag("media-in-playlist:" + e.name) != null) return;
+        TextView mark = this.app.text("\u2630", 14, true);
+        mark.setTag("media-in-playlist:" + e.name);
+        mark.setTextColor(UiKit.BG);
+        mark.setBackgroundColor(UiKit.ACCENT);
+        mark.setPadding(this.app.dp(5), this.app.dp(2), this.app.dp(5), this.app.dp(3));
+        mark.setContentDescription("In this folder's playlist");
+        box.addView(mark, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START));
     }
 
     static String ext(String name) {
@@ -409,7 +722,12 @@ final class MediaBrowser {
 
     /** A card's tap: a picture full size, a video or a sound played. */
     void openEntry(MediaDir.Entry e) {
-        if (e.kind == MediaDir.PICTURE) this.picture(e);
+        this.openEntry(e, this.entries);
+    }
+
+    /** As above; a picture's Previous / Next go through the pictures in `among` (the folder, or the playlist). */
+    void openEntry(MediaDir.Entry e, List<MediaDir.Entry> among) {
+        if (e.kind == MediaDir.PICTURE) this.picture(e, among);
         else if (e.kind == MediaDir.VIDEO) this.video(e);
         else if (e.kind == MediaDir.SOUND) this.sound(e);
     }
@@ -420,11 +738,21 @@ final class MediaBrowser {
     }
 
     /** A picture full size: pinch to zoom, drag to look around; Previous / Next go through the folder's pictures. */
-    void picture(MediaDir.Entry first) {
+    void picture(MediaDir.Entry first, List<MediaDir.Entry> among) {
         lastOpened = "picture:" + first.name;
         final List<MediaDir.Entry> pictures = new ArrayList<MediaDir.Entry>();
-        for (MediaDir.Entry x : this.entries) if (x.kind == MediaDir.PICTURE) pictures.add(x);
-        final int[] at = new int[] {Math.max(0, pictures.indexOf(first))};
+        int found = -1;
+        for (MediaDir.Entry x : among) {
+            if (x.kind != MediaDir.PICTURE) continue;
+            if (x == first || x.id.equals(first.id)) found = pictures.size();
+            pictures.add(x);
+        }
+        if (found < 0) {
+            pictures.clear();
+            pictures.add(first);
+            found = 0;
+        }
+        final int[] at = new int[] {found};
         final Dialog d = this.fullScreen();
         FrameLayout frame = new FrameLayout(this.app);
         frame.setBackgroundColor(0xff000000);
@@ -520,38 +848,296 @@ final class MediaBrowser {
         show.run();
     }
 
-    /** A video full screen, playing, with the system's controls (play / pause, position). */
+    /** The video player's state: the last one's, for the tests too. */
+    static final class Video {
+        VideoView view;
+        MediaPlayer media;
+        boolean muted;
+        int volume = 100;
+        double zoom = 1;
+        double speed = 1;
+        boolean loop;
+        TextView mute;
+        TextView speedLabel;
+        TextView time;
+
+        /** The player's window and the app's: kept on while it plays. */
+        android.view.Window window;
+        android.view.Window appWindow;
+        boolean awake;
+
+        /** The screen stays on while the video plays; paused, stopped or at its end the phone's own timeout applies. */
+        void keepAwake() {
+            boolean on = false;
+            try {
+                on = media != null ? media.isPlaying() : view.isPlaying();
+            } catch (Exception ignored) {
+                // released: closing
+            }
+            setAwake(on);
+        }
+
+        void setAwake(boolean on) {
+            if (awake == on) return;
+            awake = on;
+            screenOn(window, on);
+            screenOn(appWindow, on);
+        }
+
+        /** The time label: where it is / how long it is. */
+        void showTime() {
+            if (time == null || view == null) return;
+            int at = 0;
+            int len = 0;
+            try {
+                // The player once it is ready, else the view's own idea.
+                at = media != null ? media.getCurrentPosition() : view.getCurrentPosition();
+                len = media != null ? media.getDuration() : view.getDuration();
+            } catch (Exception ignored) {
+                // not ready
+            }
+            time.setText(clock(Math.max(0, at)) + " / " + clock(Math.max(0, len)));
+        }
+        TextView level;
+        TextView zoomLabel;
+
+        float gain() {
+            return muted ? 0f : volume / 100f;
+        }
+
+        void applyVolume() {
+            if (media != null) {
+                try {
+                    media.setVolume(gain(), gain());
+                } catch (IllegalStateException ignored) {
+                    // released: closing
+                }
+            }
+            if (level != null) level.setText(muted ? "muted" : volume + "%");
+        }
+
+        void zoomTo(double z) {
+            zoom = MediaDir.clampZoom(z);
+            view.setScaleX((float) zoom);
+            view.setScaleY((float) zoom);
+            if (zoom == 1) {
+                view.setTranslationX(0f);
+                view.setTranslationY(0f);
+            }
+            if (zoomLabel != null) zoomLabel.setText(MediaDir.zoomLabel(zoom));
+        }
+
+        /** The playback speed; a paused video stays paused (setting the speed would start it). */
+        void speedTo(double v) {
+            speed = MediaDir.speed(v);
+            if (speedLabel != null) speedLabel.setText("Speed " + MediaDir.speedLabel(speed));
+            if (media == null) return;
+            try {
+                boolean was = media.isPlaying();
+                media.setPlaybackParams(media.getPlaybackParams().setSpeed((float) speed));
+                if (!was) media.pause();
+            } catch (Exception ignored) {
+                // this phone's player cannot change speed (or it is closing)
+            }
+        }
+    }
+
+    /** Keeps the screen on (or lets it time out again) while `window` shows: the window flag, which every phone honours. */
+    static void screenOn(android.view.Window window, boolean on) {
+        if (window == null) return;
+        if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    static Video lastVideo;
+
+    /**
+     * A video full screen, playing: the system's controls (play / pause, position) on a tap, and
+     * below Mute, a volume slider, and Zoom − / + (pinch too; drag to look around a zoomed video).
+     * With Loop videos ticked it starts again at its end.
+     */
     void video(MediaDir.Entry e) {
         lastOpened = "video:" + e.name;
         if (this.app.playing) this.app.playback.stop();
         final Dialog d = this.fullScreen();
-        FrameLayout frame = new FrameLayout(this.app);
-        frame.setBackgroundColor(0xff000000);
-        final VideoView view = new VideoView(this.app);
-        view.setTag("media-video");
-        frame.addView(view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-        TextView title = this.app.text(e.name, 13, false);
-        title.setPadding(this.app.dp(12), this.app.dp(10), this.app.dp(12), this.app.dp(6));
-        title.setBackgroundColor(0x88000000);
-        frame.addView(title, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        final Video p = new Video();
+        // As the last video was left: volume, zoom and speed.
+        p.loop = MediaDir.loopVideos;
+        p.volume = MediaDir.volume;
+        p.speed = MediaDir.speed;
+        lastVideo = p;
+        LinearLayout col = this.app.col();
+        col.setBackgroundColor(0xff000000);
+        LinearLayout top = this.app.row();
+        top.setPadding(this.app.dp(12), this.app.dp(6), this.app.dp(6), this.app.dp(6));
+        TextView title = this.app.text(e.name + (p.loop ? "  \u00b7 looping" : ""), 13, false);
+        title.setTag("media-video-title");
+        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        // Where it is and how long it is: 0:12 / 1:30.
+        p.time = this.app.text("0:00 / 0:00", 13, false);
+        p.time.setTag("media-video-time");
+        p.time.setPadding(this.app.dp(8), 0, this.app.dp(8), 0);
+        top.addView(p.time);
+        final Runnable[] clock = new Runnable[1];
+        clock[0] = () -> {
+            if (!d.isShowing()) return;
+            p.showTime();
+            p.keepAwake();
+            this.main.postDelayed(clock[0], 250);
+        };
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
         close.setTag("media-video-close");
-        frame.addView(close, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END));
-        MediaController controls = new MediaController(this.app);
-        controls.setAnchorView(view);
-        view.setMediaController(controls);
-        view.setOnPreparedListener(mp -> {
-            controls.show(3000);
+        top.addView(close);
+        col.addView(top);
+        final FrameLayout frame = new FrameLayout(this.app);
+        frame.setClipChildren(true);
+        p.view = new VideoView(this.app);
+        p.view.setTag("media-video");
+        frame.addView(p.view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        col.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // Mute and volume.
+        LinearLayout sound = this.app.row();
+        sound.setPadding(this.app.dp(8), this.app.dp(4), this.app.dp(8), 0);
+        p.mute = this.app.pill("Mute", false, v -> {
+            p.muted = !p.muted;
+            p.mute.setText(p.muted ? "Unmute" : "Mute");
+            this.app.paintChip(p.mute, p.muted);
+            p.applyVolume();
         });
-        view.setOnErrorListener((mp, what, extra) -> {
+        p.mute.setTag("media-video-mute");
+        sound.addView(p.mute);
+        sound.addView(this.app.text("Volume", 13, false));
+        SeekBar volume = new SeekBar(this.app);
+        volume.setMax(100);
+        volume.setProgress(p.volume);
+        volume.setTag("media-video-volume");
+        volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                p.volume = value;
+                p.applyVolume();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        sound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
+        p.level = this.app.text(p.volume + "%", 13, false);
+        p.level.setTag("media-video-level");
+        p.level.setMinWidth(this.app.dp(52));
+        sound.addView(p.level);
+        col.addView(sound);
+        // Zoom.
+        LinearLayout zoom = this.app.row();
+        zoom.setPadding(this.app.dp(8), 0, this.app.dp(8), this.app.dp(6));
+        TextView out = this.app.pill("Zoom \u2212", false, v -> p.zoomTo(MediaDir.zoom(p.zoom, false)));
+        out.setTag("media-video-zoom-out");
+        TextView in = this.app.pill("Zoom +", false, v -> p.zoomTo(MediaDir.zoom(p.zoom, true)));
+        in.setTag("media-video-zoom-in");
+        TextView fit = this.app.pill("Fit", false, v -> p.zoomTo(1));
+        fit.setTag("media-video-fit");
+        p.zoomLabel = this.app.text("100%", 13, false);
+        p.zoomLabel.setTag("media-video-zoom");
+        p.zoomLabel.setPadding(this.app.dp(8), 0, 0, 0);
+        zoom.addView(out);
+        zoom.addView(in);
+        zoom.addView(fit);
+        zoom.addView(p.zoomLabel);
+        // Playback speed: a list from 0.25x to 2x.
+        zoom.addView(new View(this.app), new LinearLayout.LayoutParams(0, 1, 1f));
+        p.speedLabel = this.app.pill("Speed " + MediaDir.speedLabel(p.speed), false, v -> {
+            final String[] labels = new String[MediaDir.SPEEDS.length];
+            int now = 0;
+            for (int i = 0; i < labels.length; i++) {
+                labels[i] = MediaDir.speedLabel(MediaDir.SPEEDS[i]);
+                if (MediaDir.SPEEDS[i] == p.speed) now = i;
+            }
+            new AlertDialog.Builder(this.app)
+                .setTitle("Playback speed")
+                .setSingleChoiceItems(labels, now, (dd, which) -> {
+                    p.speedTo(MediaDir.SPEEDS[which]);
+                    dd.dismiss();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        });
+        p.speedLabel.setTag("media-video-speed");
+        zoom.addView(p.speedLabel);
+        col.addView(zoom);
+        // The last video's zoom.
+        p.zoomTo(MediaDir.zoom);
+        // The play / pause and position controls show over the picture on a tap.
+        final MediaController controls = new MediaController(this.app);
+        controls.setAnchorView(frame);
+        p.view.setMediaController(controls);
+        // Pinch to zoom; one finger moves a zoomed video, a tap shows the controls.
+        final ScaleGestureDetector pinch = new ScaleGestureDetector(this.app, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScale(ScaleGestureDetector g) {
+                p.zoomTo(p.zoom * g.getScaleFactor());
+                return true;
+            }
+        });
+        final float[] down = new float[3];
+        final View.OnTouchListener touch = (v, ev) -> {
+            pinch.onTouchEvent(ev);
+            int act = ev.getActionMasked();
+            if (act == MotionEvent.ACTION_DOWN) {
+                down[0] = ev.getRawX() - p.view.getTranslationX();
+                down[1] = ev.getRawY() - p.view.getTranslationY();
+                down[2] = 0;
+            } else if (act == MotionEvent.ACTION_MOVE && ev.getPointerCount() == 1 && !pinch.isInProgress() && p.zoom > 1) {
+                p.view.setTranslationX(ev.getRawX() - down[0]);
+                p.view.setTranslationY(ev.getRawY() - down[1]);
+                down[2] = 1;
+            } else if (act == MotionEvent.ACTION_POINTER_DOWN) {
+                down[2] = 1;
+            } else if (act == MotionEvent.ACTION_UP && down[2] == 0) {
+                if (controls.isShowing()) controls.hide();
+                else controls.show(3000);
+            }
+            return true;
+        };
+        // On the video and around it alike (the video's own tap would only toggle the controls).
+        frame.setOnTouchListener(touch);
+        p.view.setOnTouchListener(touch);
+        p.view.setOnPreparedListener(mp -> {
+            p.media = mp;
+            mp.setLooping(p.loop);
+            p.applyVolume();
+            if (p.speed != 1) p.speedTo(p.speed);
+            p.showTime();
+            try {
+                controls.show(3000);
+            } catch (RuntimeException ex) {
+                // a controller not tied to its player yet: it shows on the next tap
+            }
+        });
+        p.view.setOnErrorListener((mp, what, extra) -> {
             this.app.setNow("This phone cannot play " + e.name);
             return true;
         });
-        view.setVideoURI(this.uri(e));
-        d.setOnDismissListener(x -> view.stopPlayback());
-        d.setContentView(frame);
+        p.view.setVideoURI(this.uri(e));
+        p.window = d.getWindow();
+        p.appWindow = this.app.getWindow();
+        d.setOnShowListener(x -> this.main.post(clock[0]));
+        d.setOnDismissListener(x -> {
+            this.main.removeCallbacks(clock[0]);
+            p.setAwake(false);
+            // The next video opens as this one was left.
+            MediaDir.volume = p.volume;
+            MediaDir.zoom = p.zoom;
+            MediaDir.speed = p.speed;
+            save(this.app);
+            p.media = null;
+            p.view.stopPlayback();
+        });
+        d.setContentView(col);
         d.show();
-        view.start();
+        p.view.start();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */

@@ -661,6 +661,20 @@ final class PyJav {
 
     /** A player page for `video` in the temp folder: the clip with Play/Pause, Stop, Mute and a volume slider. */
     File videoPage(File video) throws java.io.IOException {
+        return this.videoPage(video, false);
+    }
+
+    /** As above, with Loop (ticked when `loop` says so), Zoom −, Zoom +, Fit (a drag moves a zoomed video) and Speed. */
+    File videoPage(File video, boolean loop) throws java.io.IOException {
+        return this.videoPage(video, loop, 100, 1, 1);
+    }
+
+    /** As above, starting at `volume` (0..100), `zoom` (1..4) and `speed` (the Media browser's last ones). */
+    File videoPage(File video, boolean loop, int volume, double zoom, double speed) throws java.io.IOException {
+        StringBuilder speeds = new StringBuilder();
+        for (double v : MediaDir.SPEEDS) {
+            speeds.append("<option value=\"").append(v).append('"').append(v == MediaDir.speed(speed) ? " selected" : "").append('>').append(MediaDir.speedLabel(v)).append("</option>");
+        }
         File dir = new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-player");
         if (!dir.isDirectory()) dir.mkdirs();
         String name = video.getName().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
@@ -668,14 +682,19 @@ final class PyJav {
         String html = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
             + "<title>" + name + "</title>\n<style>\n"
             + "body{margin:0;background:#111;color:#eee;font:15px sans-serif;display:flex;flex-direction:column;align-items:center;padding:16px}\n"
-            + "video{max-width:100%;max-height:70vh;background:#000;border-radius:8px}\n"
+            + "#box{max-width:100%;max-height:70vh;overflow:hidden;border-radius:8px;background:#000;cursor:grab}\n"
+            + "video{display:block;max-width:100%;max-height:70vh;background:#000;transform-origin:center}\n"
             + ".bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;justify-content:center}\n"
             + "button{background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:16px;padding:7px 16px;font:inherit;cursor:pointer}\n"
             + "button.on{background:#c7f04b;color:#111;border-color:#c7f04b}\ninput[type=range]{width:200px}\n</style></head>\n<body>\n"
             + "<div>" + name + "</div>\n"
-            + "<video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline></video>\n"
-            + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button></div>\n"
-            + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"100\"> <span id=\"level\">100%</span></div>\n"
+            + "<div id=\"box\"><video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline" + (loop ? " loop" : "") + "></video></div>\n"
+            + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button>"
+            + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label>"
+            + " <span id=\"time\">0:00 / 0:00</span></div>\n"
+            + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span>"
+            + " &nbsp;Speed <select id=\"speed\">" + speeds + "</select></div>\n"
+            + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"" + volume + "\"> <span id=\"level\">" + volume + "%</span></div>\n"
             + "<script>\n"
             + "var v=document.getElementById('v'),play=document.getElementById('play'),mute=document.getElementById('mute'),vol=document.getElementById('volume'),level=document.getElementById('level');\n"
             + "function show(){play.textContent=v.paused?'Play':'Pause';mute.textContent=v.muted?'Unmute':'Mute';mute.className=v.muted?'on':'';level.textContent=v.muted?'muted':vol.value+'%';}\n"
@@ -683,7 +702,23 @@ final class PyJav {
             + "document.getElementById('stop').onclick=function(){v.pause();v.currentTime=0;};\n"
             + "mute.onclick=function(){v.muted=!v.muted;show();};\n"
             + "vol.oninput=function(){v.volume=vol.value/100;show();};\n"
-            + "v.onplay=v.onpause=v.onended=show;\nshow();\n</script>\n</body></html>\n";
+            + "document.getElementById('loop').onchange=function(){v.loop=this.checked;};\n"
+            + "var sp=document.getElementById('speed');sp.onchange=function(){v.playbackRate=v.defaultPlaybackRate=parseFloat(sp.value);};\n"
+            + "v.volume=vol.value/100;v.playbackRate=v.defaultPlaybackRate=parseFloat(sp.value);\n"
+            + "var steps=[1,1.25,1.5,2,2.5,3,4],z=" + MediaDir.clampZoom(zoom) + ",px=0,py=0,box=document.getElementById('box');\n"
+            + "function paint(){if(z==1){px=0;py=0;}var mx=v.clientWidth*(z-1)/2,my=v.clientHeight*(z-1)/2;px=Math.max(-mx,Math.min(mx,px));py=Math.max(-my,Math.min(my,py));"
+            + "v.style.transform='translate('+px+'px,'+py+'px) scale('+z+')';document.getElementById('zoom').textContent=Math.round(z*100)+'%';}\n"
+            + "function step(up){var i;if(up){for(i=0;i<steps.length;i++)if(steps[i]>z+0.001){z=steps[i];break;}}else{var n=1;for(i=0;i<steps.length;i++)if(steps[i]<z-0.001)n=steps[i];z=n;}paint();}\n"
+            + "document.getElementById('zin').onclick=function(){step(true);};document.getElementById('zout').onclick=function(){step(false);};\n"
+            + "document.getElementById('fit').onclick=function(){z=1;paint();};\n"
+            + "box.onwheel=function(e){e.preventDefault();step(e.deltaY<0);};\n"
+            + "var dx=null,dy=0;box.onmousedown=function(e){dx=e.clientX-px;dy=e.clientY-py;};window.onmouseup=function(){dx=null;};\n"
+            + "window.onmousemove=function(e){if(dx!==null&&z>1){px=e.clientX-dx;py=e.clientY-dy;paint();}};\n"
+            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60;return Math.floor(t/60)+':'+(s<10?'0':'')+s;}\n"
+            + "function tick(){document.getElementById('time').textContent=clock(v.currentTime)+' / '+clock(isFinite(v.duration)?v.duration:0);}\n"
+            + "v.ontimeupdate=v.ondurationchange=tick;\n"
+            + "v.onloadedmetadata=function(){paint();tick();};\n"
+            + "v.onplay=v.onpause=v.onended=show;\nshow();paint();\n</script>\n</body></html>\n";
         File page = new File(dir, video.getName().replaceAll("[^A-Za-z0-9._-]", "_") + ".html");
         Files.write(page.toPath(), html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return page;
@@ -927,6 +962,11 @@ final class PyJav {
             if (p.dir) {
                 // A folder (MediaBrowser's directory): Browse picks it and opens the Media browser on it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
+                // Empty: the folder the Media browser last opened.
+                if (values[i].length() == 0) {
+                    MediaBrowser.loadLoop();
+                    values[i] = MediaDir.lastRoot;
+                }
                 final JLabel chosen = new JLabel(MediaDir.label(values[i]));
                 chosen.setName("params-chosen:" + p.token);
                 JButton browse = new JButton("Browse");

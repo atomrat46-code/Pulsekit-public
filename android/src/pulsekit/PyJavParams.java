@@ -120,6 +120,11 @@ public final class PyJavParams {
         android.widget.Button browse = new android.widget.Button(activity);
         browse.setText("Browse");
         browse.setTag("params-dir:" + p.token);
+        // Empty: the folder the Media browser last opened.
+        if (values[i].length() == 0 && activity instanceof MainActivity) {
+          MediaBrowser.load((MainActivity) activity);
+          values[i] = MediaDir.lastRoot;
+        }
         final TextView chosen = new TextView(activity);
         chosen.setTag("params-chosen:" + p.token);
         chosen.setPadding(dp(activity, 8), 0, 0, 0);

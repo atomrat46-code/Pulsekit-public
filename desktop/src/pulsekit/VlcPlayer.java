@@ -47,6 +47,7 @@ final class VlcPlayer {
         int libvlc_audio_set_volume(Pointer player, int volume);
         int libvlc_video_get_size(Pointer player, int num, com.sun.jna.ptr.IntByReference width, com.sun.jna.ptr.IntByReference height);
         void libvlc_audio_set_mute(Pointer player, int mute);
+        int libvlc_media_player_set_rate(Pointer player, float rate);
         void libvlc_video_set_callbacks(Pointer player, Lock lock, Unlock unlock, Display display, Pointer opaque);
         void libvlc_video_set_format_callbacks(Pointer player, Setup setup, Cleanup cleanup);
     }
@@ -190,9 +191,50 @@ final class VlcPlayer {
         volatile int visibleW;
         volatile int visibleH;
 
+        /** Zoom: 1 fits the window, up to 4 (MediaDir's steps); the shift of a zoomed picture, in pixels. */
+        volatile double zoom = 1;
+        volatile int panX;
+        volatile int panY;
+        /** Called when the wheel changes the zoom (the window's zoom label). */
+        Runnable zoomed;
+
         Screen() {
             this.setBackground(Color.BLACK);
             this.setPreferredSize(new Dimension(720, 405));
+            // The wheel zooms; a drag moves a zoomed picture.
+            this.addMouseWheelListener(e -> {
+                this.zoomTo(MediaDir.zoom(this.zoom, e.getWheelRotation() < 0));
+                if (this.zoomed != null) this.zoomed.run();
+            });
+            java.awt.event.MouseAdapter drag = new java.awt.event.MouseAdapter() {
+                int x;
+                int y;
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    this.x = e.getX() - Screen.this.panX;
+                    this.y = e.getY() - Screen.this.panY;
+                }
+
+                @Override
+                public void mouseDragged(java.awt.event.MouseEvent e) {
+                    if (Screen.this.zoom <= 1) return;
+                    Screen.this.panX = e.getX() - this.x;
+                    Screen.this.panY = e.getY() - this.y;
+                    Screen.this.repaint();
+                }
+            };
+            this.addMouseListener(drag);
+            this.addMouseMotionListener(drag);
+        }
+
+        void zoomTo(double z) {
+            this.zoom = MediaDir.clampZoom(z);
+            if (this.zoom == 1) {
+                this.panX = 0;
+                this.panY = 0;
+            }
+            this.repaint();
         }
 
         @Override
@@ -203,10 +245,16 @@ final class VlcPlayer {
             int vw = this.visibleW;
             int vh = this.visibleH;
             if (vw > 0 && vh > 0 && (vw < img.getWidth() || vh < img.getHeight())) img = img.getSubimage(0, 0, Math.min(vw, img.getWidth()), Math.min(vh, img.getHeight()));
-            double s = Math.min(this.getWidth() / (double) img.getWidth(), this.getHeight() / (double) img.getHeight());
+            double s = Math.min(this.getWidth() / (double) img.getWidth(), this.getHeight() / (double) img.getHeight()) * this.zoom;
             int w = Math.max(1, (int) (img.getWidth() * s));
             int h = Math.max(1, (int) (img.getHeight() * s));
-            g.drawImage(img, (this.getWidth() - w) / 2, (this.getHeight() - h) / 2, w, h, null);
+            // A zoomed picture moves no further than its edges.
+            int maxX = Math.max(0, (w - this.getWidth()) / 2);
+            int maxY = Math.max(0, (h - this.getHeight()) / 2);
+            this.panX = Math.max(-maxX, Math.min(maxX, this.panX));
+            this.panY = Math.max(-maxY, Math.min(maxY, this.panY));
+            ((java.awt.Graphics2D) g).setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(img, (this.getWidth() - w) / 2 + this.panX, (this.getHeight() - h) / 2 + this.panY, w, h, null);
         }
     }
 
@@ -285,11 +333,17 @@ final class VlcPlayer {
      * Reads the picture's visible size from VLC (called from the Swing thread, not from VLC's
      * own callbacks), scaled as the frames are, so the padding VLC adds below is not drawn.
      */
+    /** The video's own size (not the scaled picture's), once known; 0 before. */
+    volatile int videoW;
+    volatile int videoH;
+
     void refreshSize() {
         if (this.player == null) return;
         com.sun.jna.ptr.IntByReference w = new com.sun.jna.ptr.IntByReference();
         com.sun.jna.ptr.IntByReference h = new com.sun.jna.ptr.IntByReference();
         if (lib.libvlc_video_get_size(this.player, 0, w, h) != 0 || w.getValue() <= 0 || h.getValue() <= 0) return;
+        this.videoW = w.getValue();
+        this.videoH = h.getValue();
         double s = Math.min(1.0, MAX_SIDE / (double) Math.max(w.getValue(), h.getValue()));
         this.screen.visibleW = Math.max(1, (int) Math.round(w.getValue() * s));
         this.screen.visibleH = Math.max(1, (int) Math.round(h.getValue() * s));
@@ -341,6 +395,11 @@ final class VlcPlayer {
         if (this.player != null) lib.libvlc_audio_set_volume(this.player, Math.max(0, Math.min(100, percent)));
     }
 
+    /** Playback speed: 1 as recorded, 0.5 half, 2 double. */
+    void rate(double speed) {
+        if (this.player != null) lib.libvlc_media_player_set_rate(this.player, (float) speed);
+    }
+
     void mute(boolean on) {
         if (this.player != null) lib.libvlc_audio_set_mute(this.player, on ? 1 : 0);
     }
@@ -359,6 +418,20 @@ final class VlcPlayer {
      * sound and without showing anything; null when VLC cannot play it (within 8 seconds).
      */
     static byte[] firstFrame(File video, int maxSide) {
+        Probe got = probe(video, maxSide);
+        return got == null ? null : got.jpeg;
+    }
+
+    /** A video's first frame (a JPEG), its own size and its length. */
+    static final class Probe {
+        byte[] jpeg;
+        int width;
+        int height;
+        long lengthMs;
+    }
+
+    /** As firstFrame, with the video's size and length too; null when VLC cannot play it. */
+    static Probe probe(File video, int maxSide) {
         VlcPlayer p = null;
         try {
             p = new VlcPlayer(video, true);
@@ -383,7 +456,13 @@ final class VlcPlayer {
             g.dispose();
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             javax.imageio.ImageIO.write(small, "jpg", out);
-            return out.size() > 0 ? out.toByteArray() : null;
+            if (out.size() == 0) return null;
+            Probe got = new Probe();
+            got.jpeg = out.toByteArray();
+            got.width = p.videoW;
+            got.height = p.videoH;
+            got.lengthMs = p.lengthMs();
+            return got;
         } catch (Exception ex) {
             return null;
         } finally {

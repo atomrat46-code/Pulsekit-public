@@ -27,6 +27,14 @@ final class VideoOffer {
         TextView play;
         TextView mute;
         TextView level;
+        /** The dialog's window and the app's: the screen is kept on while it plays. */
+        android.view.Window window;
+        android.view.Window appWindow;
+
+        void awake() {
+            MediaBrowser.screenOn(window, playing);
+            MediaBrowser.screenOn(appWindow, playing);
+        }
 
         /** The volume MediaPlayer is given: none when muted, else the slider's share. */
         float gain() {
@@ -53,6 +61,7 @@ final class VideoOffer {
                 playing = true;
             }
             play.setText(playing ? "Pause" : "Play");
+            awake();
         }
 
         void stop() {
@@ -60,6 +69,7 @@ final class VideoOffer {
             view.seekTo(0);
             playing = false;
             play.setText("Play");
+            awake();
         }
 
         void toggleMute(MainActivity app) {
@@ -123,6 +133,7 @@ final class VideoOffer {
             public void onCompletion(MediaPlayer mp) {
                 p.playing = false;
                 p.play.setText("Play");
+                p.awake();
             }
         });
         p.view.setVideoPath(path);
@@ -175,10 +186,13 @@ final class VideoOffer {
             @Override
             public void onDismiss(DialogInterface d) {
                 p.playing = false;
+                p.awake();
                 p.media = null;
                 p.view.stopPlayback();
             }
         });
+        p.window = dialog.getWindow();
+        p.appWindow = app.getWindow();
         dialog.show();
         return true;
     }

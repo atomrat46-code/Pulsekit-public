@@ -871,23 +871,31 @@ final class PromptDb {
     void videoPreview(String name, byte[] bytes) {
         File tmp = this.spill(name, bytes);
         if (tmp == null) return;
+        this.videoFile(name, tmp, false, false);
+    }
+
+    /**
+     * As above, for a video file as it is (the Media browser's), looping at its end when `loop` says
+     * so; with `remember` it opens at the Media browser's last volume, zoom and speed, and keeps them.
+     */
+    void videoFile(String name, File tmp, boolean loop, boolean remember) {
         // With VLC on the computer the video plays here, in the Preview window.
         if (VlcPlayer.available()) {
             try {
-                this.vlcPreview(name, tmp);
+                this.vlcPreview(name, tmp, loop, remember);
                 return;
             } catch (Exception ex) {
                 app.setNow(ex.getMessage() != null ? ex.getMessage() : "VLC could not play " + name);
             }
         }
         Object[] options = new Object[] {"Play", "Open", "Extract frames", "Close"};
-        int ans = JOptionPane.showOptionDialog(app, name + " (" + Math.max(1, bytes.length / 1024) + " KB)\n\n"
+        int ans = JOptionPane.showOptionDialog(app, name + " (" + Math.max(1, tmp.length() / 1024) + " KB)\n\n"
             + "Play opens it in the browser with Play/Pause, Stop, Mute and volume.\n"
             + "Extract frames keeps its first and last frame as reference files (the browser reads them).\n\n"
             + "To play videos here in Pulsekit, install VLC (videolan.org).", "Preview \u00b7 " + name,
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         try {
-            if (ans == 0) browser.accept(app.pyJav.videoPage(tmp).toURI());
+            if (ans == 0) browser.accept((remember ? app.pyJav.videoPage(tmp, loop, MediaDir.volume, MediaDir.zoom, MediaDir.speed) : app.pyJav.videoPage(tmp, loop)).toURI());
             else if (ans == 1) java.awt.Desktop.getDesktop().open(tmp);
             else if (ans == 2) this.extractFrames(name, tmp);
         } catch (Exception ex) {
@@ -904,7 +912,17 @@ final class PromptDb {
      * position slider; Open in browser, Extract frames and Close below. Closing stops it.
      */
     void vlcPreview(String name, File video) {
+        this.vlcPreview(name, video, false, false);
+    }
+
+    /** Media browser: the speed picked (or the remembered one), for the tests. */
+    javax.swing.JComboBox<String> lastSpeed;
+
+    /** As above; with `loop` (the Media browser's Loop videos) the Loop box starts ticked: the video starts again at its end. */
+    void vlcPreview(String name, File video, boolean loop, final boolean remember) {
         final VlcPlayer player = new VlcPlayer(video);
+        // The Media browser's player opens as its last video was left; other previews at 80%, fit, 1x.
+        final int startVolume = remember ? MediaDir.volume : 80;
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
         JButton play = new JButton("Play");
         play.setName("video-play");
@@ -912,17 +930,19 @@ final class PromptDb {
         stop.setName("video-stop");
         JButton mute = new JButton("Mute");
         mute.setName("video-mute");
-        javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, 80);
+        javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, startVolume);
         volume.setName("video-volume");
         volume.setPreferredSize(new Dimension(120, volume.getPreferredSize().height));
-        JLabel level = new JLabel("80%");
+        JLabel level = new JLabel(startVolume + "%");
         javax.swing.JSlider position = new javax.swing.JSlider(0, 1000, 0);
         position.setName("video-position");
         JLabel time = new JLabel("0:00 / 0:00");
         time.setName("video-time");
         final boolean[] muted = new boolean[1];
+        // The speed VLC plays at now (1 until it plays).
+        final double[] rate = new double[] {1};
         final boolean[] dragging = new boolean[1];
-        player.volume(80);
+        player.volume(startVolume);
         play.addActionListener(e -> {
             if (player.playing()) player.pause();
             else player.play();
@@ -941,6 +961,42 @@ final class PromptDb {
             player.volume(volume.getValue());
             if (!muted[0]) level.setText(volume.getValue() + "%");
         });
+        final javax.swing.JCheckBox looping = new javax.swing.JCheckBox("Loop", loop);
+        looping.setName("video-loop");
+        // Zoom: − and + by steps, Fit; the mouse wheel too, and a drag moves a zoomed picture.
+        JButton zoomOut = new JButton("Zoom \u2212");
+        zoomOut.setName("video-zoom-out");
+        JButton zoomIn = new JButton("Zoom +");
+        zoomIn.setName("video-zoom-in");
+        JButton fit = new JButton("Fit");
+        fit.setName("video-fit");
+        final JLabel zoomLevel = new JLabel("100%");
+        zoomLevel.setName("video-zoom");
+        player.screen.zoomed = () -> zoomLevel.setText(MediaDir.zoomLabel(player.screen.zoom));
+        zoomOut.addActionListener(e -> {
+            player.screen.zoomTo(MediaDir.zoom(player.screen.zoom, false));
+            player.screen.zoomed.run();
+        });
+        zoomIn.addActionListener(e -> {
+            player.screen.zoomTo(MediaDir.zoom(player.screen.zoom, true));
+            player.screen.zoomed.run();
+        });
+        fit.addActionListener(e -> {
+            player.screen.zoomTo(1);
+            player.screen.zoomed.run();
+        });
+        // Playback speed, 0.25x to 2x.
+        String[] speeds = new String[MediaDir.SPEEDS.length];
+        for (int i = 0; i < speeds.length; i++) speeds[i] = MediaDir.speedLabel(MediaDir.SPEEDS[i]);
+        final javax.swing.JComboBox<String> speed = new javax.swing.JComboBox<String>(speeds);
+        speed.setName("video-speed");
+        speed.setSelectedItem(MediaDir.speedLabel(remember ? MediaDir.speed : 1));
+
+        this.lastSpeed = speed;
+        if (remember) {
+            player.screen.zoomTo(MediaDir.zoom);
+            player.screen.zoomed.run();
+        }
         position.addChangeListener(e -> {
             dragging[0] = position.getValueIsAdjusting();
             if (position.getValueIsAdjusting()) player.seek(position.getValue() / 1000f);
@@ -949,9 +1005,24 @@ final class PromptDb {
         javax.swing.Timer follow = new javax.swing.Timer(200, e -> {
             player.refreshSize();
             boolean on = player.playing();
+            // The speed picked, once it plays (VLC takes it only then; a new start forgets it).
+            double want = MediaDir.SPEEDS[speed.getSelectedIndex()];
+            if (on && rate[0] != want) {
+                player.rate(want);
+                rate[0] = want;
+            } else if (!on && player.state() >= 5) {
+                // Stopped or at its end: the next start begins at 1x.
+                rate[0] = 1;
+            }
             play.setText(on ? "Pause" : "Play");
             long len = player.lengthMs();
             int state = player.state();
+            // Loop: at its end it plays again from the start.
+            if (state == VlcPlayer.ENDED && looping.isSelected()) {
+                player.stop();
+                player.play();
+                return;
+            }
             long at = state == VlcPlayer.ENDED ? len : player.timeMs();
             time.setText(VlcPlayer.clock(at) + " / " + VlcPlayer.clock(len));
             if (!dragging[0]) position.setValue(state == VlcPlayer.ENDED ? 1000 : Math.round(player.position() * 1000));
@@ -963,17 +1034,26 @@ final class PromptDb {
         transport.add(new JLabel("Volume"));
         transport.add(volume);
         transport.add(level);
+        transport.add(looping);
+        JPanel zooms = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        zooms.add(zoomOut);
+        zooms.add(zoomIn);
+        zooms.add(fit);
+        zooms.add(zoomLevel);
+        zooms.add(new JLabel("   Speed"));
+        zooms.add(speed);
         JPanel seek = new JPanel(new BorderLayout(8, 0));
         seek.add(position, BorderLayout.CENTER);
         seek.add(time, BorderLayout.EAST);
         JPanel controls = new JPanel(new BorderLayout(0, 6));
         controls.add(seek, BorderLayout.NORTH);
-        controls.add(transport, BorderLayout.SOUTH);
+        controls.add(transport, BorderLayout.CENTER);
+        controls.add(zooms, BorderLayout.SOUTH);
         JButton browser = new JButton("Open in browser");
         browser.addActionListener(e -> {
             player.pause();
             try {
-                PromptDb.browser.accept(app.pyJav.videoPage(video).toURI());
+                PromptDb.browser.accept(app.pyJav.videoPage(video, looping.isSelected()).toURI());
             } catch (Exception ex) {
                 app.setNow("Could not open a player for " + name);
             }
@@ -1014,6 +1094,13 @@ final class PromptDb {
             public void windowClosed(java.awt.event.WindowEvent e) {
                 follow.stop();
                 player.release();
+                if (remember) {
+                    // The Media browser's next video opens as this one was left.
+                    MediaDir.volume = volume.getValue();
+                    MediaDir.zoom = player.screen.zoom;
+                    MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
+                    MediaBrowser.saveLoop();
+                }
             }
         });
         dialog.pack();

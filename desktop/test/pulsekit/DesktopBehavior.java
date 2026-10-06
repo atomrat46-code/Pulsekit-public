@@ -2057,6 +2057,52 @@ public final class DesktopBehavior {
           javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + n);
           seen.append(n).append(": ").append(card.getIcon() != null ? "thumbnail" : "type mark").append(", ").append(card.getToolTipText()).append('\n');
         }
+        // A right click on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
+        javax.swing.JButton playlist = (javax.swing.JButton) component(d, "media-playlist");
+        seen.append("Playlist button before: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        java.util.function.Supplier<String> badges = () -> {
+          StringBuilder b = new StringBuilder();
+          for (String n : new String[] {"beat.wav", "sunset.png", "walk.mp4"}) {
+            b.append(n).append(((javax.swing.JButton) component(d, "media-card:" + n)).getText().contains("\u2630") ? " \u2630" : " -").append("  ");
+          }
+          return b.toString().trim();
+        };
+        seen.append("badges before: ").append(badges.get()).append('\n');
+        // walk.mp4 is added, taken out again (its menu then says Remove), and added back.
+        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
+        for (String[] pick : picks) {
+          javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + pick[0]);
+          card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+              java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+          javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+          StringBuilder items = new StringBuilder();
+          for (Component c : menu.getComponents()) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (pick == picks[0]) seen.append("menu: ").append(items).append(", shown ").append(menu.isVisible()).append('\n');
+          String label = ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).getText();
+          ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).doClick();
+          menu.setVisible(false);
+          seen.append(pick[0]).append(" \"").append(label).append("\": ").append(((JLabel) get("nowPlaying")).getText())
+              .append(", badge ").append(((javax.swing.JButton) component(d, "media-card:" + pick[0])).getText().contains("\u2630") ? "\u2630" : "-")
+              .append(", ").append(playlist.isVisible() ? playlist.getText() : "no Playlist button").append('\n');
+        }
+        for (PromptVault.StoredFile f : PromptDb.files(false, null)) seen.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+        for (PromptVault.StoredFile f : PromptDb.files(true, null)) seen.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+        seen.append("Playlist button after: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        seen.append("badges after: ").append(badges.get()).append('\n');
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), media.getAbsolutePath())) seen.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(home.getAbsolutePath(), "~")).append('\n');
+        ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
+        // A folder under it has a playlist of its own.
+        javax.swing.JButton morePlaylist = (javax.swing.JButton) component(d, "media-playlist");
+        seen.append("in more, Playlist button: ").append(morePlaylist.isVisible() ? morePlaylist.getText() : "hidden");
+        javax.swing.JButton beach = (javax.swing.JButton) component(d, "media-card:beach.jpg");
+        beach.dispatchEvent(new java.awt.event.MouseEvent(beach, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu beachMenu = (javax.swing.JPopupMenu) get("lastMenu");
+        ((javax.swing.JMenuItem) beachMenu.getComponent(2)).doClick();
+        beachMenu.setVisible(false);
+        seen.append(", after adding beach.jpg: ").append(morePlaylist.isVisible() ? morePlaylist.getText() : "hidden").append('\n');
+        ((javax.swing.JButton) component(d, "media-up")).doClick();
+        seen.append("back up, Playlist button: ").append(((javax.swing.JButton) component(d, "media-playlist")).getText()).append(", badges ").append(badges.get()).append('\n');
         ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
         seen.append("in more: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
         for (String s : names(d.getContentPane())) if (s.startsWith("media-card") || s.startsWith("media-folder")) seen.append("  ").append(s).append('\n');
@@ -2125,8 +2171,319 @@ public final class DesktopBehavior {
       if (line.startsWith("  ") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("Media browser"))
         out.append("log: ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
+    // The playlist window: its files in order; a click opens one as its thumbnail does (the watcher closes the window, then the picture).
+    final StringBuilder listed = new StringBuilder();
+    inspectNext = d -> {
+      listed.append("window: ").append(d.getTitle()).append('\n');
+      for (String n : names(d.getContentPane())) {
+        if (!n.startsWith("playlist-item:")) continue;
+        listed.append("  ").append(((javax.swing.JButton) component(d, n)).getText()).append('\n');
+      }
+      javax.swing.JButton first = (javax.swing.JButton) component(d, "playlist-item:sunset.png");
+      // Held: its thumbnail shows beside the list; the release closes it.
+      try {
+        java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+        peek.setAccessible(true);
+        MediaDir.Entry beat = new MediaDir.Entry();
+        beat.name = "beat.wav";
+        beat.kind = MediaDir.SOUND;
+        peek.invoke(browser, component(d, "playlist-item:beat.wav"), beat, new File(media, "beat.wav"));
+        javax.swing.JWindow w = (javax.swing.JWindow) get("lastPeek");
+        listed.append("held beat.wav: preview shown ").append(w.isVisible()).append(", ").append(((JLabel) get("lastPeekImage")).getText().replaceAll("<[^>]+>", " ").trim()).append('\n');
+        javax.swing.JButton beatRow = (javax.swing.JButton) component(d, "playlist-item:beat.wav");
+        beatRow.dispatchEvent(new java.awt.event.MouseEvent(beatRow, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        listed.append("released: preview shown ").append(w.isVisible()).append('\n');
+      } catch (Exception ex) {
+        listed.append("peek failed: ").append(ex).append('\n');
+      }
+      SwingUtilities.invokeLater(first::doClick);
+    };
+    answers.add("Close");
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("playlist", JDialog.class, File.class);
+        m.setAccessible(true);
+        m.invoke(browser, null, media);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 80 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(listed);
+    // A picture's preview: its thumbnail, read in the background.
+    MediaDir.Entry sunset = new MediaDir.Entry();
+    sunset.name = "sunset.png";
+    sunset.kind = MediaDir.PICTURE;
+    edt(() -> {
+      java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+      peek.setAccessible(true);
+      peek.invoke(browser, ((JFrame) frame).getContentPane(), sunset, new File(media, "sunset.png"));
+    });
+    for (int i = 0; i < 40 && ((JLabel) get("lastPeekImage")).getIcon() == null; i++) Thread.sleep(50);
+    for (int i = 0; i < 40 && ((JLabel) get("lastPeekInfo")).getText().trim().isEmpty(); i++) Thread.sleep(50);
+    out.append("held sunset.png: ").append(((JLabel) get("lastPeekImage")).getIcon() != null ? "thumbnail" : "no thumbnail").append(", ").append(((JLabel) get("lastPeekInfo")).getText()).append('\n');
+    edt(() -> call("unpeek"));
+    // A video: its length and resolution (without VLC, from the MP4's own headers).
+    MediaDir.Entry walk = new MediaDir.Entry();
+    walk.name = "walk.mp4";
+    walk.kind = MediaDir.VIDEO;
+    edt(() -> {
+      java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+      peek.setAccessible(true);
+      peek.invoke(browser, ((JFrame) frame).getContentPane(), walk, new File(media, "walk.mp4"));
+    });
+    for (int i = 0; i < 60 && ((JLabel) get("lastPeekInfo")).getText().trim().isEmpty(); i++) Thread.sleep(50);
+    out.append("held walk.mp4: ").append(((JLabel) get("lastPeekInfo")).getText()).append('\n');
+    edt(() -> call("unpeek"));
+    out.append("let go: preview shown ").append(((javax.swing.JWindow) get("lastPeek")).isVisible()).append('\n');
     out.append("folder label: ").append(MediaDir.label(media.getAbsolutePath())).append(", phone folder: ")
         .append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
+  }
+
+  /**
+   * The Media browser's Loop videos (kept in ~/.pulsekit/media-browser.txt): a video opened from it
+   * starts with Loop ticked and plays again at its end. The player has Mute, volume, and Zoom −,
+   * Zoom +, Fit; without VLC the browser's player page has Loop and zoom too.
+   * desktop/test/clip.webm: 3.5 s.
+   */
+  void s58_media_video() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "clips");
+    media.mkdirs();
+    File clip = new File(media, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    final Object browser = get("mediaBrowser");
+    // Loop videos: ticked on the Media browser, and kept.
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JCheckBox loop = (javax.swing.JCheckBox) component(d, "media-loop");
+      seen.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isSelected());
+      loop.doClick();
+      seen.append(" -> ").append(loop.isSelected()).append('\n');
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("open", File.class);
+        m.setAccessible(true);
+        m.invoke(browser, media);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
+    final MediaDir.Entry entry = new MediaDir.Entry();
+    entry.name = clip.getName();
+    entry.kind = MediaDir.VIDEO;
+    Runnable open = () -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("openEntry", MediaDir.Entry.class, File.class);
+        m.setAccessible(true);
+        m.invoke(browser, entry, clip);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    };
+    if (VlcPlayer.available()) {
+      answers.add("Mute");
+      SwingUtilities.invokeLater(open);
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(1200);
+      idle();
+      JDialog dialog = (JDialog) get("lastVideo");
+      VlcPlayer player = (VlcPlayer) get("lastPlayer");
+      java.util.function.Function<String, javax.swing.JButton> b = n -> (javax.swing.JButton) component(dialog, n);
+      out.append("VLC player time: ").append(((JLabel) component(dialog, "video-time")).getText().replaceAll("^\\d:\\d\\d", "0:0x")).append('\n');
+      out.append("VLC player: Loop ").append(((javax.swing.JCheckBox) component(dialog, "video-loop")).isSelected())
+          .append(", ").append(b.apply("video-mute").getText()).append(", volume ").append(component(dialog, "video-volume") != null ? "slider" : "none").append('\n');
+      for (String z : new String[] {"video-zoom-in", "video-zoom-in", "video-zoom-in", "video-zoom-out", "video-fit"}) {
+        edt(() -> b.apply(z).doClick());
+        out.append("  ").append(z).append(": ").append(((JLabel) component(dialog, "video-zoom")).getText()).append(", screen ").append(MediaDir.zoomLabel(player.screen.zoom)).append('\n');
+      }
+      edt(() -> b.apply("video-zoom-in").doClick());
+      edt(() -> b.apply("video-play").doClick());
+      // 3.5 s long: after 5 s it is playing again from the start.
+      Thread.sleep(5000);
+      out.append("after 5 s: playing ").append(player.playing()).append(", ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
+      // Speed 2x: a second of playing moves it on about two.
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> speed = (javax.swing.JComboBox<String>) component(dialog, "video-speed");
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < speed.getItemCount(); i++) items.append(speed.getItemAt(i)).append(' ');
+      out.append("speeds: ").append(items.toString().trim()).append(", now ").append(speed.getSelectedItem()).append('\n');
+      edt(() -> speed.setSelectedItem("2x"));
+      Thread.sleep(300);
+      long t0 = player.timeMs();
+      Thread.sleep(1000);
+      long moved = player.timeMs() - t0;
+      out.append("2x: one second moves it on ").append(moved > 1500 || moved < -1500 ? "about two" : moved + " ms").append('\n');
+      edt(() -> speed.setSelectedItem("1.5x"));
+      edt(() -> ((javax.swing.JSlider) component(dialog, "video-volume")).setValue(40));
+      edt(() -> ((javax.swing.JCheckBox) component(dialog, "video-loop")).doClick());
+      for (int i = 0; i < 80 && player.state() != VlcPlayer.ENDED; i++) Thread.sleep(100);
+      out.append("Loop off: ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
+      edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+      idle();
+      out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ').replaceAll("place=\\w+", "place=(sealed)")).append('\n');
+      // The next video opens as that one was left.
+      set("lastVideo", null);
+      answers.add("Mute");
+      SwingUtilities.invokeLater(open);
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(800);
+      idle();
+      JDialog again = (JDialog) get("lastVideo");
+      out.append("opened again: volume ").append(((javax.swing.JSlider) component(again, "video-volume")).getValue())
+          .append(", zoom ").append(((JLabel) component(again, "video-zoom")).getText())
+          .append(", speed ").append(((javax.swing.JComboBox<?>) component(again, "video-speed")).getSelectedItem()).append('\n');
+      edt(() -> ((javax.swing.JButton) find(again.getContentPane(), "Close")).doClick());
+      idle();
+      // A preview elsewhere (the Prompts page) keeps its own: 80%, fit, 1x.
+      PromptDb db = (PromptDb) get("promptDb");
+      set("lastVideo", null);
+      answers.add("Mute");
+      SwingUtilities.invokeLater(() -> db.vlcPreview("clip.webm", clip));
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(800);
+      idle();
+      JDialog other = (JDialog) get("lastVideo");
+      out.append("Prompts preview: volume ").append(((javax.swing.JSlider) component(other, "video-volume")).getValue())
+          .append(", zoom ").append(((JLabel) component(other, "video-zoom")).getText())
+          .append(", speed ").append(((javax.swing.JComboBox<?>) component(other, "video-speed")).getSelectedItem()).append('\n');
+      edt(() -> ((javax.swing.JButton) find(other.getContentPane(), "Close")).doClick());
+      idle();
+    } else {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      MediaDir.volume = 40;
+      MediaDir.zoom = 1.25;
+      MediaDir.speed = 1.5;
+    }
+    // Without VLC: the browser's player page, looping, with zoom.
+    System.setProperty("pulsekit.novlc", "true");
+    final java.net.URI[] page = new java.net.URI[1];
+    PromptDb.browser = uri -> page[0] = uri;
+    answers.add("Play");
+    SwingUtilities.invokeLater(open);
+    for (int i = 0; i < 50 && page[0] == null; i++) Thread.sleep(100);
+    idle();
+    String html = page[0] == null ? "" : new String(Files.readAllBytes(new File(page[0]).toPath()), StandardCharsets.UTF_8);
+    out.append("player page time: ").append(html.contains("id=\"time\"")).append('\n');
+    out.append("player page starts at: volume ").append(html.contains("value=\"40\"")).append(", zoom ").append(html.contains("z=1.25,")).append(", speed ").append(html.contains("value=\"1.5\" selected")).append('\n');
+    out.append("player page: loop ").append(html.contains(" loop>")).append(", Loop box ").append(html.contains("id=\"loop\" type=\"checkbox\" checked")).append(", Mute ").append(html.contains("id=\"mute\""))
+        .append(", volume ").append(html.contains("id=\"volume\"")).append(", zoom ").append(html.contains("id=\"zin\"") && html.contains("id=\"zout\"") && html.contains("id=\"fit\"")).append('\n');
+    out.append("zoom steps: ");
+    for (double z = 1, i = 0; i < 8; i++, z = MediaDir.zoom(z, true)) out.append(MediaDir.zoomLabel(z)).append(' ');
+    out.append('\n');
+  }
+
+  /**
+   * The Media browser remembers the folder picked and the folder it was in under it: Params'
+   * Directory shows the folder when the arguments have none, and opening the browser on the same
+   * folder again goes back to that folder (not when it is gone, nor for another folder).
+   */
+  void s59_media_remember() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "my media");
+    File deep = new File(new File(media, "trips"), "2024");
+    deep.mkdirs();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(deep, "lake.png"));
+    File other = new File(home, "other");
+    other.mkdirs();
+    final Object browser = get("mediaBrowser");
+    java.util.function.Consumer<File> open = dir -> SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("open", File.class);
+        m.setAccessible(true);
+        m.invoke(browser, dir);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    // First time: it opens on the folder itself; go into trips, then 2024.
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      seen.append("opened: ").append(d.getTitle()).append('\n');
+      ((javax.swing.JButton) component(d, "media-folder:trips")).doClick();
+      ((javax.swing.JButton) component(d, "media-folder:2024")).doClick();
+      seen.append("went to: ").append(d.getTitle()).append('\n');
+    };
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    String kept = new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("kept: folder sealed ").append(kept.contains("place=") && !kept.contains("my media")).append(", reads back ");
+    MediaDir.decode(kept);
+    out.append(MediaDir.lastRoot.replace(home.getAbsolutePath(), "~")).append(" | ").append(String.join(" | ", MediaDir.lastPath).replace(home.getAbsolutePath(), "~")).append('\n');
+    // Again: back in 2024, with Up going to trips.
+    final StringBuilder again = new StringBuilder();
+    inspectNext = d -> {
+      again.append("reopened: ").append(d.getTitle()).append(", cards ").append(names(d.getContentPane()).stream().filter(n -> n.startsWith("media-card")).collect(java.util.stream.Collectors.toList()));
+      ((javax.swing.JButton) component(d, "media-up")).doClick();
+      again.append(", Up: ").append(d.getTitle()).append('\n');
+    };
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(again);
+    // Back to my media after trips is gone: the folder itself.
+    Files.delete(new File(deep, "lake.png").toPath());
+    Files.delete(deep.toPath());
+    Files.delete(deep.getParentFile().toPath());
+    final StringBuilder gone = new StringBuilder();
+    inspectNext = d -> gone.append("trips gone: ").append(d.getTitle()).append('\n');
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(gone);
+    // Another folder: it opens on itself.
+    final StringBuilder elsewhere = new StringBuilder();
+    inspectNext = d -> elsewhere.append("another folder: ").append(d.getTitle()).append('\n');
+    answers.add("Close");
+    open.accept(other);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(elsewhere);
+    // A plain playlist from before (playlist-<hash>.txt): read, sealed, and the plain file removed.
+    File pk = new File(home, ".pulsekit");
+    byte[] d0 = java.security.MessageDigest.getInstance("SHA-256").digest(other.getAbsolutePath().getBytes(StandardCharsets.UTF_8));
+    StringBuilder h0 = new StringBuilder();
+    for (int i = 0; i < 8; i++) h0.append(String.format("%02x", d0[i] & 0xff));
+    File plain = new File(pk, "playlist-" + h0 + ".txt");
+    Files.write(plain.toPath(), ("folder\t" + other.getAbsolutePath() + "\n" + other.getAbsolutePath() + "/song.mp3\tsong.mp3\t1234\n").getBytes(StandardCharsets.UTF_8));
+    final StringBuilder migrated = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton pl = (javax.swing.JButton) component(d, "media-playlist");
+      migrated.append("old plain playlist: ").append(pl.isVisible() ? pl.getText() : "no Playlist button");
+    };
+    answers.add("Close");
+    open.accept(other);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(migrated).append(", plain file left ").append(plain.isFile());
+    File[] sealedLists = pk.listFiles((dir, n) -> n.startsWith("playlist-") && n.endsWith(".dat"));
+    boolean readable = false;
+    for (File f : sealedLists) if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1).contains("song.mp3")) readable = true;
+    out.append(", sealed files ").append(sealedLists.length).append(", names readable in them ").append(readable).append('\n');
+    // Params: Directory shows the folder last opened when the arguments have none; OK keeps it.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MediaBrowser.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    final StringBuilder params = new StringBuilder();
+    inspectNext = d -> params.append("Params Directory: ").append(((JLabel) component(d, "params-chosen:directory")).getText()).append('\n');
+    answers.add("OK");
+    call("openParams");
+    out.append(params);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
   }
 
   /** The names of the components under `root`, in order. */

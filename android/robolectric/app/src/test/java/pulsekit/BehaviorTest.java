@@ -1816,9 +1816,10 @@ public class BehaviorTest {
     VideoOffer.Player p = VideoOffer.last;
     out.append("start: ").append(play.getText()).append(", ").append(mute.getText()).append(", volume ").append(level.getText()).append('\n');
     play.performClick();
-    out.append("Play: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    int keep = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+    out.append("Play: ").append(play.getText()).append(", playing ").append(p.playing).append(", screen kept on ").append((d.getWindow().getAttributes().flags & keep) != 0).append('\n');
     play.performClick();
-    out.append("Pause: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    out.append("Pause: ").append(play.getText()).append(", playing ").append(p.playing).append(", screen kept on ").append((d.getWindow().getAttributes().flags & keep) != 0).append('\n');
     play.performClick();
     dv.findViewWithTag("video-offer:stop").performClick();
     out.append("Stop: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
@@ -1830,7 +1831,7 @@ public class BehaviorTest {
     out.append("Unmute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(p.gain()).append('\n');
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
-    out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append('\n');
+    out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append(", app screen kept on ").append((app.getWindow().getAttributes().flags & keep) != 0).append('\n');
     write("s58_video_offer", out.toString());
   }
 
@@ -2005,6 +2006,85 @@ public class BehaviorTest {
       super("AndroidKeyStore", 1.0, "Android keystore stand-in for the tests");
       put("KeyStore.AndroidKeyStore", FakeStore.class.getName());
       put("KeyGenerator.AES", FakeGenerator.class.getName());
+      // As on a phone: the key cannot be read out, and an IV given for encrypting is refused.
+      put("Cipher.AES/GCM/NoPadding", FakeCipher.class.getName());
+    }
+  }
+
+  /** A keystore key: its bytes stay inside (getEncoded is null), as the phone's do. */
+  public static final class FakeKey implements javax.crypto.SecretKey {
+    final byte[] raw;
+
+    FakeKey(byte[] raw) {
+      this.raw = raw;
+    }
+
+    @Override public String getAlgorithm() { return "AES"; }
+    @Override public String getFormat() { return null; }
+    @Override public byte[] getEncoded() { return null; }
+  }
+
+  /** AES/GCM with a FakeKey, refusing a caller's IV when encrypting ("Caller-provided IV not permitted"), as the phone's keystore does. */
+  public static final class FakeCipher extends javax.crypto.CipherSpi {
+    private javax.crypto.Cipher inner;
+
+    private void start(int mode, java.security.Key key, java.security.spec.AlgorithmParameterSpec spec) throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      if (!(key instanceof FakeKey)) throw new java.security.InvalidKeyException("Not a keystore key");
+      if (mode == javax.crypto.Cipher.ENCRYPT_MODE && spec != null) throw new java.security.InvalidAlgorithmParameterException("Caller-provided IV not permitted");
+      try {
+        inner = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
+        javax.crypto.spec.SecretKeySpec plain = new javax.crypto.spec.SecretKeySpec(((FakeKey) key).raw, "AES");
+        if (spec == null) inner.init(mode, plain);
+        else inner.init(mode, plain, spec);
+      } catch (java.security.GeneralSecurityException ex) {
+        throw new java.security.InvalidKeyException(ex);
+      }
+    }
+
+    @Override protected void engineSetMode(String m) {}
+    @Override protected void engineSetPadding(String p) {}
+    @Override protected int engineGetBlockSize() { return 16; }
+    @Override protected int engineGetOutputSize(int n) { return inner.getOutputSize(n); }
+    @Override protected byte[] engineGetIV() { return inner.getIV(); }
+    @Override protected java.security.AlgorithmParameters engineGetParameters() { return inner.getParameters(); }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.SecureRandom r) throws java.security.InvalidKeyException {
+      try {
+        start(mode, key, null);
+      } catch (java.security.InvalidAlgorithmParameterException ex) {
+        throw new java.security.InvalidKeyException(ex);
+      }
+    }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.spec.AlgorithmParameterSpec spec, java.security.SecureRandom r)
+        throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      start(mode, key, spec);
+    }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.AlgorithmParameters params, java.security.SecureRandom r)
+        throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      try {
+        start(mode, key, params == null ? null : params.getParameterSpec(javax.crypto.spec.GCMParameterSpec.class));
+      } catch (java.security.spec.InvalidParameterSpecException ex) {
+        throw new java.security.InvalidAlgorithmParameterException(ex);
+      }
+    }
+
+    @Override protected byte[] engineUpdate(byte[] in, int off, int len) { return inner.update(in, off, len); }
+
+    @Override protected int engineUpdate(byte[] in, int off, int len, byte[] out, int outOff) throws javax.crypto.ShortBufferException {
+      return inner.update(in, off, len, out, outOff);
+    }
+
+    @Override protected void engineUpdateAAD(byte[] in, int off, int len) { inner.updateAAD(in, off, len); }
+
+    @Override protected byte[] engineDoFinal(byte[] in, int off, int len) throws javax.crypto.IllegalBlockSizeException, javax.crypto.BadPaddingException {
+      return inner.doFinal(in, off, len);
+    }
+
+    @Override protected int engineDoFinal(byte[] in, int off, int len, byte[] out, int outOff)
+        throws javax.crypto.ShortBufferException, javax.crypto.IllegalBlockSizeException, javax.crypto.BadPaddingException {
+      return inner.doFinal(in, off, len, out, outOff);
     }
   }
 
@@ -2022,7 +2102,7 @@ public class BehaviorTest {
     @Override protected javax.crypto.SecretKey engineGenerateKey() {
       byte[] k = new byte[32];
       new java.security.SecureRandom().nextBytes(k);
-      javax.crypto.SecretKey key = new javax.crypto.spec.SecretKeySpec(k, "AES");
+      javax.crypto.SecretKey key = new FakeKey(k);
       FakeKeyStoreProvider.KEYS.put(alias, key);
       return key;
     }
@@ -2469,6 +2549,198 @@ public class BehaviorTest {
   }
 
   /**
+   * The Media browser's Loop videos (kept in the app's preferences): a video opened from it loops.
+   * Its player has Mute, a volume slider and Zoom −, Zoom +, Fit (pinch too).
+   */
+  @Test
+  public void s71_media_video() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "clips");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    android.widget.CheckBox loop = (android.widget.CheckBox) bv.findViewWithTag("media-loop");
+    out.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isChecked()).append('\n');
+    loop.performClick();
+    idle();
+    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
+    bv.findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    View tv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    // The player ready (3.5 s long), 1.2 s in: the time label follows it.
+    android.media.MediaPlayer mp = new android.media.MediaPlayer();
+    mp.setDataSource(new File(media, "walk.mp4").getAbsolutePath());
+    mp.prepare();
+    org.robolectric.Shadows.shadowOf(v.view).getOnPreparedListener().onPrepared(mp);
+    mp.seekTo(1200);
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    idle();
+    out.append("time: ").append(((TextView) tv.findViewWithTag("media-video-time")).getText()).append('\n');
+    // The screen stays on while it plays, not while it is paused.
+    mp.start();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    int keep = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+    out.append("playing: screen kept on: player window ").append((v.window.getAttributes().flags & keep) != 0).append(", app window ").append((app.getWindow().getAttributes().flags & keep) != 0);
+    mp.pause();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    out.append("; paused: ").append((v.window.getAttributes().flags & keep) != 0).append(", ").append((app.getWindow().getAttributes().flags & keep) != 0).append('\n');
+    out.append("player: loop ").append(v.loop).append(", title ").append(((TextView) tv.findViewWithTag("media-video-title")).getText()).append('\n');
+    TextView mute = (TextView) tv.findViewWithTag("media-video-mute");
+    mute.performClick();
+    out.append("Mute: ").append(mute.getText()).append(", ").append(((TextView) tv.findViewWithTag("media-video-level")).getText()).append(", gain ").append(v.gain()).append('\n');
+    mute.performClick();
+    ((android.widget.SeekBar) tv.findViewWithTag("media-video-volume")).setProgress(40);
+    out.append("volume 40: ").append(((TextView) tv.findViewWithTag("media-video-level")).getText()).append(", gain ").append(v.gain()).append('\n');
+    for (String z : new String[] {"media-video-zoom-in", "media-video-zoom-in", "media-video-zoom-in", "media-video-zoom-out", "media-video-fit"}) {
+      tv.findViewWithTag(z).performClick();
+      out.append("  ").append(z).append(": ").append(((TextView) tv.findViewWithTag("media-video-zoom")).getText()).append(", scale ").append(v.view.getScaleX()).append('\n');
+    }
+    // Playback speed: a list from 0.25x to 2x.
+    android.app.Dialog player = ShadowDialog.getLatestDialog();
+    TextView speed = (TextView) tv.findViewWithTag("media-video-speed");
+    out.append("speed: ").append(speed.getText()).append('\n');
+    speed.performClick();
+    idle();
+    AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < list.getListView().getAdapter().getCount(); i++) items.append(list.getListView().getAdapter().getItem(i)).append(' ');
+    out.append("speeds: ").append(items.toString().trim()).append('\n');
+    org.robolectric.Shadows.shadowOf(list).clickOnItem(5);
+    idle();
+    out.append("picked: ").append(speed.getText()).append(", player ").append(v.speed).append('\n');
+    tv.findViewWithTag("media-video-zoom-in").performClick();
+    player.dismiss();
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
+    b.dialog.dismiss();
+    idle();
+    // Opened again later: Loop videos stays ticked.
+    MediaDir.loopVideos = false;
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    out.append("reopened: ticked ").append(((android.widget.CheckBox) b.dialog.getWindow().getDecorView().findViewWithTag("media-loop")).isChecked()).append('\n');
+    // The next video opens as the last one was left.
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video again = MediaBrowser.lastVideo;
+    View av = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    out.append("next video: volume ").append(((android.widget.SeekBar) av.findViewWithTag("media-video-volume")).getProgress()).append(" (").append(((TextView) av.findViewWithTag("media-video-level")).getText())
+        .append("), zoom ").append(((TextView) av.findViewWithTag("media-video-zoom")).getText()).append(" scale ").append(again.view.getScaleX())
+        .append(", ").append(((TextView) av.findViewWithTag("media-video-speed")).getText()).append('\n');
+    ShadowDialog.getLatestDialog().dismiss();
+    idle();
+    b.dialog.dismiss();
+    write("s71_media_video", out.toString());
+  }
+
+  /**
+   * The Media browser remembers the folder picked and the folder it was in under it: opening it on
+   * the same folder again goes back there (not when it is gone, nor for another folder), and
+   * Params' Directory shows the folder when the arguments have none.
+   */
+  @Test
+  public void s72_media_remember() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "my media");
+    File deep = new File(new File(media, "trips"), "2024");
+    deep.mkdirs();
+    Files.write(new File(deep, "beat.wav").toPath(), AudioIo.encodeWav(new short[100], 22050));
+    File other = new File(app.getCacheDir(), "other");
+    other.mkdirs();
+    String base = app.getCacheDir().getAbsolutePath();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    out.append("opened: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    bv.findViewWithTag("media-folder:trips").performClick();
+    idle();
+    bv.findViewWithTag("media-folder:2024").performClick();
+    idle();
+    out.append("went to: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    String kept = app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "");
+    out.append("kept: folder sealed ").append(kept.contains("place=") && !kept.contains("my media")).append(", reads back ");
+    MediaDir.decode(kept);
+    out.append(MediaDir.lastRoot.replace(base, "~")).append(" | ").append(String.join(" | ", MediaDir.lastPath).replace(base, "~")).append('\n');
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    out.append("reopened: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", card ").append(bv.findViewWithTag("media-card:beat.wav") != null);
+    bv.findViewWithTag("media-up").performClick();
+    idle();
+    out.append(", Up: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    Files.delete(new File(deep, "beat.wav").toPath());
+    Files.delete(deep.toPath());
+    Files.delete(deep.getParentFile().toPath());
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    out.append("trips gone: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    b = MediaBrowser.open(app, other.getAbsolutePath());
+    idle();
+    out.append("another folder: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    // Params: Directory shows the folder last opened; OK puts it in the arguments.
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MediaBrowser.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("Params Directory: ").append(((TextView) params.getWindow().getDecorView().findViewWithTag("params-chosen:directory")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText().toString().replace(base, "~")).append('\n');
+    write("s72_media_remember", out.toString());
+  }
+
+  /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
+  private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
+    java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream m = new java.io.DataOutputStream(mvhd);
+    m.writeInt(108);
+    m.writeBytes("mvhd");
+    m.writeInt(0);
+    m.writeInt(0);
+    m.writeInt(0);
+    m.writeInt(1000);
+    m.writeInt(lengthMs);
+    m.write(new byte[80]);
+    java.io.ByteArrayOutputStream tkhd = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream t = new java.io.DataOutputStream(tkhd);
+    t.writeInt(92);
+    t.writeBytes("tkhd");
+    t.write(new byte[76]);
+    t.writeInt(width << 16);
+    t.writeInt(height << 16);
+    java.io.ByteArrayOutputStream file = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream f = new java.io.DataOutputStream(file);
+    f.writeInt(16);
+    f.writeBytes("ftypisom");
+    f.writeInt(0);
+    f.writeInt(8 + 108 + 8 + 92);
+    f.writeBytes("moov");
+    f.write(mvhd.toByteArray());
+    f.writeInt(8 + 92);
+    f.writeBytes("trak");
+    f.write(tkhd.toByteArray());
+    return file.toByteArray();
+  }
+
+  /**
    * MediaBrowser (PyJav's Java menu): Params has Directory with Browse, which opens the system's
    * folder picker; the folder picked is kept, shown, and opened in the Media browser: folders first,
    * then pictures, videos and sounds as cards, other files left out. A folder opens in its place and
@@ -2477,6 +2749,7 @@ public class BehaviorTest {
   @Test
   public void s70_media_browser() throws Exception {
     StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     File media = new File(app.getCacheDir(), "my media");
     File more = new File(media, "more");
     more.mkdirs();
@@ -2487,7 +2760,8 @@ public class BehaviorTest {
     try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new File(more, "beach.jpg"))) {
       bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fo);
     }
-    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    // An MP4's headers only (3.46 s, 160x120): the playlist preview reads its length and size from them.
+    Files.write(new File(media, "walk.mp4").toPath(), mp4Header(3460, 160, 120));
     Files.write(new File(media, "beat.wav").toPath(), AudioIo.encodeWav(new short[22050], 22050));
     Files.write(new File(media, "groove.mid").toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
     Files.write(new File(media, "notes.txt").toPath(), "not media".getBytes(StandardCharsets.UTF_8));
@@ -2522,6 +2796,93 @@ public class BehaviorTest {
     out.append("summary: ").append(((TextView) bv.findViewWithTag("media-summary")).getText()).append('\n');
     for (MediaDir.Entry e : b.entries) out.append("  ").append(e.folder ? "folder " : "card ").append(e.name).append(bv.findViewWithTag((e.folder ? "media-folder:" : "media-card:") + e.name) != null ? "" : " (no card)").append('\n');
     out.append("notes.txt card: ").append(bv.findViewWithTag("media-card:notes.txt") != null ? "shown" : "none").append('\n');
+    // A long press on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    TextView playlistButton = (TextView) bv.findViewWithTag("media-playlist");
+    out.append("Playlist button before: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    final View browserView = bv;
+    java.util.function.Supplier<String> badges = () -> {
+      StringBuilder marks = new StringBuilder();
+      for (String n : new String[] {"beat.wav", "groove.mid", "sunset.png", "walk.mp4"}) marks.append(n).append(browserView.findViewWithTag("media-in-playlist:" + n) != null ? " \u2630" : " -").append("  ");
+      return marks.toString().trim();
+    };
+    out.append("badges before: ").append(badges.get()).append('\n');
+    // walk.mp4 is added, taken out again (its menu then says Remove), and added back.
+    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
+    for (String[] pick : picks) {
+      boolean handled = bv.findViewWithTag("media-card:" + pick[0]).performLongClick();
+      idle();
+      AlertDialog menu = MediaBrowser.lastMenu;
+      if (pick == picks[0]) {
+        StringBuilder items = new StringBuilder();
+        for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
+        out.append("menu: ").append(items).append(", long press handled ").append(handled).append('\n');
+      }
+      Object label = menu.getListView().getAdapter().getItem(Integer.parseInt(pick[1]));
+      org.robolectric.Shadows.shadowOf(menu).clickOnItem(Integer.parseInt(pick[1]));
+      idle();
+      out.append(pick[0]).append(" \"").append(label).append("\": ").append(((TextView) get("now")).getText())
+          .append(", badge ").append(bv.findViewWithTag("media-in-playlist:" + pick[0]) != null ? "\u2630" : "-")
+          .append(", ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "no Playlist button").append('\n');
+    }
+    out.append("folder long press: ").append(bv.findViewWithTag("media-folder:more").isLongClickable()).append('\n');
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) out.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    out.append("Playlist button after: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    out.append("badges after: ").append(badges.get()).append('\n');
+    File[] lists = app.getFilesDir().listFiles((dir, n) -> n.startsWith("playlist-"));
+    boolean plainNames = false;
+    for (File f : lists) if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1).contains("walk.mp4")) plainNames = true;
+    out.append("playlist files: ").append(lists.length).append(", sealed (.dat) ").append(lists.length > 0 && lists[0].getName().endsWith(".dat")).append(", names readable in them ").append(plainNames).append('\n');
+    for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), b.folderKey())) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
+    // The playlist window: its files in order; a tap plays or opens one as its thumbnail does.
+    playlistButton.performClick();
+    idle();
+    View lv = MediaBrowser.lastPlaylist.getWindow().getDecorView();
+    out.append("window: ").append(org.robolectric.Shadows.shadowOf(MediaBrowser.lastPlaylist).getTitle()).append('\n');
+    for (String n : new String[] {"walk.mp4", "sunset.png", "beat.wav"}) {
+      TextView row = (TextView) lv.findViewWithTag("playlist-item:" + n);
+      out.append("  ").append(row.getText());
+      row.performClick();
+      idle();
+      out.append(" -> ").append(MediaBrowser.lastOpened).append('\n');
+      ShadowDialog.getLatestDialog().dismiss();
+      idle();
+    }
+    out.append("window still open: ").append(MediaBrowser.lastPlaylist.isShowing()).append('\n');
+    // Held: the item's thumbnail pops up; letting go closes it and opens nothing.
+    for (String n : new String[] {"sunset.png", "walk.mp4", "beat.wav"}) {
+      TextView row = (TextView) lv.findViewWithTag("playlist-item:" + n);
+      MediaBrowser.lastOpened = null;
+      boolean handled = row.performLongClick();
+      for (int i = 0; i < 80 && (MediaBrowser.lastPeekInfo.getText().length() == 0 || MediaBrowser.lastPeekImage.getDrawable() == null); i++) {
+        Thread.sleep(25);
+        idle();
+      }
+      out.append("held ").append(n).append(": handled ").append(handled).append(", preview shown ").append(MediaBrowser.lastPeek != null && MediaBrowser.lastPeek.isShowing())
+          .append(", thumbnail ").append(MediaBrowser.lastPeekImage.getDrawable() != null).append(", info \"").append(MediaBrowser.lastPeekInfo.getText()).append('"');
+      long now = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_UP, 5, 5, 0);
+      row.dispatchTouchEvent(up);
+      up.recycle();
+      idle();
+      out.append("; released: preview shown ").append(MediaBrowser.lastPeek.isShowing()).append(", opened ").append(MediaBrowser.lastOpened).append('\n');
+    }
+    MediaBrowser.lastPlaylist.dismiss();
+    idle();
+    // A folder under it has a playlist of its own.
+    bv.findViewWithTag("media-folder:more").performClick();
+    idle();
+    TextView morePlaylist = (TextView) bv.findViewWithTag("media-playlist");
+    out.append("in more, Playlist button: ").append(morePlaylist.getVisibility() == View.VISIBLE ? morePlaylist.getText() : "hidden");
+    bv.findViewWithTag("media-card:beach.jpg").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(2);
+    idle();
+    out.append(", after adding beach.jpg: ").append(morePlaylist.getVisibility() == View.VISIBLE ? morePlaylist.getText() : "hidden").append('\n');
+    bv.findViewWithTag("media-up").performClick();
+    idle();
+    out.append("back up, Playlist button: ").append(((TextView) bv.findViewWithTag("media-playlist")).getText()).append(", badges ").append(badges.get()).append('\n');
     bv.findViewWithTag("media-folder:more").performClick();
     idle();
     out.append("in more: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none")
