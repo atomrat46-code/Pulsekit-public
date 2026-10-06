@@ -155,6 +155,8 @@ public class MainActivity extends UiKit {
     FlowLayout fillBar;
 
     LinearLayout chrome;
+    /** The bottom strip: the length bar and ■ / Play / Gen. Hidden on pages that play nothing (afterShow). */
+    LinearLayout transportBar;
 
     LinearLayout body;
 
@@ -462,6 +464,7 @@ public class MainActivity extends UiKit {
         linearLayout24.addView((View)this.playBtn);
         linearLayout24.addView((View)this.action("Gen", HIT, BG, view -> this.playback.generate()), (ViewGroup.LayoutParams)this.square());
         linearLayout23.addView((View)linearLayout24);
+        this.transportBar = linearLayout23;
         linearLayout2.addView((View)linearLayout23);
         return linearLayout2;
     }
@@ -729,7 +732,11 @@ public class MainActivity extends UiKit {
                 if (string == null) {
                     string = uri.toString();
                 }
-                this.projectIo.ingest(this.projectIo.readUri(uri), string, uri);
+                byte[] picked = this.projectIo.readUri(uri);
+                this.projectIo.ingest(picked, string, uri);
+                // Import screen: "Import to DB also" keeps the picked file in the prompt library too.
+                String toDb = ImportDb.store(this.getFilesDir(), DbImport.displayName(this, uri), picked);
+                if (!toDb.isEmpty()) Toast.makeText((Context)this, (CharSequence)toDb, (int)1).show();
                 return;
             }
             if (n == 9) {
@@ -1055,6 +1062,10 @@ public class MainActivity extends UiKit {
         boolean help = "help".equals(this.view);
         boolean midi = "midisettings".equals(this.view);
         boolean compare = "comparehits".equals(this.view);
+        // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
+        boolean noTransport = pr || help || midi || compare || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
+            || "py".equals(this.view);
+        if (this.transportBar != null) this.transportBar.setVisibility(noTransport ? 8 : 0);
         if (this.helpPane != null) {
             this.helpPane.setVisibility(help ? 0 : 8);
             if (help) this.helpPane.bringToFront();

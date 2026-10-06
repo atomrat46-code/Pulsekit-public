@@ -41,7 +41,35 @@ final class ProjectIo {
         textView21.setTextColor(MUTED);
         textView21.setPadding(0, app.dp(8), 0, app.dp(16));
         app.importPane.addView((View)textView21);
-        app.importPane.addView((View)app.action("Choose file", FG, BG, view -> this.openFile()));
+        // A file picked here can also go into the prompt library, as a reference file.
+        try {
+            ImportDb.on = app.getSharedPreferences(EXPORT_PREFS, 0).getBoolean(IMPORT_TO_DB, false);
+        } catch (Throwable ignored) {
+            // off for this session
+        }
+        android.widget.CheckBox toDb = new android.widget.CheckBox(app);
+        toDb.setText("Import to DB also");
+        toDb.setTag("import-to-db");
+        toDb.setTextColor(FG);
+        toDb.setButtonTintList(android.content.res.ColorStateList.valueOf(FG));
+        toDb.setChecked(ImportDb.on);
+        toDb.setOnCheckedChangeListener((b, on) -> {
+            ImportDb.on = on;
+            try {
+                app.getSharedPreferences(EXPORT_PREFS, 0).edit().putBoolean(IMPORT_TO_DB, on).apply();
+            } catch (Throwable ignored) {
+                // the setting stays for this session
+            }
+        });
+        app.importPane.addView((View)toDb);
+        app.importPane.addView((View)app.hint("A file chosen with Choose file is also added to the prompt library, as a reference file."));
+        // Choose file, then Browse DB: a file from the prompt library, imported as if it were chosen.
+        LinearLayout chooseRow = app.row();
+        chooseRow.addView((View)app.action("Choose file", FG, BG, view -> this.openFile()), (ViewGroup.LayoutParams)app.flexBtn());
+        TextView browseDb = app.action("Browse DB", ELEV, FG, view -> this.browseDb());
+        browseDb.setTag("import-browse-db");
+        chooseRow.addView((View)browseDb, (ViewGroup.LayoutParams)app.flexBtn());
+        app.importPane.addView((View)chooseRow);
         app.importedFileList = app.col();
         app.importedFileList.setPadding(0, app.dp(12), 0, 0);
         app.importPane.addView((View)app.importedFileList);
@@ -57,6 +85,36 @@ final class ProjectIo {
     /** Export to DB: its own setting. */
     static final String EXPORT_PREFS = "pulsekit-export";
     static final String EXPORT_TO_DB = "toDb";
+    /** Import to DB: its own setting, beside it. */
+    static final String IMPORT_TO_DB = "importToDb";
+
+    /** Import screen's Browse DB: a file from the prompt library, imported as Choose file would (not stored again). */
+    void browseDb() {
+        if (RefBrowser.files(app).isEmpty()) {
+            app.setNow("The prompt library has no files yet");
+            android.widget.Toast.makeText(app, "The prompt library has no files yet", 0).show();
+            return;
+        }
+        RefBrowser.browse(app, null, (name, file) -> {
+            try {
+                this.ingest(this.readFile(file), name, null);
+            } catch (Exception ex) {
+                android.widget.Toast.makeText(app, ex.getMessage() == null ? "Could not import " + name : ex.getMessage(), 1).show();
+            }
+        });
+    }
+
+    byte[] readFile(java.io.File file) throws Exception {
+        java.io.FileInputStream in = new java.io.FileInputStream(file);
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
 
     void buildExportPane(FrameLayout frameLayout) {
         app.exportPane = app.col();

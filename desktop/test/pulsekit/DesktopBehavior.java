@@ -48,6 +48,8 @@ public final class DesktopBehavior {
   private JFrame frame;
   private final List<String> dialogs = Collections.synchronizedList(new ArrayList<String>());
   private final LinkedList<String> answers = new LinkedList<String>();
+  /** The file the next file chooser picks (Open or Save), then cleared; null leaves choosers to the answers. */
+  private volatile File chooseNext;
   private final List<Throwable> errors = Collections.synchronizedList(new ArrayList<Throwable>());
   private final StringBuilder out = new StringBuilder();
 
@@ -1620,6 +1622,52 @@ public final class DesktopBehavior {
     out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/export-settings.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
   }
 
+  /**
+   * Import screen: "Import to DB also" keeps a file picked with Choose file in the prompt library
+   * too, as a reference file; Browse DB (after Choose file) imports a library file as Choose file
+   * would, without storing it again. Kept across starts.
+   */
+  void s51_import_to_db() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "import");
+    javax.swing.JCheckBox box = (javax.swing.JCheckBox) component(frame, "import-to-db");
+    javax.swing.JButton browse = (javax.swing.JButton) component(frame, "import-browse-db");
+    out.append("checkbox: ").append(box.getText()).append(", ").append(box.isSelected()).append("; ").append(browse.getText()).append('\n');
+    edt(browse::doClick);
+    out.append("empty: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    // Pattern MIDIs: picked with Choose file (the watcher types nothing, so the file is preselected).
+    for (String n : new String[] {"off", "groove"}) {
+      if (n.equals("groove")) edt(box::doClick);
+      File f = new File(home, n + ".mid");
+      Files.write(f.toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
+      // Choose file: the watcher picks the file in the file chooser.
+      chooseNext = f;
+      call("openFile");
+      out.append(n).append(".mid: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+      edt(() -> ((Pulsekit) frame).setNow(null));
+    }
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("ref: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    // Browse DB: the library's MIDI, imported as Choose file would.
+    // The shown list's own (greyed) button: the watcher leaves the dialog open.
+    answers.add("Ref files (1)");
+    SwingUtilities.invokeLater(browse::doClick);
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    JDialog dialog = (JDialog) get("lastBrowse");
+    edt(() -> ((javax.swing.JButton) component(dialog, "refs-pick:groove.mid")).doClick());
+    idle();
+    out.append("from DB: ").append(((JLabel) get("nowPlaying")).getText()).append(", library still ").append(PromptDb.files(false, null).size()).append(" file\n");
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/import-settings.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+  }
+
+  /** The bottom ■ / Play / Gen bar shows on the pages that play (Pattern, Fillern, Fill, Song) and not on the others (PyJav, Pads...). */
+  void s52_transport_pages() throws Exception {
+    for (String v : new String[] {"pattern", "combo", "fills", "song", "py", "pads", "prompts", "import", "export", "midisettings", "help", "comparehits"}) {
+      call("showView", v);
+      out.append(v).append(": ").append(((javax.swing.JPanel) get("transportBar")).isVisible() ? "bar" : "no bar").append('\n');
+    }
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
@@ -1637,6 +1685,17 @@ public final class DesktopBehavior {
       if (m != null && m.isVisible()) return m;
     }
     throw new AssertionError("no File menu");
+  }
+
+  private static javax.swing.JFileChooser chooserIn(java.awt.Component c) {
+    if (c instanceof javax.swing.JFileChooser) return (javax.swing.JFileChooser) c;
+    if (c instanceof java.awt.Container) {
+      for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+        javax.swing.JFileChooser f = chooserIn(k);
+        if (f != null) return f;
+      }
+    }
+    return null;
   }
 
   private static javax.swing.JPopupMenu popup(java.awt.Component c) {
@@ -1733,6 +1792,17 @@ public final class DesktopBehavior {
           JDialog d = (JDialog) w;
           // A dialog that closes by itself (a progress note) can be gone before it is read: it is left alone.
           if (d.getRootPane() == null || !d.isDisplayable()) continue;
+          final javax.swing.JFileChooser chooser = chooserIn(d.getContentPane());
+          if (chooser != null && chooseNext != null) {
+            final File pick = chooseNext;
+            chooseNext = null;
+            dialogs.add("dialog \"" + d.getTitle() + "\": chose " + pick.getName());
+            SwingUtilities.invokeAndWait(() -> {
+              chooser.setSelectedFile(pick);
+              chooser.approveSelection();
+            });
+            continue;
+          }
           StringBuilder text = new StringBuilder("dialog \"" + d.getTitle() + "\":");
           try {
             for (String s : texts(d.getContentPane())) text.append(" [").append(s).append(']');
