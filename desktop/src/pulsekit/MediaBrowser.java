@@ -97,7 +97,16 @@ final class MediaBrowser {
             MediaDir.loopVideos = loop.isSelected();
             saveLoop();
         });
-        top.add(loop, BorderLayout.EAST);
+        // Playlist (n) beside it, once this folder's playlist has a file.
+        JButton playlist = new JButton("Playlist");
+        playlist.setName("media-playlist");
+        playlist.addActionListener(e -> this.playlist(dialog, dir));
+        this.playlistButton = playlist;
+        this.paintPlaylist();
+        JPanel loopRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        loopRow.add(loop);
+        loopRow.add(playlist);
+        top.add(loopRow, BorderLayout.EAST);
         if (!dir.equals(root) && dir.getParentFile() != null) {
             JButton up = new JButton("Up");
             up.setName("media-up");
@@ -270,6 +279,63 @@ final class MediaBrowser {
         }
     }
 
+    JButton playlistButton;
+
+    /** The Playlist (n) button: shown once the shown folder's playlist has a file. */
+    void paintPlaylist() {
+        if (this.playlistButton == null || this.shown == null) return;
+        int n = MediaPlaylist.items(PromptDb.dir(), this.shown.getAbsolutePath()).size();
+        this.playlistButton.setText(MediaPlaylist.button(n));
+        this.playlistButton.setVisible(n > 0);
+        java.awt.Container parent = this.playlistButton.getParent();
+        if (parent != null) parent.revalidate();
+    }
+
+    /** The playlist window shown last, for the tests. */
+    JDialog lastPlaylist;
+
+    /** The folder's default playlist: its files, in order; a click plays or opens one as its thumbnail does. */
+    void playlist(JDialog owner, File folder) {
+        final JDialog d = new JDialog(owner, "Playlist \u00b7 " + MediaDir.label(folder.getPath()), true);
+        d.setName("media-playlist-window");
+        JPanel list = new JPanel(new GridLayout(0, 1, 0, 4));
+        int i = 0;
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), folder.getAbsolutePath())) {
+            final MediaDir.Entry e = new MediaDir.Entry();
+            e.id = it.id;
+            e.name = it.name;
+            e.size = it.size;
+            e.kind = MediaDir.kind(it.name);
+            final File f = new File(it.id);
+            String what = e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video" : "sound";
+            JButton row = new JButton((++i) + ".  " + it.name + "   \u00b7 " + what);
+            row.setName("playlist-item:" + it.name);
+            row.setHorizontalAlignment(SwingConstants.LEFT);
+            row.addActionListener(ev -> {
+                if (!f.isFile()) app.setNow(it.name + " is no longer there");
+                else this.openEntry(e, f);
+            });
+            list.add(row);
+        }
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.add(list, BorderLayout.NORTH);
+        JScrollPane scroll = new JScrollPane(wrap);
+        scroll.setPreferredSize(new Dimension(460, 320));
+        JButton close = new JButton("Close");
+        close.addActionListener(ev -> d.dispose());
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        bottom.add(close);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        body.add(scroll, BorderLayout.CENTER);
+        body.add(bottom, BorderLayout.SOUTH);
+        d.setContentPane(body);
+        d.pack();
+        d.setLocationRelativeTo(owner);
+        this.lastPlaylist = d;
+        d.setVisible(true);
+    }
+
     /** The card menu shown last, for the tests. */
     javax.swing.JPopupMenu lastMenu;
 
@@ -290,7 +356,11 @@ final class MediaBrowser {
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
     String menuPicked(MediaDir.Entry entry, File f, int which) {
-        if (which == 2) return MediaPlaylist.add(PromptDb.dir(), MediaPlaylist.DEFAULT, f.getAbsolutePath(), entry.name);
+        if (which == 2) {
+            String said = MediaPlaylist.add(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name, f.length());
+            this.paintPlaylist();
+            return said;
+        }
         if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 16 MB, so it is not in the DB";
         try {
             return MediaDir.addToDb(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()), which == 1);

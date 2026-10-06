@@ -2058,7 +2058,9 @@ public final class DesktopBehavior {
           seen.append(n).append(": ").append(card.getIcon() != null ? "thumbnail" : "type mark").append(", ").append(card.getToolTipText()).append('\n');
         }
         // A right click on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
-        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}};
+        javax.swing.JButton playlist = (javax.swing.JButton) component(d, "media-playlist");
+        seen.append("Playlist button before: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
         for (String[] pick : picks) {
           javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + pick[0]);
           card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
@@ -2073,7 +2075,21 @@ public final class DesktopBehavior {
         }
         for (PromptVault.StoredFile f : PromptDb.files(false, null)) seen.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
         for (PromptVault.StoredFile f : PromptDb.files(true, null)) seen.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
-        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), MediaPlaylist.DEFAULT)) seen.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(home.getAbsolutePath(), "~")).append('\n');
+        seen.append("Playlist button after: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), media.getAbsolutePath())) seen.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(home.getAbsolutePath(), "~")).append('\n');
+        ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
+        // A folder under it has a playlist of its own.
+        javax.swing.JButton morePlaylist = (javax.swing.JButton) component(d, "media-playlist");
+        seen.append("in more, Playlist button: ").append(morePlaylist.isVisible() ? morePlaylist.getText() : "hidden");
+        javax.swing.JButton beach = (javax.swing.JButton) component(d, "media-card:beach.jpg");
+        beach.dispatchEvent(new java.awt.event.MouseEvent(beach, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu beachMenu = (javax.swing.JPopupMenu) get("lastMenu");
+        ((javax.swing.JMenuItem) beachMenu.getComponent(2)).doClick();
+        beachMenu.setVisible(false);
+        seen.append(", after adding beach.jpg: ").append(morePlaylist.isVisible() ? morePlaylist.getText() : "hidden").append('\n');
+        ((javax.swing.JButton) component(d, "media-up")).doClick();
+        seen.append("back up, Playlist button: ").append(((javax.swing.JButton) component(d, "media-playlist")).getText()).append('\n');
         ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
         seen.append("in more: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
         for (String s : names(d.getContentPane())) if (s.startsWith("media-card") || s.startsWith("media-folder")) seen.append("  ").append(s).append('\n');
@@ -2142,6 +2158,31 @@ public final class DesktopBehavior {
       if (line.startsWith("  ") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("Media browser"))
         out.append("log: ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
+    // The playlist window: its files in order; a click opens one as its thumbnail does (the watcher closes the window, then the picture).
+    final StringBuilder listed = new StringBuilder();
+    inspectNext = d -> {
+      listed.append("window: ").append(d.getTitle()).append('\n');
+      for (String n : names(d.getContentPane())) {
+        if (!n.startsWith("playlist-item:")) continue;
+        listed.append("  ").append(((javax.swing.JButton) component(d, n)).getText()).append('\n');
+      }
+      javax.swing.JButton first = (javax.swing.JButton) component(d, "playlist-item:sunset.png");
+      SwingUtilities.invokeLater(first::doClick);
+    };
+    answers.add("Close");
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("playlist", JDialog.class, File.class);
+        m.setAccessible(true);
+        m.invoke(browser, null, media);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 80 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(listed);
     out.append("folder label: ").append(MediaDir.label(media.getAbsolutePath())).append(", phone folder: ")
         .append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
   }

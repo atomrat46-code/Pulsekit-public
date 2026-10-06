@@ -143,6 +143,55 @@ final class MediaBrowser {
         return this.path.get(this.path.size() - 1);
     }
 
+    /** The folder shown, as its default playlist knows it: the path, or the granted folder and the document id. */
+    String folderKey() {
+        return this.tree == null ? here() : this.tree.toString() + "|" + here();
+    }
+
+    TextView playlistButton;
+
+    /** The Playlist (n) button: shown once this folder's playlist has a file. */
+    void paintPlaylist() {
+        if (this.playlistButton == null) return;
+        int n = MediaPlaylist.items(this.app.getFilesDir(), this.folderKey()).size();
+        this.playlistButton.setText(MediaPlaylist.button(n));
+        this.playlistButton.setVisibility(n > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    /** The playlist window shown last, for the tests. */
+    static AlertDialog lastPlaylist;
+
+    /** This folder's default playlist: its files, in order; a tap plays or opens one as its thumbnail does. */
+    void playlist() {
+        final List<MediaDir.Entry> items = new ArrayList<MediaDir.Entry>();
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) {
+            MediaDir.Entry e = new MediaDir.Entry();
+            e.id = it.id;
+            e.name = it.name;
+            e.size = it.size;
+            e.kind = MediaDir.kind(it.name);
+            items.add(e);
+        }
+        LinearLayout list = this.app.col();
+        list.setPadding(this.app.dp(16), this.app.dp(6), this.app.dp(16), this.app.dp(6));
+        for (int i = 0; i < items.size(); i++) {
+            final MediaDir.Entry e = items.get(i);
+            String what = e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video" : "sound";
+            TextView row = this.app.text((i + 1) + ".  " + e.name + "   \u00b7 " + what, 15, false);
+            row.setTag("playlist-item:" + e.name);
+            row.setPadding(0, this.app.dp(10), 0, this.app.dp(10));
+            row.setOnClickListener(v -> this.openEntry(e, items));
+            list.addView(row);
+        }
+        ScrollView scroll = new ScrollView(this.app);
+        scroll.addView(list);
+        lastPlaylist = new AlertDialog.Builder(this.app)
+            .setTitle("Playlist \u00b7 " + this.label())
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .show();
+    }
+
     /** The folder's entries, shown in order; null when it cannot be read. */
     List<MediaDir.Entry> list(String at) {
         List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
@@ -259,7 +308,14 @@ final class MediaBrowser {
             MediaDir.loopVideos = on;
             save(this.app);
         });
-        this.body.addView(loop);
+        // Playlist (n) beside it, once this folder's playlist has a file.
+        LinearLayout loopRow = this.app.row();
+        loopRow.addView(loop, new LinearLayout.LayoutParams(0, -2, 1f));
+        this.playlistButton = this.app.pill("Playlist", false, v -> this.playlist());
+        this.playlistButton.setTag("media-playlist");
+        loopRow.addView(this.playlistButton);
+        this.body.addView(loopRow);
+        this.paintPlaylist();
         if (this.path.size() > 1) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
@@ -383,7 +439,11 @@ final class MediaBrowser {
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
     String menuPicked(MediaDir.Entry e, int which) {
-        if (which == 2) return MediaPlaylist.add(this.app.getFilesDir(), MediaPlaylist.DEFAULT, this.uri(e).toString().startsWith("file:") ? e.id : this.uri(e).toString(), e.name);
+        if (which == 2) {
+            String said = MediaPlaylist.add(this.app.getFilesDir(), this.folderKey(), e.id, e.name, e.size);
+            this.paintPlaylist();
+            return said;
+        }
         if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
         byte[] bytes;
         try {
@@ -481,7 +541,12 @@ final class MediaBrowser {
 
     /** A card's tap: a picture full size, a video or a sound played. */
     void openEntry(MediaDir.Entry e) {
-        if (e.kind == MediaDir.PICTURE) this.picture(e);
+        this.openEntry(e, this.entries);
+    }
+
+    /** As above; a picture's Previous / Next go through the pictures in `among` (the folder, or the playlist). */
+    void openEntry(MediaDir.Entry e, List<MediaDir.Entry> among) {
+        if (e.kind == MediaDir.PICTURE) this.picture(e, among);
         else if (e.kind == MediaDir.VIDEO) this.video(e);
         else if (e.kind == MediaDir.SOUND) this.sound(e);
     }
@@ -492,11 +557,21 @@ final class MediaBrowser {
     }
 
     /** A picture full size: pinch to zoom, drag to look around; Previous / Next go through the folder's pictures. */
-    void picture(MediaDir.Entry first) {
+    void picture(MediaDir.Entry first, List<MediaDir.Entry> among) {
         lastOpened = "picture:" + first.name;
         final List<MediaDir.Entry> pictures = new ArrayList<MediaDir.Entry>();
-        for (MediaDir.Entry x : this.entries) if (x.kind == MediaDir.PICTURE) pictures.add(x);
-        final int[] at = new int[] {Math.max(0, pictures.indexOf(first))};
+        int found = -1;
+        for (MediaDir.Entry x : among) {
+            if (x.kind != MediaDir.PICTURE) continue;
+            if (x == first || x.id.equals(first.id)) found = pictures.size();
+            pictures.add(x);
+        }
+        if (found < 0) {
+            pictures.clear();
+            pictures.add(first);
+            found = 0;
+        }
+        final int[] at = new int[] {found};
         final Dialog d = this.fullScreen();
         FrameLayout frame = new FrameLayout(this.app);
         frame.setBackgroundColor(0xff000000);

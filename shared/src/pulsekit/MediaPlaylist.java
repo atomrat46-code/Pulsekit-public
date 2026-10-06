@@ -3,42 +3,58 @@ package pulsekit;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The Media browser's playlists. For now there is the default one: files added with "Add to
- * default playlist", kept in order in playlist-default.txt beside the prompt library (the app's
- * files folder on the phone, ~/.pulsekit on the desktop), one "address\tname" line each. The
- * address is a path, or on the phone a granted folder's document address. Playing it comes later.
+ * The Media browser's playlists. Each folder it shows (the one picked in Params and every folder
+ * under it) has a default playlist: the files added there with "Add to default playlist", in the
+ * order added. Each is a file beside the prompt library (the app's files folder on the phone,
+ * ~/.pulsekit on the desktop), playlist-&lt;folder hash&gt;.txt: a "folder\t..." line, then one
+ * "address\tname\tsize" line per file. The address is a path, or on the phone the file's document
+ * id in the folder the picker granted.
  */
 public final class MediaPlaylist {
-  public static final String DEFAULT = "default";
-
   /** One file in a playlist. */
   public static final class Item {
     public String id;
     public String name;
+    public long size;
   }
 
   private MediaPlaylist() {}
 
-  static File file(File dir, String playlist) {
-    return new File(dir, "playlist-" + playlist + ".txt");
+  /** The default playlist's file for `folder` (a path, or a granted folder with its document id). */
+  static File file(File dir, String folder) {
+    try {
+      byte[] d = MessageDigest.getInstance("SHA-256").digest(folder.getBytes(StandardCharsets.UTF_8));
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i] & 0xff));
+      return new File(dir, "playlist-" + sb + ".txt");
+    } catch (Exception ex) {
+      throw new IllegalStateException(ex);
+    }
   }
 
-  /** The playlist's files, in the order added; empty when it has none. */
-  public static List<Item> items(File dir, String playlist) {
+  /** The folder's default playlist, in the order added; empty when it has none. */
+  public static List<Item> items(File dir, String folder) {
     List<Item> out = new ArrayList<Item>();
-    File f = file(dir, playlist);
+    if (folder == null) return out;
+    File f = file(dir, folder);
     if (!f.isFile()) return out;
     try {
       for (String line : new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
-        int tab = line.indexOf('\t');
-        if (tab <= 0) continue;
+        String[] part = line.split("\t");
+        if (part.length < 2 || part[0].equals("folder")) continue;
         Item it = new Item();
-        it.id = line.substring(0, tab);
-        it.name = line.substring(tab + 1).trim();
+        it.id = part[0];
+        it.name = part[1].trim();
+        try {
+          it.size = part.length > 2 ? Long.parseLong(part[2].trim()) : 0;
+        } catch (NumberFormatException ex) {
+          it.size = 0;
+        }
         out.add(it);
       }
     } catch (Exception ignored) {
@@ -47,21 +63,31 @@ public final class MediaPlaylist {
     return out;
   }
 
-  /** Adds the file at the end (once); returns a line for the status. */
-  public static String add(File dir, String playlist, String id, String name) {
-    if (id == null || id.trim().length() == 0) return "Nothing to add";
-    String shown = name == null || name.trim().length() == 0 ? MediaDir.label(id) : name.trim().replace('\t', ' ').replace('\n', ' ');
-    List<Item> now = items(dir, playlist);
-    for (Item it : now) if (it.id.equals(id)) return shown + " is already in the " + playlist + " playlist";
+  /** Adds the file at the end of the folder's default playlist (once); returns a line for the status. */
+  public static String add(File dir, String folder, String id, String name, long size) {
+    if (folder == null || id == null || id.trim().length() == 0) return "Nothing to add";
+    String shown = clean(name == null || name.trim().length() == 0 ? MediaDir.label(id) : name.trim());
+    List<Item> now = items(dir, folder);
+    for (Item it : now) if (it.id.equals(id)) return shown + " is already in this folder's playlist";
     try {
-      StringBuilder sb = new StringBuilder();
-      for (Item it : now) sb.append(it.id).append('\t').append(it.name).append('\n');
-      sb.append(id.replace('\t', ' ').replace('\n', ' ')).append('\t').append(shown).append('\n');
+      StringBuilder sb = new StringBuilder("folder\t").append(clean(folder)).append('\n');
+      for (Item it : now) sb.append(it.id).append('\t').append(it.name).append('\t').append(it.size).append('\n');
+      sb.append(clean(id)).append('\t').append(shown).append('\t').append(Math.max(0, size)).append('\n');
       if (!dir.isDirectory()) dir.mkdirs();
-      Files.write(file(dir, playlist).toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
-      return shown + " added to the " + playlist + " playlist (" + (now.size() + 1) + (now.size() == 0 ? " file)" : " files)");
+      Files.write(file(dir, folder).toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      int n = now.size() + 1;
+      return shown + " added to this folder's playlist (" + n + (n == 1 ? " file)" : " files)");
     } catch (Exception ex) {
       return "Could not add " + shown + " to the playlist" + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
     }
+  }
+
+  /** "Playlist (3)". */
+  public static String button(int count) {
+    return "Playlist (" + count + ")";
+  }
+
+  private static String clean(String s) {
+    return s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
   }
 }

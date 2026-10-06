@@ -2596,7 +2596,9 @@ public class BehaviorTest {
     out.append("notes.txt card: ").append(bv.findViewWithTag("media-card:notes.txt") != null ? "shown" : "none").append('\n');
     // A long press on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
-    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}};
+    TextView playlistButton = (TextView) bv.findViewWithTag("media-playlist");
+    out.append("Playlist button before: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
     for (String[] pick : picks) {
       boolean handled = bv.findViewWithTag("media-card:" + pick[0]).performLongClick();
       idle();
@@ -2613,7 +2615,38 @@ public class BehaviorTest {
     out.append("folder long press: ").append(bv.findViewWithTag("media-folder:more").isLongClickable()).append('\n');
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) out.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
-    for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), MediaPlaylist.DEFAULT)) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
+    out.append("Playlist button after: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), b.folderKey())) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
+    // The playlist window: its files in order; a tap plays or opens one as its thumbnail does.
+    playlistButton.performClick();
+    idle();
+    View lv = MediaBrowser.lastPlaylist.getWindow().getDecorView();
+    out.append("window: ").append(org.robolectric.Shadows.shadowOf(MediaBrowser.lastPlaylist).getTitle()).append('\n');
+    for (String n : new String[] {"walk.mp4", "sunset.png", "beat.wav"}) {
+      TextView row = (TextView) lv.findViewWithTag("playlist-item:" + n);
+      out.append("  ").append(row.getText());
+      row.performClick();
+      idle();
+      out.append(" -> ").append(MediaBrowser.lastOpened).append('\n');
+      ShadowDialog.getLatestDialog().dismiss();
+      idle();
+    }
+    out.append("window still open: ").append(MediaBrowser.lastPlaylist.isShowing()).append('\n');
+    MediaBrowser.lastPlaylist.dismiss();
+    idle();
+    // A folder under it has a playlist of its own.
+    bv.findViewWithTag("media-folder:more").performClick();
+    idle();
+    TextView morePlaylist = (TextView) bv.findViewWithTag("media-playlist");
+    out.append("in more, Playlist button: ").append(morePlaylist.getVisibility() == View.VISIBLE ? morePlaylist.getText() : "hidden");
+    bv.findViewWithTag("media-card:beach.jpg").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(2);
+    idle();
+    out.append(", after adding beach.jpg: ").append(morePlaylist.getVisibility() == View.VISIBLE ? morePlaylist.getText() : "hidden").append('\n');
+    bv.findViewWithTag("media-up").performClick();
+    idle();
+    out.append("back up, Playlist button: ").append(((TextView) bv.findViewWithTag("media-playlist")).getText()).append('\n');
     bv.findViewWithTag("media-folder:more").performClick();
     idle();
     out.append("in more: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none")
