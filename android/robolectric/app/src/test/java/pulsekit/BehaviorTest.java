@@ -2468,6 +2468,46 @@ public class BehaviorTest {
     write("s53_program_folder", out.toString());
   }
 
+  /**
+   * SogniVideo Params: "Save the prompt as a prompt sheet" and "Content filter off" start ticked
+   * until SogniVideo's Params are saved (then the saved choice wins). The prompt field keeps long-press
+   * selection (Select all, Cut, Copy, Paste): its movement method can select, and it is long-clickable.
+   */
+  @Test
+  public void s67_video_defaults() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    for (int round = 0; round < 2; round++) {
+      call("pkOpenParams");
+      idle();
+      AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      View dv = d.getWindow().getDecorView();
+      out.append("round ").append(round + 1).append(":");
+      for (String t : new String[] {"--saveprompt", "--no_filter", "--no_audio", "--unlimited"}) {
+        android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+        out.append(' ').append(t).append(c.isChecked() ? " on" : " off");
+      }
+      out.append('\n');
+      android.widget.EditText prompt = (android.widget.EditText) dv.findViewWithTag("params-field:--prompt");
+      if (round == 0) {
+        out.append("prompt field: selection ").append(prompt.getMovementMethod() != null && prompt.getMovementMethod().canSelectArbitrarily())
+            .append(", long-clickable ").append(prompt.isLongClickable()).append(", editable ").append(prompt.onCheckIsTextEditor()).append('\n');
+        prompt.setText("A cat walks");
+        prompt.selectAll();
+        out.append("select all: \"").append(prompt.getText().subSequence(prompt.getSelectionStart(), prompt.getSelectionEnd())).append("\"\n");
+        ((android.widget.CheckBox) dv.findViewWithTag("params-check:--no_filter")).setChecked(false);
+      }
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      out.append("args: ").append(args.getText()).append('\n');
+    }
+    write("s67_video_defaults", out.toString());
+  }
+
   /** The bottom ■ / Play / Gen bar shows on the pages that play (Pattern, Fillern, Fill, Song) and not on the others (PyJav, Pads...). */
   @Test
   public void s66_transport_pages() throws Exception {

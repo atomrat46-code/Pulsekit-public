@@ -51,6 +51,8 @@ public final class ProgramParams {
     public boolean output;
     /** SogniChat's saved chat to continue: the row has New chat, which clears it (the next run starts a new chat). */
     public boolean newChat;
+    /** An on/off switch that starts ticked in Params until the program's Params are saved (SogniVideo's --saveprompt and --no_filter). */
+    public boolean defaultOn;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -85,6 +87,8 @@ public final class ProgramParams {
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
+      // SogniVideo, SogniMusic and SogniChat: Sogni's Safe Content Filter off for the run.
+      if (p.flag && !p.takesValue && p.token.equals("--no_filter")) p.label = "Content filter off (Sogni's Safe Content Filter)";
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";
         p.choices = StyleDb.names();
@@ -294,6 +298,8 @@ public final class ProgramParams {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      // Ticked in Params from the start: the sheet keeps the prompt, and the filter can pause a run for a safety review.
+      if (p.token.equals("--saveprompt") || p.token.equals("--no_filter")) p.defaultOn = true;
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       return;
@@ -450,6 +456,8 @@ public final class ProgramParams {
       Param p = ps.get(i);
       if (p.flag) {
         String v = saved != null && fromSaved.containsKey(p.token) ? fromSaved.get(p.token) : fromArgs.get(p.token);
+        // A default-on switch starts ticked until the program's Params are saved (then the saved choice wins).
+        if (v == null && saved == null && p.defaultOn && !p.takesValue) v = "1";
         out[i] = v == null ? "" : v;
       } else {
         String v = k < inOrder.size() ? inOrder.get(k) : "";
