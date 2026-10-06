@@ -1576,6 +1576,23 @@ public final class DesktopBehavior {
     edt(() -> ((javax.swing.JButton) find(gallery.getContentPane(), "Close")).doClick());
   }
 
+  /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
+  void s49_new_chat() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniChat.java");
+    File old = new File(System.getProperty("user.home"), "sogni-chat-old.txt");
+    Files.write(old.toPath(), "Prompt: Hi\n\nHello.\n".getBytes(StandardCharsets.UTF_8));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--continue \"" + old.getAbsolutePath() + "\" --prompt Why?"));
+    answers.add("New chat");
+    answers.add("OK");
+    call("openParams");
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+    // Without a saved chat the row reads None; New chat leaves it so.
+    answers.add("OK");
+    call("openParams");
+    out.append("args again: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
@@ -1697,8 +1714,8 @@ public final class DesktopBehavior {
               if (find(d.getContentPane(), a) == null) break;
               answers.poll();
               want.add(a);
-              // a reset button keeps the dialog open: the next answer belongs to it too
-              if (!a.startsWith("Reset")) break;
+              // a reset button (or New chat) keeps the dialog open: the next answer belongs to it too
+              if (!a.startsWith("Reset") && !a.equals("New chat")) break;
             }
           }
           if (want.isEmpty()) want.add(find(d.getContentPane(), "OK") != null ? "OK" : "Yes");

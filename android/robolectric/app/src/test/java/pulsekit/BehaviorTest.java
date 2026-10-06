@@ -2468,6 +2468,32 @@ public class BehaviorTest {
     write("s53_program_folder", out.toString());
   }
 
+  /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
+  @Test
+  public void s63_new_chat() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniChat.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--continue /sdcard/Download/sogni-chat-old.txt --prompt Why?");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView chosen = (TextView) dv.findViewWithTag("params-chosen:--continue");
+    android.widget.Button fresh = (android.widget.Button) dv.findViewWithTag("params-newchat:--continue");
+    out.append("before: ").append(chosen.getText()).append(", button ").append(fresh == null ? "none" : fresh.getText()).append('\n');
+    out.append("only on --continue: ").append(dv.findViewWithTag("params-newchat:--file") == null).append('\n');
+    fresh.performClick();
+    idle();
+    out.append("after New chat: ").append(chosen.getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s63_new_chat", out.toString());
+  }
+
   /** SogniChat: Params has a text-file picker for --file and checkboxes for --thinking and --models; a run's reply is its verdict. */
   @Test
   public void s52_sogni_chat() throws Exception {

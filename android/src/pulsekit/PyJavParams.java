@@ -142,6 +142,17 @@ public final class PyJavParams {
           });
           row.addView(db);
         }
+        if (p.newChat) {
+          // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
+          android.widget.Button fresh = new android.widget.Button(activity);
+          fresh.setText("New chat");
+          fresh.setTag("params-newchat:" + p.token);
+          fresh.setOnClickListener(v -> {
+            values[index] = "";
+            chosen.setText(fileLabel(""));
+          });
+          row.addView(fresh);
+        }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(row);
         if ("mid".equals(p.ext) && activity instanceof MainActivity) {
