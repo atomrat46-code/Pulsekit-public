@@ -639,6 +639,10 @@ public final class DesktopBehavior {
     out.append("sheet: ").append(parsed == null ? "not a prompt sheet" : "name=" + parsed.name + " category=" + parsed.category
         + " model=" + parsed.model + " type=" + parsed.type).append('\n');
     out.append("body: ").append(parsed == null ? "" : parsed.body).append('\n');
+    // The run made no track: the sheet ends with why, as its Result text.
+    out.append("result file: ").append(parsed == null ? "" : parsed.result).append('\n');
+    out.append("result text: ").append(parsed == null ? "" : parsed.resultText.replace("\n", "|")).append('\n');
+    out.append("end of the file: ").append(text.substring(Math.max(0, text.lastIndexOf("\n\nResult"))).trim().replace("\n", "|")).append('\n');
   }
 
   /** The app's kit switches are added only when the extra args do not give them. */
@@ -942,7 +946,7 @@ public final class DesktopBehavior {
         "walk.mp4 --prompt \"The gate swings open\" --image \"" + garden.getAbsolutePath() + "\" --end_image \"" + last.getAbsolutePath()
             + "\" --resolution 1080p --no_audio --exact_prompt --unlimited",
         "--prompt \"Rain on a tin roof at night, slow push-in\" --aspect 16:9 --max_cost 50 --confirm_cost",
-        "--prompt \"Too much\" --unlimited",
+        "--prompt \"Too much\" --unlimited --saveprompt",
         "--workflow wv1",
         "--prompt Walk --image \"" + notes.getAbsolutePath() + "\"",
         "--prompt Walk --end_image \"" + last.getAbsolutePath() + "\"",
@@ -984,6 +988,9 @@ public final class DesktopBehavior {
             PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
             out.append("  sheet: ").append(sheet.name).append(", category ").append(sheet.category).append(", model ").append(sheet.model)
                 .append(", type ").append(sheet.type).append("\n  body: ").append(sheet.body.replace("\n", "|")).append('\n');
+            out.append("  result file: ").append(sheet.result).append("\n  result text: ").append(sheet.resultText.replace("\n", "|")).append('\n');
+            String raw = new String(Files.readAllBytes(f), StandardCharsets.UTF_8);
+            out.append("  end of the file: ").append(raw.substring(Math.max(0, raw.lastIndexOf("\n\nResult"))).trim().replace("\n", "|")).append('\n');
           }
         }
       }
