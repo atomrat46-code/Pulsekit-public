@@ -50,7 +50,7 @@ final class DbImport {
     /** Adds the file; says what happened on the status line. */
     static void store(MainActivity app, String name, byte[] bytes, boolean result) {
         try {
-            PromptVault.open(app).addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
+            PromptVault.open(app.getFilesDir()).addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
             app.setNow("Imported " + name + " as a " + (result ? "result file" : "reference file"));
         } catch (Exception ex) {
             app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));

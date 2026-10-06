@@ -1870,7 +1870,7 @@ public class BehaviorTest {
         if (line.startsWith("Prompt library")) out.append("run ").append(run).append(" log: ").append(line).append('\n');
       }
     }
-    PromptVault vault = PromptVault.open(app);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
     for (PromptVault.Category c : vault.categories()) {
       for (PromptVault.Prompt p : vault.prompts(c.id)) {
         if (!p.title.startsWith("sogni-video")) continue;
@@ -2101,7 +2101,7 @@ public class BehaviorTest {
       for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) library = line;
       out.append("run ").append(run).append(" (setting ").append(box.isChecked() ? "on" : "off").append("): ").append(library.length() == 0 ? "not stored" : library).append('\n');
     }
-    PromptVault vault = PromptVault.open(app);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
     for (PromptVault.Category c : vault.categories()) {
       for (PromptVault.Prompt p : vault.prompts(c.id)) {
         if (!p.title.equals("MidiDrumGen")) continue;
@@ -2126,7 +2126,7 @@ public class BehaviorTest {
     if (shown != null && shown.isShowing()) shown.dismiss();
     for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("saveprompt run: ").append(line).append('\n');
     // Opened again: the run stored it through its own handle.
-    PromptVault after = PromptVault.open(app);
+    PromptVault after = PromptVault.open(app.getFilesDir());
     long music = 0;
     for (PromptVault.Category c : after.categories()) if ("Music".equals(c.name)) music = c.id;
     for (PromptVault.Prompt p : after.prompts(music)) {
@@ -2170,7 +2170,7 @@ public class BehaviorTest {
           .append(org.robolectric.Shadows.shadowOf(ask).getMessage().toString().replace("\n", "|")).append('\n');
       ask.getButton(r[2].equals("OK") ? DialogInterface.BUTTON_POSITIVE : DialogInterface.BUTTON_NEGATIVE).performClick();
       idle();
-      PromptVault v = PromptVault.open(app);
+      PromptVault v = PromptVault.open(app.getFilesDir());
       StringBuilder refs = new StringBuilder(), results = new StringBuilder();
       for (PromptVault.StoredFile f : v.referenceFiles()) refs.append(f.name).append(" (").append(f.promptTitle).append(") ");
       for (PromptVault.StoredFile f : v.resultFiles()) results.append(f.name).append(" (").append(f.promptTitle).append(") ");
@@ -2179,7 +2179,7 @@ public class BehaviorTest {
     // The Prompts page, made before the imports, shares the library: its galleries list them.
     java.lang.reflect.Field pageVault = PromptSheet.class.getDeclaredField("vault");
     pageVault.setAccessible(true);
-    out.append("Prompts page library is the shared one: ").append(pageVault.get(null) == PromptVault.open(app)).append('\n');
+    out.append("Prompts page library is the shared one: ").append(pageVault.get(null) == PromptVault.open(app.getFilesDir())).append('\n');
     findText(pane, "Result files").performClick();
     idle();
     out.append("Result files gallery: clip.mp4 ").append(findText(pane, "clip.mp4") != null).append('\n');
@@ -2195,7 +2195,7 @@ public class BehaviorTest {
     java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
     shared.setAccessible(true);
     shared.set(null, null);
-    PromptVault fromDisk = PromptVault.open(app);
+    PromptVault fromDisk = PromptVault.open(app.getFilesDir());
     StringBuilder kept = new StringBuilder();
     for (PromptVault.StoredFile f : fromDisk.referenceFiles()) kept.append(f.name).append(' ');
     for (PromptVault.StoredFile f : fromDisk.resultFiles()) kept.append(f.name).append(' ');
@@ -2436,7 +2436,7 @@ public class BehaviorTest {
       out.append("run ").append(run).append(" (setting ").append(box.isChecked() ? "on" : "off").append(run == 3 ? ", --saveprompt" : "").append("): ")
           .append(library.length() == 0 ? "not stored" : library).append('\n');
     }
-    PromptVault vault = PromptVault.open(app);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
     for (PromptVault.Category c : vault.categories()) {
       for (PromptVault.Prompt p : vault.prompts(c.id)) {
         if (!p.title.equals("SogniMusic")) continue;

@@ -30,6 +30,9 @@ final class CompareHitsPage {
     String source;
     String midiKey;
     File pickedWav;
+    /** How the picked WAV is shown when it came from the prompt library (Browse DB); null for one picked from disk. */
+    String pickedWavName;
+    JButton browseDb;
     JPanel setsBox;
     JLabel wavLabel;
     JTextArea result;
@@ -70,7 +73,13 @@ final class CompareHitsPage {
         pick.addActionListener(e -> this.pickWav());
         JButton run = app.outline("Compare", true);
         run.addActionListener(e -> this.compare());
+        // The WAV can also come from the prompt library; a MIDI there is played with the kit's sounds to one.
+        this.browseDb = app.outline("Browse DB", false);
+        this.browseDb.setName("compare-browse-db");
+        this.browseDb.addActionListener(e -> app.promptDb.browse(PromptDb.SOUNDS_OR_MIDIS, (name, file) -> this.takeDbWav(name, file)));
         buttons.add(pick);
+        buttons.add(Box.createHorizontalStrut(8));
+        buttons.add(this.browseDb);
         buttons.add(Box.createHorizontalStrut(8));
         buttons.add(run);
         col.add(buttons);
@@ -120,6 +129,7 @@ final class CompareHitsPage {
         if (this.source == null || !sets.containsKey(this.source)) {
             this.source = sets.isEmpty() ? null : sets.keySet().iterator().next();
             this.pickedWav = null;
+            this.pickedWavName = null;
         }
         this.midiKey = this.source == null ? null : sets.get(this.source);
         this.setsBox.removeAll();
@@ -135,12 +145,14 @@ final class CompareHitsPage {
                 if (!label.equals(this.source)) {
                     this.source = label;
                     this.pickedWav = null;
+                    this.pickedWavName = null;
                     this.result.setText("");
                 }
                 this.refresh();
             });
             this.setsBox.add(chip);
         }
+        if (this.browseDb != null) this.browseDb.setEnabled(!PromptDb.allFiles(PromptDb.SOUNDS_OR_MIDIS).isEmpty());
         this.setsBox.revalidate();
         this.setsBox.repaint();
         this.paintWav();
@@ -148,7 +160,7 @@ final class CompareHitsPage {
 
     void paintWav() {
         File last = this.lastPyJavWav();
-        if (this.pickedWav != null) this.wavLabel.setText("Picked: " + this.pickedWav.getName());
+        if (this.pickedWav != null) this.wavLabel.setText("Picked: " + (this.pickedWavName != null ? this.pickedWavName : this.pickedWav.getName()));
         else if (this.midiKey != null && HitCompare.fileSetWav(this.midiKey) != null) this.wavLabel.setText("Kept with the file set");
         else if (last != null) this.wavLabel.setText("Last WAV given to PyJav: " + last.getName());
         else this.wavLabel.setText("None. Pick the WAV you gave DrumMidi to compare against it too.");
@@ -166,6 +178,20 @@ final class CompareHitsPage {
         chooser.setFileFilter(new FileNameExtensionFilter("WAV audio", "wav", "wave"));
         if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
         this.pickedWav = chooser.getSelectedFile();
+        this.pickedWavName = null;
+        this.paintWav();
+    }
+
+    /** A WAV picked with Browse DB from the prompt library; a MIDI is played with the kit's sounds to one first. */
+    void takeDbWav(String name, File file) {
+        String shown = name + " (from DB)";
+        if (PromptDb.fits(name, PromptDb.MIDIS)) {
+            file = app.promptDb.kitWav(name, file);
+            if (file == null) return;
+            shown = name + " \u2192 " + file.getName() + " (kit sounds, from DB)";
+        }
+        this.pickedWav = file;
+        this.pickedWavName = shown;
         this.paintWav();
     }
 

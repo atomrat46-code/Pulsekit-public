@@ -60,6 +60,21 @@ final class PromptsPage {
         col.add(title);
         col.add(Box.createVerticalStrut(6));
         col.add(lead);
+        col.add(Box.createVerticalStrut(10));
+        // The prompt library's files: previews, play, open, rename and delete.
+        JPanel library = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        library.setOpaque(false);
+        library.setAlignmentX(0.0f);
+        JButton refs = app.action("Ref files", ELEV, FG);
+        refs.setName("prompts-ref-files");
+        refs.addActionListener(e -> app.promptDb.gallery(false));
+        JButton results = app.action("Result files", ELEV, FG);
+        results.setName("prompts-result-files");
+        results.addActionListener(e -> app.promptDb.gallery(true));
+        library.add(refs);
+        library.add(Box.createHorizontalStrut(8));
+        library.add(results);
+        col.add(library);
         col.add(Box.createVerticalStrut(14));
         this.promptTitle = this.promptNameField();
         col.add(this.promptNameRow("PROMPT NAME", this.promptTitle));

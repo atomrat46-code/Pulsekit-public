@@ -27,6 +27,41 @@ final class DrumMidiSettingsPage {
         this.app = app;
     }
 
+    /** Save MidiDrumGen output file into DB: its own setting, which Reset to defaults leaves alone. */
+    static boolean genToDb;
+    /** Save SogniMusic output file into DB: its own setting too. */
+    static boolean musicToDb;
+
+    /** The two Save-into-DB settings, kept apart from the import settings. */
+    File dbSettingsFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "db-settings.txt");
+    }
+
+    void loadDbSettings() {
+        genToDb = false;
+        musicToDb = false;
+        try {
+            File f = this.dbSettingsFile();
+            if (!f.isFile()) return;
+            for (String line : new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
+                if (line.trim().equals("midiDrumGenToDb=1")) genToDb = true;
+                if (line.trim().equals("sogniMusicToDb=1")) musicToDb = true;
+            }
+        } catch (Exception ignored) {
+            // both off
+        }
+    }
+
+    void saveDbSettings() {
+        try {
+            File f = this.dbSettingsFile();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), ("midiDrumGenToDb=" + (genToDb ? 1 : 0) + "\nsogniMusicToDb=" + (musicToDb ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // the settings stay for this session
+        }
+    }
+
     File drumMidiFile() {
         return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "drum-midi-settings.txt");
     }
@@ -189,6 +224,7 @@ final class DrumMidiSettingsPage {
         ProgramFolder.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         PictureCopies.shrinker = new PictureShrink();
         SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+        this.loadDbSettings();
         JPanel col = new JPanel();
         col.setOpaque(false);
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
@@ -274,6 +310,22 @@ final class DrumMidiSettingsPage {
         }
         this.addKeyGroup(col);
         this.addFolderGroup(col);
+        JCheckBox gen = this.drumMidiCheck(col, "Save MidiDrumGen output file into DB",
+            "When MidiDrumGen finishes, its MIDI goes into the prompt library (Music, prompt MidiDrumGen) as a result file, "
+                + "with the arguments it ran with. Result files on the Prompts page plays it.",
+            genToDb, on -> {
+                genToDb = on;
+                this.saveDbSettings();
+            });
+        gen.setName("midi-drum-gen-db");
+        JCheckBox music = this.drumMidiCheck(col, "Save SogniMusic output file into DB",
+            "When SogniMusic finishes, its track goes into the prompt library (Music, prompt SogniMusic) as a result file, "
+                + "with the arguments it ran with and its workflow id. Result files on the Prompts page plays it.",
+            musicToDb, on -> {
+                musicToDb = on;
+                this.saveDbSettings();
+            });
+        music.setName("sogni-music-db");
         col.add(Box.createVerticalStrut(16));
         JButton reset = app.outline("Reset to defaults", false);
         reset.setAlignmentX(0.0f);

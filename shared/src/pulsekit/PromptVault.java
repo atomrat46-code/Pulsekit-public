@@ -1,8 +1,5 @@
 package pulsekit;
 
-import android.content.Context;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyProperties;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -10,16 +7,25 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** AES-GCM prompt database. The file on disk is ciphertext. The key stays in the Android keystore. */
+/**
+ * AES-GCM prompt database, the same on the phone and the desktop. The file on disk is ciphertext;
+ * the key comes from the platform (keys): the Android keystore on the phone, a key file readable
+ * only by the user on the desktop.
+ */
 public final class PromptVault {
+  /** Where the library's AES key comes from: set by the app at start. */
+  public interface Keys {
+    SecretKey key() throws Exception;
+  }
+
+  public static volatile Keys keys;
+
   public static final class Category {
     public long id;
     public long parentId;
@@ -51,7 +57,6 @@ public final class PromptVault {
     public boolean finalVersion;
   }
 
-  private static final String ALIAS = "pulsekit-prompt-vault";
   private static final int MAGIC = 0x504B4442;
   private static final byte[] FILE_MAGIC = new byte[] {'P', 'K', 'V', '1'};
   private static final int MAX_BYTES = 16 * 1024 * 1024;
@@ -77,8 +82,9 @@ public final class PromptVault {
     this.file = file;
   }
 
-  public static synchronized PromptVault open(Context context) throws Exception {
-    File at = new File(context.getFilesDir(), "prompts.vault");
+  /** The library kept in `dir` (the app's files folder on the phone, ~/.pulsekit on the desktop). */
+  public static synchronized PromptVault open(File dir) throws Exception {
+    File at = new File(dir, "prompts.vault");
     if (shared != null && shared.file.getAbsolutePath().equals(at.getAbsolutePath())) {
       if (at.isFile() ? at.lastModified() != shared.stamp : shared.stamp != 0) shared.reload();
       return shared;
@@ -833,18 +839,9 @@ public final class PromptVault {
   }
 
   private static SecretKey key() throws Exception {
-    KeyStore store = KeyStore.getInstance("AndroidKeyStore");
-    store.load(null);
-    if (!store.containsAlias(ALIAS)) {
-      KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-      generator.init(new KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-          .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-          .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-          .setKeySize(256)
-          .build());
-      generator.generateKey();
-    }
-    return (SecretKey) store.getKey(ALIAS, null);
+    Keys k = keys;
+    if (k == null) throw new IllegalStateException("The prompt library has no key");
+    return k.key();
   }
 
   private static void writeUtf(DataOutputStream out, String text) throws Exception {

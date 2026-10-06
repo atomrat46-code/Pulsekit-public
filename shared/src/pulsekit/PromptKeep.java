@@ -1,6 +1,5 @@
 package pulsekit;
 
-import android.content.Context;
 import java.io.File;
 import java.util.List;
 
@@ -10,7 +9,8 @@ import java.util.List;
  * the model and type, the reference files it names (read from the run's own inputs: SogniVideo's
  * first and last frame pictures), the result file the run made and the result text. Opening the
  * sheet later loads the pictures back as its reference files. A file over the library's 16 MB is
- * kept by name only. The programs write only the .prompt file; the library is the app's.
+ * kept by name only. The programs write only the .prompt file; the library is the app's (the same
+ * on the phone and the desktop; `dir` is the folder it is kept in).
  */
 final class PromptKeep {
     private static final long MAX_BYTES = 16L * 1024 * 1024;
@@ -18,15 +18,15 @@ final class PromptKeep {
     private PromptKeep() {}
 
     /** Stores each sheet the run saved; returns a line for the log, or "" when it saved none. */
-    static String keep(Context ctx, JavaRun.Result result, List<String> argv) {
-        if (ctx == null || result == null || result.files == null) return "";
+    static String keep(File dir, JavaRun.Result result, List<String> argv) {
+        if (dir == null || result == null || result.files == null) return "";
         StringBuilder note = new StringBuilder();
         for (JavaRun.FileOut f : result.files) {
             if (f.name == null || !f.name.toLowerCase().endsWith(".prompt") || f.bytes == null) continue;
             PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, java.nio.charset.StandardCharsets.UTF_8));
             if (sheet == null || sheet.name.trim().length() == 0) continue;
             try {
-                note.append(note.length() > 0 ? "\n" : "").append(store(PromptVault.open(ctx), sheet, result, argv));
+                note.append(note.length() > 0 ? "\n" : "").append(store(PromptVault.open(dir), sheet, result, argv));
             } catch (Exception ex) {
                 note.append(note.length() > 0 ? "\n" : "").append("Prompt library: could not store ").append(f.name)
                     .append(ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
@@ -78,8 +78,8 @@ final class PromptKeep {
      * its text, the MIDI as result file and the run's "Wrote ..." line as result text. Returns a line
      * for the log, or "" when the run made no MIDI or saved it with a prompt sheet already.
      */
-    static String keepMidiDrumGen(Context ctx, JavaRun.Result result, List<String> argv) {
-        return keepOutput(ctx, result, argv, "MidiDrumGen", false);
+    static String keepMidiDrumGen(File dir, JavaRun.Result result, List<String> argv) {
+        return keepOutput(dir, result, argv, "MidiDrumGen", false);
     }
 
     /**
@@ -88,13 +88,13 @@ final class PromptKeep {
      * arguments as text, the track as result file (by name only over 16 MB), and the run's "Wrote"
      * and "Workflow:" lines as result text (the workflow id fetches the track again).
      */
-    static String keepSogniMusic(Context ctx, JavaRun.Result result, List<String> argv) {
-        return keepOutput(ctx, result, argv, "SogniMusic", true);
+    static String keepSogniMusic(File dir, JavaRun.Result result, List<String> argv) {
+        return keepOutput(dir, result, argv, "SogniMusic", true);
     }
 
     /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */
-    static String keepOutput(Context ctx, JavaRun.Result result, List<String> argv, String program, boolean audio) {
-        if (ctx == null || result == null || result.files == null || result.code != 0) return "";
+    static String keepOutput(File dir, JavaRun.Result result, List<String> argv, String program, boolean audio) {
+        if (dir == null || result == null || result.files == null || result.code != 0) return "";
         JavaRun.FileOut midi = null;
         for (JavaRun.FileOut f : result.files) {
             String low = f.name == null ? "" : f.name.toLowerCase();
@@ -127,7 +127,7 @@ final class PromptKeep {
         // The library keeps files of up to 16 MB: a longer track is kept by name only.
         byte[] kept = midi.bytes.length > MAX_BYTES ? null : midi.bytes;
         try {
-            PromptVault vault = PromptVault.open(ctx);
+            PromptVault vault = PromptVault.open(dir);
             long catId = 0;
             for (PromptVault.Category c : vault.categories()) if (c.name != null && c.name.trim().equalsIgnoreCase("Music")) catId = c.id;
             if (catId == 0) catId = vault.addCategory("Music");
