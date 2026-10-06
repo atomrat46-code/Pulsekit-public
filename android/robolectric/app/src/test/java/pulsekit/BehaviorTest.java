@@ -2184,6 +2184,34 @@ public class BehaviorTest {
     boolean drums = false;
     for (PromptVault.Category c : fromDisk.categories()) if ("Drums".equals(c.name)) drums = true;
     out.append("read from disk after a Prompts page save: ").append(kept.toString().trim()).append(", category Drums ").append(drums).append('\n');
+    // Browse DB on SogniVideo's picture rows: Ref files or Result files (a picture a SogniChat tool made, kept as a result).
+    DbImport.store(app, "krea.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 9, 9, 9, 9}, true);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    ((android.widget.Button) pv.findViewWithTag("params-db:--image")).performClick();
+    idle();
+    AlertDialog refs = (AlertDialog) ShadowDialog.getLatestDialog();
+    View rv = refs.getWindow().getDecorView();
+    out.append("Browse DB opens: ").append(org.robolectric.Shadows.shadowOf(refs).getTitle()).append(", switch ")
+        .append(((TextView) rv.findViewWithTag("refs-kind:refs")).getText()).append(" / ").append(((TextView) rv.findViewWithTag("refs-kind:results")).getText())
+        .append(", loop.wav card ").append(rv.findViewWithTag("refs-pick:loop.wav") != null).append('\n');
+    rv.findViewWithTag("refs-kind:results").performClick();
+    idle();
+    AlertDialog results = (AlertDialog) ShadowDialog.getLatestDialog();
+    View sv = results.getWindow().getDecorView();
+    out.append("switched: ").append(org.robolectric.Shadows.shadowOf(results).getTitle()).append(", first browser closed ").append(!refs.isShowing())
+        .append(", krea.png card ").append(sv.findViewWithTag("refs-pick:krea.png") != null).append(", clip.mp4 card ").append(sv.findViewWithTag("refs-pick:clip.mp4") != null).append('\n');
+    sv.findViewWithTag("refs-pick:krea.png").performClick();
+    idle();
+    out.append("picked: ").append(((TextView) pv.findViewWithTag("params-chosen:--image")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     write("s61_db_import", out.toString());
   }
 
