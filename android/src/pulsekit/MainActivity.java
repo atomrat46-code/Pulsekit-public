@@ -673,6 +673,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeParamFile(intent.getData());
             return;
         }
+        if (n == DbImport.PICK_REF || n == DbImport.PICK_RESULT) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) DbImport.take(this, intent.getData(), n == DbImport.PICK_RESULT);
+            return;
+        }
         if (n == CompareHitsPage.PICK_WAV) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.compareHits.takeWav(intent.getData());
@@ -950,6 +955,15 @@ public class MainActivity extends UiKit {
         saveCodeAs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         saveCodeAs.setTextColor(FG);
         saveCodeAs.setAlpha(codeSavable ? 1f : 0.4f);
+        // A file into the prompt library on its own, as a reference or a result file.
+        android.widget.TextView importRef = this.text("Import as Ref file", 14, true);
+        importRef.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        importRef.setTextColor(FG);
+        importRef.setTag("file-import-ref");
+        android.widget.TextView importResult = this.text("Import as Result file", 14, true);
+        importResult.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        importResult.setTextColor(FG);
+        importResult.setTag("file-import-result");
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
@@ -963,6 +977,8 @@ public class MainActivity extends UiKit {
         menu.addView(exp);
         menu.addView(saveCode);
         menu.addView(saveCodeAs);
+        menu.addView(importRef);
+        menu.addView(importResult);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -982,6 +998,14 @@ public class MainActivity extends UiKit {
             pop.dismiss();
             if (codeSavable) this.codeSave.saveAs();
             else this.setNow("Binary programs and prompt sheets are not saved from the code editor");
+        });
+        importRef.setOnClickListener(v -> {
+            pop.dismiss();
+            DbImport.pick(this, false);
+        });
+        importResult.setOnClickListener(v -> {
+            pop.dismiss();
+            DbImport.pick(this, true);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

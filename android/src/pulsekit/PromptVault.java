@@ -63,17 +63,48 @@ public final class PromptVault {
   private final List<LibraryFile> library = new ArrayList<LibraryFile>();
   private long nextId = 1;
 
+  /**
+   * The one library in memory: the Prompts page, PyJav (saved sheets, MidiDrumGen output), Browse
+   * DB and File > Import all use it, so a save from one never writes back an older copy over what
+   * another stored. Read again only when the file changed on disk since this copy last wrote or
+   * read it.
+   */
+  private static PromptVault shared;
+  /** The file's time when this copy last read or wrote it; 0 before. */
+  private long stamp;
+
   private PromptVault(File file) {
     this.file = file;
   }
 
-  public static PromptVault open(Context context) throws Exception {
-    PromptVault vault = new PromptVault(new File(context.getFilesDir(), "prompts.vault"));
-    if (vault.file.isFile()) vault.read();
-    if (vault.categories.isEmpty()) vault.seed();
-    vault.ensure("Image");
-    vault.ensure("video");
+  public static synchronized PromptVault open(Context context) throws Exception {
+    File at = new File(context.getFilesDir(), "prompts.vault");
+    if (shared != null && shared.file.getAbsolutePath().equals(at.getAbsolutePath())) {
+      if (at.isFile() ? at.lastModified() != shared.stamp : shared.stamp != 0) shared.reload();
+      return shared;
+    }
+    PromptVault vault = new PromptVault(at);
+    vault.load();
+    shared = vault;
     return vault;
+  }
+
+  private void load() throws Exception {
+    if (file.isFile()) read();
+    if (categories.isEmpty()) seed();
+    ensure("Image");
+    ensure("video");
+  }
+
+  /** Reads the file again into this same library (it changed on disk). */
+  private void reload() throws Exception {
+    categories.clear();
+    prompts.clear();
+    versions.clear();
+    library.clear();
+    nextId = 1;
+    stamp = 0;
+    load();
   }
 
   public List<Category> categories() {
@@ -123,7 +154,7 @@ public final class PromptVault {
 
   public List<StoredFile> referenceFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
-    for (int i = library.size() - 1; i >= 0; i--) addLibrary(out, library.get(i));
+    for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which != 3) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) {
       Version version = versions.get(i);
       addStored(out, version, 1);
@@ -134,6 +165,8 @@ public final class PromptVault {
 
   public List<StoredFile> resultFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
+    // Files imported as result files (File > Import as Result file) first, newest first.
+    for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == 3) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) addStored(out, versions.get(i), 3);
     return out;
   }
@@ -199,13 +232,45 @@ public final class PromptVault {
     return image.id;
   }
 
+  /**
+   * A file kept on its own (File > Import as Ref file / Import as Result file), `which` 1 for a
+   * reference file, 3 for a result file. Its name is kept as it is; a file of the same name and
+   * kind is replaced. `note` shows where a prompt's title would.
+   */
+  public long addLibraryFile(String name, byte[] bytes, String note, int which) throws Exception {
+    if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That file is empty");
+    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
+    String clean = fileTitle(name);
+    if (clean.length() == 0) clean = "file";
+    int kind = which == 3 ? 3 : 1;
+    String label = note == null ? "" : note.replace('\n', ' ').replace('\r', ' ').trim();
+    for (int i = 0; i < library.size(); i++) {
+      LibraryFile have = library.get(i);
+      if (have.which == kind && have.name != null && have.name.equalsIgnoreCase(clean)) {
+        have.bytes = copy(bytes);
+        have.note = label;
+        save();
+        return have.id;
+      }
+    }
+    LibraryFile file = new LibraryFile();
+    file.id = nextId++;
+    file.name = clean;
+    file.bytes = copy(bytes);
+    file.note = label;
+    file.which = kind;
+    library.add(file);
+    save();
+    return file.id;
+  }
+
   private void addLibrary(List<StoredFile> out, LibraryFile image) {
     if (image == null || image.bytes == null || image.bytes.length == 0) return;
     String name = image.name == null || image.name.length() == 0 ? "frame.jpg" : image.name;
     String title = image.note == null || image.note.length() == 0 ? "Frame" : image.note;
     StoredFile row = new StoredFile();
     row.versionId = image.id;
-    row.which = image.which == 2 ? 2 : 1;
+    row.which = image.which == 2 || image.which == 3 ? image.which : 1;
     row.name = name;
     row.promptTitle = title;
     row.size = image.bytes.length;
@@ -664,6 +729,7 @@ public final class PromptVault {
     }
     if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace the prompt database");
     if (!tmp.renameTo(file)) throw new IllegalStateException("Could not store the prompt database");
+    stamp = file.lastModified();
   }
 
   private void read() throws Exception {
@@ -678,6 +744,7 @@ public final class PromptVault {
     } finally {
       in.close();
     }
+    stamp = file.lastModified();
     byte[] plain = decrypt(raw);
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");

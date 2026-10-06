@@ -2124,6 +2124,69 @@ public class BehaviorTest {
     write("s60_midi_drum_gen_db", out.toString());
   }
 
+  /**
+   * File > Import as Ref file / Import as Result file: the picked file goes into the prompt library
+   * after OK (Cancel adds nothing), and shows in Ref files or Result files. The library is one copy
+   * in memory, so the Prompts page sees what was imported, and its own saves keep it.
+   */
+  @Test
+  public void s61_db_import() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.io.File dir = new java.io.File(app.getCacheDir(), "picked");
+    dir.mkdirs();
+    java.io.File wav = new java.io.File(dir, "loop.wav");
+    java.nio.file.Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+    java.io.File clip = new java.io.File(dir, "clip.mp4");
+    java.nio.file.Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    String[][] runs = {{"Import as Ref file", "loop.wav", "OK"}, {"Import as Result file", "clip.mp4", "Cancel"}, {"Import as Result file", "clip.mp4", "OK"}};
+    for (String[] r : runs) {
+      fileMenuItem(r[0]);
+      org.robolectric.shadows.ShadowActivity.IntentForResult picker = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult();
+      out.append(r[0]).append(": picker ").append(picker == null ? "none" : picker.intent.getAction() + " (request " + picker.requestCode + ")").append('\n');
+      app.onActivityResult(picker.requestCode, -1, new android.content.Intent().setData(android.net.Uri.fromFile(new java.io.File(dir, r[1]))));
+      idle();
+      AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+      out.append("  dialog: ").append(org.robolectric.Shadows.shadowOf(ask).getTitle()).append(" / ")
+          .append(org.robolectric.Shadows.shadowOf(ask).getMessage().toString().replace("\n", "|")).append('\n');
+      ask.getButton(r[2].equals("OK") ? DialogInterface.BUTTON_POSITIVE : DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+      PromptVault v = PromptVault.open(app);
+      StringBuilder refs = new StringBuilder(), results = new StringBuilder();
+      for (PromptVault.StoredFile f : v.referenceFiles()) refs.append(f.name).append(" (").append(f.promptTitle).append(") ");
+      for (PromptVault.StoredFile f : v.resultFiles()) results.append(f.name).append(" (").append(f.promptTitle).append(") ");
+      out.append("  ref files: ").append(refs.toString().trim()).append(" | result files: ").append(results.toString().trim()).append('\n');
+    }
+    // The Prompts page, made before the imports, shares the library: its galleries list them.
+    java.lang.reflect.Field pageVault = PromptSheet.class.getDeclaredField("vault");
+    pageVault.setAccessible(true);
+    out.append("Prompts page library is the shared one: ").append(pageVault.get(null) == PromptVault.open(app)).append('\n');
+    findText(pane, "Result files").performClick();
+    idle();
+    out.append("Result files gallery: clip.mp4 ").append(findText(pane, "clip.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("Ref files gallery: loop.wav ").append(findText(pane, "loop.wav") != null).append(", clip.mp4 ").append(findText(pane, "clip.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    // A save from the Prompts page keeps the imports (before, it wrote back the copy it read at start).
+    ((PromptVault) pageVault.get(null)).addCategory("Drums");
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    PromptVault fromDisk = PromptVault.open(app);
+    StringBuilder kept = new StringBuilder();
+    for (PromptVault.StoredFile f : fromDisk.referenceFiles()) kept.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : fromDisk.resultFiles()) kept.append(f.name).append(' ');
+    boolean drums = false;
+    for (PromptVault.Category c : fromDisk.categories()) if ("Drums".equals(c.name)) drums = true;
+    out.append("read from disk after a Prompts page save: ").append(kept.toString().trim()).append(", category Drums ").append(drums).append('\n');
+    write("s61_db_import", out.toString());
+  }
+
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
   @Test
   public void s53_program_folder() throws Exception {
