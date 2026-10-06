@@ -27,7 +27,7 @@ import javax.swing.SwingUtilities;
 /**
  * The prompt library on the desktop, as on the phone: the same encrypted file (prompts.vault in
  * ~/.pulsekit), its key in ~/.pulsekit/prompts.key (owner only). Here: the Ref files and Result
- * files galleries (previews; a click plays a sound or a MIDI with the kit, or opens the file; a
+ * files galleries (previews; a click plays a sound or a MIDI with the kit, or previews the file; a
  * right click opens, saves, renames or deletes it), Browse DB (a stored file as a program's input,
  * a MIDI played with the kit to a WAV where a sound is wanted), and File > Import as Ref file /
  * Import as Result file.
@@ -137,6 +137,33 @@ final class PromptDb {
         cancel.addActionListener(e -> dialog.dispose());
         this.show(dialog, kinds, grid, cancel);
     }
+
+    /**
+     * The Prompts page's DB button on a file row: the stored reference files (or result files, for
+     * the Result file row) as cards; a click puts that file in the row. A right click opens, saves,
+     * renames or deletes it.
+     */
+    void pickStored(String slot, boolean results, CardAction picked) {
+        final JDialog dialog = new JDialog(app, "Database \u00b7 " + slot, true);
+        JLabel head = new JLabel(results ? "Result files" : "Reference files");
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        top.add(head);
+        final JPanel[] grid = new JPanel[1];
+        grid[0] = this.grid(stored(results), (file, card) -> {
+            dialog.dispose();
+            picked.run(file, card);
+        }, (file, card) -> this.menu(file, card, () -> {
+            dialog.dispose();
+            this.pickStored(slot, results, picked);
+        }), "db-pick:");
+        JButton cancel = new JButton("Cancel");
+        cancel.addActionListener(e -> dialog.dispose());
+        this.lastPick = dialog;
+        this.show(dialog, top, grid[0], cancel);
+    }
+
+    /** The DB dialog shown last, for the tests. */
+    JDialog lastPick;
 
     /** Ref files (n) / Result files (n): the one shown is greyed; the other opens in its place. */
     private JPanel kinds(boolean results, java.util.function.Function<Boolean, Integer> count, java.util.function.Consumer<Boolean> open) {
@@ -355,7 +382,8 @@ final class PromptDb {
             pcm = null;
         }
         if (pcm == null) {
-            this.open(file, bytes);
+            // A picture or text shows in Preview (with zoom), a video in the player; the rest opens.
+            this.preview(file.name, bytes);
             return;
         }
         byte[] raw = new byte[pcm.length * 2];
@@ -482,6 +510,307 @@ final class PromptDb {
         } catch (Exception ex) {
             app.setNow("Could not delete " + file.name);
             return false;
+        }
+    }
+
+    // ------------------------------------------------------------ PyJav: a prompt's files
+
+    /** A prompt's reference files written out of the library for PyJav, as on the phone. */
+    static final class Refs {
+        String ref1Path = "";
+        String ref2Path = "";
+        String description = "";
+        String resultName = "";
+        String note = "";
+    }
+
+    /**
+     * Opening a .prompt in PyJav: the final version of the prompt it names (or the version with its
+     * reference file names) gives its reference files, written to ~/.pulsekit/pyjav-in, its
+     * description, and its result file's name.
+     */
+    static Refs refsFor(String text, String fallbackTitle) {
+        Refs refs = new Refs();
+        try {
+            PromptRun.Sheet sheet = PromptRun.parse(text == null ? "" : text);
+            String title = sheet != null && sheet.name != null ? sheet.name : "";
+            if (title.length() == 0 && fallbackTitle != null) title = fallbackTitle.replaceAll("(?i)\\.prompt$", "");
+            String category = sheet != null && sheet.category != null ? sheet.category : "";
+            String n1 = sheet != null && sheet.ref1 != null ? sheet.ref1 : "";
+            String n2 = sheet != null && sheet.ref2 != null ? sheet.ref2 : "";
+            PromptVault.Version version = vault().selectedRefs(title, category, n1, n2);
+            if (version == null) {
+                refs.note = "Reference file 1: none\nReference file 2: none";
+                return refs;
+            }
+            File dir = new File(dir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            String name1 = version.ref1Name == null ? "" : version.ref1Name;
+            String name2 = version.ref2Name == null ? "" : version.ref2Name;
+            refs.description = version.description == null ? "" : version.description;
+            refs.resultName = version.result != null && version.result.length > 0 && version.resultName != null ? version.resultName : "";
+            if (version.ref1 != null && version.ref1.length > 0) refs.ref1Path = write(dir, "ref1-", name1, version.ref1);
+            if (version.ref2 != null && version.ref2.length > 0) refs.ref2Path = write(dir, "ref2-", name2, version.ref2);
+            refs.note = line("Reference file 1", name1, refs.ref1Path) + "\n" + line("Reference file 2", name2, refs.ref2Path);
+        } catch (Exception ex) {
+            refs.note = "Could not read the encrypted database.";
+        }
+        return refs;
+    }
+
+    private static String line(String label, String name, String path) {
+        if (path == null || path.length() == 0) return label + ": none";
+        return label + ": " + (name == null || name.length() == 0 ? "file" : name) + "\n" + path;
+    }
+
+    private static String write(File dir, String prefix, String name, byte[] bytes) throws Exception {
+        String raw = name == null || name.trim().length() == 0 ? "file" : name.trim();
+        StringBuilder sb = new StringBuilder(prefix);
+        for (int i = 0; i < raw.length() && sb.length() < 80 + prefix.length(); i++) {
+            char c = raw.charAt(i);
+            sb.append(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_' ? c : '_');
+        }
+        File file = new File(dir, sb.toString());
+        Files.write(file.toPath(), bytes);
+        return file.getAbsolutePath();
+    }
+
+    /** A prompt run's output as the prompt's result file, when its version has none yet. Returns the name kept. */
+    static String storeResult(String text, String fileName, byte[] bytes) {
+        if (fileName == null || fileName.length() == 0 || bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES) return "";
+        try {
+            PromptRun.Sheet sheet = PromptRun.parse(text == null ? "" : text);
+            if (sheet == null) return "";
+            PromptVault vault = vault();
+            PromptVault.Version version = vault.selectedRefs(sheet.name, sheet.category, sheet.ref1, sheet.ref2);
+            if (version == null) return "";
+            if (version.result != null && version.result.length > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
+            vault.putFile(version.id, 3, fileName, bytes);
+            return fileName;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    // ------------------------------------------------------------ Preview
+
+    /** What a file is, for Preview: 1 text, 2 picture, 3 video, 4 sound (MIDI too), 0 none. As on the phone. */
+    static int previewKind(String name, byte[] bytes) {
+        String low = name == null ? "" : name.toLowerCase();
+        if (low.matches(".+\\.(txt|md|json|prompt|csv|xml|html|py|java|log|css|js)")) return 1;
+        if (low.matches(".+\\.(png|jpe?g|webp|gif|bmp)")) return 2;
+        if (low.matches(".+\\.(mp4|webm|mkv|3gp|mov)")) return 3;
+        if (low.matches(".+\\.(wav|mp3|ogg|m4a|aac|flac|mid|midi)")) return 4;
+        if (bytes == null) return 0;
+        if (bytes.length >= 4 && bytes[0] == 'M' && bytes[1] == 'T' && bytes[2] == 'h' && bytes[3] == 'd') return 4;
+        if (bytes.length >= 8 && (bytes[0] & 0xff) == 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') return 2;
+        if (bytes.length >= 3 && (bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8) return 2;
+        if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') return 2;
+        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F' && bytes[8] == 'W' && bytes[9] == 'A') return 4;
+        if (bytes.length >= 3 && bytes[0] == 'I' && bytes[1] == 'D' && bytes[2] == '3') return 4;
+        if (bytes.length >= 12 && bytes[4] == 'f' && bytes[5] == 't' && bytes[6] == 'y' && bytes[7] == 'p') return 3;
+        int n = Math.min(bytes.length, 4096);
+        for (int i = 0; i < n; i++) {
+            int b = bytes[i] & 0xff;
+            if (b == 0 || b < 9) return 0;
+        }
+        return n > 0 ? 1 : 0;
+    }
+
+    /**
+     * Preview, as on the phone: text in a window with zoom, a picture with zoom, a sound or a MIDI
+     * (with the kit's sounds) with Play / Stop, a video in the browser player page or the system
+     * player. Anything else opens in the computer's app for it.
+     */
+    void preview(String name, byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            app.setNow("No file selected");
+            return;
+        }
+        String shown = name == null || name.isEmpty() ? "file" : name;
+        int kind = previewKind(shown, bytes);
+        if (kind == 1 || kind == 2) {
+            this.zoomPreview(shown, bytes, kind);
+        } else if (kind == 3) {
+            File tmp = this.spill(shown, bytes);
+            if (tmp == null) return;
+            app.pyJav.offerVideo(tmp, 1);
+        } else if (kind == 4) {
+            this.soundPreview(shown, bytes);
+        } else {
+            PromptVault.StoredFile f = new PromptVault.StoredFile();
+            f.name = shown;
+            this.open(f, bytes);
+        }
+    }
+
+    /** The file in the temp folder (for a player); null after saying why. */
+    File spill(String name, byte[] bytes) {
+        try {
+            File tmp = new File(new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-library"), name.replace('/', '_').replace('\\', '_'));
+            tmp.getParentFile().mkdirs();
+            Files.write(tmp.toPath(), bytes);
+            tmp.deleteOnExit();
+            return tmp;
+        } catch (Exception ex) {
+            app.setNow("Could not preview " + name);
+            return null;
+        }
+    }
+
+    /** The dialog shown last by Preview, for the tests. */
+    JDialog lastPreview;
+
+    private void zoomPreview(String name, byte[] bytes, int kind) {
+        final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
+        final float[] zoom = new float[] {1f};
+        final javax.swing.JComponent view;
+        final Runnable apply;
+        if (kind == 1) {
+            javax.swing.JTextArea text = new javax.swing.JTextArea(new String(bytes, java.nio.charset.StandardCharsets.UTF_8), 24, 70);
+            text.setName("preview-text");
+            text.setEditable(false);
+            text.setLineWrap(true);
+            text.setWrapStyleWord(true);
+            final java.awt.Font base = new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13);
+            text.setFont(base);
+            view = text;
+            apply = () -> text.setFont(base.deriveFont(13f * zoom[0]));
+        } else {
+            java.awt.image.BufferedImage img;
+            try {
+                img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            } catch (Exception ex) {
+                img = null;
+            }
+            if (img == null) {
+                // WebP and others Java cannot read: the system viewer shows them.
+                PromptVault.StoredFile f = new PromptVault.StoredFile();
+                f.name = name;
+                this.open(f, bytes);
+                return;
+            }
+            final java.awt.image.BufferedImage picture = img;
+            final double fit = Math.min(1.0, Math.min(760.0 / img.getWidth(), 520.0 / img.getHeight()));
+            JLabel label = new JLabel();
+            label.setName("preview-image");
+            view = label;
+            apply = () -> {
+                int w = Math.max(1, (int) (picture.getWidth() * fit * zoom[0]));
+                int h = Math.max(1, (int) (picture.getHeight() * fit * zoom[0]));
+                label.setIcon(new ImageIcon(picture.getScaledInstance(w, h, Image.SCALE_SMOOTH)));
+            };
+        }
+        apply.run();
+        JLabel percent = new JLabel("100%");
+        JButton out = new JButton("\u2212");
+        JButton in = new JButton("+");
+        JButton reset = new JButton("100%");
+        java.util.function.Consumer<Float> set = next -> {
+            zoom[0] = Math.max(0.25f, Math.min(4f, next));
+            percent.setText(Math.round(zoom[0] * 100) + "%");
+            apply.run();
+            view.revalidate();
+        };
+        out.addActionListener(e -> set.accept(zoom[0] / 1.25f));
+        in.addActionListener(e -> set.accept(zoom[0] * 1.25f));
+        reset.addActionListener(e -> set.accept(1f));
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        top.add(new JLabel("Zoom"));
+        top.add(out);
+        top.add(percent);
+        top.add(in);
+        top.add(reset);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        body.add(top, BorderLayout.NORTH);
+        JScrollPane scroll = new JScrollPane(view);
+        scroll.setPreferredSize(new Dimension(800, 560));
+        body.add(scroll, BorderLayout.CENTER);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        bottom.add(close);
+        body.add(bottom, BorderLayout.SOUTH);
+        dialog.setContentPane(body);
+        dialog.pack();
+        dialog.setLocationRelativeTo(app);
+        this.lastPreview = dialog;
+        dialog.setVisible(true);
+    }
+
+    /** A sound (WAV, MP3) or a MIDI with the kit's sounds: Play / Stop and Close. Other sound files open in the system player. */
+    private void soundPreview(String name, byte[] bytes) {
+        short[] pcm = null;
+        int sr = 22050;
+        boolean midi = bytes.length >= 4 && bytes[0] == 'M' && bytes[1] == 'T' && bytes[2] == 'h' && bytes[3] == 'd';
+        String low = name.toLowerCase();
+        try {
+            if (midi) {
+                pcm = app.playback == null ? null : AudioIo.renderMidiDrums(bytes, app.playback.mixVoices(), sr);
+            } else if (low.endsWith(".mp3") || (bytes.length >= 3 && bytes[0] == 'I' && bytes[1] == 'D' && bytes[2] == '3')) {
+                AudioIo.Pcm d = Mp3Decode.parse(bytes);
+                if (d != null) {
+                    pcm = AudioIo.floatsToShorts(d.samples);
+                    sr = d.sr;
+                }
+            } else if (bytes.length >= 12 && bytes[0] == 'R' && bytes[8] == 'W') {
+                AudioIo.Pcm d = AudioIo.parseWav(bytes);
+                if (d != null) {
+                    pcm = AudioIo.floatsToShorts(d.samples);
+                    sr = d.sr;
+                }
+            }
+        } catch (Exception ex) {
+            pcm = null;
+        }
+        if (pcm == null || pcm.length == 0) {
+            if (midi) {
+                app.setNow(name + " has no drums for the kit to play");
+                return;
+            }
+            PromptVault.StoredFile f = new PromptVault.StoredFile();
+            f.name = name;
+            this.open(f, bytes);
+            return;
+        }
+        byte[] raw = new byte[pcm.length * 2];
+        for (int i = 0; i < pcm.length; i++) {
+            raw[2 * i] = (byte) pcm[i];
+            raw[2 * i + 1] = (byte) (pcm[i] >> 8);
+        }
+        int seconds = Math.round(pcm.length / (float) sr);
+        String length = (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60);
+        String note = midi ? "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any)." : "Sound";
+        javax.sound.sampled.Clip c = null;
+        try {
+            while (true) {
+                boolean playing = c != null && c.isRunning();
+                Object[] options = new Object[] {playing ? "Stop" : "Play", "Close"};
+                int ans = JOptionPane.showOptionDialog(app, name + " (" + length + ")\n\n" + note, "Preview",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+                if (ans != 0) break;
+                if (playing) {
+                    c.stop();
+                    continue;
+                }
+                try {
+                    if (c == null) {
+                        c = javax.sound.sampled.AudioSystem.getClip();
+                        c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
+                    }
+                    c.setFramePosition(0);
+                    c.start();
+                } catch (Exception ex) {
+                    app.setNow("No audio output for " + name);
+                    break;
+                }
+            }
+        } finally {
+            if (c != null) {
+                c.stop();
+                c.close();
+            }
         }
     }
 
