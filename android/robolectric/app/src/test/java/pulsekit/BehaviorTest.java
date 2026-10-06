@@ -2469,6 +2469,54 @@ public class BehaviorTest {
   }
 
   /**
+   * SogniVideo: Join with this video. In Params the file buttons work only when it is ticked, and
+   * unticking clears the video. After a run, the joined clip (<clip>-merged.mp4) goes into the prompt
+   * library as a result file and is the one the Video ready dialog shows; Join is unticked (out of
+   * the arguments and the saved Params) after every run.
+   */
+  @Test
+  public void s68_join() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    TextView args = (TextView) get("pkPyArgs");
+    java.io.File other = new java.io.File(app.getCacheDir(), "next.mp4");
+    java.nio.file.Files.write(other.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    args.setText("--prompt Walk --join " + other.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.CheckBox join = (android.widget.CheckBox) dv.findViewWithTag("params-join:--join");
+    View pick = dv.findViewWithTag("params-file:--join");
+    View db = dv.findViewWithTag("params-db:--join");
+    TextView chosen = (TextView) dv.findViewWithTag("params-chosen:--join");
+    out.append("Params: ").append(join.getText()).append(' ').append(join.isChecked() ? "ticked" : "unticked").append(", ").append(chosen.getText())
+        .append(", Choose ").append(pick.isEnabled() ? "on" : "off").append(", Browse DB ").append(db != null && db.isEnabled() ? "on" : "off (library empty)").append('\n');
+    join.setChecked(false);
+    out.append("unticked: ").append(chosen.getText()).append(", Choose ").append(pick.isEnabled() ? "on" : "off").append('\n');
+    join.setChecked(true);
+    out.append("ticked again: Choose ").append(pick.isEnabled() ? "on" : "off").append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // A run that joined: the merged clip is kept and shown; Join is unticked.
+    args.setText("--prompt Walk --join " + other.getAbsolutePath());
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    byte[] mp4 = new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2', 0, 0, 0, 0, 'm', 'p', '4', '2', 'i', 's', 'o', 'm'};
+    files.add(new JavaRun.FileOut("walk.mp4", mp4));
+    files.add(new JavaRun.FileOut("walk-merged.mp4", mp4));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote walk.mp4 (1 KB)\nJoined walk.mp4 and next.mp4: wrote walk-merged.mp4 (1 KB)\nSucceeded: walk.mp4", files, 0));
+    idle();
+    out.append("args after: ").append(args.getText()).append('\n');
+    out.append("video shown: ").append(VideoOffer.last != null ? "yes" : "no").append('\n');
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    out.append("saved Params: ").append(PyJavParams.load(app, "SogniVideo.java")).append('\n');
+    write("s68_join", out.toString());
+  }
+
+  /**
    * SogniVideo Params: "Save the prompt as a prompt sheet" and "Content filter off" start ticked
    * until SogniVideo's Params are saved (then the saved choice wins). The prompt field keeps long-press
    * selection (Select all, Cut, Copy, Paste): its movement method can select, and it is long-clickable.

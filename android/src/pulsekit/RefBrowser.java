@@ -35,6 +35,8 @@ final class RefBrowser {
     static final String MIDIS = "midis";
     /** Sound files and MIDI files (DrumMidi's input: a MIDI is played with the kit to a WAV). */
     static final String SOUNDS_OR_MIDIS = "sounds-or-midis";
+    /** MP4 videos (SogniVideo's Join with this video). */
+    static final String VIDEOS = "videos";
 
     /** As above; `only` (SOUNDS or MIDIS) keeps only that kind of file, null keeps all. */
     static List<PromptVault.StoredFile> files(Activity activity, boolean results, String only) {
@@ -56,6 +58,7 @@ final class RefBrowser {
         if (SOUNDS.equals(only)) return low.matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
         if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
         if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
+        if (VIDEOS.equals(only)) return low.matches(".+\\.(mp4|m4v|mov)");
         return true;
     }
 

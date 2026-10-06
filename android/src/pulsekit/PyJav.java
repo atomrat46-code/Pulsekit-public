@@ -763,6 +763,17 @@ final class PyJav {
             String music = PromptKeep.keepSogniMusic(app.getFilesDir(), result, this.pkLastArgv);
             if (music.length() > 0) kept = kept.length() > 0 ? kept + "\n" + music : music;
         }
+        // SogniVideo: a joined clip (Join with this video) goes into the prompt library as a result file,
+        // and Join is unticked for the next run.
+        if (app.pyName != null && app.pyName.equals("SogniVideo.java")) {
+            String merged = PromptKeep.keepMerged(app.getFilesDir(), result);
+            if (merged.length() > 0) kept = kept.length() > 0 ? kept + "\n" + merged : merged;
+            if (this.pkPyArgs != null) {
+                String now = this.pkPyArgs.getText().toString();
+                if (now.indexOf("--join") >= 0) this.pkPyArgs.setText(ProgramParams.drop(now, "--join"));
+            }
+            PyJavParams.dropJoin(app, app.pyName);
+        }
         if (kept.length() > 0) {
             log = log + "\n" + kept;
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
