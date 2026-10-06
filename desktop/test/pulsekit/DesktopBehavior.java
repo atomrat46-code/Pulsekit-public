@@ -1319,6 +1319,60 @@ public final class DesktopBehavior {
     out.append("after deleting python: ").append(vault.category(py) == null ? "gone" : "kept").append(", prompt ").append(vault.prompt(id) == null ? "gone" : "kept").append('\n');
   }
 
+  /**
+   * Prompts page video preview: Extract frames serves the video (with byte ranges) and a page to
+   * the browser on 127.0.0.1 under a random token; the first and last frame it sends back become
+   * reference files 1 and 2 (named for the video). Here the test stands in for the browser.
+   */
+  void s44_video_frames() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    java.util.List<java.net.URI> opened = java.util.Collections.synchronizedList(new ArrayList<java.net.URI>());
+    PromptDb.browser = opened::add;
+    byte[] video = new byte[5000];
+    for (int i = 0; i < video.length; i++) video[i] = (byte) i;
+    answers.add("Extract frames");
+    edt(() -> db.preview("My clip.mp4", video));
+    out.append("opened: ").append(opened.size()).append(" page, ").append(opened.get(0).getHost()).append(", token ")
+        .append(opened.get(0).getPath().split("/")[1].length()).append(" chars\n");
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    String base = opened.get(0).toString().replace("/page", "/");
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "page").openConnection();
+    String page = new String(c.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    out.append("page: ").append(c.getResponseCode()).append(", title ").append(page.contains("<title>Frames \u00b7 My clip.mp4</title>")).append('\n');
+    c = (java.net.HttpURLConnection) new java.net.URL(base + "video").openConnection();
+    c.setRequestProperty("Range", "bytes=100-199");
+    byte[] part = c.getInputStream().readAllBytes();
+    out.append("range: ").append(c.getResponseCode()).append(' ').append(c.getHeaderField("Content-Range")).append(", ").append(part.length)
+        .append(" bytes, first ").append(part[0] & 0xff).append(", type ").append(c.getContentType()).append('\n');
+    c = (java.net.HttpURLConnection) new java.net.URL(base.replaceAll("/[0-9a-f]{32}/", "/0123/") + "page").openConnection();
+    out.append("wrong token: ").append(c.getResponseCode()).append('\n');
+    out.append("not a JPEG: ").append(post(base + "first", "hello".getBytes(StandardCharsets.UTF_8))).append('\n');
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream jpg = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "jpg", jpg);
+    out.append("first: ").append(post(base + "first", jpg.toByteArray())).append(", last: ").append(post(base + "last", jpg.toByteArray())).append('\n');
+    idle();
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("ref: ").append(f.name).append(" (").append(f.promptTitle).append(", file ").append(f.which).append(")\n");
+    Thread.sleep(1500);
+    try {
+      c = (java.net.HttpURLConnection) new java.net.URL(base + "page").openConnection();
+      int code = c.getResponseCode();
+      out.append("after: ").append(code).append('\n');
+    } catch (java.io.IOException stopped) {
+      out.append("after: server stopped\n");
+    }
+  }
+
+  private static int post(String url, byte[] body) throws Exception {
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+    c.setRequestMethod("POST");
+    c.setDoOutput(true);
+    c.getOutputStream().write(body);
+    return c.getResponseCode();
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");
