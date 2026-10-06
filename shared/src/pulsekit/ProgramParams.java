@@ -42,6 +42,11 @@ public final class ProgramParams {
     }
     /** A file that can also come from the prompt library's reference files (Browse DB, on the phone). */
     public boolean refs;
+    /**
+     * An audio input that a MIDI file can stand in for (DrumMidi's): a MIDI picked with Browse DB is
+     * rendered with the kit's sounds to a WAV, which the program gets.
+     */
+    public boolean midiAsAudio;
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
 
@@ -73,6 +78,8 @@ public final class ProgramParams {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
       if ((drumMidi || compareHits || splitWav || cutWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // DrumMidi's input can be a MIDI from the library too, played with the kit to a WAV: a known answer to compare against.
+      if (drumMidi && !p.flag && p.isFile() && isAudio(p)) p.midiAsAudio = true;
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);

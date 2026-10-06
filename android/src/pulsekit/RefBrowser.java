@@ -33,6 +33,8 @@ final class RefBrowser {
     static final String SOUNDS = "sounds";
     /** Only MIDI files (CompareHits' drums and song). */
     static final String MIDIS = "midis";
+    /** Sound files and MIDI files (DrumMidi's input: a MIDI is played with the kit to a WAV). */
+    static final String SOUNDS_OR_MIDIS = "sounds-or-midis";
 
     /** As above; `only` (SOUNDS or MIDIS) keeps only that kind of file, null keeps all. */
     static List<PromptVault.StoredFile> files(Activity activity, boolean results, String only) {
@@ -53,7 +55,57 @@ final class RefBrowser {
         String low = name == null ? "" : name.toLowerCase();
         if (SOUNDS.equals(only)) return low.matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
         if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
+        if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
         return true;
+    }
+
+    /**
+     * For an audio row a MIDI can stand in for (DrumMidi's input): a sound file fills the row as it
+     * is; a MIDI file's drums are played with the kit's current sounds (an imported SoundFont, the
+     * active drum set) to <name>-kit.wav beside it, which fills the row. A MIDI with no drums for
+     * the kit leaves the row as it was and says so.
+     */
+    static void useAsAudio(Activity activity, String name, java.io.File file, String[] values, int index, TextView label) {
+        if (!fits(name, MIDIS)) {
+            values[index] = file.getAbsolutePath();
+            label.setText(name + " \u00b7 from DB");
+            return;
+        }
+        try {
+            short[] pcm = null;
+            if (activity instanceof MainActivity && ((MainActivity) activity).playback != null) {
+                java.io.FileInputStream in = new java.io.FileInputStream(file);
+                java.io.ByteArrayOutputStream midi = new java.io.ByteArrayOutputStream();
+                try {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) midi.write(buf, 0, n);
+                } finally {
+                    in.close();
+                }
+                pcm = AudioIo.renderMidiDrums(midi.toByteArray(), ((MainActivity) activity).playback.mixVoices(), 22050);
+            }
+            if (pcm == null || pcm.length == 0) {
+                say(activity, name + " has no drums for the kit to play: pick a WAV, or a MIDI with drums");
+                return;
+            }
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+            java.io.File wav = new java.io.File(file.getParentFile(), stem.replace(' ', '_') + "-kit.wav");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(wav);
+            try {
+                out.write(AudioIo.encodeWav(pcm, 22050));
+            } finally {
+                out.close();
+            }
+            values[index] = wav.getAbsolutePath();
+            label.setText(name + " \u2192 " + wav.getName() + " (kit sounds)");
+        } catch (Exception ex) {
+            say(activity, "Could not play " + name + " with the kit");
+        }
+    }
+
+    private static void say(Activity activity, String text) {
+        if (activity instanceof MainActivity) ((MainActivity) activity).setNow(text);
+        android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_LONG).show();
     }
 
     /** The library's reference (or result) files, each name and size once; empty when there are none or the library cannot be read. */
