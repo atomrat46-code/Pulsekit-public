@@ -1939,17 +1939,23 @@ public class BehaviorTest {
     byte[] wav = {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' '};
     // Robolectric's player plays nothing; it is told every file is a one-second sound.
     org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0));
-    String[][] cases = {{"groove.mid", "midi"}, {"drums", "midi"}, {"loop.wav", "wav"}, {"track.mp3", "mp3"}};
+    // A bar of kick, snare and hats on the drum channel: played with the kit's sounds (an imported SoundFont).
+    byte[] groove = {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 'M', 'T', 'r', 'k', 0, 0, 0, 36,
+      0, (byte) 0x99, 36, 100, 0, (byte) 0x99, 42, 90, 48, (byte) 0x89, 42, 0, 0, (byte) 0x99, 38, 100, 0, (byte) 0x99, 42, 90,
+      48, (byte) 0x89, 36, 0, 0, (byte) 0x89, 38, 0, (byte) 0x82, 0x40, (byte) 0xFF, 0x2F, 0};
+    String[][] cases = {{"groove.mid", "groove"}, {"empty.mid", "midi"}, {"drums", "groove"}, {"loop.wav", "wav"}, {"track.mp3", "mp3"}};
     for (String[] c : cases) {
-      byte[] bytes = c[1].equals("midi") ? midi : c[1].equals("wav") ? wav : new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0};
+      byte[] bytes = c[1].equals("groove") ? groove : c[1].equals("midi") ? midi : c[1].equals("wav") ? wav : new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0};
       open.invoke(null, app, c[0], bytes, 3);
       idle();
       java.lang.reflect.Field pf = PromptSheet.class.getDeclaredField("previewFile");
       pf.setAccessible(true);
       java.io.File played = (java.io.File) pf.get(null);
       out.append("preview ").append(c[0]).append(": Play ").append(findText(pane, "Play") != null).append(", Stop ").append(findText(pane, "Stop") != null)
-          .append(", MIDI note ").append(findText(pane, "MIDI, played with the phone's General MIDI sounds.") != null)
+          .append(", kit note ").append(findText(pane, "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any).") != null)
+          .append(", GM note ").append(findText(pane, "MIDI, played with the phone's General MIDI sounds (it has no drums for Pulsekit's kit).") != null)
           .append(", player file .").append(played == null ? "?" : played.getName().substring(played.getName().lastIndexOf('.') + 1))
+          .append(played != null && played.getName().endsWith(".wav") && c[1].equals("groove") ? " (" + (played.length() > 1000 ? "rendered audio" : "empty") + ")" : "")
           .append(", no-preview text ").append(findText(pane, "No preview for this file. Preview works for text, image, video, and sound (including MIDI).") != null).append('\n');
       findText(pane, "Back").performClick();
       idle();

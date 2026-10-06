@@ -1642,9 +1642,16 @@ public final class PromptSheet {
   private static void showSound(Activity activity, LinearLayout col) {
     try {
       boolean midi = isMidi(previewBytes);
-      // The player tells MIDI by its extension: a MIDI file without one is given .mid.
-      previewFile = spill(activity, midi && previewKindByName(previewName) != 4 ? "preview.mid" : previewName, previewBytes, midi ? "mid" : "mp3");
-      if (midi) col.addView(label(activity, "MIDI, played with the phone's General MIDI sounds.", 14, "#8A8B86", false));
+      short[] kit = midi ? kitRender(activity, previewBytes) : null;
+      if (kit != null) {
+        // The MIDI's drums with Pulsekit's own kit sounds (an imported SoundFont), as a file set plays its source MIDI.
+        previewFile = spill(activity, "preview.wav", AudioIo.encodeWav(kit, 22050), "wav");
+        col.addView(label(activity, "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any).", 14, "#8A8B86", false));
+      } else {
+        // The player tells MIDI by its extension: a MIDI file without one is given .mid.
+        previewFile = spill(activity, midi && previewKindByName(previewName) != 4 ? "preview.mid" : previewName, previewBytes, midi ? "mid" : "mp3");
+        if (midi) col.addView(label(activity, "MIDI, played with the phone's General MIDI sounds (it has no drums for Pulsekit's kit).", 14, "#8A8B86", false));
+      }
       MediaPlayer player = new MediaPlayer();
       previewAudio = player;
       player.setDataSource(previewFile.getAbsolutePath());
@@ -1702,6 +1709,17 @@ public final class PromptSheet {
     if (bytes.length >= 12 && bytes[4] == 'f' && bytes[5] == 't' && bytes[6] == 'y' && bytes[7] == 'p') return 3;
     if (looksLikeText(bytes)) return 1;
     return 0;
+  }
+
+  /** The MIDI's drum notes rendered with the kit's current sounds, or null when there is no kit or no drums. */
+  private static short[] kitRender(Activity activity, byte[] midi) {
+    if (!(activity instanceof MainActivity) || ((MainActivity) activity).playback == null) return null;
+    try {
+      short[] pcm = AudioIo.renderMidiDrums(midi, ((MainActivity) activity).playback.mixVoices(), 22050);
+      return pcm == null || pcm.length == 0 ? null : pcm;
+    } catch (Exception ex) {
+      return null;
+    }
   }
 
   /** 4 when the name alone says sound (.wav, .mp3, .mid...), else 0. */
