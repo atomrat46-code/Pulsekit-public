@@ -2358,6 +2358,20 @@ public class BehaviorTest {
     pb.findViewWithTag("refs-pick:loop.wav").performClick();
     idle();
     out.append("  original WAV: ").append(app.compareHits.wavLabel.getText()).append(", ").append(app.compareHits.pickedWav == null ? 0 : app.compareHits.pickedWav.length).append(" bytes\n");
+    // A MIDI from the library for the WAV: played with the kit to one first.
+    root().findViewWithTag("compare-browse-db").performClick();
+    idle();
+    View mpb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    ((TextView) mpb.findViewWithTag("refs-kind:results")).performClick();
+    idle();
+    mpb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    out.append("  result files for the WAV: beat_db.mid ").append(mpb.findViewWithTag("refs-pick:beat_db.mid") != null).append(", krea.png ")
+        .append(mpb.findViewWithTag("refs-pick:krea.png") != null).append('\n');
+    mpb.findViewWithTag("refs-pick:beat_db.mid").performClick();
+    idle();
+    byte[] pw = app.compareHits.pickedWav;
+    out.append("  original WAV: ").append(app.compareHits.wavLabel.getText()).append(", ")
+        .append(pw != null && pw.length > 44 && pw[0] == 'R' && pw[8] == 'W' ? "a WAV of " + pw.length + " bytes" : "not a WAV").append('\n');
     write("s61_db_import", out.toString());
   }
 

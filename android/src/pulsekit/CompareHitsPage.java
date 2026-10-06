@@ -67,8 +67,8 @@ final class CompareHitsPage {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, app.dp(40));
         lp.setMargins(0, 0, app.dp(8), 0);
         buttons.addView(pick, lp);
-        // The WAV can also come from the prompt library's sound files; greyed while it keeps none.
-        this.browseDb = app.action("Browse DB", ELEV, FG, v -> RefBrowser.browse(app, RefBrowser.SOUNDS, (name, file) -> this.takeDbWav(name, file)));
+        // The WAV can also come from the prompt library: a sound file, or a MIDI played with the kit; greyed while it keeps none.
+        this.browseDb = app.action("Browse DB", ELEV, FG, v -> RefBrowser.browse(app, RefBrowser.SOUNDS_OR_MIDIS, (name, file) -> this.takeDbWav(name, file)));
         this.browseDb.setTag("compare-browse-db");
         buttons.addView(this.browseDb, lp);
         buttons.addView(this.compareBtn, new LinearLayout.LayoutParams(-2, app.dp(40)));
@@ -133,7 +133,7 @@ final class CompareHitsPage {
         }
         this.paintWav();
         if (this.browseDb != null) {
-            boolean any = !RefBrowser.allFiles(app, RefBrowser.SOUNDS).isEmpty();
+            boolean any = !RefBrowser.allFiles(app, RefBrowser.SOUNDS_OR_MIDIS).isEmpty();
             this.browseDb.setEnabled(any);
             this.browseDb.setAlpha(any ? 1f : 0.4f);
         }
@@ -167,8 +167,14 @@ final class CompareHitsPage {
         return best;
     }
 
-    /** A WAV picked with Browse DB from the prompt library. */
+    /** A WAV picked with Browse DB from the prompt library; a MIDI is played with the kit's sounds to one first. */
     void takeDbWav(String name, java.io.File file) {
+        String shown = name + " (from DB)";
+        if (RefBrowser.fits(name, RefBrowser.MIDIS)) {
+            file = RefBrowser.kitWav(app, name, file);
+            if (file == null) return;
+            shown = name + " \u2192 " + file.getName() + " (kit sounds, from DB)";
+        }
         try {
             java.io.FileInputStream in = new java.io.FileInputStream(file);
             try {
@@ -179,7 +185,7 @@ final class CompareHitsPage {
             } finally {
                 in.close();
             }
-            this.pickedWavName = name + " (from DB)";
+            this.pickedWavName = shown;
             this.paintWav();
         } catch (Exception ex) {
             app.setNow("Could not read " + name);

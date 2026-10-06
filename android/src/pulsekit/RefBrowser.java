@@ -71,6 +71,17 @@ final class RefBrowser {
             label.setText(name + " \u00b7 from DB");
             return;
         }
+        java.io.File wav = kitWav(activity, name, file);
+        if (wav == null) return;
+        values[index] = wav.getAbsolutePath();
+        label.setText(name + " \u2192 " + wav.getName() + " (kit sounds)");
+    }
+
+    /**
+     * A MIDI file's drums played with the kit's current sounds, written as <name>-kit.wav beside
+     * it; null after saying why when there are no drums for the kit (or no kit).
+     */
+    static java.io.File kitWav(Activity activity, String name, java.io.File file) {
         try {
             short[] pcm = null;
             if (activity instanceof MainActivity && ((MainActivity) activity).playback != null) {
@@ -86,7 +97,7 @@ final class RefBrowser {
             }
             if (pcm == null || pcm.length == 0) {
                 say(activity, name + " has no drums for the kit to play: pick a WAV, or a MIDI with drums");
-                return;
+                return null;
             }
             String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
             java.io.File wav = new java.io.File(file.getParentFile(), stem.replace(' ', '_') + "-kit.wav");
@@ -96,10 +107,10 @@ final class RefBrowser {
             } finally {
                 out.close();
             }
-            values[index] = wav.getAbsolutePath();
-            label.setText(name + " \u2192 " + wav.getName() + " (kit sounds)");
+            return wav;
         } catch (Exception ex) {
             say(activity, "Could not play " + name + " with the kit");
+            return null;
         }
     }
 
