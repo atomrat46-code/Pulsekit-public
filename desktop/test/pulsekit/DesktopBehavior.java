@@ -1694,6 +1694,88 @@ public final class DesktopBehavior {
     set("sequencer", null);
   }
 
+  /**
+   * --no_filter (Content filter off): SogniVideo sends safe_content_filter false and says so; without
+   * it a run Sogni pauses for a safety review says what happened and points to --no_filter. Chats and
+   * chat runs carry the same setting. A stand-in Sogni server pauses runs that leave the filter on.
+   */
+  void s53_no_filter() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> bodies = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final boolean[] filterOff = new boolean[1];
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String reply;
+      if (path.equals("/v1/creative-agent/workflows")) {
+        bodies.add(body);
+        filterOff[0] = body.contains("\"safe_content_filter\":false");
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"ws1\",\"status\":\"queued\"}}}";
+      } else if (path.endsWith("/events/stream")) {
+        reply = filterOff[0] ? "data: {\"status\":\"completed\"}\n\n" : "data: {\"status\":\"waiting_for_user\"}\n\n";
+      } else if (path.equals("/v1/creative-agent/workflows/ws1")) {
+        reply = filterOff[0]
+            ? "{\"data\":{\"workflow\":{\"workflowId\":\"ws1\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port + "/files/c.mp4\",\"mediaType\":\"video\"}]}}}"
+            : "{\"data\":{\"workflow\":{\"workflowId\":\"ws1\",\"status\":\"waiting_for_user\",\"waitingReason\":\"safety_review_required\"}}}";
+      } else if (path.equals("/files/c.mp4")) {
+        byte[] clip = new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2', 0, 0, 0, 0, 'm', 'p', '4', '2', 'i', 's', 'o', 'm'};
+        ex.getResponseHeaders().set("Content-Type", "video/mp4");
+        ex.sendResponseHeaders(200, clip.length);
+        ex.getResponseBody().write(clip);
+        ex.close();
+        return;
+      } else {
+        reply = "{}";
+      }
+      byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
+      ex.getResponseHeaders().set("Content-Type", path.endsWith("/events/stream") ? "text/event-stream" : "application/json");
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniVideo.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--no_filter")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {"--prompt \"Animate this cartoon\"", "--prompt \"Animate this cartoon\" --no_filter"};
+      for (int r = 0; r < runs.length; r++) {
+        final String extra = runs[r];
+        if (r == 1) answers.add("Close");
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        out.append("== ").append(extra).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("Content filter") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
+        }
+      }
+      synchronized (bodies) {
+        for (String b : bodies) out.append("start sends safe_content_filter: ").append(b.contains("\"safe_content_filter\":false") ? "false" : "nothing (Sogni's default: on)").append('\n');
+      }
+      // The chat request and the chat run carry the setting too (SogniChat; the same SogniApi in each program).
+      List<String[]> turns = new ArrayList<String[]>();
+      turns.add(new String[] {"user", "hi"});
+      SogniApi.noFilter = true;
+      String chat = SogniApi.chatInput(null, null, turns, 0, false, "creative-tools", true);
+      String run = SogniApi.chatRunInput(null, null, turns, 0, false, null);
+      SogniApi.noFilter = false;
+      out.append("chat: ").append(chat.contains("\"safe_content_filter\":false")).append(", chat run: ").append(run.contains("\"runtime_config\":{\"safeContentFilter\":false}"))
+          .append(", off by default: ").append(!SogniApi.chatInput(null, null, turns, 0, false, null).contains("safe_content_filter")).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");

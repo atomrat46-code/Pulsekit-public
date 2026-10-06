@@ -121,6 +121,8 @@ public final class SogniChat {
     boolean confirm = false;
     double maxCost = 0;
     String rejoin = null;
+    // Off only when asked, on every run.
+    SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -146,6 +148,7 @@ public final class SogniChat {
       else if (a.equals("--tools")) tools = true;
       else if (a.equals("--run_tools")) runTools = true;
       else if (a.equals("--unlimited")) unlimited = true;
+      else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--run") && i + 1 < args.length) {
@@ -264,6 +267,7 @@ public final class SogniChat {
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       if (rejoin == null) {
         System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
+        if (SogniApi.noFilter) System.out.println("Content filter: off (Sogni's Safe Content Filter does not check this run)");
         if (system != null && system.trim().length() > 0) System.out.println("System: " + system.trim());
         StringBuilder shown = new StringBuilder("Prompt: ").append(prompt == null ? "" : prompt.trim());
         for (Attachment a : attached) shown.append(shown.length() > 8 ? " " : "").append("[+ ").append(a.what).append(']');
@@ -327,6 +331,7 @@ public final class SogniChat {
           String m = SogniApi.runModel(run);
           if (m != null) chosen = m;
           System.out.println("Model " + chosen);
+          if (SogniApi.noFilter) System.out.println("Content filter: off (Sogni's Safe Content Filter does not check this run)");
           System.out.println("Prompt: " + (prompt == null ? "(not given by Sogni)" : prompt));
         }
         String status = SogniApi.str(run.get("status"));
@@ -421,7 +426,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--no_filter] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
   }
 
   /**
@@ -1310,6 +1315,13 @@ public final class SogniChat {
     // --- SogniApi begin ---
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
+    /**
+     * --no_filter: Sogni's Safe Content Filter off for what this run starts (a workflow, a chat
+     * and the tools it runs), as Sogni's own tools' --no-filter. On by default: Sogni can then pause
+     * a run for a safety review (waiting_for_user, safety_review_required). Set by each program on
+     * every run (PyJav runs programs in the app, where this stays between runs).
+     */
+    public static boolean noFilter;
     public static final String[] DONE = {"completed", "partial_failure", "failed", "cancelled", "waiting_for_user"};
 
     /** Progress lines (status changes, waits). */
@@ -1486,6 +1498,7 @@ public final class SogniChat {
       if (maxCost > 0) body.append(",\"max_estimated_capacity_units\":").append(number(maxCost));
       if (media != null && !media.isEmpty()) body.append(",\"media_references\":").append(toJson(media));
       if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
+      if (noFilter) body.append(",\"safe_content_filter\":false");
       body.append('}');
       Map<String, Object> wf = workflowOf(this.request("POST", "/v1/creative-agent/workflows", body.toString()));
       String id = str(wf.get("workflowId"));
@@ -1552,6 +1565,8 @@ public final class SogniChat {
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
       body.put("chat_template_kwargs", kwargs);
       if (media != null && !media.isEmpty()) body.put("media_references", media);
+      // The filter for the chat's own check and for the tools Sogni runs in it.
+      if (noFilter) body.put("safe_content_filter", Boolean.FALSE);
       return toJson(body);
     }
 
@@ -1572,6 +1587,11 @@ public final class SogniChat {
       body.put("sampling", sampling);
       body.put("token_type", "spark");
       body.put("app_source", APP_SOURCE);
+      if (noFilter) {
+        Map<String, Object> runtime = new LinkedHashMap<String, Object>();
+        runtime.put("safeContentFilter", Boolean.FALSE);
+        body.put("runtime_config", runtime);
+      }
       if (media != null && !media.isEmpty()) {
         body.put("media_references", media);
         Map<String, Object> context = new LinkedHashMap<String, Object>();
@@ -2252,6 +2272,9 @@ public final class SogniChat {
         String why = str(wf.get("waitingReason"));
         if (Boolean.TRUE.equals(wf.get("awaitingCostApproval")) || "cost_approval_required".equals(why)) {
           return "Sogni wants the cost approved. Run again with --confirm_cost.";
+        }
+        if ("safety_review_required".equals(why)) {
+          return "Sogni's safety check paused this run (safety_review_required)" + (noFilter ? "" : ": try another picture or prompt, or run again with --no_filter (Content filter off)");
         }
         return "Sogni is waiting for input: " + (why == null ? "unknown reason" : why);
       }

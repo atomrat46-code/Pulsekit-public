@@ -137,6 +137,8 @@ public final class SogniMusic {
     String instruments = null;
     String genre = null;
     boolean savePrompt = false;
+    // Off only when asked, on every run.
+    SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -158,6 +160,7 @@ public final class SogniMusic {
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
       else if (a.equals("--genre") && i + 1 < args.length) genre = args[++i];
       else if (a.equals("--saveprompt")) savePrompt = true;
+      else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -229,6 +232,7 @@ public final class SogniMusic {
     say("Model " + model + ", " + SogniApi.number(duration) + " s"
         + (bpm > 0 ? ", " + SogniApi.number(bpm) + " BPM" : "") + (keyscale != null ? ", " + keyscale : "")
         + (timesig > 0 ? ", " + (timesig == 6 ? "6/8" : timesig + "/4") : ""));
+    if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
     try {
       // --workflow fetches a run that already finished (paid for) instead of starting a new one.
       String id = workflowId != null && workflowId.length() > 0 ? workflowId : api.start(input, confirm, maxCost);
@@ -277,7 +281,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
   /**
@@ -493,6 +497,13 @@ public final class SogniMusic {
     // --- SogniApi begin ---
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
+    /**
+     * --no_filter: Sogni's Safe Content Filter off for what this run starts (a workflow, a chat
+     * and the tools it runs), as Sogni's own tools' --no-filter. On by default: Sogni can then pause
+     * a run for a safety review (waiting_for_user, safety_review_required). Set by each program on
+     * every run (PyJav runs programs in the app, where this stays between runs).
+     */
+    public static boolean noFilter;
     public static final String[] DONE = {"completed", "partial_failure", "failed", "cancelled", "waiting_for_user"};
 
     /** Progress lines (status changes, waits). */
@@ -669,6 +680,7 @@ public final class SogniMusic {
       if (maxCost > 0) body.append(",\"max_estimated_capacity_units\":").append(number(maxCost));
       if (media != null && !media.isEmpty()) body.append(",\"media_references\":").append(toJson(media));
       if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
+      if (noFilter) body.append(",\"safe_content_filter\":false");
       body.append('}');
       Map<String, Object> wf = workflowOf(this.request("POST", "/v1/creative-agent/workflows", body.toString()));
       String id = str(wf.get("workflowId"));
@@ -735,6 +747,8 @@ public final class SogniMusic {
       kwargs.put("enable_thinking", Boolean.valueOf(thinking));
       body.put("chat_template_kwargs", kwargs);
       if (media != null && !media.isEmpty()) body.put("media_references", media);
+      // The filter for the chat's own check and for the tools Sogni runs in it.
+      if (noFilter) body.put("safe_content_filter", Boolean.FALSE);
       return toJson(body);
     }
 
@@ -755,6 +769,11 @@ public final class SogniMusic {
       body.put("sampling", sampling);
       body.put("token_type", "spark");
       body.put("app_source", APP_SOURCE);
+      if (noFilter) {
+        Map<String, Object> runtime = new LinkedHashMap<String, Object>();
+        runtime.put("safeContentFilter", Boolean.FALSE);
+        body.put("runtime_config", runtime);
+      }
       if (media != null && !media.isEmpty()) {
         body.put("media_references", media);
         Map<String, Object> context = new LinkedHashMap<String, Object>();
@@ -1435,6 +1454,9 @@ public final class SogniMusic {
         String why = str(wf.get("waitingReason"));
         if (Boolean.TRUE.equals(wf.get("awaitingCostApproval")) || "cost_approval_required".equals(why)) {
           return "Sogni wants the cost approved. Run again with --confirm_cost.";
+        }
+        if ("safety_review_required".equals(why)) {
+          return "Sogni's safety check paused this run (safety_review_required)" + (noFilter ? "" : ": try another picture or prompt, or run again with --no_filter (Content filter off)");
         }
         return "Sogni is waiting for input: " + (why == null ? "unknown reason" : why);
       }

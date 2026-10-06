@@ -85,6 +85,8 @@ public final class ProgramParams {
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
+      // SogniVideo, SogniMusic and SogniChat: Sogni's Safe Content Filter off for the run.
+      if (p.flag && !p.takesValue && p.token.equals("--no_filter")) p.label = "Content filter off (Sogni's Safe Content Filter)";
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";
         p.choices = StyleDb.names();
