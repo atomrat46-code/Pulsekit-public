@@ -2477,6 +2477,19 @@ public class BehaviorTest {
       idle();
       out.append(v).append(": ").append(app.transportBar.getVisibility() == View.VISIBLE ? "bar" : "no bar").append('\n');
     }
+    // Playing, a page with the bar keeps playing; one without it stops.
+    for (String v : new String[] {"song", "import", "py", "pads"}) {
+      call("show", "pattern");
+      idle();
+      if (!app.playing) call("toggle");
+      idle();
+      boolean before = app.playing;
+      call("show", v);
+      idle();
+      out.append("playing, then ").append(v).append(": ").append(before ? (app.playing ? "still playing" : "stopped") : "did not start")
+          .append(", Play reads ").append(app.playBtn.getText()).append('\n');
+    }
+    if (app.playing) app.playback.stop();
     call("show", "pattern");
     idle();
     write("s66_transport_pages", out.toString());
