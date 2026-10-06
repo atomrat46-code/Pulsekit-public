@@ -1836,8 +1836,9 @@ public final class SogniVideo {
     // --- SogniApi end ---
   }
 
+  // --- Mp4Join begin ---
   /**
-   * --join: the clip SogniVideo made, then another video, as one MP4, without re-encoding. Both
+   * Two MP4 videos as one, without re-encoding (SogniVideo's --join, and JoinVideo). Both
    * must be plain MP4s (H.264 or another codec, not fragmented) whose pictures have the same
    * format (codec settings and size): two Sogni clips from the same model do. The sample tables
    * are rebuilt and the samples copied in order, the first video's then the second's. Sound is
@@ -2519,4 +2520,5 @@ public final class SogniVideo {
       return new String(new byte[] {(byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v}, StandardCharsets.ISO_8859_1);
     }
   }
+  // --- Mp4Join end ---
 }

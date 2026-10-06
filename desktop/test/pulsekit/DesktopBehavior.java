@@ -1937,6 +1937,68 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * JoinVideo (PyJav's Java menu): video a and video b (also from the prompt library, videos only),
+   * Video b first, an optional output name, and Add to DB. Runs join a then b (or b first), refuse
+   * videos in different formats, and with --addtodb keep the joined video as a result file.
+   */
+  void s56_join_video() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    File a = new File(home, "scene one.mp4");
+    Files.copy(new File(dir, "clip-a.mp4").toPath(), a.toPath());
+    File b = new File(home, "scene two.mp4");
+    Files.copy(new File(dir, "clip-b.mp4").toPath(), b.toPath());
+    File wide = new File(home, "wide.mp4");
+    Files.copy(new File(dir, "clip-wide.mp4").toPath(), wide.toPath());
+    PromptDb.vault().addLibraryFile("stored.mp4", Files.readAllBytes(b.toPath()), "Imported", 1);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "JoinVideo.java");
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+          .append(p.ext != null && !p.output ? " file " + p.ext : "").append(p.refs ? " Browse DB" : "").append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+    }
+    // Params: Browse DB on each video row lists videos only.
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"video_a.mp4", "video_b.mp4"}) {
+        javax.swing.JButton db = (javax.swing.JButton) component(d, "params-db:" + t);
+        seen.append(t).append(": Browse DB ").append(db == null ? "none" : db.isEnabled() ? "on" : "off").append("; ");
+      }
+      seen.append("videos in the library: ").append(PromptDb.allFiles(PromptDb.VIDEOS).size()).append(" of ").append(PromptDb.allFiles(null).size());
+    };
+    answers.add("Cancel");
+    call("openParams");
+    out.append(seen).append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {
+      "\"" + a.getAbsolutePath() + "\" \"" + b.getAbsolutePath() + "\"",
+      "\"" + a.getAbsolutePath() + "\" \"" + b.getAbsolutePath() + "\" both.mp4 --b_first --addtodb",
+      "\"" + a.getAbsolutePath() + "\" \"" + wide.getAbsolutePath() + "\"",
+    };
+    for (int r = 0; r < runs.length; r++) {
+      final String extra = runs[r];
+      if (r < 2) answers.add("Close");
+      edt(() -> log.setText(""));
+      set("pyInputPath", null);
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(600);
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        if (line.startsWith("Joined") || line.startsWith("Failed") || line.startsWith("Prompt library") || line.startsWith("Succeeded") || line.startsWith("Add to DB"))
+          out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+      for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(scene one-merged|both).*\\.mp4")).sorted()::iterator) {
+        out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f) > 80000 ? "about both videos' size" : Files.size(f) + " bytes").append('\n');
+      }
+    }
+    for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");

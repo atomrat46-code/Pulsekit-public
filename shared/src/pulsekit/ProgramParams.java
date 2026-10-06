@@ -64,7 +64,7 @@ public final class ProgramParams {
     }
   }
 
-  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt)\\b");
+  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt|mp4)\\b");
 
   /** The parameters in `text` (a program's source or readable strings), in the order the program lists them. */
   public static List<Param> parse(String text) {
@@ -83,6 +83,8 @@ public final class ProgramParams {
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
+    // JoinVideo: two MP4s as one.
+    boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -92,6 +94,7 @@ public final class ProgramParams {
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
+      if (joinVideo) knownJoinVideo(p);
       // SogniVideo, SogniMusic and SogniChat: Sogni's Safe Content Filter off for the run.
       if (p.flag && !p.takesValue && p.token.equals("--no_filter")) p.label = "Content filter off (Sogni's Safe Content Filter)";
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
@@ -293,6 +296,20 @@ public final class ProgramParams {
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
+  }
+
+  /** JoinVideo's labels: the two videos (also from the prompt library), the order, and the library. */
+  private static void knownJoinVideo(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; <video a>-merged.mp4";
+    } else if (!p.flag && p.isFile()) {
+      p.refs = true;
+      p.label = p.token.contains("_b") ? "Video b" : "Video a";
+      p.hint = "an MP4; the two must have the same picture format";
+    }
+    if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a)";
+    if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
   }
 
   /** SogniVideo's labels: pictures are picked as files, the resolution from MiniMax H3's sizes. */

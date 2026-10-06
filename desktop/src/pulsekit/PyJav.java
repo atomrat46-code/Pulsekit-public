@@ -563,6 +563,11 @@ final class PyJav {
             String gen = PromptKeep.keepMidiDrumGen(dir, r, argv);
             if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
         }
+        // JoinVideo with --addtodb: the joined video goes in as a result file.
+        if ("JoinVideo.java".equals(name)) {
+            String joined = PromptKeep.keepJoined(dir, r, argv);
+            if (joined.length() > 0) kept = kept.length() > 0 ? kept + "\n" + joined : joined;
+        }
         // SogniVideo: a joined clip (Join with this video) goes in as a result file, and Join is unticked
         // for the next run.
         if ("SogniVideo.java".equals(name)) {
@@ -947,7 +952,7 @@ final class PyJav {
                     // a MIDI row only MIDI files.
                     final boolean midiAsAudio = p.midiAsAudio;
                     final String only = midiAsAudio ? PromptDb.SOUNDS_OR_MIDIS
-                        : p.join ? PromptDb.VIDEOS
+                        : p.join || "mp4".equals(p.ext) ? PromptDb.VIDEOS
                         : ProgramParams.isAudio(p) ? PromptDb.SOUNDS : "mid".equals(p.ext) ? PromptDb.MIDIS : null;
                     JButton db = new JButton("Browse DB");
                     db.setName("params-db:" + p.token);
