@@ -944,7 +944,7 @@ public final class DesktopBehavior {
       String[] runs = {
         "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5 --saveprompt",
         "walk.mp4 --prompt \"The gate swings open\" --image \"" + garden.getAbsolutePath() + "\" --end_image \"" + last.getAbsolutePath()
-            + "\" --resolution 1080p --no_audio --exact_prompt --unlimited",
+            + "\" --resolution 1080p --no_audio --exact_prompt --unlimited --saveprompt",
         "--prompt \"Rain on a tin roof at night, slow push-in\" --aspect 16:9 --max_cost 50 --confirm_cost",
         "--prompt \"Too much\" --unlimited --saveprompt",
         "--workflow wv1",
@@ -988,6 +988,7 @@ public final class DesktopBehavior {
             PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
             out.append("  sheet: ").append(sheet.name).append(", category ").append(sheet.category).append(", model ").append(sheet.model)
                 .append(", type ").append(sheet.type).append("\n  body: ").append(sheet.body.replace("\n", "|")).append('\n');
+            out.append("  reference files: 1 \"").append(sheet.ref1).append("\", 2 \"").append(sheet.ref2).append("\"\n");
             out.append("  result file: ").append(sheet.result).append("\n  result text: ").append(sheet.resultText.replace("\n", "|")).append('\n');
             String raw = new String(Files.readAllBytes(f), StandardCharsets.UTF_8);
             out.append("  end of the file: ").append(raw.substring(Math.max(0, raw.lastIndexOf("\n\nResult"))).trim().replace("\n", "|")).append('\n');

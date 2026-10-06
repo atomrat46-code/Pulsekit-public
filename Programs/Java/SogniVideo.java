@@ -36,7 +36,8 @@ import java.util.Map;
  * pays, and only Sogni's daily and monthly fair use limits apply.
  *
  * --saveprompt also writes the prompt as sogni-video-<first words>.prompt: a Pulsekit prompt sheet
- * (category video, type AI) that opens in PyJav and the Prompts page. A line of the settings
+ * (category video, type AI) that opens in PyJav and the Prompts page, with the pictures' names as
+ * its reference files (1 the first frame, 2 the last). A line of the settings
  * (duration, resolution, shape, sound, the pictures) follows the prompt. It is written before the
  * key is checked, so a prompt can be kept without one.
  *
@@ -218,7 +219,7 @@ public final class SogniVideo {
       // After the checks, so the sheet holds the settings as sent (1440 for "2K").
       String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
       File sheet = savePrompt(sheetName, "Sogni " + SogniApi.videoModel(pictures.size(), resolution),
-          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames));
+          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames), pictureNames);
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
@@ -356,15 +357,18 @@ public final class SogniVideo {
 
   /**
    * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
-   * name, category video, the model, type AI, then the prompt. Never over an existing file.
+   * name, category video, the model, the pictures as reference files (1 the first frame, 2 the
+   * last), type AI, then the prompt. Never over an existing file.
    */
-  static File savePrompt(String name, String model, String prompt) {
+  static File savePrompt(String name, String model, String prompt, List<String> pictures) {
+    String ref1 = pictures.size() > 0 ? pictures.get(0) : "";
+    String ref2 = pictures.size() > 1 ? pictures.get(1) : "";
     StringBuilder sb = new StringBuilder();
-    sb.append("PKPROMPT1\n").append(name).append("\n\n\n\n\n");
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
     sb.append("Category: video\n");
     sb.append("Model: ").append(model).append('\n');
-    sb.append("Reference file 1: \n");
-    sb.append("Reference file 2: \n");
+    sb.append("Reference file 1: ").append(ref1).append('\n');
+    sb.append("Reference file 2: ").append(ref2).append('\n');
     sb.append("Type: ai\n");
     sb.append("---\n");
     sb.append(prompt);
