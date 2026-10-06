@@ -796,10 +796,20 @@ final class PromptDb {
     void videoPreview(String name, byte[] bytes) {
         File tmp = this.spill(name, bytes);
         if (tmp == null) return;
+        // With VLC on the computer the video plays here, in the Preview window.
+        if (VlcPlayer.available()) {
+            try {
+                this.vlcPreview(name, tmp);
+                return;
+            } catch (Exception ex) {
+                app.setNow(ex.getMessage() != null ? ex.getMessage() : "VLC could not play " + name);
+            }
+        }
         Object[] options = new Object[] {"Play", "Open", "Extract frames", "Close"};
         int ans = JOptionPane.showOptionDialog(app, name + " (" + Math.max(1, bytes.length / 1024) + " KB)\n\n"
             + "Play opens it in the browser with Play/Pause, Stop, Mute and volume.\n"
-            + "Extract frames keeps its first and last frame as reference files (the browser reads them).", "Preview \u00b7 " + name,
+            + "Extract frames keeps its first and last frame as reference files (the browser reads them).\n\n"
+            + "To play videos here in Pulsekit, install VLC (videolan.org).", "Preview \u00b7 " + name,
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         try {
             if (ans == 0) browser.accept(app.pyJav.videoPage(tmp).toURI());
@@ -808,6 +818,134 @@ final class PromptDb {
         } catch (Exception ex) {
             app.setNow("Could not open a player for " + name);
         }
+    }
+
+    /** The VLC preview shown last, and its player, for the tests. */
+    JDialog lastVideo;
+    VlcPlayer lastPlayer;
+
+    /**
+     * The video in the Preview window, played by VLC: Play/Pause, Stop, Mute, volume and a
+     * position slider; Open in browser, Extract frames and Close below. Closing stops it.
+     */
+    void vlcPreview(String name, File video) {
+        final VlcPlayer player = new VlcPlayer(video);
+        final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
+        JButton play = new JButton("Play");
+        play.setName("video-play");
+        JButton stop = new JButton("Stop");
+        stop.setName("video-stop");
+        JButton mute = new JButton("Mute");
+        mute.setName("video-mute");
+        javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, 80);
+        volume.setName("video-volume");
+        volume.setPreferredSize(new Dimension(120, volume.getPreferredSize().height));
+        JLabel level = new JLabel("80%");
+        javax.swing.JSlider position = new javax.swing.JSlider(0, 1000, 0);
+        position.setName("video-position");
+        JLabel time = new JLabel("0:00 / 0:00");
+        time.setName("video-time");
+        final boolean[] muted = new boolean[1];
+        final boolean[] dragging = new boolean[1];
+        player.volume(80);
+        play.addActionListener(e -> {
+            if (player.playing()) player.pause();
+            else player.play();
+        });
+        stop.addActionListener(e -> {
+            player.stop();
+            position.setValue(0);
+        });
+        mute.addActionListener(e -> {
+            muted[0] = !muted[0];
+            player.mute(muted[0]);
+            mute.setText(muted[0] ? "Unmute" : "Mute");
+            level.setText(muted[0] ? "muted" : volume.getValue() + "%");
+        });
+        volume.addChangeListener(e -> {
+            player.volume(volume.getValue());
+            if (!muted[0]) level.setText(volume.getValue() + "%");
+        });
+        position.addChangeListener(e -> {
+            dragging[0] = position.getValueIsAdjusting();
+            if (position.getValueIsAdjusting()) player.seek(position.getValue() / 1000f);
+        });
+        // Play/Pause, the position and the time follow the player.
+        javax.swing.Timer follow = new javax.swing.Timer(200, e -> {
+            player.refreshSize();
+            boolean on = player.playing();
+            play.setText(on ? "Pause" : "Play");
+            long len = player.lengthMs();
+            int state = player.state();
+            long at = state == VlcPlayer.ENDED ? len : player.timeMs();
+            time.setText(VlcPlayer.clock(at) + " / " + VlcPlayer.clock(len));
+            if (!dragging[0]) position.setValue(state == VlcPlayer.ENDED ? 1000 : Math.round(player.position() * 1000));
+        });
+        JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        transport.add(play);
+        transport.add(stop);
+        transport.add(mute);
+        transport.add(new JLabel("Volume"));
+        transport.add(volume);
+        transport.add(level);
+        JPanel seek = new JPanel(new BorderLayout(8, 0));
+        seek.add(position, BorderLayout.CENTER);
+        seek.add(time, BorderLayout.EAST);
+        JPanel controls = new JPanel(new BorderLayout(0, 6));
+        controls.add(seek, BorderLayout.NORTH);
+        controls.add(transport, BorderLayout.SOUTH);
+        JButton browser = new JButton("Open in browser");
+        browser.addActionListener(e -> {
+            player.pause();
+            try {
+                PromptDb.browser.accept(app.pyJav.videoPage(video).toURI());
+            } catch (Exception ex) {
+                app.setNow("Could not open a player for " + name);
+            }
+        });
+        JButton frames = new JButton("Extract frames");
+        frames.setName("video-frames");
+        frames.addActionListener(e -> this.extractFrames(name, video));
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        bottom.add(browser);
+        bottom.add(frames);
+        bottom.add(close);
+        JPanel south = new JPanel(new BorderLayout(0, 8));
+        south.add(controls, BorderLayout.NORTH);
+        south.add(bottom, BorderLayout.SOUTH);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        body.add(player.screen, BorderLayout.CENTER);
+        body.add(south, BorderLayout.SOUTH);
+        dialog.setContentPane(body);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowOpened(java.awt.event.WindowEvent e) {
+                follow.start();
+                // It opens on its first frame, paused, as on the phone.
+                player.play();
+                new javax.swing.Timer(250, ev -> {
+                    ((javax.swing.Timer) ev.getSource()).stop();
+                    if (dialog.isShowing() && player.playing()) {
+                        player.pause();
+                        player.seek(0f);
+                    }
+                }).start();
+            }
+
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                follow.stop();
+                player.release();
+            }
+        });
+        dialog.pack();
+        dialog.setLocationRelativeTo(app);
+        this.lastVideo = dialog;
+        this.lastPlayer = player;
+        dialog.setVisible(true);
     }
 
     /** Extract frames: the browser reads the first and last frame; they go into the library as reference files 1 and 2. */
