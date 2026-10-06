@@ -7,7 +7,7 @@ Hashes are SHA-256 of the jars in this workspace.
 PLATFORM (not third-party jars)
 -------------------------------
 Desktop JAR
-  JDK 17. Compile: javac --release 17, classpath adds only JLayer.
+  JDK 17. Compile: javac --release 17, classpath adds JLayer and JNA.
   UI: javax.swing.* and java.awt.* imported by desktop/src/pulsekit/Pulsekit.java
   MIDI playback: javax.sound.midi.* from the JDK (Pulsekit.java lines 39–48).
   Entry: desktop/MANIFEST.MF  Main-Class: pulsekit.Pulsekit
@@ -38,6 +38,21 @@ THIRD-PARTY / BUNDLED
    unpacks javazoom/ (classes and .ser Huffman tables) into the JAR.
    Android: not used. The APK decodes MP3 with the platform MediaExtractor,
    and android/build.sh leaves Mp3Decode.java and JLayer out.
+
+1b. JNA 5.14.0  (net.java.dev.jna:jna:5.14.0) — DESKTOP ONLY
+   File: desktop/libs/jna-5.14.0.jar
+   Size: 1878533
+   SHA-256: 34ed1e1f27fa896bca50dbc4e99cf3732967cec387a7a0d5e3486c09673fe8c6
+   SHA-1 checked against Maven Central's jna-5.14.0.jar.sha1:
+     67bf3eaea4f0718cb376a181a629e5f88fa1c9dd
+   Licence: Apache-2.0 or LGPL-2.1 (either); the texts ship in the JAR under META-INF/jna/.
+   Desktop use: desktop/src/pulsekit/VlcPlayer.java (com.sun.jna.*) calls the C
+     functions of the VLC installed on the computer (libvlc 3: libvlc.dll,
+     libvlc.dylib in VLC.app, libvlc.so.5) so Prompts page Preview plays video
+     in place. VLC itself is not bundled; without it the browser player is used.
+   Build: desktop/build.sh puts the jar on the javac classpath and unpacks
+   com/sun/jna/ (classes and the jnidispatch native part for each system) into the JAR.
+   Android: not used.
 
 2. Eclipse Compiler for Java (ECJ) 4.6.1
    File: android/art/ecj-4.6.1.jar  (also shipped as assets/ecj.dex)
@@ -103,7 +118,7 @@ It is copied into the desktop JAR and into the APK as assets/midiutil.py.
 WHAT EACH EDITION SHIPS
 -----------------------
 Desktop JAR classpath / contents: Pulsekit classes + unpacked JLayer
-  + drum_midi.py + midiutil.py. No ECJ, no dx, no rt.jar.
+  + unpacked JNA + drum_midi.py + midiutil.py. No ECJ, no dx, no rt.jar.
 Android APK runtime: Pulsekit dex + assets
   (ecj.dex, dx.dex, ecj-res.zip, rt.jar, javax-midi.jar, MidiSystem.class,
    midiutil.py). No JLayer.

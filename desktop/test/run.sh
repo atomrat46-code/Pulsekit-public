@@ -27,7 +27,7 @@ for s in $SCENARIOS; do
     *) home="build/home-$s"; rm -rf "$home";;
   esac
   mkdir -p "$home"
-  if timeout 120 java -Djava.awt.headless=false -Duser.home="$PWD/$home" -cp "$JAR:build/classes" pulsekit.DesktopBehavior "$s" "$OUT" >/dev/null 2>&1; then
+  if timeout 120 java -Djava.awt.headless=false -Duser.home="$PWD/$home" -Dpulsekit.test.dir="$PWD" -cp "$JAR:build/classes" pulsekit.DesktopBehavior "$s" "$OUT" >/dev/null 2>&1; then
     echo "ok   $s"
   else
     echo "FAIL $s"; fail=1

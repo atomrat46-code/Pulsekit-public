@@ -1325,6 +1325,8 @@ public final class DesktopBehavior {
    * reference files 1 and 2 (named for the video). Here the test stands in for the browser.
    */
   void s44_video_frames() throws Exception {
+    // The browser's way, as on a computer without VLC (s47 plays it with VLC).
+    System.setProperty("pulsekit.novlc", "true");
     File home = new File(System.getProperty("user.home"));
     PromptDb db = (PromptDb) get("promptDb");
     java.util.List<java.net.URI> opened = java.util.Collections.synchronizedList(new ArrayList<java.net.URI>());
@@ -1471,6 +1473,62 @@ public final class DesktopBehavior {
     edt(() -> ((javax.swing.JButton) component(dialog, "refs-pick:hit.wav")).doClick());
     for (String p : played) out.append("clip: ").append(p).append('\n');
     out.append("picked: ").append(picked[0]).append(", dialog ").append(dialog.isShowing() ? "open" : "closed").append(", still playing ").append(db.playing()).append('\n');
+  }
+
+  /**
+   * Prompts page video Preview plays in place with VLC when it is installed: the first frame
+   * shows paused, Play / Pause, Stop, Mute and the position follow the player, Play after the end
+   * starts again, and Close lets the file go. Without VLC the browser player is offered, with a
+   * note to install VLC. desktop/test/clip.webm: 3.5 s, red, then blue from 1.5 s.
+   */
+  void s47_vlc_preview() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    PromptDb db = (PromptDb) get("promptDb");
+    byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath());
+    if (!VlcPlayer.available()) {
+      answers.add("Close");
+      edt(() -> db.preview("clip.webm", clip));
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    out.append("VLC ").append(VlcPlayer.version().split(" ")[0].replaceAll("\\.\\d+$", ".x")).append('\n');
+    answers.add("Mute");
+    SwingUtilities.invokeLater(() -> db.preview("clip.webm", clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1200);
+    idle();
+    JDialog dialog = (JDialog) get("lastVideo");
+    VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    java.util.function.Function<String, javax.swing.JButton> b = n -> (javax.swing.JButton) component(dialog, n);
+    java.util.function.Supplier<String> color = () -> {
+      java.awt.image.BufferedImage f = player.screen.frame;
+      if (f == null) return "none";
+      int rgb = f.getRGB(f.getWidth() / 2, f.getHeight() / 2);
+      return ((rgb >> 16) & 255) > 200 ? "red" : (rgb & 255) > 200 ? "blue" : "other";
+    };
+    out.append("opened: frame ").append(color.get()).append(", visible ").append(player.screen.visibleW).append('x').append(player.screen.visibleH)
+        .append(", playing ").append(player.playing()).append(", ").append(b.apply("video-play").getText()).append(", ")
+        .append(b.apply("video-mute").getText()).append(", ").append(((JLabel) component(dialog, "video-time")).getText().replaceAll("^\\d:\\d\\d", "0:0x")).append('\n');
+    edt(() -> b.apply("video-play").doClick());
+    Thread.sleep(2200);
+    out.append("after Play 2 s: frame ").append(color.get()).append(", playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText())
+        .append(", slider moved ").append(((javax.swing.JSlider) component(dialog, "video-position")).getValue() > 300).append('\n');
+    edt(() -> b.apply("video-play").doClick());
+    Thread.sleep(400);
+    out.append("Pause: playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText()).append('\n');
+    edt(() -> b.apply("video-play").doClick());
+    for (int i = 0; i < 80 && player.state() != VlcPlayer.ENDED; i++) Thread.sleep(100);
+    Thread.sleep(400);
+    out.append("at the end: state ended ").append(player.state() == VlcPlayer.ENDED).append(", button ").append(b.apply("video-play").getText())
+        .append(", slider ").append(((javax.swing.JSlider) component(dialog, "video-position")).getValue()).append('\n');
+    edt(() -> b.apply("video-play").doClick());
+    Thread.sleep(500);
+    out.append("Play again: frame ").append(color.get()).append(", playing ").append(player.playing()).append('\n');
+    edt(() -> b.apply("video-stop").doClick());
+    Thread.sleep(300);
+    out.append("Stop: playing ").append(player.playing()).append('\n');
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    out.append("closed: ").append(!dialog.isShowing()).append(", released ").append(!player.playing() && player.state() == 0).append('\n');
   }
 
   private static int post(String url, byte[] body) throws Exception {
