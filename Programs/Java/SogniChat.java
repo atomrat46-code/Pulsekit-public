@@ -56,6 +56,9 @@ import java.util.Map;
  * waiting (30 minutes): --run <run id> (the id is in the log) follows it again and keeps what it made. Past a fair use limit Sogni refuses
  * the task until the limit renews, and SogniChat says so.
  *
+ * Sogni's Safe Content Filter is off for SogniChat's runs (the chat and the tools it runs), so a
+ * run is not paused for a safety review; --filter_on turns it on.
+ *
  * The saved file is the whole conversation (model, system text, each question and reply), so
  * --continue <that file> goes on from it: the earlier turns are sent again with the new --prompt,
  * and the longer conversation is saved as a new file (sogni-chat-<words>-2.txt, -3...). Its model
@@ -121,8 +124,8 @@ public final class SogniChat {
     boolean confirm = false;
     double maxCost = 0;
     String rejoin = null;
-    // Off only when asked, on every run.
-    SogniApi.noFilter = false;
+    // SogniChat runs with Sogni's Safe Content Filter off unless --filter_on asks for it, on every run.
+    SogniApi.noFilter = true;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -148,7 +151,9 @@ public final class SogniChat {
       else if (a.equals("--tools")) tools = true;
       else if (a.equals("--run_tools")) runTools = true;
       else if (a.equals("--unlimited")) unlimited = true;
-      else if (a.equals("--no_filter")) SogniApi.noFilter = true;
+      // --no_filter is the default now; kept so saved arguments that have it still work.
+      else if (a.equals("--no_filter")) continue;
+      else if (a.equals("--filter_on")) SogniApi.noFilter = false;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--run") && i + 1 < args.length) {
@@ -426,7 +431,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--no_filter] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
   }
 
   /**

@@ -816,6 +816,7 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
+        "--prompt \"Filter on\" --filter_on",
         // A chat run started earlier (one that timed out here) is followed again by its id.
         "--run run2",
         "--models",
@@ -837,6 +838,14 @@ public final class DesktopBehavior {
       }
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
+        // The filter is off for every chat request and run but the --filter_on one.
+        int off = 0, on = 0;
+        for (String r : seen) {
+          if (!r.startsWith("POST /v1/chat/")) continue;
+          if (r.contains("\"safe_content_filter\":false") || r.contains("\"safeContentFilter\":false")) off++;
+          else on++;
+        }
+        out.append("chat requests with the filter off: ").append(off).append(", on: ").append(on).append('\n');
       }
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
@@ -1825,14 +1834,14 @@ public final class DesktopBehavior {
       result.append("round ").append(round + 1).append(": ").append(seen).append('\n');
       result.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
     }
-    // SogniChat: "Content filter off" starts ticked too (and nothing else does).
+    // SogniChat runs with the filter off: its Params have "Content filter on", unticked.
     call("selectListedProgram", "Java", "SogniChat.java");
     edt(() -> ((JTextField) get("pyExtra")).setText(""));
     final StringBuilder chat = new StringBuilder("SogniChat:");
     inspectNext = d -> {
-      for (String t : new String[] {"--no_filter", "--tools", "--run_tools", "--unlimited", "--thinking"}) {
+      for (String t : new String[] {"--filter_on", "--no_filter", "--tools", "--run_tools", "--unlimited", "--thinking"}) {
         javax.swing.JCheckBox c = (javax.swing.JCheckBox) component(d, "params-check:" + t);
-        chat.append(' ').append(t).append(c != null && c.isSelected() ? " on" : " off");
+        chat.append(' ').append(t).append(c == null ? " none" : c.isSelected() ? " on" : " off");
       }
     };
     answers.add("Cancel");
