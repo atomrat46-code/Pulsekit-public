@@ -587,19 +587,30 @@ final class MediaBrowser {
     void menu(final MediaDir.Entry e) {
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
-            .setItems(MediaDir.MENU, (d, which) -> this.app.setNow(this.menuPicked(e, which)))
+            // A file already in the playlist: its third item takes it out.
+            .setItems(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id) ? MediaDir.MENU_LISTED : MediaDir.MENU,
+                (d, which) -> this.app.setNow(this.menuPicked(e, which)))
             .setNegativeButton("Cancel", null)
             .show();
     }
 
-    /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
+    /** What a menu item does: 0 and 1 add the file to the prompt library, 2 adds it to the default playlist (or takes it out when it is in). Returns the status line. */
     String menuPicked(MediaDir.Entry e, int which) {
         if (which == 2) {
+            View card = this.body.findViewWithTag("media-card:" + e.name);
+            FrameLayout box = card instanceof LinearLayout && ((LinearLayout) card).getChildAt(0) instanceof FrameLayout ? (FrameLayout) ((LinearLayout) card).getChildAt(0) : null;
+            if (MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id)) {
+                // Remove from default playlist: the badge goes at once.
+                String said = MediaPlaylist.remove(this.app.getFilesDir(), this.folderKey(), e.id, e.name);
+                this.paintPlaylist();
+                View badge = box == null ? null : box.findViewWithTag("media-in-playlist:" + e.name);
+                if (badge != null) box.removeView(badge);
+                return said;
+            }
             String said = MediaPlaylist.add(this.app.getFilesDir(), this.folderKey(), e.id, e.name, e.size);
             this.paintPlaylist();
             // Its card gets the badge at once.
-            View card = this.body.findViewWithTag("media-card:" + e.name);
-            if (card instanceof LinearLayout && ((LinearLayout) card).getChildAt(0) instanceof FrameLayout) this.badge((FrameLayout) ((LinearLayout) card).getChildAt(0), e);
+            if (box != null) this.badge(box, e);
             return said;
         }
         if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";

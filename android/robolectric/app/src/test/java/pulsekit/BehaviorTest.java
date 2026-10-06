@@ -2723,7 +2723,8 @@ public class BehaviorTest {
       return marks.toString().trim();
     };
     out.append("badges before: ").append(badges.get()).append('\n');
-    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
+    // walk.mp4 is added, taken out again (its menu then says Remove), and added back.
+    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
     for (String[] pick : picks) {
       boolean handled = bv.findViewWithTag("media-card:" + pick[0]).performLongClick();
       idle();
@@ -2733,9 +2734,12 @@ public class BehaviorTest {
         for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
         out.append("menu: ").append(items).append(", long press handled ").append(handled).append('\n');
       }
+      Object label = menu.getListView().getAdapter().getItem(Integer.parseInt(pick[1]));
       org.robolectric.Shadows.shadowOf(menu).clickOnItem(Integer.parseInt(pick[1]));
       idle();
-      out.append(pick[0]).append(" item ").append(pick[1]).append(": ").append(((TextView) get("now")).getText()).append('\n');
+      out.append(pick[0]).append(" \"").append(label).append("\": ").append(((TextView) get("now")).getText())
+          .append(", badge ").append(bv.findViewWithTag("media-in-playlist:" + pick[0]) != null ? "\u2630" : "-")
+          .append(", ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "no Playlist button").append('\n');
     }
     out.append("folder long press: ").append(bv.findViewWithTag("media-folder:more").isLongClickable()).append('\n');
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) out.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");

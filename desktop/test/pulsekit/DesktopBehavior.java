@@ -2068,7 +2068,8 @@ public final class DesktopBehavior {
           return b.toString().trim();
         };
         seen.append("badges before: ").append(badges.get()).append('\n');
-        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
+        // walk.mp4 is added, taken out again (its menu then says Remove), and added back.
+        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
         for (String[] pick : picks) {
           javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + pick[0]);
           card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
@@ -2077,9 +2078,12 @@ public final class DesktopBehavior {
           StringBuilder items = new StringBuilder();
           for (Component c : menu.getComponents()) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
           if (pick == picks[0]) seen.append("menu: ").append(items).append(", shown ").append(menu.isVisible()).append('\n');
+          String label = ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).getText();
           ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).doClick();
           menu.setVisible(false);
-          seen.append(pick[0]).append(" item ").append(pick[1]).append(": ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+          seen.append(pick[0]).append(" \"").append(label).append("\": ").append(((JLabel) get("nowPlaying")).getText())
+              .append(", badge ").append(((javax.swing.JButton) component(d, "media-card:" + pick[0])).getText().contains("\u2630") ? "\u2630" : "-")
+              .append(", ").append(playlist.isVisible() ? playlist.getText() : "no Playlist button").append('\n');
         }
         for (PromptVault.StoredFile f : PromptDb.files(false, null)) seen.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
         for (PromptVault.StoredFile f : PromptDb.files(true, null)) seen.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");

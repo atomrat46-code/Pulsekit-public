@@ -82,6 +82,38 @@ public final class MediaPlaylist {
     }
   }
 
+  /** True when the file is in the folder's default playlist. */
+  public static boolean has(File dir, String folder, String id) {
+    for (Item it : items(dir, folder)) if (it.id.equals(id)) return true;
+    return false;
+  }
+
+  /** Takes the file out of the folder's default playlist; returns a line for the status. */
+  public static String remove(File dir, String folder, String id, String name) {
+    String shown = name == null || name.trim().length() == 0 ? MediaDir.label(id) : name.trim();
+    List<Item> now = items(dir, folder);
+    StringBuilder sb = new StringBuilder("folder\t").append(clean(folder)).append('\n');
+    int left = 0;
+    boolean found = false;
+    for (Item it : now) {
+      if (it.id.equals(id)) {
+        found = true;
+        continue;
+      }
+      sb.append(it.id).append('\t').append(it.name).append('\t').append(it.size).append('\n');
+      left++;
+    }
+    if (!found) return shown + " is not in this folder's playlist";
+    try {
+      File f = file(dir, folder);
+      if (left == 0) f.delete();
+      else Files.write(f.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      return shown + " removed from this folder's playlist (" + left + (left == 1 ? " file left)" : " files left)");
+    } catch (Exception ex) {
+      return "Could not remove " + shown + " from the playlist" + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+    }
+  }
+
   /** "Playlist (3)". */
   public static String button(int count) {
     return "Playlist (" + count + ")";

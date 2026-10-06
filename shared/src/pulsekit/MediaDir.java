@@ -216,6 +216,9 @@ public final class MediaDir {
   /** The menu a file's card has (a long press, or a right click on the desktop). */
   public static final String[] MENU = {"Add to DB Reference files", "Add to DB result files", "Add to default playlist"};
 
+  /** The menu for a file already in the playlist: its third item takes it out. */
+  public static final String[] MENU_LISTED = {"Add to DB Reference files", "Add to DB result files", "Remove from default playlist"};
+
   /**
    * Add to DB: the file into the prompt library kept in `dir`, on its own, as a reference file or
    * (with `result`) a result file; up to the library's 16 MB. Returns a line for the status.

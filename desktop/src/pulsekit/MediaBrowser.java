@@ -467,13 +467,15 @@ final class MediaBrowser {
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
-        for (int i = 0; i < MediaDir.MENU.length; i++) {
+        // A file already in the playlist: its third item takes it out.
+        String[] items = this.listed.contains(f.getAbsolutePath()) ? MediaDir.MENU_LISTED : MediaDir.MENU;
+        for (int i = 0; i < items.length; i++) {
             final int which = i;
-            javax.swing.JMenuItem item = new javax.swing.JMenuItem(MediaDir.MENU[i]);
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
             item.addActionListener(e -> {
                 app.setNow(this.menuPicked(entry, f, which));
-                // Added to the playlist: its card gets the ☰ badge at once.
+                // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
                 if (which == 2 && card instanceof JButton) {
                     JButton b = (JButton) card;
                     b.setText(this.caption(entry, b.getIcon() != null ? null : mark(entry)));
@@ -487,6 +489,12 @@ final class MediaBrowser {
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
     String menuPicked(MediaDir.Entry entry, File f, int which) {
+        if (which == 2 && this.listed.contains(f.getAbsolutePath())) {
+            String said = MediaPlaylist.remove(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name);
+            this.listed.remove(f.getAbsolutePath());
+            this.paintPlaylist();
+            return said;
+        }
         if (which == 2) {
             String said = MediaPlaylist.add(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name, f.length());
             this.listed.add(f.getAbsolutePath());
