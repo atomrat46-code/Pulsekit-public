@@ -2549,6 +2549,39 @@ public class BehaviorTest {
     write("s71_media_video", out.toString());
   }
 
+  /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
+  private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
+    java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream m = new java.io.DataOutputStream(mvhd);
+    m.writeInt(108);
+    m.writeBytes("mvhd");
+    m.writeInt(0);
+    m.writeInt(0);
+    m.writeInt(0);
+    m.writeInt(1000);
+    m.writeInt(lengthMs);
+    m.write(new byte[80]);
+    java.io.ByteArrayOutputStream tkhd = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream t = new java.io.DataOutputStream(tkhd);
+    t.writeInt(92);
+    t.writeBytes("tkhd");
+    t.write(new byte[76]);
+    t.writeInt(width << 16);
+    t.writeInt(height << 16);
+    java.io.ByteArrayOutputStream file = new java.io.ByteArrayOutputStream();
+    java.io.DataOutputStream f = new java.io.DataOutputStream(file);
+    f.writeInt(16);
+    f.writeBytes("ftypisom");
+    f.writeInt(0);
+    f.writeInt(8 + 108 + 8 + 92);
+    f.writeBytes("moov");
+    f.write(mvhd.toByteArray());
+    f.writeInt(8 + 92);
+    f.writeBytes("trak");
+    f.write(tkhd.toByteArray());
+    return file.toByteArray();
+  }
+
   /**
    * MediaBrowser (PyJav's Java menu): Params has Directory with Browse, which opens the system's
    * folder picker; the folder picked is kept, shown, and opened in the Media browser: folders first,
@@ -2568,7 +2601,8 @@ public class BehaviorTest {
     try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new File(more, "beach.jpg"))) {
       bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fo);
     }
-    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    // An MP4's headers only (3.46 s, 160x120): the playlist preview reads its length and size from them.
+    Files.write(new File(media, "walk.mp4").toPath(), mp4Header(3460, 160, 120));
     Files.write(new File(media, "beat.wav").toPath(), AudioIo.encodeWav(new short[22050], 22050));
     Files.write(new File(media, "groove.mid").toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
     Files.write(new File(media, "notes.txt").toPath(), "not media".getBytes(StandardCharsets.UTF_8));
@@ -2642,16 +2676,16 @@ public class BehaviorTest {
     }
     out.append("window still open: ").append(MediaBrowser.lastPlaylist.isShowing()).append('\n');
     // Held: the item's thumbnail pops up; letting go closes it and opens nothing.
-    for (String n : new String[] {"sunset.png", "beat.wav"}) {
+    for (String n : new String[] {"sunset.png", "walk.mp4", "beat.wav"}) {
       TextView row = (TextView) lv.findViewWithTag("playlist-item:" + n);
       MediaBrowser.lastOpened = null;
       boolean handled = row.performLongClick();
-      for (int i = 0; i < 20; i++) {
+      for (int i = 0; i < 80 && (MediaBrowser.lastPeekInfo.getText().length() == 0 || MediaBrowser.lastPeekImage.getDrawable() == null); i++) {
         Thread.sleep(25);
         idle();
       }
       out.append("held ").append(n).append(": handled ").append(handled).append(", preview shown ").append(MediaBrowser.lastPeek != null && MediaBrowser.lastPeek.isShowing())
-          .append(", thumbnail ").append(MediaBrowser.lastPeekImage.getDrawable() != null);
+          .append(", thumbnail ").append(MediaBrowser.lastPeekImage.getDrawable() != null).append(", info \"").append(MediaBrowser.lastPeekInfo.getText()).append('"');
       long now = android.os.SystemClock.uptimeMillis();
       android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_UP, 5, 5, 0);
       row.dispatchTouchEvent(up);

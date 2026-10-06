@@ -211,6 +211,111 @@ public final class MediaDir {
     return size > DB_MAX;
   }
 
+  /**
+   * A preview's info line: a video's length and resolution ("0:42 · 1280×720"), a picture's
+   * dimensions and size in MB ("1920×1080 · 2.4 MB"). Unknown parts are left out.
+   */
+  public static String info(int kind, int width, int height, long lengthMs, long bytes) {
+    StringBuilder sb = new StringBuilder();
+    if (kind == VIDEO) {
+      if (lengthMs > 0) sb.append(clock(lengthMs));
+      if (width > 0 && height > 0) sb.append(sb.length() > 0 ? " \u00b7 " : "").append(width).append('\u00d7').append(height);
+    } else if (kind == PICTURE) {
+      if (width > 0 && height > 0) sb.append(width).append('\u00d7').append(height);
+      if (bytes > 0) sb.append(sb.length() > 0 ? " \u00b7 " : "").append(megabytes(bytes));
+    }
+    return sb.toString();
+  }
+
+  /**
+   * An MP4's (or MOV's) length and picture size from its headers: {lengthMs, width, height}, each 0
+   * when not found; null when it is not an MP4 that can be read.
+   */
+  public static long[] mp4Info(File f) {
+    try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(f, "r")) {
+      long[] out = new long[3];
+      long moov = -1, moovEnd = -1;
+      long at = 0, end = in.length();
+      while (at + 8 <= end) {
+        in.seek(at);
+        long size = in.readInt() & 0xffffffffL;
+        int type = in.readInt();
+        long head = 8;
+        if (size == 1) {
+          size = in.readLong();
+          head = 16;
+        } else if (size == 0) {
+          size = end - at;
+        }
+        if (size < head) return null;
+        if (type == 0x6d6f6f76) { // moov
+          moov = at + head;
+          moovEnd = at + size;
+          break;
+        }
+        at += size;
+      }
+      if (moov < 0) return null;
+      boxes(in, moov, Math.min(moovEnd, end), out, 0);
+      return out;
+    } catch (Exception ex) {
+      return null;
+    }
+  }
+
+  /** Reads mvhd (length) and each trak's tkhd (the first with a picture size) between `from` and `to`. */
+  private static void boxes(java.io.RandomAccessFile in, long from, long to, long[] out, int depth) throws java.io.IOException {
+    long at = from;
+    while (at + 8 <= to && depth < 4) {
+      in.seek(at);
+      long size = in.readInt() & 0xffffffffL;
+      int type = in.readInt();
+      if (size < 8 || at + size > to) return;
+      if (type == 0x6d766864) { // mvhd
+        int version = in.readUnsignedByte();
+        in.skipBytes(3);
+        long scale;
+        long duration;
+        if (version == 1) {
+          in.skipBytes(16);
+          scale = in.readInt() & 0xffffffffL;
+          duration = in.readLong();
+        } else {
+          in.skipBytes(8);
+          scale = in.readInt() & 0xffffffffL;
+          duration = in.readInt() & 0xffffffffL;
+        }
+        if (scale > 0) out[0] = duration * 1000 / scale;
+      } else if (type == 0x746b6864 && out[1] == 0) { // tkhd: width and height (16.16) are its last 8 bytes
+        in.seek(at + size - 8);
+        long w = (in.readInt() & 0xffffffffL) >> 16;
+        long h = (in.readInt() & 0xffffffffL) >> 16;
+        if (w > 0 && h > 0) {
+          out[1] = w;
+          out[2] = h;
+        }
+      } else if (type == 0x7472616b) { // trak
+        boxes(in, at + 8, at + size, out, depth + 1);
+      }
+      at += size;
+    }
+  }
+
+  /** "2.4 MB" (0.1 MB at least). */
+  public static String megabytes(long bytes) {
+    double mb = Math.max(0.1, bytes / (1024.0 * 1024.0));
+    return String.format(java.util.Locale.US, mb < 10 ? "%.1f MB" : "%.0f MB", mb);
+  }
+
+  /** "0:42", "1:02:05". */
+  public static String clock(long ms) {
+    long s = Math.max(0, (ms + 500) / 1000);
+    long h = s / 3600;
+    long m = (s / 60) % 60;
+    String sec = String.format(java.util.Locale.US, "%02d", s % 60);
+    return h > 0 ? h + ":" + String.format(java.util.Locale.US, "%02d", m) + ":" + sec : m + ":" + sec;
+  }
+
   /** The folder a MediaBrowser run says to open ("Media browser: ..."), or null. */
   public static String opened(String log) {
     if (log == null) return null;

@@ -333,11 +333,17 @@ final class VlcPlayer {
      * Reads the picture's visible size from VLC (called from the Swing thread, not from VLC's
      * own callbacks), scaled as the frames are, so the padding VLC adds below is not drawn.
      */
+    /** The video's own size (not the scaled picture's), once known; 0 before. */
+    volatile int videoW;
+    volatile int videoH;
+
     void refreshSize() {
         if (this.player == null) return;
         com.sun.jna.ptr.IntByReference w = new com.sun.jna.ptr.IntByReference();
         com.sun.jna.ptr.IntByReference h = new com.sun.jna.ptr.IntByReference();
         if (lib.libvlc_video_get_size(this.player, 0, w, h) != 0 || w.getValue() <= 0 || h.getValue() <= 0) return;
+        this.videoW = w.getValue();
+        this.videoH = h.getValue();
         double s = Math.min(1.0, MAX_SIDE / (double) Math.max(w.getValue(), h.getValue()));
         this.screen.visibleW = Math.max(1, (int) Math.round(w.getValue() * s));
         this.screen.visibleH = Math.max(1, (int) Math.round(h.getValue() * s));
@@ -412,6 +418,20 @@ final class VlcPlayer {
      * sound and without showing anything; null when VLC cannot play it (within 8 seconds).
      */
     static byte[] firstFrame(File video, int maxSide) {
+        Probe got = probe(video, maxSide);
+        return got == null ? null : got.jpeg;
+    }
+
+    /** A video's first frame (a JPEG), its own size and its length. */
+    static final class Probe {
+        byte[] jpeg;
+        int width;
+        int height;
+        long lengthMs;
+    }
+
+    /** As firstFrame, with the video's size and length too; null when VLC cannot play it. */
+    static Probe probe(File video, int maxSide) {
         VlcPlayer p = null;
         try {
             p = new VlcPlayer(video, true);
@@ -436,7 +456,13 @@ final class VlcPlayer {
             g.dispose();
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             javax.imageio.ImageIO.write(small, "jpg", out);
-            return out.size() > 0 ? out.toByteArray() : null;
+            if (out.size() == 0) return null;
+            Probe got = new Probe();
+            got.jpeg = out.toByteArray();
+            got.width = p.videoW;
+            got.height = p.videoH;
+            got.lengthMs = p.lengthMs();
+            return got;
         } catch (Exception ex) {
             return null;
         } finally {

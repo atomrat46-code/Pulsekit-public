@@ -294,8 +294,9 @@ final class MediaBrowser {
     /** The thumbnail shown while a playlist item is held, for the tests. */
     javax.swing.JWindow lastPeek;
     JLabel lastPeekImage;
+    JLabel lastPeekInfo;
 
-    /** A playlist item's thumbnail beside the list, while it is held (a sound shows its type). */
+    /** A playlist item's thumbnail beside the list, while it is held (a sound shows its type), with a video's length and resolution, a picture's size. */
     void peek(java.awt.Component near, final MediaDir.Entry e, final File f) {
         this.unpeek();
         final int side = 320;
@@ -308,26 +309,51 @@ final class MediaBrowser {
         image.setBackground(java.awt.Color.BLACK);
         image.setForeground(java.awt.Color.WHITE);
         image.setPreferredSize(new Dimension(side, side));
-        w.setContentPane(image);
+        final JLabel info = new JLabel(" ", SwingConstants.CENTER);
+        info.setName("playlist-peek-info");
+        info.setOpaque(true);
+        info.setBackground(java.awt.Color.BLACK);
+        info.setForeground(java.awt.Color.WHITE);
+        info.setBorder(BorderFactory.createEmptyBorder(4, 6, 6, 6));
+        JPanel box = new JPanel(new BorderLayout());
+        box.setBackground(java.awt.Color.BLACK);
+        box.add(image, BorderLayout.CENTER);
+        box.add(info, BorderLayout.SOUTH);
+        w.setContentPane(box);
         w.pack();
         java.awt.Point at = near.getLocationOnScreen();
         w.setLocation(at.x + near.getWidth() + 8, Math.max(0, at.y - side / 2));
         this.lastPeek = w;
         this.lastPeekImage = image;
+        this.lastPeekInfo = info;
         w.setVisible(true);
         if (e.kind != MediaDir.PICTURE && e.kind != MediaDir.VIDEO) return;
-        ImageIcon have = e.kind == MediaDir.PICTURE ? null : this.thumbs.get(key(f));
-        if (have != null && e.kind == MediaDir.VIDEO) this.showPeek(w, image, have.getImage(), side);
+        final ImageIcon have = e.kind == MediaDir.PICTURE ? null : this.thumbs.get(key(f));
+        if (have != null) this.showPeek(w, image, have.getImage(), side);
         Thread t = new Thread(() -> {
             try {
                 java.awt.image.BufferedImage img = null;
-                if (e.kind == MediaDir.PICTURE) img = javax.imageio.ImageIO.read(f);
-                else if (have == null && VlcPlayer.available()) {
-                    byte[] jpeg = VlcPlayer.firstFrame(f, side);
-                    if (jpeg != null) img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpeg));
+                String line = "";
+                if (e.kind == MediaDir.PICTURE) {
+                    img = javax.imageio.ImageIO.read(f);
+                    if (img != null) line = MediaDir.info(MediaDir.PICTURE, img.getWidth(), img.getHeight(), 0, f.length());
+                } else {
+                    // VLC reads its first frame, size and length; else the MP4's own headers tell the last two.
+                    VlcPlayer.Probe probe = VlcPlayer.available() ? VlcPlayer.probe(f, side) : null;
+                    if (probe != null && have == null) img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(probe.jpeg));
+                    long[] head = MediaDir.mp4Info(f);
+                    long len = probe != null && probe.lengthMs > 0 ? probe.lengthMs : head != null ? head[0] : 0;
+                    int vw = probe != null && probe.width > 0 ? probe.width : head != null ? (int) head[1] : 0;
+                    int vh = probe != null && probe.height > 0 ? probe.height : head != null ? (int) head[2] : 0;
+                    line = MediaDir.info(MediaDir.VIDEO, vw, vh, len, f.length());
                 }
                 final java.awt.image.BufferedImage got = img;
-                if (got != null) SwingUtilities.invokeLater(() -> this.showPeek(w, image, got, side));
+                final String shown = line;
+                SwingUtilities.invokeLater(() -> {
+                    if (this.lastPeek != w) return;
+                    if (got != null) this.showPeek(w, image, got, side);
+                    if (shown.length() > 0) info.setText(shown);
+                });
             } catch (Exception ex) {
                 // it keeps its type
             }

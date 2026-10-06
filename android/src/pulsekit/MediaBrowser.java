@@ -162,13 +162,19 @@ final class MediaBrowser {
     static android.widget.PopupWindow lastPeek;
     static ImageView lastPeekImage;
 
-    /** A playlist item's thumbnail over the list, while it is held (a sound shows its type). */
+    static TextView lastPeekInfo;
+
+    /**
+     * A playlist item's thumbnail over the list, while it is held (a sound shows its type), with a
+     * video's length and resolution or a picture's dimensions and size under it.
+     */
     void peek(View anchor, final MediaDir.Entry e) {
         this.unpeek();
         int side = Math.min(this.app.getResources().getDisplayMetrics().widthPixels, this.app.getResources().getDisplayMetrics().heightPixels) * 6 / 10;
+        LinearLayout col = this.app.col();
+        col.setBackgroundColor(0xee000000);
+        col.setPadding(this.app.dp(6), this.app.dp(6), this.app.dp(6), this.app.dp(6));
         FrameLayout box = new FrameLayout(this.app);
-        box.setBackgroundColor(0xee000000);
-        box.setPadding(this.app.dp(6), this.app.dp(6), this.app.dp(6), this.app.dp(6));
         TextView mark = this.app.text(ext(e.name) + "\n" + e.name, 15, true);
         mark.setGravity(Gravity.CENTER);
         mark.setTextColor(UiKit.MUTED);
@@ -177,26 +183,99 @@ final class MediaBrowser {
         image.setTag("playlist-peek");
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         box.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        col.addView(box, new LinearLayout.LayoutParams(-1, side));
+        final TextView info = this.app.text("", 14, false);
+        info.setTag("playlist-peek-info");
+        info.setGravity(Gravity.CENTER);
+        info.setPadding(0, this.app.dp(6), 0, this.app.dp(2));
+        col.addView(info, new LinearLayout.LayoutParams(-1, -2));
         // Not touchable: the finger's release still reaches the list, which closes it.
-        android.widget.PopupWindow pop = new android.widget.PopupWindow(box, side, side, false);
+        final android.widget.PopupWindow pop = new android.widget.PopupWindow(col, side, -2, false);
         pop.setTouchable(false);
         pop.setOutsideTouchable(false);
         lastPeek = pop;
         lastPeekImage = image;
+        lastPeekInfo = info;
         pop.showAtLocation(anchor.getRootView(), Gravity.CENTER, 0, 0);
-        if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
-            Bitmap have = THUMBS.get(key(e));
-            if (have != null) image.setImageBitmap(have);
-            else {
-                final int px = side;
-                READER.execute(() -> {
-                    final Bitmap b = this.thumb(e, px);
-                    if (b == null) return;
-                    this.main.post(() -> {
-                        if (lastPeek == pop && pop.isShowing()) image.setImageBitmap(b);
-                    });
-                });
+        if (e.kind != MediaDir.PICTURE && e.kind != MediaDir.VIDEO) return;
+        final Bitmap have = THUMBS.get(key(e));
+        if (have != null) image.setImageBitmap(have);
+        final int px = side;
+        READER.execute(() -> {
+            final Bitmap b = have != null ? null : this.thumb(e, px);
+            final String line = this.info(e);
+            this.main.post(() -> {
+                if (lastPeek != pop || !pop.isShowing()) return;
+                if (b != null) image.setImageBitmap(b);
+                info.setText(line);
+            });
+        });
+    }
+
+    /** A video's length and resolution, a picture's dimensions and size in MB (MediaDir.info); empty when unknown. */
+    String info(MediaDir.Entry e) {
+        Uri u = this.uri(e);
+        long bytes = e.size;
+        try {
+            if (e.kind == MediaDir.PICTURE) {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                InputStream in = this.app.getContentResolver().openInputStream(u);
+                try {
+                    BitmapFactory.decodeStream(in, null, bounds);
+                } finally {
+                    if (in != null) in.close();
+                }
+                if (bytes <= 0 && this.tree == null) bytes = new File(e.id).length();
+                return MediaDir.info(MediaDir.PICTURE, bounds.outWidth, bounds.outHeight, 0, bytes);
             }
+            if (e.kind == MediaDir.VIDEO) {
+                long len = 0;
+                int w = 0, h = 0;
+                MediaMetadataRetriever media = new MediaMetadataRetriever();
+                try {
+                    if (this.tree == null) media.setDataSource(e.id);
+                    else media.setDataSource(this.app, u);
+                    len = number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+                    w = (int) number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                    h = (int) number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                    long turn = number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+                    // A phone video filmed upright is stored on its side.
+                    if (turn == 90 || turn == 270) {
+                        int t = w;
+                        w = h;
+                        h = t;
+                    }
+                } catch (Exception ignored) {
+                    // the file's own headers, below
+                } finally {
+                    try {
+                        media.release();
+                    } catch (Exception ignored) {}
+                }
+                if ((len <= 0 || w <= 0) && this.tree == null) {
+                    long[] head = MediaDir.mp4Info(new File(e.id));
+                    if (head != null) {
+                        if (len <= 0) len = head[0];
+                        if (w <= 0) {
+                            w = (int) head[1];
+                            h = (int) head[2];
+                        }
+                    }
+                }
+                return MediaDir.info(MediaDir.VIDEO, w, h, len, bytes);
+            }
+        } catch (Throwable ignored) {
+            // unknown
+        }
+        return "";
+    }
+
+    private static long number(String s) {
+        try {
+            return s == null ? 0 : Long.parseLong(s.trim());
+        } catch (NumberFormatException ex) {
+            return 0;
         }
     }
 

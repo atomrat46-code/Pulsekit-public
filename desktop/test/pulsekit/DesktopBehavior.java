@@ -2209,7 +2209,20 @@ public final class DesktopBehavior {
       peek.invoke(browser, ((JFrame) frame).getContentPane(), sunset, new File(media, "sunset.png"));
     });
     for (int i = 0; i < 40 && ((JLabel) get("lastPeekImage")).getIcon() == null; i++) Thread.sleep(50);
-    out.append("held sunset.png: ").append(((JLabel) get("lastPeekImage")).getIcon() != null ? "thumbnail" : "no thumbnail").append('\n');
+    for (int i = 0; i < 40 && ((JLabel) get("lastPeekInfo")).getText().trim().isEmpty(); i++) Thread.sleep(50);
+    out.append("held sunset.png: ").append(((JLabel) get("lastPeekImage")).getIcon() != null ? "thumbnail" : "no thumbnail").append(", ").append(((JLabel) get("lastPeekInfo")).getText()).append('\n');
+    edt(() -> call("unpeek"));
+    // A video: its length and resolution (without VLC, from the MP4's own headers).
+    MediaDir.Entry walk = new MediaDir.Entry();
+    walk.name = "walk.mp4";
+    walk.kind = MediaDir.VIDEO;
+    edt(() -> {
+      java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+      peek.setAccessible(true);
+      peek.invoke(browser, ((JFrame) frame).getContentPane(), walk, new File(media, "walk.mp4"));
+    });
+    for (int i = 0; i < 60 && ((JLabel) get("lastPeekInfo")).getText().trim().isEmpty(); i++) Thread.sleep(50);
+    out.append("held walk.mp4: ").append(((JLabel) get("lastPeekInfo")).getText()).append('\n');
     edt(() -> call("unpeek"));
     out.append("let go: preview shown ").append(((javax.swing.JWindow) get("lastPeek")).isVisible()).append('\n');
     out.append("folder label: ").append(MediaDir.label(media.getAbsolutePath())).append(", phone folder: ")
