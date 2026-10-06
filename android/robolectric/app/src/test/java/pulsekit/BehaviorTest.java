@@ -2495,6 +2495,8 @@ public class BehaviorTest {
     TextView chosen = (TextView) dv.findViewWithTag("params-chosen:--join");
     out.append("Params: ").append(join.getText()).append(' ').append(join.isChecked() ? "ticked" : "unticked").append(", ").append(chosen.getText())
         .append(", Choose ").append(pick.isEnabled() ? "on" : "off").append(", Browse DB ").append(db != null && db.isEnabled() ? "on" : "off (library empty)").append('\n');
+    android.widget.CheckBox first = (android.widget.CheckBox) dv.findViewWithTag("params-check:--join_first");
+    out.append("order switch: ").append(first == null ? "none" : first.getText() + (first.isChecked() ? " on" : " off")).append('\n');
     join.setChecked(false);
     out.append("unticked: ").append(chosen.getText()).append(", Choose ").append(pick.isEnabled() ? "on" : "off").append('\n');
     join.setChecked(true);

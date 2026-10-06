@@ -51,7 +51,8 @@ import java.util.Map;
  *
  * --join video.mp4 joins the clip with another MP4 when the run succeeds: the clip first, then the
  * other video, saved beside it as <clip name>-merged.mp4 (no re-encoding: the two pictures must be
- * in the same format, as two Sogni clips from the same model are). The clip is kept as it is.
+ * in the same format, as two Sogni clips from the same model are). --join_first puts the other video
+ * first (an earlier scene, then the clip that continues it). The clip is kept as it is.
  */
 public final class SogniVideo {
   public static void main(String[] args) throws Exception {
@@ -147,6 +148,7 @@ public final class SogniVideo {
     String aspect = null;
     String resolutionText = null;
     String joinPath = null;
+    boolean joinFirst = false;
     double duration = 5;
     double maxCost = 0;
     boolean confirm = false;
@@ -170,6 +172,7 @@ public final class SogniVideo {
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       else if (a.equals("--join") && i + 1 < args.length) joinPath = args[++i].trim();
+      else if (a.equals("--join_first")) joinFirst = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
@@ -303,7 +306,7 @@ public final class SogniVideo {
       }
       say("Wrote " + file.getName() + " (" + size(data.length) + ")");
       resultFile = file.getName();
-      if (joinFile != null) joinWith(file, joinFile, name, ext);
+      if (joinFile != null) joinWith(file, joinFile, name, ext, joinFirst);
       if (!"completed".equals(status)) say("Note: workflow " + status);
       say("Succeeded: " + file.getName());
     } catch (SogniApi.ApiException ex) {
@@ -321,10 +324,11 @@ public final class SogniVideo {
   }
 
   /**
-   * --join: the clip, then `other`, as <name>-merged.mp4 beside it (Mp4Join: no re-encoding). The
-   * clip is kept as it is either way; a join that cannot be made says why.
+   * --join: the clip, then `other` (or `other` first, with --join_first), as <name>-merged.mp4
+   * beside it (Mp4Join: no re-encoding). The clip is kept as it is either way; a join that cannot be
+   * made says why.
    */
-  static void joinWith(File clip, File other, String name, String ext) {
+  static void joinWith(File clip, File other, String name, String ext, boolean otherFirst) {
     if (!".mp4".equalsIgnoreCase(ext) && !".m4v".equalsIgnoreCase(ext) && !".mov".equalsIgnoreCase(ext)) {
       say("Could not join with " + other.getName() + ": Sogni sent a " + ext + " clip, not an MP4");
       return;
@@ -332,8 +336,10 @@ public final class SogniVideo {
     File merged = inWork(name + "-merged.mp4");
     for (int n = 1; merged.exists(); n++) merged = inWork(name + "-merged(" + n + ").mp4");
     try {
-      String note = Mp4Join.join(clip, other, merged);
-      say("Joined " + clip.getName() + " and " + other.getName() + ": wrote " + merged.getName() + " (" + size(merged.length()) + ")");
+      File first = otherFirst ? other : clip;
+      File second = otherFirst ? clip : other;
+      String note = Mp4Join.join(first, second, merged);
+      say("Joined " + first.getName() + " and then " + second.getName() + ": wrote " + merged.getName() + " (" + size(merged.length()) + ")");
       if (note.length() > 0) say("Note: " + note);
     } catch (IOException ex) {
       merged.delete();
@@ -343,7 +349,7 @@ public final class SogniVideo {
 
   static void usage() {
     say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--join video.mp4] [--key_file credentials.txt] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--join video.mp4] [--join_first] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--workflow id]");
   }
 

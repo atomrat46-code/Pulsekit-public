@@ -309,6 +309,7 @@ public final class ProgramParams {
       if (p.token.equals("--saveprompt") || p.token.equals("--no_filter")) p.defaultOn = true;
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--join_first")) p.label = "Joined video first (then the new clip)";
       return;
     }
     if (p.token.equals("--prompt")) p.hint = "what happens: the motion, the camera, the sound";
