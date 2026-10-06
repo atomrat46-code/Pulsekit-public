@@ -135,7 +135,92 @@ final class PromptDb {
         }, null, "refs-pick:");
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
-        this.show(dialog, kinds, grid, cancel);
+        this.show(dialog, this.withPreviews(kinds, list, dialog, () -> this.browse(results, only, picked)), grid, cancel);
+    }
+
+    /**
+     * The top of a gallery, with Make video previews (n) under it when some videos in `list` have
+     * no preview yet: one browser tab reads each one's first frame, and the gallery opens again
+     * with them.
+     */
+    JPanel withPreviews(JPanel top, List<PromptVault.StoredFile> list, JDialog dialog, Runnable reopen) {
+        List<byte[]> missing = this.missingPreviews(list);
+        if (missing.isEmpty()) return top;
+        JPanel box = new JPanel(new BorderLayout(0, 6));
+        box.add(top, BorderLayout.NORTH);
+        JButton make = new JButton("Make video previews (" + missing.size() + ")");
+        make.setName("make-video-previews");
+        make.setToolTipText("Your browser reads each video's first frame; Pulsekit keeps it encrypted, so this is done once.");
+        make.addActionListener(e -> this.makePreviews(missing, () -> {
+            dialog.dispose();
+            reopen.run();
+        }));
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        row.add(make);
+        box.add(row, BorderLayout.SOUTH);
+        return box;
+    }
+
+    /** The videos in `list` without a preview yet, each once. */
+    List<byte[]> missingPreviews(List<PromptVault.StoredFile> list) {
+        List<byte[]> out = new ArrayList<byte[]>();
+        java.util.HashSet<String> seen = new java.util.HashSet<String>();
+        try {
+            PromptVault vault = vault();
+            for (PromptVault.StoredFile f : list) {
+                if (previewKind(f.name, null) != 3) continue;
+                byte[] bytes = vault.fileBytes(f.versionId, f.which);
+                if (bytes == null || bytes.length == 0 || ThumbCache.has(bytes) || !seen.add(ThumbCache.key(bytes))) continue;
+                out.add(bytes);
+            }
+        } catch (Exception ex) {
+            // no library: nothing to make
+        }
+        return out;
+    }
+
+    /** The previews grab under way, if any. */
+    FrameGrab previews;
+
+    /** Opens one browser tab that reads each video's first frame; they are kept, then `after` runs. */
+    void makePreviews(List<byte[]> videos, Runnable after) {
+        if (this.previews != null) this.previews.cancel();
+        try {
+            File dir = new File(new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-library"), "previews");
+            dir.mkdirs();
+            final List<File> files = new ArrayList<File>();
+            for (int i = 0; i < videos.size(); i++) {
+                byte[] v = videos.get(i);
+                // WebM and Matroska start with the EBML mark; MP4 and MOV are served as MP4.
+                boolean webm = v.length >= 4 && (v[0] & 0xff) == 0x1a && (v[1] & 0xff) == 0x45 && (v[2] & 0xff) == 0xdf && (v[3] & 0xff) == 0xa3;
+                File f = new File(dir, "video-" + i + (webm ? ".webm" : ".mp4"));
+                Files.write(f.toPath(), videos.get(i));
+                f.deleteOnExit();
+                files.add(f);
+            }
+            final FrameGrab[] mine = new FrameGrab[1];
+            mine[0] = new FrameGrab(files, made -> {
+                if (this.previews == mine[0]) this.previews = null;
+                int kept = 0;
+                for (java.util.Map.Entry<Integer, byte[]> e : made.entrySet()) {
+                    try {
+                        ThumbCache.put(videos.get(e.getKey()), e.getValue());
+                        kept++;
+                    } catch (Exception ex) {
+                        // that one stays without a preview
+                    }
+                }
+                for (File f : files) f.delete();
+                app.setNow("Made " + kept + " of " + videos.size() + (videos.size() == 1 ? " video preview" : " video previews"));
+                if (kept > 0) after.run();
+            });
+            java.net.URI page = mine[0].start();
+            this.previews = mine[0];
+            browser.accept(page);
+            app.setNow("Making video previews in the browser\u2026");
+        } catch (Exception ex) {
+            app.setNow("Could not make video previews: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString()));
+        }
     }
 
     /**
@@ -159,7 +244,7 @@ final class PromptDb {
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
         this.lastPick = dialog;
-        this.show(dialog, top, grid[0], cancel);
+        this.show(dialog, this.withPreviews(top, stored(results), dialog, () -> this.pickStored(slot, results, picked)), grid[0], cancel);
     }
 
     /** The DB dialog shown last, for the tests. */
@@ -237,7 +322,13 @@ final class PromptDb {
 
     /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. */
     static ImageIcon thumb(String name, byte[] bytes) {
-        if (bytes == null || !name.toLowerCase().matches(".+\\.(png|jpe?g|gif|bmp)")) return null;
+        if (bytes == null) return null;
+        // A video shows the preview the browser made of its first frame (Make video previews), when there is one.
+        if (previewKind(name, bytes) == 3) {
+            byte[] made = ThumbCache.get(bytes);
+            return made == null ? null : thumb("preview.jpg", made);
+        }
+        if (!name.toLowerCase().matches(".+\\.(png|jpe?g|gif|bmp)")) return null;
         try {
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
             if (img == null) return null;
@@ -341,7 +432,7 @@ final class PromptDb {
             }
         });
         this.lastGallery = dialog;
-        this.show(dialog, kinds, grid, close);
+        this.show(dialog, this.withPreviews(kinds, stored(results), dialog, () -> this.gallery(results)), grid, close);
     }
 
     /** A card's click: a sound (WAV, MP3) or a MIDI (with the kit) plays in place, again stops; anything else opens. */
