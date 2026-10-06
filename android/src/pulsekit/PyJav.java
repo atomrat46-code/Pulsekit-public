@@ -752,11 +752,16 @@ final class PyJav {
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
         // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result.
-        String kept = PromptKeep.keep(app, result, this.pkLastArgv);
+        String kept = PromptKeep.keep(app.getFilesDir(), result, this.pkLastArgv);
         // MidiDrumGen's MIDI too, when Drum Midi Settings says so.
         if (DrumMidiSettingsPage.genToDb && app.pyName != null && app.pyName.equals("MidiDrumGen.java")) {
-            String gen = PromptKeep.keepMidiDrumGen(app, result, this.pkLastArgv);
+            String gen = PromptKeep.keepMidiDrumGen(app.getFilesDir(), result, this.pkLastArgv);
             if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
+        }
+        // SogniMusic's track too, when Drum Midi Settings says so.
+        if (DrumMidiSettingsPage.musicToDb && app.pyName != null && app.pyName.equals("SogniMusic.java")) {
+            String music = PromptKeep.keepSogniMusic(app.getFilesDir(), result, this.pkLastArgv);
+            if (music.length() > 0) kept = kept.length() > 0 ? kept + "\n" + music : music;
         }
         if (kept.length() > 0) {
             log = log + "\n" + kept;

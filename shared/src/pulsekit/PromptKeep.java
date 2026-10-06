@@ -1,6 +1,5 @@
 package pulsekit;
 
-import android.content.Context;
 import java.io.File;
 import java.util.List;
 
@@ -10,7 +9,8 @@ import java.util.List;
  * the model and type, the reference files it names (read from the run's own inputs: SogniVideo's
  * first and last frame pictures), the result file the run made and the result text. Opening the
  * sheet later loads the pictures back as its reference files. A file over the library's 16 MB is
- * kept by name only. The programs write only the .prompt file; the library is the app's.
+ * kept by name only. The programs write only the .prompt file; the library is the app's (the same
+ * on the phone and the desktop; `dir` is the folder it is kept in).
  */
 final class PromptKeep {
     private static final long MAX_BYTES = 16L * 1024 * 1024;
@@ -18,15 +18,15 @@ final class PromptKeep {
     private PromptKeep() {}
 
     /** Stores each sheet the run saved; returns a line for the log, or "" when it saved none. */
-    static String keep(Context ctx, JavaRun.Result result, List<String> argv) {
-        if (ctx == null || result == null || result.files == null) return "";
+    static String keep(File dir, JavaRun.Result result, List<String> argv) {
+        if (dir == null || result == null || result.files == null) return "";
         StringBuilder note = new StringBuilder();
         for (JavaRun.FileOut f : result.files) {
             if (f.name == null || !f.name.toLowerCase().endsWith(".prompt") || f.bytes == null) continue;
             PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, java.nio.charset.StandardCharsets.UTF_8));
             if (sheet == null || sheet.name.trim().length() == 0) continue;
             try {
-                note.append(note.length() > 0 ? "\n" : "").append(store(PromptVault.open(ctx), sheet, result, argv));
+                note.append(note.length() > 0 ? "\n" : "").append(store(PromptVault.open(dir), sheet, result, argv));
             } catch (Exception ex) {
                 note.append(note.length() > 0 ? "\n" : "").append("Prompt library: could not store ").append(f.name)
                     .append(ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
@@ -78,12 +78,29 @@ final class PromptKeep {
      * its text, the MIDI as result file and the run's "Wrote ..." line as result text. Returns a line
      * for the log, or "" when the run made no MIDI or saved it with a prompt sheet already.
      */
-    static String keepMidiDrumGen(Context ctx, JavaRun.Result result, List<String> argv) {
-        if (ctx == null || result == null || result.files == null || result.code != 0) return "";
+    static String keepMidiDrumGen(File dir, JavaRun.Result result, List<String> argv) {
+        return keepOutput(dir, result, argv, "MidiDrumGen", false);
+    }
+
+    /**
+     * SogniMusic's track into the prompt library (Drum Midi Settings: Save SogniMusic output file
+     * into DB), as MidiDrumGen's MIDI goes: a new version of the prompt "SogniMusic" in Music, its
+     * arguments as text, the track as result file (by name only over 16 MB), and the run's "Wrote"
+     * and "Workflow:" lines as result text (the workflow id fetches the track again).
+     */
+    static String keepSogniMusic(File dir, JavaRun.Result result, List<String> argv) {
+        return keepOutput(dir, result, argv, "SogniMusic", true);
+    }
+
+    /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */
+    static String keepOutput(File dir, JavaRun.Result result, List<String> argv, String program, boolean audio) {
+        if (dir == null || result == null || result.files == null || result.code != 0) return "";
         JavaRun.FileOut midi = null;
         for (JavaRun.FileOut f : result.files) {
             String low = f.name == null ? "" : f.name.toLowerCase();
-            if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes != null && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
+            if (f.bytes == null || f.bytes.length < 4) continue;
+            if (audio ? low.matches(".+\\.(mp3|wav|wave|flac|m4a|ogg|aac)")
+                : (low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
         }
         if (midi == null) return "";
         // A run with --saveprompt keeps its MIDI with its sheet (keep): it is not stored a second time.
@@ -92,7 +109,7 @@ final class PromptKeep {
             PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, java.nio.charset.StandardCharsets.UTF_8));
             if (sheet != null && midi.name.equals(sheet.result)) return "";
         }
-        StringBuilder args = new StringBuilder("MidiDrumGen");
+        StringBuilder args = new StringBuilder(program);
         if (argv != null) {
             for (String a : argv) {
                 // Paths by their names; arguments with spaces in quotes, as typed.
@@ -101,17 +118,24 @@ final class PromptKeep {
             }
         }
         String wrote = "";
-        for (String line : (result.log == null ? "" : result.log).split("\n")) if (line.trim().startsWith("Wrote ")) wrote = line.trim();
+        String workflow = "";
+        for (String line : (result.log == null ? "" : result.log).split("\n")) {
+            if (line.trim().startsWith("Wrote ")) wrote = line.trim();
+            if (line.trim().startsWith("Workflow: ")) workflow = line.trim();
+        }
+        if (workflow.length() > 0) wrote = wrote.length() > 0 ? wrote + "\n" + workflow : workflow;
+        // The library keeps files of up to 16 MB: a longer track is kept by name only.
+        byte[] kept = midi.bytes.length > MAX_BYTES ? null : midi.bytes;
         try {
-            PromptVault vault = PromptVault.open(ctx);
+            PromptVault vault = PromptVault.open(dir);
             long catId = 0;
             for (PromptVault.Category c : vault.categories()) if (c.name != null && c.name.trim().equalsIgnoreCase("Music")) catId = c.id;
             if (catId == 0) catId = vault.addCategory("Music");
             long promptId = 0;
-            for (PromptVault.Prompt p : vault.prompts(catId)) if ("MidiDrumGen".equalsIgnoreCase(p.title == null ? "" : p.title.trim())) promptId = p.id;
-            if (promptId == 0) promptId = vault.addPrompt(catId, "MidiDrumGen");
-            vault.addVersion(promptId, "MidiDrumGen", "", args.toString(), "", "", null, "", null, midi.name, midi.bytes, "", wrote);
-            return "Prompt library: MidiDrumGen (Music), result " + midi.name;
+            for (PromptVault.Prompt p : vault.prompts(catId)) if (program.equalsIgnoreCase(p.title == null ? "" : p.title.trim())) promptId = p.id;
+            if (promptId == 0) promptId = vault.addPrompt(catId, program);
+            vault.addVersion(promptId, program, "", args.toString(), "", "", null, "", null, midi.name, kept, "", wrote);
+            return "Prompt library: " + program + " (Music), result " + midi.name + (kept == null ? " (by name only, over 16 MB)" : "");
         } catch (Exception ex) {
             return "Prompt library: could not store " + midi.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
         }

@@ -266,6 +266,8 @@ public class MainActivity extends UiKit {
 
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // The prompt library's key: the Android keystore.
+        if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
             this.getWindow().setStatusBarColor(BG);
             this.getWindow().setNavigationBarColor(SURFACE);

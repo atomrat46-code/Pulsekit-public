@@ -124,7 +124,7 @@ final class RefBrowser {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
         try {
             java.util.HashSet<String> seen = new java.util.HashSet<String>();
-            PromptVault vault = PromptVault.open(activity);
+            PromptVault vault = PromptVault.open(activity.getFilesDir());
             for (PromptVault.StoredFile f : results ? vault.resultFiles() : vault.referenceFiles()) {
                 if (seen.add(f.name + "\n" + f.size)) out.add(f);
             }
@@ -160,7 +160,7 @@ final class RefBrowser {
         final List<PromptVault.StoredFile> files = files(activity, results, only);
         final PromptVault vault;
         try {
-            vault = PromptVault.open(activity);
+            vault = PromptVault.open(activity.getFilesDir());
         } catch (Exception ex) {
             return;
         }

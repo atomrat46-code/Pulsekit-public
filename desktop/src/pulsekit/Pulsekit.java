@@ -563,6 +563,11 @@ public final class Pulsekit extends UiKit {
             JMenuItem saveCodeAs = new JMenuItem("Save code as");
             saveCodeAs.setEnabled(codeSavable);
             saveCodeAs.addActionListener(e -> this.codeSave.saveAs());
+            // A file into the prompt library on its own: a reference file (Ref files, Browse DB) or a result file.
+            JMenuItem importRef = new JMenuItem("Import as Ref file");
+            importRef.addActionListener(e -> this.promptDb.importFile(false));
+            JMenuItem importResult = new JMenuItem("Import as Result file");
+            importResult.addActionListener(e -> this.promptDb.importFile(true));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem compare = new JMenuItem("Compare Hits");
@@ -571,6 +576,8 @@ public final class Pulsekit extends UiKit {
             help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
             menu.add(exp);
+            menu.add(importRef);
+            menu.add(importResult);
             menu.add(saveCode);
             menu.add(saveCodeAs);
             menu.add(midi);
@@ -638,6 +645,8 @@ public final class Pulsekit extends UiKit {
     final CompareHitsPage compareHits = new CompareHitsPage(this);
     final CodeSave codeSave = new CodeSave(this);
     final PromptsPage promptsPage = new PromptsPage(this);
+
+    final PromptDb promptDb = new PromptDb(this);
 
 
     void showView(String string) {

@@ -1097,6 +1097,120 @@ public final class DesktopBehavior {
     out.append("own --key_file wins: ").append(JavaRun.argvFor("[--key_file credentials.txt]", 120, "house", 4, 0, "--key_file other.txt")).append('\n');
   }
 
+  /**
+   * The prompt library on the desktop: its key file (owner only), File > Import as Ref / Result
+   * file, the Ref files and Result files galleries, rename and delete, Browse DB's copies (a MIDI
+   * played with the kit to a WAV), Compare Hits' Browse DB, and MidiDrumGen's MIDI and sheet
+   * stored after a run (Drum Midi Settings: Save MidiDrumGen output file into DB, --saveprompt).
+   */
+  void s42_prompt_library() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    String[] items = new String[1];
+    edt(() -> {
+      javax.swing.JPopupMenu menu = this.fileMenu();
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : menu.getComponents()) {
+        if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      }
+      menu.setVisible(false);
+      items[0] = sb.toString();
+    });
+    out.append("File menu: ").append(items[0]).append('\n');
+    // A WAV and a MIDI to import.
+    short[] tone = new short[22050 / 4];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (8000 * Math.sin(i * 0.05));
+    File wav = new File(home, "hit.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
+    File mid = new File(home, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
+    File big = new File(home, "big.bin");
+    try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(big, "rw")) {
+      raf.setLength(17L * 1024 * 1024);
+    }
+    answers.add("OK");
+    edt(() -> db.importPicked(wav, false));
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    answers.add("Cancel");
+    edt(() -> db.importPicked(mid, false));
+    answers.add("OK");
+    edt(() -> db.importPicked(mid, true));
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    edt(() -> db.importPicked(big, false));
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    File key = new File(home, ".pulsekit/prompts.key");
+    out.append("key: ").append(key.length()).append(" bytes, ")
+        .append(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(key.toPath()))).append('\n');
+    out.append("vault: ").append(new File(home, ".pulsekit/prompts.vault").isFile()).append('\n');
+    for (boolean results : new boolean[] {false, true}) {
+      for (PromptVault.StoredFile f : PromptDb.files(results, null)) {
+        out.append(results ? "result: " : "ref: ").append(f.name).append(" (").append(f.promptTitle).append(", ").append(f.size).append(" bytes)\n");
+      }
+    }
+    out.append("sounds: ").append(PromptDb.allFiles(PromptDb.SOUNDS).size()).append(", midis: ").append(PromptDb.allFiles(PromptDb.MIDIS).size())
+        .append(", both: ").append(PromptDb.allFiles(PromptDb.SOUNDS_OR_MIDIS).size()).append('\n');
+    // Read back with a fresh key object (as after a restart).
+    PromptVault.keys = new DesktopVaultKey(new File(home, ".pulsekit"));
+    out.append("after restart: ").append(PromptDb.allFiles(null).size()).append(" files\n");
+    // The galleries: one card per stored file; the other kind's count at the top.
+    call("showView", "prompts");
+    answers.add("Close");
+    edt(() -> ((javax.swing.JButton) component(frame, "prompts-ref-files")).doClick());
+    JDialog gallery = (JDialog) get("lastGallery");
+    out.append("gallery \"").append(gallery.getTitle()).append("\": ");
+    for (String n : new String[] {"refs-kind:refs", "refs-kind:results"}) {
+      javax.swing.JButton b = (javax.swing.JButton) component(gallery, n);
+      out.append('[').append(b.getText()).append(b.isEnabled() ? "" : " (shown)").append("] ");
+    }
+    out.append(named(gallery, "gallery:hit.wav")).append('\n');
+    // Browse DB: the copy in PyJav's input folder; a MIDI where a sound is wanted becomes its kit WAV.
+    PromptVault.StoredFile beat = PromptDb.files(true, PromptDb.MIDIS).get(0);
+    File copy = db.copyOut(beat);
+    out.append("copy: ").append(copy.getAbsolutePath().replace(home.getAbsolutePath(), "~")).append(", ").append(copy.length()).append(" bytes\n");
+    String[] values = new String[] {""};
+    JLabel label = new JLabel();
+    edt(() -> db.useAsAudio(beat.name, copy, values, 0, label));
+    out.append("as audio: ").append(label.getText()).append(" -> ").append(new File(values[0]).getName())
+        .append(AudioIo.parseWav(Files.readAllBytes(new File(values[0]).toPath())) != null ? " (a WAV)" : "").append('\n');
+    CompareHitsPage compare = (CompareHitsPage) get("compareHits");
+    call("showView", "comparehits");
+    out.append("compare Browse DB: ").append(compare.browseDb.isEnabled() ? "on" : "off").append('\n');
+    edt(() -> compare.takeDbWav(beat.name, copy));
+    out.append("compare: ").append(compare.wavLabel.getText()).append('\n');
+    // Rename and delete from the gallery's menu.
+    PromptVault.StoredFile hit = PromptDb.files(false, null).get(0);
+    edt(() -> db.rename(hit, "kick one.wav"));
+    out.append("renamed: ").append(PromptDb.files(false, null).get(0).name).append('\n');
+    edt(() -> db.delete(PromptDb.files(false, null).get(0)));
+    out.append("after delete: ").append(PromptDb.files(false, null).size()).append(" ref files\n");
+    // Drum Midi Settings: Save MidiDrumGen output file into DB, kept in its own file.
+    call("showView", "midisettings");
+    javax.swing.JCheckBox gen = (javax.swing.JCheckBox) component(frame, "midi-drum-gen-db");
+    javax.swing.JCheckBox music = (javax.swing.JCheckBox) component(frame, "sogni-music-db");
+    out.append("checks: ").append(gen.getText()).append(" ").append(gen.isSelected()).append(", ").append(music.getText()).append(" ").append(music.isSelected()).append('\n');
+    edt(gen::doClick);
+    out.append("db settings: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/db-settings.txt").toPath()), StandardCharsets.UTF_8).replace("\n", " ")).append('\n');
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (String extra : new String[] {"--style Rock --bars 4", "--style Rock --bars 4 --saveprompt"}) {
+      answers.add("Yes");
+      answers.add("Close");
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !log.getText().contains("Prompt library") && !log.getText().contains("rror"); i++) Thread.sleep(50);
+      Thread.sleep(500);
+      for (String line : log.getText().split("\n")) if (line.startsWith("Prompt library") || line.contains("rror")) out.append(extra).append(": ").append(line).append('\n');
+    }
+    PromptVault vault = PromptDb.vault();
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        out.append("prompt: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
+      }
+    }
+  }
+
   /** Opens the File tab's menu and returns it. */
   private javax.swing.JPopupMenu fileMenu() throws Exception {
     javax.swing.JButton file = button(frame, "File");

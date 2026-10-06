@@ -469,6 +469,13 @@ final class PyJav {
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
                 SogniHistory.record(result.log, System.currentTimeMillis());
+                // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
+                // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
+                String kept = this.keepInLibrary(name, result, argv);
+                if (kept.length() > 0 && app.pyLog != null) {
+                    app.pyLog.append("\n" + kept);
+                    this.runLog = app.pyLog.getText();
+                }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
@@ -521,6 +528,24 @@ final class PyJav {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
         }
+    }
+
+    /** The run's prompt sheets, and its MIDI or track when Drum Midi Settings says so, into the prompt library; a line for the log. */
+    String keepInLibrary(String name, PythonRun.Result result, java.util.List<String> argv) {
+        java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+        for (PythonRun.FileOut f : result.files) files.add(new JavaRun.FileOut(f.name, f.bytes));
+        JavaRun.Result r = new JavaRun.Result(result.log, files, result.code);
+        File dir = PromptDb.dir();
+        String kept = PromptKeep.keep(dir, r, argv);
+        if (DrumMidiSettingsPage.genToDb && "MidiDrumGen.java".equals(name)) {
+            String gen = PromptKeep.keepMidiDrumGen(dir, r, argv);
+            if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
+        }
+        if (DrumMidiSettingsPage.musicToDb && "SogniMusic.java".equals(name)) {
+            String music = PromptKeep.keepSogniMusic(dir, r, argv);
+            if (music.length() > 0) kept = kept.length() > 0 ? kept + "\n" + music : music;
+        }
+        return kept;
     }
 
     /**
@@ -873,7 +898,31 @@ final class PyJav {
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                 });
-                row.add(pick, BorderLayout.WEST);
+                if (p.refs) {
+                    // A file can also come from the prompt library (its reference or result files); greyed when it has none.
+                    // An audio row lists only sound files (DrumMidi's input also MIDI files, played with the kit to a WAV),
+                    // a MIDI row only MIDI files.
+                    final boolean midiAsAudio = p.midiAsAudio;
+                    final String only = midiAsAudio ? PromptDb.SOUNDS_OR_MIDIS
+                        : ProgramParams.isAudio(p) ? PromptDb.SOUNDS : "mid".equals(p.ext) ? PromptDb.MIDIS : null;
+                    JButton db = new JButton("Browse DB");
+                    db.setName("params-db:" + p.token);
+                    db.setEnabled(!PromptDb.allFiles(only).isEmpty());
+                    db.addActionListener(e -> app.promptDb.browse(only, (picked, file) -> {
+                        if (midiAsAudio) {
+                            app.promptDb.useAsAudio(picked, file, values, index, chosen);
+                        } else {
+                            values[index] = file.getAbsolutePath();
+                            chosen.setText(picked + " \u00b7 from DB");
+                        }
+                    }));
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    picks.add(pick);
+                    picks.add(db);
+                    row.add(picks, BorderLayout.WEST);
+                } else {
+                    row.add(pick, BorderLayout.WEST);
+                }
                 row.add(chosen, BorderLayout.CENTER);
                 if ("mid".equals(p.ext)) {
                     // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.

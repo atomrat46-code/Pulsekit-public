@@ -21,7 +21,7 @@ public final class PromptFiles {
   public static Saved write(Context context, String title, String category, String ref1Name, String ref2Name) {
     Saved saved = new Saved();
     try {
-      PromptVault vault = PromptVault.open(context);
+      PromptVault vault = PromptVault.open(context.getFilesDir());
       PromptVault.Version version = vault.selectedRefs(title, category, ref1Name, ref2Name);
       if (version == null) {
         saved.note = "Reference file 1: none\nReference file 2: none";
@@ -74,7 +74,7 @@ public final class PromptFiles {
   public static String storeResult(Context context, String title, String category, String ref1Name, String ref2Name, String fileName, byte[] bytes) {
     if (fileName == null || fileName.length() == 0 || bytes == null) return "";
     try {
-      PromptVault vault = PromptVault.open(context);
+      PromptVault vault = PromptVault.open(context.getFilesDir());
       PromptVault.Version version = vault.selectedRefs(title, category, ref1Name, ref2Name);
       if (version == null) return fileName;
       if (version.result != null && version.result.length > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;

@@ -98,7 +98,7 @@ public final class PromptSheet {
     host.setBackgroundColor(Color.parseColor("#0A0B0C"));
     host.setClickable(true);
     try {
-      vault = PromptVault.open(activity);
+      vault = PromptVault.open(activity.getFilesDir());
       if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
     } catch (Exception ex) {
       vault = null;
