@@ -508,6 +508,7 @@ public final class Pulsekit extends UiKit {
         jPanel11.add(jButton5);
         jPanel11.add(Box.createHorizontalGlue());
         jPanel10.add(jPanel11);
+        this.transportBar = jPanel10;
         jPanel.add((Component)jPanel10, "South");
         this.setContentPane(jPanel);
         this.styleLibrary.refreshStyles();
@@ -648,6 +649,9 @@ public final class Pulsekit extends UiKit {
 
     final PromptDb promptDb = new PromptDb(this);
 
+    /** The bottom strip: ■ / Play / Gen. Hidden on pages that play nothing (showView). */
+    JPanel transportBar;
+
 
     void showView(String string) {
         this.view = string;
@@ -660,6 +664,10 @@ public final class Pulsekit extends UiKit {
         boolean bl3 = "py".equals(string);
         boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string) || "comparehits".equals(string);
         boolean prompts = "prompts".equals(string);
+        // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
+        boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
+            || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
+        if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
         this.fillHost.setVisible(bl);

@@ -1660,6 +1660,14 @@ public final class DesktopBehavior {
     out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/import-settings.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
   }
 
+  /** The bottom ■ / Play / Gen bar shows on the pages that play (Pattern, Fillern, Fill, Song) and not on the others (PyJav, Pads...). */
+  void s52_transport_pages() throws Exception {
+    for (String v : new String[] {"pattern", "combo", "fills", "song", "py", "pads", "prompts", "import", "export", "midisettings", "help", "comparehits"}) {
+      call("showView", v);
+      out.append(v).append(": ").append(((javax.swing.JPanel) get("transportBar")).isVisible() ? "bar" : "no bar").append('\n');
+    }
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");

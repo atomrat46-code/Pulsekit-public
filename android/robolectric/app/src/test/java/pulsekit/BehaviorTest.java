@@ -2468,6 +2468,20 @@ public class BehaviorTest {
     write("s53_program_folder", out.toString());
   }
 
+  /** The bottom ■ / Play / Gen bar shows on the pages that play (Pattern, Fillern, Fill, Song) and not on the others (PyJav, Pads...). */
+  @Test
+  public void s66_transport_pages() throws Exception {
+    StringBuilder out = new StringBuilder();
+    for (String v : new String[] {"pattern", "combo", "fills", "song", "py", "pads", "prompts", "import", "export", "midisettings", "help", "comparehits"}) {
+      call("show", v);
+      idle();
+      out.append(v).append(": ").append(app.transportBar.getVisibility() == View.VISIBLE ? "bar" : "no bar").append('\n');
+    }
+    call("show", "pattern");
+    idle();
+    write("s66_transport_pages", out.toString());
+  }
+
   /**
    * Import screen: "Import to DB also" keeps a file picked with Choose file in the prompt library
    * too, as a reference file; Browse DB (after Choose file) imports a library file as Choose file
