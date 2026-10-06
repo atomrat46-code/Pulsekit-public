@@ -1739,7 +1739,7 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
     out.append("--style choose: ").append(dv.findViewWithTag("params-choose:--style") != null).append('\n');
-    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time"}) {
+    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time", "--saveprompt"}) {
       out.append(t).append(" box: ").append(dv.findViewWithTag("params-check:" + t) != null).append('\n');
     }
     ((android.widget.EditText) dv.findViewWithTag("params-field:--style")).setText("Hard Rock");
@@ -2095,7 +2095,96 @@ public class BehaviorTest {
       }
     }
     out.append("kept: ").append(app.getSharedPreferences(DrumMidiSettingsPage.PREFS, 0).getBoolean(DrumMidiSettingsPage.GEN_TO_DB, false)).append('\n');
+    // --saveprompt: the run's sheet goes into the prompt library as its own prompt, with the MIDI as result file;
+    // with Save MidiDrumGen output file into DB on too, the MIDI is not stored a second time.
+    String sheet = "PKPROMPT1\nhard_rock_4\n\n\n\n\nCategory: Music\nModel: MidiDrumGen\nReference file 1: \nReference file 2: \n---\n"
+        + "MidiDrumGen --style hard_rock --tempo 120 --bars 4\n\nStyle: hard_rock (base hard_rock). Tempo: 120 BPM.\n\nResult file: hard_rock_4.mid\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("hard_rock_4.mid", mid));
+    files.add(new JavaRun.FileOut("hard_rock_4.prompt", sheet.getBytes("UTF-8")));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote hard_rock_4.mid (style=hard_rock)\nSaved prompt hard_rock_4.prompt", files, 0));
+    idle();
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("saveprompt run: ").append(line).append('\n');
+    // Opened again: the run stored it through its own handle.
+    PromptVault after = PromptVault.open(app);
+    long music = 0;
+    for (PromptVault.Category c : after.categories()) if ("Music".equals(c.name)) music = c.id;
+    for (PromptVault.Prompt p : after.prompts(music)) {
+      if (!p.title.equals("hard_rock_4")) continue;
+      PromptVault.Version v = after.versions(p.id).get(0);
+      out.append("  sheet in library: ").append(p.title).append(", model ").append(v.model).append(", result ").append(v.resultName).append(" (")
+          .append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+    }
+    for (PromptVault.Prompt p : after.prompts(music)) {
+      if (p.title.equals("MidiDrumGen")) out.append("  MidiDrumGen prompt: ").append(after.versions(p.id).size()).append(" versions (setting ")
+          .append(box.isChecked() ? "on" : "off").append(")\n");
+    }
     write("s60_midi_drum_gen_db", out.toString());
+  }
+
+  /**
+   * File > Import as Ref file / Import as Result file: the picked file goes into the prompt library
+   * after OK (Cancel adds nothing), and shows in Ref files or Result files. The library is one copy
+   * in memory, so the Prompts page sees what was imported, and its own saves keep it.
+   */
+  @Test
+  public void s61_db_import() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.io.File dir = new java.io.File(app.getCacheDir(), "picked");
+    dir.mkdirs();
+    java.io.File wav = new java.io.File(dir, "loop.wav");
+    java.nio.file.Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+    java.io.File clip = new java.io.File(dir, "clip.mp4");
+    java.nio.file.Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    String[][] runs = {{"Import as Ref file", "loop.wav", "OK"}, {"Import as Result file", "clip.mp4", "Cancel"}, {"Import as Result file", "clip.mp4", "OK"}};
+    for (String[] r : runs) {
+      fileMenuItem(r[0]);
+      org.robolectric.shadows.ShadowActivity.IntentForResult picker = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult();
+      out.append(r[0]).append(": picker ").append(picker == null ? "none" : picker.intent.getAction() + " (request " + picker.requestCode + ")").append('\n');
+      app.onActivityResult(picker.requestCode, -1, new android.content.Intent().setData(android.net.Uri.fromFile(new java.io.File(dir, r[1]))));
+      idle();
+      AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+      out.append("  dialog: ").append(org.robolectric.Shadows.shadowOf(ask).getTitle()).append(" / ")
+          .append(org.robolectric.Shadows.shadowOf(ask).getMessage().toString().replace("\n", "|")).append('\n');
+      ask.getButton(r[2].equals("OK") ? DialogInterface.BUTTON_POSITIVE : DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+      PromptVault v = PromptVault.open(app);
+      StringBuilder refs = new StringBuilder(), results = new StringBuilder();
+      for (PromptVault.StoredFile f : v.referenceFiles()) refs.append(f.name).append(" (").append(f.promptTitle).append(") ");
+      for (PromptVault.StoredFile f : v.resultFiles()) results.append(f.name).append(" (").append(f.promptTitle).append(") ");
+      out.append("  ref files: ").append(refs.toString().trim()).append(" | result files: ").append(results.toString().trim()).append('\n');
+    }
+    // The Prompts page, made before the imports, shares the library: its galleries list them.
+    java.lang.reflect.Field pageVault = PromptSheet.class.getDeclaredField("vault");
+    pageVault.setAccessible(true);
+    out.append("Prompts page library is the shared one: ").append(pageVault.get(null) == PromptVault.open(app)).append('\n');
+    findText(pane, "Result files").performClick();
+    idle();
+    out.append("Result files gallery: clip.mp4 ").append(findText(pane, "clip.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("Ref files gallery: loop.wav ").append(findText(pane, "loop.wav") != null).append(", clip.mp4 ").append(findText(pane, "clip.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    // A save from the Prompts page keeps the imports (before, it wrote back the copy it read at start).
+    ((PromptVault) pageVault.get(null)).addCategory("Drums");
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    PromptVault fromDisk = PromptVault.open(app);
+    StringBuilder kept = new StringBuilder();
+    for (PromptVault.StoredFile f : fromDisk.referenceFiles()) kept.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : fromDisk.resultFiles()) kept.append(f.name).append(' ');
+    boolean drums = false;
+    for (PromptVault.Category c : fromDisk.categories()) if ("Drums".equals(c.name)) drums = true;
+    out.append("read from disk after a Prompts page save: ").append(kept.toString().trim()).append(", category Drums ").append(drums).append('\n');
+    write("s61_db_import", out.toString());
   }
 
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
