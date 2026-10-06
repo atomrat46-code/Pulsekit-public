@@ -758,6 +758,11 @@ final class PyJav {
             String gen = PromptKeep.keepMidiDrumGen(app, result, this.pkLastArgv);
             if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
         }
+        // SogniMusic's track too, when Drum Midi Settings says so.
+        if (DrumMidiSettingsPage.musicToDb && app.pyName != null && app.pyName.equals("SogniMusic.java")) {
+            String music = PromptKeep.keepSogniMusic(app, result, this.pkLastArgv);
+            if (music.length() > 0) kept = kept.length() > 0 ? kept + "\n" + music : music;
+        }
         if (kept.length() > 0) {
             log = log + "\n" + kept;
             if (this.pkPyLog != null) this.pkPyLog.setText(log);

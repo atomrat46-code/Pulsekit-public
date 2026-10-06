@@ -2393,6 +2393,64 @@ public class BehaviorTest {
     write("s61_db_import", out.toString());
   }
 
+  /**
+   * Drum Midi Settings: "Save SogniMusic output file into DB". Off, a SogniMusic run stores nothing;
+   * on, its track goes into the prompt library (Music / SogniMusic) with its arguments and workflow
+   * id; with --saveprompt too, the track is kept with its sheet only.
+   */
+  @Test
+  public void s62_sogni_music_db() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    android.widget.CheckBox box = null;
+    View item = root().findViewWithTag("sogni-music-db");
+    if (item instanceof android.view.ViewGroup) {
+      for (int i = 0; i < ((android.view.ViewGroup) item).getChildCount(); i++) {
+        if (((android.view.ViewGroup) item).getChildAt(i) instanceof android.widget.CheckBox) box = (android.widget.CheckBox) ((android.view.ViewGroup) item).getChildAt(i);
+      }
+    }
+    out.append("checkbox: ").append(box == null ? "none" : box.getText() + (box.isChecked() ? " (on)" : " (off)")).append('\n');
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    byte[] mp3 = {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6};
+    for (int run = 1; run <= 3; run++) {
+      if (run == 2) box.setChecked(true);
+      String track = "sogni-Funk-run" + run + ".mp3";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut(track, mp3));
+      if (run == 3) {
+        String sheet = "PKPROMPT1\nsogni-Funk\n\n\n\n\nCategory: Music\nModel: Sogni turbo\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+            + "funk groove\n\nResult file: " + track + "\n";
+        files.add(new JavaRun.FileOut("sogni-Funk.prompt", sheet.getBytes("UTF-8")));
+      }
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--genre", "Funk", "--duration", "30",
+          "--key_file", new java.io.File(app.getCacheDir(), "pyjav-in/sogni_credentials").getAbsolutePath()));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniMusic 2026-10-05c\nWorkflow: wf_run" + run + "\nWrote " + track + " (0 KB)\nSucceeded: " + track, files, 0));
+      idle();
+      AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (d != null && d.isShowing()) d.dismiss();
+      idle();
+      StringBuilder library = new StringBuilder();
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) library.append(library.length() > 0 ? " | " : "").append(line);
+      out.append("run ").append(run).append(" (setting ").append(box.isChecked() ? "on" : "off").append(run == 3 ? ", --saveprompt" : "").append("): ")
+          .append(library.length() == 0 ? "not stored" : library).append('\n');
+    }
+    PromptVault vault = PromptVault.open(app);
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        if (!p.title.equals("SogniMusic")) continue;
+        out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
+        for (PromptVault.Version v : vault.versions(p.id)) {
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+              .append(" bytes), result text: ").append(v.resultText.replace("\n", " | ")).append('\n');
+        }
+      }
+    }
+    out.append("kept: ").append(app.getSharedPreferences(DrumMidiSettingsPage.PREFS, 0).getBoolean(DrumMidiSettingsPage.MUSIC_TO_DB, false)).append('\n');
+    write("s62_sogni_music_db", out.toString());
+  }
+
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
   @Test
   public void s53_program_folder() throws Exception {

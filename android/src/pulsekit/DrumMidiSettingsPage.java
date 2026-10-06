@@ -19,6 +19,9 @@ final class DrumMidiSettingsPage {
     /** Save MidiDrumGen output file into DB: its own setting, which Reset to defaults leaves alone. */
     static final String GEN_TO_DB = "midiDrumGenToDb";
     static boolean genToDb;
+    /** Save SogniMusic output file into DB: its own setting too. */
+    static final String MUSIC_TO_DB = "sogniMusicToDb";
+    static boolean musicToDb;
     static final int PICK_FOLDER = 34;
 
     final MainActivity app;
@@ -39,8 +42,10 @@ final class DrumMidiSettingsPage {
         }
         try {
             genToDb = app.getSharedPreferences(PREFS, 0).getBoolean(GEN_TO_DB, false);
+            musicToDb = app.getSharedPreferences(PREFS, 0).getBoolean(MUSIC_TO_DB, false);
         } catch (Throwable ignored) {
             genToDb = false;
+            musicToDb = false;
         }
         ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
         ProgramFolder.init(new java.io.File(app.getFilesDir(), "sogni"));
@@ -89,6 +94,19 @@ final class DrumMidiSettingsPage {
             });
         gen.setTag("midi-drum-gen-db");
         body.addView(gen);
+        View music = this.check("Save SogniMusic output file into DB",
+            "When SogniMusic finishes, its track goes into the prompt library (Music, prompt SogniMusic) as a result file, "
+                + "with the arguments it ran with and its workflow id. Result files on the Prompts page plays it.",
+            musicToDb, on -> {
+                musicToDb = on;
+                try {
+                    app.getSharedPreferences(PREFS, 0).edit().putBoolean(MUSIC_TO_DB, on).apply();
+                } catch (Throwable ignored) {
+                    // the setting stays for this session
+                }
+            });
+        music.setTag("sogni-music-db");
+        body.addView(music);
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();
