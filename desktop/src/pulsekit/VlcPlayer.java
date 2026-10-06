@@ -32,6 +32,7 @@ final class VlcPlayer {
         String libvlc_get_version();
         Pointer libvlc_media_new_path(Pointer instance, String path);
         void libvlc_media_release(Pointer media);
+        void libvlc_media_add_option(Pointer media, String option);
         Pointer libvlc_media_player_new_from_media(Pointer media);
         void libvlc_media_player_release(Pointer player);
         int libvlc_media_player_play(Pointer player);
@@ -224,9 +225,15 @@ final class VlcPlayer {
 
     /** A player for the file; call available() first. */
     VlcPlayer(File video) {
+        this(video, false);
+    }
+
+    /** With `silent`, VLC leaves the sound out (a preview made in the background). */
+    VlcPlayer(File video, boolean silent) {
         if (!available()) throw new IllegalStateException(why());
         Pointer media = lib.libvlc_media_new_path(instance, video.getAbsolutePath());
         if (media == null) throw new IllegalStateException("VLC could not open " + video.getName());
+        if (silent) lib.libvlc_media_add_option(media, ":no-audio");
         this.player = lib.libvlc_media_player_new_from_media(media);
         lib.libvlc_media_release(media);
         if (this.player == null) throw new IllegalStateException("VLC could not play " + video.getName());
@@ -345,6 +352,43 @@ final class VlcPlayer {
         if (p == null) return;
         lib.libvlc_media_player_stop(p);
         lib.libvlc_media_player_release(p);
+    }
+
+    /**
+     * The video's first frame as a JPEG at most `maxSide` pixels across, read by VLC without
+     * sound and without showing anything; null when VLC cannot play it (within 8 seconds).
+     */
+    static byte[] firstFrame(File video, int maxSide) {
+        VlcPlayer p = null;
+        try {
+            p = new VlcPlayer(video, true);
+            p.play();
+            for (int i = 0; i < 160 && p.screen.frames == 0; i++) {
+                int state = p.state();
+                if (state == ERROR || state == ENDED && p.screen.frames == 0 && i > 10) return null;
+                Thread.sleep(50);
+            }
+            BufferedImage frame = p.screen.frame;
+            if (frame == null) return null;
+            p.refreshSize();
+            int vw = p.screen.visibleW > 0 ? Math.min(p.screen.visibleW, frame.getWidth()) : frame.getWidth();
+            int vh = p.screen.visibleH > 0 ? Math.min(p.screen.visibleH, frame.getHeight()) : frame.getHeight();
+            double s = Math.min(1.0, maxSide / (double) Math.max(vw, vh));
+            int w = Math.max(1, (int) Math.round(vw * s));
+            int h = Math.max(1, (int) Math.round(vh * s));
+            BufferedImage small = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = small.createGraphics();
+            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(frame, 0, 0, w, h, 0, 0, vw, vh, null);
+            g.dispose();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(small, "jpg", out);
+            return out.size() > 0 ? out.toByteArray() : null;
+        } catch (Exception ex) {
+            return null;
+        } finally {
+            if (p != null) p.release();
+        }
     }
 
     static String clock(long ms) {

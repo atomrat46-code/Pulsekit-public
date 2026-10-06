@@ -1373,6 +1373,8 @@ public final class DesktopBehavior {
    * shows on the video's card when the gallery opens again, and the button is gone.
    */
   void s45_video_previews() throws Exception {
+    // The browser's way, as on a computer without VLC (s48 makes them with VLC).
+    System.setProperty("pulsekit.novlc", "true");
     File home = new File(System.getProperty("user.home"));
     PromptDb db = (PromptDb) get("promptDb");
     java.util.List<java.net.URI> opened = java.util.Collections.synchronizedList(new ArrayList<java.net.URI>());
@@ -1529,6 +1531,49 @@ public final class DesktopBehavior {
     out.append("Stop: playing ").append(player.playing()).append('\n');
     edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
     out.append("closed: ").append(!dialog.isShowing()).append(", released ").append(!player.playing() && player.state() == 0).append('\n');
+  }
+
+  /**
+   * Gallery video previews with VLC: made as soon as the gallery opens, without sound or a
+   * browser tab, kept encrypted, and put on the cards in place (both cards of the same video);
+   * a file VLC cannot play keeps its type label, and there is no Make video previews button.
+   */
+  void s48_vlc_previews() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    PromptDb db = (PromptDb) get("promptDb");
+    byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath());
+    byte[] junk = new byte[4000];
+    new java.util.Random(7).nextBytes(junk);
+    PromptDb.vault().addLibraryFile("clip.webm", clip, "Imported", 1);
+    PromptDb.vault().addLibraryFile("same clip.webm", clip, "Imported", 1);
+    PromptDb.vault().addLibraryFile("broken.mp4", junk, "Imported", 1);
+    java.util.List<java.net.URI> opened = java.util.Collections.synchronizedList(new ArrayList<java.net.URI>());
+    PromptDb.browser = opened::add;
+    // The shown list's own (greyed) button: the watcher leaves the gallery open.
+    answers.add("Ref files (3)");
+    SwingUtilities.invokeLater(() -> db.gallery(false));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    for (int i = 0; i < 300 && get("vlcPreviews") != null; i++) Thread.sleep(100);
+    idle();
+    JDialog gallery = (JDialog) get("lastGallery");
+    out.append("button: ").append(named(gallery, "make-video-previews")).append(", browser tabs: ").append(opened.size())
+        .append(", status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    for (String n : new String[] {"clip.webm", "same clip.webm", "broken.mp4"}) {
+      javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+      out.append("card ").append(n).append(": ").append(card.getIcon() == null ? "type label " + card.getText().contains(">MP4<")
+          : "preview " + card.getIcon().getIconWidth() + "x" + card.getIcon().getIconHeight()).append('\n');
+    }
+    byte[] made = ThumbCache.get(clip);
+    java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(made));
+    int rgb = img.getRGB(img.getWidth() / 2, img.getHeight() / 2);
+    out.append("kept: ").append(img.getWidth()).append('x').append(img.getHeight()).append(((rgb >> 16) & 255) > 200 && (rgb & 255) < 60 ? " red (the first frame)" : " not red")
+        .append(", cache files ").append(new File(System.getProperty("user.home"), ".pulsekit/thumbs").list().length).append('\n');
+    edt(() -> ((javax.swing.JButton) find(gallery.getContentPane(), "Close")).doClick());
   }
 
   private static int post(String url, byte[] body) throws Exception {

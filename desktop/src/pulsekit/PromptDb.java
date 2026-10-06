@@ -150,6 +150,11 @@ final class PromptDb {
     JPanel withPreviews(JPanel top, List<PromptVault.StoredFile> list, JDialog dialog, Runnable reopen) {
         List<byte[]> missing = this.missingPreviews(list);
         if (missing.isEmpty()) return top;
+        // With VLC they are made at once, in the background, without a browser tab; the cards fill in.
+        if (VlcPlayer.available()) {
+            this.vlcPreviews(missing, dialog);
+            return top;
+        }
         JPanel box = new JPanel(new BorderLayout(0, 6));
         box.add(top, BorderLayout.NORTH);
         JButton make = new JButton("Make video previews (" + missing.size() + ")");
@@ -163,6 +168,67 @@ final class PromptDb {
         row.add(make);
         box.add(row, BorderLayout.SOUTH);
         return box;
+    }
+
+    /** The VLC previews under way (one run at a time), for the tests. */
+    volatile Thread vlcPreviews;
+
+    /**
+     * Video previews made with VLC: each video's first frame, read without sound in the
+     * background, kept encrypted like the browser's, and put on its cards in `dialog` as it comes.
+     * Stops when the dialog closes.
+     */
+    void vlcPreviews(List<byte[]> videos, JDialog dialog) {
+        final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                closed.set(true);
+            }
+        });
+        app.setNow("Making video previews with VLC\u2026");
+        Thread t = new Thread(() -> {
+            int made = 0;
+            File dir = new File(new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-library"), "previews");
+            dir.mkdirs();
+            for (int i = 0; i < videos.size() && !closed.get(); i++) {
+                byte[] v = videos.get(i);
+                boolean webm = v.length >= 4 && (v[0] & 0xff) == 0x1a && (v[1] & 0xff) == 0x45 && (v[2] & 0xff) == 0xdf && (v[3] & 0xff) == 0xa3;
+                File f = new File(dir, "vlc-" + i + (webm ? ".webm" : ".mp4"));
+                try {
+                    Files.write(f.toPath(), v);
+                    byte[] jpeg = VlcPlayer.firstFrame(f, 320);
+                    if (jpeg == null) continue;
+                    ThumbCache.put(v, jpeg);
+                    made++;
+                    final String key = ThumbCache.key(v);
+                    final ImageIcon icon = thumb("preview.jpg", jpeg);
+                    SwingUtilities.invokeLater(() -> this.fillCards(dialog.getContentPane(), key, icon));
+                } catch (Exception ex) {
+                    // that one keeps its type label
+                } finally {
+                    f.delete();
+                }
+            }
+            final int count = made;
+            SwingUtilities.invokeLater(() -> app.setNow("Made " + count + " of " + videos.size() + (videos.size() == 1 ? " video preview" : " video previews") + " with VLC"));
+            this.vlcPreviews = null;
+        }, "pulsekit-vlc-previews");
+        t.setDaemon(true);
+        this.vlcPreviews = t;
+        t.start();
+    }
+
+    /** Puts a video's new preview on every card that shows it. */
+    private void fillCards(java.awt.Container root, String key, ImageIcon icon) {
+        for (java.awt.Component c : root.getComponents()) {
+            if (c instanceof JButton && key.equals(((JButton) c).getClientProperty("video-key"))) {
+                JButton card = (JButton) c;
+                card.setIcon(icon);
+                card.setText(this.caption((PromptVault.StoredFile) card.getClientProperty("stored"), null));
+            }
+            if (c instanceof java.awt.Container) this.fillCards((java.awt.Container) c, key, icon);
+        }
     }
 
     /** The videos in `list` without a preview yet, each once. */
@@ -298,8 +364,14 @@ final class PromptDb {
             card.setVerticalTextPosition(SwingConstants.BOTTOM);
             card.setHorizontalTextPosition(SwingConstants.CENTER);
             card.setPreferredSize(new Dimension(CELL + 20, CELL + 60));
-            ImageIcon thumb = vault == null ? null : thumb(name, vault.fileBytes(file.versionId, file.which));
+            byte[] bytes = vault == null ? null : vault.fileBytes(file.versionId, file.which);
+            ImageIcon thumb = bytes == null ? null : thumb(name, bytes);
             if (thumb != null) card.setIcon(thumb);
+            // A video without a preview yet: its card is filled in when one is made (VLC).
+            if (thumb == null && bytes != null && bytes.length > 0 && previewKind(name, bytes) == 3) {
+                card.putClientProperty("video-key", ThumbCache.key(bytes));
+                card.putClientProperty("stored", file);
+            }
             card.setText(this.caption(file, thumb == null ? mark(name) : null));
             card.addActionListener(e -> click.run(file, card));
             if (menu != null) {
