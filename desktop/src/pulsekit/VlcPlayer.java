@@ -190,9 +190,50 @@ final class VlcPlayer {
         volatile int visibleW;
         volatile int visibleH;
 
+        /** Zoom: 1 fits the window, up to 4 (MediaDir's steps); the shift of a zoomed picture, in pixels. */
+        volatile double zoom = 1;
+        volatile int panX;
+        volatile int panY;
+        /** Called when the wheel changes the zoom (the window's zoom label). */
+        Runnable zoomed;
+
         Screen() {
             this.setBackground(Color.BLACK);
             this.setPreferredSize(new Dimension(720, 405));
+            // The wheel zooms; a drag moves a zoomed picture.
+            this.addMouseWheelListener(e -> {
+                this.zoomTo(MediaDir.zoom(this.zoom, e.getWheelRotation() < 0));
+                if (this.zoomed != null) this.zoomed.run();
+            });
+            java.awt.event.MouseAdapter drag = new java.awt.event.MouseAdapter() {
+                int x;
+                int y;
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    this.x = e.getX() - Screen.this.panX;
+                    this.y = e.getY() - Screen.this.panY;
+                }
+
+                @Override
+                public void mouseDragged(java.awt.event.MouseEvent e) {
+                    if (Screen.this.zoom <= 1) return;
+                    Screen.this.panX = e.getX() - this.x;
+                    Screen.this.panY = e.getY() - this.y;
+                    Screen.this.repaint();
+                }
+            };
+            this.addMouseListener(drag);
+            this.addMouseMotionListener(drag);
+        }
+
+        void zoomTo(double z) {
+            this.zoom = MediaDir.clampZoom(z);
+            if (this.zoom == 1) {
+                this.panX = 0;
+                this.panY = 0;
+            }
+            this.repaint();
         }
 
         @Override
@@ -203,10 +244,16 @@ final class VlcPlayer {
             int vw = this.visibleW;
             int vh = this.visibleH;
             if (vw > 0 && vh > 0 && (vw < img.getWidth() || vh < img.getHeight())) img = img.getSubimage(0, 0, Math.min(vw, img.getWidth()), Math.min(vh, img.getHeight()));
-            double s = Math.min(this.getWidth() / (double) img.getWidth(), this.getHeight() / (double) img.getHeight());
+            double s = Math.min(this.getWidth() / (double) img.getWidth(), this.getHeight() / (double) img.getHeight()) * this.zoom;
             int w = Math.max(1, (int) (img.getWidth() * s));
             int h = Math.max(1, (int) (img.getHeight() * s));
-            g.drawImage(img, (this.getWidth() - w) / 2, (this.getHeight() - h) / 2, w, h, null);
+            // A zoomed picture moves no further than its edges.
+            int maxX = Math.max(0, (w - this.getWidth()) / 2);
+            int maxY = Math.max(0, (h - this.getHeight()) / 2);
+            this.panX = Math.max(-maxX, Math.min(maxX, this.panX));
+            this.panY = Math.max(-maxY, Math.min(maxY, this.panY));
+            ((java.awt.Graphics2D) g).setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(img, (this.getWidth() - w) / 2 + this.panX, (this.getHeight() - h) / 2 + this.panY, w, h, null);
         }
     }
 

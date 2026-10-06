@@ -43,6 +43,9 @@ import java.util.concurrent.Executors;
 final class MediaBrowser {
     static final int PICK_DIR = 37;
     static final int PAGE = 48;
+    /** Where Loop videos is kept. */
+    static final String PREFS = "pulsekit-media";
+    static final String LOOP = "loopVideos";
 
     /** The browser shown last, for the tests. */
     static MediaBrowser last;
@@ -121,6 +124,7 @@ final class MediaBrowser {
             }
             b = new MediaBrowser(app, null, new File(d).getAbsolutePath());
         }
+        MediaDir.loopVideos = app.getSharedPreferences(PREFS, 0).getBoolean(LOOP, false);
         last = b;
         b.show();
         return b;
@@ -237,6 +241,16 @@ final class MediaBrowser {
         summary.setTextColor(UiKit.MUTED);
         summary.setPadding(0, 0, 0, this.app.dp(6));
         this.body.addView(summary);
+        android.widget.CheckBox loop = new android.widget.CheckBox(this.app);
+        loop.setText("Loop videos");
+        loop.setTag("media-loop");
+        loop.setTextColor(UiKit.FG);
+        loop.setChecked(MediaDir.loopVideos);
+        loop.setOnCheckedChangeListener((x, on) -> {
+            MediaDir.loopVideos = on;
+            this.app.getSharedPreferences(PREFS, 0).edit().putBoolean(LOOP, on).apply();
+        });
+        this.body.addView(loop);
         if (this.path.size() > 1) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
@@ -520,38 +534,181 @@ final class MediaBrowser {
         show.run();
     }
 
-    /** A video full screen, playing, with the system's controls (play / pause, position). */
+    /** The video player's state: the last one's, for the tests too. */
+    static final class Video {
+        VideoView view;
+        MediaPlayer media;
+        boolean muted;
+        int volume = 100;
+        double zoom = 1;
+        boolean loop;
+        TextView mute;
+        TextView level;
+        TextView zoomLabel;
+
+        float gain() {
+            return muted ? 0f : volume / 100f;
+        }
+
+        void applyVolume() {
+            if (media != null) {
+                try {
+                    media.setVolume(gain(), gain());
+                } catch (IllegalStateException ignored) {
+                    // released: closing
+                }
+            }
+            if (level != null) level.setText(muted ? "muted" : volume + "%");
+        }
+
+        void zoomTo(double z) {
+            zoom = MediaDir.clampZoom(z);
+            view.setScaleX((float) zoom);
+            view.setScaleY((float) zoom);
+            if (zoom == 1) {
+                view.setTranslationX(0f);
+                view.setTranslationY(0f);
+            }
+            if (zoomLabel != null) zoomLabel.setText(MediaDir.zoomLabel(zoom));
+        }
+    }
+
+    static Video lastVideo;
+
+    /**
+     * A video full screen, playing: the system's controls (play / pause, position) on a tap, and
+     * below Mute, a volume slider, and Zoom − / + (pinch too; drag to look around a zoomed video).
+     * With Loop videos ticked it starts again at its end.
+     */
     void video(MediaDir.Entry e) {
         lastOpened = "video:" + e.name;
         if (this.app.playing) this.app.playback.stop();
         final Dialog d = this.fullScreen();
-        FrameLayout frame = new FrameLayout(this.app);
-        frame.setBackgroundColor(0xff000000);
-        final VideoView view = new VideoView(this.app);
-        view.setTag("media-video");
-        frame.addView(view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-        TextView title = this.app.text(e.name, 13, false);
-        title.setPadding(this.app.dp(12), this.app.dp(10), this.app.dp(12), this.app.dp(6));
-        title.setBackgroundColor(0x88000000);
-        frame.addView(title, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        final Video p = new Video();
+        p.loop = MediaDir.loopVideos;
+        lastVideo = p;
+        LinearLayout col = this.app.col();
+        col.setBackgroundColor(0xff000000);
+        LinearLayout top = this.app.row();
+        top.setPadding(this.app.dp(12), this.app.dp(6), this.app.dp(6), this.app.dp(6));
+        TextView title = this.app.text(e.name + (p.loop ? "  \u00b7 looping" : ""), 13, false);
+        title.setTag("media-video-title");
+        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
         close.setTag("media-video-close");
-        frame.addView(close, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END));
-        MediaController controls = new MediaController(this.app);
-        controls.setAnchorView(view);
-        view.setMediaController(controls);
-        view.setOnPreparedListener(mp -> {
+        top.addView(close);
+        col.addView(top);
+        final FrameLayout frame = new FrameLayout(this.app);
+        frame.setClipChildren(true);
+        p.view = new VideoView(this.app);
+        p.view.setTag("media-video");
+        frame.addView(p.view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        col.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // Mute and volume.
+        LinearLayout sound = this.app.row();
+        sound.setPadding(this.app.dp(8), this.app.dp(4), this.app.dp(8), 0);
+        p.mute = this.app.pill("Mute", false, v -> {
+            p.muted = !p.muted;
+            p.mute.setText(p.muted ? "Unmute" : "Mute");
+            this.app.paintChip(p.mute, p.muted);
+            p.applyVolume();
+        });
+        p.mute.setTag("media-video-mute");
+        sound.addView(p.mute);
+        sound.addView(this.app.text("Volume", 13, false));
+        SeekBar volume = new SeekBar(this.app);
+        volume.setMax(100);
+        volume.setProgress(p.volume);
+        volume.setTag("media-video-volume");
+        volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                p.volume = value;
+                p.applyVolume();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        sound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
+        p.level = this.app.text("100%", 13, false);
+        p.level.setTag("media-video-level");
+        p.level.setMinWidth(this.app.dp(52));
+        sound.addView(p.level);
+        col.addView(sound);
+        // Zoom.
+        LinearLayout zoom = this.app.row();
+        zoom.setPadding(this.app.dp(8), 0, this.app.dp(8), this.app.dp(6));
+        TextView out = this.app.pill("Zoom \u2212", false, v -> p.zoomTo(MediaDir.zoom(p.zoom, false)));
+        out.setTag("media-video-zoom-out");
+        TextView in = this.app.pill("Zoom +", false, v -> p.zoomTo(MediaDir.zoom(p.zoom, true)));
+        in.setTag("media-video-zoom-in");
+        TextView fit = this.app.pill("Fit", false, v -> p.zoomTo(1));
+        fit.setTag("media-video-fit");
+        p.zoomLabel = this.app.text("100%", 13, false);
+        p.zoomLabel.setTag("media-video-zoom");
+        p.zoomLabel.setPadding(this.app.dp(8), 0, 0, 0);
+        zoom.addView(out);
+        zoom.addView(in);
+        zoom.addView(fit);
+        zoom.addView(p.zoomLabel);
+        col.addView(zoom);
+        // The play / pause and position controls show over the picture on a tap.
+        final MediaController controls = new MediaController(this.app);
+        controls.setAnchorView(frame);
+        p.view.setMediaController(controls);
+        // Pinch to zoom; one finger moves a zoomed video, a tap shows the controls.
+        final ScaleGestureDetector pinch = new ScaleGestureDetector(this.app, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScale(ScaleGestureDetector g) {
+                p.zoomTo(p.zoom * g.getScaleFactor());
+                return true;
+            }
+        });
+        final float[] down = new float[3];
+        final View.OnTouchListener touch = (v, ev) -> {
+            pinch.onTouchEvent(ev);
+            int act = ev.getActionMasked();
+            if (act == MotionEvent.ACTION_DOWN) {
+                down[0] = ev.getRawX() - p.view.getTranslationX();
+                down[1] = ev.getRawY() - p.view.getTranslationY();
+                down[2] = 0;
+            } else if (act == MotionEvent.ACTION_MOVE && ev.getPointerCount() == 1 && !pinch.isInProgress() && p.zoom > 1) {
+                p.view.setTranslationX(ev.getRawX() - down[0]);
+                p.view.setTranslationY(ev.getRawY() - down[1]);
+                down[2] = 1;
+            } else if (act == MotionEvent.ACTION_POINTER_DOWN) {
+                down[2] = 1;
+            } else if (act == MotionEvent.ACTION_UP && down[2] == 0) {
+                if (controls.isShowing()) controls.hide();
+                else controls.show(3000);
+            }
+            return true;
+        };
+        // On the video and around it alike (the video's own tap would only toggle the controls).
+        frame.setOnTouchListener(touch);
+        p.view.setOnTouchListener(touch);
+        p.view.setOnPreparedListener(mp -> {
+            p.media = mp;
+            mp.setLooping(p.loop);
+            p.applyVolume();
             controls.show(3000);
         });
-        view.setOnErrorListener((mp, what, extra) -> {
+        p.view.setOnErrorListener((mp, what, extra) -> {
             this.app.setNow("This phone cannot play " + e.name);
             return true;
         });
-        view.setVideoURI(this.uri(e));
-        d.setOnDismissListener(x -> view.stopPlayback());
-        d.setContentView(frame);
+        p.view.setVideoURI(this.uri(e));
+        d.setOnDismissListener(x -> {
+            p.media = null;
+            p.view.stopPlayback();
+        });
+        d.setContentView(col);
         d.show();
-        view.start();
+        p.view.start();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */

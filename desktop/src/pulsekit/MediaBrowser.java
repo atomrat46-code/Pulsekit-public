@@ -30,8 +30,6 @@ import javax.swing.SwingUtilities;
  */
 final class MediaBrowser {
     private static final int CELL = 150;
-    /** Videos over this are played from their own file, never read in whole. */
-    private static final long READ_MAX = 256L * 1024 * 1024;
 
     private final Pulsekit app;
     /** Thumbnails made this session, by path, size and time (a changed file gets a new one). */
@@ -52,6 +50,7 @@ final class MediaBrowser {
             app.setNow((dir == null ? "That" : dir.getPath()) + " is not a directory");
             return;
         }
+        loadLoop();
         final JDialog dialog = new JDialog(app, "Media browser", true);
         dialog.setName("media-browser");
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -91,6 +90,14 @@ final class MediaBrowser {
         JLabel where = new JLabel("<html><b>" + esc(dir.getPath()) + "</b><br>" + MediaDir.summary(entries) + "</html>");
         where.setName("media-summary");
         top.add(where, BorderLayout.CENTER);
+        javax.swing.JCheckBox loop = new javax.swing.JCheckBox("Loop videos", MediaDir.loopVideos);
+        loop.setName("media-loop");
+        loop.setToolTipText("A video starts again at its end");
+        loop.addActionListener(e -> {
+            MediaDir.loopVideos = loop.isSelected();
+            saveLoop();
+        });
+        top.add(loop, BorderLayout.EAST);
         if (!dir.equals(root) && dir.getParentFile() != null) {
             JButton up = new JButton("Up");
             up.setName("media-up");
@@ -231,22 +238,37 @@ final class MediaBrowser {
     void openEntry(MediaDir.Entry entry, File f) {
         try {
             if (entry.kind == MediaDir.VIDEO) {
-                if (VlcPlayer.available()) {
-                    try {
-                        app.promptDb.vlcPreview(entry.name, f);
-                        return;
-                    } catch (Exception ex) {
-                        app.setNow(ex.getMessage() != null ? ex.getMessage() : "VLC could not play " + entry.name);
-                    }
-                }
-                if (f.length() > READ_MAX) {
-                    java.awt.Desktop.getDesktop().open(f);
-                    return;
-                }
+                // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
+                app.promptDb.videoFile(entry.name, f, MediaDir.loopVideos);
+                return;
             }
             app.promptDb.preview(entry.name, Files.readAllBytes(f.toPath()));
         } catch (Exception ex) {
             app.setNow("Could not open " + entry.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+        }
+    }
+
+    /** Loop videos, kept in ~/.pulsekit/media-browser.txt. */
+    static File settings() {
+        return new File(PromptDb.dir(), "media-browser.txt");
+    }
+
+    static void loadLoop() {
+        try {
+            File f = settings();
+            MediaDir.loopVideos = f.isFile() && new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).contains("loop=1");
+        } catch (Exception ex) {
+            MediaDir.loopVideos = false;
+        }
+    }
+
+    static void saveLoop() {
+        try {
+            File f = settings();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), ("loop=" + (MediaDir.loopVideos ? 1 : 0) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // kept for this session
         }
     }
 

@@ -2469,6 +2469,53 @@ public class BehaviorTest {
   }
 
   /**
+   * The Media browser's Loop videos (kept in the app's preferences): a video opened from it loops.
+   * Its player has Mute, a volume slider and Zoom −, Zoom +, Fit (pinch too).
+   */
+  @Test
+  public void s71_media_video() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "clips");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    android.widget.CheckBox loop = (android.widget.CheckBox) bv.findViewWithTag("media-loop");
+    out.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isChecked()).append('\n');
+    loop.performClick();
+    idle();
+    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getBoolean(MediaBrowser.LOOP, false)).append('\n');
+    bv.findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    View tv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    out.append("player: loop ").append(v.loop).append(", title ").append(((TextView) tv.findViewWithTag("media-video-title")).getText()).append('\n');
+    TextView mute = (TextView) tv.findViewWithTag("media-video-mute");
+    mute.performClick();
+    out.append("Mute: ").append(mute.getText()).append(", ").append(((TextView) tv.findViewWithTag("media-video-level")).getText()).append(", gain ").append(v.gain()).append('\n');
+    mute.performClick();
+    ((android.widget.SeekBar) tv.findViewWithTag("media-video-volume")).setProgress(40);
+    out.append("volume 40: ").append(((TextView) tv.findViewWithTag("media-video-level")).getText()).append(", gain ").append(v.gain()).append('\n');
+    for (String z : new String[] {"media-video-zoom-in", "media-video-zoom-in", "media-video-zoom-in", "media-video-zoom-out", "media-video-fit"}) {
+      tv.findViewWithTag(z).performClick();
+      out.append("  ").append(z).append(": ").append(((TextView) tv.findViewWithTag("media-video-zoom")).getText()).append(", scale ").append(v.view.getScaleX()).append('\n');
+    }
+    ShadowDialog.getLatestDialog().dismiss();
+    idle();
+    b.dialog.dismiss();
+    idle();
+    // Opened again later: Loop videos stays ticked.
+    MediaDir.loopVideos = false;
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    out.append("reopened: ticked ").append(((android.widget.CheckBox) b.dialog.getWindow().getDecorView().findViewWithTag("media-loop")).isChecked()).append('\n');
+    b.dialog.dismiss();
+    write("s71_media_video", out.toString());
+  }
+
+  /**
    * MediaBrowser (PyJav's Java menu): Params has Directory with Browse, which opens the system's
    * folder picker; the folder picked is kept, shown, and opened in the Media browser: folders first,
    * then pictures, videos and sounds as cards, other files left out. A folder opens in its place and

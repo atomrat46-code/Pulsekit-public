@@ -109,6 +109,32 @@ public final class MediaDir {
     return slash >= 0 && slash < d.length() - 1 ? d.substring(slash + 1) : d;
   }
 
+  /** Media browser: videos start again at their end (the browser's Loop videos; each app keeps it). */
+  public static volatile boolean loopVideos;
+
+  /** A video's zoom steps, from fitting the screen (1) to four times that. */
+  private static final double[] ZOOMS = {1, 1.25, 1.5, 2, 2.5, 3, 4};
+
+  /** The next zoom step in (bigger) or out (smaller) from `z`. */
+  public static double zoom(double z, boolean in) {
+    if (in) {
+      for (double s : ZOOMS) if (s > z + 0.001) return s;
+      return ZOOMS[ZOOMS.length - 1];
+    }
+    for (int i = ZOOMS.length - 1; i >= 0; i--) if (ZOOMS[i] < z - 0.001) return ZOOMS[i];
+    return 1;
+  }
+
+  /** A zoom within 1x..4x (a pinch or the mouse wheel gives any value between). */
+  public static double clampZoom(double z) {
+    return Math.max(1, Math.min(ZOOMS[ZOOMS.length - 1], z));
+  }
+
+  /** "150%". */
+  public static String zoomLabel(double z) {
+    return Math.round(z * 100) + "%";
+  }
+
   /** The folder a MediaBrowser run says to open ("Media browser: ..."), or null. */
   public static String opened(String log) {
     if (log == null) return null;

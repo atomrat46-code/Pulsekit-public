@@ -2129,6 +2129,98 @@ public final class DesktopBehavior {
         .append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
   }
 
+  /**
+   * The Media browser's Loop videos (kept in ~/.pulsekit/media-browser.txt): a video opened from it
+   * starts with Loop ticked and plays again at its end. The player has Mute, volume, and Zoom −,
+   * Zoom +, Fit; without VLC the browser's player page has Loop and zoom too.
+   * desktop/test/clip.webm: 3.5 s.
+   */
+  void s58_media_video() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "clips");
+    media.mkdirs();
+    File clip = new File(media, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    final Object browser = get("mediaBrowser");
+    // Loop videos: ticked on the Media browser, and kept.
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JCheckBox loop = (javax.swing.JCheckBox) component(d, "media-loop");
+      seen.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isSelected());
+      loop.doClick();
+      seen.append(" -> ").append(loop.isSelected()).append('\n');
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("open", File.class);
+        m.setAccessible(true);
+        m.invoke(browser, media);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+    final MediaDir.Entry entry = new MediaDir.Entry();
+    entry.name = clip.getName();
+    entry.kind = MediaDir.VIDEO;
+    Runnable open = () -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("openEntry", MediaDir.Entry.class, File.class);
+        m.setAccessible(true);
+        m.invoke(browser, entry, clip);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    };
+    if (VlcPlayer.available()) {
+      answers.add("Mute");
+      SwingUtilities.invokeLater(open);
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(1200);
+      idle();
+      JDialog dialog = (JDialog) get("lastVideo");
+      VlcPlayer player = (VlcPlayer) get("lastPlayer");
+      java.util.function.Function<String, javax.swing.JButton> b = n -> (javax.swing.JButton) component(dialog, n);
+      out.append("VLC player: Loop ").append(((javax.swing.JCheckBox) component(dialog, "video-loop")).isSelected())
+          .append(", ").append(b.apply("video-mute").getText()).append(", volume ").append(component(dialog, "video-volume") != null ? "slider" : "none").append('\n');
+      for (String z : new String[] {"video-zoom-in", "video-zoom-in", "video-zoom-in", "video-zoom-out", "video-fit"}) {
+        edt(() -> b.apply(z).doClick());
+        out.append("  ").append(z).append(": ").append(((JLabel) component(dialog, "video-zoom")).getText()).append(", screen ").append(MediaDir.zoomLabel(player.screen.zoom)).append('\n');
+      }
+      edt(() -> b.apply("video-zoom-in").doClick());
+      edt(() -> b.apply("video-play").doClick());
+      // 3.5 s long: after 5 s it is playing again from the start.
+      Thread.sleep(5000);
+      out.append("after 5 s: playing ").append(player.playing()).append(", ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
+      edt(() -> ((javax.swing.JCheckBox) component(dialog, "video-loop")).doClick());
+      for (int i = 0; i < 80 && player.state() != VlcPlayer.ENDED; i++) Thread.sleep(100);
+      out.append("Loop off: ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
+      edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+      idle();
+    } else {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+    }
+    // Without VLC: the browser's player page, looping, with zoom.
+    System.setProperty("pulsekit.novlc", "true");
+    final java.net.URI[] page = new java.net.URI[1];
+    PromptDb.browser = uri -> page[0] = uri;
+    answers.add("Play");
+    SwingUtilities.invokeLater(open);
+    for (int i = 0; i < 50 && page[0] == null; i++) Thread.sleep(100);
+    idle();
+    String html = page[0] == null ? "" : new String(Files.readAllBytes(new File(page[0]).toPath()), StandardCharsets.UTF_8);
+    out.append("player page: loop ").append(html.contains(" loop>")).append(", Loop box ").append(html.contains("id=\"loop\" type=\"checkbox\" checked")).append(", Mute ").append(html.contains("id=\"mute\""))
+        .append(", volume ").append(html.contains("id=\"volume\"")).append(", zoom ").append(html.contains("id=\"zin\"") && html.contains("id=\"zout\"") && html.contains("id=\"fit\"")).append('\n');
+    out.append("zoom steps: ");
+    for (double z = 1, i = 0; i < 8; i++, z = MediaDir.zoom(z, true)) out.append(MediaDir.zoomLabel(z)).append(' ');
+    out.append('\n');
+  }
+
   /** The names of the components under `root`, in order. */
   private static List<String> names(Container root) {
     List<String> out = new ArrayList<String>();
