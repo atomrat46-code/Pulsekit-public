@@ -2505,6 +2505,20 @@ public class BehaviorTest {
       idle();
       out.append("args: ").append(args.getText()).append('\n');
     }
+    // SogniChat: "Content filter off" starts ticked too (and nothing else does).
+    pickFromMenu("Java \u00b7 SogniVideo.java", "SogniChat.java");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog c = (AlertDialog) ShadowDialog.getLatestDialog();
+    View cv = c.getWindow().getDecorView();
+    out.append("SogniChat:");
+    for (String t : new String[] {"--no_filter", "--tools", "--run_tools", "--unlimited", "--thinking"}) {
+      out.append(' ').append(t).append(((android.widget.CheckBox) cv.findViewWithTag("params-check:" + t)).isChecked() ? " on" : " off");
+    }
+    out.append('\n');
+    c.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
     write("s67_video_defaults", out.toString());
   }
 

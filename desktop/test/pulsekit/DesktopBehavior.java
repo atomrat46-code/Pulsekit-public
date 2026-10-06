@@ -1825,6 +1825,19 @@ public final class DesktopBehavior {
       result.append("round ").append(round + 1).append(": ").append(seen).append('\n');
       result.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
     }
+    // SogniChat: "Content filter off" starts ticked too (and nothing else does).
+    call("selectListedProgram", "Java", "SogniChat.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    final StringBuilder chat = new StringBuilder("SogniChat:");
+    inspectNext = d -> {
+      for (String t : new String[] {"--no_filter", "--tools", "--run_tools", "--unlimited", "--thinking"}) {
+        javax.swing.JCheckBox c = (javax.swing.JCheckBox) component(d, "params-check:" + t);
+        chat.append(' ').append(t).append(c != null && c.isSelected() ? " on" : " off");
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    result.append(chat).append('\n');
     // Only what the rounds saw (not the long Params dialog text).
     out.setLength(0);
     out.append(result);
