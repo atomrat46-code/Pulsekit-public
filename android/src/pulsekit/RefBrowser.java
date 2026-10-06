@@ -14,20 +14,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Browse DB on PyJav's Params page: the prompt library's reference files as a grid of previews,
- * as the Prompts page's Ref files shows them. Picking one copies it into PyJav's input folder for
- * the file row (SogniVideo's first or last frame picture). A file kept in several prompt versions
- * is listed once.
+ * Browse DB on PyJav's Params page: the prompt library's reference files, or its result files
+ * (a switch at the top), as a grid of previews, as the Prompts page's Ref files and Result files
+ * show them. Picking one copies it into PyJav's input folder for the file row (SogniVideo's first
+ * or last frame picture: a picture made by a SogniChat tool and kept as a result, say). A file kept
+ * in several prompt versions is listed once.
  */
 final class RefBrowser {
     private RefBrowser() {}
 
-    /** The library's reference files, each name and size once; empty when there are none or the library cannot be read. */
+    /** The library's reference files and result files together: Browse DB is greyed when there are none. */
     static List<PromptVault.StoredFile> files(Activity activity) {
+        List<PromptVault.StoredFile> out = files(activity, false);
+        out.addAll(files(activity, true));
+        return out;
+    }
+
+    /** The library's reference (or result) files, each name and size once; empty when there are none or the library cannot be read. */
+    static List<PromptVault.StoredFile> files(Activity activity, boolean results) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
         try {
             java.util.HashSet<String> seen = new java.util.HashSet<String>();
-            for (PromptVault.StoredFile f : PromptVault.open(activity).referenceFiles()) {
+            PromptVault vault = PromptVault.open(activity);
+            for (PromptVault.StoredFile f : results ? vault.resultFiles() : vault.referenceFiles()) {
                 if (seen.add(f.name + "\n" + f.size)) out.add(f);
             }
         } catch (Exception ex) {
@@ -37,8 +46,12 @@ final class RefBrowser {
     }
 
     static void browse(final Activity activity, final String[] values, final int index, final TextView label) {
-        final List<PromptVault.StoredFile> files = files(activity);
-        if (files.isEmpty()) return;
+        // Reference files first, as before; result files when there are no reference files.
+        browse(activity, values, index, label, files(activity, false).isEmpty());
+    }
+
+    static void browse(final Activity activity, final String[] values, final int index, final TextView label, final boolean results) {
+        final List<PromptVault.StoredFile> files = files(activity, results);
         final PromptVault vault;
         try {
             vault = PromptVault.open(activity);
@@ -53,6 +66,28 @@ final class RefBrowser {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(gap * 2, gap, gap * 2, gap);
         final AlertDialog[] dialog = new AlertDialog[1];
+        // Ref files / Result files: the list shown is lit; the other opens in its place.
+        LinearLayout kinds = new LinearLayout(activity);
+        kinds.setOrientation(LinearLayout.HORIZONTAL);
+        for (int k = 0; k < 2; k++) {
+            final boolean showResults = k == 1;
+            android.widget.Button kind = new android.widget.Button(activity);
+            kind.setText((showResults ? "Result files" : "Ref files") + " (" + files(activity, showResults).size() + ")");
+            kind.setTag(showResults ? "refs-kind:results" : "refs-kind:refs");
+            kind.setEnabled(showResults != results);
+            kind.setOnClickListener(v -> {
+                if (dialog[0] != null) dialog[0].dismiss();
+                browse(activity, values, index, label, showResults);
+            });
+            kinds.addView(kind, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        col.addView(kinds);
+        if (files.isEmpty()) {
+            TextView none = new TextView(activity);
+            none.setText("none");
+            none.setPadding(0, gap, 0, gap);
+            col.addView(none);
+        }
         final ImageView[] thumbs = new ImageView[files.size()];
         final TextView[] marks = new TextView[files.size()];
         LinearLayout row = null;
@@ -103,7 +138,7 @@ final class RefBrowser {
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(col);
         dialog[0] = new AlertDialog.Builder(activity)
-            .setTitle("Reference files")
+            .setTitle(results ? "Result files" : "Reference files")
             .setView(scroll)
             .setNegativeButton("Cancel", null)
             .show();
