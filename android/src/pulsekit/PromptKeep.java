@@ -76,7 +76,7 @@ final class PromptKeep {
      * A MidiDrumGen run's MIDI into the prompt library (Drum Midi Settings: Save MidiDrumGen output
      * file into DB): a new version of the prompt "MidiDrumGen" in Music, the arguments it ran with as
      * its text, the MIDI as result file and the run's "Wrote ..." line as result text. Returns a line
-     * for the log, or "" when the run made no MIDI.
+     * for the log, or "" when the run made no MIDI or saved it with a prompt sheet already.
      */
     static String keepMidiDrumGen(Context ctx, JavaRun.Result result, List<String> argv) {
         if (ctx == null || result == null || result.files == null || result.code != 0) return "";
@@ -86,6 +86,12 @@ final class PromptKeep {
             if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes != null && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
         }
         if (midi == null) return "";
+        // A run with --saveprompt keeps its MIDI with its sheet (keep): it is not stored a second time.
+        for (JavaRun.FileOut f : result.files) {
+            if (f.name == null || !f.name.toLowerCase().endsWith(".prompt") || f.bytes == null) continue;
+            PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, java.nio.charset.StandardCharsets.UTF_8));
+            if (sheet != null && midi.name.equals(sheet.result)) return "";
+        }
         StringBuilder args = new StringBuilder("MidiDrumGen");
         if (argv != null) {
             for (String a : argv) {

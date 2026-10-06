@@ -2095,8 +2095,8 @@ public class BehaviorTest {
       }
     }
     out.append("kept: ").append(app.getSharedPreferences(DrumMidiSettingsPage.PREFS, 0).getBoolean(DrumMidiSettingsPage.GEN_TO_DB, false)).append('\n');
-    // --saveprompt: the run's sheet goes into the prompt library as its own prompt, with the MIDI as result file.
-    box.setChecked(false);
+    // --saveprompt: the run's sheet goes into the prompt library as its own prompt, with the MIDI as result file;
+    // with Save MidiDrumGen output file into DB on too, the MIDI is not stored a second time.
     String sheet = "PKPROMPT1\nhard_rock_4\n\n\n\n\nCategory: Music\nModel: MidiDrumGen\nReference file 1: \nReference file 2: \n---\n"
         + "MidiDrumGen --style hard_rock --tempo 120 --bars 4\n\nStyle: hard_rock (base hard_rock). Tempo: 120 BPM.\n\nResult file: hard_rock_4.mid\n";
     java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
@@ -2116,6 +2116,10 @@ public class BehaviorTest {
       PromptVault.Version v = after.versions(p.id).get(0);
       out.append("  sheet in library: ").append(p.title).append(", model ").append(v.model).append(", result ").append(v.resultName).append(" (")
           .append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+    }
+    for (PromptVault.Prompt p : after.prompts(music)) {
+      if (p.title.equals("MidiDrumGen")) out.append("  MidiDrumGen prompt: ").append(after.versions(p.id).size()).append(" versions (setting ")
+          .append(box.isChecked() ? "on" : "off").append(")\n");
     }
     write("s60_midi_drum_gen_db", out.toString());
   }
