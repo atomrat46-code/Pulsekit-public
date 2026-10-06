@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Browse DB on PyJav's Params page: the prompt library's reference files, or its result files
+ * Browse DB on PyJav's Params page (SogniVideo's pictures, SogniChat's --file): the prompt library's reference files, or its result files
  * (a switch at the top), as a grid of previews, as the Prompts page's Ref files and Result files
  * show them. Picking one copies it into PyJav's input folder for the file row (SogniVideo's first
  * or last frame picture: a picture made by a SogniChat tool and kept as a result, say). A file kept

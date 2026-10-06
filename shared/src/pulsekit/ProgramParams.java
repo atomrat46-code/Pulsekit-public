@@ -212,8 +212,9 @@ public final class ProgramParams {
       p.choiceValues = CHAT_MODELS;
     }
     if (p.flag && p.takesValue && p.token.equals("--file") && chat) {
-      // SogniChat reads text, MIDI, pictures, audio and video: any file can be picked.
+      // SogniChat reads text, MIDI, pictures, audio and video: any file can be picked, also from the prompt library (Browse DB).
       p.ext = "any";
+      p.refs = true;
       p.label = "File (text, MIDI, picture, audio or video)";
     }
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
