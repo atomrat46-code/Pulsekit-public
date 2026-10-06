@@ -1,12 +1,14 @@
 /**
- * JoinVideo: two MP4 videos as one, without re-encoding: video a, then video b (or b first with
- * --b_first).
+ * JoinVideo: up to six MP4 videos as one, without re-encoding: video a, then video b (or b first
+ * with --b_first), then videos c to f when given.
  *
- *   java JoinVideo <video_a.mp4> <video_b.mp4> [output.mp4] [--b_first] [--addtodb]
+ *   java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4]
+ *       [output.mp4] [--b_first] [--addtodb]
  *
+ * --video_c..f  More videos, after a and b, in order.
  * output.mp4  Default: <video a>-merged.mp4 in the work folder (Downloads on the phone); a name in
  *             use gets (1), (2)...
- * --b_first   Video b first, then video a.
+ * --b_first   Video b first, then video a (videos c to f follow).
  * --addtodb   PyJav also keeps the joined video in the prompt library, as a result file.
  *
  * The two pictures must be in the same format (codec, size and codec setup), as two Sogni clips
@@ -39,18 +41,27 @@ public final class JoinVideo {
   }
 
   static void usage() {
-    System.out.println("Usage: java JoinVideo <video_a.mp4> <video_b.mp4> [output.mp4] [--b_first] [--addtodb]");
+    System.out.println("Usage: java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4] "
+        + "[output.mp4] [--b_first] [--addtodb]");
   }
 
   static int run(String[] args) {
     work = System.getProperty("pulsekit.work");
     List<String> files = new ArrayList<String>();
+    // Videos c to f, by letter (a later one may be given without an earlier one).
+    String[] more = new String[4];
     boolean bFirst = false;
     boolean addToDb = false;
-    for (String raw : args) {
-      String a = raw == null ? "" : raw.trim();
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
-      if (a.equals("--b_first")) bFirst = true;
+      if (a.matches("--video_[c-f]")) {
+        if (i + 1 >= args.length || args[i + 1] == null || args[i + 1].trim().length() == 0) {
+          System.out.println("Failed: " + a + " needs a video");
+          return 2;
+        }
+        more[a.charAt(8) - 'c'] = args[++i].trim();
+      } else if (a.equals("--b_first")) bFirst = true;
       else if (a.equals("--addtodb")) addToDb = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
@@ -74,7 +85,11 @@ public final class JoinVideo {
     }
     File a = new File(files.get(0));
     File b = new File(files.get(1));
-    for (File f : new File[] {a, b}) {
+    List<File> videos = new ArrayList<File>();
+    videos.add(bFirst ? b : a);
+    videos.add(bFirst ? a : b);
+    for (String m : more) if (m != null) videos.add(new File(m));
+    for (File f : videos) {
       if (!f.isFile()) {
         System.out.println("Failed: no such file: " + f.getPath());
         return 2;
@@ -83,18 +98,18 @@ public final class JoinVideo {
     String outName = files.size() > 2 ? files.get(2) : stem(a.getName()) + "-merged.mp4";
     if (!outName.toLowerCase().matches(".+\\.(mp4|m4v|mov)")) outName = outName + ".mp4";
     File out = outFile(outName);
-    File first = bFirst ? b : a;
-    File second = bFirst ? a : b;
     try {
-      String note = Mp4Join.join(first, second, out);
-      System.out.println("Joined " + first.getName() + " and then " + second.getName() + ": wrote " + out.getName() + " (" + size(out.length()) + ")");
+      String note = Mp4Join.joinAll(videos, out);
+      StringBuilder order = new StringBuilder();
+      for (int i = 0; i < videos.size(); i++) order.append(i == 0 ? "" : i == videos.size() - 1 ? " and then " : ", then ").append(videos.get(i).getName());
+      System.out.println("Joined " + order + ": wrote " + out.getName() + " (" + size(out.length()) + ")");
       if (note.length() > 0) System.out.println("Note: " + note);
       if (addToDb) System.out.println("Add to DB: " + out.getName());
       System.out.println("Succeeded: " + out.getName());
       return 0;
     } catch (IOException ex) {
       out.delete();
-      System.out.println("Failed: could not join " + first.getName() + " and " + second.getName() + ": " + ex.getMessage());
+      System.out.println("Failed: could not join the videos: " + ex.getMessage());
       return 1;
     }
   }
@@ -186,35 +201,62 @@ public final class JoinVideo {
 
     /** Writes `first` then `second` into `dest`; returns a note (sound left out...) or "". */
     static String join(File first, File second, File dest) throws IOException {
-      Movie a = read(first, 0);
-      Movie b = read(second, 1);
-      if (a.video == null) throw new JoinException(first.getName() + " has no picture");
-      if (b.video == null) throw new JoinException(second.getName() + " has no picture");
-      if (!sameEntry(a.video.stsd, b.video.stsd)) {
-        throw new JoinException("the pictures are in different formats (" + describe(a.video.stsd) + " and " + describe(b.video.stsd)
-            + "), so they cannot be joined without re-encoding");
+      List<File> both = new ArrayList<File>();
+      both.add(first);
+      both.add(second);
+      return joinAll(both, dest);
+    }
+
+    /**
+     * Writes the videos one after another into `dest`. The sound is joined over the videos that
+     * have it in the first one's format, from the first video with sound up to the first one without
+     * (or in another format); returns a note about any part left silent, or "".
+     */
+    static String joinAll(List<File> files, File dest) throws IOException {
+      if (files.size() < 2) throw new JoinException("give two videos or more");
+      List<Movie> movies = new ArrayList<Movie>();
+      for (int i = 0; i < files.size(); i++) {
+        Movie m = read(files.get(i), i);
+        if (m.video == null) throw new JoinException(files.get(i).getName() + " has no picture");
+        if (!movies.isEmpty() && !sameEntry(movies.get(0).video.stsd, m.video.stsd)) {
+          throw new JoinException("the pictures are in different formats (" + describe(movies.get(0).video.stsd) + " in " + files.get(0).getName()
+              + " and " + describe(m.video.stsd) + " in " + files.get(i).getName() + "), so they cannot be joined without re-encoding");
+        }
+        movies.add(m);
+      }
+      Movie a = movies.get(0);
+      Track video = a.video;
+      for (int i = 1; i < movies.size(); i++) video = combine(video, movies.get(i).video);
+      // The sound: one run of videos with sound in the same format, from the first that has sound.
+      int start = -1;
+      for (int i = 0; i < movies.size() && start < 0; i++) if (movies.get(i).audio != null) start = i;
+      Track audio = null;
+      long lead = 0;
+      List<String> silent = new ArrayList<String>();
+      if (start >= 0) {
+        int end = start;
+        while (end + 1 < movies.size() && movies.get(end + 1).audio != null && sameEntry(movies.get(start).audio.stsd, movies.get(end + 1).audio.stsd)) end++;
+        audio = movies.get(start).audio;
+        for (int i = start + 1; i <= end; i++) audio = combine(audio, movies.get(i).audio);
+        for (int i = 0; i < start; i++) {
+          lead += movies.get(i).video.mediaDuration() * a.timescale / Math.max(1, movies.get(i).video.timescale);
+          silent.add(files.get(i).getName());
+        }
+        for (int i = end + 1; i < movies.size(); i++) silent.add(files.get(i).getName());
       }
       String note = "";
-      Track video = combine(a.video, b.video);
-      Track audio = null;
-      long leadA = 0;
-      if (a.audio != null && b.audio != null && sameEntry(a.audio.stsd, b.audio.stsd)) {
-        audio = combine(a.audio, b.audio);
-      } else if (a.audio != null) {
-        audio = a.audio;
-        note = b.audio == null ? second.getName() + " has no sound: the joined part is silent"
-            : second.getName() + "'s sound is in another format, so it is left out";
-      } else if (b.audio != null) {
-        // The sound starts where the second video does.
-        audio = b.audio;
-        leadA = a.video.mediaDuration() * a.timescale / Math.max(1, a.video.timescale);
-        note = first.getName() + " has no sound: the sound starts with " + second.getName();
+      if (start < 0) note = "none of the videos has sound";
+      else if (!silent.isEmpty()) {
+        StringBuilder sb = new StringBuilder();
+        for (String n : silent) sb.append(sb.length() > 0 ? ", " : "").append(n);
+        note = (silent.size() == 1 ? "the part from " : "the parts from ") + sb + " " + (silent.size() == 1 ? "is" : "are")
+            + " silent (no sound, or sound in another format, or after one of those)";
       }
       List<Track> tracks = new ArrayList<Track>();
       tracks.add(video);
       if (audio != null) tracks.add(audio);
-      long[] leads = new long[] {0, leadA};
-      write(dest, a, tracks, leads, new File[] {first, second});
+      long[] leads = new long[] {0, lead};
+      write(dest, a, tracks, leads, files.toArray(new File[0]));
       return note;
     }
 

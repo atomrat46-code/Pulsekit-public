@@ -1898,35 +1898,62 @@ public final class SogniVideo {
 
     /** Writes `first` then `second` into `dest`; returns a note (sound left out...) or "". */
     static String join(File first, File second, File dest) throws IOException {
-      Movie a = read(first, 0);
-      Movie b = read(second, 1);
-      if (a.video == null) throw new JoinException(first.getName() + " has no picture");
-      if (b.video == null) throw new JoinException(second.getName() + " has no picture");
-      if (!sameEntry(a.video.stsd, b.video.stsd)) {
-        throw new JoinException("the pictures are in different formats (" + describe(a.video.stsd) + " and " + describe(b.video.stsd)
-            + "), so they cannot be joined without re-encoding");
+      List<File> both = new ArrayList<File>();
+      both.add(first);
+      both.add(second);
+      return joinAll(both, dest);
+    }
+
+    /**
+     * Writes the videos one after another into `dest`. The sound is joined over the videos that
+     * have it in the first one's format, from the first video with sound up to the first one without
+     * (or in another format); returns a note about any part left silent, or "".
+     */
+    static String joinAll(List<File> files, File dest) throws IOException {
+      if (files.size() < 2) throw new JoinException("give two videos or more");
+      List<Movie> movies = new ArrayList<Movie>();
+      for (int i = 0; i < files.size(); i++) {
+        Movie m = read(files.get(i), i);
+        if (m.video == null) throw new JoinException(files.get(i).getName() + " has no picture");
+        if (!movies.isEmpty() && !sameEntry(movies.get(0).video.stsd, m.video.stsd)) {
+          throw new JoinException("the pictures are in different formats (" + describe(movies.get(0).video.stsd) + " in " + files.get(0).getName()
+              + " and " + describe(m.video.stsd) + " in " + files.get(i).getName() + "), so they cannot be joined without re-encoding");
+        }
+        movies.add(m);
+      }
+      Movie a = movies.get(0);
+      Track video = a.video;
+      for (int i = 1; i < movies.size(); i++) video = combine(video, movies.get(i).video);
+      // The sound: one run of videos with sound in the same format, from the first that has sound.
+      int start = -1;
+      for (int i = 0; i < movies.size() && start < 0; i++) if (movies.get(i).audio != null) start = i;
+      Track audio = null;
+      long lead = 0;
+      List<String> silent = new ArrayList<String>();
+      if (start >= 0) {
+        int end = start;
+        while (end + 1 < movies.size() && movies.get(end + 1).audio != null && sameEntry(movies.get(start).audio.stsd, movies.get(end + 1).audio.stsd)) end++;
+        audio = movies.get(start).audio;
+        for (int i = start + 1; i <= end; i++) audio = combine(audio, movies.get(i).audio);
+        for (int i = 0; i < start; i++) {
+          lead += movies.get(i).video.mediaDuration() * a.timescale / Math.max(1, movies.get(i).video.timescale);
+          silent.add(files.get(i).getName());
+        }
+        for (int i = end + 1; i < movies.size(); i++) silent.add(files.get(i).getName());
       }
       String note = "";
-      Track video = combine(a.video, b.video);
-      Track audio = null;
-      long leadA = 0;
-      if (a.audio != null && b.audio != null && sameEntry(a.audio.stsd, b.audio.stsd)) {
-        audio = combine(a.audio, b.audio);
-      } else if (a.audio != null) {
-        audio = a.audio;
-        note = b.audio == null ? second.getName() + " has no sound: the joined part is silent"
-            : second.getName() + "'s sound is in another format, so it is left out";
-      } else if (b.audio != null) {
-        // The sound starts where the second video does.
-        audio = b.audio;
-        leadA = a.video.mediaDuration() * a.timescale / Math.max(1, a.video.timescale);
-        note = first.getName() + " has no sound: the sound starts with " + second.getName();
+      if (start < 0) note = "none of the videos has sound";
+      else if (!silent.isEmpty()) {
+        StringBuilder sb = new StringBuilder();
+        for (String n : silent) sb.append(sb.length() > 0 ? ", " : "").append(n);
+        note = (silent.size() == 1 ? "the part from " : "the parts from ") + sb + " " + (silent.size() == 1 ? "is" : "are")
+            + " silent (no sound, or sound in another format, or after one of those)";
       }
       List<Track> tracks = new ArrayList<Track>();
       tracks.add(video);
       if (audio != null) tracks.add(audio);
-      long[] leads = new long[] {0, leadA};
-      write(dest, a, tracks, leads, new File[] {first, second});
+      long[] leads = new long[] {0, lead};
+      write(dest, a, tracks, leads, files.toArray(new File[0]));
       return note;
     }
 

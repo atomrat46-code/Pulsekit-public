@@ -308,7 +308,14 @@ public final class ProgramParams {
       p.label = p.token.contains("_b") ? "Video b" : "Video a";
       p.hint = "an MP4; the two must have the same picture format";
     }
-    if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a)";
+    if (p.flag && p.takesValue && p.token.matches("--video_[c-f]")) {
+      // More videos after a and b, each a file row with Browse DB too.
+      p.ext = "mp4";
+      p.refs = true;
+      p.label = "Video " + p.token.charAt(8) + " (optional)";
+      p.hint = "after the videos before it";
+    }
+    if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
   }
 

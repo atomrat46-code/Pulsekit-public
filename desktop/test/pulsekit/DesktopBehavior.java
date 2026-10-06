@@ -1754,10 +1754,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : textOf(log).split("\n")) {
           if (line.startsWith("Content filter") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
         }
       }
@@ -1903,10 +1903,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(600);
         out.append("== ").append(r[0]).append(" + ").append(new File(r[1]).getName()).append(r.length > 2 ? " " + r[2] : "").append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : textOf(log).split("\n")) {
           if (line.startsWith("Joined") || line.startsWith("Could not join") || line.startsWith("Note") || line.startsWith("Failed") || line.startsWith("Prompt library") || line.startsWith("Succeeded"))
             out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -1975,28 +1975,37 @@ public final class DesktopBehavior {
       "\"" + a.getAbsolutePath() + "\" \"" + b.getAbsolutePath() + "\"",
       "\"" + a.getAbsolutePath() + "\" \"" + b.getAbsolutePath() + "\" both.mp4 --b_first --addtodb",
       "\"" + a.getAbsolutePath() + "\" \"" + wide.getAbsolutePath() + "\"",
+      "\"" + a.getAbsolutePath() + "\" \"" + b.getAbsolutePath() + "\" three.mp4 --video_c \"" + a.getAbsolutePath() + "\" --addtodb",
     };
     for (int r = 0; r < runs.length; r++) {
       final String extra = runs[r];
-      if (r < 2) answers.add("Close");
+      if (r != 2) answers.add("Close");
       edt(() -> log.setText(""));
       set("pyInputPath", null);
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(600);
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : textOf(log).split("\n")) {
         if (line.startsWith("Joined") || line.startsWith("Failed") || line.startsWith("Prompt library") || line.startsWith("Succeeded") || line.startsWith("Add to DB"))
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
       }
     }
     try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
-      for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(scene one-merged|both).*\\.mp4")).sorted()::iterator) {
-        out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f) > 80000 ? "about both videos' size" : Files.size(f) + " bytes").append('\n');
+      for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(scene one-merged|both|three).*\\.mp4")).sorted()::iterator) {
+        long size = Files.size(f);
+        out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(size > 120000 ? "about three videos' size" : size > 80000 ? "about two videos' size" : size + " bytes").append('\n');
       }
     }
     for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+  }
+
+  /** A text area's text, read on the Swing thread (the app writes the log there; read elsewhere it can be caught mid-change). */
+  private static String textOf(javax.swing.JTextArea area) throws Exception {
+    final String[] t = new String[1];
+    SwingUtilities.invokeAndWait(() -> t[0] = area.getText());
+    return t[0] == null ? "" : t[0];
   }
 
   private static int post(String url, byte[] body) throws Exception {
