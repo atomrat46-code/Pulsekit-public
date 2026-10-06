@@ -815,6 +815,17 @@ final class MediaBrowser {
         TextView speedLabel;
         TextView time;
 
+        /** The screen stays on while the video plays; paused, stopped or at its end the phone's own timeout applies. */
+        void keepAwake() {
+            boolean on = false;
+            try {
+                on = media != null ? media.isPlaying() : view.isPlaying();
+            } catch (Exception ignored) {
+                // released: closing
+            }
+            if (view.getKeepScreenOn() != on) view.setKeepScreenOn(on);
+        }
+
         /** The time label: where it is / how long it is. */
         void showTime() {
             if (time == null || view == null) return;
@@ -906,6 +917,7 @@ final class MediaBrowser {
         clock[0] = () -> {
             if (!d.isShowing()) return;
             p.showTime();
+            p.keepAwake();
             this.main.postDelayed(clock[0], 250);
         };
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
@@ -1047,6 +1059,7 @@ final class MediaBrowser {
         d.setOnShowListener(x -> this.main.post(clock[0]));
         d.setOnDismissListener(x -> {
             this.main.removeCallbacks(clock[0]);
+            p.view.setKeepScreenOn(false);
             // The next video opens as this one was left.
             MediaDir.volume = p.volume;
             MediaDir.zoom = p.zoom;

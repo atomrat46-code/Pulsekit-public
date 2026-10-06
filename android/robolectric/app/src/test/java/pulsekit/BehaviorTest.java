@@ -2500,6 +2500,13 @@ public class BehaviorTest {
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
     idle();
     out.append("time: ").append(((TextView) tv.findViewWithTag("media-video-time")).getText()).append('\n');
+    // The screen stays on while it plays, not while it is paused.
+    mp.start();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    out.append("playing: screen kept on ").append(v.view.getKeepScreenOn());
+    mp.pause();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    out.append(", paused: ").append(v.view.getKeepScreenOn()).append('\n');
     out.append("player: loop ").append(v.loop).append(", title ").append(((TextView) tv.findViewWithTag("media-video-title")).getText()).append('\n');
     TextView mute = (TextView) tv.findViewWithTag("media-video-mute");
     mute.performClick();
