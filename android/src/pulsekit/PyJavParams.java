@@ -130,8 +130,10 @@ public final class PyJavParams {
           android.widget.Button db = new android.widget.Button(activity);
           db.setText("Browse DB");
           db.setTag("params-db:" + p.token);
-          db.setEnabled(!RefBrowser.files(activity).isEmpty());
-          db.setOnClickListener(v -> RefBrowser.browse(activity, values, index, chosen));
+          // An audio row (DrumMidi's input) lists only sound files.
+          final boolean sounds = ProgramParams.isAudio(p);
+          db.setEnabled(!RefBrowser.allFiles(activity, sounds).isEmpty());
+          db.setOnClickListener(v -> RefBrowser.browse(activity, values, index, chosen, sounds));
           row.addView(db);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));

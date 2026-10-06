@@ -2230,6 +2230,27 @@ public class BehaviorTest {
     chat.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("SogniChat args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    // DrumMidi_CRT's audio input: Browse DB lists sound files only (loop.wav; not the picture or the clip).
+    pickFromMenu("Java \u00b7 SogniChat.java", "DrumMidi_CRT.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog dm = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = dm.getWindow().getDecorView();
+    android.widget.Button dmDb = (android.widget.Button) dv.findViewWithTag("params-db:input.wav");
+    out.append("DrumMidi_CRT input Browse DB: ").append(dmDb == null ? "none" : dmDb.isEnabled() ? "enabled" : "greyed").append('\n');
+    dmDb.performClick();
+    idle();
+    AlertDialog sb = (AlertDialog) ShadowDialog.getLatestDialog();
+    View sv2 = sb.getWindow().getDecorView();
+    out.append("  sound browser: ").append(((TextView) sv2.findViewWithTag("refs-kind:refs")).getText()).append(" / ")
+        .append(((TextView) sv2.findViewWithTag("refs-kind:results")).getText()).append(", loop.wav ").append(sv2.findViewWithTag("refs-pick:loop.wav") != null)
+        .append(", krea.png ").append(sv2.findViewWithTag("refs-pick:krea.png") != null).append('\n');
+    sv2.findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("  picked: ").append(((TextView) dv.findViewWithTag("params-chosen:input.wav")).getText()).append('\n');
+    dm.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("  args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     write("s61_db_import", out.toString());
   }
 
