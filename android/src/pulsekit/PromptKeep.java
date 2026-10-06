@@ -72,6 +72,45 @@ final class PromptKeep {
         return sb.toString();
     }
 
+    /**
+     * A MidiDrumGen run's MIDI into the prompt library (Drum Midi Settings: Save MidiDrumGen output
+     * file into DB): a new version of the prompt "MidiDrumGen" in Music, the arguments it ran with as
+     * its text, the MIDI as result file and the run's "Wrote ..." line as result text. Returns a line
+     * for the log, or "" when the run made no MIDI.
+     */
+    static String keepMidiDrumGen(Context ctx, JavaRun.Result result, List<String> argv) {
+        if (ctx == null || result == null || result.files == null || result.code != 0) return "";
+        JavaRun.FileOut midi = null;
+        for (JavaRun.FileOut f : result.files) {
+            String low = f.name == null ? "" : f.name.toLowerCase();
+            if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes != null && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
+        }
+        if (midi == null) return "";
+        StringBuilder args = new StringBuilder("MidiDrumGen");
+        if (argv != null) {
+            for (String a : argv) {
+                // Paths by their names; arguments with spaces in quotes, as typed.
+                String shown = a != null && a.indexOf('/') >= 0 ? new File(a).getName() : a == null ? "" : a;
+                args.append(' ').append(shown.indexOf(' ') >= 0 ? "\"" + shown + "\"" : shown);
+            }
+        }
+        String wrote = "";
+        for (String line : (result.log == null ? "" : result.log).split("\n")) if (line.trim().startsWith("Wrote ")) wrote = line.trim();
+        try {
+            PromptVault vault = PromptVault.open(ctx);
+            long catId = 0;
+            for (PromptVault.Category c : vault.categories()) if (c.name != null && c.name.trim().equalsIgnoreCase("Music")) catId = c.id;
+            if (catId == 0) catId = vault.addCategory("Music");
+            long promptId = 0;
+            for (PromptVault.Prompt p : vault.prompts(catId)) if ("MidiDrumGen".equalsIgnoreCase(p.title == null ? "" : p.title.trim())) promptId = p.id;
+            if (promptId == 0) promptId = vault.addPrompt(catId, "MidiDrumGen");
+            vault.addVersion(promptId, "MidiDrumGen", "", args.toString(), "", "", null, "", null, midi.name, midi.bytes, "", wrote);
+            return "Prompt library: MidiDrumGen (Music), result " + midi.name;
+        } catch (Exception ex) {
+            return "Prompt library: could not store " + midi.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+        }
+    }
+
     /** The bytes of the run's input called `name` (a --image picture), or null after noting why. */
     private static byte[] input(String name, List<String> argv, StringBuilder byName) {
         if (name == null || name.trim().length() == 0) return null;
