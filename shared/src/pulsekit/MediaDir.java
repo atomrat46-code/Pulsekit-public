@@ -149,12 +149,21 @@ public final class MediaDir {
     return best;
   }
 
-  /** The settings above as text, one per line (the desktop's ~/.pulsekit/media-browser.txt, the phone's preferences). */
+  /** The settings above as text, one per line; the folder (place) sealed (the desktop's ~/.pulsekit/media-browser.txt, the phone's preferences). */
   public static String encode() {
-    StringBuilder path = new StringBuilder();
-    for (String p : lastPath) path.append(path.length() > 0 ? "\t" : "").append(p.replace('\t', ' ').replace('\n', ' '));
+    StringBuilder place = new StringBuilder(lastRoot.replace('\n', ' ').replace('\t', ' '));
+    for (String p : lastPath) place.append('\t').append(p.replace('\t', ' ').replace('\n', ' '));
+    String sealed = "";
+    // The folder and the folders under it are sealed with the library's key (Sealed); without a key they are not kept.
+    if (lastRoot.length() > 0) {
+      try {
+        sealed = Sealed.sealText(place.toString());
+      } catch (Exception ex) {
+        sealed = "";
+      }
+    }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + "\nroot=" + lastRoot.replace('\n', ' ') + "\npath=" + path + "\n";
+        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -176,6 +185,19 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("place")) {
+          String[] part;
+          try {
+            part = Sealed.openText(v).split("\t");
+          } catch (Exception ex) {
+            continue;
+          }
+          lastRoot = part[0];
+          List<String> got = new ArrayList<String>();
+          for (int i = 1; i < part.length; i++) if (part[i].length() > 0) got.add(part[i]);
+          lastPath = got;
+        }
+        // Plain lines from before the folder was sealed (sealed with the next save).
         else if (k.equals("root")) lastRoot = v;
         else if (k.equals("path")) {
           List<String> got = new ArrayList<String>();

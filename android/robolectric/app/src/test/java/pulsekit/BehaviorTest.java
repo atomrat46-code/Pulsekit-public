@@ -2476,6 +2476,7 @@ public class BehaviorTest {
   @Test
   public void s71_media_video() throws Exception {
     StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     File media = new File(app.getCacheDir(), "clips");
     media.mkdirs();
     Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
@@ -2487,7 +2488,7 @@ public class BehaviorTest {
     out.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isChecked()).append('\n');
     loop.performClick();
     idle();
-    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim()).append('\n');
+    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
     bv.findViewWithTag("media-card:walk.mp4").performClick();
     idle();
     MediaBrowser.Video v = MediaBrowser.lastVideo;
@@ -2536,7 +2537,7 @@ public class BehaviorTest {
     tv.findViewWithTag("media-video-zoom-in").performClick();
     player.dismiss();
     idle();
-    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim()).append('\n');
+    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
     b.dialog.dismiss();
     idle();
     // Opened again later: Loop videos stays ticked.
@@ -2566,6 +2567,7 @@ public class BehaviorTest {
   @Test
   public void s72_media_remember() throws Exception {
     StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     File media = new File(app.getCacheDir(), "my media");
     File deep = new File(new File(media, "trips"), "2024");
     deep.mkdirs();
@@ -2584,8 +2586,10 @@ public class BehaviorTest {
     out.append("went to: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
     b.dialog.dismiss();
     idle();
-    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "")
-        .replace(base, "~").replaceAll("(?m)^(loop|volume|zoom|speed)=.*\n", "").trim().replace("\n", "  ").replace("\t", " | ")).append('\n');
+    String kept = app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "");
+    out.append("kept: folder sealed ").append(kept.contains("place=") && !kept.contains("my media")).append(", reads back ");
+    MediaDir.decode(kept);
+    out.append(MediaDir.lastRoot.replace(base, "~")).append(" | ").append(String.join(" | ", MediaDir.lastPath).replace(base, "~")).append('\n');
     b = MediaBrowser.open(app, media.getAbsolutePath());
     idle();
     bv = b.dialog.getWindow().getDecorView();
@@ -2666,6 +2670,7 @@ public class BehaviorTest {
   @Test
   public void s70_media_browser() throws Exception {
     StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     File media = new File(app.getCacheDir(), "my media");
     File more = new File(media, "more");
     more.mkdirs();
@@ -2746,6 +2751,10 @@ public class BehaviorTest {
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
     out.append("Playlist button after: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
     out.append("badges after: ").append(badges.get()).append('\n');
+    File[] lists = app.getFilesDir().listFiles((dir, n) -> n.startsWith("playlist-"));
+    boolean plainNames = false;
+    for (File f : lists) if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1).contains("walk.mp4")) plainNames = true;
+    out.append("playlist files: ").append(lists.length).append(", sealed (.dat) ").append(lists.length > 0 && lists[0].getName().endsWith(".dat")).append(", names readable in them ").append(plainNames).append('\n');
     for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), b.folderKey())) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
     // The playlist window: its files in order; a tap plays or opens one as its thumbnail does.
     playlistButton.performClick();

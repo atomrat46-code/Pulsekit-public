@@ -11,9 +11,11 @@ import java.util.List;
  * The Media browser's playlists. Each folder it shows (the one picked in Params and every folder
  * under it) has a default playlist: the files added there with "Add to default playlist", in the
  * order added. Each is a file beside the prompt library (the app's files folder on the phone,
- * ~/.pulsekit on the desktop), playlist-&lt;folder hash&gt;.txt: a "folder\t..." line, then one
- * "address\tname\tsize" line per file. The address is a path, or on the phone the file's document
- * id in the folder the picker granted.
+ * ~/.pulsekit on the desktop), sealed with the library's key (Sealed): playlist-&lt;name&gt;.dat,
+ * the name a salted hash of the folder, so it tells neither the folder nor the files. Inside, a
+ * "folder\t..." line, then one "address\tname\tsize" line per file. The address is a path, or on
+ * the phone the file's document id in the folder the picker granted. A plain playlist-&lt;hash&gt;.txt
+ * from before is read once, sealed and removed.
  */
 public final class MediaPlaylist {
   /** One file in a playlist. */
@@ -25,26 +27,49 @@ public final class MediaPlaylist {
 
   private MediaPlaylist() {}
 
-  /** The default playlist's file for `folder` (a path, or a granted folder with its document id). */
-  static File file(File dir, String folder) {
-    try {
-      byte[] d = MessageDigest.getInstance("SHA-256").digest(folder.getBytes(StandardCharsets.UTF_8));
-      StringBuilder sb = new StringBuilder();
-      for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i] & 0xff));
-      return new File(dir, "playlist-" + sb + ".txt");
-    } catch (Exception ex) {
-      throw new IllegalStateException(ex);
+  /** The default playlist's sealed file for `folder` (a path, or a granted folder with its document id). */
+  static File file(File dir, String folder) throws Exception {
+    return new File(dir, "playlist-" + Sealed.name(dir, folder) + ".dat");
+  }
+
+  /** The plain file a playlist was kept in before it was sealed. */
+  static File plainFile(File dir, String folder) throws Exception {
+    byte[] d = MessageDigest.getInstance("SHA-256").digest(folder.getBytes(StandardCharsets.UTF_8));
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i] & 0xff));
+    return new File(dir, "playlist-" + sb + ".txt");
+  }
+
+  /** The playlist's text: the sealed file opened, or a plain one from before (then sealed, and the plain one removed). */
+  static String read(File dir, String folder) throws Exception {
+    File f = file(dir, folder);
+    if (f.isFile()) return new String(Sealed.open(Files.readAllBytes(f.toPath())), StandardCharsets.UTF_8);
+    File plain = plainFile(dir, folder);
+    if (!plain.isFile()) return "";
+    String text = new String(Files.readAllBytes(plain.toPath()), StandardCharsets.UTF_8);
+    write(dir, folder, text);
+    plain.delete();
+    return text;
+  }
+
+  /** Seals the playlist's text into its file. */
+  static void write(File dir, String folder, String text) throws Exception {
+    if (!dir.isDirectory()) dir.mkdirs();
+    File f = file(dir, folder);
+    File tmp = new File(dir, f.getName() + ".tmp");
+    Files.write(tmp.toPath(), Sealed.seal(text.getBytes(StandardCharsets.UTF_8)));
+    if (!tmp.renameTo(f)) {
+      Files.write(f.toPath(), Files.readAllBytes(tmp.toPath()));
+      tmp.delete();
     }
   }
 
-  /** The folder's default playlist, in the order added; empty when it has none. */
+  /** The folder's default playlist, in the order added; empty when it has none (or it cannot be opened). */
   public static List<Item> items(File dir, String folder) {
     List<Item> out = new ArrayList<Item>();
     if (folder == null) return out;
-    File f = file(dir, folder);
-    if (!f.isFile()) return out;
     try {
-      for (String line : new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
+      for (String line : read(dir, folder).split("\n")) {
         String[] part = line.split("\t");
         if (part.length < 2 || part[0].equals("folder")) continue;
         Item it = new Item();
@@ -73,8 +98,7 @@ public final class MediaPlaylist {
       StringBuilder sb = new StringBuilder("folder\t").append(clean(folder)).append('\n');
       for (Item it : now) sb.append(it.id).append('\t').append(it.name).append('\t').append(it.size).append('\n');
       sb.append(clean(id)).append('\t').append(shown).append('\t').append(Math.max(0, size)).append('\n');
-      if (!dir.isDirectory()) dir.mkdirs();
-      Files.write(file(dir, folder).toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      write(dir, folder, sb.toString());
       int n = now.size() + 1;
       return shown + " added to this folder's playlist (" + n + (n == 1 ? " file)" : " files)");
     } catch (Exception ex) {
@@ -105,9 +129,8 @@ public final class MediaPlaylist {
     }
     if (!found) return shown + " is not in this folder's playlist";
     try {
-      File f = file(dir, folder);
-      if (left == 0) f.delete();
-      else Files.write(f.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      if (left == 0) file(dir, folder).delete();
+      else write(dir, folder, sb.toString());
       return shown + " removed from this folder's playlist (" + left + (left == 1 ? " file left)" : " files left)");
     } catch (Exception ex) {
       return "Could not remove " + shown + " from the playlist" + (ex.getMessage() == null ? "" : ": " + ex.getMessage());

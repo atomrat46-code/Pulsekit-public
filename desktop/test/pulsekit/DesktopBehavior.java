@@ -2277,7 +2277,7 @@ public final class DesktopBehavior {
     for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
     idle();
     out.append(seen);
-    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replaceAll("place=\\w+", "place=(sealed)")).append('\n');
     final MediaDir.Entry entry = new MediaDir.Entry();
     entry.name = clip.getName();
     entry.kind = MediaDir.VIDEO;
@@ -2330,7 +2330,7 @@ public final class DesktopBehavior {
       out.append("Loop off: ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
       edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
       idle();
-      out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ')).append('\n');
+      out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ').replaceAll("place=\\w+", "place=(sealed)")).append('\n');
       // The next video opens as that one was left.
       set("lastVideo", null);
       answers.add("Mute");
@@ -2418,8 +2418,10 @@ public final class DesktopBehavior {
     for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
     idle();
     out.append(seen);
-    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8)
-        .replace(home.getAbsolutePath(), "~").replaceAll("(?m)^(loop|volume|zoom|speed)=.*\n", "").trim().replace("\n", "  ").replace("\t", " | ")).append('\n');
+    String kept = new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("kept: folder sealed ").append(kept.contains("place=") && !kept.contains("my media")).append(", reads back ");
+    MediaDir.decode(kept);
+    out.append(MediaDir.lastRoot.replace(home.getAbsolutePath(), "~")).append(" | ").append(String.join(" | ", MediaDir.lastPath).replace(home.getAbsolutePath(), "~")).append('\n');
     // Again: back in 2024, with Up going to trips.
     final StringBuilder again = new StringBuilder();
     inspectNext = d -> {
@@ -2451,6 +2453,27 @@ public final class DesktopBehavior {
     for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
     idle();
     out.append(elsewhere);
+    // A plain playlist from before (playlist-<hash>.txt): read, sealed, and the plain file removed.
+    File pk = new File(home, ".pulsekit");
+    byte[] d0 = java.security.MessageDigest.getInstance("SHA-256").digest(other.getAbsolutePath().getBytes(StandardCharsets.UTF_8));
+    StringBuilder h0 = new StringBuilder();
+    for (int i = 0; i < 8; i++) h0.append(String.format("%02x", d0[i] & 0xff));
+    File plain = new File(pk, "playlist-" + h0 + ".txt");
+    Files.write(plain.toPath(), ("folder\t" + other.getAbsolutePath() + "\n" + other.getAbsolutePath() + "/song.mp3\tsong.mp3\t1234\n").getBytes(StandardCharsets.UTF_8));
+    final StringBuilder migrated = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton pl = (javax.swing.JButton) component(d, "media-playlist");
+      migrated.append("old plain playlist: ").append(pl.isVisible() ? pl.getText() : "no Playlist button");
+    };
+    answers.add("Close");
+    open.accept(other);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(migrated).append(", plain file left ").append(plain.isFile());
+    File[] sealedLists = pk.listFiles((dir, n) -> n.startsWith("playlist-") && n.endsWith(".dat"));
+    boolean readable = false;
+    for (File f : sealedLists) if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1).contains("song.mp3")) readable = true;
+    out.append(", sealed files ").append(sealedLists.length).append(", names readable in them ").append(readable).append('\n');
     // Params: Directory shows the folder last opened when the arguments have none; OK keeps it.
     call("showView", "py");
     call("selectListedProgram", "Java", "MediaBrowser.java");
