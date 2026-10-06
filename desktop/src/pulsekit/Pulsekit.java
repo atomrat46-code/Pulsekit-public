@@ -648,6 +648,7 @@ public final class Pulsekit extends UiKit {
     final PromptsPage promptsPage = new PromptsPage(this);
 
     final PromptDb promptDb = new PromptDb(this);
+    final MediaBrowser mediaBrowser = new MediaBrowser(this);
 
     /** The bottom strip: ■ / Play / Gen. Hidden on pages that play nothing (showView). */
     JPanel transportBar;

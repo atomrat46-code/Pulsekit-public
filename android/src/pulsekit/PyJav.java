@@ -792,6 +792,11 @@ final class PyJav {
         if (status.startsWith("Succeeded")) VideoOffer.offer(app, result);
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         if (status.startsWith("Succeeded") && "MidiDrumGen.java".equals(app.pyName)) MidiOffer.offer(app, result);
+        // MediaBrowser: its folder in the Media browser.
+        if (status.startsWith("Succeeded") && "MediaBrowser.java".equals(app.pyName)) {
+            String browse = MediaDir.opened(log);
+            if (browse != null) MediaBrowser.open(app, browse);
+        }
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);

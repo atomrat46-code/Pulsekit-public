@@ -58,6 +58,11 @@ public final class ProgramParams {
      * only when it is ticked); PyJav unticks it after every run (drop).
      */
     public boolean join;
+    /**
+     * A folder (MediaBrowser's &lt;directory&gt;): the row has Browse, which picks a folder and opens
+     * the Media browser on it. On the phone the value is the folder's content:// address.
+     */
+    public boolean dir;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -95,6 +100,12 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      // A folder given in order (MediaBrowser's <directory>): Browse picks it.
+      if (!p.flag && p.ext == null && p.token.matches("(?i)dir(ectory)?|folder")) {
+        p.dir = true;
+        p.label = "Directory";
+        p.hint = "a folder of pictures, videos and sounds";
+      }
       // SogniVideo, SogniMusic and SogniChat: Sogni's Safe Content Filter off for the run.
       if (p.flag && !p.takesValue && p.token.equals("--no_filter")) p.label = "Content filter off (Sogni's Safe Content Filter)";
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
@@ -252,8 +263,8 @@ public final class ProgramParams {
     if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
     if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
     if (p.flag && chat && p.token.equals("--unlimited")) p.label = "Unlimited Plan (Sogni runs tools in the chat; fair use limits apply)";
-    // Ticked in Params from the start, as SogniVideo's: the filter can pause a run's tools for a safety review.
-    if (p.flag && chat && p.token.equals("--no_filter")) p.defaultOn = true;
+    // SogniChat runs with the filter off; this switch turns it on.
+    if (p.flag && chat && p.token.equals("--filter_on")) p.label = "Content filter on (Sogni's Safe Content Filter; off by default)";
     if (p.flag && p.takesValue && chat && p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 10; empty for no limit";
