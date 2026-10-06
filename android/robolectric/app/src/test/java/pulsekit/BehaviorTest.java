@@ -2594,6 +2594,26 @@ public class BehaviorTest {
     out.append("summary: ").append(((TextView) bv.findViewWithTag("media-summary")).getText()).append('\n');
     for (MediaDir.Entry e : b.entries) out.append("  ").append(e.folder ? "folder " : "card ").append(e.name).append(bv.findViewWithTag((e.folder ? "media-folder:" : "media-card:") + e.name) != null ? "" : " (no card)").append('\n');
     out.append("notes.txt card: ").append(bv.findViewWithTag("media-card:notes.txt") != null ? "shown" : "none").append('\n');
+    // A long press on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}};
+    for (String[] pick : picks) {
+      boolean handled = bv.findViewWithTag("media-card:" + pick[0]).performLongClick();
+      idle();
+      AlertDialog menu = MediaBrowser.lastMenu;
+      if (pick == picks[0]) {
+        StringBuilder items = new StringBuilder();
+        for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
+        out.append("menu: ").append(items).append(", long press handled ").append(handled).append('\n');
+      }
+      org.robolectric.Shadows.shadowOf(menu).clickOnItem(Integer.parseInt(pick[1]));
+      idle();
+      out.append(pick[0]).append(" item ").append(pick[1]).append(": ").append(((TextView) get("now")).getText()).append('\n');
+    }
+    out.append("folder long press: ").append(bv.findViewWithTag("media-folder:more").isLongClickable()).append('\n');
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) out.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), MediaPlaylist.DEFAULT)) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
     bv.findViewWithTag("media-folder:more").performClick();
     idle();
     out.append("in more: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none")

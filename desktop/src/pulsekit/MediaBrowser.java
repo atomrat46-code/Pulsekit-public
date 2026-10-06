@@ -130,7 +130,43 @@ final class MediaBrowser {
                 });
             } else {
                 card.setToolTipText(entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
-                card.addActionListener(e -> this.openEntry(entry, f));
+                // A right click, or holding the button down, opens its menu (a long press, as on the phone).
+                final boolean[] held = new boolean[1];
+                card.addActionListener(e -> {
+                    if (held[0]) held[0] = false;
+                    else this.openEntry(entry, f);
+                });
+                card.addMouseListener(new java.awt.event.MouseAdapter() {
+                    javax.swing.Timer hold;
+
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) {
+                            MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
+                            return;
+                        }
+                        if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+                        final int x = e.getX();
+                        final int y = e.getY();
+                        this.hold = new javax.swing.Timer(600, ev -> {
+                            held[0] = true;
+                            MediaBrowser.this.menu(entry, f, card, x, y);
+                        });
+                        this.hold.setRepeats(false);
+                        this.hold.start();
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                        if (this.hold != null) this.hold.stop();
+                        if (e.isPopupTrigger()) MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
+                    }
+
+                    @Override
+                    public void mouseExited(java.awt.event.MouseEvent e) {
+                        if (this.hold != null) this.hold.stop();
+                    }
+                });
                 if (icon == null && (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO)) waiting.add(card);
                 if (icon == null && entry.kind == MediaDir.VIDEO) videos.add(f);
             }
@@ -231,6 +267,35 @@ final class MediaBrowser {
             app.setNow("Making video previews in the browser…");
         } catch (Exception ex) {
             app.setNow("Could not make video previews: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString()));
+        }
+    }
+
+    /** The card menu shown last, for the tests. */
+    javax.swing.JPopupMenu lastMenu;
+
+    /** A file's menu (MediaDir.MENU): Add to DB as a reference or result file, Add to default playlist. */
+    void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("media-menu");
+        for (int i = 0; i < MediaDir.MENU.length; i++) {
+            final int which = i;
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(MediaDir.MENU[i]);
+            item.setName("media-menu:" + i);
+            item.addActionListener(e -> app.setNow(this.menuPicked(entry, f, which)));
+            menu.add(item);
+        }
+        this.lastMenu = menu;
+        if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
+    String menuPicked(MediaDir.Entry entry, File f, int which) {
+        if (which == 2) return MediaPlaylist.add(PromptDb.dir(), MediaPlaylist.DEFAULT, f.getAbsolutePath(), entry.name);
+        if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 16 MB, so it is not in the DB";
+        try {
+            return MediaDir.addToDb(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()), which == 1);
+        } catch (Exception ex) {
+            return "Could not read " + entry.name;
         }
     }
 

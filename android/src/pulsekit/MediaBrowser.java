@@ -310,6 +310,13 @@ final class MediaBrowser {
                 if (e.folder) this.openFolder(e);
                 else this.openEntry(e);
             });
+            // A long press on a file: Add to DB (reference or result file), Add to default playlist.
+            if (!e.folder) {
+                card.setOnLongClickListener(v -> {
+                    this.menu(e);
+                    return true;
+                });
+            }
             row.addView(card, new LinearLayout.LayoutParams(0, -2, 1f));
             if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
                 Bitmap have = THUMBS.get(key(e));
@@ -360,6 +367,48 @@ final class MediaBrowser {
 
     private String key(MediaDir.Entry e) {
         return (this.tree == null ? "" : this.tree.toString()) + "|" + e.id + "|" + e.size;
+    }
+
+    /** The menu shown last, for the tests. */
+    static AlertDialog lastMenu;
+
+    /** A file's long-press menu (MediaDir.MENU). */
+    void menu(final MediaDir.Entry e) {
+        lastMenu = new AlertDialog.Builder(this.app)
+            .setTitle(e.name)
+            .setItems(MediaDir.MENU, (d, which) -> this.app.setNow(this.menuPicked(e, which)))
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
+    String menuPicked(MediaDir.Entry e, int which) {
+        if (which == 2) return MediaPlaylist.add(this.app.getFilesDir(), MediaPlaylist.DEFAULT, this.uri(e).toString().startsWith("file:") ? e.id : this.uri(e).toString(), e.name);
+        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
+        byte[] bytes;
+        try {
+            bytes = this.read(e);
+        } catch (Exception ex) {
+            return "Could not read " + e.name;
+        }
+        return MediaDir.addToDb(this.app.getFilesDir(), e.name, bytes, which == 1);
+    }
+
+    /** The file's bytes (up to the library's 16 MB, plus one to tell). */
+    private byte[] read(MediaDir.Entry e) throws Exception {
+        InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > 16 * 1024 * 1024) break;
+            }
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
     }
 
     static String ext(String name) {

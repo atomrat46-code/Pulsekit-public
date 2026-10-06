@@ -1,5 +1,6 @@
 package pulsekit;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -182,6 +183,32 @@ public final class MediaDir {
   /** "150%". */
   public static String zoomLabel(double z) {
     return Math.round(z * 100) + "%";
+  }
+
+  private static final int DB_MAX = 16 * 1024 * 1024;
+
+  /** The menu a file's card has (a long press, or a right click on the desktop). */
+  public static final String[] MENU = {"Add to DB Reference files", "Add to DB result files", "Add to default playlist"};
+
+  /**
+   * Add to DB: the file into the prompt library kept in `dir`, on its own, as a reference file or
+   * (with `result`) a result file; up to the library's 16 MB. Returns a line for the status.
+   */
+  public static String addToDb(File dir, String name, byte[] bytes, boolean result) {
+    String shown = name == null || name.trim().length() == 0 ? "file" : name.trim();
+    if (bytes == null || bytes.length == 0) return "Could not read " + shown;
+    if (bytes.length > DB_MAX) return shown + " is over the library's 16 MB, so it is not in the DB";
+    try {
+      PromptVault.open(dir).addLibraryFile(shown, bytes, "Media browser", result ? 3 : 1);
+      return shown + " is in the DB as a " + (result ? "result" : "reference") + " file";
+    } catch (Exception ex) {
+      return shown + " is not in the DB" + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+    }
+  }
+
+  /** Over the library's 16 MB: not read in whole for Add to DB. */
+  public static boolean tooBig(long size) {
+    return size > DB_MAX;
   }
 
   /** The folder a MediaBrowser run says to open ("Media browser: ..."), or null. */

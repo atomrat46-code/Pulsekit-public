@@ -2057,6 +2057,23 @@ public final class DesktopBehavior {
           javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + n);
           seen.append(n).append(": ").append(card.getIcon() != null ? "thumbnail" : "type mark").append(", ").append(card.getToolTipText()).append('\n');
         }
+        // A right click on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
+        String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}};
+        for (String[] pick : picks) {
+          javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + pick[0]);
+          card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+              java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+          javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+          StringBuilder items = new StringBuilder();
+          for (Component c : menu.getComponents()) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (pick == picks[0]) seen.append("menu: ").append(items).append(", shown ").append(menu.isVisible()).append('\n');
+          ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).doClick();
+          menu.setVisible(false);
+          seen.append(pick[0]).append(" item ").append(pick[1]).append(": ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+        }
+        for (PromptVault.StoredFile f : PromptDb.files(false, null)) seen.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+        for (PromptVault.StoredFile f : PromptDb.files(true, null)) seen.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), MediaPlaylist.DEFAULT)) seen.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(home.getAbsolutePath(), "~")).append('\n');
         ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
         seen.append("in more: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
         for (String s : names(d.getContentPane())) if (s.startsWith("media-card") || s.startsWith("media-folder")) seen.append("  ").append(s).append('\n');
