@@ -17,11 +17,15 @@ import java.util.*;
  * their fills taking the bar's second half in eighths (as Pulsekit's 6/8 and 12/8 fills do).
  * In PyJav --bpm (the app's tempo) stands for --tempo, --swing may be a percent (PyJav passes the
  * app's 12 for 0.12), and the MIDI goes into PyJav's work folder, so it is imported.
+ *
+ * --saveprompt also writes the groove as a Pulsekit prompt sheet beside the MIDI (<name>.prompt,
+ * category Music): the command that makes it again with the settings it used, and the MIDI as its
+ * result file. On the phone PyJav keeps it in the prompt library.
  */
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...]";
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
@@ -912,6 +916,8 @@ public class MidiDrumGen {
         int humanize = 4;
         boolean fills = true, crashes = true, halfTime = true;
         boolean anyTempo = false;
+        boolean savePrompt = false;
+        String tempoNote = null;
         int tsNum = 4, tsDen = 4;
         boolean tsGiven = false;
         String output = "drum_track_full_db.mid";
@@ -932,6 +938,7 @@ public class MidiDrumGen {
                 case "--half-time": halfTime = true; break;
                 case "--no-half-time": halfTime = false; break;
                 case "--any-tempo": anyTempo = true; break;
+                case "--saveprompt": savePrompt = true; break;
                 case "--timesig": {
                     int[] ts = timesig(args[++i]);
                     if (ts == null) {
@@ -961,8 +968,9 @@ public class MidiDrumGen {
         if (known != null && known.minTempo > 0 && known.maxTempo >= known.minTempo && !anyTempo
                 && (fTempo < known.minTempo || fTempo > known.maxTempo)) {
             int inRange = clamp(fTempo, known.minTempo, known.maxTempo);
-            System.out.printf(Locale.US, "Tempo %d is outside %s's range %d-%d: using %d (--any-tempo keeps %d)\n",
+            tempoNote = String.format(Locale.US, "Tempo %d is outside %s's range %d-%d: using %d (--any-tempo keeps %d)",
                     fTempo, style, known.minTempo, known.maxTempo, inRange, fTempo);
+            System.out.println(tempoNote);
             fTempo = inRange;
         }
         int fBars = clamp(bars != null ? bars : d.bars, 1, 64);
@@ -983,7 +991,53 @@ public class MidiDrumGen {
         if (work != null && work.length() > 0 && !new File(output).isAbsolute()) output = new File(work, output).getPath();
         w.write(output);
 
-        System.out.printf(Locale.US, "Wrote %s (style=%s base=%s tempo=%d timesig=%d/%d bars=%d swing=%.2f intensity=%d hats=%s)\n",
+        String wrote = String.format(Locale.US, "Wrote %s (style=%s base=%s tempo=%d timesig=%d/%d bars=%d swing=%.2f intensity=%d hats=%s)",
                 new File(output).getName(), style, resolveStyle(style), fTempo, tsNum, tsDen, fBars, fSwing, fIntensity, fHats);
+        System.out.println(wrote);
+        if (savePrompt) {
+            // The command that makes this groove again, with the settings it used, as a prompt sheet.
+            String command = String.format(Locale.US, "MidiDrumGen --style %s --tempo %d --bars %d --timesig %d/%d --swing %.2f --intensity %d --hats %s --humanize %d%s%s%s%s",
+                    style, fTempo, fBars, tsNum, tsDen, fSwing, fIntensity, fHats, fHumanize, fills ? "" : " --no-fills",
+                    crashes ? "" : " --no-crashes", halfTime ? "" : " --no-half-time", anyTempo ? " --any-tempo" : "");
+            String settings = String.format(Locale.US, "Style: %s (base %s). Tempo: %d BPM. Time signature: %d/%d. Bars: %d. Swing: %.2f. Intensity: %d. "
+                    + "Hats: %s. Humanize: %d. Fills: %s. Crashes: %s. Half time: %s.", style, resolveStyle(style), fTempo, tsNum, tsDen, fBars,
+                    fSwing, fIntensity, fHats, fHumanize, fills ? "on" : "off", crashes ? "on" : "off", halfTime ? "on" : "off");
+            File sheet = savePrompt(output, command + "\n\n" + settings, new File(output).getName(), tempoNote);
+            System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
+        }
+    }
+
+    /**
+     * --saveprompt: the groove as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes
+     * it) beside the MIDI, named after it: category Music, model MidiDrumGen, the command and its
+     * settings as the prompt, then "Result file: <the MIDI>" and, when there was a note (a tempo
+     * moved into the style's range), "Result text:" with it. Never over an existing file.
+     */
+    static File savePrompt(String output, String prompt, String result, String note) {
+        String base = new File(output).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        StringBuilder sb = new StringBuilder();
+        sb.append("PKPROMPT1\n").append(base).append("\n\n\n\n\n");
+        sb.append("Category: Music\n");
+        sb.append("Model: MidiDrumGen\n");
+        sb.append("Reference file 1: \n");
+        sb.append("Reference file 2: \n");
+        sb.append("---\n");
+        sb.append(prompt).append("\n\n");
+        sb.append("Result file: ").append(result).append('\n');
+        if (note != null && note.length() > 0) sb.append("Result text:\n").append(note).append('\n');
+        File dir = new File(output).getAbsoluteFile().getParentFile();
+        File file = new File(dir, base + ".prompt");
+        for (int n = 1; file.exists(); n++) file = new File(dir, base + "(" + n + ").prompt");
+        try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
+            try {
+                fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+            } finally {
+                fos.close();
+            }
+            return file;
+        } catch (java.io.IOException ex) {
+            return null;
+        }
     }
 }

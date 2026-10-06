@@ -1739,7 +1739,7 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
     out.append("--style choose: ").append(dv.findViewWithTag("params-choose:--style") != null).append('\n');
-    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time"}) {
+    for (String t : new String[] {"--no-fills", "--no-crashes", "--no-half-time", "--saveprompt"}) {
       out.append(t).append(" box: ").append(dv.findViewWithTag("params-check:" + t) != null).append('\n');
     }
     ((android.widget.EditText) dv.findViewWithTag("params-field:--style")).setText("Hard Rock");
@@ -2095,6 +2095,28 @@ public class BehaviorTest {
       }
     }
     out.append("kept: ").append(app.getSharedPreferences(DrumMidiSettingsPage.PREFS, 0).getBoolean(DrumMidiSettingsPage.GEN_TO_DB, false)).append('\n');
+    // --saveprompt: the run's sheet goes into the prompt library as its own prompt, with the MIDI as result file.
+    box.setChecked(false);
+    String sheet = "PKPROMPT1\nhard_rock_4\n\n\n\n\nCategory: Music\nModel: MidiDrumGen\nReference file 1: \nReference file 2: \n---\n"
+        + "MidiDrumGen --style hard_rock --tempo 120 --bars 4\n\nStyle: hard_rock (base hard_rock). Tempo: 120 BPM.\n\nResult file: hard_rock_4.mid\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("hard_rock_4.mid", mid));
+    files.add(new JavaRun.FileOut("hard_rock_4.prompt", sheet.getBytes("UTF-8")));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote hard_rock_4.mid (style=hard_rock)\nSaved prompt hard_rock_4.prompt", files, 0));
+    idle();
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("saveprompt run: ").append(line).append('\n');
+    // Opened again: the run stored it through its own handle.
+    PromptVault after = PromptVault.open(app);
+    long music = 0;
+    for (PromptVault.Category c : after.categories()) if ("Music".equals(c.name)) music = c.id;
+    for (PromptVault.Prompt p : after.prompts(music)) {
+      if (!p.title.equals("hard_rock_4")) continue;
+      PromptVault.Version v = after.versions(p.id).get(0);
+      out.append("  sheet in library: ").append(p.title).append(", model ").append(v.model).append(", result ").append(v.resultName).append(" (")
+          .append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+    }
     write("s60_midi_drum_gen_db", out.toString());
   }
 
