@@ -46,6 +46,8 @@ final class PromptDb {
     /** The sound playing in a gallery: its clip, and the card that plays it. */
     javax.sound.sampled.Clip clip;
     JButton playingCard;
+    /** Where a gallery's or Browse DB's sound plays: the system's audio output (the tests give one of their own). */
+    static java.util.concurrent.Callable<javax.sound.sampled.Clip> clips = javax.sound.sampled.AudioSystem::getClip;
     /** The gallery shown last, for the tests. */
     JDialog lastGallery;
 
@@ -132,7 +134,9 @@ final class PromptDb {
             }
             dialog.dispose();
             picked.picked(file.name, copy);
-        }, null, "refs-pick:");
+        }, null, "refs-pick:", true);
+        this.stopOnClose(dialog);
+        this.lastBrowse = dialog;
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
         this.show(dialog, this.withPreviews(kinds, list, dialog, () -> this.browse(results, only, picked)), grid, cancel);
@@ -240,7 +244,8 @@ final class PromptDb {
         }, (file, card) -> this.menu(file, card, () -> {
             dialog.dispose();
             this.pickStored(slot, results, picked);
-        }), "db-pick:");
+        }), "db-pick:", true);
+        this.stopOnClose(dialog);
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
         this.lastPick = dialog;
@@ -249,6 +254,9 @@ final class PromptDb {
 
     /** The DB dialog shown last, for the tests. */
     JDialog lastPick;
+
+    /** The Browse DB dialog shown last, for the tests. */
+    JDialog lastBrowse;
 
     /** Ref files (n) / Result files (n): the one shown is greyed; the other opens in its place. */
     private JPanel kinds(boolean results, java.util.function.Function<Boolean, Integer> count, java.util.function.Consumer<Boolean> open) {
@@ -270,6 +278,11 @@ final class PromptDb {
 
     /** The files as cards: a preview (a picture's own, else its type), the name, the prompt and size. */
     private JPanel grid(List<PromptVault.StoredFile> list, CardAction click, CardAction menu, String tag) {
+        return this.grid(list, click, menu, tag, false);
+    }
+
+    /** As above; with `play`, a sound or MIDI card has ▶ Play under it (the card itself picks the file). */
+    private JPanel grid(List<PromptVault.StoredFile> list, CardAction click, CardAction menu, String tag, boolean play) {
         JPanel grid = new JPanel(new GridLayout(0, 3, 8, 8));
         if (list.isEmpty()) grid.add(new JLabel("none"));
         PromptVault vault;
@@ -302,9 +315,34 @@ final class PromptDb {
                     }
                 });
             }
-            grid.add(card);
+            if (play && fits(name, SOUNDS_OR_MIDIS)) {
+                JPanel cell = new JPanel(new BorderLayout(0, 2));
+                cell.add(card, BorderLayout.CENTER);
+                JButton listen = new JButton(PLAY);
+                listen.setName("refs-play:" + name);
+                listen.putClientProperty("play", Boolean.TRUE);
+                listen.setToolTipText(fits(name, MIDIS) ? "Plays it with Pulsekit's kit sounds" : "Plays it here; the card picks it");
+                listen.addActionListener(e -> this.preview(file, listen));
+                cell.add(listen, BorderLayout.SOUTH);
+                grid.add(cell);
+            } else {
+                grid.add(card);
+            }
         }
         return grid;
+    }
+
+    static final String PLAY = "\u25b6 Play";
+    static final String STOP = "\u25a0 Stop";
+
+    /** Stops a sound playing in a Browse DB dialog when it closes (a pick, Cancel, the other list). */
+    private void stopOnClose(JDialog dialog) {
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                PromptDb.this.stop();
+            }
+        });
     }
 
     private String caption(PromptVault.StoredFile file, String mark) {
@@ -483,7 +521,7 @@ final class PromptDb {
             raw[2 * i + 1] = (byte) (pcm[i] >> 8);
         }
         try {
-            final javax.sound.sampled.Clip c = javax.sound.sampled.AudioSystem.getClip();
+            final javax.sound.sampled.Clip c = clips.call();
             c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
             c.addLineListener(ev -> {
                 if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) SwingUtilities.invokeLater(() -> {
@@ -492,6 +530,7 @@ final class PromptDb {
             });
             this.clip = c;
             this.playingCard = card;
+            if (card.getClientProperty("play") != null) card.setText(STOP);
             card.setBorder(BorderFactory.createLineBorder(new Color(0xE0B04A), 2));
             card.setToolTipText("Playing: click to stop");
             c.start();
@@ -516,8 +555,12 @@ final class PromptDb {
             } catch (Exception ignored) {
                 // closed already
             }
+            // "Playing ..." is no longer true.
+            String now = app.nowPlaying.getText();
+            if (now != null && now.startsWith("Playing ")) app.setNow(null);
         }
         if (this.playingCard != null) {
+            if (this.playingCard.getClientProperty("play") != null) this.playingCard.setText(PLAY);
             this.playingCard.setBorder(new JButton().getBorder());
             this.playingCard.setToolTipText(null);
         }

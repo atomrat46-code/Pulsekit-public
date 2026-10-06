@@ -1413,6 +1413,66 @@ public final class DesktopBehavior {
         .append(!(sealed[0] == (byte) 0xff && sealed[1] == (byte) 0xd8)).append(", reads back ").append(java.util.Arrays.equals(ThumbCache.get(video), jpg.toByteArray())).append('\n');
   }
 
+  /**
+   * Browse DB plays audio previews: a sound or MIDI card has ▶ Play under it (the MIDI with the
+   * kit), which turns to ■ Stop while it plays; the card itself still picks the file, and the
+   * sound stops when the dialog closes. Without an audio device it says so.
+   */
+  void s46_browse_play() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    short[] tone = new short[22050 * 3];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.06));
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(tone, 22050), "Imported", 1);
+    PromptDb.vault().addLibraryFile("beat.mid", Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110), "Imported", 1);
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(20, 20, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptDb.vault().addLibraryFile("pic.png", png.toByteArray(), "Imported", 1);
+    // A stand-in audio output: this machine has none. It plays until stopped and records what it was given.
+    List<String> played = Collections.synchronizedList(new ArrayList<String>());
+    PromptDb.clips = () -> (javax.sound.sampled.Clip) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {javax.sound.sampled.Clip.class}, new java.lang.reflect.InvocationHandler() {
+          boolean running;
+          public Object invoke(Object proxy, Method m, Object[] a) {
+            switch (m.getName()) {
+              case "open": played.add("open " + (int) ((javax.sound.sampled.AudioFormat) a[0]).getSampleRate() + " Hz, " + ((Integer) a[3] / 2) + " samples"); return null;
+              case "start": running = true; return null;
+              case "stop": running = false; return null;
+              case "close": played.add("close"); return null;
+              case "isRunning": return running;
+              case "hashCode": return System.identityHashCode(proxy);
+              case "equals": return proxy == a[0];
+              default: return m.getReturnType() == boolean.class ? Boolean.FALSE : m.getReturnType() == int.class || m.getReturnType() == long.class ? (Object) 0 : null;
+            }
+          }
+        });
+    String[] picked = new String[1];
+    answers.add("\u25b6 Play");
+    SwingUtilities.invokeLater(() -> db.browse(null, (name, file) -> picked[0] = name + " -> " + file.getName()));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    JDialog dialog = (JDialog) get("lastBrowse");
+    StringBuilder buttons = new StringBuilder();
+    for (String n : new String[] {"hit.wav", "beat.mid", "pic.png"}) buttons.append(n).append(' ').append(named(dialog, "refs-play:" + n)).append(", ");
+    out.append("play buttons: ").append(buttons).append('\n');
+    javax.swing.JButton wavPlay = (javax.swing.JButton) component(dialog, "refs-play:hit.wav");
+    javax.swing.JButton midPlay = (javax.swing.JButton) component(dialog, "refs-play:beat.mid");
+    JLabel now = (JLabel) get("nowPlaying");
+    java.util.function.Supplier<String> state = () -> "hit.wav " + wavPlay.getText() + ", beat.mid " + midPlay.getText() + ", playing " + db.playing()
+        + " (" + now.getText() + ")";
+    out.append("watcher pressed the first Play: ").append(state.get()).append('\n');
+    edt(midPlay::doClick);
+    out.append("beat.mid again (stops): ").append(state.get()).append('\n');
+    edt(wavPlay::doClick);
+    out.append("hit.wav: ").append(state.get()).append('\n');
+    edt(midPlay::doClick);
+    out.append("beat.mid while hit.wav plays (switches): ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JButton) component(dialog, "refs-pick:hit.wav")).doClick());
+    for (String p : played) out.append("clip: ").append(p).append('\n');
+    out.append("picked: ").append(picked[0]).append(", dialog ").append(dialog.isShowing() ? "open" : "closed").append(", still playing ").append(db.playing()).append('\n');
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
