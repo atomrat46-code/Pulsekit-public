@@ -1011,6 +1011,8 @@ public final class DesktopBehavior {
           .append(p.choices != null ? " choices " + p.choices.length : "").append('\n');
     }
     answers.add("Yes");
+    // The MIDI ready dialog that follows (the groove with the kit's sounds): Close.
+    answers.add("Close");
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Hard Rock\" --bars 4"));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
@@ -1021,6 +1023,8 @@ public final class DesktopBehavior {
     }
     // A tempo outside the style's range in the style database is moved into it.
     answers.add("Yes");
+    // The MIDI ready dialog that follows (the groove with the kit's sounds): Close.
+    answers.add("Close");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Techno --tempo 90 --bars 4"));
     edt(() -> call("runPython"));
@@ -1035,6 +1039,8 @@ public final class DesktopBehavior {
     out.append("argv own: ").append(JavaRun.argvFor("[--timesig 3/4]", 120, "house", 4, 0, "--timesig 7/8", 6, 8)).append('\n');
     set("tsNum", 3);
     answers.add("Yes");
+    // The MIDI ready dialog that follows (the groove with the kit's sounds): Close.
+    answers.add("Close");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 4"));
     edt(() -> call("runPython"));
@@ -1046,6 +1052,8 @@ public final class DesktopBehavior {
     set("tsNum", 4);
     // A style in another meter in the style database plays in it.
     answers.add("Yes");
+    // The MIDI ready dialog that follows (the groove with the kit's sounds): Close.
+    answers.add("Close");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Ballad 6/8\" --bars 4"));
     edt(() -> call("runPython"));
