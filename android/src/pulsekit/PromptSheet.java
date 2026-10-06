@@ -1343,7 +1343,7 @@ public final class PromptSheet {
     } else if (kind == 4) {
       showSound(activity, col);
     } else {
-      col.addView(label(activity, "No preview for this file. Preview works for text, image, video, and sound.", 14, "#8A8B86", false));
+      col.addView(label(activity, "No preview for this file. Preview works for text, image, video, and sound (including MIDI).", 14, "#8A8B86", false));
     }
   }
 
@@ -1635,9 +1635,23 @@ public final class PromptSheet {
     return clean.length() > 40 ? clean.substring(0, 40) : clean;
   }
 
+  private static boolean isMidi(byte[] bytes) {
+    return bytes != null && bytes.length >= 4 && bytes[0] == 'M' && bytes[1] == 'T' && bytes[2] == 'h' && bytes[3] == 'd';
+  }
+
   private static void showSound(Activity activity, LinearLayout col) {
     try {
-      previewFile = spill(activity, previewName, previewBytes, "mp3");
+      boolean midi = isMidi(previewBytes);
+      short[] kit = midi ? kitRender(activity, previewBytes) : null;
+      if (kit != null) {
+        // The MIDI's drums with Pulsekit's own kit sounds (an imported SoundFont), as a file set plays its source MIDI.
+        previewFile = spill(activity, "preview.wav", AudioIo.encodeWav(kit, 22050), "wav");
+        col.addView(label(activity, "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any).", 14, "#8A8B86", false));
+      } else {
+        // The player tells MIDI by its extension: a MIDI file without one is given .mid.
+        previewFile = spill(activity, midi && previewKindByName(previewName) != 4 ? "preview.mid" : previewName, previewBytes, midi ? "mid" : "mp3");
+        if (midi) col.addView(label(activity, "MIDI, played with the phone's General MIDI sounds (it has no drums for Pulsekit's kit).", 14, "#8A8B86", false));
+      }
       MediaPlayer player = new MediaPlayer();
       previewAudio = player;
       player.setDataSource(previewFile.getAbsolutePath());
@@ -1681,7 +1695,9 @@ public final class PromptSheet {
     if (ends(lower, ".txt", ".md", ".json", ".prompt", ".csv", ".xml", ".html", ".py", ".java", ".log", ".css", ".js")) return 1;
     if (ends(lower, ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")) return 2;
     if (ends(lower, ".mp4", ".webm", ".mkv", ".3gp", ".mov")) return 3;
-    if (ends(lower, ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac")) return 4;
+    if (ends(lower, ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac", ".mid", ".midi")) return 4;
+    // A MIDI file (MThd): Android's player sounds it with its General MIDI synth.
+    if (isMidi(bytes)) return 4;
     if (bytes.length >= 8 && (bytes[0] & 0xff) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4e && bytes[3] == 0x47) return 2;
     if (bytes.length >= 3 && (bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8) return 2;
     if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') return 2;
@@ -1693,6 +1709,23 @@ public final class PromptSheet {
     if (bytes.length >= 12 && bytes[4] == 'f' && bytes[5] == 't' && bytes[6] == 'y' && bytes[7] == 'p') return 3;
     if (looksLikeText(bytes)) return 1;
     return 0;
+  }
+
+  /** The MIDI's drum notes rendered with the kit's current sounds, or null when there is no kit or no drums. */
+  private static short[] kitRender(Activity activity, byte[] midi) {
+    if (!(activity instanceof MainActivity) || ((MainActivity) activity).playback == null) return null;
+    try {
+      short[] pcm = AudioIo.renderMidiDrums(midi, ((MainActivity) activity).playback.mixVoices(), 22050);
+      return pcm == null || pcm.length == 0 ? null : pcm;
+    } catch (Exception ex) {
+      return null;
+    }
+  }
+
+  /** 4 when the name alone says sound (.wav, .mp3, .mid...), else 0. */
+  private static int previewKindByName(String name) {
+    String lower = name == null ? "" : name.toLowerCase(Locale.US);
+    return ends(lower, ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac", ".mid", ".midi") ? 4 : 0;
   }
 
   private static boolean ends(String name, String... suffixes) {
