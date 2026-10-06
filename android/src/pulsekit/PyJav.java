@@ -769,6 +769,8 @@ final class PyJav {
         if (status.startsWith("Succeeded")) PictureOffer.offer(app, result);
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         if (status.startsWith("Succeeded")) VideoOffer.offer(app, result);
+        // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
+        if (status.startsWith("Succeeded") && "MidiDrumGen.java".equals(app.pyName)) MidiOffer.offer(app, result);
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null ? ex.toString() : m);

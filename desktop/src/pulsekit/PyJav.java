@@ -393,6 +393,7 @@ final class PyJav {
                 java.util.List<File> savedPictures = new java.util.ArrayList<File>();
                 java.util.List<File> savedVideos = new java.util.ArrayList<File>();
                 StringBuilder status = new StringBuilder();
+                PythonRun.FileOut madeMidi = null;
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
                     boolean midi = f.bytes != null && f.bytes.length >= 4
@@ -401,6 +402,7 @@ final class PyJav {
                         status.append(app.importLibrary.applyProgramMidi(f.bytes, f.name)).append('\n');
                         midis++;
                         loaded = true;
+                        madeMidi = f;
                     } else if (lower.endsWith(".sng")) {
                         try {
                             java.util.List<Engine.Part> parts = Engine.decodeSng(f.bytes);
@@ -475,6 +477,8 @@ final class PyJav {
                 if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
                 if (!savedVideos.isEmpty() && result.code == 0) this.offerVideo(savedVideos.get(0), savedVideos.size());
+                // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
+                if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
             });
         }, "pulsekit-pyjav").start();
     }
@@ -515,6 +519,59 @@ final class PyJav {
                 java.awt.Desktop.getDesktop().open(pictures.get(0));
             } catch (Exception ex) {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
+            }
+        }
+    }
+
+    /**
+     * After a MidiDrumGen run: the groove played with Pulsekit's kit sounds (the imported SoundFont,
+     * through the active drum set), as a file set plays its source MIDI. Play / Stop and Close; the
+     * MIDI is already imported as a file set. Nothing is shown when it has no drums for the kit.
+     */
+    void offerMidi(String midiName, byte[] midi) {
+        short[] pcm;
+        try {
+            pcm = AudioIo.renderMidiDrums(midi, app.playback.mixVoices(), 22050);
+        } catch (Exception ex) {
+            pcm = null;
+        }
+        if (pcm == null || pcm.length == 0) return;
+        byte[] pcmBytes = new byte[pcm.length * 2];
+        for (int i = 0; i < pcm.length; i++) {
+            pcmBytes[2 * i] = (byte) pcm[i];
+            pcmBytes[2 * i + 1] = (byte) (pcm[i] >> 8);
+        }
+        int seconds = Math.round(pcm.length / 22050f);
+        String length = (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60);
+        javax.sound.sampled.Clip clip = null;
+        try {
+            while (true) {
+                boolean playing = clip != null && clip.isRunning();
+                Object[] options = new Object[] {playing ? "Stop" : "Play", "Close"};
+                int ans = JOptionPane.showOptionDialog(app, midiName + " (" + length + ") is imported as a file set.\n\n"
+                    + "Play sounds it with Pulsekit's kit (your imported SoundFont, if any).", "MIDI ready",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+                if (ans != 0) break;
+                if (playing) {
+                    clip.stop();
+                    continue;
+                }
+                try {
+                    if (clip == null) {
+                        clip = javax.sound.sampled.AudioSystem.getClip();
+                        clip.open(new javax.sound.sampled.AudioFormat(22050f, 16, 1, true, false), pcmBytes, 0, pcmBytes.length);
+                    }
+                    clip.setFramePosition(0);
+                    clip.start();
+                } catch (Exception ex) {
+                    app.setNow("No audio output for the MIDI");
+                    break;
+                }
+            }
+        } finally {
+            if (clip != null) {
+                clip.stop();
+                clip.close();
             }
         }
     }

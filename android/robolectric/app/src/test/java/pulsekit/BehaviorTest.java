@@ -2074,9 +2074,27 @@ public class BehaviorTest {
       files.add(new JavaRun.FileOut("hard_rock_" + run + ".mid", mid));
       app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Hard Rock", "--bars", "4",
           new java.io.File(app.getCacheDir(), "pyjav-in/hard_rock_" + run + ".mid").getAbsolutePath()));
+      org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0));
       app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote hard_rock_" + run + ".mid (style=Hard Rock base=hard_rock tempo=120 timesig=4/4 bars=4)", files, 0));
       idle();
       AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (run == 1) {
+        // MIDI ready: the groove with the kit's sounds, Play / Stop and Close.
+        out.append("dialog: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append(" / ")
+            .append(org.robolectric.Shadows.shadowOf(d).getMessage().toString().replace("\n", "|")).append('\n');
+        android.widget.Button play = d.getButton(DialogInterface.BUTTON_NEUTRAL);
+        play.performClick();
+        idle();
+        out.append("  Play: button ").append(play.getText()).append(", playing ").append(MidiOffer.playing()).append('\n');
+        play.performClick();
+        idle();
+        out.append("  Stop: button ").append(play.getText()).append(", playing ").append(MidiOffer.playing()).append('\n');
+        play.performClick();
+        idle();
+        d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+        idle();
+        out.append("  Close: shown ").append(d.isShowing()).append(", playing ").append(MidiOffer.playing()).append('\n');
+      }
       if (d != null && d.isShowing()) d.dismiss();
       idle();
       String library = "";
