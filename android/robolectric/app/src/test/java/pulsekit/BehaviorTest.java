@@ -2251,15 +2251,28 @@ public class BehaviorTest {
     dm.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("  args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
-    // CompareHits in PyJav: its input.wav row gets the sound-only Browse DB too.
+    // CompareHits in PyJav: its input.wav row gets the sound-only Browse DB, its MIDI rows a MIDI-only one.
+    DbImport.store(app, "gen_groove.mid", new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 'M', 'T', 'r', 'k', 0, 0, 0, 4, 0, (byte) 0xFF, 0x2F, 0}, true);
     pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "CompareHits.java");
     call("pkOpenParams");
     idle();
     AlertDialog ch = (AlertDialog) ShadowDialog.getLatestDialog();
     View chv = ch.getWindow().getDecorView();
     android.widget.Button chDb = (android.widget.Button) chv.findViewWithTag("params-db:input.wav");
-    out.append("CompareHits input Browse DB: ").append(chDb == null ? "none" : chDb.isEnabled() ? "enabled" : "greyed")
-        .append(", MIDI rows ").append(chv.findViewWithTag("params-db:drums.mid") == null ? "without" : "with").append(" it\n");
+    out.append("CompareHits input Browse DB: ").append(chDb == null ? "none" : chDb.isEnabled() ? "enabled" : "greyed").append('\n');
+    for (String row : new String[] {"drums.mid", "song.mid"}) {
+      android.widget.Button mdb = (android.widget.Button) chv.findViewWithTag("params-db:" + row);
+      out.append("  ").append(row).append(" Browse DB: ").append(mdb == null ? "none" : mdb.isEnabled() ? "enabled" : "greyed").append('\n');
+    }
+    ((android.widget.Button) chv.findViewWithTag("params-db:drums.mid")).performClick();
+    idle();
+    View mb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    out.append("  MIDI browser: ").append(((TextView) mb.findViewWithTag("refs-kind:refs")).getText()).append(" / ")
+        .append(((TextView) mb.findViewWithTag("refs-kind:results")).getText()).append(", gen_groove.mid ").append(mb.findViewWithTag("refs-pick:gen_groove.mid") != null)
+        .append(", loop.wav ").append(mb.findViewWithTag("refs-pick:loop.wav") != null).append('\n');
+    mb.findViewWithTag("refs-pick:gen_groove.mid").performClick();
+    idle();
+    out.append("  drums.mid row: ").append(((TextView) chv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
     ch.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
     // The Compare Hits page: Browse DB next to Pick WAV.

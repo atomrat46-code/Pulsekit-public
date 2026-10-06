@@ -69,6 +69,8 @@ public final class ProgramParams {
       known(p, drumMidi, chat);
       // DrumMidi's and CompareHits' audio input can also come from the prompt library (Browse DB, sound files only).
       if ((drumMidi || compareHits) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
+      if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";

@@ -68,7 +68,7 @@ final class CompareHitsPage {
         lp.setMargins(0, 0, app.dp(8), 0);
         buttons.addView(pick, lp);
         // The WAV can also come from the prompt library's sound files; greyed while it keeps none.
-        this.browseDb = app.action("Browse DB", ELEV, FG, v -> RefBrowser.browse(app, true, (name, file) -> this.takeDbWav(name, file)));
+        this.browseDb = app.action("Browse DB", ELEV, FG, v -> RefBrowser.browse(app, RefBrowser.SOUNDS, (name, file) -> this.takeDbWav(name, file)));
         this.browseDb.setTag("compare-browse-db");
         buttons.addView(this.browseDb, lp);
         buttons.addView(this.compareBtn, new LinearLayout.LayoutParams(-2, app.dp(40)));
@@ -133,7 +133,7 @@ final class CompareHitsPage {
         }
         this.paintWav();
         if (this.browseDb != null) {
-            boolean any = !RefBrowser.allFiles(app, true).isEmpty();
+            boolean any = !RefBrowser.allFiles(app, RefBrowser.SOUNDS).isEmpty();
             this.browseDb.setEnabled(any);
             this.browseDb.setAlpha(any ? 1f : 0.4f);
         }

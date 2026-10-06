@@ -14,7 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Browse DB on PyJav's Params page (SogniVideo's pictures, SogniChat's --file, DrumMidi's audio input: sound files only): the prompt library's reference files, or its result files
+ * Browse DB on PyJav's Params page (SogniVideo's pictures, SogniChat's --file; DrumMidi's and CompareHits' audio input:
+ * sound files only; CompareHits' drums and song: MIDI files only) and the Compare Hits page: the prompt library's reference files, or its result files
  * (a switch at the top), as a grid of previews, as the Prompts page's Ref files and Result files
  * show them. Picking one copies it into PyJav's input folder for the file row (SogniVideo's first
  * or last frame picture: a picture made by a SogniChat tool and kept as a result, say). A file kept
@@ -25,25 +26,34 @@ final class RefBrowser {
 
     /** The library's reference files and result files together: Browse DB is greyed when there are none. */
     static List<PromptVault.StoredFile> files(Activity activity) {
-        return allFiles(activity, false);
+        return allFiles(activity, null);
     }
 
-    /** As above; `sounds` keeps only sound files (DrumMidi's audio input). */
-    static List<PromptVault.StoredFile> files(Activity activity, boolean results, boolean sounds) {
+    /** Only sound files (an audio input: DrumMidi, CompareHits). */
+    static final String SOUNDS = "sounds";
+    /** Only MIDI files (CompareHits' drums and song). */
+    static final String MIDIS = "midis";
+
+    /** As above; `only` (SOUNDS or MIDIS) keeps only that kind of file, null keeps all. */
+    static List<PromptVault.StoredFile> files(Activity activity, boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        for (PromptVault.StoredFile f : files(activity, results)) if (!sounds || isSound(f.name)) out.add(f);
+        for (PromptVault.StoredFile f : files(activity, results)) if (fits(f.name, only)) out.add(f);
         return out;
     }
 
-    /** Reference and result files together, only sound files when `sounds`. */
-    static List<PromptVault.StoredFile> allFiles(Activity activity, boolean sounds) {
-        List<PromptVault.StoredFile> out = files(activity, false, sounds);
-        out.addAll(files(activity, true, sounds));
+    /** Reference and result files together, only the `only` kind when given. */
+    static List<PromptVault.StoredFile> allFiles(Activity activity, String only) {
+        List<PromptVault.StoredFile> out = files(activity, false, only);
+        out.addAll(files(activity, true, only));
         return out;
     }
 
-    static boolean isSound(String name) {
-        return name != null && name.toLowerCase().matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
+    static boolean fits(String name, String only) {
+        if (only == null) return true;
+        String low = name == null ? "" : name.toLowerCase();
+        if (SOUNDS.equals(only)) return low.matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
+        if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
+        return true;
     }
 
     /** The library's reference (or result) files, each name and size once; empty when there are none or the library cannot be read. */
@@ -67,24 +77,24 @@ final class RefBrowser {
     }
 
     static void browse(final Activity activity, final String[] values, final int index, final TextView label) {
-        browse(activity, values, index, label, false);
+        browse(activity, values, index, label, null);
     }
 
-    /** For a Params file row: the pick fills it. `sounds`: only sound files are listed (an audio input). */
-    static void browse(final Activity activity, final String[] values, final int index, final TextView label, boolean sounds) {
-        browse(activity, sounds, (name, file) -> {
+    /** For a Params file row: the pick fills it. `only`: SOUNDS or MIDIS lists only that kind (an audio or MIDI input). */
+    static void browse(final Activity activity, final String[] values, final int index, final TextView label, String only) {
+        browse(activity, only, (name, file) -> {
             values[index] = file.getAbsolutePath();
             label.setText(name + " \u00b7 from DB");
         });
     }
 
     /** Reference files first, as before; result files when there are no reference files. */
-    static void browse(final Activity activity, boolean sounds, Picked picked) {
-        browse(activity, files(activity, false, sounds).isEmpty(), sounds, picked);
+    static void browse(final Activity activity, String only, Picked picked) {
+        browse(activity, files(activity, false, only).isEmpty(), only, picked);
     }
 
-    static void browse(final Activity activity, final boolean results, final boolean sounds, final Picked picked) {
-        final List<PromptVault.StoredFile> files = files(activity, results, sounds);
+    static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
+        final List<PromptVault.StoredFile> files = files(activity, results, only);
         final PromptVault vault;
         try {
             vault = PromptVault.open(activity);
@@ -105,12 +115,12 @@ final class RefBrowser {
         for (int k = 0; k < 2; k++) {
             final boolean showResults = k == 1;
             android.widget.Button kind = new android.widget.Button(activity);
-            kind.setText((showResults ? "Result files" : "Ref files") + " (" + files(activity, showResults, sounds).size() + ")");
+            kind.setText((showResults ? "Result files" : "Ref files") + " (" + files(activity, showResults, only).size() + ")");
             kind.setTag(showResults ? "refs-kind:results" : "refs-kind:refs");
             kind.setEnabled(showResults != results);
             kind.setOnClickListener(v -> {
                 if (dialog[0] != null) dialog[0].dismiss();
-                browse(activity, showResults, sounds, picked);
+                browse(activity, showResults, only, picked);
             });
             kinds.addView(kind, new LinearLayout.LayoutParams(0, -2, 1f));
         }
