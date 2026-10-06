@@ -690,7 +690,8 @@ final class PyJav {
             + "<div>" + name + "</div>\n"
             + "<div id=\"box\"><video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline" + (loop ? " loop" : "") + "></video></div>\n"
             + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button>"
-            + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label></div>\n"
+            + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label>"
+            + " <span id=\"time\">0:00 / 0:00</span></div>\n"
             + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span>"
             + " &nbsp;Speed <select id=\"speed\">" + speeds + "</select></div>\n"
             + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"" + volume + "\"> <span id=\"level\">" + volume + "%</span></div>\n"
@@ -713,7 +714,10 @@ final class PyJav {
             + "box.onwheel=function(e){e.preventDefault();step(e.deltaY<0);};\n"
             + "var dx=null,dy=0;box.onmousedown=function(e){dx=e.clientX-px;dy=e.clientY-py;};window.onmouseup=function(){dx=null;};\n"
             + "window.onmousemove=function(e){if(dx!==null&&z>1){px=e.clientX-dx;py=e.clientY-dy;paint();}};\n"
-            + "v.onloadedmetadata=paint;\n"
+            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60;return Math.floor(t/60)+':'+(s<10?'0':'')+s;}\n"
+            + "function tick(){document.getElementById('time').textContent=clock(v.currentTime)+' / '+clock(isFinite(v.duration)?v.duration:0);}\n"
+            + "v.ontimeupdate=v.ondurationchange=tick;\n"
+            + "v.onloadedmetadata=function(){paint();tick();};\n"
             + "v.onplay=v.onpause=v.onended=show;\nshow();paint();\n</script>\n</body></html>\n";
         File page = new File(dir, video.getName().replaceAll("[^A-Za-z0-9._-]", "_") + ".html");
         Files.write(page.toPath(), html.getBytes(java.nio.charset.StandardCharsets.UTF_8));

@@ -291,6 +291,65 @@ final class MediaBrowser {
         if (parent != null) parent.revalidate();
     }
 
+    /** The thumbnail shown while a playlist item is held, for the tests. */
+    javax.swing.JWindow lastPeek;
+    JLabel lastPeekImage;
+
+    /** A playlist item's thumbnail beside the list, while it is held (a sound shows its type). */
+    void peek(java.awt.Component near, final MediaDir.Entry e, final File f) {
+        this.unpeek();
+        final int side = 320;
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(near);
+        final javax.swing.JWindow w = new javax.swing.JWindow(owner);
+        w.setName("playlist-peek");
+        final JLabel image = new JLabel("<html><center><div style='font-size:18px;color:#8A8B86'>" + mark(e) + "</div>" + esc(e.name) + "</center></html>", SwingConstants.CENTER);
+        image.setName("playlist-peek-image");
+        image.setOpaque(true);
+        image.setBackground(java.awt.Color.BLACK);
+        image.setForeground(java.awt.Color.WHITE);
+        image.setPreferredSize(new Dimension(side, side));
+        w.setContentPane(image);
+        w.pack();
+        java.awt.Point at = near.getLocationOnScreen();
+        w.setLocation(at.x + near.getWidth() + 8, Math.max(0, at.y - side / 2));
+        this.lastPeek = w;
+        this.lastPeekImage = image;
+        w.setVisible(true);
+        if (e.kind != MediaDir.PICTURE && e.kind != MediaDir.VIDEO) return;
+        ImageIcon have = e.kind == MediaDir.PICTURE ? null : this.thumbs.get(key(f));
+        if (have != null && e.kind == MediaDir.VIDEO) this.showPeek(w, image, have.getImage(), side);
+        Thread t = new Thread(() -> {
+            try {
+                java.awt.image.BufferedImage img = null;
+                if (e.kind == MediaDir.PICTURE) img = javax.imageio.ImageIO.read(f);
+                else if (have == null && VlcPlayer.available()) {
+                    byte[] jpeg = VlcPlayer.firstFrame(f, side);
+                    if (jpeg != null) img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpeg));
+                }
+                final java.awt.image.BufferedImage got = img;
+                if (got != null) SwingUtilities.invokeLater(() -> this.showPeek(w, image, got, side));
+            } catch (Exception ex) {
+                // it keeps its type
+            }
+        }, "pulsekit-playlist-peek");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void showPeek(javax.swing.JWindow w, JLabel image, Image img, int side) {
+        if (this.lastPeek != w || !w.isVisible()) return;
+        int iw = img.getWidth(null);
+        int ih = img.getHeight(null);
+        if (iw <= 0 || ih <= 0) return;
+        double s = Math.min(side / (double) iw, side / (double) ih);
+        image.setText(null);
+        image.setIcon(new ImageIcon(img.getScaledInstance(Math.max(1, (int) (iw * s)), Math.max(1, (int) (ih * s)), Image.SCALE_SMOOTH)));
+    }
+
+    void unpeek() {
+        if (this.lastPeek != null) this.lastPeek.dispose();
+    }
+
     /** The playlist window shown last, for the tests. */
     JDialog lastPlaylist;
 
@@ -311,9 +370,32 @@ final class MediaBrowser {
             JButton row = new JButton((++i) + ".  " + it.name + "   \u00b7 " + what);
             row.setName("playlist-item:" + it.name);
             row.setHorizontalAlignment(SwingConstants.LEFT);
+            // Holding the button down shows its thumbnail; letting go closes it (and opens nothing).
+            final boolean[] held = new boolean[1];
             row.addActionListener(ev -> {
-                if (!f.isFile()) app.setNow(it.name + " is no longer there");
+                if (held[0]) held[0] = false;
+                else if (!f.isFile()) app.setNow(it.name + " is no longer there");
                 else this.openEntry(e, f);
+            });
+            row.addMouseListener(new java.awt.event.MouseAdapter() {
+                javax.swing.Timer hold;
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent ev) {
+                    if (!SwingUtilities.isLeftMouseButton(ev)) return;
+                    this.hold = new javax.swing.Timer(500, t -> {
+                        held[0] = true;
+                        MediaBrowser.this.peek(row, e, f);
+                    });
+                    this.hold.setRepeats(false);
+                    this.hold.start();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent ev) {
+                    if (this.hold != null) this.hold.stop();
+                    MediaBrowser.this.unpeek();
+                }
             });
             list.add(row);
         }

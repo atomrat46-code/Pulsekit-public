@@ -2491,6 +2491,15 @@ public class BehaviorTest {
     idle();
     MediaBrowser.Video v = MediaBrowser.lastVideo;
     View tv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    // The player ready (3.5 s long), 1.2 s in: the time label follows it.
+    android.media.MediaPlayer mp = new android.media.MediaPlayer();
+    mp.setDataSource(new File(media, "walk.mp4").getAbsolutePath());
+    mp.prepare();
+    org.robolectric.Shadows.shadowOf(v.view).getOnPreparedListener().onPrepared(mp);
+    mp.seekTo(1200);
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    idle();
+    out.append("time: ").append(((TextView) tv.findViewWithTag("media-video-time")).getText()).append('\n');
     out.append("player: loop ").append(v.loop).append(", title ").append(((TextView) tv.findViewWithTag("media-video-title")).getText()).append('\n');
     TextView mute = (TextView) tv.findViewWithTag("media-video-mute");
     mute.performClick();
@@ -2632,6 +2641,24 @@ public class BehaviorTest {
       idle();
     }
     out.append("window still open: ").append(MediaBrowser.lastPlaylist.isShowing()).append('\n');
+    // Held: the item's thumbnail pops up; letting go closes it and opens nothing.
+    for (String n : new String[] {"sunset.png", "beat.wav"}) {
+      TextView row = (TextView) lv.findViewWithTag("playlist-item:" + n);
+      MediaBrowser.lastOpened = null;
+      boolean handled = row.performLongClick();
+      for (int i = 0; i < 20; i++) {
+        Thread.sleep(25);
+        idle();
+      }
+      out.append("held ").append(n).append(": handled ").append(handled).append(", preview shown ").append(MediaBrowser.lastPeek != null && MediaBrowser.lastPeek.isShowing())
+          .append(", thumbnail ").append(MediaBrowser.lastPeekImage.getDrawable() != null);
+      long now = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_UP, 5, 5, 0);
+      row.dispatchTouchEvent(up);
+      up.recycle();
+      idle();
+      out.append("; released: preview shown ").append(MediaBrowser.lastPeek.isShowing()).append(", opened ").append(MediaBrowser.lastOpened).append('\n');
+    }
     MediaBrowser.lastPlaylist.dismiss();
     idle();
     // A folder under it has a playlist of its own.

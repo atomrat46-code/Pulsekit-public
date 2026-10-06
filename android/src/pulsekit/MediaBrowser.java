@@ -158,6 +158,52 @@ final class MediaBrowser {
         this.playlistButton.setVisibility(n > 0 ? View.VISIBLE : View.GONE);
     }
 
+    /** The thumbnail shown while a playlist item is held, for the tests. */
+    static android.widget.PopupWindow lastPeek;
+    static ImageView lastPeekImage;
+
+    /** A playlist item's thumbnail over the list, while it is held (a sound shows its type). */
+    void peek(View anchor, final MediaDir.Entry e) {
+        this.unpeek();
+        int side = Math.min(this.app.getResources().getDisplayMetrics().widthPixels, this.app.getResources().getDisplayMetrics().heightPixels) * 6 / 10;
+        FrameLayout box = new FrameLayout(this.app);
+        box.setBackgroundColor(0xee000000);
+        box.setPadding(this.app.dp(6), this.app.dp(6), this.app.dp(6), this.app.dp(6));
+        TextView mark = this.app.text(ext(e.name) + "\n" + e.name, 15, true);
+        mark.setGravity(Gravity.CENTER);
+        mark.setTextColor(UiKit.MUTED);
+        box.addView(mark, new FrameLayout.LayoutParams(-1, -1));
+        final ImageView image = new ImageView(this.app);
+        image.setTag("playlist-peek");
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        box.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        // Not touchable: the finger's release still reaches the list, which closes it.
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(box, side, side, false);
+        pop.setTouchable(false);
+        pop.setOutsideTouchable(false);
+        lastPeek = pop;
+        lastPeekImage = image;
+        pop.showAtLocation(anchor.getRootView(), Gravity.CENTER, 0, 0);
+        if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
+            Bitmap have = THUMBS.get(key(e));
+            if (have != null) image.setImageBitmap(have);
+            else {
+                final int px = side;
+                READER.execute(() -> {
+                    final Bitmap b = this.thumb(e, px);
+                    if (b == null) return;
+                    this.main.post(() -> {
+                        if (lastPeek == pop && pop.isShowing()) image.setImageBitmap(b);
+                    });
+                });
+            }
+        }
+    }
+
+    void unpeek() {
+        if (lastPeek != null && lastPeek.isShowing()) lastPeek.dismiss();
+    }
+
     /** The playlist window shown last, for the tests. */
     static AlertDialog lastPlaylist;
 
@@ -181,6 +227,16 @@ final class MediaBrowser {
             row.setTag("playlist-item:" + e.name);
             row.setPadding(0, this.app.dp(10), 0, this.app.dp(10));
             row.setOnClickListener(v -> this.openEntry(e, items));
+            // Holding it shows its thumbnail; letting go closes it (and opens nothing).
+            row.setOnLongClickListener(v -> {
+                this.peek(v, e);
+                return true;
+            });
+            row.setOnTouchListener((v, ev) -> {
+                int act = ev.getActionMasked();
+                if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) this.unpeek();
+                return false;
+            });
             list.addView(row);
         }
         ScrollView scroll = new ScrollView(this.app);
@@ -678,6 +734,22 @@ final class MediaBrowser {
         boolean loop;
         TextView mute;
         TextView speedLabel;
+        TextView time;
+
+        /** The time label: where it is / how long it is. */
+        void showTime() {
+            if (time == null || view == null) return;
+            int at = 0;
+            int len = 0;
+            try {
+                // The player once it is ready, else the view's own idea.
+                at = media != null ? media.getCurrentPosition() : view.getCurrentPosition();
+                len = media != null ? media.getDuration() : view.getDuration();
+            } catch (Exception ignored) {
+                // not ready
+            }
+            time.setText(clock(Math.max(0, at)) + " / " + clock(Math.max(0, len)));
+        }
         TextView level;
         TextView zoomLabel;
 
@@ -746,6 +818,17 @@ final class MediaBrowser {
         TextView title = this.app.text(e.name + (p.loop ? "  \u00b7 looping" : ""), 13, false);
         title.setTag("media-video-title");
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        // Where it is and how long it is: 0:12 / 1:30.
+        p.time = this.app.text("0:00 / 0:00", 13, false);
+        p.time.setTag("media-video-time");
+        p.time.setPadding(this.app.dp(8), 0, this.app.dp(8), 0);
+        top.addView(p.time);
+        final Runnable[] clock = new Runnable[1];
+        clock[0] = () -> {
+            if (!d.isShowing()) return;
+            p.showTime();
+            this.main.postDelayed(clock[0], 250);
+        };
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
         close.setTag("media-video-close");
         top.addView(close);
@@ -870,14 +953,21 @@ final class MediaBrowser {
             mp.setLooping(p.loop);
             p.applyVolume();
             if (p.speed != 1) p.speedTo(p.speed);
-            controls.show(3000);
+            p.showTime();
+            try {
+                controls.show(3000);
+            } catch (RuntimeException ex) {
+                // a controller not tied to its player yet: it shows on the next tap
+            }
         });
         p.view.setOnErrorListener((mp, what, extra) -> {
             this.app.setNow("This phone cannot play " + e.name);
             return true;
         });
         p.view.setVideoURI(this.uri(e));
+        d.setOnShowListener(x -> this.main.post(clock[0]));
         d.setOnDismissListener(x -> {
+            this.main.removeCallbacks(clock[0]);
             // The next video opens as this one was left.
             MediaDir.volume = p.volume;
             MediaDir.zoom = p.zoom;

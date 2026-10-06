@@ -2167,6 +2167,22 @@ public final class DesktopBehavior {
         listed.append("  ").append(((javax.swing.JButton) component(d, n)).getText()).append('\n');
       }
       javax.swing.JButton first = (javax.swing.JButton) component(d, "playlist-item:sunset.png");
+      // Held: its thumbnail shows beside the list; the release closes it.
+      try {
+        java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+        peek.setAccessible(true);
+        MediaDir.Entry beat = new MediaDir.Entry();
+        beat.name = "beat.wav";
+        beat.kind = MediaDir.SOUND;
+        peek.invoke(browser, component(d, "playlist-item:beat.wav"), beat, new File(media, "beat.wav"));
+        javax.swing.JWindow w = (javax.swing.JWindow) get("lastPeek");
+        listed.append("held beat.wav: preview shown ").append(w.isVisible()).append(", ").append(((JLabel) get("lastPeekImage")).getText().replaceAll("<[^>]+>", " ").trim()).append('\n');
+        javax.swing.JButton beatRow = (javax.swing.JButton) component(d, "playlist-item:beat.wav");
+        beatRow.dispatchEvent(new java.awt.event.MouseEvent(beatRow, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        listed.append("released: preview shown ").append(w.isVisible()).append('\n');
+      } catch (Exception ex) {
+        listed.append("peek failed: ").append(ex).append('\n');
+      }
       SwingUtilities.invokeLater(first::doClick);
     };
     answers.add("Close");
@@ -2183,6 +2199,19 @@ public final class DesktopBehavior {
     for (int i = 0; i < 80 && !answers.isEmpty(); i++) Thread.sleep(100);
     idle();
     out.append(listed);
+    // A picture's preview: its thumbnail, read in the background.
+    MediaDir.Entry sunset = new MediaDir.Entry();
+    sunset.name = "sunset.png";
+    sunset.kind = MediaDir.PICTURE;
+    edt(() -> {
+      java.lang.reflect.Method peek = browser.getClass().getDeclaredMethod("peek", java.awt.Component.class, MediaDir.Entry.class, File.class);
+      peek.setAccessible(true);
+      peek.invoke(browser, ((JFrame) frame).getContentPane(), sunset, new File(media, "sunset.png"));
+    });
+    for (int i = 0; i < 40 && ((JLabel) get("lastPeekImage")).getIcon() == null; i++) Thread.sleep(50);
+    out.append("held sunset.png: ").append(((JLabel) get("lastPeekImage")).getIcon() != null ? "thumbnail" : "no thumbnail").append('\n');
+    edt(() -> call("unpeek"));
+    out.append("let go: preview shown ").append(((javax.swing.JWindow) get("lastPeek")).isVisible()).append('\n');
     out.append("folder label: ").append(MediaDir.label(media.getAbsolutePath())).append(", phone folder: ")
         .append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
   }
@@ -2244,6 +2273,7 @@ public final class DesktopBehavior {
       JDialog dialog = (JDialog) get("lastVideo");
       VlcPlayer player = (VlcPlayer) get("lastPlayer");
       java.util.function.Function<String, javax.swing.JButton> b = n -> (javax.swing.JButton) component(dialog, n);
+      out.append("VLC player time: ").append(((JLabel) component(dialog, "video-time")).getText().replaceAll("^\\d:\\d\\d", "0:0x")).append('\n');
       out.append("VLC player: Loop ").append(((javax.swing.JCheckBox) component(dialog, "video-loop")).isSelected())
           .append(", ").append(b.apply("video-mute").getText()).append(", volume ").append(component(dialog, "video-volume") != null ? "slider" : "none").append('\n');
       for (String z : new String[] {"video-zoom-in", "video-zoom-in", "video-zoom-in", "video-zoom-out", "video-fit"}) {
@@ -2317,6 +2347,7 @@ public final class DesktopBehavior {
     for (int i = 0; i < 50 && page[0] == null; i++) Thread.sleep(100);
     idle();
     String html = page[0] == null ? "" : new String(Files.readAllBytes(new File(page[0]).toPath()), StandardCharsets.UTF_8);
+    out.append("player page time: ").append(html.contains("id=\"time\"")).append('\n');
     out.append("player page starts at: volume ").append(html.contains("value=\"40\"")).append(", zoom ").append(html.contains("z=1.25,")).append(", speed ").append(html.contains("value=\"1.5\" selected")).append('\n');
     out.append("player page: loop ").append(html.contains(" loop>")).append(", Loop box ").append(html.contains("id=\"loop\" type=\"checkbox\" checked")).append(", Mute ").append(html.contains("id=\"mute\""))
         .append(", volume ").append(html.contains("id=\"volume\"")).append(", zoom ").append(html.contains("id=\"zin\"") && html.contains("id=\"zout\"") && html.contains("id=\"fit\"")).append('\n');
