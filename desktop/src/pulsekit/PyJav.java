@@ -967,6 +967,8 @@ final class PyJav {
                 area.setWrapStyleWord(true);
                 area.setName("params-field:" + p.token);
                 if (p.hint.length() > 0) area.setToolTipText(p.hint);
+                // Right click or a long press: Select all, Cut, Copy, Paste (as on the phone).
+                TextMenu.attach(area);
                 areas[i] = area;
                 form.add(new javax.swing.JScrollPane(area));
                 continue;
@@ -974,6 +976,7 @@ final class PyJav {
             JTextField field = new JTextField(values[i], 10);
             field.setName("params-field:" + p.token);
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
+            TextMenu.attach(field);
             fields[i] = field;
             if (p.choices != null && p.choices.length > 0) {
                 // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.

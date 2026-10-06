@@ -50,6 +50,8 @@ public final class DesktopBehavior {
   private final LinkedList<String> answers = new LinkedList<String>();
   /** The file the next file chooser picks (Open or Save), then cleared; null leaves choosers to the answers. */
   private volatile File chooseNext;
+  /** Looks inside the next dialog (on the Swing thread) before it is answered, then cleared. */
+  private volatile java.util.function.Consumer<JDialog> inspectNext;
   private final List<Throwable> errors = Collections.synchronizedList(new ArrayList<Throwable>());
   private final StringBuilder out = new StringBuilder();
 
@@ -1776,6 +1778,58 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * SogniVideo Params: "Save the prompt as a prompt sheet" and "Content filter off" start ticked
+   * until SogniVideo's Params are saved (then the saved choice wins). Params text fields have a
+   * menu on a right click or long press: Select all, Cut, Copy, Paste.
+   */
+  void s54_video_defaults() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniVideo.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    final StringBuilder result = new StringBuilder();
+    for (int round = 0; round < 2; round++) {
+      final int r = round;
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        for (String t : new String[] {"--saveprompt", "--no_filter", "--no_audio", "--unlimited"}) {
+          javax.swing.JCheckBox c = (javax.swing.JCheckBox) component(d, "params-check:" + t);
+          seen.append(t).append(c != null && c.isSelected() ? " on" : " off").append(", ");
+        }
+        javax.swing.JTextArea prompt = (javax.swing.JTextArea) component(d, "params-field:--prompt");
+        if (r == 0) {
+          prompt.setText("A cat walks");
+          JTextField aspect = (JTextField) component(d, "params-field:--aspect");
+          javax.swing.JPopupMenu m = TextMenu.menu(prompt);
+          StringBuilder items = new StringBuilder();
+          for (java.awt.Component c : m.getComponents()) {
+            if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)").append(", ");
+          }
+          seen.append("\nprompt menu: ").append(items);
+          ((javax.swing.JMenuItem) m.getComponent(0)).doClick();
+          seen.append("\nafter Select all: \"").append(prompt.getSelectedText()).append("\"; menu now ");
+          for (java.awt.Component c : TextMenu.menu(prompt).getComponents()) {
+            seen.append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)").append(", ");
+          }
+          ((javax.swing.JMenuItem) TextMenu.menu(prompt).getComponent(2)).doClick();
+          aspect.setText("");
+          ((javax.swing.JMenuItem) TextMenu.menu(aspect).getComponent(3)).doClick();
+          seen.append("\nCopy, then Paste in --aspect: \"").append(aspect.getText()).append("\"");
+          aspect.setText("16:9");
+          // Untick the filter switch: saved, it stays off next time.
+          ((javax.swing.JCheckBox) component(d, "params-check:--no_filter")).setSelected(false);
+        }
+      };
+      answers.add("OK");
+      call("openParams");
+      result.append("round ").append(round + 1).append(": ").append(seen).append('\n');
+      result.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+    }
+    // Only what the rounds saw (not the long Params dialog text).
+    out.setLength(0);
+    out.append(result);
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
@@ -1910,6 +1964,11 @@ public final class DesktopBehavior {
               chooser.approveSelection();
             });
             continue;
+          }
+          final java.util.function.Consumer<JDialog> inspect = inspectNext;
+          if (inspect != null) {
+            inspectNext = null;
+            SwingUtilities.invokeAndWait(() -> inspect.accept(d));
           }
           StringBuilder text = new StringBuilder("dialog \"" + d.getTitle() + "\":");
           try {

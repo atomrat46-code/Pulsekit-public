@@ -175,7 +175,9 @@ public final class PyJavParams {
         field.setMinLines(2);
         field.setMaxLines(6);
         field.setVerticalScrollBarEnabled(true);
-        field.setMovementMethod(android.text.method.ScrollingMovementMethod.getInstance());
+        // The field's own movement method scrolls it and keeps long-press selection (Select all,
+        // Cut, Copy, Paste); a ScrollingMovementMethod would turn selection off.
+        field.setLongClickable(true);
         field.setOnTouchListener((v, ev) -> {
           if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
           if ((ev.getAction() & android.view.MotionEvent.ACTION_MASK) == android.view.MotionEvent.ACTION_UP) v.getParent().requestDisallowInterceptTouchEvent(false);
