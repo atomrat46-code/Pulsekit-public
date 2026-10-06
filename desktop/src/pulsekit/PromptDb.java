@@ -39,6 +39,8 @@ final class PromptDb {
     static final String MIDIS = "midis";
     /** Sound files and MIDI files (DrumMidi's input: a MIDI is played with the kit to a WAV). */
     static final String SOUNDS_OR_MIDIS = "sounds-or-midis";
+    /** MP4 videos (SogniVideo's Join with this video). */
+    static final String VIDEOS = "videos";
     private static final long MAX_BYTES = 16L * 1024 * 1024;
     private static final int CELL = 150;
 
@@ -72,6 +74,7 @@ final class PromptDb {
         if (SOUNDS.equals(only)) return low.matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
         if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
         if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
+        if (VIDEOS.equals(only)) return low.matches(".+\\.(mp4|m4v|mov)");
         return true;
     }
 

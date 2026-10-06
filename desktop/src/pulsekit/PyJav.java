@@ -493,7 +493,12 @@ final class PyJav {
                 // Pictures it made (SogniChat's tool results) are shown.
                 if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
-                if (!savedVideos.isEmpty() && result.code == 0) this.offerVideo(savedVideos.get(0), savedVideos.size());
+                if (!savedVideos.isEmpty() && result.code == 0) {
+                    // A joined clip (SogniVideo's Join with this video) is the one to watch.
+                    File watch = savedVideos.get(0);
+                    for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
+                    this.offerVideo(watch, savedVideos.size());
+                }
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
                 if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
             });
@@ -540,6 +545,13 @@ final class PyJav {
         }
     }
 
+    static void collectButtons(java.awt.Container c, List<JButton> out) {
+        for (java.awt.Component k : c.getComponents()) {
+            if (k instanceof JButton) out.add((JButton) k);
+            else if (k instanceof java.awt.Container) collectButtons((java.awt.Container) k, out);
+        }
+    }
+
     /** The run's prompt sheets, and its MIDI or track when Drum Midi Settings says so, into the prompt library; a line for the log. */
     String keepInLibrary(String name, PythonRun.Result result, java.util.List<String> argv) {
         java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
@@ -550,6 +562,15 @@ final class PyJav {
         if (DrumMidiSettingsPage.genToDb && "MidiDrumGen.java".equals(name)) {
             String gen = PromptKeep.keepMidiDrumGen(dir, r, argv);
             if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
+        }
+        // SogniVideo: a joined clip (Join with this video) goes in as a result file, and Join is unticked
+        // for the next run.
+        if ("SogniVideo.java".equals(name)) {
+            String merged = PromptKeep.keepMerged(dir, r);
+            if (merged.length() > 0) kept = kept.length() > 0 ? kept + "\n" + merged : merged;
+            if (this.pyExtra != null && this.pyExtra.getText().indexOf("--join") >= 0) this.pyExtra.setText(ProgramParams.drop(this.pyExtra.getText(), "--join"));
+            String saved = this.loadParams(name);
+            if (saved != null && saved.indexOf("--join") >= 0) this.saveParams(name, ProgramParams.drop(saved, "--join"));
         }
         if (DrumMidiSettingsPage.musicToDb && "SogniMusic.java".equals(name)) {
             String music = PromptKeep.keepSogniMusic(dir, r, argv);
@@ -926,6 +947,7 @@ final class PyJav {
                     // a MIDI row only MIDI files.
                     final boolean midiAsAudio = p.midiAsAudio;
                     final String only = midiAsAudio ? PromptDb.SOUNDS_OR_MIDIS
+                        : p.join ? PromptDb.VIDEOS
                         : ProgramParams.isAudio(p) ? PromptDb.SOUNDS : "mid".equals(p.ext) ? PromptDb.MIDIS : null;
                     JButton db = new JButton("Browse DB");
                     db.setName("params-db:" + p.token);
@@ -957,6 +979,34 @@ final class PyJav {
                         chosen.setText(new File(path).getName());
                     });
                     row.add(fromSet, BorderLayout.EAST);
+                }
+                if (p.join) {
+                    // SogniVideo's Join with this video: the file buttons work only when it is ticked;
+                    // unticked leaves the video out. PyJav unticks it after every run.
+                    final javax.swing.JCheckBox join = new javax.swing.JCheckBox("Join with this video", values[i].length() > 0);
+                    join.setName("params-join:" + p.token);
+                    final List<JButton> buttons = new java.util.ArrayList<JButton>();
+                    collectButtons(row, buttons);
+                    final boolean[] usable = new boolean[buttons.size()];
+                    for (int b = 0; b < buttons.size(); b++) usable[b] = buttons.get(b).isEnabled();
+                    final Runnable paint = () -> {
+                        for (int b = 0; b < buttons.size(); b++) buttons.get(b).setEnabled(join.isSelected() && usable[b]);
+                    };
+                    join.addActionListener(e -> {
+                        if (!join.isSelected()) {
+                            values[index] = "";
+                            chosen.setText("None");
+                        }
+                        paint.run();
+                    });
+                    paint.run();
+                    // The checkbox takes the place of the row's label.
+                    form.remove(form.getComponentCount() - 1);
+                    form.add(join);
+                    JPanel holder = new JPanel(new BorderLayout());
+                    holder.add(row, BorderLayout.CENTER);
+                    form.add(holder);
+                    continue;
                 }
                 form.add(row);
                 continue;

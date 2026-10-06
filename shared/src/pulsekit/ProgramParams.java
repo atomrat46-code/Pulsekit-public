@@ -53,6 +53,11 @@ public final class ProgramParams {
     public boolean newChat;
     /** An on/off switch that starts ticked in Params until the program's Params are saved (SogniVideo's --saveprompt and --no_filter). */
     public boolean defaultOn;
+    /**
+     * SogniVideo's --join: a file row behind a "Join with this video" checkbox (its buttons work
+     * only when it is ticked); PyJav unticks it after every run (drop).
+     */
+    public boolean join;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -319,6 +324,13 @@ public final class ProgramParams {
       p.label = "Last frame picture";
       p.hint = "optional; the clip moves from the first picture to this one";
     }
+    if (p.token.equals("--join")) {
+      p.ext = "any";
+      p.refs = true;
+      p.join = true;
+      p.label = "Join with this video";
+      p.hint = "the clip first, then this MP4, saved as <clip name>-merged.mp4";
+    }
     if (p.token.equals("--duration")) p.hint = "5 to 15 seconds (default 5)";
     if (p.token.equals("--resolution")) {
       p.hint = "768 (default), or a two-stage size";
@@ -395,6 +407,21 @@ public final class ProgramParams {
   }
 
   /** Switches only, from field values (one per parameter). Empty fields are left out. */
+  /** The arguments without `token` and its value (SogniVideo's --join after a run). */
+  public static String drop(String extra, String token) {
+    List<String> words = JavaRun.split(extra == null ? "" : extra);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < words.size(); i++) {
+      String w = words.get(i);
+      if (w.equals(token)) {
+        if (i + 1 < words.size() && !words.get(i + 1).startsWith("--")) i++;
+        continue;
+      }
+      append(sb, quote(w));
+    }
+    return sb.toString();
+  }
+
   public static String build(List<Param> ps, String[] values) {
     StringBuilder sb = new StringBuilder();
     for (int i = 0; i < ps.size() && i < values.length; i++) {

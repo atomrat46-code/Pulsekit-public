@@ -134,6 +134,7 @@ public final class PyJavParams {
           // DrumMidi's input also lists MIDI files: one is played with the kit to a WAV for it.
           final boolean midiAsAudio = p.midiAsAudio;
           final String only = midiAsAudio ? RefBrowser.SOUNDS_OR_MIDIS
+              : p.join ? RefBrowser.VIDEOS
               : ProgramParams.isAudio(p) ? RefBrowser.SOUNDS : "mid".equals(p.ext) ? RefBrowser.MIDIS : null;
           db.setEnabled(!RefBrowser.allFiles(activity, only).isEmpty());
           db.setOnClickListener(v -> {
@@ -154,6 +155,35 @@ public final class PyJavParams {
           row.addView(fresh);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        if (p.join) {
+          // SogniVideo's Join with this video: the file buttons work only when it is ticked; unticked
+          // leaves the video out. PyJav unticks it after every run.
+          final android.widget.CheckBox join = new android.widget.CheckBox(activity);
+          join.setText("Join with this video");
+          join.setTag("params-join:" + p.token);
+          join.setChecked(values[i].length() > 0);
+          final java.util.List<android.view.View> buttons = new java.util.ArrayList<android.view.View>();
+          for (int c = 0; c < row.getChildCount(); c++) if (row.getChildAt(c) instanceof android.widget.Button) buttons.add(row.getChildAt(c));
+          final boolean[] dbAny = new boolean[buttons.size()];
+          for (int c = 0; c < buttons.size(); c++) dbAny[c] = buttons.get(c).isEnabled();
+          final Runnable paint = () -> {
+            for (int c = 0; c < buttons.size(); c++) {
+              buttons.get(c).setEnabled(join.isChecked() && dbAny[c]);
+              buttons.get(c).setAlpha(join.isChecked() ? 1f : 0.4f);
+            }
+          };
+          join.setOnCheckedChangeListener((b, on) -> {
+            if (!on) {
+              values[index] = "";
+              chosen.setText(fileLabel(""));
+            }
+            paint.run();
+          });
+          paint.run();
+          // The label above the row is the checkbox here.
+          box.removeView(label);
+          box.addView(join);
+        }
         box.addView(row);
         if ("mid".equals(p.ext) && activity instanceof MainActivity) {
           // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
@@ -303,6 +333,13 @@ public final class PyJavParams {
     pendingValues = null;
     pendingIndex = -1;
     pendingLabel = null;
+  }
+
+  /** After a run: --join (SogniVideo's Join with this video) out of the program's saved Params, so it is unticked next time. */
+  public static void dropJoin(Activity activity, String program) {
+    String saved = load(activity, program);
+    if (saved == null || saved.indexOf("--join") < 0) return;
+    activity.getSharedPreferences(PREFS, 0).edit().putString(program, ProgramParams.drop(saved, "--join")).apply();
   }
 
   public static String load(Activity activity, String program) {

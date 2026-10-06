@@ -92,6 +92,31 @@ final class PromptKeep {
         return keepOutput(dir, result, argv, "SogniMusic", true);
     }
 
+    /**
+     * SogniVideo's joined clip (--join: <clip name>-merged.mp4) into the prompt library on its own,
+     * as a result file. Returns a line for the log, or "" when the run joined nothing.
+     */
+    static String keepMerged(File dir, JavaRun.Result result) {
+        if (dir == null || result == null || result.files == null || result.code != 0) return "";
+        StringBuilder note = new StringBuilder();
+        for (JavaRun.FileOut f : result.files) {
+            String low = f.name == null ? "" : f.name.toLowerCase();
+            if (!low.matches(".+-merged(\\(\\d+\\))?\\.mp4") || f.bytes == null || f.bytes.length == 0) continue;
+            note.append(note.length() > 0 ? "\n" : "");
+            if (f.bytes.length > MAX_BYTES) {
+                note.append("Prompt library: ").append(f.name).append(" is over 16 MB, so it is not kept there");
+                continue;
+            }
+            try {
+                PromptVault.open(dir).addLibraryFile(f.name, f.bytes, "SogniVideo", 3);
+                note.append("Prompt library: ").append(f.name).append(" (result file)");
+            } catch (Exception ex) {
+                note.append("Prompt library: could not store ").append(f.name).append(ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+            }
+        }
+        return note.toString();
+    }
+
     /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */
     static String keepOutput(File dir, JavaRun.Result result, List<String> argv, String program, boolean audio) {
         if (dir == null || result == null || result.files == null || result.code != 0) return "";

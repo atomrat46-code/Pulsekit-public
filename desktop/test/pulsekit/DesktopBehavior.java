@@ -1843,6 +1843,98 @@ public final class DesktopBehavior {
     out.append(result);
   }
 
+  /**
+   * SogniVideo: Join with this video. After a run that made a clip, the clip and the chosen video
+   * are joined as <clip name>-merged.mp4 (the clip first), saved and kept in the prompt library as a
+   * result file; a video in another format is not joined, and a missing one stops the run before it
+   * starts. Join is unticked after every run; in Params its buttons work only when it is ticked.
+   * The stand-in Sogni server sends desktop/test/clip-a.mp4 as the clip.
+   */
+  void s55_join() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    final byte[] clip = Files.readAllBytes(new File(dir, "clip-a.mp4").toPath());
+    File other = new File(home, "next scene.mp4");
+    Files.copy(new File(dir, "clip-b.mp4").toPath(), other.toPath());
+    File wide = new File(home, "wide.mp4");
+    Files.copy(new File(dir, "clip-wide.mp4").toPath(), wide.toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      ex.getRequestBody().readAllBytes();
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wj\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wj")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wj\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/c.mp4\",\"mediaType\":\"video\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/c.mp4")) {
+        type = "video/mp4";
+        bytes = clip;
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniVideo.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--join")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\" join ").append(p.join).append(" Browse DB ").append(p.refs).append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[][] runs = {{"walk", other.getAbsolutePath()}, {"walk2", wide.getAbsolutePath()}, {"walk3", new File(home, "gone.mp4").getAbsolutePath()}};
+      for (String[] r : runs) {
+        final String extra = r[0] + " --prompt Walk --join \"" + r[1] + "\"";
+        if (!r[0].equals("walk3")) answers.add("Close");
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(600);
+        out.append("== ").append(r[0]).append(" + ").append(new File(r[1]).getName()).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("Joined") || line.startsWith("Could not join") || line.startsWith("Note") || line.startsWith("Failed") || line.startsWith("Prompt library") || line.startsWith("Succeeded"))
+            out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+        out.append("  args after: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~").replaceAll(" --key_file.*", "")).append('\n');
+      }
+      try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+        for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("walk.*\\.mp4")).sorted()::iterator) {
+          out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f) > clip.length + 40000 ? "about both videos' size" : Files.size(f) + " bytes").append('\n');
+        }
+      }
+      for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+      // Params: Join is unticked after the runs; its buttons work only when it is ticked.
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        javax.swing.JCheckBox join = (javax.swing.JCheckBox) component(d, "params-join:--join");
+        javax.swing.JButton pick = (javax.swing.JButton) component(d, "params-file:--join");
+        javax.swing.JButton db = (javax.swing.JButton) component(d, "params-db:--join");
+        seen.append("Params: ").append(join.getText()).append(' ').append(join.isSelected() ? "ticked" : "unticked")
+            .append(", Choose ").append(pick.isEnabled() ? "on" : "off").append(", Browse DB ").append(db.isEnabled() ? "on" : "off");
+        join.doClick();
+        seen.append("; ticked: Choose ").append(pick.isEnabled() ? "on" : "off").append(", Browse DB ").append(db.isEnabled() ? "on" : "off");
+      };
+      answers.add("Cancel");
+      call("openParams");
+      out.append(seen).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
   private static int post(String url, byte[] body) throws Exception {
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
     c.setRequestMethod("POST");
