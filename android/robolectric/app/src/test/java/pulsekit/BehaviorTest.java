@@ -2488,7 +2488,7 @@ public class BehaviorTest {
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
-    for (String t : new String[] {"video_a.mp4", "video_b.mp4"}) {
+    for (String t : new String[] {"video_a.mp4", "video_b.mp4", "--video_c", "--video_f"}) {
       TextView pick = (TextView) dv.findViewWithTag("params-file:" + t);
       View db = dv.findViewWithTag("params-db:" + t);
       out.append(t).append(": ").append(pick == null ? "no file row" : pick.getText()).append(", Browse DB ").append(db == null ? "none" : db.isEnabled() ? "on" : "off").append('\n');
