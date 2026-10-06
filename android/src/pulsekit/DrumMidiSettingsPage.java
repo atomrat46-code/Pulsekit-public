@@ -16,6 +16,9 @@ final class DrumMidiSettingsPage {
     static final String PREFS = "pulsekit-drum-midi";
     static final String KEY = "settings";
     static final int PICK_KEY = 33;
+    /** Save MidiDrumGen output file into DB: its own setting, which Reset to defaults leaves alone. */
+    static final String GEN_TO_DB = "midiDrumGenToDb";
+    static boolean genToDb;
     static final int PICK_FOLDER = 34;
 
     final MainActivity app;
@@ -33,6 +36,11 @@ final class DrumMidiSettingsPage {
             MidiImportSettings.decode(app.getSharedPreferences(PREFS, 0).getString(KEY, null));
         } catch (Throwable ignored) {
             MidiImportSettings.reset();
+        }
+        try {
+            genToDb = app.getSharedPreferences(PREFS, 0).getBoolean(GEN_TO_DB, false);
+        } catch (Throwable ignored) {
+            genToDb = false;
         }
         ApiKeys.init(new java.io.File(app.getFilesDir(), "sogni"));
         ProgramFolder.init(new java.io.File(app.getFilesDir(), "sogni"));
@@ -68,6 +76,19 @@ final class DrumMidiSettingsPage {
         body.addView(this.fillernDefaultGroup());
         body.addView(this.keyGroup());
         body.addView(this.folderGroup());
+        View gen = this.check("Save MidiDrumGen output file into DB",
+            "When MidiDrumGen finishes, its MIDI goes into the prompt library (Music, prompt MidiDrumGen) as a result file, "
+                + "with the arguments it ran with. Result files on the Prompts page plays it.",
+            genToDb, on -> {
+                genToDb = on;
+                try {
+                    app.getSharedPreferences(PREFS, 0).edit().putBoolean(GEN_TO_DB, on).apply();
+                } catch (Throwable ignored) {
+                    // the setting stays for this session
+                }
+            });
+        gen.setTag("midi-drum-gen-db");
+        body.addView(gen);
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();

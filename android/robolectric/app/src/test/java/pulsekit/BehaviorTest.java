@@ -2047,6 +2047,57 @@ public class BehaviorTest {
     @Override public void engineLoad(java.io.InputStream i, char[] p) {}
   }
 
+  /**
+   * Drum Midi Settings: "Save MidiDrumGen output file into DB". Off (the default), a MidiDrumGen run
+   * stores nothing; on, its MIDI goes into the prompt library (Music / MidiDrumGen) as a result file.
+   */
+  @Test
+  public void s60_midi_drum_gen_db() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    android.widget.CheckBox box = null;
+    View item = root().findViewWithTag("midi-drum-gen-db");
+    if (item instanceof android.view.ViewGroup) {
+      for (int i = 0; i < ((android.view.ViewGroup) item).getChildCount(); i++) {
+        if (((android.view.ViewGroup) item).getChildAt(i) instanceof android.widget.CheckBox) box = (android.widget.CheckBox) ((android.view.ViewGroup) item).getChildAt(i);
+      }
+    }
+    out.append("checkbox: ").append(box == null ? "none" : box.getText() + (box.isChecked() ? " (on)" : " (off)")).append('\n');
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MidiDrumGen.java");
+    byte[] mid = {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 'M', 'T', 'r', 'k', 0, 0, 0, 12,
+      0, (byte) 0x99, 36, 100, 96, (byte) 0x89, 36, 0, 0, (byte) 0xFF, 0x2F, 0};
+    for (int run = 1; run <= 3; run++) {
+      if (run == 2) box.setChecked(true);
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("hard_rock_" + run + ".mid", mid));
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Hard Rock", "--bars", "4",
+          new java.io.File(app.getCacheDir(), "pyjav-in/hard_rock_" + run + ".mid").getAbsolutePath()));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote hard_rock_" + run + ".mid (style=Hard Rock base=hard_rock tempo=120 timesig=4/4 bars=4)", files, 0));
+      idle();
+      AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (d != null && d.isShowing()) d.dismiss();
+      idle();
+      String library = "";
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) library = line;
+      out.append("run ").append(run).append(" (setting ").append(box.isChecked() ? "on" : "off").append("): ").append(library.length() == 0 ? "not stored" : library).append('\n');
+    }
+    PromptVault vault = PromptVault.open(app);
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        if (!p.title.equals("MidiDrumGen")) continue;
+        out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
+        for (PromptVault.Version v : vault.versions(p.id)) {
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+              .append(" bytes), result text: ").append(v.resultText).append('\n');
+        }
+      }
+    }
+    out.append("kept: ").append(app.getSharedPreferences(DrumMidiSettingsPage.PREFS, 0).getBoolean(DrumMidiSettingsPage.GEN_TO_DB, false)).append('\n');
+    write("s60_midi_drum_gen_db", out.toString());
+  }
+
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */
   @Test
   public void s53_program_folder() throws Exception {
