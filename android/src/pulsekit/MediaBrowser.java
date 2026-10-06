@@ -815,6 +815,11 @@ final class MediaBrowser {
         TextView speedLabel;
         TextView time;
 
+        /** The player's window and the app's: kept on while it plays. */
+        android.view.Window window;
+        android.view.Window appWindow;
+        boolean awake;
+
         /** The screen stays on while the video plays; paused, stopped or at its end the phone's own timeout applies. */
         void keepAwake() {
             boolean on = false;
@@ -823,7 +828,14 @@ final class MediaBrowser {
             } catch (Exception ignored) {
                 // released: closing
             }
-            if (view.getKeepScreenOn() != on) view.setKeepScreenOn(on);
+            setAwake(on);
+        }
+
+        void setAwake(boolean on) {
+            if (awake == on) return;
+            awake = on;
+            screenOn(window, on);
+            screenOn(appWindow, on);
         }
 
         /** The time label: where it is / how long it is. */
@@ -882,6 +894,13 @@ final class MediaBrowser {
                 // this phone's player cannot change speed (or it is closing)
             }
         }
+    }
+
+    /** Keeps the screen on (or lets it time out again) while `window` shows: the window flag, which every phone honours. */
+    static void screenOn(android.view.Window window, boolean on) {
+        if (window == null) return;
+        if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     static Video lastVideo;
@@ -1056,10 +1075,12 @@ final class MediaBrowser {
             return true;
         });
         p.view.setVideoURI(this.uri(e));
+        p.window = d.getWindow();
+        p.appWindow = this.app.getWindow();
         d.setOnShowListener(x -> this.main.post(clock[0]));
         d.setOnDismissListener(x -> {
             this.main.removeCallbacks(clock[0]);
-            p.view.setKeepScreenOn(false);
+            p.setAwake(false);
             // The next video opens as this one was left.
             MediaDir.volume = p.volume;
             MediaDir.zoom = p.zoom;

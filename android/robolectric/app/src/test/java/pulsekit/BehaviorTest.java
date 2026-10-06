@@ -1816,9 +1816,10 @@ public class BehaviorTest {
     VideoOffer.Player p = VideoOffer.last;
     out.append("start: ").append(play.getText()).append(", ").append(mute.getText()).append(", volume ").append(level.getText()).append('\n');
     play.performClick();
-    out.append("Play: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    int keep = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+    out.append("Play: ").append(play.getText()).append(", playing ").append(p.playing).append(", screen kept on ").append((d.getWindow().getAttributes().flags & keep) != 0).append('\n');
     play.performClick();
-    out.append("Pause: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
+    out.append("Pause: ").append(play.getText()).append(", playing ").append(p.playing).append(", screen kept on ").append((d.getWindow().getAttributes().flags & keep) != 0).append('\n');
     play.performClick();
     dv.findViewWithTag("video-offer:stop").performClick();
     out.append("Stop: ").append(play.getText()).append(", playing ").append(p.playing).append('\n');
@@ -1830,7 +1831,7 @@ public class BehaviorTest {
     out.append("Unmute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(p.gain()).append('\n');
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
-    out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append('\n');
+    out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append(", app screen kept on ").append((app.getWindow().getAttributes().flags & keep) != 0).append('\n');
     write("s58_video_offer", out.toString());
   }
 
@@ -2503,10 +2504,11 @@ public class BehaviorTest {
     // The screen stays on while it plays, not while it is paused.
     mp.start();
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
-    out.append("playing: screen kept on ").append(v.view.getKeepScreenOn());
+    int keep = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+    out.append("playing: screen kept on: player window ").append((v.window.getAttributes().flags & keep) != 0).append(", app window ").append((app.getWindow().getAttributes().flags & keep) != 0);
     mp.pause();
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
-    out.append(", paused: ").append(v.view.getKeepScreenOn()).append('\n');
+    out.append("; paused: ").append((v.window.getAttributes().flags & keep) != 0).append(", ").append((app.getWindow().getAttributes().flags & keep) != 0).append('\n');
     out.append("player: loop ").append(v.loop).append(", title ").append(((TextView) tv.findViewWithTag("media-video-title")).getText()).append('\n');
     TextView mute = (TextView) tv.findViewWithTag("media-video-mute");
     mute.performClick();
