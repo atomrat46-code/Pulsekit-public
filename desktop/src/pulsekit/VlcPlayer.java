@@ -47,6 +47,7 @@ final class VlcPlayer {
         int libvlc_audio_set_volume(Pointer player, int volume);
         int libvlc_video_get_size(Pointer player, int num, com.sun.jna.ptr.IntByReference width, com.sun.jna.ptr.IntByReference height);
         void libvlc_audio_set_mute(Pointer player, int mute);
+        int libvlc_media_player_set_rate(Pointer player, float rate);
         void libvlc_video_set_callbacks(Pointer player, Lock lock, Unlock unlock, Display display, Pointer opaque);
         void libvlc_video_set_format_callbacks(Pointer player, Setup setup, Cleanup cleanup);
     }
@@ -386,6 +387,11 @@ final class VlcPlayer {
     /** 0..100. */
     void volume(int percent) {
         if (this.player != null) lib.libvlc_audio_set_volume(this.player, Math.max(0, Math.min(100, percent)));
+    }
+
+    /** Playback speed: 1 as recorded, 0.5 half, 2 double. */
+    void rate(double speed) {
+        if (this.player != null) lib.libvlc_media_player_set_rate(this.player, (float) speed);
     }
 
     void mute(boolean on) {

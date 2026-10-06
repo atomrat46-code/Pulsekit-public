@@ -239,7 +239,7 @@ final class MediaBrowser {
         try {
             if (entry.kind == MediaDir.VIDEO) {
                 // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
-                app.promptDb.videoFile(entry.name, f, MediaDir.loopVideos);
+                app.promptDb.videoFile(entry.name, f, MediaDir.loopVideos, true);
                 return;
             }
             app.promptDb.preview(entry.name, Files.readAllBytes(f.toPath()));
@@ -248,7 +248,7 @@ final class MediaBrowser {
         }
     }
 
-    /** Loop videos, kept in ~/.pulsekit/media-browser.txt. */
+    /** Loop videos and the player's last volume, zoom and speed (MediaDir.encode), kept in ~/.pulsekit/media-browser.txt. */
     static File settings() {
         return new File(PromptDb.dir(), "media-browser.txt");
     }
@@ -256,9 +256,9 @@ final class MediaBrowser {
     static void loadLoop() {
         try {
             File f = settings();
-            MediaDir.loopVideos = f.isFile() && new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).contains("loop=1");
+            MediaDir.decode(f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8) : null);
         } catch (Exception ex) {
-            MediaDir.loopVideos = false;
+            MediaDir.decode(null);
         }
     }
 
@@ -266,7 +266,7 @@ final class MediaBrowser {
         try {
             File f = settings();
             f.getParentFile().mkdirs();
-            Files.write(f.toPath(), ("loop=" + (MediaDir.loopVideos ? 1 : 0) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Files.write(f.toPath(), MediaDir.encode().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         } catch (Exception ignored) {
             // kept for this session
         }

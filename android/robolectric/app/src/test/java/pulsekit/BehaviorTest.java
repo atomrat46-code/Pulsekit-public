@@ -2486,7 +2486,7 @@ public class BehaviorTest {
     out.append("Loop videos: ").append(loop.getText()).append(", ticked ").append(loop.isChecked()).append('\n');
     loop.performClick();
     idle();
-    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getBoolean(MediaBrowser.LOOP, false)).append('\n');
+    out.append("ticked: ").append(loop.isChecked()).append(", kept ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim()).append('\n');
     bv.findViewWithTag("media-card:walk.mp4").performClick();
     idle();
     MediaBrowser.Video v = MediaBrowser.lastVideo;
@@ -2502,8 +2502,23 @@ public class BehaviorTest {
       tv.findViewWithTag(z).performClick();
       out.append("  ").append(z).append(": ").append(((TextView) tv.findViewWithTag("media-video-zoom")).getText()).append(", scale ").append(v.view.getScaleX()).append('\n');
     }
-    ShadowDialog.getLatestDialog().dismiss();
+    // Playback speed: a list from 0.25x to 2x.
+    android.app.Dialog player = ShadowDialog.getLatestDialog();
+    TextView speed = (TextView) tv.findViewWithTag("media-video-speed");
+    out.append("speed: ").append(speed.getText()).append('\n');
+    speed.performClick();
     idle();
+    AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < list.getListView().getAdapter().getCount(); i++) items.append(list.getListView().getAdapter().getItem(i)).append(' ');
+    out.append("speeds: ").append(items.toString().trim()).append('\n');
+    org.robolectric.Shadows.shadowOf(list).clickOnItem(5);
+    idle();
+    out.append("picked: ").append(speed.getText()).append(", player ").append(v.speed).append('\n');
+    tv.findViewWithTag("media-video-zoom-in").performClick();
+    player.dismiss();
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "").replace('\n', ' ').trim()).append('\n');
     b.dialog.dismiss();
     idle();
     // Opened again later: Loop videos stays ticked.
@@ -2511,6 +2526,16 @@ public class BehaviorTest {
     b = MediaBrowser.open(app, media.getAbsolutePath());
     idle();
     out.append("reopened: ticked ").append(((android.widget.CheckBox) b.dialog.getWindow().getDecorView().findViewWithTag("media-loop")).isChecked()).append('\n');
+    // The next video opens as the last one was left.
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video again = MediaBrowser.lastVideo;
+    View av = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    out.append("next video: volume ").append(((android.widget.SeekBar) av.findViewWithTag("media-video-volume")).getProgress()).append(" (").append(((TextView) av.findViewWithTag("media-video-level")).getText())
+        .append("), zoom ").append(((TextView) av.findViewWithTag("media-video-zoom")).getText()).append(" scale ").append(again.view.getScaleX())
+        .append(", ").append(((TextView) av.findViewWithTag("media-video-speed")).getText()).append('\n');
+    ShadowDialog.getLatestDialog().dismiss();
+    idle();
     b.dialog.dismiss();
     write("s71_media_video", out.toString());
   }

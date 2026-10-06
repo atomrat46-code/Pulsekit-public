@@ -45,7 +45,7 @@ final class MediaBrowser {
     static final int PAGE = 48;
     /** Where Loop videos is kept. */
     static final String PREFS = "pulsekit-media";
-    static final String LOOP = "loopVideos";
+    static final String SETTINGS = "settings";
 
     /** The browser shown last, for the tests. */
     static MediaBrowser last;
@@ -97,6 +97,15 @@ final class MediaBrowser {
         }
     }
 
+    /** Loop videos and the player's last volume, zoom and speed (MediaDir.encode), from the app's preferences. */
+    static void load(MainActivity app) {
+        MediaDir.decode(app.getSharedPreferences(PREFS, 0).getString(SETTINGS, null));
+    }
+
+    static void save(MainActivity app) {
+        app.getSharedPreferences(PREFS, 0).edit().putString(SETTINGS, MediaDir.encode()).apply();
+    }
+
     /** Opens the Media browser on `dir`: a granted folder's content:// address, or a path. */
     static MediaBrowser open(MainActivity app, String dir) {
         if (dir == null || dir.trim().length() == 0) {
@@ -124,7 +133,7 @@ final class MediaBrowser {
             }
             b = new MediaBrowser(app, null, new File(d).getAbsolutePath());
         }
-        MediaDir.loopVideos = app.getSharedPreferences(PREFS, 0).getBoolean(LOOP, false);
+        load(app);
         last = b;
         b.show();
         return b;
@@ -248,7 +257,7 @@ final class MediaBrowser {
         loop.setChecked(MediaDir.loopVideos);
         loop.setOnCheckedChangeListener((x, on) -> {
             MediaDir.loopVideos = on;
-            this.app.getSharedPreferences(PREFS, 0).edit().putBoolean(LOOP, on).apply();
+            save(this.app);
         });
         this.body.addView(loop);
         if (this.path.size() > 1) {
@@ -541,8 +550,10 @@ final class MediaBrowser {
         boolean muted;
         int volume = 100;
         double zoom = 1;
+        double speed = 1;
         boolean loop;
         TextView mute;
+        TextView speedLabel;
         TextView level;
         TextView zoomLabel;
 
@@ -571,6 +582,20 @@ final class MediaBrowser {
             }
             if (zoomLabel != null) zoomLabel.setText(MediaDir.zoomLabel(zoom));
         }
+
+        /** The playback speed; a paused video stays paused (setting the speed would start it). */
+        void speedTo(double v) {
+            speed = MediaDir.speed(v);
+            if (speedLabel != null) speedLabel.setText("Speed " + MediaDir.speedLabel(speed));
+            if (media == null) return;
+            try {
+                boolean was = media.isPlaying();
+                media.setPlaybackParams(media.getPlaybackParams().setSpeed((float) speed));
+                if (!was) media.pause();
+            } catch (Exception ignored) {
+                // this phone's player cannot change speed (or it is closing)
+            }
+        }
     }
 
     static Video lastVideo;
@@ -585,7 +610,10 @@ final class MediaBrowser {
         if (this.app.playing) this.app.playback.stop();
         final Dialog d = this.fullScreen();
         final Video p = new Video();
+        // As the last video was left: volume, zoom and speed.
         p.loop = MediaDir.loopVideos;
+        p.volume = MediaDir.volume;
+        p.speed = MediaDir.speed;
         lastVideo = p;
         LinearLayout col = this.app.col();
         col.setBackgroundColor(0xff000000);
@@ -634,7 +662,7 @@ final class MediaBrowser {
             public void onStopTrackingTouch(SeekBar s) {}
         });
         sound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
-        p.level = this.app.text("100%", 13, false);
+        p.level = this.app.text(p.volume + "%", 13, false);
         p.level.setTag("media-video-level");
         p.level.setMinWidth(this.app.dp(52));
         sound.addView(p.level);
@@ -655,7 +683,29 @@ final class MediaBrowser {
         zoom.addView(in);
         zoom.addView(fit);
         zoom.addView(p.zoomLabel);
+        // Playback speed: a list from 0.25x to 2x.
+        zoom.addView(new View(this.app), new LinearLayout.LayoutParams(0, 1, 1f));
+        p.speedLabel = this.app.pill("Speed " + MediaDir.speedLabel(p.speed), false, v -> {
+            final String[] labels = new String[MediaDir.SPEEDS.length];
+            int now = 0;
+            for (int i = 0; i < labels.length; i++) {
+                labels[i] = MediaDir.speedLabel(MediaDir.SPEEDS[i]);
+                if (MediaDir.SPEEDS[i] == p.speed) now = i;
+            }
+            new AlertDialog.Builder(this.app)
+                .setTitle("Playback speed")
+                .setSingleChoiceItems(labels, now, (dd, which) -> {
+                    p.speedTo(MediaDir.SPEEDS[which]);
+                    dd.dismiss();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        });
+        p.speedLabel.setTag("media-video-speed");
+        zoom.addView(p.speedLabel);
         col.addView(zoom);
+        // The last video's zoom.
+        p.zoomTo(MediaDir.zoom);
         // The play / pause and position controls show over the picture on a tap.
         final MediaController controls = new MediaController(this.app);
         controls.setAnchorView(frame);
@@ -695,6 +745,7 @@ final class MediaBrowser {
             p.media = mp;
             mp.setLooping(p.loop);
             p.applyVolume();
+            if (p.speed != 1) p.speedTo(p.speed);
             controls.show(3000);
         });
         p.view.setOnErrorListener((mp, what, extra) -> {
@@ -703,6 +754,11 @@ final class MediaBrowser {
         });
         p.view.setVideoURI(this.uri(e));
         d.setOnDismissListener(x -> {
+            // The next video opens as this one was left.
+            MediaDir.volume = p.volume;
+            MediaDir.zoom = p.zoom;
+            MediaDir.speed = p.speed;
+            save(this.app);
             p.media = null;
             p.view.stopPlayback();
         });

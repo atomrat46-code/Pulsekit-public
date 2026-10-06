@@ -111,6 +111,55 @@ public final class MediaDir {
 
   /** Media browser: videos start again at their end (the browser's Loop videos; each app keeps it). */
   public static volatile boolean loopVideos;
+  /** The Media browser's video player as last left: volume (0..100), zoom (1..4) and playback speed. */
+  public static volatile int volume = 100;
+  public static volatile double zoom = 1;
+  public static volatile double speed = 1;
+
+  /** Playback speeds to pick from. */
+  public static final double[] SPEEDS = {0.25, 0.5, 0.75, 1, 1.25, 1.5, 2};
+
+  /** "1x", "0.75x", "1.5x". */
+  public static String speedLabel(double v) {
+    String t = v == Math.rint(v) ? Long.toString((long) v) : Double.toString(v);
+    return t + "x";
+  }
+
+  /** The speed `v` as one of SPEEDS (the nearest); 1 for anything unreadable. */
+  public static double speed(double v) {
+    if (Double.isNaN(v) || v <= 0) return 1;
+    double best = 1;
+    for (double s : SPEEDS) if (Math.abs(s - v) < Math.abs(best - v)) best = s;
+    return best;
+  }
+
+  /** The settings above as text, one per line (the desktop's ~/.pulsekit/media-browser.txt, the phone's preferences). */
+  public static String encode() {
+    return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed + "\n";
+  }
+
+  /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
+  public static void decode(String text) {
+    loopVideos = false;
+    volume = 100;
+    zoom = 1;
+    speed = 1;
+    if (text == null) return;
+    for (String line : text.split("\n")) {
+      int eq = line.indexOf('=');
+      if (eq < 0) continue;
+      String k = line.substring(0, eq).trim();
+      String v = line.substring(eq + 1).trim();
+      try {
+        if (k.equals("loop")) loopVideos = v.equals("1");
+        else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
+        else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
+        else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+      } catch (NumberFormatException ignored) {
+        // that one keeps its default
+      }
+    }
+  }
 
   /** A video's zoom steps, from fitting the screen (1) to four times that. */
   private static final double[] ZOOMS = {1, 1.25, 1.5, 2, 2.5, 3, 4};

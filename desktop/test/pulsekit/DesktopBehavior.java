@@ -2197,13 +2197,58 @@ public final class DesktopBehavior {
       // 3.5 s long: after 5 s it is playing again from the start.
       Thread.sleep(5000);
       out.append("after 5 s: playing ").append(player.playing()).append(", ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
+      // Speed 2x: a second of playing moves it on about two.
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> speed = (javax.swing.JComboBox<String>) component(dialog, "video-speed");
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < speed.getItemCount(); i++) items.append(speed.getItemAt(i)).append(' ');
+      out.append("speeds: ").append(items.toString().trim()).append(", now ").append(speed.getSelectedItem()).append('\n');
+      edt(() -> speed.setSelectedItem("2x"));
+      Thread.sleep(300);
+      long t0 = player.timeMs();
+      Thread.sleep(1000);
+      long moved = player.timeMs() - t0;
+      out.append("2x: one second moves it on ").append(moved > 1500 || moved < -1500 ? "about two" : moved + " ms").append('\n');
+      edt(() -> speed.setSelectedItem("1.5x"));
+      edt(() -> ((javax.swing.JSlider) component(dialog, "video-volume")).setValue(40));
       edt(() -> ((javax.swing.JCheckBox) component(dialog, "video-loop")).doClick());
       for (int i = 0; i < 80 && player.state() != VlcPlayer.ENDED; i++) Thread.sleep(100);
       out.append("Loop off: ended ").append(player.state() == VlcPlayer.ENDED).append('\n');
       edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
       idle();
+      out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ')).append('\n');
+      // The next video opens as that one was left.
+      set("lastVideo", null);
+      answers.add("Mute");
+      SwingUtilities.invokeLater(open);
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(800);
+      idle();
+      JDialog again = (JDialog) get("lastVideo");
+      out.append("opened again: volume ").append(((javax.swing.JSlider) component(again, "video-volume")).getValue())
+          .append(", zoom ").append(((JLabel) component(again, "video-zoom")).getText())
+          .append(", speed ").append(((javax.swing.JComboBox<?>) component(again, "video-speed")).getSelectedItem()).append('\n');
+      edt(() -> ((javax.swing.JButton) find(again.getContentPane(), "Close")).doClick());
+      idle();
+      // A preview elsewhere (the Prompts page) keeps its own: 80%, fit, 1x.
+      PromptDb db = (PromptDb) get("promptDb");
+      set("lastVideo", null);
+      answers.add("Mute");
+      SwingUtilities.invokeLater(() -> db.vlcPreview("clip.webm", clip));
+      for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+      Thread.sleep(800);
+      idle();
+      JDialog other = (JDialog) get("lastVideo");
+      out.append("Prompts preview: volume ").append(((javax.swing.JSlider) component(other, "video-volume")).getValue())
+          .append(", zoom ").append(((JLabel) component(other, "video-zoom")).getText())
+          .append(", speed ").append(((javax.swing.JComboBox<?>) component(other, "video-speed")).getSelectedItem()).append('\n');
+      edt(() -> ((javax.swing.JButton) find(other.getContentPane(), "Close")).doClick());
+      idle();
     } else {
       out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      MediaDir.volume = 40;
+      MediaDir.zoom = 1.25;
+      MediaDir.speed = 1.5;
     }
     // Without VLC: the browser's player page, looping, with zoom.
     System.setProperty("pulsekit.novlc", "true");
@@ -2214,6 +2259,7 @@ public final class DesktopBehavior {
     for (int i = 0; i < 50 && page[0] == null; i++) Thread.sleep(100);
     idle();
     String html = page[0] == null ? "" : new String(Files.readAllBytes(new File(page[0]).toPath()), StandardCharsets.UTF_8);
+    out.append("player page starts at: volume ").append(html.contains("value=\"40\"")).append(", zoom ").append(html.contains("z=1.25,")).append(", speed ").append(html.contains("value=\"1.5\" selected")).append('\n');
     out.append("player page: loop ").append(html.contains(" loop>")).append(", Loop box ").append(html.contains("id=\"loop\" type=\"checkbox\" checked")).append(", Mute ").append(html.contains("id=\"mute\""))
         .append(", volume ").append(html.contains("id=\"volume\"")).append(", zoom ").append(html.contains("id=\"zin\"") && html.contains("id=\"zout\"") && html.contains("id=\"fit\"")).append('\n');
     out.append("zoom steps: ");

@@ -664,8 +664,17 @@ final class PyJav {
         return this.videoPage(video, false);
     }
 
-    /** As above, with Loop (ticked when `loop` says so) and Zoom −, Zoom +, Fit (a drag moves a zoomed video). */
+    /** As above, with Loop (ticked when `loop` says so), Zoom −, Zoom +, Fit (a drag moves a zoomed video) and Speed. */
     File videoPage(File video, boolean loop) throws java.io.IOException {
+        return this.videoPage(video, loop, 100, 1, 1);
+    }
+
+    /** As above, starting at `volume` (0..100), `zoom` (1..4) and `speed` (the Media browser's last ones). */
+    File videoPage(File video, boolean loop, int volume, double zoom, double speed) throws java.io.IOException {
+        StringBuilder speeds = new StringBuilder();
+        for (double v : MediaDir.SPEEDS) {
+            speeds.append("<option value=\"").append(v).append('"').append(v == MediaDir.speed(speed) ? " selected" : "").append('>').append(MediaDir.speedLabel(v)).append("</option>");
+        }
         File dir = new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-player");
         if (!dir.isDirectory()) dir.mkdirs();
         String name = video.getName().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
@@ -682,8 +691,9 @@ final class PyJav {
             + "<div id=\"box\"><video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline" + (loop ? " loop" : "") + "></video></div>\n"
             + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button>"
             + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label></div>\n"
-            + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span></div>\n"
-            + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"100\"> <span id=\"level\">100%</span></div>\n"
+            + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span>"
+            + " &nbsp;Speed <select id=\"speed\">" + speeds + "</select></div>\n"
+            + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"" + volume + "\"> <span id=\"level\">" + volume + "%</span></div>\n"
             + "<script>\n"
             + "var v=document.getElementById('v'),play=document.getElementById('play'),mute=document.getElementById('mute'),vol=document.getElementById('volume'),level=document.getElementById('level');\n"
             + "function show(){play.textContent=v.paused?'Play':'Pause';mute.textContent=v.muted?'Unmute':'Mute';mute.className=v.muted?'on':'';level.textContent=v.muted?'muted':vol.value+'%';}\n"
@@ -692,7 +702,9 @@ final class PyJav {
             + "mute.onclick=function(){v.muted=!v.muted;show();};\n"
             + "vol.oninput=function(){v.volume=vol.value/100;show();};\n"
             + "document.getElementById('loop').onchange=function(){v.loop=this.checked;};\n"
-            + "var steps=[1,1.25,1.5,2,2.5,3,4],z=1,px=0,py=0,box=document.getElementById('box');\n"
+            + "var sp=document.getElementById('speed');sp.onchange=function(){v.playbackRate=v.defaultPlaybackRate=parseFloat(sp.value);};\n"
+            + "v.volume=vol.value/100;v.playbackRate=v.defaultPlaybackRate=parseFloat(sp.value);\n"
+            + "var steps=[1,1.25,1.5,2,2.5,3,4],z=" + MediaDir.clampZoom(zoom) + ",px=0,py=0,box=document.getElementById('box');\n"
             + "function paint(){if(z==1){px=0;py=0;}var mx=v.clientWidth*(z-1)/2,my=v.clientHeight*(z-1)/2;px=Math.max(-mx,Math.min(mx,px));py=Math.max(-my,Math.min(my,py));"
             + "v.style.transform='translate('+px+'px,'+py+'px) scale('+z+')';document.getElementById('zoom').textContent=Math.round(z*100)+'%';}\n"
             + "function step(up){var i;if(up){for(i=0;i<steps.length;i++)if(steps[i]>z+0.001){z=steps[i];break;}}else{var n=1;for(i=0;i<steps.length;i++)if(steps[i]<z-0.001)n=steps[i];z=n;}paint();}\n"
@@ -701,7 +713,8 @@ final class PyJav {
             + "box.onwheel=function(e){e.preventDefault();step(e.deltaY<0);};\n"
             + "var dx=null,dy=0;box.onmousedown=function(e){dx=e.clientX-px;dy=e.clientY-py;};window.onmouseup=function(){dx=null;};\n"
             + "window.onmousemove=function(e){if(dx!==null&&z>1){px=e.clientX-dx;py=e.clientY-dy;paint();}};\n"
-            + "v.onplay=v.onpause=v.onended=show;\nshow();\n</script>\n</body></html>\n";
+            + "v.onloadedmetadata=paint;\n"
+            + "v.onplay=v.onpause=v.onended=show;\nshow();paint();\n</script>\n</body></html>\n";
         File page = new File(dir, video.getName().replaceAll("[^A-Za-z0-9._-]", "_") + ".html");
         Files.write(page.toPath(), html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return page;
