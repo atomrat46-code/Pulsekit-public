@@ -78,8 +78,8 @@ public final class ProgramParams {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
       if ((drumMidi || compareHits || splitWav || cutWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
-      // DrumMidi's input can be a MIDI from the library too, played with the kit to a WAV: a known answer to compare against.
-      if (drumMidi && !p.flag && p.isFile() && isAudio(p)) p.midiAsAudio = true;
+      // DrumMidi's and CompareHits' audio input can be a MIDI from the library too, played with the kit to a WAV.
+      if ((drumMidi || compareHits) && !p.flag && p.isFile() && isAudio(p)) p.midiAsAudio = true;
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
