@@ -729,7 +729,11 @@ public class MainActivity extends UiKit {
                 if (string == null) {
                     string = uri.toString();
                 }
-                this.projectIo.ingest(this.projectIo.readUri(uri), string, uri);
+                byte[] picked = this.projectIo.readUri(uri);
+                this.projectIo.ingest(picked, string, uri);
+                // Import screen: "Import to DB also" keeps the picked file in the prompt library too.
+                String toDb = ImportDb.store(this.getFilesDir(), DbImport.displayName(this, uri), picked);
+                if (!toDb.isEmpty()) Toast.makeText((Context)this, (CharSequence)toDb, (int)1).show();
                 return;
             }
             if (n == 9) {

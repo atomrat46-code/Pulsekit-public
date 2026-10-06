@@ -2469,6 +2469,58 @@ public class BehaviorTest {
   }
 
   /**
+   * Import screen: "Import to DB also" keeps a file picked with Choose file in the prompt library
+   * too, as a reference file; Browse DB (after Choose file) imports a library file as Choose file
+   * would, without storing it again. Kept across starts.
+   */
+  @Test
+  public void s65_import_to_db() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "import");
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) root().findViewWithTag("import-to-db");
+    out.append("checkbox: ").append(box.getText()).append(", ").append(box.isChecked()).append('\n');
+    TextView browse = (TextView) root().findViewWithTag("import-browse-db");
+    out.append("Browse DB: ").append(browse.getText()).append('\n');
+    // An empty library: Browse DB says so.
+    browse.performClick();
+    idle();
+    out.append("empty: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+    java.io.File dir = new java.io.File(app.getCacheDir(), "picked");
+    dir.mkdirs();
+    short[] tone = new short[2205];
+    java.io.File off = new java.io.File(dir, "off.wav");
+    java.nio.file.Files.write(off.toPath(), AudioIo.encodeWav(tone, 22050));
+    java.io.File loop = new java.io.File(dir, "loop.wav");
+    java.nio.file.Files.write(loop.toPath(), AudioIo.encodeWav(tone, 22050));
+    for (java.io.File f : new java.io.File[] {off, loop}) {
+      if (f == loop) box.setChecked(true);
+      app.projectIo.openFile();
+      org.robolectric.shadows.ShadowActivity.IntentForResult picker = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult();
+      app.onActivityResult(picker.requestCode, -1, new android.content.Intent().setData(android.net.Uri.fromFile(f)));
+      idle();
+      out.append(f.getName()).append(": input ").append(new java.io.File(app.pyJav.pkAudioInputPath).getName())
+          .append(", toast ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.referenceFiles()) out.append("ref: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    // Browse DB: the library's file, imported as Choose file would.
+    app.pyJav.pkAudioInputPath = null;
+    browse.performClick();
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("browse: ").append(org.robolectric.Shadows.shadowOf(d).getTitle()).append('\n');
+    d.getWindow().getDecorView().findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("from DB: input ").append(app.pyJav.pkAudioInputPath == null ? "none" : new java.io.File(app.pyJav.pkAudioInputPath).getName())
+        .append(", library still ").append(vault.referenceFiles().size()).append(" file").append('\n');
+    out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.IMPORT_TO_DB, false)).append('\n');
+    box.setChecked(false);
+    write("s65_import_to_db", out.toString());
+  }
+
+  /**
    * Export screen: "Export supported media files to DB also". Off, an export only writes the
    * file; on, a MIDI, WAV or MP3 export also goes into the prompt library as a reference file under
    * the name it was saved as (its extension added when it had none); SF2 is left out. Kept across starts.

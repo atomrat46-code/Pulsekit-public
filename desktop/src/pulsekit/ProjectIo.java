@@ -54,9 +54,36 @@ final class ProjectIo {
         jPanel2.add(Box.createVerticalStrut(8));
         jPanel2.add(jLabel2);
         jPanel2.add(Box.createVerticalStrut(16));
+        // A file picked here can also go into the prompt library, as a reference file.
+        ImportDb.on = this.loadImportToDb();
+        javax.swing.JCheckBox toDb = new javax.swing.JCheckBox("Import to DB also", ImportDb.on);
+        toDb.setName("import-to-db");
+        toDb.setOpaque(false);
+        toDb.setForeground(FG);
+        toDb.setAlignmentX(0.0f);
+        toDb.addActionListener(e -> {
+            ImportDb.on = toDb.isSelected();
+            this.saveImportToDb();
+        });
+        jPanel2.add(toDb);
+        JLabel toDbNote = new JLabel("A file chosen with Choose file is also added to the prompt library, as a reference file.");
+        toDbNote.setForeground(MUTED);
+        toDbNote.setAlignmentX(0.0f);
+        toDbNote.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 24, 8, 0));
+        jPanel2.add(toDbNote);
+        // Choose file, then Browse DB: a file from the prompt library, imported as if it were chosen.
+        JPanel chooseRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        chooseRow.setOpaque(false);
+        chooseRow.setAlignmentX(0.0f);
         JButton jButton = app.action("Choose file", FG, BG);
         jButton.addActionListener(actionEvent -> this.openFile());
-        jPanel2.add(jButton);
+        JButton browseDb = app.action("Browse DB", ELEV, FG);
+        browseDb.setName("import-browse-db");
+        browseDb.addActionListener(e -> this.browseDb());
+        chooseRow.add(jButton);
+        chooseRow.add(Box.createHorizontalStrut(8));
+        chooseRow.add(browseDb);
+        jPanel2.add(chooseRow);
         jPanel2.add(Box.createVerticalStrut(16));
         JLabel filesLab = new JLabel("Imported files");
         filesLab.setFont(new Font("SansSerif", 1, 14));
@@ -742,6 +769,44 @@ final class ProjectIo {
         return AudioIo.fileName(bl ? "silent" : string2, app.bpm(), string, app.fillVariated);
     }
 
+    File importSettingsFile() {
+        return new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "import-settings.txt");
+    }
+
+    boolean loadImportToDb() {
+        try {
+            File f = this.importSettingsFile();
+            return f.isFile() && new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains("toDb=1");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    void saveImportToDb() {
+        try {
+            File f = this.importSettingsFile();
+            f.getParentFile().mkdirs();
+            Files.write(f.toPath(), ("toDb=" + (ImportDb.on ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // the setting stays for this session
+        }
+    }
+
+    /** Import screen's Browse DB: a file from the prompt library, imported as Choose file would (not stored again). */
+    void browseDb() {
+        if (PromptDb.allFiles(null).isEmpty()) {
+            app.setNow("The prompt library has no files yet");
+            return;
+        }
+        app.promptDb.browse(null, (name, file) -> {
+            try {
+                this.ingest(Files.readAllBytes(file.toPath()), name);
+            } catch (Exception exception) {
+                JOptionPane.showMessageDialog(app, "Could not import " + name + ": " + exception.getMessage());
+            }
+        });
+    }
+
     void openFile() {
         JFileChooser jFileChooser = new JFileChooser();
         jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set", "sng", "mid", "midi", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset"));
@@ -750,7 +815,15 @@ final class ProjectIo {
         }
         File file = jFileChooser.getSelectedFile();
         try {
-            this.ingest(Files.readAllBytes(file.toPath()), file.getName());
+            byte[] picked = Files.readAllBytes(file.toPath());
+            this.ingest(picked, file.getName());
+            // Import screen: "Import to DB also" keeps the picked file in the prompt library too.
+            String toDb = ImportDb.store(PromptDb.dir(), file.getName(), picked);
+            if (!toDb.isEmpty()) {
+                // After what the import itself said, not over it.
+                String now = app.nowPlaying.getText() == null ? "" : app.nowPlaying.getText().trim();
+                app.setNow(now.isEmpty() ? toDb : now + " \u00b7 " + toDb);
+            }
         }
         catch (Exception exception) {
             JOptionPane.showMessageDialog(app, "Could not read that file: " + exception.getMessage());
