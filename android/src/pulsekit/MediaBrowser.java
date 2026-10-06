@@ -465,6 +465,9 @@ final class MediaBrowser {
         final int cell = (this.app.getResources().getDisplayMetrics().widthPixels - this.app.dp(96)) / 3;
         LinearLayout row = null;
         final List<ImageView> views = new ArrayList<ImageView>();
+        // The files already in this folder's playlist get a ☰ badge.
+        final java.util.Set<String> listed = new java.util.HashSet<String>();
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) listed.add(it.id);
         final List<MediaDir.Entry> wanted = new ArrayList<MediaDir.Entry>();
         for (int i = from; i < to; i++) {
             final MediaDir.Entry e = this.entries.get(i);
@@ -491,6 +494,7 @@ final class MediaBrowser {
                 box.addView(play, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END));
                 play.setPadding(this.app.dp(4), 0, this.app.dp(6), this.app.dp(2));
             }
+            if (!e.folder && listed.contains(e.id)) this.badge(box, e);
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
             TextView name = this.app.text(e.name, 11, false);
             name.setMaxLines(2);
@@ -577,6 +581,9 @@ final class MediaBrowser {
         if (which == 2) {
             String said = MediaPlaylist.add(this.app.getFilesDir(), this.folderKey(), e.id, e.name, e.size);
             this.paintPlaylist();
+            // Its card gets the badge at once.
+            View card = this.body.findViewWithTag("media-card:" + e.name);
+            if (card instanceof LinearLayout && ((LinearLayout) card).getChildAt(0) instanceof FrameLayout) this.badge((FrameLayout) ((LinearLayout) card).getChildAt(0), e);
             return said;
         }
         if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
@@ -604,6 +611,18 @@ final class MediaBrowser {
         } finally {
             in.close();
         }
+    }
+
+    /** The ☰ badge in a card's top left corner: the file is in this folder's playlist. */
+    void badge(FrameLayout box, MediaDir.Entry e) {
+        if (box.findViewWithTag("media-in-playlist:" + e.name) != null) return;
+        TextView mark = this.app.text("\u2630", 14, true);
+        mark.setTag("media-in-playlist:" + e.name);
+        mark.setTextColor(UiKit.BG);
+        mark.setBackgroundColor(UiKit.ACCENT);
+        mark.setPadding(this.app.dp(5), this.app.dp(2), this.app.dp(5), this.app.dp(3));
+        mark.setContentDescription("In this folder's playlist");
+        box.addView(mark, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START));
     }
 
     static String ext(String name) {

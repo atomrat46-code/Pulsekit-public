@@ -2650,6 +2650,13 @@ public class BehaviorTest {
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     TextView playlistButton = (TextView) bv.findViewWithTag("media-playlist");
     out.append("Playlist button before: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    final View browserView = bv;
+    java.util.function.Supplier<String> badges = () -> {
+      StringBuilder marks = new StringBuilder();
+      for (String n : new String[] {"beat.wav", "groove.mid", "sunset.png", "walk.mp4"}) marks.append(n).append(browserView.findViewWithTag("media-in-playlist:" + n) != null ? " \u2630" : " -").append("  ");
+      return marks.toString().trim();
+    };
+    out.append("badges before: ").append(badges.get()).append('\n');
     String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
     for (String[] pick : picks) {
       boolean handled = bv.findViewWithTag("media-card:" + pick[0]).performLongClick();
@@ -2668,6 +2675,7 @@ public class BehaviorTest {
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) out.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
     out.append("Playlist button after: ").append(playlistButton.getVisibility() == View.VISIBLE ? playlistButton.getText() : "hidden").append('\n');
+    out.append("badges after: ").append(badges.get()).append('\n');
     for (MediaPlaylist.Item it : MediaPlaylist.items(app.getFilesDir(), b.folderKey())) out.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(media.getParent(), "~")).append('\n');
     // The playlist window: its files in order; a tap plays or opens one as its thumbnail does.
     playlistButton.performClick();
@@ -2716,7 +2724,7 @@ public class BehaviorTest {
     out.append(", after adding beach.jpg: ").append(morePlaylist.getVisibility() == View.VISIBLE ? morePlaylist.getText() : "hidden").append('\n');
     bv.findViewWithTag("media-up").performClick();
     idle();
-    out.append("back up, Playlist button: ").append(((TextView) bv.findViewWithTag("media-playlist")).getText()).append('\n');
+    out.append("back up, Playlist button: ").append(((TextView) bv.findViewWithTag("media-playlist")).getText()).append(", badges ").append(badges.get()).append('\n');
     bv.findViewWithTag("media-folder:more").performClick();
     idle();
     out.append("in more: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none")

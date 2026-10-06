@@ -83,6 +83,8 @@ final class MediaBrowser {
         this.shown = dir;
         final AtomicBoolean gone = new AtomicBoolean();
         final List<MediaDir.Entry> entries = list(dir);
+        this.listed.clear();
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -248,6 +250,7 @@ final class MediaBrowser {
         File f = (File) card.getClientProperty("media-file");
         MediaDir.Entry e = new MediaDir.Entry();
         e.name = f.getName();
+        e.id = f.getAbsolutePath();
         e.size = f.length();
         e.kind = MediaDir.kind(e.name);
         card.setIcon(icon);
@@ -455,7 +458,14 @@ final class MediaBrowser {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(MediaDir.MENU[i]);
             item.setName("media-menu:" + i);
-            item.addActionListener(e -> app.setNow(this.menuPicked(entry, f, which)));
+            item.addActionListener(e -> {
+                app.setNow(this.menuPicked(entry, f, which));
+                // Added to the playlist: its card gets the ☰ badge at once.
+                if (which == 2 && card instanceof JButton) {
+                    JButton b = (JButton) card;
+                    b.setText(this.caption(entry, b.getIcon() != null ? null : mark(entry)));
+                }
+            });
             menu.add(item);
         }
         this.lastMenu = menu;
@@ -466,6 +476,7 @@ final class MediaBrowser {
     String menuPicked(MediaDir.Entry entry, File f, int which) {
         if (which == 2) {
             String said = MediaPlaylist.add(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name, f.length());
+            this.listed.add(f.getAbsolutePath());
             this.paintPlaylist();
             return said;
         }
@@ -534,11 +545,16 @@ final class MediaBrowser {
         return dot >= 0 ? e.name.substring(dot + 1).toUpperCase() : "FILE";
     }
 
-    private static String caption(MediaDir.Entry e, String mark) {
+    /** The files in the shown folder's playlist (they get a ☰ badge). */
+    private final java.util.Set<String> listed = new java.util.HashSet<String>();
+
+    private String caption(MediaDir.Entry e, String mark) {
+        String badge = !e.folder && this.listed.contains(e.id)
+            ? "<span style='background:#D9A441;color:#0A0B0C'>&nbsp;\u2630&nbsp;</span> " : "";
         String sub = e.folder ? "folder" : e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video · ▶" : "sound · ▶";
         if (!e.folder) sub += " · " + Math.max(1, e.size / 1024) + " KB";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
-            + "<div style='width:" + CELL + "px'>" + esc(e.name) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
+            + "<div style='width:" + CELL + "px'>" + badge + esc(e.name) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
 
     private static String esc(String s) {

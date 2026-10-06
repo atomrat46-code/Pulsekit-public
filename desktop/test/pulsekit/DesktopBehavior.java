@@ -2060,6 +2060,14 @@ public final class DesktopBehavior {
         // A right click on a card: its menu. Add to DB as a reference file, as a result file, Add to default playlist.
         javax.swing.JButton playlist = (javax.swing.JButton) component(d, "media-playlist");
         seen.append("Playlist button before: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        java.util.function.Supplier<String> badges = () -> {
+          StringBuilder b = new StringBuilder();
+          for (String n : new String[] {"beat.wav", "sunset.png", "walk.mp4"}) {
+            b.append(n).append(((javax.swing.JButton) component(d, "media-card:" + n)).getText().contains("\u2630") ? " \u2630" : " -").append("  ");
+          }
+          return b.toString().trim();
+        };
+        seen.append("badges before: ").append(badges.get()).append('\n');
         String[][] picks = {{"sunset.png", "0"}, {"beat.wav", "1"}, {"walk.mp4", "2"}, {"walk.mp4", "2"}, {"sunset.png", "2"}, {"beat.wav", "2"}};
         for (String[] pick : picks) {
           javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + pick[0]);
@@ -2076,6 +2084,7 @@ public final class DesktopBehavior {
         for (PromptVault.StoredFile f : PromptDb.files(false, null)) seen.append("ref file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
         for (PromptVault.StoredFile f : PromptDb.files(true, null)) seen.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
         seen.append("Playlist button after: ").append(playlist.isVisible() ? playlist.getText() : "hidden").append('\n');
+        seen.append("badges after: ").append(badges.get()).append('\n');
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), media.getAbsolutePath())) seen.append("playlist: ").append(it.name).append(" = ").append(it.id.replace(home.getAbsolutePath(), "~")).append('\n');
         ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
         // A folder under it has a playlist of its own.
@@ -2089,7 +2098,7 @@ public final class DesktopBehavior {
         beachMenu.setVisible(false);
         seen.append(", after adding beach.jpg: ").append(morePlaylist.isVisible() ? morePlaylist.getText() : "hidden").append('\n');
         ((javax.swing.JButton) component(d, "media-up")).doClick();
-        seen.append("back up, Playlist button: ").append(((javax.swing.JButton) component(d, "media-playlist")).getText()).append('\n');
+        seen.append("back up, Playlist button: ").append(((javax.swing.JButton) component(d, "media-playlist")).getText()).append(", badges ").append(badges.get()).append('\n');
         ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
         seen.append("in more: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
         for (String s : names(d.getContentPane())) if (s.startsWith("media-card") || s.startsWith("media-folder")) seen.append("  ").append(s).append('\n');
