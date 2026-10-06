@@ -33,10 +33,11 @@ public final class Sealed {
   public static byte[] seal(byte[] plain) throws Exception {
     PromptVault.Keys k = PromptVault.keys;
     if (k == null) throw new IllegalStateException("No key for the prompt library");
-    byte[] iv = new byte[12];
-    new SecureRandom().nextBytes(iv);
+    // The cipher picks the IV: the phone's keystore refuses one given to it (as the prompt library does).
     Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-    cipher.init(Cipher.ENCRYPT_MODE, k.key(), new GCMParameterSpec(128, iv));
+    cipher.init(Cipher.ENCRYPT_MODE, k.key());
+    byte[] iv = cipher.getIV();
+    if (iv == null || iv.length != 12) throw new IllegalStateException("Unexpected IV from the cipher");
     byte[] body = cipher.doFinal(plain);
     byte[] out = new byte[MAGIC.length + 12 + body.length];
     System.arraycopy(MAGIC, 0, out, 0, MAGIC.length);

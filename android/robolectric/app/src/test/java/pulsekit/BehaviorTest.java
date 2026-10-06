@@ -2006,6 +2006,85 @@ public class BehaviorTest {
       super("AndroidKeyStore", 1.0, "Android keystore stand-in for the tests");
       put("KeyStore.AndroidKeyStore", FakeStore.class.getName());
       put("KeyGenerator.AES", FakeGenerator.class.getName());
+      // As on a phone: the key cannot be read out, and an IV given for encrypting is refused.
+      put("Cipher.AES/GCM/NoPadding", FakeCipher.class.getName());
+    }
+  }
+
+  /** A keystore key: its bytes stay inside (getEncoded is null), as the phone's do. */
+  public static final class FakeKey implements javax.crypto.SecretKey {
+    final byte[] raw;
+
+    FakeKey(byte[] raw) {
+      this.raw = raw;
+    }
+
+    @Override public String getAlgorithm() { return "AES"; }
+    @Override public String getFormat() { return null; }
+    @Override public byte[] getEncoded() { return null; }
+  }
+
+  /** AES/GCM with a FakeKey, refusing a caller's IV when encrypting ("Caller-provided IV not permitted"), as the phone's keystore does. */
+  public static final class FakeCipher extends javax.crypto.CipherSpi {
+    private javax.crypto.Cipher inner;
+
+    private void start(int mode, java.security.Key key, java.security.spec.AlgorithmParameterSpec spec) throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      if (!(key instanceof FakeKey)) throw new java.security.InvalidKeyException("Not a keystore key");
+      if (mode == javax.crypto.Cipher.ENCRYPT_MODE && spec != null) throw new java.security.InvalidAlgorithmParameterException("Caller-provided IV not permitted");
+      try {
+        inner = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
+        javax.crypto.spec.SecretKeySpec plain = new javax.crypto.spec.SecretKeySpec(((FakeKey) key).raw, "AES");
+        if (spec == null) inner.init(mode, plain);
+        else inner.init(mode, plain, spec);
+      } catch (java.security.GeneralSecurityException ex) {
+        throw new java.security.InvalidKeyException(ex);
+      }
+    }
+
+    @Override protected void engineSetMode(String m) {}
+    @Override protected void engineSetPadding(String p) {}
+    @Override protected int engineGetBlockSize() { return 16; }
+    @Override protected int engineGetOutputSize(int n) { return inner.getOutputSize(n); }
+    @Override protected byte[] engineGetIV() { return inner.getIV(); }
+    @Override protected java.security.AlgorithmParameters engineGetParameters() { return inner.getParameters(); }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.SecureRandom r) throws java.security.InvalidKeyException {
+      try {
+        start(mode, key, null);
+      } catch (java.security.InvalidAlgorithmParameterException ex) {
+        throw new java.security.InvalidKeyException(ex);
+      }
+    }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.spec.AlgorithmParameterSpec spec, java.security.SecureRandom r)
+        throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      start(mode, key, spec);
+    }
+
+    @Override protected void engineInit(int mode, java.security.Key key, java.security.AlgorithmParameters params, java.security.SecureRandom r)
+        throws java.security.InvalidKeyException, java.security.InvalidAlgorithmParameterException {
+      try {
+        start(mode, key, params == null ? null : params.getParameterSpec(javax.crypto.spec.GCMParameterSpec.class));
+      } catch (java.security.spec.InvalidParameterSpecException ex) {
+        throw new java.security.InvalidAlgorithmParameterException(ex);
+      }
+    }
+
+    @Override protected byte[] engineUpdate(byte[] in, int off, int len) { return inner.update(in, off, len); }
+
+    @Override protected int engineUpdate(byte[] in, int off, int len, byte[] out, int outOff) throws javax.crypto.ShortBufferException {
+      return inner.update(in, off, len, out, outOff);
+    }
+
+    @Override protected void engineUpdateAAD(byte[] in, int off, int len) { inner.updateAAD(in, off, len); }
+
+    @Override protected byte[] engineDoFinal(byte[] in, int off, int len) throws javax.crypto.IllegalBlockSizeException, javax.crypto.BadPaddingException {
+      return inner.doFinal(in, off, len);
+    }
+
+    @Override protected int engineDoFinal(byte[] in, int off, int len, byte[] out, int outOff)
+        throws javax.crypto.ShortBufferException, javax.crypto.IllegalBlockSizeException, javax.crypto.BadPaddingException {
+      return inner.doFinal(in, off, len, out, outOff);
     }
   }
 
@@ -2023,7 +2102,7 @@ public class BehaviorTest {
     @Override protected javax.crypto.SecretKey engineGenerateKey() {
       byte[] k = new byte[32];
       new java.security.SecureRandom().nextBytes(k);
-      javax.crypto.SecretKey key = new javax.crypto.spec.SecretKeySpec(k, "AES");
+      javax.crypto.SecretKey key = new FakeKey(k);
       FakeKeyStoreProvider.KEYS.put(alias, key);
       return key;
     }
