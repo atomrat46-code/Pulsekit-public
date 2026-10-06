@@ -2275,8 +2275,43 @@ public class BehaviorTest {
     out.append("  drums.mid row: ").append(((TextView) chv.findViewWithTag("params-chosen:drums.mid")).getText()).append('\n');
     ch.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
+    // DrumMidi_CRT's input also takes a MIDI from the library: its drums played with the kit to a WAV.
+    DbImport.store(app, "beat_db.mid", new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 'M', 'T', 'r', 'k', 0, 0, 0, 20,
+      0, (byte) 0x99, 36, 100, 48, (byte) 0x89, 36, 0, 0, (byte) 0x99, 38, 100, 48, (byte) 0x89, 38, 0, 0, (byte) 0xFF, 0x2F, 0}, true);
+    pickFromMenu("Java \u00b7 CompareHits.java", "DrumMidi_CRT.java");
+    for (String pick : new String[] {"gen_groove.mid", "beat_db.mid"}) {
+      call("pkOpenParams");
+      idle();
+      AlertDialog dk = (AlertDialog) ShadowDialog.getLatestDialog();
+      View dkv = dk.getWindow().getDecorView();
+      ((android.widget.Button) dkv.findViewWithTag("params-db:input.wav")).performClick();
+      idle();
+      View kb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+      if (pick.equals("gen_groove.mid")) {
+        out.append("DrumMidi_CRT browser with MIDI: ").append(((TextView) kb.findViewWithTag("refs-kind:refs")).getText()).append(" / ")
+            .append(((TextView) kb.findViewWithTag("refs-kind:results")).getText()).append(", loop.wav ").append(kb.findViewWithTag("refs-pick:loop.wav") != null)
+            .append(", beat_db.mid ").append(kb.findViewWithTag("refs-pick:beat_db.mid") != null).append(", krea.png ").append(kb.findViewWithTag("refs-pick:krea.png") != null).append('\n');
+        ((TextView) kb.findViewWithTag("refs-kind:results")).performClick();
+        idle();
+        kb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+      } else {
+        ((TextView) kb.findViewWithTag("refs-kind:results")).performClick();
+        idle();
+        kb = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+      }
+      kb.findViewWithTag("refs-pick:" + pick).performClick();
+      idle();
+      out.append("  pick ").append(pick).append(": row ").append(((TextView) dkv.findViewWithTag("params-chosen:input.wav")).getText()).append('\n');
+      dk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    String dmArgs = ((TextView) get("pkPyArgs")).getText().toString();
+    out.append("  args: ").append(dmArgs.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    java.io.File kitWav = new java.io.File(app.getCacheDir(), "pyjav-in/beat_db-kit.wav");
+    byte[] kw = kitWav.isFile() ? java.nio.file.Files.readAllBytes(kitWav.toPath()) : new byte[0];
+    out.append("  beat_db-kit.wav: ").append(kw.length > 44 && kw[0] == 'R' && kw[8] == 'W' ? "a WAV of " + kw.length + " bytes" : "missing").append('\n');
     // SplitWav's input.wav: the sound-only Browse DB.
-    pickFromMenu("Java \u00b7 CompareHits.java", "SplitWav.java");
+    pickFromMenu("Java \u00b7 DrumMidi_CRT.java", "SplitWav.java");
     call("pkOpenParams");
     idle();
     AlertDialog sw = (AlertDialog) ShadowDialog.getLatestDialog();

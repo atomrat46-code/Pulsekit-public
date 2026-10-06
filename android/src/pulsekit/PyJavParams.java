@@ -131,9 +131,15 @@ public final class PyJavParams {
           db.setText("Browse DB");
           db.setTag("params-db:" + p.token);
           // An audio row (DrumMidi's input) lists only sound files, a MIDI row (CompareHits) only MIDI files.
-          final String only = ProgramParams.isAudio(p) ? RefBrowser.SOUNDS : "mid".equals(p.ext) ? RefBrowser.MIDIS : null;
+          // DrumMidi's input also lists MIDI files: one is played with the kit to a WAV for it.
+          final boolean midiAsAudio = p.midiAsAudio;
+          final String only = midiAsAudio ? RefBrowser.SOUNDS_OR_MIDIS
+              : ProgramParams.isAudio(p) ? RefBrowser.SOUNDS : "mid".equals(p.ext) ? RefBrowser.MIDIS : null;
           db.setEnabled(!RefBrowser.allFiles(activity, only).isEmpty());
-          db.setOnClickListener(v -> RefBrowser.browse(activity, values, index, chosen, only));
+          db.setOnClickListener(v -> {
+            if (midiAsAudio) RefBrowser.browse(activity, only, (picked, file) -> RefBrowser.useAsAudio(activity, picked, file, values, index, chosen));
+            else RefBrowser.browse(activity, values, index, chosen, only);
+          });
           row.addView(db);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
