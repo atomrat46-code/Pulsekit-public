@@ -74,6 +74,10 @@ public final class PromptSheet {
   private static int previewVideoVol = 80;
   private static boolean previewVideoMuted;
   private static MediaPlayer previewAudio;
+  /** A sound playing in place in the Ref files / Result files gallery: which file, and its card's mark and label. */
+  private static String galleryPlaying;
+  private static TextView galleryMark;
+  private static String galleryMarkText;
   private static File previewFile;
   private static byte[] ref1Bytes = new byte[0];
   private static byte[] ref2Bytes = new byte[0];
@@ -360,7 +364,9 @@ public final class PromptSheet {
       frame.setBackgroundColor(Color.parseColor("#131416"));
       ImageView thumb = new ImageView(activity);
       thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-      TextView mark = label(activity, extLabel(file.name), 18, "#8A8B86", true);
+      // A sound shows "▶ WAV": tapping the card plays it in place.
+      boolean sound = previewKindByName(file.name) == 4;
+      TextView mark = label(activity, (sound ? "\u25b6 " : "") + extLabel(file.name), 18, "#8A8B86", true);
       mark.setGravity(Gravity.CENTER);
       frame.addView(thumb, new android.widget.FrameLayout.LayoutParams(-1, cell));
       frame.addView(mark, new android.widget.FrameLayout.LayoutParams(-1, cell));
@@ -388,6 +394,10 @@ public final class PromptSheet {
       card.setOnLongClickListener(menu);
       frame.setOnLongClickListener(menu);
       thumb.setOnLongClickListener(menu);
+      View.OnClickListener play = v -> galleryPlay(activity, versionId, which, itemName, mark);
+      card.setOnClickListener(play);
+      frame.setOnClickListener(play);
+      thumb.setOnClickListener(play);
       LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(cell, LinearLayout.LayoutParams.WRAP_CONTENT);
       if (i % 2 == 1) cardLp.leftMargin = gap;
       row.addView(card, cardLp);
@@ -1711,6 +1721,63 @@ public final class PromptSheet {
     return 0;
   }
 
+  /**
+   * Taps on a gallery card: a sound (WAV, MP3, MIDI...) plays in place, the card showing "■ playing";
+   * a second tap, or a tap on another card, stops it. Other files keep their long-press menu only.
+   */
+  private static void galleryPlay(Activity activity, long versionId, int which, String name, TextView mark) {
+    String key = versionId + ":" + which;
+    boolean same = key.equals(galleryPlaying);
+    stopGallery();
+    if (same) return;
+    byte[] bytes = vault.fileBytes(versionId, which);
+    if (bytes == null || bytes.length == 0 || previewKind(name, bytes) != 4) return;
+    try {
+      boolean midi = isMidi(bytes);
+      short[] kit = midi ? kitRender(activity, bytes) : null;
+      // MIDI drums with the kit's sounds, as in the full preview; a sound file as it is.
+      previewFile = kit != null ? spill(activity, "preview.wav", AudioIo.encodeWav(kit, 22050), "wav")
+          : spill(activity, midi && previewKindByName(name) != 4 ? "preview.mid" : name, bytes, midi ? "mid" : "mp3");
+      MediaPlayer player = new MediaPlayer();
+      previewAudio = player;
+      player.setDataSource(previewFile.getAbsolutePath());
+      player.setOnPreparedListener(MediaPlayer::start);
+      player.setOnCompletionListener(mp -> stopGallery());
+      player.setOnErrorListener((mp, what, extra) -> {
+        toast(activity, "This sound can't be played.");
+        stopGallery();
+        return true;
+      });
+      player.prepareAsync();
+      galleryPlaying = key;
+      galleryMark = mark;
+      galleryMarkText = mark.getText().toString();
+      mark.setText("\u25a0 playing");
+      mark.setVisibility(View.VISIBLE);
+    } catch (Exception ex) {
+      toast(activity, ex);
+      stopGallery();
+    }
+  }
+
+  /** Stops the gallery's sound and puts its card's label back. */
+  private static void stopGallery() {
+    if (galleryMark != null && galleryMarkText != null) galleryMark.setText(galleryMarkText);
+    galleryMark = null;
+    galleryMarkText = null;
+    galleryPlaying = null;
+    if (previewAudio != null) {
+      try {
+        previewAudio.release();
+      } catch (Exception ignored) {}
+      previewAudio = null;
+    }
+    if (previewFile != null) {
+      previewFile.delete();
+      previewFile = null;
+    }
+  }
+
   /** The MIDI's drum notes rendered with the kit's current sounds, or null when there is no kit or no drums. */
   private static short[] kitRender(Activity activity, byte[] midi) {
     if (!(activity instanceof MainActivity) || ((MainActivity) activity).playback == null) return null;
@@ -1801,6 +1868,9 @@ public final class PromptSheet {
     previewImage = null;
     previewBox = null;
     zoomLabel = null;
+    galleryPlaying = null;
+    galleryMark = null;
+    galleryMarkText = null;
     if (previewAudio != null) {
       try {
         previewAudio.release();
