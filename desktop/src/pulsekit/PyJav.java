@@ -501,6 +501,9 @@ final class PyJav {
                 }
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
                 if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
+                // MediaBrowser: its folder in the Media browser.
+                String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
+                if (browse != null) app.mediaBrowser.open(new File(browse));
             });
         }, "pulsekit-pyjav").start();
     }
@@ -919,6 +922,28 @@ final class PyJav {
                 check.setName("params-check:" + p.token);
                 checks[i] = check;
                 form.add(check);
+                continue;
+            }
+            if (p.dir) {
+                // A folder (MediaBrowser's directory): Browse picks it and opens the Media browser on it.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                final JLabel chosen = new JLabel(MediaDir.label(values[i]));
+                chosen.setName("params-chosen:" + p.token);
+                JButton browse = new JButton("Browse");
+                browse.setName("params-dir:" + p.token);
+                browse.addActionListener(e -> {
+                    JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]) : null);
+                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setDialogTitle("Directory");
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    File picked = chooser.getSelectedFile();
+                    values[index] = picked.getAbsolutePath();
+                    chosen.setText(MediaDir.label(values[index]));
+                    app.mediaBrowser.open(picked);
+                });
+                row.add(browse, BorderLayout.WEST);
+                row.add(chosen, BorderLayout.CENTER);
+                form.add(row);
                 continue;
             }
             if (p.isFile()) {

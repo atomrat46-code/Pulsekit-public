@@ -2010,6 +2010,135 @@ public final class DesktopBehavior {
     for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
   }
 
+  /**
+   * MediaBrowser (PyJav's Java menu): Params has Directory with Browse, which picks a folder and
+   * opens the Media browser on it: its folders first, then pictures, videos and sounds as cards (a
+   * picture's thumbnail; a video's needs VLC or the browser, Make video previews), other files left
+   * out. A folder opens in its place and Up goes back; a picture opens full size, a video and a
+   * sound play. A run lists the folder and opens the Media browser too.
+   */
+  void s57_media_browser() throws Exception {
+    System.setProperty("pulsekit.novlc", "true");
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "my media");
+    File more = new File(media, "more");
+    more.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(media, "sunset.png"));
+    javax.imageio.ImageIO.write(img, "jpg", new File(more, "beach.jpg"));
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath(), new File(media, "walk.mp4").toPath());
+    Files.write(new File(media, "beat.wav").toPath(), AudioIo.encodeWav(new short[22050], 22050));
+    Files.write(new File(media, "notes.txt").toPath(), "not media".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, ".hidden.png").toPath(), new byte[] {1});
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MediaBrowser.java");
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.dir ? " directory" : "").append(p.isFile() ? " file" : "")
+          .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+    }
+    final Object browser = get("mediaBrowser");
+    final java.lang.reflect.Field thumbs = browser.getClass().getDeclaredField("thumbs");
+    thumbs.setAccessible(true);
+    // The Media browser: the cards, the picture's thumbnail, a folder and Up.
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Consumer<?>[] self = new java.util.function.Consumer<?>[1];
+    java.util.function.Consumer<JDialog> look = d -> {
+      // The Params dialog and the folder chooser come first: this waits for the Media browser.
+      if (!d.getTitle().startsWith("Media browser")) {
+        inspectNext = (java.util.function.Consumer<JDialog>) self[0];
+        return;
+      }
+      try {
+        for (int i = 0; i < 60 && ((java.util.Map<?, ?>) thumbs.get(browser)).isEmpty(); i++) Thread.sleep(50);
+        seen.append("title: ").append(d.getTitle()).append('\n');
+        seen.append("summary: ").append(((JLabel) component(d, "media-summary")).getText().replaceAll("<[^>]+>", " ").replace(home.getAbsolutePath(), "~").trim()).append('\n');
+        for (String s : names(d.getContentPane())) if (s.startsWith("media-")) seen.append("  ").append(s).append('\n');
+        for (String n : new String[] {"sunset.png", "walk.mp4", "beat.wav"}) {
+          javax.swing.JButton card = (javax.swing.JButton) component(d, "media-card:" + n);
+          seen.append(n).append(": ").append(card.getIcon() != null ? "thumbnail" : "type mark").append(", ").append(card.getToolTipText()).append('\n');
+        }
+        ((javax.swing.JButton) component(d, "media-folder:more")).doClick();
+        seen.append("in more: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
+        for (String s : names(d.getContentPane())) if (s.startsWith("media-card") || s.startsWith("media-folder")) seen.append("  ").append(s).append('\n');
+        ((javax.swing.JButton) component(d, "media-up")).doClick();
+        seen.append("up: ").append(d.getTitle()).append(", up ").append(component(d, "media-up") != null ? "shown" : "none").append('\n');
+      } catch (Exception ex) {
+        seen.append("inspect failed: ").append(ex).append('\n');
+      }
+    };
+    self[0] = look;
+    inspectNext = look;
+    // Params: Browse picks the folder (the watcher chooses it) and the Media browser opens; Close.
+    answers.add("Browse");
+    chooseNext = media;
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && get("shown") == null; i++) Thread.sleep(100);
+    Window params = null;
+    for (int i = 0; i < 100 && params == null; i++) {
+      Thread.sleep(100);
+      boolean browsing = false;
+      for (Window w : Window.getWindows()) if (w.isShowing() && w instanceof JDialog && ((JDialog) w).getTitle().startsWith("Media browser")) browsing = true;
+      for (Window w : Window.getWindows()) if (!browsing && w.isShowing() && w instanceof JDialog && ((JDialog) w).getTitle().startsWith("Parameters")) params = w;
+    }
+    out.append(seen);
+    final Window paramsDialog = params;
+    out.append("Params row: ").append(paramsDialog == null ? "no Params dialog" : ((JLabel) component(paramsDialog, "params-chosen:directory")).getText()).append('\n');
+    if (paramsDialog != null) edt(() -> find(((JDialog) paramsDialog).getContentPane(), "OK").doClick());
+    idle();
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    // A card's click: the picture full size, the video's player choice (no VLC here), the sound's Play / Stop.
+    for (String n : new String[] {"sunset.png", "walk.mp4", "beat.wav"}) {
+      answers.add("Close");
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.kind = MediaDir.kind(n);
+      File f = new File(media, n);
+      SwingUtilities.invokeLater(() -> {
+        try {
+          java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("openEntry", MediaDir.Entry.class, File.class);
+          m.setAccessible(true);
+          m.invoke(browser, e, f);
+        } catch (Exception ex) {
+          errors.add(ex);
+        }
+      });
+      for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+      idle();
+    }
+    // A run: the folder listed, and the Media browser opened on it.
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    answers.add("Close");
+    edt(() -> log.setText(""));
+    set("pyInputPath", null);
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    for (String line : textOf(log).split("\n")) {
+      if (line.startsWith("  ") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("Media browser"))
+        out.append("log: ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    out.append("folder label: ").append(MediaDir.label(media.getAbsolutePath())).append(", phone folder: ")
+        .append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
+  }
+
+  /** The names of the components under `root`, in order. */
+  private static List<String> names(Container root) {
+    List<String> out = new ArrayList<String>();
+    for (Component c : root.getComponents()) {
+      if (c.getName() != null) out.add(c.getName());
+      if (c instanceof Container) out.addAll(names((Container) c));
+    }
+    return out;
+  }
+
   /** A text area's text, read on the Swing thread (the app writes the log there; read elsewhere it can be caught mid-change). */
   private static String textOf(javax.swing.JTextArea area) throws Exception {
     final String[] t = new String[1];
@@ -2173,7 +2302,7 @@ public final class DesktopBehavior {
               answers.poll();
               want.add(a);
               // a reset button (or New chat) keeps the dialog open: the next answer belongs to it too
-              if (!a.startsWith("Reset") && !a.equals("New chat")) break;
+              if (!a.startsWith("Reset") && !a.equals("New chat") && !a.equals("Browse")) break;
             }
           }
           if (want.isEmpty()) want.add(find(d.getContentPane(), "OK") != null ? "OK" : "Yes");
@@ -2184,7 +2313,9 @@ public final class DesktopBehavior {
               SwingUtilities.invokeLater(d::dispose);
             } else {
               dialogs.add("  pressed " + a);
-              SwingUtilities.invokeAndWait(b::doClick);
+              // Browse opens a folder chooser of its own: pressed without waiting for it.
+              if (a.equals("Browse")) SwingUtilities.invokeLater(b::doClick);
+              else SwingUtilities.invokeAndWait(b::doClick);
             }
           }
         }

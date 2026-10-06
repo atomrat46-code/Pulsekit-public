@@ -2469,6 +2469,93 @@ public class BehaviorTest {
   }
 
   /**
+   * MediaBrowser (PyJav's Java menu): Params has Directory with Browse, which opens the system's
+   * folder picker; the folder picked is kept, shown, and opened in the Media browser: folders first,
+   * then pictures, videos and sounds as cards, other files left out. A folder opens in its place and
+   * Up goes back; a picture opens full size, a video and a sound play. A run opens it too.
+   */
+  @Test
+  public void s70_media_browser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "my media");
+    File more = new File(media, "more");
+    more.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new File(media, "sunset.png"))) {
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fo);
+    }
+    try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new File(more, "beach.jpg"))) {
+      bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fo);
+    }
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    Files.write(new File(media, "beat.wav").toPath(), AudioIo.encodeWav(new short[22050], 22050));
+    Files.write(new File(media, "groove.mid").toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
+    Files.write(new File(media, "notes.txt").toPath(), "not media".getBytes(StandardCharsets.UTF_8));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0));
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MediaBrowser.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    TextView browse = (TextView) pv.findViewWithTag("params-dir:directory");
+    TextView chosen = (TextView) pv.findViewWithTag("params-chosen:directory");
+    out.append("row: ").append(browse == null ? "no Browse" : browse.getText()).append(", ").append(chosen == null ? "no label" : chosen.getText()).append('\n');
+    browse.performClick();
+    idle();
+    org.robolectric.shadows.ShadowActivity.IntentForResult picker = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult();
+    out.append("picker: ").append(picker.intent.getAction()).append('\n');
+    app.onActivityResult(picker.requestCode, -1, new android.content.Intent().setData(android.net.Uri.fromFile(media)));
+    idle();
+    MediaBrowser b = MediaBrowser.last;
+    out.append("browser: ").append(b == null ? "none" : "open").append('\n');
+    out.append("row now: ").append(chosen.getText()).append('\n');
+    View bv = b.dialog.getWindow().getDecorView();
+    for (int i = 0; i < 40; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("title: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    out.append("summary: ").append(((TextView) bv.findViewWithTag("media-summary")).getText()).append('\n');
+    for (MediaDir.Entry e : b.entries) out.append("  ").append(e.folder ? "folder " : "card ").append(e.name).append(bv.findViewWithTag((e.folder ? "media-folder:" : "media-card:") + e.name) != null ? "" : " (no card)").append('\n');
+    out.append("notes.txt card: ").append(bv.findViewWithTag("media-card:notes.txt") != null ? "shown" : "none").append('\n');
+    bv.findViewWithTag("media-folder:more").performClick();
+    idle();
+    out.append("in more: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none")
+        .append(", cards ").append(b.entries.size()).append('\n');
+    bv.findViewWithTag("media-up").performClick();
+    idle();
+    out.append("up: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", up ").append(bv.findViewWithTag("media-up") != null ? "shown" : "none").append('\n');
+    // A card's tap: the picture full size, the video and the sound played.
+    for (String n : new String[] {"sunset.png", "walk.mp4", "beat.wav", "groove.mid"}) {
+      bv.findViewWithTag("media-card:" + n).performClick();
+      idle();
+      android.app.Dialog top = ShadowDialog.getLatestDialog();
+      View tv = top.getWindow().getDecorView();
+      String what = tv.findViewWithTag("media-full") != null ? "full size picture"
+          : tv.findViewWithTag("media-video") != null ? "video player"
+          : tv.findViewWithTag("media-sound-play") != null ? "sound player, " + ((TextView) tv.findViewWithTag("media-sound-play")).getText() : "nothing";
+      out.append(n).append(": ").append(MediaBrowser.lastOpened).append(", ").append(what).append('\n');
+      top.dismiss();
+      idle();
+    }
+    b.dialog.dismiss();
+    idle();
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText().toString().replace(media.getParent(), "~")).append('\n');
+    // A run opens the Media browser on its folder.
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: 1 picture, 1 video, 2 sounds, 1 folder\nMedia browser: " + media.getAbsolutePath(), new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    idle();
+    out.append("after a run: ").append(MediaBrowser.last != null ? "open, " + MediaBrowser.last.entries.size() + " entries" : "none").append('\n');
+    out.append("phone folder: ").append(MediaDir.label("content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera")).append('\n');
+    write("s70_media_browser", out.toString());
+  }
+
+  /**
    * JoinVideo (PyJav's Java menu): Params has video a and video b (Choose .mp4 and Browse DB,
    * videos only), Video b first, an output name and Add to DB; a run with --addtodb keeps the joined
    * video in the prompt library as a result file.

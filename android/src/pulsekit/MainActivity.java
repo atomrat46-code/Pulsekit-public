@@ -678,6 +678,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeParamFile(intent.getData());
             return;
         }
+        if (n == MediaBrowser.PICK_DIR) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) PyJavParams.dirPicked(this, intent.getData());
+            return;
+        }
         if (n == DbImport.PICK_REF || n == DbImport.PICK_RESULT) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) DbImport.take(this, intent.getData(), n == DbImport.PICK_RESULT);

@@ -58,6 +58,11 @@ public final class ProgramParams {
      * only when it is ticked); PyJav unticks it after every run (drop).
      */
     public boolean join;
+    /**
+     * A folder (MediaBrowser's &lt;directory&gt;): the row has Browse, which picks a folder and opens
+     * the Media browser on it. On the phone the value is the folder's content:// address.
+     */
+    public boolean dir;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -95,6 +100,12 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      // A folder given in order (MediaBrowser's <directory>): Browse picks it.
+      if (!p.flag && p.ext == null && p.token.matches("(?i)dir(ectory)?|folder")) {
+        p.dir = true;
+        p.label = "Directory";
+        p.hint = "a folder of pictures, videos and sounds";
+      }
       // SogniVideo, SogniMusic and SogniChat: Sogni's Safe Content Filter off for the run.
       if (p.flag && !p.takesValue && p.token.equals("--no_filter")) p.label = "Content filter off (Sogni's Safe Content Filter)";
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {

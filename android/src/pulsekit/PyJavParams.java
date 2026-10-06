@@ -113,6 +113,28 @@ public final class PyJavParams {
         box.addView(auto);
         continue;
       }
+      if (p.dir) {
+        // A folder (MediaBrowser's directory): Browse picks it with the system's picker and opens the Media browser on it.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        android.widget.Button browse = new android.widget.Button(activity);
+        browse.setText("Browse");
+        browse.setTag("params-dir:" + p.token);
+        final TextView chosen = new TextView(activity);
+        chosen.setTag("params-chosen:" + p.token);
+        chosen.setPadding(dp(activity, 8), 0, 0, 0);
+        chosen.setText(MediaDir.label(values[i]));
+        browse.setOnClickListener(v -> {
+          pendingValues = values;
+          pendingIndex = index;
+          pendingLabel = chosen;
+          if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
+        });
+        row.addView(browse);
+        row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(row);
+        continue;
+      }
       if (p.isFile()) {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -259,7 +281,8 @@ public final class PyJavParams {
             for (int i = 0; i < ps.size(); i++) {
               ProgramParams.Param p = ps.get(i);
               if (p.flag || p.output) continue;
-              input = values[i];
+              // A folder is not PyJav's input file.
+              input = p.dir ? null : values[i];
               newInput = !values[i].equals(before[i]);
               break;
             }
@@ -333,6 +356,21 @@ public final class PyJavParams {
     pendingValues = null;
     pendingIndex = -1;
     pendingLabel = null;
+  }
+
+  /** The folder picked for the waiting Directory row: kept readable, shown, and opened in the Media browser. */
+  public static void dirPicked(MainActivity app, android.net.Uri tree) {
+    if (tree == null) return;
+    MediaBrowser.keep(app, tree);
+    String dir = tree.toString();
+    if (pendingValues != null && pendingIndex >= 0 && pendingIndex < pendingValues.length) {
+      pendingValues[pendingIndex] = dir;
+      if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
+    }
+    pendingValues = null;
+    pendingIndex = -1;
+    pendingLabel = null;
+    MediaBrowser.open(app, dir);
   }
 
   /** After a run: --join (SogniVideo's Join with this video) out of the program's saved Params, so it is unticked next time. */
