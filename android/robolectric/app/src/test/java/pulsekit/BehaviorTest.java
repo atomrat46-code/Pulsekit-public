@@ -1932,6 +1932,39 @@ public class BehaviorTest {
         .append(findText(pane, "garden.png") != null).append(", clip card ").append(findText(pane, "sogni-video-she-walks.mp4") != null).append('\n');
     findText(pane, "Back").performClick();
     idle();
+    // Ref files gallery: a sound card shows ▶ and plays in place when tapped; a second tap stops it.
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0));
+    byte[] loopWav = {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' '};
+    byte[] beat = {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 'M', 'T', 'r', 'k', 0, 0, 0, 12,
+      0, (byte) 0x99, 36, 100, 96, (byte) 0x89, 36, 0, 0, (byte) 0xFF, 0x2F, 0};
+    long cat = vault.categories().get(0).id;
+    long sounds = vault.addPrompt(cat, "Drum sounds");
+    vault.addVersion(sounds, "Drum sounds", "", "Loops", "", "loop.wav", loopWav, "beat.mid", beat, "", null, "ai", "");
+    pane = PromptSheet.create(app);
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("ref cards: loop.wav mark ").append(findText(pane, "\u25b6 WAV") != null).append(", beat.mid mark ").append(findText(pane, "\u25b6 MID") != null)
+        .append(", garden.png mark ").append(findText(pane, "\u25b6 PNG") != null ? "\u25b6 (wrong)" : "no \u25b6").append('\n');
+    java.lang.reflect.Field gp = PromptSheet.class.getDeclaredField("previewFile");
+    gp.setAccessible(true);
+    ((View) findText(pane, "loop.wav").getParent()).performClick();
+    idle();
+    out.append("tap loop.wav: ").append(findText(pane, "\u25a0 playing") != null ? "\u25a0 playing" : "not playing")
+        .append(", player file ").append(gp.get(null) == null ? "none" : ((java.io.File) gp.get(null)).getName()).append('\n');
+    ((View) findText(pane, "beat.mid").getParent()).performClick();
+    idle();
+    out.append("tap beat.mid: loop.wav back to ").append(findText(pane, "\u25b6 WAV") != null ? "\u25b6 WAV" : "?").append(", beat.mid ")
+        .append(findText(pane, "\u25a0 playing") != null ? "\u25a0 playing" : "not playing").append(", player file ")
+        .append(gp.get(null) == null ? "none" : ((java.io.File) gp.get(null)).getName()).append(" (the kit's sounds)\n");
+    ((View) findText(pane, "beat.mid").getParent()).performClick();
+    idle();
+    out.append("tap beat.mid again: ").append(findText(pane, "\u25b6 MID") != null ? "stopped, \u25b6 MID" : "?").append(", player file ")
+        .append(gp.get(null) == null ? "none" : "still there").append('\n');
+    ((View) findText(pane, "garden.png").getParent()).performClick();
+    idle();
+    out.append("tap garden.png: ").append(findText(pane, "\u25a0 playing") != null ? "playing (wrong)" : "nothing plays").append('\n');
+    findText(pane, "Back").performClick();
+    idle();
     // Preview: sound files play (WAV, MP3, and MIDI with the phone's General MIDI sounds).
     java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
     open.setAccessible(true);
