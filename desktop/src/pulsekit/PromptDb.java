@@ -632,9 +632,7 @@ final class PromptDb {
         if (kind == 1 || kind == 2) {
             this.zoomPreview(shown, bytes, kind);
         } else if (kind == 3) {
-            File tmp = this.spill(shown, bytes);
-            if (tmp == null) return;
-            app.pyJav.offerVideo(tmp, 1);
+            this.videoPreview(shown, bytes);
         } else if (kind == 4) {
             this.soundPreview(shown, bytes);
         } else {
@@ -642,6 +640,88 @@ final class PromptDb {
             f.name = shown;
             this.open(f, bytes);
         }
+    }
+
+    /** Opens a page in the browser; the tests read the address instead. */
+    static java.util.function.Consumer<java.net.URI> browser = uri -> {
+        try {
+            java.awt.Desktop.getDesktop().browse(uri);
+        } catch (Exception ex) {
+            throw new IllegalStateException("No browser opens " + uri, ex);
+        }
+    };
+
+    /** The frame reading under way, if any (one at a time). */
+    FrameGrab grab;
+
+    /**
+     * A video: Play (the browser player page, with Play/Pause, Stop, Mute and volume), Open (the
+     * system player), Extract frames (its first and last frame as reference files, read by the
+     * browser), or Close.
+     */
+    void videoPreview(String name, byte[] bytes) {
+        File tmp = this.spill(name, bytes);
+        if (tmp == null) return;
+        Object[] options = new Object[] {"Play", "Open", "Extract frames", "Close"};
+        int ans = JOptionPane.showOptionDialog(app, name + " (" + Math.max(1, bytes.length / 1024) + " KB)\n\n"
+            + "Play opens it in the browser with Play/Pause, Stop, Mute and volume.\n"
+            + "Extract frames keeps its first and last frame as reference files (the browser reads them).", "Preview \u00b7 " + name,
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        try {
+            if (ans == 0) browser.accept(app.pyJav.videoPage(tmp).toURI());
+            else if (ans == 1) java.awt.Desktop.getDesktop().open(tmp);
+            else if (ans == 2) this.extractFrames(name, tmp);
+        } catch (Exception ex) {
+            app.setNow("Could not open a player for " + name);
+        }
+    }
+
+    /** Extract frames: the browser reads the first and last frame; they go into the library as reference files 1 and 2. */
+    void extractFrames(String name, File video) {
+        if (this.grab != null) this.grab.cancel();
+        final String stem = frameStem(name);
+        final FrameGrab[] mine = new FrameGrab[1];
+        mine[0] = new FrameGrab(video, name, (first, last, error) -> {
+            if (this.grab == mine[0]) this.grab = null;
+            if (error != null) {
+                app.setNow(error);
+                return;
+            }
+            try {
+                PromptVault vault = vault();
+                int saved = 0;
+                if (first != null) {
+                    vault.addReferenceImage(stem + "-first.jpg", first, stem, 1);
+                    saved++;
+                }
+                if (last != null) {
+                    vault.addReferenceImage(stem + "-last.jpg", last, stem, 2);
+                    saved++;
+                }
+                app.setNow(saved == 2 ? "Saved first and last frame as reference files." : "Saved a frame as a reference file.");
+            } catch (Exception ex) {
+                app.setNow(ex.getMessage() != null ? ex.getMessage() : "Could not keep the frames");
+            }
+        });
+        try {
+            java.net.URI page = mine[0].start();
+            this.grab = mine[0];
+            browser.accept(page);
+            app.setNow("Reading frames in the browser\u2026");
+        } catch (Exception ex) {
+            mine[0].cancel();
+            app.setNow("Could not read frames: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString()));
+        }
+    }
+
+    /** The frames' names: the video's, without its extension, as on the phone. */
+    static String frameStem(String name) {
+        String clean = PromptVault.fileTitle(name);
+        int dot = clean.lastIndexOf('.');
+        if (dot > 0) clean = clean.substring(0, dot);
+        clean = clean.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (clean.length() == 0) return "video";
+        return clean.length() > 40 ? clean.substring(0, 40) : clean;
     }
 
     /** The file in the temp folder (for a player); null after saying why. */
