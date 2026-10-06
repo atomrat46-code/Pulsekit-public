@@ -2212,6 +2212,24 @@ public class BehaviorTest {
     params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    // SogniChat --file: the same Browse DB (a stored picture, sound or text sent to the chat).
+    // The Java menu's button names the program loaded from it.
+    pickFromMenu("Java \u00b7 SogniVideo.java", "SogniChat.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog chat = (AlertDialog) ShadowDialog.getLatestDialog();
+    View cv = chat.getWindow().getDecorView();
+    android.widget.Button chatDb = (android.widget.Button) cv.findViewWithTag("params-db:--file");
+    out.append("SogniChat --file Browse DB: ").append(chatDb == null ? "none" : chatDb.isEnabled() ? "enabled" : "greyed").append('\n');
+    chatDb.performClick();
+    idle();
+    View bv = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+    bv.findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("SogniChat picked: ").append(((TextView) cv.findViewWithTag("params-chosen:--file")).getText()).append('\n');
+    chat.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("SogniChat args: ").append(((TextView) get("pkPyArgs")).getText().toString().replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
     write("s61_db_import", out.toString());
   }
 
