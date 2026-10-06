@@ -116,6 +116,21 @@ public final class MediaDir {
   public static volatile int volume = 100;
   public static volatile double zoom = 1;
   public static volatile double speed = 1;
+  /** The folder last picked (Params: Browse), and the folders opened under it then, in order; "" and empty when none. */
+  public static volatile String lastRoot = "";
+  public static volatile List<String> lastPath = new ArrayList<String>();
+
+  /** The folders under `root` to open again: the remembered ones when `root` is the folder last picked, else none. */
+  public static List<String> pathFor(String root) {
+    if (root == null || !root.equals(lastRoot)) return new ArrayList<String>();
+    return new ArrayList<String>(lastPath);
+  }
+
+  /** Remembers the folder picked and the folders opened under it (encode() keeps them). */
+  public static void remember(String root, List<String> under) {
+    lastRoot = root == null ? "" : root;
+    lastPath = under == null ? new ArrayList<String>() : new ArrayList<String>(under);
+  }
 
   /** Playback speeds to pick from. */
   public static final double[] SPEEDS = {0.25, 0.5, 0.75, 1, 1.25, 1.5, 2};
@@ -136,7 +151,10 @@ public final class MediaDir {
 
   /** The settings above as text, one per line (the desktop's ~/.pulsekit/media-browser.txt, the phone's preferences). */
   public static String encode() {
-    return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed + "\n";
+    StringBuilder path = new StringBuilder();
+    for (String p : lastPath) path.append(path.length() > 0 ? "\t" : "").append(p.replace('\t', ' ').replace('\n', ' '));
+    return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
+        + "\nroot=" + lastRoot.replace('\n', ' ') + "\npath=" + path + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -145,6 +163,8 @@ public final class MediaDir {
     volume = 100;
     zoom = 1;
     speed = 1;
+    lastRoot = "";
+    lastPath = new ArrayList<String>();
     if (text == null) return;
     for (String line : text.split("\n")) {
       int eq = line.indexOf('=');
@@ -156,6 +176,12 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("root")) lastRoot = v;
+        else if (k.equals("path")) {
+          List<String> got = new ArrayList<String>();
+          for (String part : line.substring(eq + 1).split("\t")) if (part.length() > 0) got.add(part);
+          lastPath = got;
+        }
       } catch (NumberFormatException ignored) {
         // that one keeps its default
       }

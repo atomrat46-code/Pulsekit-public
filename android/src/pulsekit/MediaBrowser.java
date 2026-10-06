@@ -134,10 +134,21 @@ final class MediaBrowser {
             b = new MediaBrowser(app, null, new File(d).getAbsolutePath());
         }
         load(app);
+        // The folder picked, and the folder it was last in under it (when it is still there).
+        b.root = b.tree != null ? d : b.path.get(0);
+        for (String under : MediaDir.pathFor(b.root)) {
+            boolean there = b.tree != null ? b.list(under) != null
+                : new File(under).isDirectory() && under.startsWith(b.root + File.separator);
+            if (!there) break;
+            b.path.add(under);
+        }
         last = b;
         b.show();
         return b;
     }
+
+    /** The folder picked, as Params gives it: what the last folder opened is remembered under. */
+    String root;
 
     private String here() {
         return this.path.get(this.path.size() - 1);
@@ -400,6 +411,11 @@ final class MediaBrowser {
 
     /** Opens folder `at` (already on the path) at its first page. */
     private void load(String at) {
+        // Remembered: this folder, for the next time the Media browser opens on the same one.
+        if (this.root != null) {
+            MediaDir.remember(this.root, this.path.subList(1, this.path.size()));
+            save(this.app);
+        }
         List<MediaDir.Entry> got = this.list(at);
         this.entries = got == null ? new ArrayList<MediaDir.Entry>() : got;
         this.page = 0;

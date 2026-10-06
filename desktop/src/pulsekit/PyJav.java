@@ -962,6 +962,11 @@ final class PyJav {
             if (p.dir) {
                 // A folder (MediaBrowser's directory): Browse picks it and opens the Media browser on it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
+                // Empty: the folder the Media browser last opened.
+                if (values[i].length() == 0) {
+                    MediaBrowser.loadLoop();
+                    values[i] = MediaDir.lastRoot;
+                }
                 final JLabel chosen = new JLabel(MediaDir.label(values[i]));
                 chosen.setName("params-chosen:" + p.token);
                 JButton browse = new JButton("Browse");

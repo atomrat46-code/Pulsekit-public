@@ -55,7 +55,15 @@ final class MediaBrowser {
         dialog.setName("media-browser");
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         this.last = dialog;
-        this.fill(dialog, dir.getAbsoluteFile(), dir.getAbsoluteFile());
+        // The folder it was last in under this one, when it is still there.
+        File root = dir.getAbsoluteFile();
+        File start = root;
+        for (String under : MediaDir.pathFor(root.getPath())) {
+            File f = new File(under);
+            if (!f.isDirectory() || !under.startsWith(start.getPath() + File.separator)) break;
+            start = f;
+        }
+        this.fill(dialog, root, start);
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         dialog.setVisible(true);
@@ -81,6 +89,11 @@ final class MediaBrowser {
     /** The dialog's contents for `dir`; the thumbnails come in the background. */
     private void fill(final JDialog dialog, final File root, final File dir) {
         this.shown = dir;
+        // Remembered: the folder picked and the folders opened under it, for the next time.
+        List<String> under = new ArrayList<String>();
+        for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
+        MediaDir.remember(root.getPath(), under);
+        saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
         final List<MediaDir.Entry> entries = list(dir);
         this.listed.clear();

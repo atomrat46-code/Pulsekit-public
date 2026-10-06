@@ -2378,6 +2378,87 @@ public final class DesktopBehavior {
     out.append('\n');
   }
 
+  /**
+   * The Media browser remembers the folder picked and the folder it was in under it: Params'
+   * Directory shows the folder when the arguments have none, and opening the browser on the same
+   * folder again goes back to that folder (not when it is gone, nor for another folder).
+   */
+  void s59_media_remember() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "my media");
+    File deep = new File(new File(media, "trips"), "2024");
+    deep.mkdirs();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(deep, "lake.png"));
+    File other = new File(home, "other");
+    other.mkdirs();
+    final Object browser = get("mediaBrowser");
+    java.util.function.Consumer<File> open = dir -> SwingUtilities.invokeLater(() -> {
+      try {
+        java.lang.reflect.Method m = browser.getClass().getDeclaredMethod("open", File.class);
+        m.setAccessible(true);
+        m.invoke(browser, dir);
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    // First time: it opens on the folder itself; go into trips, then 2024.
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      seen.append("opened: ").append(d.getTitle()).append('\n');
+      ((javax.swing.JButton) component(d, "media-folder:trips")).doClick();
+      ((javax.swing.JButton) component(d, "media-folder:2024")).doClick();
+      seen.append("went to: ").append(d.getTitle()).append('\n');
+    };
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8)
+        .replace(home.getAbsolutePath(), "~").replaceAll("(?m)^(loop|volume|zoom|speed)=.*\n", "").trim().replace("\n", "  ").replace("\t", " | ")).append('\n');
+    // Again: back in 2024, with Up going to trips.
+    final StringBuilder again = new StringBuilder();
+    inspectNext = d -> {
+      again.append("reopened: ").append(d.getTitle()).append(", cards ").append(names(d.getContentPane()).stream().filter(n -> n.startsWith("media-card")).collect(java.util.stream.Collectors.toList()));
+      ((javax.swing.JButton) component(d, "media-up")).doClick();
+      again.append(", Up: ").append(d.getTitle()).append('\n');
+    };
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(again);
+    // Back to my media after trips is gone: the folder itself.
+    Files.delete(new File(deep, "lake.png").toPath());
+    Files.delete(deep.toPath());
+    Files.delete(deep.getParentFile().toPath());
+    final StringBuilder gone = new StringBuilder();
+    inspectNext = d -> gone.append("trips gone: ").append(d.getTitle()).append('\n');
+    answers.add("Close");
+    open.accept(media);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(gone);
+    // Another folder: it opens on itself.
+    final StringBuilder elsewhere = new StringBuilder();
+    inspectNext = d -> elsewhere.append("another folder: ").append(d.getTitle()).append('\n');
+    answers.add("Close");
+    open.accept(other);
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    idle();
+    out.append(elsewhere);
+    // Params: Directory shows the folder last opened when the arguments have none; OK keeps it.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MediaBrowser.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    final StringBuilder params = new StringBuilder();
+    inspectNext = d -> params.append("Params Directory: ").append(((JLabel) component(d, "params-chosen:directory")).getText()).append('\n');
+    answers.add("OK");
+    call("openParams");
+    out.append(params);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   /** The names of the components under `root`, in order. */
   private static List<String> names(Container root) {
     List<String> out = new ArrayList<String>();

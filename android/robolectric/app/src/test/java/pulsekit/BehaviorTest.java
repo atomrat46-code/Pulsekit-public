@@ -2558,6 +2558,72 @@ public class BehaviorTest {
     write("s71_media_video", out.toString());
   }
 
+  /**
+   * The Media browser remembers the folder picked and the folder it was in under it: opening it on
+   * the same folder again goes back there (not when it is gone, nor for another folder), and
+   * Params' Directory shows the folder when the arguments have none.
+   */
+  @Test
+  public void s72_media_remember() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "my media");
+    File deep = new File(new File(media, "trips"), "2024");
+    deep.mkdirs();
+    Files.write(new File(deep, "beat.wav").toPath(), AudioIo.encodeWav(new short[100], 22050));
+    File other = new File(app.getCacheDir(), "other");
+    other.mkdirs();
+    String base = app.getCacheDir().getAbsolutePath();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    out.append("opened: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    bv.findViewWithTag("media-folder:trips").performClick();
+    idle();
+    bv.findViewWithTag("media-folder:2024").performClick();
+    idle();
+    out.append("went to: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences(MediaBrowser.PREFS, 0).getString(MediaBrowser.SETTINGS, "")
+        .replace(base, "~").replaceAll("(?m)^(loop|volume|zoom|speed)=.*\n", "").trim().replace("\n", "  ").replace("\t", " | ")).append('\n');
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    out.append("reopened: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append(", card ").append(bv.findViewWithTag("media-card:beat.wav") != null);
+    bv.findViewWithTag("media-up").performClick();
+    idle();
+    out.append(", Up: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    Files.delete(new File(deep, "beat.wav").toPath());
+    Files.delete(deep.toPath());
+    Files.delete(deep.getParentFile().toPath());
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    out.append("trips gone: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    b = MediaBrowser.open(app, other.getAbsolutePath());
+    idle();
+    out.append("another folder: ").append(org.robolectric.Shadows.shadowOf(b.dialog).getTitle()).append('\n');
+    b.dialog.dismiss();
+    idle();
+    // Params: Directory shows the folder last opened; OK puts it in the arguments.
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "MediaBrowser.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("Params Directory: ").append(((TextView) params.getWindow().getDecorView().findViewWithTag("params-chosen:directory")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText().toString().replace(base, "~")).append('\n');
+    write("s72_media_remember", out.toString());
+  }
+
   /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
   private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
     java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();
