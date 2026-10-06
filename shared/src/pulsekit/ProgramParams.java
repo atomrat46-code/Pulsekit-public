@@ -65,6 +65,8 @@ public final class ProgramParams {
     boolean video = has(out, "--image") && has(out, "--end_image");
     for (Param p : out) {
       known(p, drumMidi, chat);
+      // DrumMidi's audio input can also come from the prompt library (Browse DB, sound files only).
+      if (drumMidi && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       if (video) knownVideo(p);
       if (drumGen && p.flag && p.takesValue && p.token.equals("--style")) {
         p.hint = "the app's style, or one from the list";
