@@ -1892,18 +1892,20 @@ public final class DesktopBehavior {
       call("selectListedProgram", "Java", "SogniVideo.java");
       for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
         if (p.token.equals("--join")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\" join ").append(p.join).append(" Browse DB ").append(p.refs).append('\n');
+        if (p.token.equals("--join_first")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)").append('\n');
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      String[][] runs = {{"walk", other.getAbsolutePath()}, {"walk2", wide.getAbsolutePath()}, {"walk3", new File(home, "gone.mp4").getAbsolutePath()}};
+      String[][] runs = {{"walk", other.getAbsolutePath()}, {"walk2", wide.getAbsolutePath()}, {"walk3", new File(home, "gone.mp4").getAbsolutePath()},
+          {"walk4", other.getAbsolutePath(), "--join_first"}};
       for (String[] r : runs) {
-        final String extra = r[0] + " --prompt Walk --join \"" + r[1] + "\"";
+        final String extra = r[0] + " --prompt Walk --join \"" + r[1] + "\"" + (r.length > 2 ? " " + r[2] : "");
         if (!r[0].equals("walk3")) answers.add("Close");
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
         for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(600);
-        out.append("== ").append(r[0]).append(" + ").append(new File(r[1]).getName()).append('\n');
+        out.append("== ").append(r[0]).append(" + ").append(new File(r[1]).getName()).append(r.length > 2 ? " " + r[2] : "").append('\n');
         for (String line : log.getText().split("\n")) {
           if (line.startsWith("Joined") || line.startsWith("Could not join") || line.startsWith("Note") || line.startsWith("Failed") || line.startsWith("Prompt library") || line.startsWith("Succeeded"))
             out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
