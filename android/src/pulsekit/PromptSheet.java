@@ -414,7 +414,8 @@ public final class PromptSheet {
     }).start();
   }
 
-  private static Bitmap refThumb(Activity activity, String name, byte[] bytes, int px) {
+  /** A thumbnail of a stored file (a picture, a video frame), or null; also for PyJav's Browse DB. */
+  static Bitmap refThumb(Activity activity, String name, byte[] bytes, int px) {
     if (bytes == null || bytes.length == 0) return null;
     try {
       int kind = previewKind(name, bytes);

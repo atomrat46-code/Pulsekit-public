@@ -1793,6 +1793,9 @@ public class BehaviorTest {
     AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
     android.widget.CheckBox save = (android.widget.CheckBox) params.getWindow().getDecorView().findViewWithTag("params-check:--saveprompt");
     out.append("saveprompt checkbox: ").append(save == null ? "none" : save.getText()).append('\n');
+    // Browse DB next to Choose file: greyed while the prompt library keeps no reference files.
+    android.widget.Button db = (android.widget.Button) params.getWindow().getDecorView().findViewWithTag("params-db:--image");
+    out.append("Browse DB for --image: ").append(db == null ? "none" : db.isEnabled() ? "enabled" : "greyed").append('\n');
     save.setChecked(true);
     params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
@@ -1887,6 +1890,32 @@ public class BehaviorTest {
     String ref = app.pyJav.pkRef1Path;
     out.append("opened: reference file 1 ").append(ref == null || ref.length() == 0 ? "none"
         : new java.io.File(ref).getName() + " (" + new java.io.File(ref).length() + " bytes)").append('\n');
+    // Params: Browse DB lists the library's reference files (the picture once, though two versions keep it).
+    garden.delete();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    android.widget.Button db = (android.widget.Button) pv.findViewWithTag("params-db:--image");
+    out.append("Browse DB for --image: ").append(db.isEnabled() ? "enabled" : "greyed").append(", for --end_image: ")
+        .append(((android.widget.Button) pv.findViewWithTag("params-db:--end_image")).isEnabled() ? "enabled" : "greyed").append('\n');
+    db.performClick();
+    idle();
+    AlertDialog refs = (AlertDialog) ShadowDialog.getLatestDialog();
+    View rv = refs.getWindow().getDecorView();
+    out.append("browser: ").append(org.robolectric.Shadows.shadowOf(refs).getTitle()).append(", garden.png card ")
+        .append(rv.findViewWithTag("refs-pick:garden.png") != null).append('\n');
+    rv.findViewWithTag("refs-pick:garden.png").performClick();
+    idle();
+    out.append("browser closed: ").append(!refs.isShowing()).append(", row shows: ")
+        .append(((TextView) pv.findViewWithTag("params-chosen:--image")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((TextView) get("pkPyArgs")).getText().toString();
+    java.io.File picked = new java.io.File(args.replaceAll(".*--image \"?([^\"]+?)\"?( --.*)?$", "$1"));
+    out.append("args: ").append(args.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("picked file: ").append(picked.getName()).append(", ").append(picked.length()).append(" bytes\n");
     write("s59_prompt_keep", out.toString());
   }
 

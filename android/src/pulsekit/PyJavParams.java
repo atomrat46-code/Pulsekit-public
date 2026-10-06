@@ -125,6 +125,15 @@ public final class PyJavParams {
         chosen.setText(fileLabel(values[i]));
         pick.setOnClickListener(v -> pickFile(activity, values, index, chosen));
         row.addView(pick);
+        if (p.refs) {
+          // A picture can also come from the prompt library's reference files; greyed when it has none.
+          android.widget.Button db = new android.widget.Button(activity);
+          db.setText("Browse DB");
+          db.setTag("params-db:" + p.token);
+          db.setEnabled(!RefBrowser.files(activity).isEmpty());
+          db.setOnClickListener(v -> RefBrowser.browse(activity, values, index, chosen));
+          row.addView(db);
+        }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(row);
         if ("mid".equals(p.ext) && activity instanceof MainActivity) {

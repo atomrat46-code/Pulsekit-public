@@ -40,6 +40,8 @@ public final class ProgramParams {
     public String choiceValue(int i) {
       return this.choiceValues != null && i < this.choiceValues.length ? this.choiceValues[i] : this.choices[i];
     }
+    /** A file that can also come from the prompt library's reference files (Browse DB, on the phone). */
+    public boolean refs;
     /** An output file: PyJav names it, so the screen leaves it alone. */
     public boolean output;
 
@@ -277,11 +279,13 @@ public final class ProgramParams {
     if (p.token.equals("--prompt")) p.hint = "what happens: the motion, the camera, the sound";
     if (p.token.equals("--image")) {
       p.ext = "any";
+      p.refs = true;
       p.label = "Picture to animate (first frame)";
       p.hint = "optional; without one the clip comes from the prompt alone";
     }
     if (p.token.equals("--end_image")) {
       p.ext = "any";
+      p.refs = true;
       p.label = "Last frame picture";
       p.hint = "optional; the clip moves from the first picture to this one";
     }
