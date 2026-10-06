@@ -96,6 +96,8 @@ final class PyJav {
     android.widget.Spinner pkPyRecent;
 
     java.util.List pkPyRecentItems;
+    /** The arguments of the last run started: its input files, for the prompt library (PromptKeep). */
+    java.util.List pkLastArgv;
 
     String pkPromptRun;
 
@@ -523,6 +525,7 @@ final class PyJav {
         if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
+        this.pkLastArgv = argv;
         pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app));
     }
 
@@ -748,6 +751,13 @@ final class PyJav {
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
+        // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result.
+        String kept = PromptKeep.keep(app, result, this.pkLastArgv);
+        if (kept.length() > 0) {
+            log = log + "\n" + kept;
+            if (this.pkPyLog != null) this.pkPyLog.setText(log);
+            this.pkRunLog = log;
+        }
         // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
         if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
         // Pictures it made (SogniChat's tool results) are shown.

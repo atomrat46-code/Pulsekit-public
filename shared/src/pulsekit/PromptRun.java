@@ -27,6 +27,8 @@ public final class PromptRun {
     public String version = "";
     public String model = "";
     public String result = "";
+    /** What a run that made the result said (its errors and warnings), from the end of the sheet. */
+    public String resultText = "";
     public String type = "";
     public String description = "";
     public String body = "";
@@ -107,6 +109,7 @@ public final class PromptRun {
       sheet.ref1 = lines[4];
       sheet.ref2 = lines[5];
       readLabels(sheet, lines, 6, dash);
+      readResults(sheet);
       return sheet;
     }
     if (fields >= 4) {
@@ -605,6 +608,49 @@ public final class PromptRun {
     String file = sb.toString();
     while (file.startsWith(".")) file = file.substring(1);
     return file.length() == 0 ? "output.log" : file;
+  }
+
+  /**
+   * The results a program wrote at the end of a sheet it saved (SogniMusic and SogniVideo
+   * --saveprompt), after a blank line:
+   *
+   *   Result file: shortsuli.mp4
+   *   Result text:
+   *   Note: workflow partial_failure
+   *
+   * Either part may be left out; the result text runs to the end. They are taken off the body, so a
+   * sheet run again sends only its prompt.
+   */
+  static void readResults(Sheet sheet) {
+    String[] ls = sheet.body.split("\n", -1);
+    for (int i = 1; i < ls.length; i++) {
+      if (ls[i - 1].trim().length() != 0) continue;
+      int j = i;
+      String file = null;
+      if (ls[j].startsWith("Result file: ")) {
+        file = ls[j].substring(13).trim();
+        j++;
+      }
+      String text = null;
+      if (j < ls.length && ls[j].trim().equals("Result text:")) {
+        StringBuilder sb = new StringBuilder();
+        for (int k = j + 1; k < ls.length; k++) sb.append(k > j + 1 ? "\n" : "").append(ls[k]);
+        text = sb.toString().trim();
+        j = ls.length;
+      }
+      if (file == null && text == null) continue;
+      boolean rest = false;
+      for (int k = j; k < ls.length; k++) if (ls[k].trim().length() > 0) rest = true;
+      if (rest) continue;
+      if (file != null && file.length() > 0) sheet.result = file;
+      if (text != null) sheet.resultText = text;
+      int end = i - 1;
+      while (end > 0 && ls[end - 1].trim().length() == 0) end--;
+      StringBuilder body = new StringBuilder();
+      for (int k = 0; k < end; k++) body.append(k > 0 ? "\n" : "").append(ls[k]);
+      sheet.body = body.toString();
+      return;
+    }
   }
 
   private static void readLabels(Sheet sheet, String[] lines, int from, int dash) {

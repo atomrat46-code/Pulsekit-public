@@ -1787,6 +1787,19 @@ public class BehaviorTest {
     call("show", "py");
     idle();
     pickFromMenu("Java \u25be", "SogniVideo.java");
+    // Params: --saveprompt is a checkbox, as for SogniMusic.
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.CheckBox save = (android.widget.CheckBox) params.getWindow().getDecorView().findViewWithTag("params-check:--saveprompt");
+    out.append("saveprompt checkbox: ").append(save == null ? "none" : save.getText()).append('\n');
+    // Browse DB next to Choose file: greyed while the prompt library keeps no reference files.
+    android.widget.Button db = (android.widget.Button) params.getWindow().getDecorView().findViewWithTag("params-db:--image");
+    out.append("Browse DB for --image: ").append(db == null ? "none" : db.isEnabled() ? "enabled" : "greyed").append('\n');
+    save.setChecked(true);
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
     java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
     files.add(new JavaRun.FileOut("shortsuli.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
     app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo 2026-10-06\nWrote shortsuli.mp4 (0 KB)\nSucceeded: shortsuli.mp4", files, 0));
@@ -1819,6 +1832,158 @@ public class BehaviorTest {
     idle();
     out.append("closed: ").append(!d.isShowing()).append(", playing ").append(p.playing).append('\n');
     write("s58_video_offer", out.toString());
+  }
+
+  /**
+   * SogniVideo --saveprompt: the sheet the run saved goes into the prompt library with its first
+   * frame picture as reference file 1, the clip as result file and the result text; opening the
+   * sheet loads the picture back.
+   */
+  @Test
+  public void s59_prompt_keep() throws Exception {
+    // The prompt library encrypts with the Android keystore, which Robolectric has not: a stand-in in memory.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    java.io.File in = new java.io.File(app.getCacheDir(), "pyjav-in");
+    in.mkdirs();
+    java.io.File garden = new java.io.File(in, "garden.png");
+    java.nio.file.Files.write(garden.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1, 2, 3, 4});
+    String sheet = "PKPROMPT1\nsogni-video-she-walks\n\n\ngarden.png\n\nCategory: video\nModel: Sogni minimax-h3-fasth3-i2v-turbo\n"
+        + "Reference file 1: garden.png\nReference file 2: \nType: ai\n---\nShe walks slowly through the garden\n\n"
+        + "Duration: 5 s. Resolution: 768p. First frame: garden.png.\n\nResult file: sogni-video-she-walks.mp4\nResult text:\nNote: workflow partial_failure\n";
+    byte[] clip = new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    for (int run = 1; run <= 2; run++) {
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-she-walks.prompt", sheet.getBytes("UTF-8")));
+      files.add(new JavaRun.FileOut("sogni-video-she-walks.mp4", clip));
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "She walks", "--image", garden.getAbsolutePath(), "--saveprompt"));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo 2026-10-06\nSaved prompt sogni-video-she-walks.prompt\nWrote sogni-video-she-walks.mp4 (0 KB)\n"
+          + "Succeeded: sogni-video-she-walks.mp4", files, 0));
+      idle();
+      AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      if (d != null && d.isShowing()) d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) {
+        if (line.startsWith("Prompt library")) out.append("run ").append(run).append(" log: ").append(line).append('\n');
+      }
+    }
+    PromptVault vault = PromptVault.open(app);
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        if (!p.title.startsWith("sogni-video")) continue;
+        out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
+        PromptVault.Version v = vault.versions(p.id).get(vault.versions(p.id).size() - 1);
+        out.append("  model ").append(v.model).append(", type ").append(v.codeType).append('\n');
+        out.append("  body: ").append(v.body.replace("\n", "|")).append('\n');
+        out.append("  reference 1: ").append(v.ref1Name).append(" (").append(v.ref1 == null ? 0 : v.ref1.length).append(" bytes), reference 2: \"")
+            .append(v.ref2Name).append("\"\n");
+        out.append("  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+        out.append("  result text: ").append(v.resultText).append('\n');
+      }
+    }
+    // Opening the sheet loads its picture as reference file 1.
+    app.pyJav.pkOpenPromptText("sogni-video-she-walks.prompt", sheet);
+    idle();
+    String ref = app.pyJav.pkRef1Path;
+    out.append("opened: reference file 1 ").append(ref == null || ref.length() == 0 ? "none"
+        : new java.io.File(ref).getName() + " (" + new java.io.File(ref).length() + " bytes)").append('\n');
+    // Params: Browse DB lists the library's reference files (the picture once, though two versions keep it).
+    garden.delete();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    android.widget.Button db = (android.widget.Button) pv.findViewWithTag("params-db:--image");
+    out.append("Browse DB for --image: ").append(db.isEnabled() ? "enabled" : "greyed").append(", for --end_image: ")
+        .append(((android.widget.Button) pv.findViewWithTag("params-db:--end_image")).isEnabled() ? "enabled" : "greyed").append('\n');
+    db.performClick();
+    idle();
+    AlertDialog refs = (AlertDialog) ShadowDialog.getLatestDialog();
+    View rv = refs.getWindow().getDecorView();
+    out.append("browser: ").append(org.robolectric.Shadows.shadowOf(refs).getTitle()).append(", garden.png card ")
+        .append(rv.findViewWithTag("refs-pick:garden.png") != null).append('\n');
+    rv.findViewWithTag("refs-pick:garden.png").performClick();
+    idle();
+    out.append("browser closed: ").append(!refs.isShowing()).append(", row shows: ")
+        .append(((TextView) pv.findViewWithTag("params-chosen:--image")).getText()).append('\n');
+    params.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((TextView) get("pkPyArgs")).getText().toString();
+    java.io.File picked = new java.io.File(args.replaceAll(".*--image \"?([^\"]+?)\"?( --.*)?$", "$1"));
+    out.append("args: ").append(args.replace(app.getCacheDir().getAbsolutePath(), "<cache>")).append('\n');
+    out.append("picked file: ").append(picked.getName()).append(", ").append(picked.length()).append(" bytes\n");
+    // Prompts page: Result files, beside Ref files, shows the stored results (the clip) as Ref files shows references.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    TextView resultsButton = findText(pane, "Result files");
+    out.append("prompts page: Ref files ").append(findText(pane, "Ref files") != null).append(", Result files ").append(resultsButton != null).append('\n');
+    resultsButton.performClick();
+    idle();
+    out.append("result gallery: ").append(findText(pane, "RESULT FILES") != null ? "RESULT FILES" : "?").append(", clip card ")
+        .append(findText(pane, "sogni-video-she-walks.mp4") != null).append(", picture card ").append(findText(pane, "garden.png") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("ref gallery: ").append(findText(pane, "REFERENCE FILES") != null ? "REFERENCE FILES" : "?").append(", picture card ")
+        .append(findText(pane, "garden.png") != null).append(", clip card ").append(findText(pane, "sogni-video-she-walks.mp4") != null).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    write("s59_prompt_keep", out.toString());
+  }
+
+  /** An "AndroidKeyStore" for the tests: keys kept in memory, made by a plain AES generator. */
+  public static final class FakeKeyStoreProvider extends java.security.Provider {
+    static final java.util.Map<String, java.security.Key> KEYS = new java.util.HashMap<String, java.security.Key>();
+
+    public FakeKeyStoreProvider() {
+      // Named as the real one: the vault asks KeyGenerator.getInstance("AES", "AndroidKeyStore").
+      super("AndroidKeyStore", 1.0, "Android keystore stand-in for the tests");
+      put("KeyStore.AndroidKeyStore", FakeStore.class.getName());
+      put("KeyGenerator.AES", FakeGenerator.class.getName());
+    }
+  }
+
+  public static final class FakeGenerator extends javax.crypto.KeyGeneratorSpi {
+    private String alias = "key";
+
+    @Override protected void engineInit(java.security.SecureRandom r) {}
+
+    @Override protected void engineInit(java.security.spec.AlgorithmParameterSpec spec, java.security.SecureRandom r) {
+      if (spec instanceof android.security.keystore.KeyGenParameterSpec) alias = ((android.security.keystore.KeyGenParameterSpec) spec).getKeystoreAlias();
+    }
+
+    @Override protected void engineInit(int size, java.security.SecureRandom r) {}
+
+    @Override protected javax.crypto.SecretKey engineGenerateKey() {
+      byte[] k = new byte[32];
+      new java.security.SecureRandom().nextBytes(k);
+      javax.crypto.SecretKey key = new javax.crypto.spec.SecretKeySpec(k, "AES");
+      FakeKeyStoreProvider.KEYS.put(alias, key);
+      return key;
+    }
+  }
+
+  public static final class FakeStore extends java.security.KeyStoreSpi {
+    @Override public java.security.Key engineGetKey(String a, char[] p) { return FakeKeyStoreProvider.KEYS.get(a); }
+    @Override public java.security.cert.Certificate[] engineGetCertificateChain(String a) { return null; }
+    @Override public java.security.cert.Certificate engineGetCertificate(String a) { return null; }
+    @Override public java.util.Date engineGetCreationDate(String a) { return new java.util.Date(); }
+    @Override public void engineSetKeyEntry(String a, java.security.Key k, char[] p, java.security.cert.Certificate[] c) { FakeKeyStoreProvider.KEYS.put(a, k); }
+    @Override public void engineSetKeyEntry(String a, byte[] k, java.security.cert.Certificate[] c) {}
+    @Override public void engineSetCertificateEntry(String a, java.security.cert.Certificate c) {}
+    @Override public void engineDeleteEntry(String a) { FakeKeyStoreProvider.KEYS.remove(a); }
+    @Override public java.util.Enumeration<String> engineAliases() { return java.util.Collections.enumeration(FakeKeyStoreProvider.KEYS.keySet()); }
+    @Override public boolean engineContainsAlias(String a) { return FakeKeyStoreProvider.KEYS.containsKey(a); }
+    @Override public int engineSize() { return FakeKeyStoreProvider.KEYS.size(); }
+    @Override public boolean engineIsKeyEntry(String a) { return FakeKeyStoreProvider.KEYS.containsKey(a); }
+    @Override public boolean engineIsCertificateEntry(String a) { return false; }
+    @Override public String engineGetCertificateAlias(java.security.cert.Certificate c) { return null; }
+    @Override public void engineStore(java.io.OutputStream o, char[] p) {}
+    @Override public void engineLoad(java.io.InputStream i, char[] p) {}
   }
 
   /** Program files folder in Drum Midi Settings: a picked folder is shown by its path, and Use Downloads goes back. */

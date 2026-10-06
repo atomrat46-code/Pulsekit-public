@@ -639,6 +639,10 @@ public final class DesktopBehavior {
     out.append("sheet: ").append(parsed == null ? "not a prompt sheet" : "name=" + parsed.name + " category=" + parsed.category
         + " model=" + parsed.model + " type=" + parsed.type).append('\n');
     out.append("body: ").append(parsed == null ? "" : parsed.body).append('\n');
+    // The run made no track: the sheet ends with why, as its Result text.
+    out.append("result file: ").append(parsed == null ? "" : parsed.result).append('\n');
+    out.append("result text: ").append(parsed == null ? "" : parsed.resultText.replace("\n", "|")).append('\n');
+    out.append("end of the file: ").append(text.substring(Math.max(0, text.lastIndexOf("\n\nResult"))).trim().replace("\n", "|")).append('\n');
   }
 
   /** The app's kit switches are added only when the extra args do not give them. */
@@ -938,11 +942,11 @@ public final class DesktopBehavior {
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String[] runs = {
-        "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5",
+        "--prompt \"She walks slowly through the garden, the camera follows\" --image \"" + garden.getAbsolutePath() + "\" --duration 5 --saveprompt",
         "walk.mp4 --prompt \"The gate swings open\" --image \"" + garden.getAbsolutePath() + "\" --end_image \"" + last.getAbsolutePath()
-            + "\" --resolution 1080p --no_audio --exact_prompt --unlimited",
+            + "\" --resolution 1080p --no_audio --exact_prompt --unlimited --saveprompt",
         "--prompt \"Rain on a tin roof at night, slow push-in\" --aspect 16:9 --max_cost 50 --confirm_cost",
-        "--prompt \"Too much\" --unlimited",
+        "--prompt \"Too much\" --unlimited --saveprompt",
         "--workflow wv1",
         "--prompt Walk --image \"" + notes.getAbsolutePath() + "\"",
         "--prompt Walk --end_image \"" + last.getAbsolutePath() + "\"",
@@ -979,6 +983,16 @@ public final class DesktopBehavior {
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("(sogni-video|walk).*")).sorted()::iterator) {
           out.append("saved ").append(home.toPath().relativize(f)).append(": ").append(Files.size(f)).append(" bytes\n");
+          if (f.toString().endsWith(".prompt")) {
+            // The sheet opens in PyJav and the Prompts page: read it as they do.
+            PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
+            out.append("  sheet: ").append(sheet.name).append(", category ").append(sheet.category).append(", model ").append(sheet.model)
+                .append(", type ").append(sheet.type).append("\n  body: ").append(sheet.body.replace("\n", "|")).append('\n');
+            out.append("  reference files: 1 \"").append(sheet.ref1).append("\", 2 \"").append(sheet.ref2).append("\"\n");
+            out.append("  result file: ").append(sheet.result).append("\n  result text: ").append(sheet.resultText.replace("\n", "|")).append('\n');
+            String raw = new String(Files.readAllBytes(f), StandardCharsets.UTF_8);
+            out.append("  end of the file: ").append(raw.substring(Math.max(0, raw.lastIndexOf("\n\nResult"))).trim().replace("\n", "|")).append('\n');
+          }
         }
       }
     } finally {

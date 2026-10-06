@@ -35,6 +35,12 @@ import java.util.Map;
  * --confirm_cost confirms the charge. --unlimited is for a Sogni Unlimited Plan: the subscription
  * pays, and only Sogni's daily and monthly fair use limits apply.
  *
+ * --saveprompt also writes the prompt as sogni-video-<first words>.prompt: a Pulsekit prompt sheet
+ * (category video, type AI) that opens in PyJav and the Prompts page, with the pictures' names as
+ * its reference files (1 the first frame, 2 the last). A line of the settings
+ * (duration, resolution, shape, sound, the pictures) follows the prompt. It is written before the
+ * key is checked, so a prompt can be kept without one.
+ *
  * The clip is saved as sogni-video-<first words>.mp4 (or the output name given), which lands in
  * Downloads on the phone. --workflow <id> downloads the clip of a run that already finished (the id
  * is printed as "Workflow: ..."), without starting or paying for a new one.
@@ -61,10 +67,67 @@ public final class SogniVideo {
    */
   static String work;
 
+  /** The prompt sheet --saveprompt wrote this run and its text, the file the run made, and its errors and warnings. */
+  static File promptSheet;
+  static String promptText;
+  static String resultFile;
+  static StringBuilder said;
+
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
     work = System.getProperty("pulsekit.work");
-    System.out.println(VERSION);
+    promptSheet = null;
+    promptText = null;
+    resultFile = null;
+    said = new StringBuilder();
+    try {
+      return steps(typed);
+    } finally {
+      finishPrompt();
+    }
+  }
+
+  /**
+   * Prints a line of the log. Errors and warnings (Failed, Note, Could not...) are also kept for the
+   * saved prompt sheet's Result text.
+   */
+  static void say(String line) {
+    System.out.println(line);
+    String t = line == null ? "" : line.trim();
+    if (said != null && (t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Could not") || t.startsWith("Sogni's fair use")
+        || t.startsWith("Unknown argument"))) {
+      said.append(t).append('\n');
+    }
+  }
+
+  /**
+   * Ends the sheet --saveprompt wrote with what the run made: "Result file: <the track or clip>",
+   * and "Result text:" with the errors and warnings, or the run's last words when it made no file.
+   * PromptRun.parse reads them back off the prompt.
+   */
+  static void finishPrompt() {
+    if (promptSheet == null || promptText == null) return;
+    String text = said == null ? "" : said.toString().trim();
+    if (resultFile == null && text.length() == 0) text = "No result file was made";
+    StringBuilder sb = new StringBuilder(promptText);
+    sb.append("\n\n");
+    if (resultFile != null) sb.append("Result file: ").append(resultFile).append('\n');
+    if (text.length() > 0) sb.append("Result text:\n").append(text).append('\n');
+    try {
+      FileOutputStream fos = new FileOutputStream(promptSheet);
+      try {
+        fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+    } catch (IOException ex) {
+      System.out.println("Could not add the result to " + promptSheet.getName());
+    }
+  }
+
+  /** The run itself. */
+  static int steps(String[] typed) throws Exception {
+    say(VERSION);
     String[] args = tidy(typed);
     String out = null;
     String prompt = null;
@@ -81,6 +144,7 @@ public final class SogniVideo {
     boolean unlimited = false;
     boolean silent = false;
     boolean exact = false;
+    boolean savePrompt = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -91,6 +155,7 @@ public final class SogniVideo {
       else if (a.equals("--aspect") && i + 1 < args.length) aspect = args[++i].trim();
       else if (a.equals("--no_audio")) silent = true;
       else if (a.equals("--exact_prompt")) exact = true;
+      else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -102,7 +167,7 @@ public final class SogniVideo {
         return 0;
       } else if (!a.startsWith("--") && out == null) out = a;
       else {
-        System.out.println("Unknown argument: " + a);
+        say("Unknown argument: " + a);
         usage();
         return 2;
       }
@@ -113,29 +178,29 @@ public final class SogniVideo {
     if (aspect != null && aspect.length() == 0) aspect = null;
     if (workflowId != null && workflowId.length() == 0) workflowId = null;
     if ((prompt == null || prompt.trim().length() == 0) && workflowId == null) {
-      System.out.println("Failed: give --prompt, what happens in the clip, for example --prompt \"She walks slowly through the garden, "
+      say("Failed: give --prompt, what happens in the clip, for example --prompt \"She walks slowly through the garden, "
           + "the camera follows at waist height, birdsong and footsteps on gravel\"");
       usage();
       return 2;
     }
     if (endImage != null && image == null) {
-      System.out.println("Failed: --end_image is the last frame; give the first one with --image");
+      say("Failed: --end_image is the last frame; give the first one with --image");
       return 2;
     }
     int resolution = resolution(resolutionText);
     if (resolution < 0) {
-      System.out.println("Failed: --resolution is 768 (FastH3's own size), or 720, 1080 or 1440 (2K) for the two-stage engine");
+      say("Failed: --resolution is 768 (FastH3's own size), or 720, 1080 or 1440 (2K) for the two-stage engine");
       return 2;
     }
     if (duration < 5 || duration > 15.1) {
-      System.out.println("Failed: --duration is 5 to 15 seconds (MiniMax H3 makes 5.17 to 15.08 s)");
+      say("Failed: --duration is 5 to 15 seconds (MiniMax H3 makes 5.17 to 15.08 s)");
       return 2;
     }
     if (aspect != null && !aspect.matches("\\d{1,2}:\\d{1,2}|\\d{3,4}x\\d{3,4}")) {
-      System.out.println("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
+      say("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
       return 2;
     }
-    if (unlimited && maxCost > 0) System.out.println("Note: --max_cost is not used with the Unlimited Plan");
+    if (unlimited && maxCost > 0) say("Note: --max_cost is not used with the Unlimited Plan");
     List<byte[]> pictures = new ArrayList<byte[]>();
     List<String> pictureTypes = new ArrayList<String>();
     List<String> pictureNames = new ArrayList<String>();
@@ -150,24 +215,31 @@ public final class SogniVideo {
         pictureNames.add(f.getName());
       }
     }
+    if (savePrompt && workflowId == null) {
+      // After the checks, so the sheet holds the settings as sent (1440 for "2K").
+      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
+      File sheet = savePrompt(sheetName, "Sogni " + SogniApi.videoModel(pictures.size(), resolution),
+          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames), pictureNames);
+      say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
+    }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
-      System.out.println("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
+      say("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
           + "with a text file holding SOGNI_API_KEY=<your key>, or set SOGNI_API_KEY. Get the key at https://dashboard.sogni.ai (account menu).");
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
     String model = SogniApi.videoModel(pictures.size(), resolution);
     if (workflowId != null) {
-      System.out.println("Fetching the clip of workflow " + workflowId);
+      say("Fetching the clip of workflow " + workflowId);
     } else {
-      System.out.println("Video: " + prompt.trim());
-      System.out.println("Model " + model + ", " + SogniApi.number(duration) + " s, "
+      say("Video: " + prompt.trim());
+      say("Model " + model + ", " + SogniApi.number(duration) + " s, "
           + (resolution == 1440 ? "2K" : resolution + "p") + (aspect != null ? ", " + aspect : "") + (silent ? ", silent" : ", with sound")
           + (exact ? ", prompt as written" : ""));
-      System.out.println(pictures.isEmpty() ? "From the prompt alone (no --image)"
+      say(pictures.isEmpty() ? "From the prompt alone (no --image)"
           : pictures.size() == 1 ? "First frame: " + pictureNames.get(0) : "First frame: " + pictureNames.get(0) + ", last frame: " + pictureNames.get(1));
-      if (unlimited) System.out.println("Unlimited Plan: the subscription pays; Sogni's daily and monthly fair use limits apply");
+      if (unlimited) say("Unlimited Plan: the subscription pays; Sogni's daily and monthly fair use limits apply");
     }
     try {
       String id = workflowId;
@@ -176,21 +248,21 @@ public final class SogniVideo {
         for (int i = 0; i < pictures.size(); i++) {
           Map<String, Object> ref = api.uploadMedia("image", pictureTypes.get(i), pictures.get(i), i + 1, pictureNames.get(i));
           media.add(ref);
-          System.out.println("Uploaded " + pictureNames.get(i) + " (" + size(pictures.get(i).length) + ") as " + SogniApi.str(ref.get("id")));
+          say("Uploaded " + pictureNames.get(i) + " (" + size(pictures.get(i).length) + ") as " + SogniApi.str(ref.get("id")));
         }
         String input = SogniApi.videoInput("Pulsekit video", prompt.trim(), pictures.size(), duration, resolution, !silent, exact, aspect);
         id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, media, unlimited ? "subscription" : null);
       }
-      System.out.println("Workflow: " + id);
+      say("Workflow: " + id);
       Map<String, Object> wf = api.waitFor(id, 18 * 60 * 1000L, new SogniApi.Log() {
         public void line(String s) {
-          System.out.println(s);
+          say(s);
         }
       });
       String status = SogniApi.str(wf.get("status"));
       List<Map<String, Object>> clips = SogniApi.videoArtifacts(wf);
       if (clips.isEmpty()) {
-        System.out.println("Failed: " + why(api, id, wf));
+        say("Failed: " + why(api, id, wf));
         return 1;
       }
       String url = SogniApi.str(clips.get(0).get("url"));
@@ -199,29 +271,30 @@ public final class SogniVideo {
       byte[] data = api.download(url);
       File file = saveData(name + ext, data);
       if (file == null) {
-        System.out.println("Failed: could not save " + name + ext);
+        say("Failed: could not save " + name + ext);
         return 1;
       }
-      System.out.println("Wrote " + file.getName() + " (" + size(data.length) + ")");
-      if (!"completed".equals(status)) System.out.println("Note: workflow " + status);
-      System.out.println("Succeeded: " + file.getName());
+      say("Wrote " + file.getName() + " (" + size(data.length) + ")");
+      resultFile = file.getName();
+      if (!"completed".equals(status)) say("Note: workflow " + status);
+      say("Succeeded: " + file.getName());
     } catch (SogniApi.ApiException ex) {
-      System.out.println("Failed: " + ex.getMessage());
+      say("Failed: " + ex.getMessage());
       if (unlimited && (ex.status == 429 || String.valueOf(ex.getMessage()).toLowerCase().contains("fair use"))) {
-        System.out.println("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
+        say("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
             + (ex.retryAfter > 0 ? " (Sogni says in about " + wait(ex.retryAfter) + ")" : "") + ".");
       }
       return 1;
     } catch (IOException ex) {
-      System.out.println("Failed: " + ex.getMessage());
+      say("Failed: " + ex.getMessage());
       return 1;
     }
     return 0;
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--unlimited] [--key_file credentials.txt] "
+    say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
@@ -237,22 +310,22 @@ public final class SogniVideo {
   /** A picture's bytes, or null after saying why it cannot be used. */
   static byte[] readPicture(File f) {
     if (!f.isFile()) {
-      System.out.println("Failed: no picture " + f.getPath());
+      say("Failed: no picture " + f.getPath());
       return null;
     }
     if (f.length() > UPLOAD_MAX) {
-      System.out.println("Failed: " + f.getName() + " is " + size(f.length()) + "; Sogni takes pictures of up to " + size(UPLOAD_MAX));
+      say("Failed: " + f.getName() + " is " + size(f.length()) + "; Sogni takes pictures of up to " + size(UPLOAD_MAX));
       return null;
     }
     byte[] data;
     try {
       data = java.nio.file.Files.readAllBytes(f.toPath());
     } catch (IOException ex) {
-      System.out.println("Failed: could not read " + f.getName() + ": " + ex.getMessage());
+      say("Failed: could not read " + f.getName() + ": " + ex.getMessage());
       return null;
     }
     if (pictureType(data) == null) {
-      System.out.println("Failed: " + f.getName() + " is not a PNG, JPEG or WebP picture");
+      say("Failed: " + f.getName() + " is not a PNG, JPEG or WebP picture");
       return null;
     }
     return data;
@@ -264,6 +337,45 @@ public final class SogniVideo {
     if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
     if (d.length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F' && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P') return "image/webp";
     return null;
+  }
+
+  /**
+   * The clip's settings under the prompt in a saved sheet: "\n\nDuration: 5 s. Resolution: 768p.
+   * Shape: 16:9. Sound: none. First frame: garden.png." Defaults (with sound, the picture's own
+   * shape) are left out.
+   */
+  static String settingsLine(double duration, int resolution, String aspect, boolean silent, List<String> pictures) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Duration: ").append(SogniApi.number(duration)).append(" s. ");
+    sb.append("Resolution: ").append(resolution == 1440 ? "2K" : resolution + "p").append(resolution == 768 ? "" : " (two-stage)").append(". ");
+    if (aspect != null) sb.append("Shape: ").append(aspect).append(". ");
+    if (silent) sb.append("Sound: none. ");
+    if (pictures.size() > 0) sb.append("First frame: ").append(pictures.get(0)).append(". ");
+    if (pictures.size() > 1) sb.append("Last frame: ").append(pictures.get(1)).append(". ");
+    return "\n\n" + sb.toString().trim();
+  }
+
+  /**
+   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
+   * name, category video, the model, the pictures as reference files (1 the first frame, 2 the
+   * last), type AI, then the prompt. Never over an existing file.
+   */
+  static File savePrompt(String name, String model, String prompt, List<String> pictures) {
+    String ref1 = pictures.size() > 0 ? pictures.get(0) : "";
+    String ref2 = pictures.size() > 1 ? pictures.get(1) : "";
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
+    sb.append("Category: video\n");
+    sb.append("Model: ").append(model).append('\n');
+    sb.append("Reference file 1: ").append(ref1).append('\n');
+    sb.append("Reference file 2: ").append(ref2).append('\n');
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt);
+    File file = saveData(name + ".prompt", sb.toString().getBytes(StandardCharsets.UTF_8));
+    promptSheet = file;
+    promptText = sb.toString();
+    return file;
   }
 
   /** sogni-video-<first words of the prompt>, or sogni-video-<run> when there is no prompt. */
@@ -376,7 +488,7 @@ public final class SogniVideo {
     try {
       return Double.parseDouble(value.trim());
     } catch (NumberFormatException ex) {
-      System.out.println("Failed: " + flag + " needs a number, not \"" + value + "\"");
+      say("Failed: " + flag + " needs a number, not \"" + value + "\"");
       return Double.NaN;
     }
   }

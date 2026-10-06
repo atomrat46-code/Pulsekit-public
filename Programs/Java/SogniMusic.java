@@ -57,10 +57,67 @@ public final class SogniMusic {
    */
   static String work;
 
+  /** The prompt sheet --saveprompt wrote this run and its text, the file the run made, and its errors and warnings. */
+  static File promptSheet;
+  static String promptText;
+  static String resultFile;
+  static StringBuilder said;
+
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
     work = System.getProperty("pulsekit.work");
-    System.out.println(VERSION);
+    promptSheet = null;
+    promptText = null;
+    resultFile = null;
+    said = new StringBuilder();
+    try {
+      return steps(typed);
+    } finally {
+      finishPrompt();
+    }
+  }
+
+  /**
+   * Prints a line of the log. Errors and warnings (Failed, Note, Could not...) are also kept for the
+   * saved prompt sheet's Result text.
+   */
+  static void say(String line) {
+    System.out.println(line);
+    String t = line == null ? "" : line.trim();
+    if (said != null && (t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Could not") || t.startsWith("Sogni's fair use")
+        || t.startsWith("Unknown argument"))) {
+      said.append(t).append('\n');
+    }
+  }
+
+  /**
+   * Ends the sheet --saveprompt wrote with what the run made: "Result file: <the track or clip>",
+   * and "Result text:" with the errors and warnings, or the run's last words when it made no file.
+   * PromptRun.parse reads them back off the prompt.
+   */
+  static void finishPrompt() {
+    if (promptSheet == null || promptText == null) return;
+    String text = said == null ? "" : said.toString().trim();
+    if (resultFile == null && text.length() == 0) text = "No result file was made";
+    StringBuilder sb = new StringBuilder(promptText);
+    sb.append("\n\n");
+    if (resultFile != null) sb.append("Result file: ").append(resultFile).append('\n');
+    if (text.length() > 0) sb.append("Result text:\n").append(text).append('\n');
+    try {
+      FileOutputStream fos = new FileOutputStream(promptSheet);
+      try {
+        fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+    } catch (IOException ex) {
+      System.out.println("Could not add the result to " + promptSheet.getName());
+    }
+  }
+
+  /** The run itself. */
+  static int steps(String[] typed) throws Exception {
+    say(VERSION);
     String[] args = tidy(typed);
     String out = null;
     String prompt = null;
@@ -106,22 +163,22 @@ public final class SogniMusic {
         return 0;
       } else if (!a.startsWith("--") && out == null) out = a;
       else {
-        System.out.println("Unknown argument: " + a);
+        say("Unknown argument: " + a);
         usage();
         return 2;
       }
     }
     if (drumsOnly && instruments != null && instruments.trim().length() > 0) {
-      System.out.println("Failed: use --drums_only or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
+      say("Failed: use --drums_only or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
       return 2;
     }
     if (drumsOnly && lyrics != null && lyrics.trim().length() > 0) {
-      System.out.println("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
+      say("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
       return 2;
     }
     boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
     if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {
-      System.out.println("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
+      say("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
       return 2;
     }
@@ -130,7 +187,7 @@ public final class SogniMusic {
     if (keyscale != null && keyscale.trim().length() > 0) {
       String k = keyscale(keyscale);
       if (k == null) {
-        System.out.println("Failed: --keyscale is a key and mode, such as \"C major\", \"A minor\", \"F# minor\" or \"Bb major\" (also C, Am, F#m)");
+        say("Failed: --keyscale is a key and mode, such as \"C major\", \"A minor\", \"F# minor\" or \"Bb major\" (also C, Am, F#m)");
         return 2;
       }
       keyscale = k;
@@ -139,52 +196,52 @@ public final class SogniMusic {
     }
     if (timesig < 0 && timesigText != null && timesigText.trim().matches("\\d{1,2}\\s*/\\s*(2|4|8|16)")) {
       // A real meter Sogni cannot make (PyJav passes the app's, such as 5/4 or 7/8): Sogni's default is used.
-      System.out.println("Note: Sogni makes 2/4, 3/4, 4/4 or 6/8, not " + timesigText.trim() + "; the music uses Sogni's default (4/4)");
+      say("Note: Sogni makes 2/4, 3/4, 4/4 or 6/8, not " + timesigText.trim() + "; the music uses Sogni's default (4/4)");
       timesig = 0;
     }
     if (timesig < 0) {
-      System.out.println("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
+      say("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
       return 2;
     }
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
-      System.out.println("Failed: --model is turbo, sft or music3");
+      say("Failed: --model is turbo, sft or music3");
       return 2;
     }
     if (duration < 10 || duration > 600) {
-      System.out.println("Failed: --duration is 10 to 600 seconds");
+      say("Failed: --duration is 10 to 600 seconds");
       return 2;
     }
     if (savePrompt && workflowId == null) {
       // After the checks, so the sheet holds the settings as sent ("C major", not "c").
       File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt + settingsLine(bpm, duration, timesig, keyscale));
-      System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
+      say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
-      System.out.println("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
+      say("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
           + "with a text file holding SOGNI_API_KEY=<your key>, or set SOGNI_API_KEY. Get the key at https://dashboard.sogni.ai (account menu).");
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
     String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
-    if (workflowId != null) System.out.println("Fetching the result of workflow " + workflowId);
-    else System.out.println("Music: " + prompt);
-    System.out.println("Model " + model + ", " + SogniApi.number(duration) + " s"
+    if (workflowId != null) say("Fetching the result of workflow " + workflowId);
+    else say("Music: " + prompt);
+    say("Model " + model + ", " + SogniApi.number(duration) + " s"
         + (bpm > 0 ? ", " + SogniApi.number(bpm) + " BPM" : "") + (keyscale != null ? ", " + keyscale : "")
         + (timesig > 0 ? ", " + (timesig == 6 ? "6/8" : timesig + "/4") : ""));
     try {
       // --workflow fetches a run that already finished (paid for) instead of starting a new one.
       String id = workflowId != null && workflowId.length() > 0 ? workflowId : api.start(input, confirm, maxCost);
-      System.out.println("Workflow: " + id);
+      say("Workflow: " + id);
       Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
         public void line(String s) {
-          System.out.println(s);
+          say(s);
         }
       });
       String status = SogniApi.str(wf.get("status"));
       List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
       if (audio.isEmpty()) {
-        System.out.println("Failed: " + why(api, id, wf));
+        say("Failed: " + why(api, id, wf));
         return 1;
       }
       String url = SogniApi.str(audio.get(0).get("url"));
@@ -204,21 +261,22 @@ public final class SogniMusic {
       } finally {
         fos.close();
       }
-      System.out.println("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      if (!"completed".equals(status)) System.out.println("Note: workflow " + status);
-      System.out.println("Succeeded: " + file.getName());
+      say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+      resultFile = file.getName();
+      if (!"completed".equals(status)) say("Note: workflow " + status);
+      say("Succeeded: " + file.getName());
     } catch (SogniApi.ApiException ex) {
-      System.out.println("Failed: " + ex.getMessage());
+      say("Failed: " + ex.getMessage());
       return 1;
     } catch (IOException ex) {
-      System.out.println("Failed: " + ex.getMessage());
+      say("Failed: " + ex.getMessage());
       return 1;
     }
     return 0;
   }
 
   static void usage() {
-    System.out.println("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
+    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
         + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
@@ -313,7 +371,7 @@ public final class SogniMusic {
     try {
       return Double.parseDouble(value.trim());
     } catch (NumberFormatException ex) {
-      System.out.println("Failed: " + flag + " needs a number, not \"" + value + "\"");
+      say("Failed: " + flag + " needs a number, not \"" + value + "\"");
       return Double.NaN;
     }
   }
@@ -384,6 +442,8 @@ public final class SogniMusic {
       } finally {
         fos.close();
       }
+      promptSheet = file;
+      promptText = sb.toString();
       return file;
     } catch (IOException ex) {
       return null;
