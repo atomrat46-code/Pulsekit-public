@@ -30,7 +30,7 @@ import java.util.Map;
  * shapes it for the model first.
  *
  * The LoRAs are MiniMax H3 video LoRAs applied in order, as id:strength pairs separated by commas,
- * spaces or new lines. Without --loras the set is Mystic X v4 at 0.5 and VBVR Video Reasoning at 1
+ * spaces or new lines, or by the names Sogni's app shows (Better Motion 0.6, separated by commas). Without --loras the set is Mystic X v4 at 0.5 and VBVR Video Reasoning at 1
  * (h3-mystic-xxx-v4:0.5,h3-vbvr-video-reasoning:1); --loras none leaves them out. Strengths are
  * above 0, up to 2. Eight at most.
  *
@@ -186,18 +186,16 @@ public final class SogniTextVideo {
     List<Double> strengths = new ArrayList<Double>();
     String given = loraText == null || loraText.length() == 0 ? DEFAULT_LORAS : loraText;
     if (!given.equalsIgnoreCase("none")) {
-      for (String part : given.split("[,;\\s]+")) {
-        String t = part.trim();
-        if (t.length() == 0) continue;
-        int colon = t.lastIndexOf(':');
-        String lid = colon > 0 ? t.substring(0, colon).trim() : t;
+      // Ids with strengths (h3-better-motion:0.6) or the names Sogni's app shows (Better Motion 0.6).
+      for (String[] pair : SogniApi.loraList(given, SogniApi.H3_LORAS)) {
+        String lid = pair[0];
         double strength = 1;
-        if (colon > 0) {
-          strength = number("--loras (" + lid + ")", t.substring(colon + 1));
+        if (pair[1] != null) {
+          strength = number("--loras (" + lid + ")", pair[1]);
           if (Double.isNaN(strength)) return 2;
         }
         if (!lid.matches("[A-Za-z0-9][A-Za-z0-9._-]*")) {
-          say("Failed: --loras takes H3 LoRA ids such as h3-vbvr-video-reasoning, not \"" + lid + "\"");
+          say("Failed: --loras takes H3 LoRA ids such as h3-vbvr-video-reasoning:0.5 or their names such as Better Motion 0.5, not \"" + lid + "\". Known: " + SogniApi.loraNames(SogniApi.H3_LORAS));
           return 2;
         }
         if (strength <= 0 || strength > 2) {
@@ -1828,6 +1826,84 @@ public final class SogniTextVideo {
     static void expect(String s, int[] at, char ch) {
       if (at[0] >= s.length() || s.charAt(at[0]) != ch) throw new IllegalArgumentException("Expected " + ch + " in JSON at " + at[0]);
       at[0]++;
+    }
+
+    /** MiniMax H3 video LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] H3_LORAS = {
+      {"h3-mystic-xxx-v4", "Mystic X v4"},
+      {"h3-vbvr-video-reasoning", "VBVR Video Reasoning"},
+      {"h3-better-motion", "Better Motion"},
+      {"h3-natural-face-speech", "Natural Face & Speech"},
+      {"h3-combat-base-v2", "Combat Base V2"},
+    };
+
+    /** Krea 2 LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] KREA2_LORAS = {
+      {"krea2-mystic-x", "Mystic X"}, {"krea2-realism-engine", "Realism Engine v3"}, {"krea2-skin-detail", "Skin Detail"},
+      {"krea2-breast", "Chest Size"}, {"krea2-weight", "Weight"}, {"krea2-height", "Height"}, {"krea2-age", "Age"},
+      {"krea2-hourglass-figure", "Figure"}, {"krea2-chest-firmness", "Natural Sag → Firm"}, {"krea2-filter-bypass-2", "Krea2FilterBypass 2vector"},
+      {"krea2-filter-bypass-3", "Krea2FilterBypass 3vector"}, {"krea2-detail-enhancer", "Detail Enhancer"}, {"krea2-amateur", "Professional ↔ Amateur"},
+      {"krea2-candid", "Editorial ↔ Candid"}, {"krea2-realism", "Illustrated ↔ Realistic"}, {"krea2-bloomgirls", "BloomGirls UltraRealism"},
+      {"krea2-aberrant", "Aberrant"}, {"krea2-afterlight", "Afterlight"}, {"krea2-purple-grainy", "Purple Grainy"},
+      {"krea2-scene-complexity", "Scene Complexity"}, {"krea2-skin-tone", "Skin Tone"}, {"krea2-warm-light", "Warm Light"},
+      {"krea2-wetness", "Wetness"}, {"krea2-zoom", "Zoom"}, {"krea2-nipple-projection", "Nipple Flat → Protruding"},
+    };
+
+    /**
+     * A LoRA list as typed in Params: entries separated by commas, semicolons or new lines, each an
+     * id with its strength (h3-better-motion:0.6) or the name Sogni's app shows (Better Motion 0.6,
+     * or Better Motion: 0.6). Several id:strength pairs may also share an entry, separated by spaces.
+     * Each result is {id, strength}: a name in `known` (any case, symbols ignored) becomes its id,
+     * anything else is kept as typed for the program to check; the strength is null when not given.
+     */
+    public static List<String[]> loraList(String text, String[][] known) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (text == null) return out;
+      for (String entry : text.split("[,;\\r\\n]+")) {
+        String e = entry.trim();
+        if (e.length() == 0) continue;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*?)(?:\\s*:\\s*|\\s+)(-?\\d*\\.?\\d+)$").matcher(e);
+        String name = m.matches() ? m.group(1).trim() : e;
+        String strength = m.matches() ? m.group(2) : null;
+        String id = loraId(name, known);
+        if (id != null) {
+          out.add(new String[] {id, strength});
+          continue;
+        }
+        if (e.matches("[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?(\\s+[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?)+")) {
+          // id:strength pairs separated by spaces (ids have hyphens; an unknown name is kept whole for the program to refuse).
+          for (String token : e.split("\\s+")) {
+            int colon = token.lastIndexOf(':');
+            String tid = colon > 0 ? token.substring(0, colon) : token;
+            String found = loraId(tid, known);
+            out.add(new String[] {found != null ? found : tid, colon > 0 ? token.substring(colon + 1) : null});
+          }
+          continue;
+        }
+        out.add(new String[] {name, strength});
+      }
+      return out;
+    }
+
+    /** The id for a LoRA's id or shown name in `known` (any case, symbols and spaces ignored), or null. */
+    public static String loraId(String name, String[][] known) {
+      String key = loraKey(name);
+      if (key.length() == 0 || known == null) return null;
+      for (String[] k : known) {
+        if (loraKey(k[0]).equals(key) || loraKey(k[1]).equals(key)) return k[0];
+      }
+      return null;
+    }
+
+    static String loraKey(String s) {
+      return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+    }
+
+    /** "Better Motion (h3-better-motion), ..." for a message: the names `known` gives. */
+    public static String loraNames(String[][] known) {
+      StringBuilder sb = new StringBuilder();
+      for (String[] k : known) sb.append(sb.length() > 0 ? ", " : "").append(k[1]).append(" (").append(k[0]).append(')');
+      return sb.toString();
     }
     // --- SogniApi end ---
   }

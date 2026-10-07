@@ -2763,6 +2763,10 @@ public final class DesktopBehavior {
       String[] runs = {
         "--prompt \"Waves roll onto a beach at sunset, the camera drifts along the shore\" --duration 8 --aspect 9:16 --saveprompt --unlimited",
         "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0.6 --resolution 1080",
+        // The names Sogni's app shows, with their strengths.
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"Mystic X v4 0.5,VBVR Video Reasoning 0.7,Better Motion 0.6\"",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"better motion; Natural Face & Speech: 0.8\"",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"Fast Zoom 0.5\"",
         "--prompt \"Waves roll onto a beach at sunset\" --loras none --no_audio",
         "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0",
       };

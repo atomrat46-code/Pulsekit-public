@@ -372,7 +372,7 @@ public final class ProgramParams {
       p.hint = "1.1 (default); -0.5 smoother to 3 more detail; 0 off";
     }
     if (p.token.equals("--loras")) {
-      p.label = "More Krea 2 LoRAs (id:strength, comma separated)";
+      p.label = "More Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "e.g. krea2-warm-light:0.6,krea2-film-grain:1";
     }
     if (p.token.equals("--max_cost")) {
@@ -396,7 +396,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--prompt")) p.hint = "the picture to make";
     if (p.token.equals("--loras")) {
-      p.label = "Krea 2 LoRAs (id:strength, comma separated)";
+      p.label = "Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X 1, Realism Engine 0.8, Chest Size 0.5, Weight -1, Filter Bypass 2vector 1; none for no LoRAs";
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5; empty for 1024 square";
@@ -432,7 +432,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty for the model's own";
     if (p.token.equals("--loras")) {
-      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.label = "H3 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X v4 0.5, VBVR Video Reasoning 1; none for no LoRAs";
     }
     if (p.token.equals("--max_cost")) {
@@ -486,7 +486,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty keeps the picture's shape";
     if (p.token.equals("--loras")) {
-      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.label = "H3 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: h3-vbvr-video-reasoning:1 with the filter off; none for no LoRAs; e.g. h3-better-motion:0.6";
     }
     if (p.token.equals("--max_cost")) {
