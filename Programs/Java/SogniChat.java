@@ -41,6 +41,11 @@ import java.util.Map;
  * first (kit-ideas) names everything a run saves: kit-ideas.txt, and any tool results
  * kit-ideas-1.png, kit-ideas-2.mp3...; the extensions come from what Sogni sends.
  *
+ * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
+ * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
+ * text under the question), with the saved chat as its result file: Pulsekit keeps it in the prompt
+ * library, the chat .txt as a result file.
+ *
  * --models lists the chat models Sogni offers; --model picks one.
  *
  * --tools offers the model Sogni's creative tools (generate_image, generate_music, edit_image...).
@@ -74,7 +79,7 @@ public final class SogniChat {
   }
 
   /** Printed first, so a run's log shows which SogniChat ran. */
-  static final String VERSION = "SogniChat 2026-10-06";
+  static final String VERSION = "SogniChat 2026-10-07";
 
   /** The first line of a saved conversation, and the lines that start each turn in it. */
   static final String HEAD = "SogniChat conversation";
@@ -122,6 +127,7 @@ public final class SogniChat {
     boolean runTools = false;
     boolean unlimited = false;
     boolean confirm = false;
+    boolean savePrompt = false;
     double maxCost = 0;
     String rejoin = null;
     // SogniChat runs with Sogni's Safe Content Filter off unless --filter_on asks for it, on every run.
@@ -155,6 +161,7 @@ public final class SogniChat {
       else if (a.equals("--no_filter")) continue;
       else if (a.equals("--filter_on")) SogniApi.noFilter = false;
       else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--run") && i + 1 < args.length) {
         String id = args[++i].trim();
@@ -383,6 +390,13 @@ public final class SogniChat {
       File saved = save(name, transcript(chosen, system, turns));
       if (saved == null) System.out.println("Could not save the reply (it is in the log above)");
       else System.out.println("Wrote " + saved.getName());
+      if (savePrompt && saved != null) {
+        List<String> names = new ArrayList<String>();
+        for (String f : files) names.add(new File(f.trim()).getName());
+        File sheet = savePrompt(saved.getName().replaceAll("\\.[^.]*$", ""), chosen, prompt, system, names, saved.getName(), stopped);
+        if (sheet == null) System.out.println("Could not save the prompt sheet");
+        else System.out.println("Wrote " + sheet.getName() + " (the prompt, with " + saved.getName() + " as its result file)");
+      }
       List<String> made = new ArrayList<String>();
       if (saved != null) made.add(saved.getName());
       if (unlimited && !runMedia.isEmpty()) {
@@ -431,7 +445,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
   }
 
   /**
@@ -1224,6 +1238,31 @@ public final class SogniChat {
       if (++words == 4 || sb.length() > 30) break;
     }
     return "sogni-chat" + (sb.length() > 0 ? "-" + sb : "") + ".txt";
+  }
+
+  /**
+   * --saveprompt: a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it) named as the
+   * saved chat: category Writing, the chat model, the first two --file names as its reference files,
+   * type AI, the question (and the system text under it), and the saved chat as its result file.
+   * Pulsekit stores it in the prompt library after the run, the chat .txt as a result file. Never
+   * over an existing file; null if it could not be written.
+   */
+  static File savePrompt(String name, String model, String prompt, String system, List<String> files, String result, String note) {
+    String ref1 = files.size() > 0 ? files.get(0) : "";
+    String ref2 = files.size() > 1 ? files.get(1) : "";
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
+    sb.append("Category: Writing\n");
+    sb.append("Model: Sogni chat ").append(model == null ? SogniApi.CHAT_MODEL : model).append('\n');
+    sb.append("Reference file 1: ").append(ref1).append('\n');
+    sb.append("Reference file 2: ").append(ref2).append('\n');
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt == null ? "" : prompt.trim());
+    if (system != null && system.trim().length() > 0) sb.append("\n\nSystem: ").append(system.trim());
+    sb.append("\n\nResult file: ").append(result).append('\n');
+    if (note != null && note.length() > 0) sb.append("Result text:\nNote: ").append(note).append('\n');
+    return saveData(name + ".prompt", sb.toString().getBytes(StandardCharsets.UTF_8));
   }
 
   /** Writes a result beside the program's other files, never over an existing file. Null if it could not. */

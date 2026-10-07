@@ -2932,6 +2932,65 @@ public final class DesktopBehavior {
     out.append("picked: ").append(picked[0]).append(", dialog ").append(last.isShowing() ? "open" : "closed").append('\n');
   }
 
+  /**
+   * SogniChat --saveprompt: the question goes into the prompt library as a prompt (category
+   * Writing) with the saved chat (answer.txt) as its result file and the --file as reference file.
+   */
+  void s64_chat_saveprompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      ex.getRequestBody().readAllBytes();
+      byte[] bytes = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Try a snare roll into the crash.\"}}]}".getBytes(StandardCharsets.UTF_8);
+      ex.getResponseHeaders().set("Content-Type", "application/json");
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File notes = new File(home, "notes.txt");
+      Files.write(notes.toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniChat.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--saveprompt")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.defaultOn ? " ticked" : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "answer --prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\" --saveprompt",
+        "answer --prompt \"And another\" --saveprompt",
+        "--prompt \"Not kept\"",
+      };
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Prompt library") || log.getText().contains("Failed") || (!extra.contains("--saveprompt") && log.getText().contains("Succeeded"))); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+          out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      PromptVault vault = PromptDb.vault();
+      for (PromptVault.Category c : vault.categories()) {
+        for (PromptVault.Prompt p : vault.prompts(c.id)) {
+          out.append("prompt ").append(c.name).append(" / ").append(p.title).append(": ").append(vault.versions(p.id).size()).append(" versions\n");
+        }
+      }
+      for (PromptVault.StoredFile f : vault.resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).trim().replace("\n", "|")).append('\n');
+      for (PromptVault.StoredFile f : vault.referenceFiles()) out.append("reference file: ").append(f.name).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

@@ -2835,6 +2835,54 @@ public class BehaviorTest {
   }
 
   /**
+   * SogniChat --saveprompt: Params shows the switch; the run's sheet (as SogniChat writes it) goes
+   * into the prompt library in Writing with the saved chat .txt as its result file.
+   */
+  @Test
+  public void s78_chat_saveprompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniChat.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.CheckBox box = (android.widget.CheckBox) d.getWindow().getDecorView().findViewWithTag("params-check:--saveprompt");
+    out.append("--saveprompt box: ").append(box == null ? "none" : box.getText() + (box.isChecked() ? ", ticked" : ", not ticked")).append('\n');
+    d.dismiss();
+    idle();
+    File notes = new File(app.getCacheDir(), "pyjav-in/notes.txt");
+    notes.getParentFile().mkdirs();
+    Files.write(notes.toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+    String chat = "SogniChat conversation\nModel: qwen3.6-35b-a3b-gguf-iq4xs\n\n=== You ===\nSuggest one fill\n\n=== Sogni ===\nTry a snare roll into the crash.\n";
+    String sheet = "PKPROMPT1\nanswer\n\n\nnotes.txt\n\nCategory: Writing\nModel: Sogni chat qwen3.6-35b-a3b-gguf-iq4xs\nReference file 1: notes.txt\nReference file 2: \nType: ai\n---\n"
+        + "Suggest one fill\n\nSystem: Answer briefly.\n\nResult file: answer.txt\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("answer.txt", chat.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("answer.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("answer", "--prompt", "Suggest one fill", "--file", notes.getAbsolutePath(), "--saveprompt"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote answer.txt\nWrote answer.prompt (the prompt, with answer.txt as its result file)\nSucceeded: answer.txt", files, 0));
+    idle();
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    idle();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        if (!p.title.equals("answer")) continue;
+        PromptVault.Version v = vault.versions(p.id).get(0);
+        out.append("library: ").append(c.name).append(" / ").append(p.title).append(", model ").append(v.model).append(", text ").append(v.body.replace("\n", "|"))
+            .append(", result ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+      }
+    }
+    for (PromptVault.StoredFile f : vault.resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    for (PromptVault.StoredFile f : vault.referenceFiles()) out.append("reference file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    write("s78_chat_saveprompt", out.toString());
+  }
+
+  /**
    * Browse DB's A / I / V / S / T buttons: all files, images, videos, sound files (MIDI too) or
    * text files; the pick is kept for the next Browse DB and across Ref files / Result files.
    */
