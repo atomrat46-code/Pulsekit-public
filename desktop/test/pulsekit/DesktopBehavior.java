@@ -2639,16 +2639,26 @@ public final class DesktopBehavior {
         out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
             .append(p.isFile() ? " file" : "").append(p.defaultOn ? " ticked" : "").append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
       }
+      // The LoRA list is a wrapping area of a few lines in Params.
+      final StringBuilder field = new StringBuilder();
+      inspectNext = d -> {
+        Component c = component(d, "params-field:--loras");
+        field.append("LoRA field: ").append(c instanceof javax.swing.JTextArea ? "several lines, wraps " + ((javax.swing.JTextArea) c).getLineWrap() : c == null ? "none" : "one line").append('\n');
+      };
+      answers.add("Cancel");
+      call("openParams");
+      out.append(field);
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String[] runs = {
         "--prompt \"A lighthouse on a cliff at dawn\" --aspect 9:16 --saveprompt --unlimited",
         "--prompt \"A lighthouse on a cliff at dawn\" --loras krea2-warm-light:0.6 --seed 42",
         "--prompt \"A lighthouse on a cliff at dawn\" --loras none",
+        "--prompt \"A lighthouse on a cliff at dawn\" --loras \"krea2-warm-light:0.6 krea2-skin-detail:1.1\"",
         "--prompt \"A lighthouse on a cliff at dawn\" --loras krea2-age:-2,krea2-mystic-x:1",
       };
       for (int r = 0; r < runs.length; r++) {
         final String extra = runs[r] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
-        if (r < 3) answers.add("Close");
+        if (r < 4) answers.add("Close");
         edt(() -> log.setText(""));
         set("pyInputPath", null);
         edt(() -> ((JTextField) get("pyExtra")).setText(extra));

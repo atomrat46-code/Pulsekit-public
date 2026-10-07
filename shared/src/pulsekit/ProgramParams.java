@@ -482,7 +482,8 @@ public final class ProgramParams {
   public static boolean longText(Param p) {
     if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
     String t = p.token;
-    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments");
+    // A LoRA list (SogniVideo, SogniPedit, SogniPadd) too: wrapped so the whole list shows.
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
   }
 
   /** A several-line field's text as one argument: lines joined with spaces. */

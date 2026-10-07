@@ -29,7 +29,7 @@ import java.util.Map;
  *
  * --skin_detail is Krea 2's Skin Detail LoRA (krea2-skin-detail): 1.1 by default, 0 leaves it out;
  * -0.5 smooths the skin, up to 3 adds more detail. --loras adds other Krea 2 LoRAs in order, as
- * id:strength pairs separated by commas (krea2-warm-light:0.6,krea2-film-grain:1); Sogni's LoRA
+ * id:strength pairs separated by commas, spaces or new lines (krea2-warm-light:0.6,krea2-film-grain:1); Sogni's LoRA
  * list has the ids and ranges. Eight LoRAs at most, Skin Detail included. Steps, guidance and
  * sampler are Sogni's own for the model: its hosted edit tool does not take them.
  *
@@ -198,7 +198,7 @@ public final class SogniPedit {
       strengths.add(Double.valueOf(skin));
     }
     if (loraText != null && loraText.length() > 0) {
-      for (String part : loraText.split("[,;]")) {
+      for (String part : loraText.split("[,;\\s]+")) {
         String t = part.trim();
         if (t.length() == 0) continue;
         int colon = t.lastIndexOf(':');

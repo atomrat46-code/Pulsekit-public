@@ -2793,6 +2793,9 @@ public class BehaviorTest {
       out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"").append('\n');
     }
     out.append("file rows: ").append(dv.findViewWithTag("params-file:--image") != null ? "an image row" : "none").append('\n');
+    android.widget.EditText loraField = (android.widget.EditText) dv.findViewWithTag("params-field:--loras");
+    out.append("LoRA field: ").append((loraField.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0 ? "several lines" : "one line")
+        .append(", up to ").append(loraField.getMaxLines()).append(" lines shown, scrolls ").append(loraField.isVerticalScrollBarEnabled()).append('\n');
     for (String t : new String[] {"--unlimited", "--saveprompt"}) {
       android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
       out.append(t).append(": ").append(c == null ? "none" : c.isChecked() ? "ticked" : "not ticked").append('\n');

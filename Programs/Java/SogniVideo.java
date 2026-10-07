@@ -49,7 +49,7 @@ import java.util.Map;
  * Downloads on the phone. --workflow <id> downloads the clip of a run that already finished (the id
  * is printed as "Workflow: ..."), without starting or paying for a new one.
  *
- * --loras adds MiniMax H3 video LoRAs in order, as id:strength pairs separated by commas
+ * --loras adds MiniMax H3 video LoRAs in order, as id:strength pairs separated by commas, spaces or new lines
  * (h3-vbvr-video-reasoning:1,h3-better-motion:0.6); strengths are positive (0 to 2). Without
  * --loras a run with the content filter off uses VBVR Video Reasoning at 1 (it holds the clip to
  * the prompt); --loras none leaves LoRAs out. VBVR Video Reasoning and Mystic X v4
@@ -242,7 +242,7 @@ public final class SogniVideo {
     List<Double> strengths = new ArrayList<Double>();
     String given = loraText != null && loraText.length() > 0 ? loraText : SogniApi.noFilter ? DEFAULT_LORAS : "none";
     if (!given.equalsIgnoreCase("none")) {
-      for (String part : given.split("[,;]")) {
+      for (String part : given.split("[,;\\s]+")) {
         String t = part.trim();
         if (t.length() == 0) continue;
         int colon = t.lastIndexOf(':');

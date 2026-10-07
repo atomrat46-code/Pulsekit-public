@@ -23,7 +23,7 @@ import java.util.Map;
  * changes no existing one. Sogni's Safe Content Filter is off for every run: the model's mature
  * output needs it off.
  *
- * The LoRAs are Krea 2 LoRAs applied in order, as id:strength pairs separated by commas. Without
+ * The LoRAs are Krea 2 LoRAs applied in order, as id:strength pairs separated by commas, spaces or new lines. Without
  * --loras the set is Mystic X 1, Realism Engine v3 0.8, Chest Size 0.5, Weight -1 and
  * Krea2FilterBypass 2vector 1 (krea2-mystic-x:1,krea2-realism-engine:0.8,krea2-breast:0.5,
  * krea2-weight:-1,krea2-filter-bypass-2:1); --loras none leaves them all out. Eight at most.
@@ -189,7 +189,7 @@ public final class SogniPadd {
     List<Double> strengths = new ArrayList<Double>();
     String given = loraText == null || loraText.length() == 0 ? DEFAULT_LORAS : loraText;
     if (!given.equalsIgnoreCase("none")) {
-      for (String part : given.split("[,;]")) {
+      for (String part : given.split("[,;\\s]+")) {
         String t = part.trim();
         if (t.length() == 0) continue;
         int colon = t.lastIndexOf(':');
