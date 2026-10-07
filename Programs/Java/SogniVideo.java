@@ -49,6 +49,12 @@ import java.util.Map;
  * Downloads on the phone. --workflow <id> downloads the clip of a run that already finished (the id
  * is printed as "Workflow: ..."), without starting or paying for a new one.
  *
+ * --loras adds MiniMax H3 video LoRAs in order, as id:strength pairs separated by commas
+ * (h3-vbvr-video-reasoning:1,h3-better-motion:0.6); strengths are positive (0 to 2). Without
+ * --loras a run with the content filter off uses VBVR Video Reasoning at 1 (it holds the clip to
+ * the prompt); --loras none leaves LoRAs out. VBVR Video Reasoning and Mystic X v4
+ * (h3-mystic-xxx-v4) need the content filter off. Eight at most.
+ *
  * --join video.mp4 joins the clip with another MP4 when the run succeeds: the clip first, then the
  * other video, saved beside it as <clip name>-merged.mp4 (no re-encoding: the two pictures must be
  * in the same format, as two Sogni clips from the same model are). --join_first puts the other video
@@ -63,7 +69,7 @@ public final class SogniVideo {
   }
 
   /** Printed first, so a run's log shows which SogniVideo ran. */
-  static final String VERSION = "SogniVideo 2026-10-06";
+  static final String VERSION = "SogniVideo 2026-10-07";
 
   /** The largest picture uploaded (Sogni's own limit: 100 MB). */
   static final int UPLOAD_MAX = 100 * 1024 * 1024;
@@ -148,6 +154,7 @@ public final class SogniVideo {
     String aspect = null;
     String resolutionText = null;
     String joinPath = null;
+    String loraText = null;
     boolean joinFirst = false;
     double duration = 5;
     double maxCost = 0;
@@ -172,6 +179,7 @@ public final class SogniVideo {
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       else if (a.equals("--join") && i + 1 < args.length) joinPath = args[++i].trim();
+      else if (a.equals("--loras") && i + 1 < args.length) loraText = args[++i].trim();
       else if (a.equals("--join_first")) joinFirst = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -229,6 +237,41 @@ public final class SogniVideo {
       say("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
       return 2;
     }
+    // The H3 LoRAs, in order: --loras, or VBVR Video Reasoning when the filter is off (none for no LoRAs).
+    List<String> loras = new ArrayList<String>();
+    List<Double> strengths = new ArrayList<Double>();
+    String given = loraText != null && loraText.length() > 0 ? loraText : SogniApi.noFilter ? DEFAULT_LORAS : "none";
+    if (!given.equalsIgnoreCase("none")) {
+      for (String part : given.split("[,;]")) {
+        String t = part.trim();
+        if (t.length() == 0) continue;
+        int colon = t.lastIndexOf(':');
+        String lid = colon > 0 ? t.substring(0, colon).trim() : t;
+        double strength = 1;
+        if (colon > 0) {
+          strength = number("--loras (" + lid + ")", t.substring(colon + 1));
+          if (Double.isNaN(strength)) return 2;
+        }
+        if (!lid.matches("[A-Za-z0-9][A-Za-z0-9._-]*")) {
+          say("Failed: --loras takes H3 LoRA ids such as h3-vbvr-video-reasoning, not \"" + lid + "\"");
+          return 2;
+        }
+        if (strength <= 0 || strength > 2) {
+          say("Failed: " + lid + " at " + SogniApi.number(strength) + ": H3 LoRA strengths are above 0, up to 2 (leave a LoRA out to turn it off)");
+          return 2;
+        }
+        if (!SogniApi.noFilter && (lid.equals("h3-vbvr-video-reasoning") || lid.equals("h3-mystic-xxx-v4"))) {
+          say("Failed: " + lid + " needs the content filter off (--no_filter); Sogni refuses it with the filter on");
+          return 2;
+        }
+        loras.add(lid);
+        strengths.add(Double.valueOf(strength));
+      }
+    }
+    if (loras.size() > 8) {
+      say("Failed: " + loras.size() + " LoRAs; one render takes 8 at most");
+      return 2;
+    }
     if (unlimited && maxCost > 0) say("Note: --max_cost is not used with the Unlimited Plan");
     List<byte[]> pictures = new ArrayList<byte[]>();
     List<String> pictureTypes = new ArrayList<String>();
@@ -248,7 +291,7 @@ public final class SogniVideo {
       // After the checks, so the sheet holds the settings as sent (1440 for "2K").
       String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
       File sheet = savePrompt(sheetName, "Sogni " + SogniApi.videoModel(pictures.size(), resolution),
-          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames), pictureNames);
+          prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames) + (loras.isEmpty() ? "" : " LoRAs: " + loraLine(loras, strengths) + "."), pictureNames);
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
@@ -268,6 +311,7 @@ public final class SogniVideo {
           + (exact ? ", prompt as written" : ""));
       say(pictures.isEmpty() ? "From the prompt alone (no --image)"
           : pictures.size() == 1 ? "First frame: " + pictureNames.get(0) : "First frame: " + pictureNames.get(0) + ", last frame: " + pictureNames.get(1));
+      say(loras.isEmpty() ? "LoRAs: none" : "LoRAs: " + loraLine(loras, strengths));
       if (unlimited) say("Unlimited Plan: the subscription pays; Sogni's daily and monthly fair use limits apply");
       if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
     }
@@ -280,7 +324,7 @@ public final class SogniVideo {
           media.add(ref);
           say("Uploaded " + pictureNames.get(i) + " (" + size(pictures.get(i).length) + ") as " + SogniApi.str(ref.get("id")));
         }
-        String input = SogniApi.videoInput("Pulsekit video", prompt.trim(), pictures.size(), duration, resolution, !silent, exact, aspect);
+        String input = SogniApi.videoInput("Pulsekit video", prompt.trim(), pictures.size(), duration, resolution, !silent, exact, aspect, loras, strengths);
         id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, media, unlimited ? "subscription" : null);
       }
       say("Workflow: " + id);
@@ -347,9 +391,19 @@ public final class SogniVideo {
     }
   }
 
+  /** VBVR Video Reasoning at 1: the LoRA a run with the filter off uses without --loras. */
+  static final String DEFAULT_LORAS = "h3-vbvr-video-reasoning:1";
+
+  /** "h3-vbvr-video-reasoning 1, h3-better-motion 0.6". */
+  static String loraLine(List<String> loras, List<Double> strengths) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < loras.size(); i++) sb.append(i == 0 ? "" : ", ").append(loras.get(i)).append(' ').append(SogniApi.number(strengths.get(i).doubleValue()));
+    return sb.toString();
+  }
+
   static void usage() {
     say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--join video.mp4] [--join_first] [--key_file credentials.txt] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
@@ -674,6 +728,12 @@ public final class SogniVideo {
      * written; `audio` false asks for a silent clip; `aspect` ("16:9", "9:16"...) only when given.
      */
     public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect) {
+      return videoInput(title, prompt, pictures, duration, resolution, audio, exact, aspect, null, null);
+    }
+
+    /** As above, with H3 video LoRAs in order (`strengths` positional; positive only, 0 off). */
+    public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect,
+        List<String> loras, List<Double> strengths) {
       Map<String, Object> args = new LinkedHashMap<String, Object>();
       args.put("prompt", prompt);
       args.put("videoModel", videoModel(pictures, resolution));
@@ -683,6 +743,12 @@ public final class SogniVideo {
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       args.put("numberOfVariations", Integer.valueOf(1));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "video");
       step.put("toolName", pictures > 0 ? "animate_photo" : "generate_video");

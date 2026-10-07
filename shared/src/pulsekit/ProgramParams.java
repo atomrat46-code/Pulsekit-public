@@ -447,6 +447,10 @@ public final class ProgramParams {
       p.choiceValues = new String[] {"768", "720", "1080", "1440"};
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty keeps the picture's shape";
+    if (p.token.equals("--loras")) {
+      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.hint = "empty: h3-vbvr-video-reasoning:1 with the filter off; none for no LoRAs; e.g. h3-better-motion:0.6";
+    }
     if (p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 100; empty for no limit";

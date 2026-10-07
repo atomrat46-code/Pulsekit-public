@@ -1756,10 +1756,11 @@ public final class DesktopBehavior {
         if (p.token.equals("--no_filter")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)").append('\n');
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      String[] runs = {"--prompt \"Animate this cartoon\"", "--prompt \"Animate this cartoon\" --no_filter"};
+      String[] runs = {"--prompt \"Animate this cartoon\"", "--prompt \"Animate this cartoon\" --no_filter",
+          "--prompt \"Animate this cartoon\" --no_filter --loras h3-mystic-xxx-v4:0.8,h3-vbvr-video-reasoning:1", "--prompt \"Animate this cartoon\" --loras h3-mystic-xxx-v4:0.8"};
       for (int r = 0; r < runs.length; r++) {
         final String extra = runs[r];
-        if (r == 1) answers.add("Close");
+        if (r == 1 || r == 2) answers.add("Close");
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
@@ -1767,11 +1768,15 @@ public final class DesktopBehavior {
         Thread.sleep(300);
         out.append("== ").append(extra).append('\n');
         for (String line : textOf(log).split("\n")) {
-          if (line.startsWith("Content filter") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
+          if (line.startsWith("Content filter") || line.startsWith("LoRAs") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
         }
       }
       synchronized (bodies) {
-        for (String b : bodies) out.append("start sends safe_content_filter: ").append(b.contains("\"safe_content_filter\":false") ? "false" : "nothing (Sogni's default: on)").append('\n');
+        for (String b : bodies) {
+          int at = b.indexOf("\"loras\"");
+          out.append("start sends safe_content_filter: ").append(b.contains("\"safe_content_filter\":false") ? "false" : "nothing (Sogni's default: on)")
+              .append(", ").append(at < 0 ? "no LoRAs" : b.substring(at, b.indexOf(']', b.indexOf("loraStrengths", at)) + 1)).append('\n');
+        }
       }
       // The chat request and the chat run carry the setting too (SogniChat; the same SogniApi in each program).
       List<String[]> turns = new ArrayList<String[]>();

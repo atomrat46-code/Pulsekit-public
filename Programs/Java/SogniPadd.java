@@ -557,6 +557,12 @@ public final class SogniPadd {
      * written; `audio` false asks for a silent clip; `aspect` ("16:9", "9:16"...) only when given.
      */
     public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect) {
+      return videoInput(title, prompt, pictures, duration, resolution, audio, exact, aspect, null, null);
+    }
+
+    /** As above, with H3 video LoRAs in order (`strengths` positional; positive only, 0 off). */
+    public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect,
+        List<String> loras, List<Double> strengths) {
       Map<String, Object> args = new LinkedHashMap<String, Object>();
       args.put("prompt", prompt);
       args.put("videoModel", videoModel(pictures, resolution));
@@ -566,6 +572,12 @@ public final class SogniPadd {
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       args.put("numberOfVariations", Integer.valueOf(1));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "video");
       step.put("toolName", pictures > 0 ? "animate_photo" : "generate_video");
