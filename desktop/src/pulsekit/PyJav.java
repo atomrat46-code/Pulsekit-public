@@ -1121,7 +1121,11 @@ final class PyJav {
                     JButton db = new JButton("Browse DB");
                     db.setName("params-prompt-db:" + p.token);
                     db.setEnabled(!PromptDb.allFiles(PromptDb.TEXTS).isEmpty());
-                    db.addActionListener(e -> app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.promptFrom(area, file)));
+                    db.addActionListener(e -> {
+                        // A prompt is a text file: Browse DB starts on T.
+                        DbFilter.current = "T";
+                        app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.promptFrom(area, file));
+                    });
                     picks.add(select);
                     picks.add(db);
                     holder.add(picks, BorderLayout.SOUTH);

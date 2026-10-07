@@ -558,7 +558,27 @@ final class PromptDb {
             dialog.dispose();
             this.gallery(showResults);
         });
-        JPanel grid = this.grid(stored(results), (file, card) -> this.preview(file, card),
+        // Sort by type, date or size: the gallery opens again in that order (kept for next time).
+        FileSort.current = FileSort.valid(readSort());
+        javax.swing.JComboBox<String> sort = new javax.swing.JComboBox<String>(FileSort.CHOICES);
+        sort.setName("gallery-sort");
+        sort.setSelectedItem(FileSort.current);
+        sort.addActionListener(e -> {
+            String picked = (String) sort.getSelectedItem();
+            if (picked == null || picked.equals(FileSort.current)) return;
+            FileSort.current = picked;
+            writeSort(picked);
+            dialog.dispose();
+            this.gallery(results);
+        });
+        JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        sortRow.add(new JLabel("Sort by"));
+        sortRow.add(sort);
+        JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
+        top.add(kinds);
+        top.add(sortRow);
+        List<PromptVault.StoredFile> list = FileSort.sorted(stored(results), FileSort.current);
+        JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
                 this.gallery(results);
@@ -572,7 +592,25 @@ final class PromptDb {
             }
         });
         this.lastGallery = dialog;
-        this.show(dialog, this.withPreviews(kinds, stored(results), dialog, () -> this.gallery(results)), grid, close);
+        this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(results)), grid, close);
+    }
+
+    /** Sort by as last chosen (~/.pulsekit/file-sort.txt), or null. */
+    static String readSort() {
+        try {
+            File f = new File(dir(), "file-sort.txt");
+            return f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim() : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    static void writeSort(String choice) {
+        try {
+            Files.write(new File(dir(), "file-sort.txt").toPath(), (choice + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ex) {
+            // Kept for this run only.
+        }
     }
 
     /** A card's click: a sound (WAV, MP3) or a MIDI (with the kit) plays in place, again stops; anything else opens. */

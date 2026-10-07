@@ -3070,6 +3070,8 @@ public final class DesktopBehavior {
     out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
         .append(", --loras has them ").append(component(d, "params-prompt-file:--loras") != null).append('\n');
     // Browse DB: the shown list's own (greyed) button keeps it open for the test to pick from.
+    // The last Browse DB showed pictures: the prompt's Browse DB still starts on T.
+    DbFilter.current = "I";
     Object before = get("lastBrowse");
     answers.add("Result files (1)");
     SwingUtilities.invokeLater(db::doClick);
@@ -3077,7 +3079,7 @@ public final class DesktopBehavior {
     Thread.sleep(300);
     JDialog browser = (JDialog) get("lastBrowse");
     out.append("Browse DB: ").append(browser.getTitle()).append(", Answer Prompt 1.txt ").append(component(browser, "refs-pick:Answer Prompt 1.txt") != null)
-        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append('\n');
+        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append(", starts on ").append(DbFilter.current).append('\n');
     edt(() -> ((javax.swing.JButton) component(browser, "refs-pick:Answer Prompt 1.txt")).doClick());
     out.append("prompt from DB: ").append(prompt.getText().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
     // Select file: the watcher picks the prompt sheet in the file chooser.
@@ -3088,6 +3090,55 @@ public final class DesktopBehavior {
     edt(() -> find(d.getContentPane(), "OK").doClick());
     opener.join(10000);
     out.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+  }
+
+  /**
+   * The Prompts page's Ref files gallery: Sort by type, date or size opens it again in that order,
+   * and the choice is kept (~/.pulsekit/file-sort.txt).
+   */
+  void s67_file_sort() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    String[][] files = {{"notes.txt", "300"}, {"walk.mp4", "900"}, {"beat.wav", "100"}, {"sunset.png", "500"}, {"groove.mid", "700"}};
+    for (String[] f : files) PromptDb.vault().addLibraryFile(f[0], new byte[Integer.parseInt(f[1])], "Imported", 1);
+    java.util.function.Function<JDialog, String> order = g -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.ArrayDeque<java.awt.Component> stack = new java.util.ArrayDeque<java.awt.Component>();
+      stack.push(g.getContentPane());
+      while (!stack.isEmpty()) {
+        java.awt.Component c = stack.pop();
+        if (c.getName() != null && c.getName().startsWith("gallery:") && !(c.getName().startsWith("gallery-"))) sb.append(c.getName().substring(8)).append(' ');
+        if (c instanceof java.awt.Container) {
+          java.awt.Component[] kids = ((java.awt.Container) c).getComponents();
+          for (int i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+        }
+      }
+      return sb.toString().trim();
+    };
+    // The shown list's own (greyed) button keeps each gallery open for the test.
+    Object before = get("lastGallery");
+    answers.add("Ref files (5)");
+    SwingUtilities.invokeLater(() -> db.gallery(false));
+    for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+    Thread.sleep(400);
+    JDialog g = (JDialog) get("lastGallery");
+    javax.swing.JComboBox<?> sort = (javax.swing.JComboBox<?>) component(g, "gallery-sort");
+    out.append("Sort by: ").append(sort == null ? "none" : sort.getSelectedItem() + " of " + sort.getItemCount()).append('\n');
+    out.append("by date: ").append(order.apply(g)).append('\n');
+    for (String choice : new String[] {"by type", "by size"}) {
+      before = get("lastGallery");
+      answers.add("Ref files (5)");
+      final javax.swing.JComboBox<?> box = (javax.swing.JComboBox<?>) component(g, "gallery-sort");
+      SwingUtilities.invokeLater(() -> box.setSelectedItem(choice));
+      for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+      Thread.sleep(400);
+      out.append("first closed ").append(!((JDialog) before).isShowing()).append(", ");
+      g = (JDialog) get("lastGallery");
+      out.append(choice).append(" (shows ").append(((javax.swing.JComboBox<?>) component(g, "gallery-sort")).getSelectedItem()).append("): ").append(order.apply(g)).append('\n');
+    }
+    final JDialog last = g;
+    edt(last::dispose);
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/file-sort.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
   }
 
   private static java.awt.Component component(java.awt.Component c, String name) {

@@ -337,7 +337,38 @@ public final class PromptSheet {
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
     boolean results = resultsOpen && !refsOpen;
     col.addView(caption(activity, results ? "RESULT FILES" : "REFERENCE FILES"));
-    List<PromptVault.StoredFile> files = results ? vault.resultFiles() : vault.referenceFiles();
+    // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
+    FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
+    LinearLayout sortRow = new LinearLayout(activity);
+    sortRow.setOrientation(LinearLayout.HORIZONTAL);
+    sortRow.setGravity(Gravity.CENTER_VERTICAL);
+    sortRow.addView(label(activity, "Sort by", 14, "#ECEBE6", false));
+    android.widget.Spinner sort = new android.widget.Spinner(activity);
+    sort.setTag("refs-sort");
+    android.widget.ArrayAdapter<String> choices = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, FileSort.CHOICES);
+    choices.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    sort.setAdapter(choices);
+    sort.setSelection(java.util.Arrays.asList(FileSort.CHOICES).indexOf(FileSort.current), false);
+    sort.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+      @Override
+      public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+        String picked = FileSort.CHOICES[position];
+        if (picked.equals(FileSort.current)) return;
+        FileSort.current = picked;
+        activity.getSharedPreferences(SORT_PREFS, 0).edit().putString("sort", picked).apply();
+        rebuild(activity);
+      }
+
+      @Override
+      public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+    });
+    LinearLayout.LayoutParams sortLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+    sortLp.leftMargin = dp(activity, 12);
+    sortRow.addView(sort, sortLp);
+    LinearLayout.LayoutParams rowLpSort = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+    rowLpSort.bottomMargin = dp(activity, 8);
+    col.addView(sortRow, rowLpSort);
+    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;
@@ -1112,6 +1143,9 @@ public final class PromptSheet {
         .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
         .show();
   }
+
+  /** Where Sort by (the Ref files and Result files galleries) is kept. */
+  static final String SORT_PREFS = "pulsekit-file-sort";
 
   /** The file menu shown last, for the tests. */
   static AlertDialog lastFileMenu;

@@ -2835,6 +2835,63 @@ public class BehaviorTest {
   }
 
   /**
+   * The Prompts page's Ref files gallery: Sort by type, date or size lays the previews out again in
+   * that order, and the choice is kept for the next time.
+   */
+  @Test
+  public void s81_file_sort() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String[][] files = {{"notes.txt", "300"}, {"walk.mp4", "900"}, {"beat.wav", "100"}, {"sunset.png", "500"}, {"groove.mid", "700"}};
+    for (String[] f : files) DbImport.store(app, f[0], new byte[Integer.parseInt(f[1])], false);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder sb = new StringBuilder();
+      // Cards in reading order: depth-first.
+      java.util.ArrayDeque<View> stack = new java.util.ArrayDeque<View>();
+      stack.push(pane);
+      while (!stack.isEmpty()) {
+        View v = stack.pop();
+        if (v instanceof TextView && !(v instanceof android.widget.Button)) {
+          String t = ((TextView) v).getText().toString();
+          for (String[] f : files) if (t.equals(f[0])) sb.append(t).append(' ');
+        }
+        if (v instanceof android.view.ViewGroup) {
+          android.view.ViewGroup g = (android.view.ViewGroup) v;
+          for (int i = g.getChildCount() - 1; i >= 0; i--) stack.push(g.getChildAt(i));
+        }
+      }
+      return sb.toString().trim();
+    };
+    android.widget.Spinner sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+    out.append("Sort by: ").append(sort == null ? "none" : sort.getSelectedItem() + " of " + sort.getCount()).append('\n');
+    out.append("by date: ").append(order.get()).append('\n');
+    for (String choice : new String[] {"by type", "by size", "by date"}) {
+      sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+      sort.setSelection(java.util.Arrays.asList(FileSort.CHOICES).indexOf(choice));
+      idle();
+      sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+      out.append(choice).append(" (shows ").append(sort.getSelectedItem()).append("): ").append(order.get()).append('\n');
+      if (choice.equals("by size")) break;
+    }
+    out.append("kept: ").append(app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).getString("sort", "")).append('\n');
+    // Opened again: still by size.
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("again: ").append(((android.widget.Spinner) pane.findViewWithTag("refs-sort")).getSelectedItem()).append(": ").append(order.get()).append('\n');
+    app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).edit().clear().apply();
+    FileSort.current = "by date";
+    findText(pane, "Back").performClick();
+    idle();
+    write("s81_file_sort", out.toString());
+  }
+
+  /**
    * A Params prompt field from a text file: Select file (the picker's file) and Browse DB (the
    * prompt library's text files only) put the file's text in --prompt; a prompt sheet gives its prompt.
    */
@@ -2855,6 +2912,8 @@ public class BehaviorTest {
     TextView prompt = (TextView) dv.findViewWithTag("params-field:--prompt");
     android.widget.Button select = (android.widget.Button) dv.findViewWithTag("params-prompt-file:--prompt");
     android.widget.Button db = (android.widget.Button) dv.findViewWithTag("params-prompt-db:--prompt");
+    // The last Browse DB showed pictures: the prompt's Browse DB still starts on T.
+    DbFilter.current = "I";
     out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
         .append(", --loras has them ").append(dv.findViewWithTag("params-prompt-file:--loras") != null).append('\n');
     db.performClick();
@@ -2862,7 +2921,7 @@ public class BehaviorTest {
     AlertDialog browser = (AlertDialog) ShadowDialog.getLatestDialog();
     View bv = browser.getWindow().getDecorView();
     out.append("Browse DB: ").append(org.robolectric.Shadows.shadowOf(browser).getTitle()).append(", Answer Prompt 1.txt ").append(bv.findViewWithTag("refs-pick:Answer Prompt 1.txt") != null)
-        .append(", hit.wav ").append(bv.findViewWithTag("refs-pick:hit.wav") != null).append('\n');
+        .append(", hit.wav ").append(bv.findViewWithTag("refs-pick:hit.wav") != null).append(", starts on ").append(DbFilter.current).append('\n');
     bv.findViewWithTag("refs-pick:Answer Prompt 1.txt").performClick();
     idle();
     out.append("prompt from DB: ").append(prompt.getText().toString().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
@@ -2880,6 +2939,7 @@ public class BehaviorTest {
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    DbFilter.current = "A";
     write("s80_prompt_from_file", out.toString());
   }
 

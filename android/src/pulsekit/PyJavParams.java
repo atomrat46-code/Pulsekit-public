@@ -275,7 +275,11 @@ public final class PyJavParams {
         db.setText("Browse DB");
         db.setTag("params-prompt-db:" + p.token);
         db.setEnabled(!RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty());
-        db.setOnClickListener(v -> RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file)));
+        db.setOnClickListener(v -> {
+          // A prompt is a text file: Browse DB starts on T.
+          DbFilter.current = "T";
+          RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file));
+        });
         row.addView(db);
         box.addView(row);
         continue;
