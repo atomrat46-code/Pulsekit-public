@@ -585,7 +585,31 @@ public final class PromptSheet {
     col.addView(resultTextBtn, buttonLp(activity));
     col.addView(caption(activity, "PROMPT"));
     prompt = area(activity, 8);
+    prompt.setTag("prompt-body");
+    textMenu(activity, prompt);
     col.addView(prompt, areaLp(activity, 200));
+    // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
+    LinearLayout fromFile = new LinearLayout(activity);
+    fromFile.setOrientation(LinearLayout.HORIZONTAL);
+    final EditText promptField = prompt;
+    TextView selectFile = button(activity, "Select file", "#1B1D1F", "#ECEBE6");
+    selectFile.setTag("prompt-body-file");
+    selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(activity, promptField));
+    fromFile.addView(selectFile, new LinearLayout.LayoutParams(0, dp(activity, 44), 1f));
+    TextView browseDb = button(activity, "Browse DB", "#1B1D1F", "#ECEBE6");
+    browseDb.setTag("prompt-body-db");
+    boolean texts = !RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty();
+    browseDb.setEnabled(texts);
+    browseDb.setAlpha(texts ? 1f : 0.4f);
+    browseDb.setOnClickListener(v -> {
+      // A prompt is a text file: Browse DB starts on T.
+      DbFilter.current = "T";
+      RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> PyJavParams.promptFrom(activity, promptField, file));
+    });
+    LinearLayout.LayoutParams browseLp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
+    browseLp.leftMargin = dp(activity, 8);
+    fromFile.addView(browseDb, browseLp);
+    col.addView(fromFile, buttonLp(activity));
     PromptVault.Version loaded = vault.version(loadedVersionId);
     if (loaded != null && loaded.promptId == promptId) fill(loaded);
     else {
@@ -2044,6 +2068,56 @@ public final class PromptSheet {
     field.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
     return field;
   }
+
+  /**
+   * A long press on the field: Select all, Copy, Cut, Paste. Copy and Cut work on the selection
+   * (greyed without one), Paste puts the clipboard's text in its place. The field also scrolls
+   * under a finger, inside the page.
+   */
+  static void textMenu(Activity activity, EditText field) {
+    field.setOnLongClickListener(v -> {
+      android.widget.PopupMenu menu = new android.widget.PopupMenu(activity, field);
+      int start = Math.min(field.getSelectionStart(), field.getSelectionEnd());
+      int end = Math.max(field.getSelectionStart(), field.getSelectionEnd());
+      boolean picked = start >= 0 && end > start;
+      android.content.ClipboardManager clips = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+      boolean canPaste = clips != null && clips.hasPrimaryClip() && clips.getPrimaryClip() != null && clips.getPrimaryClip().getItemCount() > 0;
+      menu.getMenu().add(0, 1, 0, "Select all");
+      menu.getMenu().add(0, 2, 1, "Copy").setEnabled(picked);
+      menu.getMenu().add(0, 3, 2, "Cut").setEnabled(picked);
+      menu.getMenu().add(0, 4, 3, "Paste").setEnabled(canPaste);
+      menu.setOnMenuItemClickListener(item -> {
+        CharSequence text = field.getText() == null ? "" : field.getText();
+        int a = Math.max(0, Math.min(field.getSelectionStart(), field.getSelectionEnd()));
+        int b = Math.max(0, Math.max(field.getSelectionStart(), field.getSelectionEnd()));
+        if (item.getItemId() == 1) {
+          field.requestFocus();
+          field.selectAll();
+        } else if (item.getItemId() == 2 || item.getItemId() == 3) {
+          if (clips != null && b > a) clips.setPrimaryClip(android.content.ClipData.newPlainText("prompt", text.subSequence(a, b)));
+          if (item.getItemId() == 3 && b > a && field.getText() != null) field.getText().delete(a, b);
+        } else if (item.getItemId() == 4 && clips != null && clips.getPrimaryClip() != null && clips.getPrimaryClip().getItemCount() > 0) {
+          CharSequence paste = clips.getPrimaryClip().getItemAt(0).coerceToText(activity);
+          if (paste != null && field.getText() != null) {
+            field.getText().replace(a, b, paste);
+            field.setSelection(Math.min(field.length(), a + paste.length()));
+          }
+        }
+        return true;
+      });
+      lastTextMenu = menu;
+      menu.show();
+      return true;
+    });
+    field.setOnTouchListener((v, ev) -> {
+      if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
+      if ((ev.getAction() & android.view.MotionEvent.ACTION_MASK) == android.view.MotionEvent.ACTION_UP) v.getParent().requestDisallowInterceptTouchEvent(false);
+      return false;
+    });
+  }
+
+  /** The text menu shown last, for the tests. */
+  static android.widget.PopupMenu lastTextMenu;
 
   private static EditText area(Activity activity, int lines) {
     EditText field = new EditText(activity);

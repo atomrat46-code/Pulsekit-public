@@ -260,16 +260,7 @@ public final class PyJavParams {
         android.widget.Button select = new android.widget.Button(activity);
         select.setText("Select file");
         select.setTag("params-prompt-file:" + p.token);
-        select.setOnClickListener(v -> {
-          pendingValues = null;
-          pendingIndex = -1;
-          pendingLabel = null;
-          pendingPrompt = target;
-          Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-          intent.addCategory(Intent.CATEGORY_OPENABLE);
-          intent.setType("text/*");
-          activity.startActivityForResult(intent, PICK_FILE);
-        });
+        select.setOnClickListener(v -> pickPromptFile(activity, target));
         row.addView(select);
         android.widget.Button db = new android.widget.Button(activity);
         db.setText("Browse DB");
@@ -387,6 +378,18 @@ public final class PyJavParams {
     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     intent.addCategory(Intent.CATEGORY_OPENABLE);
     intent.setType("*/*");
+    activity.startActivityForResult(intent, PICK_FILE);
+  }
+
+  /** Select file for a prompt field (Params, the Prompts page): the picker's text file fills it. */
+  static void pickPromptFile(Activity activity, EditText field) {
+    pendingValues = null;
+    pendingIndex = -1;
+    pendingLabel = null;
+    pendingPrompt = field;
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
+    intent.setType("text/*");
     activity.startActivityForResult(intent, PICK_FILE);
   }
 

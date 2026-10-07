@@ -2835,6 +2835,91 @@ public class BehaviorTest {
   }
 
   /**
+   * The Prompts page's Prompt field: Select file and Browse DB (text files, starting on T) fill it
+   * from a text file; a long press opens Select all, Copy, Cut, Paste.
+   */
+  @Test
+  public void s82_prompt_page_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbImport.store(app, "Answer Prompt 1.txt", "A studio portrait.\nSoft key light.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "sunset.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1}, true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long id = vault.addPrompt(vault.categories().get(0).id, "Portrait");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPrompt", android.app.Activity.class, long.class);
+    open.setAccessible(true);
+    open.invoke(null, app, id);
+    idle();
+    android.widget.EditText prompt = (android.widget.EditText) pane.findViewWithTag("prompt-body");
+    TextView select = (TextView) pane.findViewWithTag("prompt-body-file");
+    TextView db = (TextView) pane.findViewWithTag("prompt-body-db");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)")).append('\n');
+    DbFilter.current = "I";
+    db.performClick();
+    idle();
+    AlertDialog browser = (AlertDialog) ShadowDialog.getLatestDialog();
+    View bv = browser.getWindow().getDecorView();
+    out.append("Browse DB: starts on ").append(DbFilter.current).append(", Answer Prompt 1.txt ").append(bv.findViewWithTag("refs-pick:Answer Prompt 1.txt") != null)
+        .append(", sunset.png ").append(bv.findViewWithTag("refs-pick:sunset.png") != null).append('\n');
+    bv.findViewWithTag("refs-pick:Answer Prompt 1.txt").performClick();
+    idle();
+    out.append("prompt from DB: ").append(prompt.getText().toString().replace("\n", "|")).append('\n');
+    File notes = new File(app.getCacheDir(), "pyjav-in/notes.txt");
+    notes.getParentFile().mkdirs();
+    Files.write(notes.toPath(), "A red drum kit.\n".getBytes(StandardCharsets.UTF_8));
+    select.performClick();
+    idle();
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    out.append("Select file asks for: ").append(asked == null ? "nothing" : asked.getAction() + " " + asked.getType()).append('\n');
+    PyJavParams.filePicked(notes.getAbsolutePath());
+    idle();
+    out.append("prompt from file: ").append(prompt.getText().toString()).append('\n');
+    // A long press: the text menu.
+    java.util.function.Function<String, android.view.MenuItem> item = t -> {
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) if (m.getItem(i).getTitle().toString().equals(t)) return m.getItem(i);
+      return null;
+    };
+    java.util.function.Supplier<String> items = () -> {
+      StringBuilder sb = new StringBuilder();
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) sb.append('[').append(m.getItem(i).getTitle()).append(m.getItem(i).isEnabled() ? "" : " greyed").append(']');
+      return sb.toString();
+    };
+    java.util.function.Consumer<String> press = t -> {
+      prompt.performLongClick();
+      idle();
+      android.view.MenuItem mi = item.apply(t);
+      org.robolectric.Shadows.shadowOf(PromptSheet.lastTextMenu).getOnMenuItemClickListener().onMenuItemClick(mi);
+      idle();
+    };
+    prompt.setSelection(0);
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    clips.clearPrimaryClip();
+    out.append("long press handled: ").append(prompt.performLongClick()).append(", menu ").append(items.get()).append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    press.accept("Select all");
+    out.append("Select all: selected ").append(prompt.getSelectionStart()).append("..").append(prompt.getSelectionEnd()).append('\n');
+    prompt.performLongClick();
+    idle();
+    out.append("  menu now ").append(items.get()).append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    prompt.setSelection(6, 14);
+    press.accept("Cut");
+    out.append("Cut \"drum kit\": text ").append(prompt.getText()).append(", clipboard ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    prompt.setSelection(prompt.length() - 1);
+    press.accept("Paste");
+    out.append("Paste before the dot: ").append(prompt.getText()).append('\n');
+    prompt.setSelection(0, 2);
+    press.accept("Copy");
+    out.append("Copy \"A \": clipboard ").append(clips.getPrimaryClip().getItemAt(0).getText()).append(", text unchanged ").append(prompt.getText()).append('\n');
+    DbFilter.current = "A";
+    write("s82_prompt_page_file", out.toString());
+  }
+
+  /**
    * The Prompts page's Ref files gallery: Sort by type, date or size lays the previews out again in
    * that order, and the choice is kept for the next time.
    */

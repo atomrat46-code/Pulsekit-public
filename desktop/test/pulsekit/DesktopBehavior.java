@@ -3141,6 +3141,47 @@ public final class DesktopBehavior {
     out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/file-sort.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
   }
 
+  /**
+   * The Prompts page's Prompt field: Select file and Browse DB (text files, starting on T) fill it
+   * from a text file; its menu (right click or a long press) has Select all, Cut, Copy, Paste.
+   */
+  void s68_prompt_page_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb.vault().addLibraryFile("Answer Prompt 1.txt", "A studio portrait.\nSoft key light.\n".getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    File notes = new File(home, "notes.txt");
+    Files.write(notes.toPath(), "A red drum kit.\n".getBytes(StandardCharsets.UTF_8));
+    call("showView", "prompts");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    PromptVault vault = PromptDb.vault();
+    long id = vault.addPrompt(vault.mains().get(0).id, "Portrait");
+    edt(() -> page.openPrompt(id));
+    javax.swing.JButton select = (javax.swing.JButton) component(frame, "prompt-body-file");
+    javax.swing.JButton db = (javax.swing.JButton) component(frame, "prompt-body-db");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)")).append('\n');
+    StringBuilder items = new StringBuilder();
+    edt(() -> {
+      for (java.awt.Component c : TextMenu.menu(page.promptBody).getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    });
+    out.append("text menu: ").append(items).append(", attached ").append(page.promptBody.getMouseListeners().length > 1).append('\n');
+    DbFilter.current = "I";
+    Object before = get("lastBrowse");
+    answers.add("Result files (1)");
+    SwingUtilities.invokeLater(db::doClick);
+    for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog browser = (JDialog) get("lastBrowse");
+    out.append("Browse DB: starts on ").append(DbFilter.current).append(", Answer Prompt 1.txt ").append(component(browser, "refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append('\n');
+    edt(() -> ((javax.swing.JButton) component(browser, "refs-pick:Answer Prompt 1.txt")).doClick());
+    out.append("prompt from DB: ").append(page.promptBody.getText().replace("\n", "|")).append('\n');
+    chooseNext = notes;
+    SwingUtilities.invokeLater(select::doClick);
+    for (int i = 0; i < 100 && !page.promptBody.getText().startsWith("A red"); i++) Thread.sleep(100);
+    out.append("prompt from file: ").append(page.promptBody.getText()).append('\n');
+    DbFilter.current = "A";
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {
