@@ -2835,6 +2835,59 @@ public class BehaviorTest {
   }
 
   /**
+   * Browse DB's A / I / V / S / T buttons: all files, images, videos, sound files (MIDI too) or
+   * text files; the pick is kept for the next Browse DB and across Ref files / Result files.
+   */
+  @Test
+  public void s77_db_filter() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbFilter.current = "A";
+    for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    DbImport.store(app, "story.md", "# story".getBytes(StandardCharsets.UTF_8), true);
+    java.util.function.Supplier<String> shown = () -> {
+      View v = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin", "story.md"}) if (v.findViewWithTag("refs-pick:" + n) != null) sb.append(n).append(' ');
+      sb.append("| lit ");
+      for (String l : DbFilter.LETTERS) {
+        TextView b = (TextView) v.findViewWithTag("db-filter:" + l);
+        if (b == null) sb.append(l).append(" missing ");
+        else if (((android.graphics.drawable.GradientDrawable) b.getBackground()).getColor().getDefaultColor() == android.graphics.Color.parseColor("#ECEBE6")) sb.append(l);
+      }
+      sb.append(" | ").append(((TextView) v.findViewWithTag("refs-kind:refs")).getText()).append(" / ").append(((TextView) v.findViewWithTag("refs-kind:results")).getText());
+      return sb.toString();
+    };
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("A: ").append(shown.get()).append('\n');
+    for (String l : new String[] {"I", "V", "S", "T"}) {
+      ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("db-filter:" + l).performClick();
+      idle();
+      out.append(l).append(": ").append(shown.get()).append('\n');
+    }
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("refs-kind:results").performClick();
+    idle();
+    out.append("T, Result files: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("opened again: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("db-filter:S").performClick();
+    idle();
+    final String[] picked = {null};
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    RefBrowser.browse(app, false, RefBrowser.SOUNDS, (name, file) -> picked[0] = name);
+    idle();
+    out.append("S, a sound-only row: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("picked: ").append(picked[0]).append('\n');
+    DbFilter.current = "A";
+    write("s77_db_filter", out.toString());
+  }
+
+  /**
    * The Prompts page's video preview (Open in full size) opens as the last video was left: its
    * zoom, its volume and Loop video, kept in the app's preferences and apart from the Media
    * browser's.

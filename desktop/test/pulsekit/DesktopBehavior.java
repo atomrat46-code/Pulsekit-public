@@ -2866,6 +2866,72 @@ public final class DesktopBehavior {
     return null;
   }
 
+  /**
+   * Browse DB's A / I / V / S / T buttons: all files, images, videos, sound files (MIDI too) or
+   * text files; the pick is kept for the next Browse DB and across Ref files / Result files.
+   */
+  void s63_db_filter() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin"}) PromptDb.vault().addLibraryFile(n, ("x" + n).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    PromptDb.vault().addLibraryFile("story.md", "# story".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    final String[] picked = new String[1];
+    java.util.function.Function<String, JDialog> open = only -> {
+      try {
+        edt(() -> ((JDialog) get("lastBrowse")).dispose());
+      } catch (Exception ignored) {
+        // none open yet
+      }
+      try {
+        final JDialog[] before = {(JDialog) get("lastBrowse")};
+        SwingUtilities.invokeLater(() -> db.browse(false, only, (name, file) -> picked[0] = name));
+        for (int i = 0; i < 100 && get("lastBrowse") == before[0]; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    java.util.function.Function<JDialog, String> shown = d -> {
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin", "story.md"}) if (component(d, "refs-pick:" + n) != null) sb.append(n).append(' ');
+      sb.append("| greyed ");
+      for (String l : DbFilter.LETTERS) {
+        javax.swing.JButton b = (javax.swing.JButton) component(d, "db-filter:" + l);
+        if (b == null) sb.append(l).append(" missing ");
+        else if (!b.isEnabled()) sb.append(l);
+      }
+      sb.append(" | ").append(((javax.swing.JButton) component(d, "refs-kind:refs")).getText()).append(" / ").append(((javax.swing.JButton) component(d, "refs-kind:results")).getText());
+      return sb.toString();
+    };
+    java.util.function.BiFunction<JDialog, String, JDialog> press = (d, name) -> {
+      try {
+        final JDialog[] before = {(JDialog) get("lastBrowse")};
+        SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, name)).doClick());
+        for (int i = 0; i < 100 && get("lastBrowse") == before[0]; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog d = open.apply(null);
+    out.append("A: ").append(shown.apply(d)).append('\n');
+    for (String l : new String[] {"I", "V", "S", "T"}) {
+      d = press.apply(d, "db-filter:" + l);
+      out.append(l).append(": ").append(shown.apply(d)).append('\n');
+    }
+    d = press.apply(d, "refs-kind:results");
+    out.append("T, Result files: ").append(shown.apply(d)).append('\n');
+    d = open.apply(null);
+    out.append("opened again: ").append(shown.apply(d)).append('\n');
+    d = press.apply(d, "db-filter:S");
+    d = open.apply(PromptDb.SOUNDS);
+    out.append("S, a sound-only row: ").append(shown.apply(d)).append('\n');
+    final JDialog last = d;
+    edt(() -> ((javax.swing.JButton) component(last, "refs-pick:loop.wav")).doClick());
+    out.append("picked: ").append(picked[0]).append(", dialog ").append(last.isShowing() ? "open" : "closed").append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

@@ -19,7 +19,8 @@ import java.util.List;
  * (a switch at the top), as a grid of previews, as the Prompts page's Ref files and Result files
  * show them. Picking one copies it into PyJav's input folder for the file row (SogniVideo's first
  * or last frame picture: a picture made by a SogniChat tool and kept as a result, say). A file kept
- * in several prompt versions is listed once.
+ * in several prompt versions is listed once. A / I / V / S / T under the switch show all files,
+ * images, videos, sound files or text files (DbFilter).
  */
 final class RefBrowser {
     private RefBrowser() {}
@@ -159,8 +160,15 @@ final class RefBrowser {
         browse(activity, files(activity, false, only).isEmpty(), only, picked);
     }
 
+    /** The `only` kind's files, then only those the A / I / V / S / T button picked last shows. */
+    static List<PromptVault.StoredFile> shown(Activity activity, boolean results, String only) {
+        List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
+        for (PromptVault.StoredFile f : files(activity, results, only)) if (DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        return out;
+    }
+
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
-        final List<PromptVault.StoredFile> files = files(activity, results, only);
+        final List<PromptVault.StoredFile> files = shown(activity, results, only);
         final PromptVault vault;
         try {
             vault = PromptVault.open(activity.getFilesDir());
@@ -181,7 +189,7 @@ final class RefBrowser {
         for (int k = 0; k < 2; k++) {
             final boolean showResults = k == 1;
             android.widget.Button kind = new android.widget.Button(activity);
-            kind.setText((showResults ? "Result files" : "Ref files") + " (" + files(activity, showResults, only).size() + ")");
+            kind.setText((showResults ? "Result files" : "Ref files") + " (" + shown(activity, showResults, only).size() + ")");
             kind.setTag(showResults ? "refs-kind:results" : "refs-kind:refs");
             kind.setEnabled(showResults != results);
             kind.setOnClickListener(v -> {
@@ -191,6 +199,33 @@ final class RefBrowser {
             kinds.addView(kind, new LinearLayout.LayoutParams(0, -2, 1f));
         }
         col.addView(kinds);
+        // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is lit.
+        LinearLayout letters = new LinearLayout(activity);
+        letters.setOrientation(LinearLayout.HORIZONTAL);
+        for (final String letter : DbFilter.LETTERS) {
+            boolean on = letter.equals(DbFilter.current);
+            TextView b = new TextView(activity);
+            b.setText(letter);
+            b.setGravity(Gravity.CENTER);
+            b.setTextSize(16);
+            b.setTag("db-filter:" + letter);
+            b.setContentDescription(DbFilter.label(letter));
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(8 * density);
+            bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
+            b.setBackground(bg);
+            b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
+            b.setOnClickListener(v -> {
+                if (letter.equals(DbFilter.current)) return;
+                DbFilter.current = letter;
+                if (dialog[0] != null) dialog[0].dismiss();
+                browse(activity, results, only, picked);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
+            lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
+            letters.addView(b, lp);
+        }
+        col.addView(letters);
         if (files.isEmpty()) {
             TextView none = new TextView(activity);
             none.setText("none");

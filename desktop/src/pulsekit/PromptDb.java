@@ -93,6 +93,13 @@ final class PromptDb {
         return out;
     }
 
+    /** The `only` kind's files, then only those Browse DB's A / I / V / S / T button picked last shows. */
+    static List<PromptVault.StoredFile> shown(boolean results, String only) {
+        List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
+        for (PromptVault.StoredFile f : files(results, only)) if (DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        return out;
+    }
+
     /** Every stored reference (or result) file, as the Prompts page's galleries list them (a copy in each prompt version). */
     static List<PromptVault.StoredFile> stored(boolean results) {
         try {
@@ -124,11 +131,28 @@ final class PromptDb {
     /** A grid of the library's files of the `only` kind; a click hands the picked one on. Ref files / Result files at the top. */
     void browse(boolean results, String only, Picked picked) {
         final JDialog dialog = new JDialog(app, results ? "Result files" : "Reference files", true);
-        JPanel kinds = this.kinds(results, k -> files(k, only).size(), showResults -> {
+        JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
             dialog.dispose();
             this.browse(showResults, only, picked);
         });
-        List<PromptVault.StoredFile> list = files(results, only);
+        // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is greyed.
+        JPanel letters = new JPanel(new GridLayout(1, DbFilter.LETTERS.length, 6, 0));
+        for (String letter : DbFilter.LETTERS) {
+            JButton b = new JButton(letter);
+            b.setName("db-filter:" + letter);
+            b.setToolTipText(DbFilter.label(letter));
+            b.setEnabled(!letter.equals(DbFilter.current));
+            b.addActionListener(e -> {
+                DbFilter.current = letter;
+                dialog.dispose();
+                this.browse(results, only, picked);
+            });
+            letters.add(b);
+        }
+        JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
+        top.add(kinds);
+        top.add(letters);
+        List<PromptVault.StoredFile> list = shown(results, only);
         JPanel grid = this.grid(list, (file, card) -> {
             File copy = this.copyOut(file);
             if (copy == null) {
@@ -142,7 +166,7 @@ final class PromptDb {
         this.lastBrowse = dialog;
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
-        this.show(dialog, this.withPreviews(kinds, list, dialog, () -> this.browse(results, only, picked)), grid, cancel);
+        this.show(dialog, this.withPreviews(top, list, dialog, () -> this.browse(results, only, picked)), grid, cancel);
     }
 
     /**
