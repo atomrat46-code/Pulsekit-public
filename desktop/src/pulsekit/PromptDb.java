@@ -871,7 +871,39 @@ final class PromptDb {
     void videoPreview(String name, byte[] bytes) {
         File tmp = this.spill(name, bytes);
         if (tmp == null) return;
-        this.videoFile(name, tmp, false, false);
+        // The Prompts page's player: it opens as its last video was left (Loop video, volume, zoom).
+        loadPromptVideo();
+        this.promptsPlayer = true;
+        try {
+            this.videoFile(name, tmp, PromptVideo.loop, false);
+        } finally {
+            this.promptsPlayer = false;
+        }
+    }
+
+    /** True while the Prompts page opens a video (its player keeps PromptVideo's settings). */
+    boolean promptsPlayer;
+
+    /** The Prompts page's video settings, kept in ~/.pulsekit/prompt-video.txt. */
+    static File promptVideoFile() {
+        return new File(dir(), "prompt-video.txt");
+    }
+
+    static void loadPromptVideo() {
+        try {
+            File f = promptVideoFile();
+            PromptVideo.decode(f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8) : null);
+        } catch (Exception ex) {
+            PromptVideo.decode(null);
+        }
+    }
+
+    static void savePromptVideo() {
+        try {
+            Files.write(promptVideoFile().toPath(), PromptVideo.encode().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // kept for this session
+        }
     }
 
     /**
@@ -895,7 +927,8 @@ final class PromptDb {
             + "To play videos here in Pulsekit, install VLC (videolan.org).", "Preview \u00b7 " + name,
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         try {
-            if (ans == 0) browser.accept((remember ? app.pyJav.videoPage(tmp, loop, MediaDir.volume, MediaDir.zoom, MediaDir.speed) : app.pyJav.videoPage(tmp, loop)).toURI());
+            if (ans == 0) browser.accept((remember ? app.pyJav.videoPage(tmp, loop, MediaDir.volume, MediaDir.zoom, MediaDir.speed)
+                : this.promptsPlayer ? app.pyJav.videoPage(tmp, loop, PromptVideo.volume, MediaDir.clampZoom(PromptVideo.zoom), 1) : app.pyJav.videoPage(tmp, loop)).toURI());
             else if (ans == 1) java.awt.Desktop.getDesktop().open(tmp);
             else if (ans == 2) this.extractFrames(name, tmp);
         } catch (Exception ex) {
@@ -921,8 +954,9 @@ final class PromptDb {
     /** As above; with `loop` (the Media browser's Loop videos) the Loop box starts ticked: the video starts again at its end. */
     void vlcPreview(String name, File video, boolean loop, final boolean remember) {
         final VlcPlayer player = new VlcPlayer(video);
-        // The Media browser's player opens as its last video was left; other previews at 80%, fit, 1x.
-        final int startVolume = remember ? MediaDir.volume : 80;
+        // The Media browser's player and the Prompts page's open as their last video was left; others at 80%, fit, 1x.
+        final boolean prompts = this.promptsPlayer && !remember;
+        final int startVolume = remember ? MediaDir.volume : prompts ? PromptVideo.volume : 80;
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
         JButton play = new JButton("Play");
         play.setName("video-play");
@@ -961,7 +995,7 @@ final class PromptDb {
             player.volume(volume.getValue());
             if (!muted[0]) level.setText(volume.getValue() + "%");
         });
-        final javax.swing.JCheckBox looping = new javax.swing.JCheckBox("Loop", loop);
+        final javax.swing.JCheckBox looping = new javax.swing.JCheckBox("Loop video", loop);
         looping.setName("video-loop");
         // Zoom: − and + by steps, Fit; the mouse wheel too, and a drag moves a zoomed picture.
         JButton zoomOut = new JButton("Zoom \u2212");
@@ -993,8 +1027,8 @@ final class PromptDb {
         speed.setSelectedItem(MediaDir.speedLabel(remember ? MediaDir.speed : 1));
 
         this.lastSpeed = speed;
-        if (remember) {
-            player.screen.zoomTo(MediaDir.zoom);
+        if (remember || prompts) {
+            player.screen.zoomTo(remember ? MediaDir.zoom : MediaDir.clampZoom(PromptVideo.zoom));
             player.screen.zoomed.run();
         }
         position.addChangeListener(e -> {
@@ -1100,6 +1134,13 @@ final class PromptDb {
                     MediaDir.zoom = player.screen.zoom;
                     MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
                     MediaBrowser.saveLoop();
+                }
+                if (prompts) {
+                    // The Prompts page's next video opens as this one was left.
+                    PromptVideo.volume = volume.getValue();
+                    PromptVideo.zoom = player.screen.zoom;
+                    PromptVideo.loop = looping.isSelected();
+                    savePromptVideo();
                 }
             }
         });

@@ -1303,6 +1303,12 @@ public final class PromptSheet {
     previewName = name == null || name.length() == 0 ? "file" : name;
     previewBytes = bytes;
     previewZoom = 1f;
+    // A video opens as the last one was left: its zoom, volume and Loop video.
+    if (previewKind(previewName, bytes) == 3) {
+      loadVideoPrefs(activity);
+      previewZoom = (float) PromptVideo.zoom;
+      previewVideoVol = PromptVideo.volume;
+    }
     previewBack = back;
     rebuild(activity);
   }
@@ -1384,6 +1390,10 @@ public final class PromptSheet {
     if (next < 0.5f) next = 0.5f;
     if (next > 4f) next = 4f;
     previewZoom = next;
+    if (previewVideo != null) {
+      PromptVideo.zoom = next;
+      saveVideoPrefs(activity);
+    }
     if (zoomLabel != null) zoomLabel.setText(zoomPercent());
     if (previewBody != null) {
       previewBody.setTextSize(14f * previewZoom);
@@ -1441,6 +1451,11 @@ public final class PromptSheet {
       view.setVideoPath(previewFile.getAbsolutePath());
       view.setOnPreparedListener(mp -> {
         previewVideoPlayer = mp;
+        try {
+          mp.setLooping(PromptVideo.loop);
+        } catch (Exception ignored) {
+          // released
+        }
         applyVideoVolume();
         view.seekTo(1);
       });
@@ -1491,8 +1506,14 @@ public final class PromptSheet {
     TextView down = button(activity, "−", "#1B1D1F", "#ECEBE6");
     previewVolLabel = button(activity, previewVideoVol + "%", "#131416", "#ECEBE6");
     TextView up = button(activity, "+", "#ECEBE6", "#0A0B0C");
-    down.setOnClickListener(v -> nudgeVideoVolume(-10));
-    up.setOnClickListener(v -> nudgeVideoVolume(10));
+    down.setOnClickListener(v -> {
+      nudgeVideoVolume(-10);
+      saveVideoPrefs(activity);
+    });
+    up.setOnClickListener(v -> {
+      nudgeVideoVolume(10);
+      saveVideoPrefs(activity);
+    });
     LinearLayout.LayoutParams muteLp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1.4f);
     LinearLayout.LayoutParams step = new LinearLayout.LayoutParams(0, dp(activity, 44), 0.7f);
     step.leftMargin = dp(activity, 8);
@@ -1504,6 +1525,36 @@ public final class PromptSheet {
     volLp.topMargin = dp(activity, 8);
     vol.setLayoutParams(volLp);
     col.addView(vol);
+    // Loop video: the video starts again at its end; kept for the next video.
+    android.widget.CheckBox loop = new android.widget.CheckBox(activity);
+    loop.setText("Loop video");
+    loop.setTag("prompt-video-loop");
+    loop.setTextColor(Color.parseColor("#ECEBE6"));
+    loop.setChecked(PromptVideo.loop);
+    loop.setOnCheckedChangeListener((b, on) -> {
+      PromptVideo.loop = on;
+      saveVideoPrefs(activity);
+      try {
+        if (previewVideoPlayer != null) previewVideoPlayer.setLooping(on);
+      } catch (Exception ignored) {
+        // released
+      }
+    });
+    LinearLayout.LayoutParams loopLp = new LinearLayout.LayoutParams(-1, -2);
+    loopLp.topMargin = dp(activity, 4);
+    col.addView(loop, loopLp);
+  }
+
+  private static final String VIDEO_PREFS = "pulsekit-prompt-video";
+
+  /** The Prompts page's video settings (PromptVideo), from the app's preferences. */
+  static void loadVideoPrefs(Activity activity) {
+    PromptVideo.decode(activity.getSharedPreferences(VIDEO_PREFS, 0).getString("settings", null));
+  }
+
+  static void saveVideoPrefs(Activity activity) {
+    PromptVideo.volume = previewVideoVol;
+    activity.getSharedPreferences(VIDEO_PREFS, 0).edit().putString("settings", PromptVideo.encode()).apply();
   }
 
   private static void nudgeVideoVolume(int delta) {

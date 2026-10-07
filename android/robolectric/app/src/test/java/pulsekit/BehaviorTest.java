@@ -2834,6 +2834,67 @@ public class BehaviorTest {
     write("s75_sogni_textvideo", out.toString());
   }
 
+  /**
+   * The Prompts page's video preview (Open in full size) opens as the last video was left: its
+   * zoom, its volume and Loop video, kept in the app's preferences and apart from the Media
+   * browser's.
+   */
+  @Test
+  public void s76_prompt_video() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    open.setAccessible(true);
+    byte[] clip = mp4Header(3460, 160, 120);
+    java.util.function.Supplier<String> state = () -> {
+      android.widget.CheckBox loop = (android.widget.CheckBox) pane.findViewWithTag("prompt-video-loop");
+      TextView zoom = findText(pane, "100%") != null ? findText(pane, "100%") : null;
+      StringBuilder sb = new StringBuilder();
+      sb.append("Loop video ").append(loop == null ? "none" : loop.isChecked() ? "ticked" : "not ticked");
+      for (String z : new String[] {"50%", "64%", "80%", "100%", "125%", "156%", "195%"}) if (findText(pane, z) != null) sb.append(", shows ").append(z);
+      return sb.toString();
+    };
+    open.invoke(null, app, "walk.mp4", clip, 3);
+    idle();
+    out.append("first: ").append(state.get()).append('\n');
+
+    // Zoom in twice, volume down twice (80% to 60%), Loop video ticked.
+    ((android.widget.CheckBox) pane.findViewWithTag("prompt-video-loop")).performClick();
+    java.lang.reflect.Method setZoom = PromptSheet.class.getDeclaredMethod("setZoom", android.app.Activity.class, float.class);
+    setZoom.setAccessible(true);
+    setZoom.invoke(null, app, 1.5625f);
+    java.lang.reflect.Field volLabel = PromptSheet.class.getDeclaredField("previewVolLabel");
+    volLabel.setAccessible(true);
+    View volDown = ((android.view.ViewGroup) ((View) volLabel.get(null)).getParent()).getChildAt(1);
+    volDown.performClick();
+    volDown.performClick();
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences("pulsekit-prompt-video", 0).getString("settings", "").trim().replace('\n', ' ')).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    // Opened again (also after the app restarts: the preferences are read again).
+    PromptVideo.decode(null);
+    open.invoke(null, app, "walk.mp4", clip, 3);
+    idle();
+    java.lang.reflect.Field vol = PromptSheet.class.getDeclaredField("previewVideoVol");
+    vol.setAccessible(true);
+    java.lang.reflect.Field zoom = PromptSheet.class.getDeclaredField("previewZoom");
+    zoom.setAccessible(true);
+    out.append("again: ").append(state.get()).append(", volume ").append(vol.get(null)).append("%, zoom ").append(Math.round((Float) zoom.get(null) * 100)).append("%\n");
+    findText(pane, "Back").performClick();
+    idle();
+    // A picture still opens at 100%.
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    open.invoke(null, app, "garden.png", png.toByteArray(), 3);
+    idle();
+    out.append("picture zoom: ").append(Math.round((Float) zoom.get(null) * 100)).append("%\n");
+    write("s76_prompt_video", out.toString());
+  }
+
   /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
   private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
     java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();

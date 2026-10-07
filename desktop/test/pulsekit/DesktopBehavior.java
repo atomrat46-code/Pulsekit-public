@@ -2363,6 +2363,31 @@ public final class DesktopBehavior {
           .append(", speed ").append(((javax.swing.JComboBox<?>) component(other, "video-speed")).getSelectedItem()).append('\n');
       edt(() -> ((javax.swing.JButton) find(other.getContentPane(), "Close")).doClick());
       idle();
+      // The Prompts page's own player (Preview of a stored video): Loop video, volume and zoom kept apart from the Media browser's.
+      final byte[] webm = Files.readAllBytes(clip.toPath());
+      for (int round = 0; round < 2; round++) {
+        set("lastVideo", null);
+        answers.add("Mute");
+        SwingUtilities.invokeLater(() -> db.preview("clip.webm", webm));
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(800);
+        idle();
+        JDialog pv = (JDialog) get("lastVideo");
+        javax.swing.JCheckBox loopBox = (javax.swing.JCheckBox) component(pv, "video-loop");
+        out.append(round == 0 ? "Prompts player first: " : "Prompts player again: ").append(loopBox.getText()).append(' ').append(loopBox.isSelected() ? "ticked" : "not ticked")
+            .append(", volume ").append(((javax.swing.JSlider) component(pv, "video-volume")).getValue())
+            .append(", zoom ").append(((JLabel) component(pv, "video-zoom")).getText()).append('\n');
+        if (round == 0) {
+          edt(() -> loopBox.doClick());
+          edt(() -> ((javax.swing.JSlider) component(pv, "video-volume")).setValue(30));
+          edt(() -> ((javax.swing.JButton) component(pv, "video-zoom-in")).doClick());
+          edt(() -> ((javax.swing.JButton) component(pv, "video-zoom-in")).doClick());
+        }
+        edt(() -> ((javax.swing.JButton) find(pv.getContentPane(), "Close")).doClick());
+        idle();
+        if (round == 0) out.append("Prompts kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/prompt-video.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ')).append('\n');
+      }
+      out.append("Media browser still: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replaceAll("place=\\w+", "place=(sealed)").replace('\n', ' ')).append('\n');
     } else {
       out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
       MediaDir.volume = 40;
