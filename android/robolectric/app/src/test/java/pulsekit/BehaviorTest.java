@@ -2835,6 +2835,41 @@ public class BehaviorTest {
   }
 
   /**
+   * A run with a large result and a prompt sheet (SogniTextVideo's 10 s video with --saveprompt):
+   * the result shows at once and the prompt library stores it in the background (on the main
+   * thread its encryption froze the app); the log then says what was stored.
+   */
+  @Test
+  public void s85_keep_in_background() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniTextVideo.java");
+    byte[] clip = mp4Header(10000, 438, 768);
+    byte[] big = new byte[12 * 1024 * 1024];
+    System.arraycopy(clip, 0, big, 0, clip.length);
+    String sheet = "PKPROMPT1\nsogni-textvideo-waves\n\n\n\n\nCategory: video\nModel: Sogni MiniMax H3\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Waves roll onto a beach\n\nResult file: sogni-textvideo-waves.mp4\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-textvideo-waves.mp4", big));
+    files.add(new JavaRun.FileOut("sogni-textvideo-waves.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Waves roll onto a beach", "--duration", "10", "--aspect", "4:7", "--saveprompt"));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(10000, 0));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Saved prompt sogni-textvideo-waves.prompt\nWrote sogni-textvideo-waves.mp4\nSucceeded: sogni-textvideo-waves.mp4", files, 0));
+    String right = ((TextView) get("pkPyLog")).getText().toString();
+    out.append("right after the run: ").append(right.contains("Prompt library: storing") ? "storing in the background" : "not storing").append(", stored ")
+        .append(right.contains("Prompt library: sogni-textvideo-waves (")).append('\n');
+    idle();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("then: ").append(line).append('\n');
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(", ").append(f.size / (1024 * 1024)).append(" MB\n");
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    idle();
+    write("s85_keep_in_background", out.toString());
+  }
+
+  /**
    * A text file opened full size: a long press gives Select all and Copy; Copy takes the
    * selection, or the whole text when nothing is selected.
    */
@@ -4363,6 +4398,15 @@ public class BehaviorTest {
 
   private static void idle() {
     for (int i = 0; i < 5; i++) ShadowLooper.idleMainLooper();
+    // A run's result stored in the prompt library in the background: wait for it, as a user would see.
+    for (int i = 0; i < 500 && PyJav.KEEPING.get() > 0; i++) {
+      try {
+        Thread.sleep(20);
+      } catch (InterruptedException ex) {
+        break;
+      }
+      ShadowLooper.idleMainLooper();
+    }
   }
 
   // --------------------------------------------------------- member lookup

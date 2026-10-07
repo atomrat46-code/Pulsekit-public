@@ -103,7 +103,7 @@ public final class PromptVault {
   }
 
   /** Reads the file again into this same library (it changed on disk). */
-  private void reload() throws Exception {
+  private synchronized void reload() throws Exception {
     categories.clear();
     prompts.clear();
     versions.clear();
@@ -113,11 +113,11 @@ public final class PromptVault {
     load();
   }
 
-  public List<Category> categories() {
+  public synchronized List<Category> categories() {
     return new ArrayList<Category>(categories);
   }
 
-  public List<Category> mains() {
+  public synchronized List<Category> mains() {
     List<Category> out = new ArrayList<Category>();
     for (int i = 0; i < categories.size(); i++) {
       if (categories.get(i).parentId == 0) out.add(categories.get(i));
@@ -125,7 +125,7 @@ public final class PromptVault {
     return out;
   }
 
-  public List<Category> children(long parentId) {
+  public synchronized List<Category> children(long parentId) {
     List<Category> out = new ArrayList<Category>();
     for (int i = 0; i < categories.size(); i++) {
       if (categories.get(i).parentId == parentId) out.add(categories.get(i));
@@ -133,7 +133,7 @@ public final class PromptVault {
     return out;
   }
 
-  public long mainOf(long id) {
+  public synchronized long mainOf(long id) {
     Category category = category(id);
     if (category == null) return 0;
     if (category.parentId == 0) return category.id;
@@ -141,7 +141,7 @@ public final class PromptVault {
     return parent == null ? category.id : parent.id;
   }
 
-  public List<Prompt> prompts(long categoryId) {
+  public synchronized List<Prompt> prompts(long categoryId) {
     List<Prompt> out = new ArrayList<Prompt>();
     for (int i = 0; i < prompts.size(); i++) {
       Prompt prompt = prompts.get(i);
@@ -158,7 +158,7 @@ public final class PromptVault {
     public int size;
   }
 
-  public List<StoredFile> referenceFiles() {
+  public synchronized List<StoredFile> referenceFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which != 3) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) {
@@ -169,7 +169,7 @@ public final class PromptVault {
     return out;
   }
 
-  public List<StoredFile> resultFiles() {
+  public synchronized List<StoredFile> resultFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
     // Files imported as result files (File > Import as Result file) first, newest first.
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == 3) addLibrary(out, library.get(i));
@@ -177,7 +177,7 @@ public final class PromptVault {
     return out;
   }
 
-  public byte[] fileBytes(long versionId, int which) {
+  public synchronized byte[] fileBytes(long versionId, int which) {
     Version version = version(versionId);
     if (version != null) {
       byte[] bytes = which == 1 ? version.ref1 : which == 2 ? version.ref2 : version.result;
@@ -208,7 +208,7 @@ public final class PromptVault {
   }
 
   /** A still image kept in the encrypted database so it can be picked as a reference file. */
-  public long addReferenceImage(String name, byte[] bytes, String note, int which) throws Exception {
+  public synchronized long addReferenceImage(String name, byte[] bytes, String note, int which) throws Exception {
     if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That frame is empty");
     if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("Frame is too large (max 16 MB)");
     String clean = fileTitle(name);
@@ -243,7 +243,7 @@ public final class PromptVault {
    * reference file, 3 for a result file. Its name is kept as it is; a file of the same name and
    * kind is replaced. `note` shows where a prompt's title would.
    */
-  public long addLibraryFile(String name, byte[] bytes, String note, int which) throws Exception {
+  public synchronized long addLibraryFile(String name, byte[] bytes, String note, int which) throws Exception {
     if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That file is empty");
     if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
     String clean = fileTitle(name);
@@ -304,21 +304,21 @@ public final class PromptVault {
     return prompt.title;
   }
 
-  public Prompt prompt(long id) {
+  public synchronized Prompt prompt(long id) {
     for (int i = 0; i < prompts.size(); i++) {
       if (prompts.get(i).id == id) return prompts.get(i);
     }
     return null;
   }
 
-  public Category category(long id) {
+  public synchronized Category category(long id) {
     for (int i = 0; i < categories.size(); i++) {
       if (categories.get(i).id == id) return categories.get(i);
     }
     return null;
   }
 
-  public long addCategory(String name) throws Exception {
+  public synchronized long addCategory(String name) throws Exception {
     String clean = clean(name);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the category");
     Category category = new Category();
@@ -330,7 +330,7 @@ public final class PromptVault {
     return category.id;
   }
 
-  public long addSubcategory(long parentId, String name) throws Exception {
+  public synchronized long addSubcategory(long parentId, String name) throws Exception {
     long main = mainOf(parentId);
     if (main == 0) throw new IllegalArgumentException("Pick a category");
     String clean = clean(name);
@@ -348,7 +348,7 @@ public final class PromptVault {
     return category.id;
   }
 
-  public long addPrompt(long categoryId, String title) throws Exception {
+  public synchronized long addPrompt(long categoryId, String title) throws Exception {
     if (category(categoryId) == null) throw new IllegalArgumentException("Pick a category");
     String clean = clean(title);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the prompt");
@@ -362,14 +362,14 @@ public final class PromptVault {
     return prompt.id;
   }
 
-  public void setCategory(long promptId, long categoryId) throws Exception {
+  public synchronized void setCategory(long promptId, long categoryId) throws Exception {
     Prompt prompt = prompt(promptId);
     if (prompt == null || category(categoryId) == null) return;
     prompt.categoryId = categoryId;
     save();
   }
 
-  public List<Version> versions(long promptId) {
+  public synchronized List<Version> versions(long promptId) {
     List<Version> out = new ArrayList<Version>();
     for (int i = versions.size() - 1; i >= 0; i--) {
       if (versions.get(i).promptId == promptId) out.add(versions.get(i));
@@ -377,14 +377,14 @@ public final class PromptVault {
     return out;
   }
 
-  public Version version(long id) {
+  public synchronized Version version(long id) {
     for (int i = 0; i < versions.size(); i++) {
       if (versions.get(i).id == id) return versions.get(i);
     }
     return null;
   }
 
-  public Version finalVersion(long promptId) {
+  public synchronized Version finalVersion(long promptId) {
     Version latest = null;
     for (int i = 0; i < versions.size(); i++) {
       Version version = versions.get(i);
@@ -396,7 +396,7 @@ public final class PromptVault {
   }
 
   /** Final version of the named prompt, or the version whose reference names match. */
-  public Version selectedRefs(String title, String category, String ref1Name, String ref2Name) {
+  public synchronized Version selectedRefs(String title, String category, String ref1Name, String ref2Name) {
     String wantTitle = title == null ? "" : title.trim();
     String wantCat = category == null ? "" : category.trim();
     String n1 = ref1Name == null ? "" : ref1Name.trim();
@@ -439,7 +439,7 @@ public final class PromptVault {
     return parent != null && parent.name != null && want.equalsIgnoreCase(parent.name.trim());
   }
 
-  public long addVersion(long promptId, String title, String description, String body, String model, String ref1Name, byte[] ref1, String ref2Name, byte[] ref2, String resultName, byte[] result, String codeType, String resultText) throws Exception {
+  public synchronized long addVersion(long promptId, String title, String description, String body, String model, String ref1Name, byte[] ref1, String ref2Name, byte[] ref2, String resultName, byte[] result, String codeType, String resultText) throws Exception {
     Prompt prompt = prompt(promptId);
     if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
     String clean = clean(title);
@@ -469,7 +469,7 @@ public final class PromptVault {
     return version.id;
   }
 
-  public void putCodeType(long versionId, String codeType) throws Exception {
+  public synchronized void putCodeType(long versionId, String codeType) throws Exception {
     Version version = version(versionId);
     if (version == null) return;
     version.codeType = PromptRun.normalizeType(codeType);
@@ -477,7 +477,7 @@ public final class PromptVault {
   }
 
   /** Stores pasted result text on the open version without starting another one. */
-  public void putResultText(long versionId, String text) throws Exception {
+  public synchronized void putResultText(long versionId, String text) throws Exception {
     Version version = version(versionId);
     if (version == null) throw new IllegalArgumentException("Open a prompt first");
     String body = text == null ? "" : text;
@@ -487,7 +487,7 @@ public final class PromptVault {
   }
 
   /** Write one attached file into the encrypted database without starting another version. */
-  public void putFile(long versionId, int which, String name, byte[] bytes) throws Exception {
+  public synchronized void putFile(long versionId, int which, String name, byte[] bytes) throws Exception {
     Version version = version(versionId);
     if (version == null) throw new IllegalArgumentException("Open a prompt first");
     if (bytes != null && bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
@@ -513,7 +513,7 @@ public final class PromptVault {
     return out;
   }
 
-  public void renameCategory(long id, String name) throws Exception {
+  public synchronized void renameCategory(long id, String name) throws Exception {
     Category category = category(id);
     if (category == null) throw new IllegalArgumentException("That category is gone");
     String clean = clean(name);
@@ -529,7 +529,7 @@ public final class PromptVault {
     save();
   }
 
-  public void deleteCategory(long id) throws Exception {
+  public synchronized void deleteCategory(long id) throws Exception {
     Category category = category(id);
     if (category == null) return;
     if (category.parentId == 0 && mains().size() <= 1) throw new IllegalArgumentException("Keep at least one category");
@@ -555,7 +555,7 @@ public final class PromptVault {
     save();
   }
 
-  public void renamePrompt(long id, String title) throws Exception {
+  public synchronized void renamePrompt(long id, String title) throws Exception {
     Prompt prompt = prompt(id);
     if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
     String clean = clean(title);
@@ -564,7 +564,7 @@ public final class PromptVault {
     save();
   }
 
-  public void deletePrompt(long id) throws Exception {
+  public synchronized void deletePrompt(long id) throws Exception {
     for (int i = prompts.size() - 1; i >= 0; i--) {
       if (prompts.get(i).id == id) prompts.remove(i);
     }
@@ -574,7 +574,7 @@ public final class PromptVault {
     save();
   }
 
-  public String renameFile(long versionId, int which, String name) throws Exception {
+  public synchronized String renameFile(long versionId, int which, String name) throws Exception {
     String clean = fileTitle(name);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the file");
     Version version = version(versionId);
@@ -592,7 +592,7 @@ public final class PromptVault {
     return clean;
   }
 
-  public void deleteFile(long versionId, int which) throws Exception {
+  public synchronized void deleteFile(long versionId, int which) throws Exception {
     Version version = version(versionId);
     if (version == null) {
       for (int i = library.size() - 1; i >= 0; i--) {
@@ -621,7 +621,7 @@ public final class PromptVault {
     return clean;
   }
 
-  public void markFinal(long versionId) throws Exception {
+  public synchronized void markFinal(long versionId) throws Exception {
     Version chosen = version(versionId);
     if (chosen == null) return;
     for (int i = 0; i < versions.size(); i++) {
@@ -673,7 +673,7 @@ public final class PromptVault {
     save();
   }
 
-  private void save() throws Exception {
+  private synchronized void save() throws Exception {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);

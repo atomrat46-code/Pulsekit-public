@@ -17,6 +17,35 @@ final class PromptKeep {
 
     private PromptKeep() {}
 
+    /**
+     * Everything a finished run keeps in the prompt library, as PyJav does after a run: the sheets
+     * it saved (--saveprompt), MidiDrumGen's MIDI and SogniMusic's track when Drum Midi Settings
+     * says so, JoinVideo's video (--addtodb) and SogniVideo's joined clip. Slow with a large result
+     * (the library is encrypted as a whole): the app calls it off the main thread. Returns the log lines.
+     */
+    static String keepAll(File dir, JavaRun.Result result, List<String> argv, String program, boolean genToDb, boolean musicToDb) {
+        StringBuilder kept = new StringBuilder(keep(dir, result, argv));
+        if (genToDb && "MidiDrumGen.java".equals(program)) add(kept, keepMidiDrumGen(dir, result, argv));
+        if (musicToDb && "SogniMusic.java".equals(program)) add(kept, keepSogniMusic(dir, result, argv));
+        if ("JoinVideo.java".equals(program)) add(kept, keepJoined(dir, result, argv));
+        if ("SogniVideo.java".equals(program)) add(kept, keepMerged(dir, result));
+        return kept.toString();
+    }
+
+    private static void add(StringBuilder sb, String line) {
+        if (line != null && line.length() > 0) sb.append(sb.length() > 0 ? "\n" : "").append(line);
+    }
+
+    /** Whether keepAll has anything to do for this run: a .prompt sheet, or a file one of its rules keeps. */
+    static boolean hasWork(JavaRun.Result result, List<String> argv, String program, boolean genToDb, boolean musicToDb) {
+        if (result == null || result.files == null || result.files.isEmpty()) return false;
+        for (JavaRun.FileOut f : result.files) if (f.name != null && f.name.toLowerCase().endsWith(".prompt")) return true;
+        if (genToDb && "MidiDrumGen.java".equals(program)) return true;
+        if (musicToDb && "SogniMusic.java".equals(program)) return true;
+        if ("JoinVideo.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
+        return "SogniVideo.java".equals(program);
+    }
+
     /** Stores each sheet the run saved; returns a line for the log, or "" when it saved none. */
     static String keep(File dir, JavaRun.Result result, List<String> argv) {
         if (dir == null || result == null || result.files == null) return "";
