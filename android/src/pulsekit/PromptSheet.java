@@ -1154,11 +1154,17 @@ public final class PromptSheet {
       items.add("Extract prompt");
       runs.add(() -> extractPrompt(activity, versionId, which, name));
     }
+    // Lines that start with **Header:**: Strip headers keeps the text without them as <file> noheaders.txt.
+    boolean strip = PromptExtract.stripOffered(vault, versionId, which, name);
+    if (strip) {
+      items.add("Strip headers");
+      runs.add(() -> stripHeaders(activity, versionId, which, name));
+    }
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    if (!fullSize && !extract) {
+    if (!fullSize && !extract && !strip) {
       itemMenu(activity, name, rename, delete);
       return;
     }
@@ -1173,6 +1179,27 @@ public final class PromptSheet {
 
   /** The file menu shown last, for the tests. */
   static AlertDialog lastFileMenu;
+
+  /** Strip headers: the file's text without its line headers kept as <file> noheaders.txt, of the same kind. */
+  private static void stripHeaders(Activity activity, long versionId, int which, String name) {
+    try {
+      String made = PromptExtract.keepStripped(vault, versionId, which, name, storedTitle(versionId, which));
+      rebuild(activity);
+      toast(activity, "Saved " + made);
+      if (activity instanceof MainActivity) ((MainActivity) activity).setNow("Stripped the headers of " + name + " as " + made);
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
+  }
+
+  /** The prompt title (or import note) a stored file is listed under. */
+  private static String storedTitle(long versionId, int which) {
+    String title = "";
+    for (PromptVault.StoredFile f : which == 3 ? vault.resultFiles() : vault.referenceFiles()) {
+      if (f.versionId == versionId && f.which == which && f.promptTitle != null) title = f.promptTitle;
+    }
+    return title;
+  }
 
   /** Extract prompt: the text after the file's last **Prompt:** kept as <File> Prompt <n>.txt, of the same kind. */
   private static void extractPrompt(Activity activity, long versionId, int which, String name) {

@@ -721,7 +721,7 @@ final class PromptDb {
         }
     }
 
-    /** The right-click menu: Open, Save as, Extract prompt (a text file with a **Prompt:**), Rename, Delete. `changed` shows the gallery again. */
+    /** The right-click menu: Open, Save as, Extract prompt (a text file with a **Prompt:**), Strip headers (lines that start with **...**), Rename, Delete. `changed` shows the gallery again. */
     void menu(PromptVault.StoredFile file, JButton card, Runnable changed) {
         JPopupMenu menu = new JPopupMenu();
         JMenuItem open = new JMenuItem("Open");
@@ -768,6 +768,26 @@ final class PromptDb {
                 }
             });
             menu.add(extract);
+        }
+        boolean strippable = false;
+        try {
+            strippable = PromptExtract.stripOffered(vault(), file.versionId, file.which, file.name);
+        } catch (Exception ex) {
+            // No library: no Strip headers.
+        }
+        if (strippable) {
+            // Lines that start with **Header:**: the text without them as <file> noheaders.txt.
+            JMenuItem strip = new JMenuItem("Strip headers");
+            strip.addActionListener(e -> {
+                try {
+                    String made = PromptExtract.keepStripped(vault(), file.versionId, file.which, file.name, file.promptTitle);
+                    app.setNow("Stripped the headers of " + file.name + " as " + made);
+                    changed.run();
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() != null ? ex.getMessage() : "Could not strip the headers of " + file.name);
+                }
+            });
+            menu.add(strip);
         }
         menu.add(rename);
         menu.add(delete);

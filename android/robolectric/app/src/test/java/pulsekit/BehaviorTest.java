@@ -2835,6 +2835,52 @@ public class BehaviorTest {
   }
 
   /**
+   * Strip headers in a stored text file's long-press menu (lines that start with **Header:**): the
+   * text without them kept as <file> noheaders.txt (then noheaders 2); other files have no such item.
+   */
+  @Test
+  public void s83_strip_headers() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
+    DbImport.store(app, "looks.txt", looks.getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    for (String n : new String[] {"looks.txt", "looks.txt", "notes.txt"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals(n)) at = f;
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      int strip = -1;
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+        Object item = menu.getListView().getAdapter().getItem(i);
+        items.append('[').append(item).append(']');
+        if ("Strip headers".equals(String.valueOf(item))) strip = i;
+      }
+      out.append(n).append(" menu: ").append(items).append('\n');
+      if (strip >= 0) {
+        org.robolectric.Shadows.shadowOf(menu).clickOnItem(strip);
+        idle();
+        out.append("  now: ").append(((TextView) get("now")).getText()).append('\n');
+      } else {
+        menu.dismiss();
+        idle();
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.resultFiles()) {
+      if (!f.name.contains("noheaders")) continue;
+      out.append("result file: ").append(f.name).append(": ").append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+    write("s83_strip_headers", out.toString());
+  }
+
+  /**
    * The Prompts page's Prompt field: Select file and Browse DB (text files, starting on T) fill it
    * from a text file; a long press opens Select all, Copy, Cut, Paste.
    */

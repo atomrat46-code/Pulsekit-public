@@ -3182,6 +3182,46 @@ public final class DesktopBehavior {
     DbFilter.current = "A";
   }
 
+  /**
+   * Strip headers in a text file's menu in the Result files gallery (lines that start with
+   * **Header:**): the text without them kept as <file> noheaders.txt; other files have no such item.
+   */
+  void s69_strip_headers() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
+    PromptDb.vault().addLibraryFile("looks.txt", looks.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    for (String n : new String[] {"looks.txt", "notes.txt"}) {
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals(n)) file = f;
+      final PromptVault.StoredFile at = file;
+      final StringBuilder seen = new StringBuilder();
+      final boolean[] done = {false};
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        javax.swing.JMenuItem strip = null;
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals("Strip headers")) strip = (javax.swing.JMenuItem) c;
+        }
+        db.lastFileMenu.setVisible(false);
+        if (strip != null) strip.doClick();
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(true));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(" menu: ").append(seen).append('\n');
+      if (seen.indexOf("Strip headers") >= 0) out.append("  now: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    }
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) {
+      if (!f.name.contains("noheaders")) continue;
+      out.append("result file: ").append(f.name).append(": ").append(new String(PromptDb.vault().fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {
