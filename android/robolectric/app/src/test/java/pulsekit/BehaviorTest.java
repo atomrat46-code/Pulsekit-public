@@ -2581,6 +2581,25 @@ public class BehaviorTest {
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
     idle();
     out.append("time: ").append(((TextView) tv.findViewWithTag("media-video-time")).getText()).append('\n');
+    // A finger held on the video brings the controls back on top; a short tap does not.
+    View screen = tv.findViewWithTag("media-video");
+    java.util.function.BiConsumer<Integer, Long> press = (Integer before, Long heldMs) -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent downEv = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      screen.dispatchTouchEvent(downEv);
+      downEv.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      long t1 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent upEv = android.view.MotionEvent.obtain(t0, t1, android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      screen.dispatchTouchEvent(upEv);
+      upEv.recycle();
+      idle();
+    };
+    int raisedBefore = v.raised;
+    press.accept(0, 100L);
+    out.append("tap: controls raised ").append(v.raised - raisedBefore);
+    press.accept(0, 800L);
+    out.append(", held: raised ").append(v.raised - raisedBefore).append('\n');
     // The screen stays on while it plays, not while it is paused.
     mp.start();
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
@@ -2705,6 +2724,231 @@ public class BehaviorTest {
     idle();
     out.append("args: ").append(args.getText().toString().replace(base, "~")).append('\n');
     write("s72_media_remember", out.toString());
+  }
+
+  /**
+   * SogniPedit (PyJav's Java menu): Params has the picture to edit and a second reference (Choose
+   * file and Browse DB), Skin detail, more LoRAs, and Unlimited Plan and Save the prompt ticked.
+   * A run's prompt sheet and picture go into the prompt library, and the picture is shown.
+   */
+  @Test
+  public void s73_sogni_pedit() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPedit.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--image", "--image2"}) {
+      TextView pick = (TextView) dv.findViewWithTag("params-file:" + t);
+      out.append(t).append(": ").append(pick == null ? "no file row" : pick.getText()).append(", Browse DB ").append(dv.findViewWithTag("params-db:" + t) != null ? "shown" : "none").append('\n');
+    }
+    for (String t : new String[] {"--skin_detail", "--loras", "--prompt"}) {
+      TextView f = (TextView) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"").append('\n');
+    }
+    for (String t : new String[] {"--unlimited", "--saveprompt", "--confirm_cost"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.getText() + (c.isChecked() ? " (ticked)" : " (not ticked)")).append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    // A run's result: the sheet and the picture go into the library; the picture is shown.
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(32, 24, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    String sheet = "PKPROMPT1\nsogni-pedit-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, now in a dark blue suit\n\nLoRAs: krea2-skin-detail 1.1. Picture: me.png.\n\nResult file: sogni-pedit-same-person.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sogni-pedit-same-person.png", png.toByteArray()));
+    app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", "Same person, now in a dark blue suit", "--saveprompt", "--unlimited");
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniPedit 2026-10-07\nWrote sogni-pedit-same-person.png (1 KB)\nSucceeded: sogni-pedit-same-person.png", files, 0));
+    idle();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("library result: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    out.append("picture shown: ").append(PictureOffer.class.getSimpleName()).append(' ').append(ShadowDialog.getLatestDialog() != null && ShadowDialog.getLatestDialog().isShowing()).append('\n');
+    write("s73_sogni_pedit", out.toString());
+  }
+
+  /** SogniPadd (PyJav's Java menu): Params has the prompt, the LoRA list with its default set named, the size and seed; Unlimited Plan and Save the prompt ticked; no file rows. */
+  @Test
+  public void s74_sogni_padd() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPadd.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--prompt", "--loras", "--aspect", "--seed"}) {
+      TextView f = (TextView) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"").append('\n');
+    }
+    out.append("file rows: ").append(dv.findViewWithTag("params-file:--image") != null ? "an image row" : "none").append('\n');
+    android.widget.EditText loraField = (android.widget.EditText) dv.findViewWithTag("params-field:--loras");
+    out.append("LoRA field: ").append((loraField.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0 ? "several lines" : "one line")
+        .append(", up to ").append(loraField.getMaxLines()).append(" lines shown, scrolls ").append(loraField.isVerticalScrollBarEnabled()).append('\n');
+    for (String t : new String[] {"--unlimited", "--saveprompt"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.isChecked() ? "ticked" : "not ticked").append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s74_sogni_padd", out.toString());
+  }
+
+  /** SogniTextVideo (PyJav's Java menu): Params has the prompt, the LoRA list (several lines) naming its default set, duration and resolution; no file rows; Unlimited Plan and Save the prompt ticked. */
+  @Test
+  public void s75_sogni_textvideo() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniTextVideo.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--prompt", "--loras", "--duration", "--resolution"}) {
+      TextView f = (TextView) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"" + ((f.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0 ? ", several lines" : "")).append('\n');
+    }
+    out.append("file rows: ").append(dv.findViewWithTag("params-file:--image") != null ? "an image row" : "none").append('\n');
+    for (String t : new String[] {"--unlimited", "--saveprompt", "--no_audio"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.isChecked() ? "ticked" : "not ticked").append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s75_sogni_textvideo", out.toString());
+  }
+
+  /**
+   * Browse DB's A / I / V / S / T buttons: all files, images, videos, sound files (MIDI too) or
+   * text files; the pick is kept for the next Browse DB and across Ref files / Result files.
+   */
+  @Test
+  public void s77_db_filter() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbFilter.current = "A";
+    for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    DbImport.store(app, "story.md", "# story".getBytes(StandardCharsets.UTF_8), true);
+    java.util.function.Supplier<String> shown = () -> {
+      View v = ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView();
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin", "story.md"}) if (v.findViewWithTag("refs-pick:" + n) != null) sb.append(n).append(' ');
+      sb.append("| lit ");
+      for (String l : DbFilter.LETTERS) {
+        TextView b = (TextView) v.findViewWithTag("db-filter:" + l);
+        if (b == null) sb.append(l).append(" missing ");
+        else if (((android.graphics.drawable.GradientDrawable) b.getBackground()).getColor().getDefaultColor() == android.graphics.Color.parseColor("#ECEBE6")) sb.append(l);
+      }
+      sb.append(" | ").append(((TextView) v.findViewWithTag("refs-kind:refs")).getText()).append(" / ").append(((TextView) v.findViewWithTag("refs-kind:results")).getText());
+      return sb.toString();
+    };
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("A: ").append(shown.get()).append('\n');
+    for (String l : new String[] {"I", "V", "S", "T"}) {
+      ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("db-filter:" + l).performClick();
+      idle();
+      out.append(l).append(": ").append(shown.get()).append('\n');
+    }
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("refs-kind:results").performClick();
+    idle();
+    out.append("T, Result files: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("opened again: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("db-filter:S").performClick();
+    idle();
+    final String[] picked = {null};
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    RefBrowser.browse(app, false, RefBrowser.SOUNDS, (name, file) -> picked[0] = name);
+    idle();
+    out.append("S, a sound-only row: ").append(shown.get()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("refs-pick:loop.wav").performClick();
+    idle();
+    out.append("picked: ").append(picked[0]).append('\n');
+    DbFilter.current = "A";
+    write("s77_db_filter", out.toString());
+  }
+
+  /**
+   * The Prompts page's video preview (Open in full size) opens as the last video was left: its
+   * zoom, its volume and Loop video, kept in the app's preferences and apart from the Media
+   * browser's.
+   */
+  @Test
+  public void s76_prompt_video() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    open.setAccessible(true);
+    byte[] clip = mp4Header(3460, 160, 120);
+    java.util.function.Supplier<String> state = () -> {
+      android.widget.CheckBox loop = (android.widget.CheckBox) pane.findViewWithTag("prompt-video-loop");
+      TextView zoom = findText(pane, "100%") != null ? findText(pane, "100%") : null;
+      StringBuilder sb = new StringBuilder();
+      sb.append("Loop video ").append(loop == null ? "none" : loop.isChecked() ? "ticked" : "not ticked");
+      for (String z : new String[] {"50%", "64%", "80%", "100%", "125%", "156%", "195%"}) if (findText(pane, z) != null) sb.append(", shows ").append(z);
+      return sb.toString();
+    };
+    open.invoke(null, app, "walk.mp4", clip, 3);
+    idle();
+    out.append("first: ").append(state.get()).append('\n');
+
+    // Zoom in twice, volume down twice (80% to 60%), Loop video ticked.
+    ((android.widget.CheckBox) pane.findViewWithTag("prompt-video-loop")).performClick();
+    java.lang.reflect.Method setZoom = PromptSheet.class.getDeclaredMethod("setZoom", android.app.Activity.class, float.class);
+    setZoom.setAccessible(true);
+    setZoom.invoke(null, app, 1.5625f);
+    java.lang.reflect.Field volLabel = PromptSheet.class.getDeclaredField("previewVolLabel");
+    volLabel.setAccessible(true);
+    View volDown = ((android.view.ViewGroup) ((View) volLabel.get(null)).getParent()).getChildAt(1);
+    volDown.performClick();
+    volDown.performClick();
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences("pulsekit-prompt-video", 0).getString("settings", "").trim().replace('\n', ' ')).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    // Opened again (also after the app restarts: the preferences are read again).
+    PromptVideo.decode(null);
+    open.invoke(null, app, "walk.mp4", clip, 3);
+    idle();
+    java.lang.reflect.Field vol = PromptSheet.class.getDeclaredField("previewVideoVol");
+    vol.setAccessible(true);
+    java.lang.reflect.Field zoom = PromptSheet.class.getDeclaredField("previewZoom");
+    zoom.setAccessible(true);
+    out.append("again: ").append(state.get()).append(", volume ").append(vol.get(null)).append("%, zoom ").append(Math.round((Float) zoom.get(null) * 100)).append("%\n");
+    findText(pane, "Back").performClick();
+    idle();
+    // A picture still opens at 100%.
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    open.invoke(null, app, "garden.png", png.toByteArray(), 3);
+    idle();
+    out.append("picture zoom: ").append(Math.round((Float) zoom.get(null) * 100)).append("%\n");
+    // Back to the page, so the next scenario finds the Prompts page as it starts.
+    findText(pane, "Back").performClick();
+    idle();
+    write("s76_prompt_video", out.toString());
   }
 
   /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */

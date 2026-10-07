@@ -1756,10 +1756,11 @@ public final class DesktopBehavior {
         if (p.token.equals("--no_filter")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)").append('\n');
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      String[] runs = {"--prompt \"Animate this cartoon\"", "--prompt \"Animate this cartoon\" --no_filter"};
+      String[] runs = {"--prompt \"Animate this cartoon\"", "--prompt \"Animate this cartoon\" --no_filter",
+          "--prompt \"Animate this cartoon\" --no_filter --loras h3-mystic-xxx-v4:0.8,h3-vbvr-video-reasoning:1", "--prompt \"Animate this cartoon\" --loras h3-mystic-xxx-v4:0.8"};
       for (int r = 0; r < runs.length; r++) {
         final String extra = runs[r];
-        if (r == 1) answers.add("Close");
+        if (r == 1 || r == 2) answers.add("Close");
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
@@ -1767,11 +1768,15 @@ public final class DesktopBehavior {
         Thread.sleep(300);
         out.append("== ").append(extra).append('\n');
         for (String line : textOf(log).split("\n")) {
-          if (line.startsWith("Content filter") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
+          if (line.startsWith("Content filter") || line.startsWith("LoRAs") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Status")) out.append("  ").append(line).append('\n');
         }
       }
       synchronized (bodies) {
-        for (String b : bodies) out.append("start sends safe_content_filter: ").append(b.contains("\"safe_content_filter\":false") ? "false" : "nothing (Sogni's default: on)").append('\n');
+        for (String b : bodies) {
+          int at = b.indexOf("\"loras\"");
+          out.append("start sends safe_content_filter: ").append(b.contains("\"safe_content_filter\":false") ? "false" : "nothing (Sogni's default: on)")
+              .append(", ").append(at < 0 ? "no LoRAs" : b.substring(at, b.indexOf(']', b.indexOf("loraStrengths", at)) + 1)).append('\n');
+        }
       }
       // The chat request and the chat run carry the setting too (SogniChat; the same SogniApi in each program).
       List<String[]> turns = new ArrayList<String[]>();
@@ -2358,6 +2363,31 @@ public final class DesktopBehavior {
           .append(", speed ").append(((javax.swing.JComboBox<?>) component(other, "video-speed")).getSelectedItem()).append('\n');
       edt(() -> ((javax.swing.JButton) find(other.getContentPane(), "Close")).doClick());
       idle();
+      // The Prompts page's own player (Preview of a stored video): Loop video, volume and zoom kept apart from the Media browser's.
+      final byte[] webm = Files.readAllBytes(clip.toPath());
+      for (int round = 0; round < 2; round++) {
+        set("lastVideo", null);
+        answers.add("Mute");
+        SwingUtilities.invokeLater(() -> db.preview("clip.webm", webm));
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(800);
+        idle();
+        JDialog pv = (JDialog) get("lastVideo");
+        javax.swing.JCheckBox loopBox = (javax.swing.JCheckBox) component(pv, "video-loop");
+        out.append(round == 0 ? "Prompts player first: " : "Prompts player again: ").append(loopBox.getText()).append(' ').append(loopBox.isSelected() ? "ticked" : "not ticked")
+            .append(", volume ").append(((javax.swing.JSlider) component(pv, "video-volume")).getValue())
+            .append(", zoom ").append(((JLabel) component(pv, "video-zoom")).getText()).append('\n');
+        if (round == 0) {
+          edt(() -> loopBox.doClick());
+          edt(() -> ((javax.swing.JSlider) component(pv, "video-volume")).setValue(30));
+          edt(() -> ((javax.swing.JButton) component(pv, "video-zoom-in")).doClick());
+          edt(() -> ((javax.swing.JButton) component(pv, "video-zoom-in")).doClick());
+        }
+        edt(() -> ((javax.swing.JButton) find(pv.getContentPane(), "Close")).doClick());
+        idle();
+        if (round == 0) out.append("Prompts kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/prompt-video.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ')).append('\n');
+      }
+      out.append("Media browser still: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replaceAll("place=\\w+", "place=(sealed)").replace('\n', ' ')).append('\n');
     } else {
       out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
       MediaDir.volume = 40;
@@ -2486,6 +2516,287 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
   }
 
+  /**
+   * SogniPedit (PyJav's Java menu): Krea 2 Identity Edit of a picture with an optional second
+   * reference, one picture out. Params: the pictures are file rows with Browse DB, Skin detail and
+   * more LoRAs; Unlimited Plan and Save the prompt start ticked. A run uploads the pictures, sends
+   * edit_image with model krea-identity-edit, Skin Detail 1.1 first, the LoRAs in order, the filter
+   * left on and the Unlimited billing, saves the picture and the prompt sheet (into the library).
+   */
+  void s60_sogni_pedit() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    File me = new File(home, "me.png");
+    javax.imageio.ImageIO.write(img, "png", me);
+    File suit = new File(home, "suit.png");
+    javax.imageio.ImageIO.write(img, "png", suit);
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final List<String> uploads = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wp\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/uploadUrl")) {
+        uploads.add(path.replaceAll("jobId=[^&]+", "jobId=..."));
+        bytes = ("{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put/" + uploads.size() + "\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/downloadUrl")) {
+        bytes = ("{\"downloadUrl\":\"http://127.0.0.1:" + port + "/stored/" + uploads.size() + ".png\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wp")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wp\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPedit.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.isFile() ? " file" : "").append(p.refs ? " Browse DB" : "").append(p.defaultOn ? " ticked" : "")
+            .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "--prompt \"Same person, now in a dark blue suit in a sunlit office\" --image \"" + me.getAbsolutePath() + "\" --image2 \"" + suit.getAbsolutePath()
+          + "\" --loras krea2-warm-light:0.6 --saveprompt --unlimited --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      answers.add("Close");
+      edt(() -> log.setText(""));
+      set("pyInputPath", null);
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(800);
+      idle();
+      for (String line : textOf(log).split("\n")) {
+        if (line.matches("(SogniPedit|Saved prompt|Edit|Model|Picture|LoRAs|Unlimited|Uploaded|Workflow|Wrote|Succeeded|Failed|Prompt library).*"))
+          out.append("log: ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      synchronized (uploads) {
+        for (String u : uploads) out.append("upload: ").append(u).append('\n');
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          out.append("step: ").append(step.get("toolName")).append(' ').append(SogniApi.toJson(step.get("arguments"))).append('\n');
+          out.append("  references: ").append(((List<?>) m.get("media_references")).size()).append(", billing ").append(m.get("billing_mode"))
+              .append(", content filter ").append(b.contains("safe_content_filter") ? "off" : "on (Sogni's default)").append('\n');
+        }
+      }
+      File[] pics = home.listFiles((d, n) -> n.startsWith("sogni-pedit-"));
+      java.util.Arrays.sort(pics);
+      for (File f : pics) out.append("saved: ").append(f.getName()).append(" (").append(f.length() > 0 ? "has data" : "empty").append(")\n");
+      for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("library result: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+      for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("library reference: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * SogniPadd (PyJav's Java menu): a picture from a prompt alone with Dark Beast Krea 2. A run sends
+   * generate_image with model dark-beast-krea2, no uploads, the default LoRA set in order (or the
+   * given ones, or none), the content filter off and the Unlimited billing; Age below 0 with the
+   * sexual fine-tunes is refused before anything is sent.
+   */
+  void s61_sogni_padd() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final List<String> other = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wa\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wa")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wa\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        other.add(path);
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPadd.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.isFile() ? " file" : "").append(p.defaultOn ? " ticked" : "").append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      // The LoRA list is a wrapping area of a few lines in Params.
+      final StringBuilder field = new StringBuilder();
+      inspectNext = d -> {
+        Component c = component(d, "params-field:--loras");
+        field.append("LoRA field: ").append(c instanceof javax.swing.JTextArea ? "several lines, wraps " + ((javax.swing.JTextArea) c).getLineWrap() : c == null ? "none" : "one line").append('\n');
+      };
+      answers.add("Cancel");
+      call("openParams");
+      out.append(field);
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "--prompt \"A lighthouse on a cliff at dawn\" --aspect 9:16 --saveprompt --unlimited",
+        "--prompt \"A lighthouse on a cliff at dawn\" --loras krea2-warm-light:0.6 --seed 42",
+        "--prompt \"A lighthouse on a cliff at dawn\" --loras none",
+        "--prompt \"A lighthouse on a cliff at dawn\" --loras \"krea2-warm-light:0.6 krea2-skin-detail:1.1\"",
+        "--prompt \"A lighthouse on a cliff at dawn\" --loras krea2-age:-2,krea2-mystic-x:1",
+      };
+      for (int r = 0; r < runs.length; r++) {
+        final String extra = runs[r] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        if (r < 4) answers.add("Close");
+        edt(() -> log.setText(""));
+        set("pyInputPath", null);
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(800);
+        idle();
+        out.append("== ").append(runs[r]).append('\n');
+        for (String line : textOf(log).split("\n")) {
+          if (line.matches("(Saved prompt|Model|LoRAs|Content filter|Unlimited|Succeeded|Failed|Prompt library).*")) out.append("  ").append(line).append('\n');
+        }
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          out.append("step: ").append(step.get("toolName")).append(' ').append(SogniApi.toJson(step.get("arguments")).replace("A lighthouse on a cliff at dawn", "..."))
+              .append(", uploads ").append(m.get("media_references") == null ? "none" : "some").append(", billing ").append(m.get("billing_mode"))
+              .append(", content filter ").append(b.contains("\"safe_content_filter\":false") ? "off" : "on").append('\n');
+        }
+      }
+      out.append("other requests: ").append(other).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * SogniTextVideo (PyJav's Java menu): a clip from a prompt alone with MiniMax H3 FastH3 text to
+   * video. A run sends generate_video with the FastH3 t2v model, no uploads, Mystic X v4 0.5 and
+   * VBVR Video Reasoning 1 by default (or the LoRAs given, or none), the content filter off and the
+   * Unlimited billing; it saves the clip and the prompt sheet.
+   */
+  void s62_sogni_textvideo() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wt\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wt")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wt\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/c.mp4\",\"mediaType\":\"video\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/c.mp4")) {
+        type = "video/mp4";
+        bytes = clip;
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniTextVideo.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.isFile() ? " file" : "").append(p.defaultOn ? " ticked" : "").append(ProgramParams.longText(p) ? " several lines" : "")
+            .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "--prompt \"Waves roll onto a beach at sunset, the camera drifts along the shore\" --duration 8 --aspect 9:16 --saveprompt --unlimited",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0.6 --resolution 1080",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras none --no_audio",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0",
+      };
+      for (int r = 0; r < runs.length; r++) {
+        final String extra = runs[r] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        if (r < 3) answers.add("Close");
+        edt(() -> log.setText(""));
+        set("pyInputPath", null);
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(800);
+        idle();
+        out.append("== ").append(runs[r]).append('\n');
+        for (String line : textOf(log).split("\n")) {
+          if (line.matches("(Saved prompt|Model|LoRAs|Content filter|Unlimited|Succeeded|Failed|Prompt library).*")) out.append("  ").append(line).append('\n');
+        }
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+          out.append("step: ").append(step.get("toolName")).append(", model ").append(a.get("videoModel")).append(", duration ").append(a.get("duration"))
+              .append(", loras ").append(a.get("loras")).append(' ').append(a.get("loraStrengths")).append(", audio ").append(!Boolean.FALSE.equals(a.get("generateAudio")))
+              .append(", uploads ").append(m.get("media_references") == null ? "none" : "some").append(", billing ").append(m.get("billing_mode"))
+              .append(", content filter ").append(b.contains("\"safe_content_filter\":false") ? "off" : "on").append('\n');
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** The names of the components under `root`, in order. */
   private static List<String> names(Container root) {
     List<String> out = new ArrayList<String>();
@@ -2553,6 +2864,72 @@ public final class DesktopBehavior {
       }
     }
     return null;
+  }
+
+  /**
+   * Browse DB's A / I / V / S / T buttons: all files, images, videos, sound files (MIDI too) or
+   * text files; the pick is kept for the next Browse DB and across Ref files / Result files.
+   */
+  void s63_db_filter() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin"}) PromptDb.vault().addLibraryFile(n, ("x" + n).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    PromptDb.vault().addLibraryFile("story.md", "# story".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    final String[] picked = new String[1];
+    java.util.function.Function<String, JDialog> open = only -> {
+      try {
+        edt(() -> ((JDialog) get("lastBrowse")).dispose());
+      } catch (Exception ignored) {
+        // none open yet
+      }
+      try {
+        final JDialog[] before = {(JDialog) get("lastBrowse")};
+        SwingUtilities.invokeLater(() -> db.browse(false, only, (name, file) -> picked[0] = name));
+        for (int i = 0; i < 100 && get("lastBrowse") == before[0]; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    java.util.function.Function<JDialog, String> shown = d -> {
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"pic.png", "clip.mp4", "loop.wav", "beat.mid", "notes.txt", "data.bin", "story.md"}) if (component(d, "refs-pick:" + n) != null) sb.append(n).append(' ');
+      sb.append("| greyed ");
+      for (String l : DbFilter.LETTERS) {
+        javax.swing.JButton b = (javax.swing.JButton) component(d, "db-filter:" + l);
+        if (b == null) sb.append(l).append(" missing ");
+        else if (!b.isEnabled()) sb.append(l);
+      }
+      sb.append(" | ").append(((javax.swing.JButton) component(d, "refs-kind:refs")).getText()).append(" / ").append(((javax.swing.JButton) component(d, "refs-kind:results")).getText());
+      return sb.toString();
+    };
+    java.util.function.BiFunction<JDialog, String, JDialog> press = (d, name) -> {
+      try {
+        final JDialog[] before = {(JDialog) get("lastBrowse")};
+        SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, name)).doClick());
+        for (int i = 0; i < 100 && get("lastBrowse") == before[0]; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog d = open.apply(null);
+    out.append("A: ").append(shown.apply(d)).append('\n');
+    for (String l : new String[] {"I", "V", "S", "T"}) {
+      d = press.apply(d, "db-filter:" + l);
+      out.append(l).append(": ").append(shown.apply(d)).append('\n');
+    }
+    d = press.apply(d, "refs-kind:results");
+    out.append("T, Result files: ").append(shown.apply(d)).append('\n');
+    d = open.apply(null);
+    out.append("opened again: ").append(shown.apply(d)).append('\n');
+    d = press.apply(d, "db-filter:S");
+    d = open.apply(PromptDb.SOUNDS);
+    out.append("S, a sound-only row: ").append(shown.apply(d)).append('\n');
+    final JDialog last = d;
+    edt(() -> ((javax.swing.JButton) component(last, "refs-pick:loop.wav")).doClick());
+    out.append("picked: ").append(picked[0]).append(", dialog ").append(last.isShowing() ? "open" : "closed").append('\n');
   }
 
   private static java.awt.Component component(java.awt.Component c, String name) {

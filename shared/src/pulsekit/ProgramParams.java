@@ -88,6 +88,12 @@ public final class ProgramParams {
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
+    // SogniPedit: Krea 2 Identity Edit of a picture, with Skin Detail and other Krea 2 LoRAs.
+    boolean pic = has(out, "--image2") && has(out, "--skin_detail");
+    // SogniPadd: a picture from a prompt alone, with Krea 2 LoRAs.
+    boolean padd = has(out, "--loras") && has(out, "--seed") && !has(out, "--image2");
+    // SogniTextVideo: a clip from a prompt alone, with H3 LoRAs.
+    boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
@@ -100,6 +106,9 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      if (pic) knownPedit(p);
+      if (padd) knownPadd(p);
+      if (textVideo) knownTextVideo(p);
       // A folder given in order (MediaBrowser's <directory>): Browse picks it.
       if (!p.flag && p.ext == null && p.token.matches("(?i)dir(ectory)?|folder")) {
         p.dir = true;
@@ -330,6 +339,106 @@ public final class ProgramParams {
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
   }
 
+  /** SogniPedit's labels: the pictures are files (also from the prompt library), the LoRAs a list; Unlimited Plan and Save the prompt start ticked. */
+  private static void knownPedit(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-pedit-<first words>.png";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "what changes: clothing, hair, pose, background, light or style (1-4 sentences)";
+    if (p.token.equals("--image")) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Picture to edit";
+      p.hint = "the person or character keeps their likeness";
+    }
+    if (p.token.equals("--image2")) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Second reference picture (optional)";
+      p.hint = "an outfit, a pose, a style or another detail to use";
+    }
+    if (p.token.equals("--skin_detail")) {
+      p.label = "Skin detail (Krea 2 Skin Detail LoRA)";
+      p.hint = "1.1 (default); -0.5 smoother to 3 more detail; 0 off";
+    }
+    if (p.token.equals("--loras")) {
+      p.label = "More Krea 2 LoRAs (id:strength, comma separated)";
+      p.hint = "e.g. krea2-warm-light:0.6,krea2-film-grain:1";
+    }
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 50; empty for no limit";
+    }
+  }
+
+  /** SogniPadd's labels: the LoRAs a list (its default set when empty), the size; Unlimited Plan and Save the prompt start ticked. */
+  private static void knownPadd(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-padd-<first words>.png";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "the picture to make";
+    if (p.token.equals("--loras")) {
+      p.label = "Krea 2 LoRAs (id:strength, comma separated)";
+      p.hint = "empty: Mystic X 1, Realism Engine 0.8, Chest Size 0.5, Weight -1, Filter Bypass 2vector 1; none for no LoRAs";
+    }
+    if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5; empty for 1024 square";
+    if (p.token.equals("--width") || p.token.equals("--height")) p.hint = "256 to 2560; give both, or use the shape";
+    if (p.token.equals("--seed")) p.hint = "empty for a new picture each run";
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 50; empty for no limit";
+    }
+  }
+
+  /** SogniTextVideo's labels: the H3 sizes, the LoRA list (its default set when empty); Unlimited Plan and Save the prompt start ticked. */
+  private static void knownTextVideo(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-textvideo-<first words>.mp4";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
+      if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "what happens: the scene, the motion, the camera, the sound";
+    if (p.token.equals("--duration")) p.hint = "5 to 15 seconds (default 5)";
+    if (p.token.equals("--resolution")) {
+      p.hint = "768 (default), or a two-stage size";
+      p.choices = new String[] {"768 (FastH3, about 4 Spark/s)", "720 two-stage (about 4 Spark/s)", "1080 two-stage (about 10 Spark/s)", "1440 two-stage, 2K (about 16 Spark/s)"};
+      p.choiceValues = new String[] {"768", "720", "1080", "1440"};
+    }
+    if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty for the model's own";
+    if (p.token.equals("--loras")) {
+      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.hint = "empty: Mystic X v4 0.5, VBVR Video Reasoning 1; none for no LoRAs";
+    }
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 100; empty for no limit";
+    }
+  }
+
   /** SogniVideo's labels: pictures are picked as files, the resolution from MiniMax H3's sizes. */
   private static void knownVideo(Param p) {
     if (!p.flag && p.output) {
@@ -374,6 +483,10 @@ public final class ProgramParams {
       p.choiceValues = new String[] {"768", "720", "1080", "1440"};
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty keeps the picture's shape";
+    if (p.token.equals("--loras")) {
+      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.hint = "empty: h3-vbvr-video-reasoning:1 with the filter off; none for no LoRAs; e.g. h3-better-motion:0.6";
+    }
     if (p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 100; empty for no limit";
@@ -405,7 +518,8 @@ public final class ProgramParams {
   public static boolean longText(Param p) {
     if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
     String t = p.token;
-    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments");
+    // A LoRA list (SogniVideo, SogniPedit, SogniPadd) too: wrapped so the whole list shows.
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
   }
 
   /** A several-line field's text as one argument: lines joined with spaces. */
