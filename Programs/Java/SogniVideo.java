@@ -713,6 +713,63 @@ public final class SogniVideo {
       return toJson(input);
     }
 
+    /**
+     * A one-step Krea 2 Identity Edit workflow (edit_image, model krea-identity-edit): the uploaded
+     * pictures are the references (the first is the one edited, a second one guides it), one picture
+     * out. `loras` and `strengths` are Krea 2 LoRA ids and their strengths, in order (strengths
+     * positional; each LoRA needs one). Steps, guidance and sampler are left to the model: the hosted
+     * edit_image tool takes none of them.
+     */
+    public static String imageEditInput(String title, String prompt, int pictures, List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      args.put("model", "krea-identity-edit");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      args.put("numberOfVariations", Integer.valueOf(1));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "edit");
+      step.put("toolName", "edit_image");
+      step.put("arguments", args);
+      if (pictures > 0) {
+        // The first upload is the picture edited; a second upload goes along as a context image.
+        List<Object> deps = new ArrayList<Object>();
+        Map<String, Object> d = new LinkedHashMap<String, Object>();
+        d.put("sourceStepId", "$input_media");
+        d.put("targetArgument", "sourceImageIndex");
+        d.put("transform", "image_index");
+        d.put("sourceArtifactIndex", Integer.valueOf(0));
+        d.put("mediaType", "image");
+        d.put("required", Boolean.TRUE);
+        deps.add(d);
+        step.put("dependsOn", deps);
+      }
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /** The picture results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
+    public static List<Map<String, Object>> imageArtifacts(Map<String, Object> record) {
+      List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), found);
+      if (found.isEmpty()) collectMedia(record, found);
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      for (Map<String, Object> m : found) {
+        String ext = mediaExtension(str(m.get("url")), mimeOf(m), "");
+        if (ext.equals(".png") || ext.equals(".jpg") || ext.equals(".jpeg") || ext.equals(".webp")) out.add(m);
+      }
+      return out;
+    }
+
     /** The FastH3 selector: t2v, i2v (a start frame) or flf2v (first and last frames); -2stage for 720, 1080 or 1440. */
     public static String videoModel(int pictures, int resolution) {
       String mode = pictures >= 2 ? "flf2v" : pictures == 1 ? "i2v" : "t2v";

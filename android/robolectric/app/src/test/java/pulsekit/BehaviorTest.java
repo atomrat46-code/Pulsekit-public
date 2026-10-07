@@ -2726,6 +2726,55 @@ public class BehaviorTest {
     write("s72_media_remember", out.toString());
   }
 
+  /**
+   * SogniPic (PyJav's Java menu): Params has the picture to edit and a second reference (Choose
+   * file and Browse DB), Skin detail, more LoRAs, and Unlimited Plan and Save the prompt ticked.
+   * A run's prompt sheet and picture go into the prompt library, and the picture is shown.
+   */
+  @Test
+  public void s73_sogni_pic() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPic.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--image", "--image2"}) {
+      TextView pick = (TextView) dv.findViewWithTag("params-file:" + t);
+      out.append(t).append(": ").append(pick == null ? "no file row" : pick.getText()).append(", Browse DB ").append(dv.findViewWithTag("params-db:" + t) != null ? "shown" : "none").append('\n');
+    }
+    for (String t : new String[] {"--skin_detail", "--loras", "--prompt"}) {
+      TextView f = (TextView) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"").append('\n');
+    }
+    for (String t : new String[] {"--unlimited", "--saveprompt", "--confirm_cost"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.getText() + (c.isChecked() ? " (ticked)" : " (not ticked)")).append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    // A run's result: the sheet and the picture go into the library; the picture is shown.
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(32, 24, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    String sheet = "PKPROMPT1\nsogni-pic-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, now in a dark blue suit\n\nLoRAs: krea2-skin-detail 1.1. Picture: me.png.\n\nResult file: sogni-pic-same-person.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pic-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sogni-pic-same-person.png", png.toByteArray()));
+    app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", "Same person, now in a dark blue suit", "--saveprompt", "--unlimited");
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniPic 2026-10-07\nWrote sogni-pic-same-person.png (1 KB)\nSucceeded: sogni-pic-same-person.png", files, 0));
+    idle();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("library result: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    out.append("picture shown: ").append(PictureOffer.class.getSimpleName()).append(' ').append(ShadowDialog.getLatestDialog() != null && ShadowDialog.getLatestDialog().isShowing()).append('\n');
+    write("s73_sogni_pic", out.toString());
+  }
+
   /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
   private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
     java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();

@@ -2486,6 +2486,104 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
   }
 
+  /**
+   * SogniPic (PyJav's Java menu): Krea 2 Identity Edit of a picture with an optional second
+   * reference, one picture out. Params: the pictures are file rows with Browse DB, Skin detail and
+   * more LoRAs; Unlimited Plan and Save the prompt start ticked. A run uploads the pictures, sends
+   * edit_image with model krea-identity-edit, Skin Detail 1.1 first, the LoRAs in order, the filter
+   * left on and the Unlimited billing, saves the picture and the prompt sheet (into the library).
+   */
+  void s60_sogni_pic() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    File me = new File(home, "me.png");
+    javax.imageio.ImageIO.write(img, "png", me);
+    File suit = new File(home, "suit.png");
+    javax.imageio.ImageIO.write(img, "png", suit);
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final List<String> uploads = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wp\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/uploadUrl")) {
+        uploads.add(path.replaceAll("jobId=[^&]+", "jobId=..."));
+        bytes = ("{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put/" + uploads.size() + "\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/downloadUrl")) {
+        bytes = ("{\"downloadUrl\":\"http://127.0.0.1:" + port + "/stored/" + uploads.size() + ".png\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wp")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wp\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPic.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.isFile() ? " file" : "").append(p.refs ? " Browse DB" : "").append(p.defaultOn ? " ticked" : "")
+            .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "--prompt \"Same person, now in a dark blue suit in a sunlit office\" --image \"" + me.getAbsolutePath() + "\" --image2 \"" + suit.getAbsolutePath()
+          + "\" --loras krea2-warm-light:0.6 --saveprompt --unlimited --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      answers.add("Close");
+      edt(() -> log.setText(""));
+      set("pyInputPath", null);
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(800);
+      idle();
+      for (String line : textOf(log).split("\n")) {
+        if (line.matches("(SogniPic|Saved prompt|Edit|Model|Picture|LoRAs|Unlimited|Uploaded|Workflow|Wrote|Succeeded|Failed|Prompt library).*"))
+          out.append("log: ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      synchronized (uploads) {
+        for (String u : uploads) out.append("upload: ").append(u).append('\n');
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          out.append("step: ").append(step.get("toolName")).append(' ').append(SogniApi.toJson(step.get("arguments"))).append('\n');
+          out.append("  references: ").append(((List<?>) m.get("media_references")).size()).append(", billing ").append(m.get("billing_mode"))
+              .append(", content filter ").append(b.contains("safe_content_filter") ? "off" : "on (Sogni's default)").append('\n');
+        }
+      }
+      File[] pics = home.listFiles((d, n) -> n.startsWith("sogni-pic-"));
+      java.util.Arrays.sort(pics);
+      for (File f : pics) out.append("saved: ").append(f.getName()).append(" (").append(f.length() > 0 ? "has data" : "empty").append(")\n");
+      for (PromptVault.StoredFile f : PromptDb.files(true, null)) out.append("library result: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+      for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("library reference: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** The names of the components under `root`, in order. */
   private static List<String> names(Container root) {
     List<String> out = new ArrayList<String>();

@@ -88,6 +88,8 @@ public final class ProgramParams {
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
+    // SogniPic: Krea 2 Identity Edit of a picture, with Skin Detail and other Krea 2 LoRAs.
+    boolean pic = has(out, "--image2") && has(out, "--skin_detail");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
@@ -100,6 +102,7 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      if (pic) knownPic(p);
       // A folder given in order (MediaBrowser's <directory>): Browse picks it.
       if (!p.flag && p.ext == null && p.token.matches("(?i)dir(ectory)?|folder")) {
         p.dir = true;
@@ -328,6 +331,46 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
+  }
+
+  /** SogniPic's labels: the pictures are files (also from the prompt library), the LoRAs a list; Unlimited Plan and Save the prompt start ticked. */
+  private static void knownPic(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-pic-<first words>.png";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "what changes: clothing, hair, pose, background, light or style (1-4 sentences)";
+    if (p.token.equals("--image")) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Picture to edit";
+      p.hint = "the person or character keeps their likeness";
+    }
+    if (p.token.equals("--image2")) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Second reference picture (optional)";
+      p.hint = "an outfit, a pose, a style or another detail to use";
+    }
+    if (p.token.equals("--skin_detail")) {
+      p.label = "Skin detail (Krea 2 Skin Detail LoRA)";
+      p.hint = "1.1 (default); -0.5 smoother to 3 more detail; 0 off";
+    }
+    if (p.token.equals("--loras")) {
+      p.label = "More Krea 2 LoRAs (id:strength, comma separated)";
+      p.hint = "e.g. krea2-warm-light:0.6,krea2-film-grain:1";
+    }
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 50; empty for no limit";
+    }
   }
 
   /** SogniVideo's labels: pictures are picked as files, the resolution from MiniMax H3's sizes. */
