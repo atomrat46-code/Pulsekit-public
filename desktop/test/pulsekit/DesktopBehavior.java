@@ -3035,6 +3035,61 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * A Params prompt field from a text file: Browse DB (the prompt library's text files only) and
+   * Select file put the file's text in --prompt; a prompt sheet gives its prompt.
+   */
+  void s66_prompt_from_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    DbFilter.current = "A";
+    PromptDb.vault().addLibraryFile("Answer Prompt 1.txt", "A photorealistic studio portrait.\nSoft key light from the left.\n".getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    File sheet = new File(home, "kit.prompt");
+    Files.write(sheet.toPath(), "PKPROMPT1\nkit\n\n\n\n\nCategory: image\nType: ai\n---\nA red drum kit on a stage.\n\nResult file: kit.png\n".getBytes(StandardCharsets.UTF_8));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPadd.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    // Reset to defaults keeps the Params dialog open for the test to work in.
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("Reset to defaults");
+    Thread opener = new Thread(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    opener.start();
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog d = params[0];
+    javax.swing.JTextArea prompt = (javax.swing.JTextArea) component(d, "params-field:--prompt");
+    javax.swing.JButton select = (javax.swing.JButton) component(d, "params-prompt-file:--prompt");
+    javax.swing.JButton db = (javax.swing.JButton) component(d, "params-prompt-db:--prompt");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
+        .append(", --loras has them ").append(component(d, "params-prompt-file:--loras") != null).append('\n');
+    // Browse DB: the shown list's own (greyed) button keeps it open for the test to pick from.
+    Object before = get("lastBrowse");
+    answers.add("Result files (1)");
+    SwingUtilities.invokeLater(db::doClick);
+    for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog browser = (JDialog) get("lastBrowse");
+    out.append("Browse DB: ").append(browser.getTitle()).append(", Answer Prompt 1.txt ").append(component(browser, "refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append('\n');
+    edt(() -> ((javax.swing.JButton) component(browser, "refs-pick:Answer Prompt 1.txt")).doClick());
+    out.append("prompt from DB: ").append(prompt.getText().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
+    // Select file: the watcher picks the prompt sheet in the file chooser.
+    chooseNext = sheet;
+    SwingUtilities.invokeLater(select::doClick);
+    for (int i = 0; i < 100 && !prompt.getText().startsWith("A red"); i++) Thread.sleep(100);
+    out.append("prompt from file: ").append(prompt.getText().replace("\n", "|")).append('\n');
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    opener.join(10000);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

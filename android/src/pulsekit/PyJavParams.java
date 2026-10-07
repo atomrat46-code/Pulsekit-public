@@ -24,6 +24,8 @@ public final class PyJavParams {
   private static String[] pendingValues;
   private static int pendingIndex = -1;
   private static TextView pendingLabel;
+  /** The prompt field waiting for the picker's text file (Select file under --prompt). */
+  private static EditText pendingPrompt;
 
   private PyJavParams() {}
 
@@ -130,6 +132,7 @@ public final class PyJavParams {
         chosen.setPadding(dp(activity, 8), 0, 0, 0);
         chosen.setText(MediaDir.label(values[i]));
         browse.setOnClickListener(v -> {
+          pendingPrompt = null;
           pendingValues = values;
           pendingIndex = index;
           pendingLabel = chosen;
@@ -248,6 +251,35 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (ProgramParams.promptFromFile(p)) {
+        // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button select = new android.widget.Button(activity);
+        select.setText("Select file");
+        select.setTag("params-prompt-file:" + p.token);
+        select.setOnClickListener(v -> {
+          pendingValues = null;
+          pendingIndex = -1;
+          pendingLabel = null;
+          pendingPrompt = target;
+          Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+          intent.addCategory(Intent.CATEGORY_OPENABLE);
+          intent.setType("text/*");
+          activity.startActivityForResult(intent, PICK_FILE);
+        });
+        row.addView(select);
+        android.widget.Button db = new android.widget.Button(activity);
+        db.setText("Browse DB");
+        db.setTag("params-prompt-db:" + p.token);
+        db.setEnabled(!RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty());
+        db.setOnClickListener(v -> RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file)));
+        row.addView(db);
+        box.addView(row);
+        continue;
+      }
       if (p.choices != null && p.choices.length > 0) {
         // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.
         LinearLayout row = new LinearLayout(activity);
@@ -344,6 +376,7 @@ public final class PyJavParams {
   }
 
   static void pickFile(Activity activity, String[] values, int index, TextView label) {
+    pendingPrompt = null;
     pendingValues = values;
     pendingIndex = index;
     pendingLabel = label;
@@ -353,8 +386,37 @@ public final class PyJavParams {
     activity.startActivityForResult(intent, PICK_FILE);
   }
 
-  /** The picker's file, copied into PyJav's input folder, for the waiting file row. */
+  /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
+  static void promptFrom(Activity activity, EditText field, java.io.File file) {
+    try {
+      java.io.FileInputStream in = new java.io.FileInputStream(file);
+      java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+      try {
+        byte[] buf = new byte[65536];
+        for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+      } finally {
+        in.close();
+      }
+      String text = ProgramParams.promptText(out.toByteArray());
+      if (text.length() == 0) {
+        android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
+        return;
+      }
+      field.setText(text);
+      field.setSelection(0);
+    } catch (Exception ex) {
+      android.widget.Toast.makeText(activity, "Could not read " + file.getName(), android.widget.Toast.LENGTH_LONG).show();
+    }
+  }
+
+  /** The picker's file, copied into PyJav's input folder, for the waiting file row (or prompt field). */
   public static void filePicked(String path) {
+    if (pendingPrompt != null) {
+      EditText field = pendingPrompt;
+      pendingPrompt = null;
+      if (path != null && field.getContext() instanceof Activity) promptFrom((Activity) field.getContext(), field, new java.io.File(path));
+      return;
+    }
     if (pendingValues == null || pendingIndex < 0 || pendingIndex >= pendingValues.length || path == null) return;
     pendingValues[pendingIndex] = path;
     if (pendingLabel != null) pendingLabel.setText(fileLabel(path));

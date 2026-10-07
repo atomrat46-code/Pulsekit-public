@@ -2835,6 +2835,55 @@ public class BehaviorTest {
   }
 
   /**
+   * A Params prompt field from a text file: Select file (the picker's file) and Browse DB (the
+   * prompt library's text files only) put the file's text in --prompt; a prompt sheet gives its prompt.
+   */
+  @Test
+  public void s80_prompt_from_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbFilter.current = "A";
+    DbImport.store(app, "Answer Prompt 1.txt", "A photorealistic studio portrait.\nSoft key light from the left.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "hit.wav", AudioIo.encodeWav(new short[100], 22050), true);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPadd.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView prompt = (TextView) dv.findViewWithTag("params-field:--prompt");
+    android.widget.Button select = (android.widget.Button) dv.findViewWithTag("params-prompt-file:--prompt");
+    android.widget.Button db = (android.widget.Button) dv.findViewWithTag("params-prompt-db:--prompt");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
+        .append(", --loras has them ").append(dv.findViewWithTag("params-prompt-file:--loras") != null).append('\n');
+    db.performClick();
+    idle();
+    AlertDialog browser = (AlertDialog) ShadowDialog.getLatestDialog();
+    View bv = browser.getWindow().getDecorView();
+    out.append("Browse DB: ").append(org.robolectric.Shadows.shadowOf(browser).getTitle()).append(", Answer Prompt 1.txt ").append(bv.findViewWithTag("refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(bv.findViewWithTag("refs-pick:hit.wav") != null).append('\n');
+    bv.findViewWithTag("refs-pick:Answer Prompt 1.txt").performClick();
+    idle();
+    out.append("prompt from DB: ").append(prompt.getText().toString().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
+    // Select file: the picker's file (a prompt sheet) is copied in and its prompt fills the field.
+    File sheet = new File(app.getCacheDir(), "pyjav-in/kit.prompt");
+    sheet.getParentFile().mkdirs();
+    Files.write(sheet.toPath(), "PKPROMPT1\nkit\n\n\n\n\nCategory: image\nType: ai\n---\nA red drum kit on a stage.\n\nResult file: kit.png\n".getBytes(StandardCharsets.UTF_8));
+    select.performClick();
+    idle();
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    out.append("Select file asks for: ").append(asked == null ? "nothing" : asked.getAction() + " " + asked.getType()).append('\n');
+    PyJavParams.filePicked(sheet.getAbsolutePath());
+    idle();
+    out.append("prompt from file: ").append(prompt.getText().toString().replace("\n", "|")).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s80_prompt_from_file", out.toString());
+  }
+
+  /**
    * Extract prompt in a stored text file's long-press menu: the text after the last **Prompt:** of
    * answer.txt kept as Answer Prompt 1.txt (then 2), a result file as answer.txt is; a text file
    * without one and a sound file have no such item.

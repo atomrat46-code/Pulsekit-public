@@ -41,6 +41,8 @@ final class PromptDb {
     static final String SOUNDS_OR_MIDIS = "sounds-or-midis";
     /** MP4 videos (SogniVideo's Join with this video). */
     static final String VIDEOS = "videos";
+    /** Text files (a prompt field's Browse DB: an Answer Prompt 1.txt). */
+    static final String TEXTS = "texts";
     private static final long MAX_BYTES = 16L * 1024 * 1024;
     private static final int CELL = 150;
 
@@ -75,6 +77,7 @@ final class PromptDb {
         if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
         if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
         if (VIDEOS.equals(only)) return low.matches(".+\\.(mp4|m4v|mov)");
+        if (TEXTS.equals(only)) return DbFilter.isText(name);
         return true;
     }
 

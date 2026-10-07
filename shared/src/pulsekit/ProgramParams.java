@@ -524,6 +524,24 @@ public final class ProgramParams {
     return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
   }
 
+  /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */
+  public static boolean promptFromFile(Param p) {
+    return p != null && p.flag && p.takesValue && !p.isFile() && p.token.equals("--prompt");
+  }
+
+  /**
+   * A picked text file's contents for a prompt field (an Answer Prompt 1.txt made by Extract
+   * prompt, say): UTF-8 without a byte order mark, trimmed; a Pulsekit prompt sheet gives its prompt.
+   */
+  public static String promptText(byte[] bytes) {
+    if (bytes == null) return "";
+    String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    if (text.startsWith("\uFEFF")) text = text.substring(1);
+    PromptRun.Sheet sheet = PromptRun.parse(text);
+    if (sheet != null) text = sheet.body;
+    return text.replace("\r\n", "\n").replace('\r', '\n').trim();
+  }
+
   /** A several-line field's text as one argument: lines joined with spaces. */
   public static String oneLine(String text) {
     return text == null ? "" : text.trim().replaceAll("\\s*\\n\\s*", " ");
