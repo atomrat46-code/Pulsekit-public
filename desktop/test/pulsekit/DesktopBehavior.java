@@ -3225,6 +3225,29 @@ public final class DesktopBehavior {
     }
   }
 
+  /** A text file's Preview: its menu (right click or a long press) has only Select all and Copy; the Prompt field keeps Cut and Paste. */
+  void s70_preview_text_menu() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    inspectNext = d -> {
+      javax.swing.JTextArea text = (javax.swing.JTextArea) component(d, "preview-text");
+      seen.append("preview menu: ");
+      for (java.awt.Component c : TextMenu.menu(text).getComponents()) if (c instanceof javax.swing.JMenuItem) seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+      seen.append(", attached ").append(text.getMouseListeners().length > 1);
+      done[0] = true;
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("looks.txt", "She appears to be a young adult.\n".getBytes(StandardCharsets.UTF_8)));
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen).append('\n');
+    javax.swing.JTextArea field = new javax.swing.JTextArea("x");
+    StringBuilder editable = new StringBuilder();
+    for (java.awt.Component c : TextMenu.menu(field).getComponents()) if (c instanceof javax.swing.JMenuItem) editable.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("editable field menu: ").append(editable).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

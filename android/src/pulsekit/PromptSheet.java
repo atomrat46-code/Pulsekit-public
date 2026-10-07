@@ -1443,6 +1443,8 @@ public final class PromptSheet {
       TextView body = label(activity, previewText(previewBytes), 14, "#ECEBE6", false);
       body.setTextSize(14f * previewZoom);
       body.setPadding(0, dp(activity, 8), 0, 0);
+      body.setTag("preview-text");
+      readOnlyMenu(activity, body);
       previewBody = body;
       col.addView(body);
     } else if (kind == 2) {
@@ -2140,6 +2142,37 @@ public final class PromptSheet {
       if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
       if ((ev.getAction() & android.view.MotionEvent.ACTION_MASK) == android.view.MotionEvent.ACTION_UP) v.getParent().requestDisallowInterceptTouchEvent(false);
       return false;
+    });
+  }
+
+  /**
+   * A long press on read-only text (a text file shown full size): Select all, Copy. Copy takes
+   * the selection, or the whole text when nothing is selected.
+   */
+  static void readOnlyMenu(Activity activity, TextView view) {
+    view.setTextIsSelectable(true);
+    view.setOnLongClickListener(v -> {
+      android.widget.PopupMenu menu = new android.widget.PopupMenu(activity, view);
+      menu.getMenu().add(0, 1, 0, "Select all");
+      menu.getMenu().add(0, 2, 1, "Copy");
+      menu.setOnMenuItemClickListener(item -> {
+        CharSequence text = view.getText() == null ? "" : view.getText();
+        if (item.getItemId() == 1) {
+          view.requestFocus();
+          if (text instanceof android.text.Spannable) android.text.Selection.selectAll((android.text.Spannable) text);
+        } else {
+          int a = Math.max(0, Math.min(view.getSelectionStart(), view.getSelectionEnd()));
+          int b = Math.max(0, Math.max(view.getSelectionStart(), view.getSelectionEnd()));
+          CharSequence copied = b > a ? text.subSequence(a, b) : text;
+          android.content.ClipboardManager clips = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+          if (clips != null) clips.setPrimaryClip(android.content.ClipData.newPlainText("text", copied));
+          toast(activity, "Copied " + copied.length() + " characters");
+        }
+        return true;
+      });
+      lastTextMenu = menu;
+      menu.show();
+      return true;
     });
   }
 

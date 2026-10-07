@@ -2835,6 +2835,48 @@ public class BehaviorTest {
   }
 
   /**
+   * A text file opened full size: a long press gives Select all and Copy; Copy takes the
+   * selection, or the whole text when nothing is selected.
+   */
+  @Test
+  public void s84_preview_text_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    open.setAccessible(true);
+    open.invoke(null, app, "looks.txt", "She appears to be a young adult.\nHer hair is dark.\n".getBytes(StandardCharsets.UTF_8), 3);
+    idle();
+    TextView body = (TextView) pane.findViewWithTag("preview-text");
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    java.util.function.Consumer<String> press = t -> {
+      body.performLongClick();
+      idle();
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) {
+        if (m.getItem(i).getTitle().toString().equals(t)) org.robolectric.Shadows.shadowOf(PromptSheet.lastTextMenu).getOnMenuItemClickListener().onMenuItemClick(m.getItem(i));
+      }
+      idle();
+    };
+    out.append("long press handled: ").append(body.performLongClick()).append(", menu ");
+    android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+    for (int i = 0; i < m.size(); i++) out.append('[').append(m.getItem(i).getTitle()).append(']');
+    out.append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    press.accept("Copy");
+    out.append("Copy, nothing selected: ").append(clips.getPrimaryClip().getItemAt(0).getText().toString().replace("\n", "|")).append('\n');
+    android.text.Selection.setSelection((android.text.Spannable) body.getText(), 4, 11);
+    press.accept("Copy");
+    out.append("Copy \"appears\": ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    press.accept("Select all");
+    out.append("Select all: ").append(body.getSelectionStart()).append("..").append(body.getSelectionEnd()).append(" of ").append(body.length()).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    write("s84_preview_text_menu", out.toString());
+  }
+
+  /**
    * Strip headers in a stored text file's long-press menu (lines that start with **Header:**): the
    * text without them kept as <file> noheaders.txt (then noheaders 2); other files have no such item.
    */

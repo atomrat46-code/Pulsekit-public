@@ -1334,6 +1334,8 @@ final class PromptDb {
             javax.swing.JTextArea text = new javax.swing.JTextArea(new String(bytes, java.nio.charset.StandardCharsets.UTF_8), 24, 70);
             text.setName("preview-text");
             text.setEditable(false);
+            // Right click or a long press: Select all, Copy (as on the phone).
+            TextMenu.attach(text);
             text.setLineWrap(true);
             text.setWrapStyleWord(true);
             final java.awt.Font base = new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13);

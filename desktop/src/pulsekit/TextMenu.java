@@ -9,8 +9,9 @@ import javax.swing.text.JTextComponent;
 
 /**
  * A text field's menu, as a long press gives on the phone: Select all, Cut, Copy, Paste. Opened
- * with a right click, or by holding the mouse button down on the field. Cut and Paste are greyed
- * in a field that cannot be edited, Cut and Copy when nothing is selected.
+ * with a right click, or by holding the mouse button down on the field. A field that cannot be
+ * edited (a text file's preview) has only Select all and Copy; Cut and Copy are greyed when
+ * nothing is selected.
  */
 final class TextMenu {
     private TextMenu() {}
@@ -68,9 +69,10 @@ final class TextMenu {
         paste.setEnabled(editable);
         paste.addActionListener(e -> field.paste());
         menu.add(all);
-        menu.add(cut);
+        // Read-only text (a text file's preview): only Select all and Copy.
+        if (field.isEditable()) menu.add(cut);
         menu.add(copy);
-        menu.add(paste);
+        if (field.isEditable()) menu.add(paste);
         return menu;
     }
 
