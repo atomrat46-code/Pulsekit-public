@@ -714,6 +714,40 @@ public final class SogniVideo {
     }
 
     /**
+     * A one-step text-to-image workflow (generate_image) with `model` (a hosted model key such as
+     * dark-beast-krea2), one picture out. Zero width and height leave Sogni's size (1024 square);
+     * `aspect` ("16:9", "4:5"...) only when given; a negative seed is random. `loras` and `strengths`
+     * are applied in order (Krea 2 based models only). Steps and sampler are left to the model: the
+     * hosted generate_image tool takes none of them.
+     */
+    public static String imageInput(String title, String prompt, String model, int width, int height, String aspect, long seed, List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      if (model != null && model.length() > 0) args.put("model", model);
+      if (width > 0) args.put("width", Integer.valueOf(width));
+      if (height > 0) args.put("height", Integer.valueOf(height));
+      if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+      if (seed >= 0) args.put("seed", Long.valueOf(seed));
+      args.put("numberOfVariations", Integer.valueOf(1));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "image");
+      step.put("toolName", "generate_image");
+      step.put("arguments", args);
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
      * A one-step Krea 2 Identity Edit workflow (edit_image, model krea-identity-edit): the uploaded
      * pictures are the references (the first is the one edited, a second one guides it), one picture
      * out. `loras` and `strengths` are Krea 2 LoRA ids and their strengths, in order (strengths

@@ -18,49 +18,45 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SogniPic: an existing picture changed with Krea 2 Identity Edit on Sogni's GPU network. The
- * person or character in it keeps their likeness while --prompt changes what it says: clothing,
- * hair, pose, background, light or style.
+ * SogniPadd: a new picture from a prompt alone, made with Dark Beast Krea 2 (Sogni's uncensored
+ * Krea 2 community model, dark-beast-krea2) on Sogni's GPU network. It takes no input picture and
+ * changes no existing one. Sogni's Safe Content Filter is off for every run: the model's mature
+ * output needs it off.
  *
- * --image is the picture edited (PNG, JPEG or WebP). --image2 is an optional second reference that
- * guides the edit (an outfit, a pose, a style, another detail); Krea takes at most two. One picture
- * comes out. Write --prompt as a short instruction of what changes (one to four sentences), not a
- * description of the whole picture.
+ * The LoRAs are Krea 2 LoRAs applied in order, as id:strength pairs separated by commas. Without
+ * --loras the set is Mystic X 1, Realism Engine v3 0.8, Chest Size 0.5, Weight -1 and
+ * Krea2FilterBypass 2vector 1 (krea2-mystic-x:1,krea2-realism-engine:0.8,krea2-breast:0.5,
+ * krea2-weight:-1,krea2-filter-bypass-2:1); --loras none leaves them all out. Eight at most.
+ * Sogni refuses Age (krea2-age) below 0 with Mystic X or Realism Engine, and so does SogniPadd.
  *
- * --skin_detail is Krea 2's Skin Detail LoRA (krea2-skin-detail): 1.1 by default, 0 leaves it out;
- * -0.5 smooths the skin, up to 3 adds more detail. --loras adds other Krea 2 LoRAs in order, as
- * id:strength pairs separated by commas (krea2-warm-light:0.6,krea2-film-grain:1); Sogni's LoRA
- * list has the ids and ranges. Eight LoRAs at most, Skin Detail included. Steps, guidance and
- * sampler are Sogni's own for the model: its hosted edit tool does not take them.
+ * --aspect (16:9, 9:16, 4:5, 1:1...) or --width and --height (256 to 2560) set the size; Sogni's
+ * default is 1024 square. --seed repeats a picture. Steps, sampler and VAE are Sogni's own for the
+ * model: its hosted image tool takes none of them.
  *
- * Sogni's Safe Content Filter checks every run. The API key is found as SogniVideo finds it:
- * SOGNI_API_KEY, --key_file, the key file in File > Drum Midi Settings, or
- * ~/.config/sogni/credentials. --unlimited is for a Sogni Unlimited Plan (the subscription pays;
- * fair use limits apply); otherwise the run spends Spark, capped by --max_cost (capacity units),
- * with --confirm_cost to confirm the charge.
- *
- * --saveprompt also writes the prompt as sogni-pic-<first words>.prompt: a Pulsekit prompt sheet
- * (category image, type AI) with the pictures' names as its reference files and the settings under
- * the prompt; the run's picture and its errors are added when it ends. The picture is saved as
- * sogni-pic-<first words>.png (or the output name given), in Downloads on the phone. --workflow <id>
- * downloads the picture of a run that already finished, without paying for a new one.
+ * The API key is found as SogniVideo finds it: SOGNI_API_KEY, --key_file, the key file in File >
+ * Drum Midi Settings, or ~/.config/sogni/credentials. --unlimited is for a Sogni Unlimited Plan (the
+ * subscription pays; fair use limits apply); otherwise the run spends Spark, capped by --max_cost,
+ * with --confirm_cost to confirm the charge. --saveprompt also writes the prompt as
+ * sogni-padd-<first words>.prompt (category image, type AI), with the settings under it and the
+ * run's picture added when it ends. The picture is saved as sogni-padd-<first words>.png (or the
+ * output name given), in Downloads on the phone. --workflow <id> downloads the picture of a run
+ * that already finished.
  */
-public final class SogniPic {
+public final class SogniPadd {
   public static void main(String[] args) throws Exception {
     int code = run(args);
     // Inside Pulsekit (PyJav on the phone runs programs in the app's own process) System.exit would close the app.
     if (code != 0 && System.getProperty("pulsekit.work") == null) System.exit(code);
   }
 
-  /** Printed first, so a run's log shows which SogniPic ran. */
-  static final String VERSION = "SogniPic 2026-10-07";
+  /** Printed first, so a run's log shows which SogniPadd ran. */
+  static final String VERSION = "SogniPadd 2026-10-07";
 
-  /** The largest picture uploaded (Sogni's own limit: 100 MB). */
-  static final int UPLOAD_MAX = 100 * 1024 * 1024;
+  /** The model: Dark Beast Krea 2, as Sogni's hosted tools name it. */
+  static final String MODEL = "dark-beast-krea2";
 
-  /** Krea 2's Skin Detail LoRA, and its strength when none is given. */
-  static final String SKIN_DETAIL = "krea2-skin-detail";
-  static final double SKIN_DETAIL_DEFAULT = 1.1;
+  /** The LoRAs without --loras. */
+  static final String DEFAULT_LORAS = "krea2-mystic-x:1,krea2-realism-engine:0.8,krea2-breast:0.5,krea2-weight:-1,krea2-filter-bypass-2:1";
 
   /** The most LoRAs one render takes. */
   static final int MAX_LORAS = 8;
@@ -125,26 +121,28 @@ public final class SogniPic {
     String[] args = tidy(typed);
     String out = null;
     String prompt = null;
-    String image = null;
-    String image2 = null;
     String loraText = null;
-    String skinText = null;
+    String aspect = null;
     String keyFile = null;
     String apiBase = null;
     String workflowId = null;
+    double width = 0;
+    double height = 0;
+    double seed = -1;
     double maxCost = 0;
     boolean confirm = false;
     boolean unlimited = false;
     boolean savePrompt = false;
-    // Sogni's Safe Content Filter checks every SogniPic run.
-    SogniApi.noFilter = false;
+    // The model's mature output needs Sogni's Safe Content Filter off: off on every SogniPadd run.
+    SogniApi.noFilter = true;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
-      else if (a.equals("--image") && i + 1 < args.length) image = args[++i].trim();
-      else if (a.equals("--image2") && i + 1 < args.length) image2 = args[++i].trim();
-      else if (a.equals("--skin_detail") && i + 1 < args.length) skinText = args[++i].trim();
       else if (a.equals("--loras") && i + 1 < args.length) loraText = args[++i].trim();
+      else if (a.equals("--aspect") && i + 1 < args.length) aspect = args[++i].trim();
+      else if (a.equals("--width") && i + 1 < args.length) width = number(a, args[++i]);
+      else if (a.equals("--height") && i + 1 < args.length) height = number(a, args[++i]);
+      else if (a.equals("--seed") && i + 1 < args.length) seed = number(a, args[++i]);
       else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
@@ -162,43 +160,36 @@ public final class SogniPic {
         return 2;
       }
     }
-    if (Double.isNaN(maxCost)) return 2;
-    if (image != null && image.length() == 0) image = null;
-    if (image2 != null && image2.length() == 0) image2 = null;
+    if (Double.isNaN(maxCost) || Double.isNaN(width) || Double.isNaN(height) || Double.isNaN(seed)) return 2;
+    if (aspect != null && aspect.length() == 0) aspect = null;
     if (workflowId != null && workflowId.length() == 0) workflowId = null;
-    if (workflowId == null) {
-      if (prompt == null || prompt.trim().length() == 0) {
-        say("Failed: give --prompt, what changes, for example --prompt \"Same person, now in a dark blue suit in a sunlit office\"");
-        usage();
-        return 2;
-      }
-      if (image == null) {
-        say("Failed: give --image, the picture to edit (Krea 2 Identity Edit needs one; --image2 adds a second reference)");
-        return 2;
-      }
-    }
-    if (image2 != null && image == null) {
-      say("Failed: --image2 is the second reference; give the picture to edit with --image");
+    if (workflowId == null && (prompt == null || prompt.trim().length() == 0)) {
+      say("Failed: give --prompt, the picture to make");
+      usage();
       return 2;
     }
-    // The LoRAs: Skin Detail first, then --loras in order.
+    if ((width != 0 && (width < 256 || width > 2560)) || (height != 0 && (height < 256 || height > 2560))) {
+      say("Failed: --width and --height are 256 to 2560 pixels (Dark Beast Krea 2's sizes)");
+      return 2;
+    }
+    if ((width > 0) != (height > 0)) {
+      say("Failed: give both --width and --height, or neither (Sogni's 1024 square)");
+      return 2;
+    }
+    if (aspect != null && width > 0) {
+      say("Failed: give --aspect or --width and --height, not both");
+      return 2;
+    }
+    if (aspect != null && !aspect.matches("\\d{1,2}:\\d{1,2}")) {
+      say("Failed: --aspect is a shape such as 16:9, 9:16, 4:5 or 1:1");
+      return 2;
+    }
+    // The LoRAs, in order: the default set, or --loras (none for no LoRAs).
     List<String> loras = new ArrayList<String>();
     List<Double> strengths = new ArrayList<Double>();
-    double skin = SKIN_DETAIL_DEFAULT;
-    if (skinText != null && skinText.length() > 0) {
-      skin = number("--skin_detail", skinText);
-      if (Double.isNaN(skin)) return 2;
-      if (skin < -10 || skin > 10) {
-        say("Failed: --skin_detail is -10 to 10 (Sogni recommends -0.5 to 3; 0 leaves it out)");
-        return 2;
-      }
-    }
-    if (skin != 0) {
-      loras.add(SKIN_DETAIL);
-      strengths.add(Double.valueOf(skin));
-    }
-    if (loraText != null && loraText.length() > 0) {
-      for (String part : loraText.split("[,;]")) {
+    String given = loraText == null || loraText.length() == 0 ? DEFAULT_LORAS : loraText;
+    if (!given.equalsIgnoreCase("none")) {
+      for (String part : given.split("[,;]")) {
         String t = part.trim();
         if (t.length() == 0) continue;
         int colon = t.lastIndexOf(':');
@@ -209,11 +200,7 @@ public final class SogniPic {
           if (Double.isNaN(strength)) return 2;
         }
         if (!id.matches("[A-Za-z0-9][A-Za-z0-9._-]*")) {
-          say("Failed: --loras takes LoRA ids such as krea2-warm-light, not \"" + id + "\"");
-          return 2;
-        }
-        if (id.equals(SKIN_DETAIL)) {
-          say("Failed: Skin Detail is set with --skin_detail; leave krea2-skin-detail out of --loras");
+          say("Failed: --loras takes LoRA ids such as krea2-mystic-x, not \"" + id + "\"");
           return 2;
         }
         loras.add(id);
@@ -221,27 +208,21 @@ public final class SogniPic {
       }
     }
     if (loras.size() > MAX_LORAS) {
-      say("Failed: " + loras.size() + " LoRAs; one render takes " + MAX_LORAS + " at most (Skin Detail included)");
+      say("Failed: " + loras.size() + " LoRAs; one render takes " + MAX_LORAS + " at most");
+      return 2;
+    }
+    // Sogni's own rule: no younger-looking Age with the sexual fine-tunes.
+    int age = loras.indexOf("krea2-age");
+    if (age >= 0 && strengths.get(age).doubleValue() < 0 && (loras.contains("krea2-mystic-x") || loras.contains("krea2-realism-engine"))) {
+      say("Failed: krea2-age below 0 cannot be used with krea2-mystic-x or krea2-realism-engine (Sogni refuses it); keep Age at 0 or above");
       return 2;
     }
     if (unlimited && maxCost > 0) say("Note: --max_cost is not used with the Unlimited Plan");
-    List<byte[]> pictures = new ArrayList<byte[]>();
-    List<String> pictureTypes = new ArrayList<String>();
-    List<String> pictureNames = new ArrayList<String>();
-    if (workflowId == null) {
-      for (String path : new String[] {image, image2}) {
-        if (path == null) continue;
-        File f = new File(path);
-        byte[] data = readPicture(f);
-        if (data == null) return 2;
-        pictures.add(data);
-        pictureTypes.add(pictureType(data));
-        pictureNames.add(f.getName());
-      }
-    }
+    String size = width > 0 ? (int) width + "x" + (int) height : aspect != null ? aspect : "1024 square (Sogni's default)";
     if (savePrompt && workflowId == null) {
-      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : picName(prompt, "");
-      File sheet = savePrompt(sheetName, "Sogni Krea 2 Identity Edit", prompt.trim() + settingsLine(loras, strengths, pictureNames), pictureNames);
+      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : paddName(prompt, "");
+      File sheet = savePrompt(sheetName, "Sogni Dark Beast Krea 2", prompt.trim() + "\n\nLoRAs: " + (loras.isEmpty() ? "none" : loraLine(loras, strengths))
+          + ". Size: " + size + "." + (seed >= 0 ? " Seed: " + (long) seed + "." : ""));
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
     String key = SogniApi.findKey(keyFile);
@@ -254,23 +235,17 @@ public final class SogniPic {
     if (workflowId != null) {
       say("Fetching the picture of workflow " + workflowId);
     } else {
-      say("Edit: " + prompt.trim());
-      say("Model Krea 2 Identity Edit (krea-identity-edit), 1 picture");
-      say(pictures.size() == 1 ? "Picture: " + pictureNames.get(0) : "Picture: " + pictureNames.get(0) + ", second reference: " + pictureNames.get(1));
+      say("Picture: " + prompt.trim());
+      say("Model Dark Beast Krea 2 (" + MODEL + "), 1 picture, " + size + (seed >= 0 ? ", seed " + (long) seed : ""));
       say(loras.isEmpty() ? "LoRAs: none" : "LoRAs: " + loraLine(loras, strengths));
+      say("Content filter: off (Sogni's Safe Content Filter does not check SogniPadd runs)");
       if (unlimited) say("Unlimited Plan: the subscription pays; Sogni's daily and monthly fair use limits apply");
     }
     try {
       String id = workflowId;
       if (id == null) {
-        List<Map<String, Object>> media = new ArrayList<Map<String, Object>>();
-        for (int i = 0; i < pictures.size(); i++) {
-          Map<String, Object> ref = api.uploadMedia("image", pictureTypes.get(i), pictures.get(i), i + 1, pictureNames.get(i));
-          media.add(ref);
-          say("Uploaded " + pictureNames.get(i) + " (" + size(pictures.get(i).length) + ") as " + SogniApi.str(ref.get("id")));
-        }
-        String input = SogniApi.imageEditInput("Pulsekit picture", prompt.trim(), pictures.size(), loras, strengths);
-        id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, media, unlimited ? "subscription" : null);
+        String input = SogniApi.imageInput("Pulsekit picture", prompt.trim(), MODEL, (int) width, (int) height, aspect, (long) seed, loras, strengths);
+        id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, null, unlimited ? "subscription" : null);
       }
       say("Workflow: " + id);
       Map<String, Object> wf = api.waitFor(id, 10 * 60 * 1000L, new SogniApi.Log() {
@@ -286,7 +261,7 @@ public final class SogniPic {
       }
       String url = SogniApi.str(made.get(0).get("url"));
       String ext = SogniApi.mediaExtension(url, SogniApi.mimeOf(made.get(0)), ".png");
-      String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : picName(prompt, id);
+      String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : paddName(prompt, id);
       byte[] data = api.download(url);
       File file = saveData(name + ext, data);
       if (file == null) {
@@ -312,72 +287,25 @@ public final class SogniPic {
   }
 
   static void usage() {
-    say("Usage: java SogniPic [output.png] [--prompt text] [--image picture.png] [--image2 reference.png] [--skin_detail N] "
-        + "[--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
+    say("Usage: java SogniPadd [output.png] [--prompt text] [--loras id:strength,...] [--aspect 16:9|9:16|4:5|1:1] [--width N] [--height N] "
+        + "[--seed N] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
   }
 
-  /** "krea2-skin-detail 1.1, krea2-warm-light 0.6". */
+  /** "krea2-mystic-x 1, krea2-weight -1". */
   static String loraLine(List<String> loras, List<Double> strengths) {
     StringBuilder sb = new StringBuilder();
     for (int i = 0; i < loras.size(); i++) sb.append(i == 0 ? "" : ", ").append(loras.get(i)).append(' ').append(SogniApi.number(strengths.get(i).doubleValue()));
     return sb.toString();
   }
 
-  /** A picture's bytes, or null after saying why it cannot be used. */
-  static byte[] readPicture(File f) {
-    if (!f.isFile()) {
-      say("Failed: no picture " + f.getPath());
-      return null;
-    }
-    if (f.length() > UPLOAD_MAX) {
-      say("Failed: " + f.getName() + " is " + size(f.length()) + "; Sogni takes pictures of up to " + size(UPLOAD_MAX));
-      return null;
-    }
-    byte[] data;
-    try {
-      data = java.nio.file.Files.readAllBytes(f.toPath());
-    } catch (IOException ex) {
-      say("Failed: could not read " + f.getName() + ": " + ex.getMessage());
-      return null;
-    }
-    if (pictureType(data) == null) {
-      say("Failed: " + f.getName() + " is not a PNG, JPEG or WebP picture");
-      return null;
-    }
-    return data;
-  }
-
-  /** "image/png", "image/jpeg" or "image/webp" from the file's first bytes, else null. */
-  static String pictureType(byte[] d) {
-    if (d.length >= 8 && (d[0] & 0xff) == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') return "image/png";
-    if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
-    if (d.length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F' && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P') return "image/webp";
-    return null;
-  }
-
-  /** The settings under the prompt in a saved sheet: "\n\nLoRAs: krea2-skin-detail 1.1. Picture: me.png. Second reference: suit.png." */
-  static String settingsLine(List<String> loras, List<Double> strengths, List<String> pictures) {
+  /** Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1): name, category image, the model, no reference files, type AI. Never over an existing file. */
+  static File savePrompt(String name, String model, String prompt) {
     StringBuilder sb = new StringBuilder();
-    sb.append("LoRAs: ").append(loras.isEmpty() ? "none" : loraLine(loras, strengths)).append(". ");
-    if (pictures.size() > 0) sb.append("Picture: ").append(pictures.get(0)).append(". ");
-    if (pictures.size() > 1) sb.append("Second reference: ").append(pictures.get(1)).append(". ");
-    return "\n\n" + sb.toString().trim();
-  }
-
-  /**
-   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it): name,
-   * category image, the model, the pictures as reference files (1 the picture edited, 2 the second
-   * reference), type AI, then the prompt. Never over an existing file.
-   */
-  static File savePrompt(String name, String model, String prompt, List<String> pictures) {
-    String ref1 = pictures.size() > 0 ? pictures.get(0) : "";
-    String ref2 = pictures.size() > 1 ? pictures.get(1) : "";
-    StringBuilder sb = new StringBuilder();
-    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n\n\n");
     sb.append("Category: image\n");
     sb.append("Model: ").append(model).append('\n');
-    sb.append("Reference file 1: ").append(ref1).append('\n');
-    sb.append("Reference file 2: ").append(ref2).append('\n');
+    sb.append("Reference file 1: \n");
+    sb.append("Reference file 2: \n");
     sb.append("Type: ai\n");
     sb.append("---\n");
     sb.append(prompt);
@@ -387,8 +315,8 @@ public final class SogniPic {
     return file;
   }
 
-  /** sogni-pic-<first words of the prompt>, or sogni-pic-<run> when there is no prompt. */
-  static String picName(String prompt, String id) {
+  /** sogni-padd-<first words of the prompt>, or sogni-padd-<run> when there is no prompt. */
+  static String paddName(String prompt, String id) {
     String words = prompt == null ? "" : prompt.toLowerCase().replaceAll("[^a-z0-9]+", " ").trim();
     StringBuilder sb = new StringBuilder();
     for (String w : words.split(" ")) {
@@ -397,7 +325,7 @@ public final class SogniPic {
     }
     String plain = id.replaceAll("[^A-Za-z0-9]", "");
     if (sb.length() == 0) sb.append(plain.substring(0, Math.min(8, plain.length())));
-    return "sogni-pic-" + sb;
+    return "sogni-padd-" + sb;
   }
 
   /** "800 KB" or "1.2 MB". */
@@ -660,6 +588,40 @@ public final class SogniPic {
         }
         step.put("dependsOn", deps);
       }
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
+     * A one-step text-to-image workflow (generate_image) with `model` (a hosted model key such as
+     * dark-beast-krea2), one picture out. Zero width and height leave Sogni's size (1024 square);
+     * `aspect` ("16:9", "4:5"...) only when given; a negative seed is random. `loras` and `strengths`
+     * are applied in order (Krea 2 based models only). Steps and sampler are left to the model: the
+     * hosted generate_image tool takes none of them.
+     */
+    public static String imageInput(String title, String prompt, String model, int width, int height, String aspect, long seed, List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      if (model != null && model.length() > 0) args.put("model", model);
+      if (width > 0) args.put("width", Integer.valueOf(width));
+      if (height > 0) args.put("height", Integer.valueOf(height));
+      if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+      if (seed >= 0) args.put("seed", Long.valueOf(seed));
+      args.put("numberOfVariations", Integer.valueOf(1));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "image");
+      step.put("toolName", "generate_image");
+      step.put("arguments", args);
       List<Object> steps = new ArrayList<Object>();
       steps.add(step);
       Map<String, Object> input = new LinkedHashMap<String, Object>();
