@@ -2686,6 +2686,92 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * SogniTextVideo (PyJav's Java menu): a clip from a prompt alone with MiniMax H3 FastH3 text to
+   * video. A run sends generate_video with the FastH3 t2v model, no uploads, Mystic X v4 0.5 and
+   * VBVR Video Reasoning 1 by default (or the LoRAs given, or none), the content filter off and the
+   * Unlimited billing; it saves the clip and the prompt sheet.
+   */
+  void s62_sogni_textvideo() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wt\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wt")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wt\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/c.mp4\",\"mediaType\":\"video\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/c.mp4")) {
+        type = "video/mp4";
+        bytes = clip;
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniTextVideo.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.takesValue ? "" : " (on/off)")
+            .append(p.isFile() ? " file" : "").append(p.defaultOn ? " ticked" : "").append(ProgramParams.longText(p) ? " several lines" : "")
+            .append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "--prompt \"Waves roll onto a beach at sunset, the camera drifts along the shore\" --duration 8 --aspect 9:16 --saveprompt --unlimited",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0.6 --resolution 1080",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras none --no_audio",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0",
+      };
+      for (int r = 0; r < runs.length; r++) {
+        final String extra = runs[r] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        if (r < 3) answers.add("Close");
+        edt(() -> log.setText(""));
+        set("pyInputPath", null);
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(800);
+        idle();
+        out.append("== ").append(runs[r]).append('\n');
+        for (String line : textOf(log).split("\n")) {
+          if (line.matches("(Saved prompt|Model|LoRAs|Content filter|Unlimited|Succeeded|Failed|Prompt library).*")) out.append("  ").append(line).append('\n');
+        }
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+          out.append("step: ").append(step.get("toolName")).append(", model ").append(a.get("videoModel")).append(", duration ").append(a.get("duration"))
+              .append(", loras ").append(a.get("loras")).append(' ').append(a.get("loraStrengths")).append(", audio ").append(!Boolean.FALSE.equals(a.get("generateAudio")))
+              .append(", uploads ").append(m.get("media_references") == null ? "none" : "some").append(", billing ").append(m.get("billing_mode"))
+              .append(", content filter ").append(b.contains("\"safe_content_filter\":false") ? "off" : "on").append('\n');
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** The names of the components under `root`, in order. */
   private static List<String> names(Container root) {
     List<String> out = new ArrayList<String>();

@@ -92,6 +92,8 @@ public final class ProgramParams {
     boolean pic = has(out, "--image2") && has(out, "--skin_detail");
     // SogniPadd: a picture from a prompt alone, with Krea 2 LoRAs.
     boolean padd = has(out, "--loras") && has(out, "--seed") && !has(out, "--image2");
+    // SogniTextVideo: a clip from a prompt alone, with H3 LoRAs.
+    boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
@@ -106,6 +108,7 @@ public final class ProgramParams {
       if (joinVideo) knownJoinVideo(p);
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
+      if (textVideo) knownTextVideo(p);
       // A folder given in order (MediaBrowser's <directory>): Browse picks it.
       if (!p.flag && p.ext == null && p.token.matches("(?i)dir(ectory)?|folder")) {
         p.dir = true;
@@ -400,6 +403,39 @@ public final class ProgramParams {
     if (p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
       p.hint = "e.g. 50; empty for no limit";
+    }
+  }
+
+  /** SogniTextVideo's labels: the H3 sizes, the LoRA list (its default set when empty); Unlimited Plan and Save the prompt start ticked. */
+  private static void knownTextVideo(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; sogni-textvideo-<first words>.mp4";
+    }
+    if (!p.flag || !p.takesValue) {
+      if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
+      if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+      if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+      if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
+      return;
+    }
+    if (p.token.equals("--prompt")) p.hint = "what happens: the scene, the motion, the camera, the sound";
+    if (p.token.equals("--duration")) p.hint = "5 to 15 seconds (default 5)";
+    if (p.token.equals("--resolution")) {
+      p.hint = "768 (default), or a two-stage size";
+      p.choices = new String[] {"768 (FastH3, about 4 Spark/s)", "720 two-stage (about 4 Spark/s)", "1080 two-stage (about 10 Spark/s)", "1440 two-stage, 2K (about 16 Spark/s)"};
+      p.choiceValues = new String[] {"768", "720", "1080", "1440"};
+    }
+    if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty for the model's own";
+    if (p.token.equals("--loras")) {
+      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.hint = "empty: Mystic X v4 0.5, VBVR Video Reasoning 1; none for no LoRAs";
+    }
+    if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 100; empty for no limit";
     }
   }
 

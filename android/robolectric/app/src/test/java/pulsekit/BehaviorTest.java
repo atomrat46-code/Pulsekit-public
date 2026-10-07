@@ -2806,6 +2806,34 @@ public class BehaviorTest {
     write("s74_sogni_padd", out.toString());
   }
 
+  /** SogniTextVideo (PyJav's Java menu): Params has the prompt, the LoRA list (several lines) naming its default set, duration and resolution; no file rows; Unlimited Plan and Save the prompt ticked. */
+  @Test
+  public void s75_sogni_textvideo() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniTextVideo.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--prompt", "--loras", "--duration", "--resolution"}) {
+      TextView f = (TextView) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : "field, hint \"" + f.getHint() + "\"" + ((f.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0 ? ", several lines" : "")).append('\n');
+    }
+    out.append("file rows: ").append(dv.findViewWithTag("params-file:--image") != null ? "an image row" : "none").append('\n');
+    for (String t : new String[] {"--unlimited", "--saveprompt", "--no_audio"}) {
+      android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + t);
+      out.append(t).append(": ").append(c == null ? "none" : c.isChecked() ? "ticked" : "not ticked").append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s75_sogni_textvideo", out.toString());
+  }
+
   /** An MP4 with only its headers: ftyp, then moov with mvhd (the length) and a trak whose tkhd has the picture size. */
   private static byte[] mp4Header(int lengthMs, int width, int height) throws Exception {
     java.io.ByteArrayOutputStream mvhd = new java.io.ByteArrayOutputStream();
