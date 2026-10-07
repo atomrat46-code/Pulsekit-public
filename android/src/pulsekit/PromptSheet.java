@@ -931,12 +931,6 @@ public final class PromptSheet {
       });
       LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 36));
       row.addView(chip, lp);
-      TextView menu = button(activity, "···", on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
-      menu.setPadding(dp(activity, 10), 0, dp(activity, 10), 0);
-      menu.setOnClickListener(v -> categoryMenu(activity, id, name, sub));
-      LinearLayout.LayoutParams menuLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 36));
-      menuLp.leftMargin = dp(activity, 4);
-      row.addView(menu, menuLp);
     }
     LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     rowLp.bottomMargin = dp(activity, mainRow ? 8 : 10);
