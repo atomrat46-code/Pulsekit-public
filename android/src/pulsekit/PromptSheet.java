@@ -1087,18 +1087,49 @@ public final class PromptSheet {
         toast(activity, ex);
       }
     });
-    if (!fullSize) {
+    // A text file with a **Prompt:** (a SogniChat answer.txt): Extract prompt keeps the text after its **Prompt:** as a new file.
+    boolean extract = PromptExtract.offered(vault, versionId, which, name);
+    java.util.List<CharSequence> items = new java.util.ArrayList<CharSequence>();
+    java.util.List<Runnable> runs = new java.util.ArrayList<Runnable>();
+    if (fullSize) {
+      items.add("Open in full size");
+      runs.add(() -> openPreview(activity, name, vault.fileBytes(versionId, which), 3));
+    }
+    if (extract) {
+      items.add("Extract prompt");
+      runs.add(() -> extractPrompt(activity, versionId, which, name));
+    }
+    items.add("Rename");
+    runs.add(rename);
+    items.add("Delete");
+    runs.add(delete);
+    if (!fullSize && !extract) {
       itemMenu(activity, name, rename, delete);
       return;
     }
-    new AlertDialog.Builder(activity)
+    lastFileMenu = new AlertDialog.Builder(activity)
         .setTitle(name)
-        .setItems(new CharSequence[] {"Open in full size", "Rename", "Delete"}, (dialog, pick) -> {
-          if (pick == 0) openPreview(activity, name, vault.fileBytes(versionId, which), 3);
-          else if (pick == 1) rename.run();
-          else delete.run();
-        })
+        .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
         .show();
+  }
+
+  /** The file menu shown last, for the tests. */
+  static AlertDialog lastFileMenu;
+
+  /** Extract prompt: the text after the file's last **Prompt:** kept as <File> Prompt <n>.txt, of the same kind. */
+  private static void extractPrompt(Activity activity, long versionId, int which, String name) {
+    try {
+      String title = "";
+      for (PromptVault.StoredFile f : which == 3 ? vault.resultFiles() : vault.referenceFiles()) {
+        if (f.versionId == versionId && f.which == which && f.promptTitle != null) title = f.promptTitle;
+      }
+      String made = PromptExtract.keep(vault, versionId, which, name, title);
+      rebuild(activity);
+      toast(activity, "Saved " + made);
+      if (activity instanceof MainActivity) ((MainActivity) activity).setNow("Extracted the prompt of " + name + " as " + made);
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
   }
 
   private static void itemMenu(Activity activity, String title, Runnable rename, Runnable delete) {

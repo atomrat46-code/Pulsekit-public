@@ -2835,6 +2835,56 @@ public class BehaviorTest {
   }
 
   /**
+   * Extract prompt in a stored text file's long-press menu: the text after the last **Prompt:** of
+   * answer.txt kept as Answer Prompt 1.txt (then 2), a result file as answer.txt is; a text file
+   * without one and a sound file have no such item.
+   */
+  @Test
+  public void s79_extract_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String answer = "SogniChat conversation\nModel: qwen\n\n=== You ===\nWrite me a portrait prompt\n\n=== Sogni ===\nHere it is.\n\n---\n\n**Prompt:**\n\n"
+        + "> A photorealistic studio portrait of a woman with jet-black hair.\n> Soft key light from the left.\n\n**Negative prompt:** blurry\n";
+    DbImport.store(app, "answer.txt", answer.getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "hit.wav", AudioIo.encodeWav(new short[100], 22050), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    for (String n : new String[] {"answer.txt", "answer.txt", "notes.txt", "hit.wav"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals(n)) at = f;
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      int extract = -1;
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+        Object item = menu.getListView().getAdapter().getItem(i);
+        items.append('[').append(item).append(']');
+        if ("Extract prompt".equals(String.valueOf(item))) extract = i;
+      }
+      out.append(n).append(" menu: ").append(items).append('\n');
+      if (extract >= 0) {
+        org.robolectric.Shadows.shadowOf(menu).clickOnItem(extract);
+        idle();
+        out.append("  now: ").append(((TextView) get("now")).getText()).append(", toast ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+      } else {
+        menu.dismiss();
+        idle();
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.resultFiles()) {
+      if (!f.name.contains("Prompt")) continue;
+      out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+    write("s79_extract_prompt", out.toString());
+  }
+
+  /**
    * SogniChat --saveprompt: Params shows the switch; the run's sheet (as SogniChat writes it) goes
    * into the prompt library in Writing with the saved chat .txt as its result file.
    */

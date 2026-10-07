@@ -2991,6 +2991,50 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * Extract prompt in a text file's menu in the Result files gallery: the text after the last
+   * **Prompt:** of answer.txt kept as Answer Prompt 1.txt (then 2); a file without one says so.
+   */
+  void s65_extract_prompt() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    String answer = "SogniChat conversation\nModel: qwen\n\n=== You ===\nWrite me a portrait prompt\n\n=== Sogni ===\nHere it is.\n\n---\n\n**Prompt:**\n\n"
+        + "> A photorealistic studio portrait of a woman with jet-black hair.\n> Soft key light from the left.\n\n**Negative prompt:** blurry\n";
+    PromptDb.vault().addLibraryFile("answer.txt", answer.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    for (String n : new String[] {"answer.txt", "answer.txt", "notes.txt", "hit.wav"}) {
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals(n)) file = f;
+      final PromptVault.StoredFile at = file;
+      final StringBuilder seen = new StringBuilder();
+      final boolean[] done = {false};
+      // The gallery is checked while it is open (the watcher closes it after).
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        javax.swing.JMenuItem extract = null;
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals("Extract prompt")) extract = (javax.swing.JMenuItem) c;
+        }
+        db.lastFileMenu.setVisible(false);
+        if (extract != null) extract.doClick();
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(true));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(" menu: ").append(seen).append('\n');
+      if (seen.indexOf("Extract prompt") >= 0) out.append("  now: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    }
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) {
+      if (!f.name.contains("Prompt")) continue;
+      out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(PromptDb.vault().fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

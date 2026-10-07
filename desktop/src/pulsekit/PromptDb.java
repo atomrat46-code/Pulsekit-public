@@ -680,7 +680,7 @@ final class PromptDb {
         }
     }
 
-    /** The right-click menu: Open, Save as, Rename, Delete. `changed` shows the gallery again. */
+    /** The right-click menu: Open, Save as, Extract prompt (a text file with a **Prompt:**), Rename, Delete. `changed` shows the gallery again. */
     void menu(PromptVault.StoredFile file, JButton card, Runnable changed) {
         JPopupMenu menu = new JPopupMenu();
         JMenuItem open = new JMenuItem("Open");
@@ -708,10 +708,34 @@ final class PromptDb {
         });
         menu.add(open);
         menu.add(save);
+        boolean extractable = false;
+        try {
+            extractable = PromptExtract.offered(vault(), file.versionId, file.which, file.name);
+        } catch (Exception ex) {
+            // No library: no Extract prompt.
+        }
+        if (extractable) {
+            // A text file with a **Prompt:** (a SogniChat answer.txt): the text after its **Prompt:** as a new file of the same kind.
+            JMenuItem extract = new JMenuItem("Extract prompt");
+            extract.addActionListener(e -> {
+                try {
+                    String made = PromptExtract.keep(vault(), file.versionId, file.which, file.name, file.promptTitle);
+                    app.setNow("Extracted the prompt of " + file.name + " as " + made);
+                    changed.run();
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() != null ? ex.getMessage() : "Could not extract the prompt of " + file.name);
+                }
+            });
+            menu.add(extract);
+        }
         menu.add(rename);
         menu.add(delete);
+        this.lastFileMenu = menu;
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
     }
+
+    /** The right-click menu shown last, for the tests. */
+    JPopupMenu lastFileMenu;
 
     void saveAs(PromptVault.StoredFile file) {
         JFileChooser chooser = new JFileChooser();
