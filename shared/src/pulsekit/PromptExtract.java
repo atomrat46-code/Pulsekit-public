@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
  * turn ("=== You ==="). Quote marks ("> ") at the start of its lines are dropped.
  *
  * Strip headers, in the menu of a text file whose lines start with bold headers ("- **Hair:** She
- * has..."): the text without them, kept as "<file> noheaders.txt".
+ * has..."): that part of the text (from the blank line above its first headed line) without
+ * them, kept as "<file> noheaders.txt".
  */
 public final class PromptExtract {
   private static final Pattern MARK = Pattern.compile("\\*\\*\\s*Prompt\\s*:?\\s*\\*\\*\\s*:?", Pattern.CASE_INSENSITIVE);
@@ -43,14 +44,51 @@ public final class PromptExtract {
   }
 
   /**
-   * The text with each line's bold header taken off, its list mark with it: "- **Hair:** She has
-   * long hair" becomes "She has long hair". A line that is only a header is left out; other lines stay.
+   * The headed part of the text with each line's bold header taken off, its list mark with it:
+   * "- **Hair:** She has long hair" becomes "She has long hair". The part starts after the blank
+   * line above its first headed line (an answer's "Here is the description:" is left out) and runs
+   * to the end of that answer: the chat's next turn ("=== You ===") or the end of the text. In a
+   * saved chat it is the last answer with headers. A line that is only a header is left out; other
+   * lines stay.
    */
   public static String stripHeaders(String text) {
     if (text == null) return "";
-    StringBuilder sb = new StringBuilder();
     String[] lines = text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
-    for (int i = 0; i < lines.length; i++) {
+    int last = -1;
+    for (int i = 0; i < lines.length; i++) if (LINE_HEADER.matcher(lines[i]).lookingAt()) last = i;
+    if (last < 0) return text.trim();
+    // The answer (chat turn) the last headed line is in.
+    int from = 0;
+    for (int i = last; i >= 0; i--) {
+      if (lines[i].trim().startsWith("=== ")) {
+        from = i + 1;
+        break;
+      }
+    }
+    int to = lines.length;
+    for (int i = last + 1; i < lines.length; i++) {
+      if (lines[i].trim().startsWith("=== ")) {
+        to = i;
+        break;
+      }
+    }
+    int first = last;
+    for (int i = from; i <= last; i++) {
+      if (LINE_HEADER.matcher(lines[i]).lookingAt()) {
+        first = i;
+        break;
+      }
+    }
+    // The blank line above the first headed line is where the part starts.
+    int begin = from;
+    for (int i = first - 1; i >= from; i--) {
+      if (lines[i].trim().length() == 0) {
+        begin = i + 1;
+        break;
+      }
+    }
+    StringBuilder sb = new StringBuilder();
+    for (int i = begin; i < to; i++) {
       String line = lines[i];
       Matcher m = LINE_HEADER.matcher(line);
       if (m.lookingAt()) {

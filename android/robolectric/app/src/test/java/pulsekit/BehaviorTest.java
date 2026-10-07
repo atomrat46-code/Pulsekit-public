@@ -2844,12 +2844,15 @@ public class BehaviorTest {
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
     DbImport.store(app, "looks.txt", looks.getBytes(StandardCharsets.UTF_8), true);
+    String chat = "SogniChat conversation\nModel: qwen\n\n=== You ===\nHow would you describe the woman in the reference file 1? Be precise.\n\nPicture a.webp is attached as media_ref_1.\n\n"
+        + "=== Sogni ===\nBased on the reference image provided, the woman is depicted as follows:\n\n- **Age/Appearance:** She appears to be a young adult.\n- **Hair:** Her hair is dark, worn long.\n- **Background:** The background is blurred.\n\n=== You ===\nThanks\n\n=== Sogni ===\nYou are welcome.\n";
+    DbImport.store(app, "chat.txt", chat.getBytes(StandardCharsets.UTF_8), true);
     DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
     PromptSheet.create(app);
     idle();
     java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
     thumb.setAccessible(true);
-    for (String n : new String[] {"looks.txt", "looks.txt", "notes.txt"}) {
+    for (String n : new String[] {"looks.txt", "looks.txt", "chat.txt", "notes.txt"}) {
       PromptVault.StoredFile at = null;
       for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals(n)) at = f;
       thumb.invoke(null, app, at.versionId, at.which, n);

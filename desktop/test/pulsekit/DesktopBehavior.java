@@ -3190,8 +3190,11 @@ public final class DesktopBehavior {
     PromptDb db = (PromptDb) get("promptDb");
     String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
     PromptDb.vault().addLibraryFile("looks.txt", looks.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    String chat = "SogniChat conversation\nModel: qwen\n\n=== You ===\nHow would you describe the woman in the reference file 1? Be precise.\n\nPicture a.webp is attached as media_ref_1.\n\n"
+        + "=== Sogni ===\nBased on the reference image provided, the woman is depicted as follows:\n\n- **Age/Appearance:** She appears to be a young adult.\n- **Hair:** Her hair is dark, worn long.\n- **Background:** The background is blurred.\n\n=== You ===\nThanks\n\n=== Sogni ===\nYou are welcome.\n";
+    PromptDb.vault().addLibraryFile("chat.txt", chat.getBytes(StandardCharsets.UTF_8), "answer", 3);
     PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
-    for (String n : new String[] {"looks.txt", "notes.txt"}) {
+    for (String n : new String[] {"looks.txt", "chat.txt", "notes.txt"}) {
       PromptVault.StoredFile file = null;
       for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals(n)) file = f;
       final PromptVault.StoredFile at = file;
