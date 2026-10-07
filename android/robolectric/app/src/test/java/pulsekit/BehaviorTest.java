@@ -2892,6 +2892,9 @@ public class BehaviorTest {
     open.invoke(null, app, "garden.png", png.toByteArray(), 3);
     idle();
     out.append("picture zoom: ").append(Math.round((Float) zoom.get(null) * 100)).append("%\n");
+    // Back to the page, so the next scenario finds the Prompts page as it starts.
+    findText(pane, "Back").performClick();
+    idle();
     write("s76_prompt_video", out.toString());
   }
 
