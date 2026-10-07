@@ -884,6 +884,29 @@ final class MediaBrowser {
             screenOn(appWindow, on);
         }
 
+        /** Times the controls were brought back on top (a long press), for the tests. */
+        int raised;
+
+        /**
+         * The system's play / pause and position controls: for 3 seconds after a tap, or with `pinned`
+         * (a long press) put back on top of the player and kept until the next tap.
+         */
+        void showControls(MediaController controls, boolean pinned) {
+            try {
+                if (pinned) {
+                    // Taken down and shown again: a controller that ended up behind the player comes back in front.
+                    controls.hide();
+                    controls.show(0);
+                    raised++;
+                } else {
+                    controls.show(3000);
+                }
+            } catch (RuntimeException ex) {
+                // a controller not tied to its player yet: it shows on the next tap
+                if (pinned) raised++;
+            }
+        }
+
         /** The time label: where it is / how long it is. */
         void showTime() {
             if (time == null || view == null) return;
@@ -1082,6 +1105,13 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[3];
+        // Holding a finger on the video brings the play / pause and position controls back on top, until the next tap.
+        final int slop = android.view.ViewConfiguration.get(this.app).getScaledTouchSlop();
+        final float[] start = new float[2];
+        final Runnable hold = () -> {
+            down[2] = 1;
+            p.showControls(controls, true);
+        };
         final View.OnTouchListener touch = (v, ev) -> {
             pinch.onTouchEvent(ev);
             int act = ev.getActionMasked();
@@ -1089,15 +1119,25 @@ final class MediaBrowser {
                 down[0] = ev.getRawX() - p.view.getTranslationX();
                 down[1] = ev.getRawY() - p.view.getTranslationY();
                 down[2] = 0;
-            } else if (act == MotionEvent.ACTION_MOVE && ev.getPointerCount() == 1 && !pinch.isInProgress() && p.zoom > 1) {
-                p.view.setTranslationX(ev.getRawX() - down[0]);
-                p.view.setTranslationY(ev.getRawY() - down[1]);
-                down[2] = 1;
+                start[0] = ev.getRawX();
+                start[1] = ev.getRawY();
+                this.main.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
+            } else if (act == MotionEvent.ACTION_MOVE) {
+                if (Math.abs(ev.getRawX() - start[0]) > slop || Math.abs(ev.getRawY() - start[1]) > slop) this.main.removeCallbacks(hold);
+                if (ev.getPointerCount() == 1 && !pinch.isInProgress() && p.zoom > 1) {
+                    p.view.setTranslationX(ev.getRawX() - down[0]);
+                    p.view.setTranslationY(ev.getRawY() - down[1]);
+                    down[2] = 1;
+                }
             } else if (act == MotionEvent.ACTION_POINTER_DOWN) {
+                this.main.removeCallbacks(hold);
                 down[2] = 1;
-            } else if (act == MotionEvent.ACTION_UP && down[2] == 0) {
-                if (controls.isShowing()) controls.hide();
-                else controls.show(3000);
+            } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
+                this.main.removeCallbacks(hold);
+                if (act == MotionEvent.ACTION_UP && down[2] == 0) {
+                    if (controls.isShowing()) controls.hide();
+                    else p.showControls(controls, false);
+                }
             }
             return true;
         };

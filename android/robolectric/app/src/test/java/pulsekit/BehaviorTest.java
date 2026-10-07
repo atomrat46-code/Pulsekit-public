@@ -2581,6 +2581,25 @@ public class BehaviorTest {
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
     idle();
     out.append("time: ").append(((TextView) tv.findViewWithTag("media-video-time")).getText()).append('\n');
+    // A finger held on the video brings the controls back on top; a short tap does not.
+    View screen = tv.findViewWithTag("media-video");
+    java.util.function.BiConsumer<Integer, Long> press = (Integer before, Long heldMs) -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent downEv = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      screen.dispatchTouchEvent(downEv);
+      downEv.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      long t1 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent upEv = android.view.MotionEvent.obtain(t0, t1, android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      screen.dispatchTouchEvent(upEv);
+      upEv.recycle();
+      idle();
+    };
+    int raisedBefore = v.raised;
+    press.accept(0, 100L);
+    out.append("tap: controls raised ").append(v.raised - raisedBefore);
+    press.accept(0, 800L);
+    out.append(", held: raised ").append(v.raised - raisedBefore).append('\n');
     // The screen stays on while it plays, not while it is paused.
     mp.start();
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
