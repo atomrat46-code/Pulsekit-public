@@ -784,7 +784,9 @@ final class PyJav {
                         public void run() {
                             pkKeeping = false;
                             KEEPING.decrementAndGet();
-                            String done = kept.length() > 0 ? shown + "\n" + kept : shown;
+                            // The "storing" line becomes what was stored; notes added since stay.
+                            String now = pkRunLog == null ? shown + "\nPrompt library: storing\u2026" : pkRunLog;
+                            String done = now.replace("\nPrompt library: storing\u2026", kept.length() > 0 ? "\n" + kept : "");
                             // Only when the text below Run is still this run's (another run may have started).
                             if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
                             pkRunLog = done;
@@ -793,27 +795,52 @@ final class PyJav {
                 }
             }, "pulsekit-prompt-keep").start();
         }
-        // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
-        if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
+        // What the run made is offered (played, shown, opened). A problem in one of these is a note
+        // under the run's log: it never turns a run that succeeded into "Failed".
+        final boolean ok = status.startsWith("Succeeded");
+        final pulsekit.JavaRun.Result made = result;
+        final String madeLog = log;
+        this.pkOffer("the sound", ok, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
         // Pictures it made (SogniChat's tool results) are shown.
-        if (status.startsWith("Succeeded")) PictureOffer.offer(app, result);
+        this.pkOffer("the pictures", ok, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
-        if (status.startsWith("Succeeded")) VideoOffer.offer(app, result);
+        this.pkOffer("the video", ok, () -> VideoOffer.offer(app, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
-        if (status.startsWith("Succeeded") && "MidiDrumGen.java".equals(app.pyName)) MidiOffer.offer(app, result);
+        this.pkOffer("the groove", ok && "MidiDrumGen.java".equals(app.pyName), () -> MidiOffer.offer(app, made));
         // MediaBrowser: its folder in the Media browser.
-        if (status.startsWith("Succeeded") && "MediaBrowser.java".equals(app.pyName)) {
-            String browse = MediaDir.opened(log);
+        this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
+            String browse = MediaDir.opened(madeLog);
             if (browse != null) MediaBrowser.open(app, browse);
-        }
+        });
         } catch (Throwable ex) {
             String m = ex.getMessage();
-            status = "Failed: " + (m == null ? ex.toString() : m);
+            status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
             if (this.pkPyHint != null) this.pkPyHint.setText(status);
             app.setNow(status);
             android.widget.Toast.makeText(app, status, 1).show();
             if (this.pkPyLog != null) this.pkPyLog.setText(status);
             this.pkRunLog = status;
+        }
+    }
+
+    /**
+     * One offer after a run (`when` it applies): a problem in it is added to the run's log as a
+     * note, with the error's name, instead of failing the run.
+     */
+    void pkOffer(String what, boolean when, Runnable offer) {
+        if (!when) return;
+        try {
+            offer.run();
+        } catch (Throwable ex) {
+            String m = ex.getMessage();
+            String note = "Note: could not show " + what + " (" + ex.getClass().getSimpleName() + (m == null || m.trim().length() == 0 ? "" : ": " + m) + ")";
+            if (this.pkPyLog != null) {
+                boolean ours = this.pkLogIsRun();
+                String now = this.pkPyLog.getText().toString() + "\n" + note;
+                this.pkPyLog.setText(now);
+                if (ours) this.pkRunLog = now;
+            }
+            app.setNow(note);
         }
     }
 

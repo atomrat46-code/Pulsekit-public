@@ -97,16 +97,56 @@ public final class PromptSheet {
     host.setOrientation(LinearLayout.VERTICAL);
     host.setBackgroundColor(Color.parseColor("#0A0B0C"));
     host.setClickable(true);
-    try {
-      vault = PromptVault.open(activity.getFilesDir());
-      if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
-    } catch (Exception ex) {
-      vault = null;
-      toast(activity, ex);
+    java.io.File file = new java.io.File(activity.getFilesDir(), "prompts.vault");
+    if (PromptVault.ready(activity.getFilesDir()) != null || !file.isFile() || file.length() < OPEN_IN_BACKGROUND) {
+      try {
+        vault = PromptVault.open(activity.getFilesDir());
+        if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
+      } catch (Exception ex) {
+        vault = null;
+        toast(activity, ex);
+      }
+      rebuild(activity);
+      return host;
     }
+    // A large library (videos kept in it) takes a while to read and decrypt: in the background, so
+    // the app starts at once (on the main thread it froze for half a minute).
+    vault = null;
+    opening = true;
+    OPENING.incrementAndGet();
     rebuild(activity);
+    final java.io.File dir = activity.getFilesDir();
+    new Thread(new Runnable() {
+      @Override
+      public void run() {
+        PromptVault opened = null;
+        Exception failed = null;
+        try {
+          opened = PromptVault.open(dir);
+        } catch (Exception ex) {
+          failed = ex;
+        }
+        final PromptVault done = opened;
+        final Exception why = failed;
+        activity.runOnUiThread(() -> {
+          vault = done;
+          opening = false;
+          OPENING.decrementAndGet();
+          if (done != null && categoryId == 0 && !done.categories().isEmpty()) categoryId = done.categories().get(0).id;
+          if (why != null) toast(activity, why);
+          rebuild(activity);
+        });
+      }
+    }, "pulsekit-prompts-open").start();
     return host;
   }
+
+  /** A library file this large (bytes) is opened in the background at start. */
+  static final long OPEN_IN_BACKGROUND = 2L * 1024 * 1024;
+  /** True while the library is being opened in the background. */
+  static volatile boolean opening;
+  /** Libraries still being opened in the background (the tests wait for 0). */
+  static final java.util.concurrent.atomic.AtomicInteger OPENING = new java.util.concurrent.atomic.AtomicInteger();
 
   public static void beginPick(Activity activity, int which) {
     picking = which;
@@ -233,7 +273,9 @@ public final class PromptSheet {
     TextView lead = label(activity, "Encrypted database on this phone. Each save keeps a version. One version can be final.", 14, "#8A8B86", false);
     lead.setPadding(0, dp(activity, 4), 0, dp(activity, 12));
     col.addView(lead);
-    if (vault == null) {
+    if (vault == null && opening) {
+      col.addView(label(activity, "Opening the encrypted database\u2026", 14, "#ECEBE6", false));
+    } else if (vault == null) {
       col.addView(label(activity, "The encrypted database could not be opened.", 14, "#ECEBE6", false));
     } else if (previewBack != 0) {
       buildPreview(activity, col);

@@ -2835,6 +2835,38 @@ public class BehaviorTest {
   }
 
   /**
+   * A large prompt library (videos kept in it) opens in the background at start: the Prompts page
+   * says it is opening, then shows the library. A problem showing what a run made is a note under
+   * the run's log, not a "Failed" run.
+   */
+  @Test
+  public void s86_open_in_background() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbImport.store(app, "big.mp4", new byte[3 * 1024 * 1024], true);
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    out.append("library file: ").append(new File(app.getFilesDir(), "prompts.vault").length() / (1024 * 1024)).append(" MB, in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    out.append("at once: ").append(findText(pane, "Opening the encrypted database…") != null ? "Opening the encrypted database…" : "?")
+        .append(", Ref files button ").append(findText(pane, "Ref files") != null).append('\n');
+    idle();
+    out.append("then: opening shown ").append(findText(pane, "Opening the encrypted database…") != null).append(", Ref files button ").append(findText(pane, "Ref files") != null)
+        .append(", in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
+    // A problem showing what a run made: a note, the run stays as it was.
+    call("show", "py");
+    idle();
+    ((TextView) get("pkPyLog")).setText("Succeeded: clip.mp4");
+    java.lang.reflect.Field runLog = PyJav.class.getDeclaredField("pkRunLog");
+    runLog.setAccessible(true);
+    runLog.set(app.pyJav, "Succeeded: clip.mp4");
+    app.pyJav.pkOffer("the video", true, () -> { throw new IllegalStateException(""); });
+    out.append("after a failing offer: ").append(((TextView) get("pkPyLog")).getText().toString().replace("\n", "|")).append('\n');
+    write("s86_open_in_background", out.toString());
+  }
+
+  /**
    * A run with a large result and a prompt sheet (SogniTextVideo's 10 s video with --saveprompt):
    * the result shows at once and the prompt library stores it in the background (on the main
    * thread its encryption froze the app); the log then says what was stored.
@@ -4399,7 +4431,7 @@ public class BehaviorTest {
   private static void idle() {
     for (int i = 0; i < 5; i++) ShadowLooper.idleMainLooper();
     // A run's result stored in the prompt library in the background: wait for it, as a user would see.
-    for (int i = 0; i < 500 && PyJav.KEEPING.get() > 0; i++) {
+    for (int i = 0; i < 500 && (PyJav.KEEPING.get() > 0 || PromptSheet.OPENING.get() > 0); i++) {
       try {
         Thread.sleep(20);
       } catch (InterruptedException ex) {

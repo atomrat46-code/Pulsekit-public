@@ -74,12 +74,24 @@ public final class PromptVault {
    * another stored. Read again only when the file changed on disk since this copy last wrote or
    * read it.
    */
-  private static PromptVault shared;
+  private static volatile PromptVault shared;
   /** The file's time when this copy last read or wrote it; 0 before. */
   private long stamp;
 
   private PromptVault(File file) {
     this.file = file;
+  }
+
+  /**
+   * The library in `dir` when it is already in memory and up to date, else null: open() would have
+   * to read and decrypt the file, slow for a large library (videos kept in it). Never waits.
+   */
+  public static PromptVault ready(File dir) {
+    PromptVault v = shared;
+    File at = new File(dir, "prompts.vault");
+    if (v == null || !v.file.getAbsolutePath().equals(at.getAbsolutePath())) return null;
+    if (at.isFile() ? at.lastModified() != v.stamp : v.stamp != 0) return null;
+    return v;
   }
 
   /** The library kept in `dir` (the app's files folder on the phone, ~/.pulsekit on the desktop). */

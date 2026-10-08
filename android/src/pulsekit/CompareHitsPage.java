@@ -133,7 +133,8 @@ final class CompareHitsPage {
         }
         this.paintWav();
         if (this.browseDb != null) {
-            boolean any = !RefBrowser.allFiles(app, RefBrowser.SOUNDS_OR_MIDIS).isEmpty();
+            // Not while the library is still being opened (in the background at start): Browse DB stays on.
+            boolean any = PromptVault.ready(app.getFilesDir()) == null || !RefBrowser.allFiles(app, RefBrowser.SOUNDS_OR_MIDIS).isEmpty();
             this.browseDb.setEnabled(any);
             this.browseDb.setAlpha(any ? 1f : 0.4f);
         }
