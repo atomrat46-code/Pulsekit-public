@@ -98,7 +98,7 @@ public final class PromptSheet {
     host.setBackgroundColor(Color.parseColor("#0A0B0C"));
     host.setClickable(true);
     java.io.File file = new java.io.File(activity.getFilesDir(), "prompts.vault");
-    if (PromptVault.ready(activity.getFilesDir()) != null || !file.isFile() || file.length() < OPEN_IN_BACKGROUND) {
+    if (PromptVault.ready(activity.getFilesDir()) != null || !file.isFile() || PromptVault.storedSize(activity.getFilesDir()) < OPEN_IN_BACKGROUND) {
       try {
         vault = PromptVault.open(activity.getFilesDir());
         if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
@@ -123,6 +123,8 @@ public final class PromptSheet {
         Exception failed = null;
         try {
           opened = PromptVault.open(dir);
+          // A library from before this app keeps its videos inside: kept on their own now, once.
+          opened.upgrade();
         } catch (Exception ex) {
           failed = ex;
         }

@@ -116,6 +116,7 @@ public final class PromptVault {
 
   /** Reads the file again into this same library (it changed on disk). */
   private synchronized void reload() throws Exception {
+    blobNames.clear();
     categories.clear();
     prompts.clear();
     versions.clear();
@@ -689,7 +690,8 @@ public final class PromptVault {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
-    out.writeInt(6);
+    out.writeInt(7);
+    blobsUsed.clear();
     out.writeInt(categories.size());
     for (int i = 0; i < categories.size(); i++) {
       Category category = categories.get(i);
@@ -748,6 +750,14 @@ public final class PromptVault {
     if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace the prompt database");
     if (!tmp.renameTo(file)) throw new IllegalStateException("Could not store the prompt database");
     stamp = file.lastModified();
+    // Kept files no version or library file uses any more (deleted, replaced) go too.
+    File[] kids = file.getParentFile() == null ? null : file.getParentFile().listFiles();
+    if (kids != null) {
+      for (File k : kids) {
+        String n = k.getName();
+        if (n.startsWith(BLOB_PREFIX) && n.endsWith(".dat") && !blobsUsed.contains(n)) k.delete();
+      }
+    }
   }
 
   private void read() throws Exception {
@@ -767,7 +777,8 @@ public final class PromptVault {
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
-    if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6) throw new IllegalStateException("Prompt database is from a newer app");
+    if (version < 1 || version > 7) throw new IllegalStateException("Prompt database is from a newer app");
+    fileVersion = version;
     int ncat = data.readInt();
     for (int i = 0; i < ncat; i++) {
       Category category = new Category();
@@ -870,18 +881,104 @@ public final class PromptVault {
     return new String(bytes, "UTF-8");
   }
 
-  private static void writeBytes(DataOutputStream out, byte[] bytes) throws Exception {
+  /**
+   * A file of BLOB_MIN bytes or more (a picture, a video) is kept in its own encrypted file beside
+   * the library (prompts-blob-<hash>.dat), named by its contents, and the library holds only its
+   * name: a save then encrypts the small index and any new file, not every stored video again
+   * (which took half a minute with a large library). Smaller files stay inside.
+   */
+  private void writeBytes(DataOutputStream out, byte[] bytes) throws Exception {
     if (bytes == null) bytes = new byte[0];
-    out.writeInt(bytes.length);
-    out.write(bytes);
+    if (bytes.length < BLOB_MIN) {
+      out.writeInt(bytes.length);
+      out.write(bytes);
+      return;
+    }
+    String name = blobNames.get(bytes);
+    if (name == null) {
+      java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+      byte[] d = md.digest(bytes);
+      StringBuilder sb = new StringBuilder(BLOB_PREFIX);
+      for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
+      name = sb.append(".dat").toString();
+      blobNames.put(bytes, name);
+    }
+    File blob = new File(file.getParentFile(), name);
+    if (!blob.isFile()) {
+      File tmp = new File(file.getParentFile(), name + ".tmp");
+      FileOutputStream fos = new FileOutputStream(tmp);
+      try {
+        fos.write(encrypt(bytes));
+      } finally {
+        fos.close();
+      }
+      if (!tmp.renameTo(blob)) throw new IllegalStateException("Could not store " + name);
+    }
+    blobsUsed.add(name);
+    out.writeInt(-1);
+    writeUtf(out, name);
   }
 
-  private static byte[] readBytes(DataInputStream in) throws Exception {
+  private byte[] readBytes(DataInputStream in) throws Exception {
     int n = in.readInt();
+    if (n == -1) {
+      String name = readUtf(in);
+      if (!name.startsWith(BLOB_PREFIX) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
+      File blob = new File(file.getParentFile(), name);
+      if (!blob.isFile()) return new byte[0];
+      FileInputStream fin = new FileInputStream(blob);
+      byte[] raw;
+      try {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream((int) Math.min(Integer.MAX_VALUE, blob.length()));
+        byte[] buf = new byte[65536];
+        for (int k; (k = fin.read(buf)) > 0; ) bos.write(buf, 0, k);
+        raw = bos.toByteArray();
+      } finally {
+        fin.close();
+      }
+      byte[] bytes = decrypt(raw);
+      blobNames.put(bytes, name);
+      return bytes;
+    }
     if (n < 0 || n > MAX_BYTES) throw new IllegalStateException("Prompt database is damaged");
     byte[] bytes = new byte[n];
     in.readFully(bytes);
     return bytes;
+  }
+
+  /** The version the library file was written in (7 keeps large files on their own). */
+  private int fileVersion = 7;
+
+  /**
+   * A library written by an older app keeps its large files inside: saved once in the new form
+   * (slow, as every save was before), so later saves are quick. The app calls it off the main
+   * thread, after opening the library at start. True when it saved.
+   */
+  public synchronized boolean upgrade() throws Exception {
+    if (fileVersion >= 7 || !file.isFile()) return false;
+    save();
+    fileVersion = 7;
+    return true;
+  }
+
+  /** Files this large or larger are kept in their own encrypted files (see writeBytes). */
+  static final int BLOB_MIN = 64 * 1024;
+  static final String BLOB_PREFIX = "prompts-blob-";
+  /** Each kept file's array and its file name, so a save does not hash it again. */
+  private final java.util.IdentityHashMap<byte[], String> blobNames = new java.util.IdentityHashMap<byte[], String>();
+  /** The files the last save named. */
+  private final java.util.HashSet<String> blobsUsed = new java.util.HashSet<String>();
+
+  /** The library's size on disk in `dir`, its kept files included (bytes). */
+  public static long storedSize(File dir) {
+    long total = 0;
+    File[] kids = dir == null ? null : dir.listFiles();
+    if (kids == null) return 0;
+    for (File k : kids) {
+      String n = k.getName();
+      if (n.equals("prompts.vault") || (n.startsWith(BLOB_PREFIX) && n.endsWith(".dat"))) total += k.length();
+    }
+    return total;
   }
 
   private static String clean(String text) {

@@ -2835,6 +2835,58 @@ public class BehaviorTest {
   }
 
   /**
+   * A large file (a video) is kept in its own encrypted file beside the library, so a save
+   * encrypts only the small index: the library file stays small, the file reads back the same
+   * after the library is opened again, and it goes when the file is deleted.
+   */
+  @Test
+  public void s87_large_files_apart() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    byte[] video = new byte[5 * 1024 * 1024];
+    new java.util.Random(7).nextBytes(video);
+    DbImport.store(app, "clip.mp4", video, true);
+    DbImport.store(app, "note.txt", "small".getBytes(StandardCharsets.UTF_8), true);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = app.getFilesDir().listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) {
+        if (k.getName().equals("prompts.vault")) sb.append("library ").append(k.length() < 64 * 1024 ? "small" : (k.length() / 1024) + " KB").append(", ");
+        if (k.getName().startsWith("prompts-blob-")) sb.append("kept file ").append(k.length() / (1024 * 1024)).append(" MB, encrypted ")
+            .append(!new String(java.util.Arrays.copyOf(readAll(k), 64), StandardCharsets.ISO_8859_1).contains(new String(java.util.Arrays.copyOf(video, 16), StandardCharsets.ISO_8859_1))).append(", ");
+      }
+      return sb.toString();
+    };
+    out.append("stored: ").append(files.get()).append('\n');
+    // Another save (a small change) does not write the video again.
+    File blob = null;
+    for (File k : app.getFilesDir().listFiles()) if (k.getName().startsWith("prompts-blob-")) blob = k;
+    long stamp = blob.lastModified();
+    Thread.sleep(20);
+    PromptVault.open(app.getFilesDir()).addCategory("Clips");
+    out.append("after a small save: kept file rewritten ").append(blob.lastModified() != stamp).append('\n');
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    PromptVault again = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : again.resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("opened again: clip.mp4 ").append(clip == null ? "missing" : java.util.Arrays.equals(again.fileBytes(clip.versionId, clip.which), video) ? "the same bytes" : "different").append('\n');
+    again.deleteFile(clip.versionId, clip.which);
+    out.append("after deleting it: ").append(files.get()).append('\n');
+    write("s87_large_files_apart", out.toString());
+  }
+
+  private static byte[] readAll(File f) {
+    try {
+      return Files.readAllBytes(f.toPath());
+    } catch (Exception ex) {
+      return new byte[0];
+    }
+  }
+
+  /**
    * A large prompt library (videos kept in it) opens in the background at start: the Prompts page
    * says it is opening, then shows the library. A problem showing what a run made is a note under
    * the run's log, not a "Failed" run.
@@ -2847,7 +2899,7 @@ public class BehaviorTest {
     java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
     shared.setAccessible(true);
     shared.set(null, null);
-    out.append("library file: ").append(new File(app.getFilesDir(), "prompts.vault").length() / (1024 * 1024)).append(" MB, in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
+    out.append("library on disk: ").append(PromptVault.storedSize(app.getFilesDir()) / (1024 * 1024)).append(" MB, in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
     android.widget.LinearLayout pane = PromptSheet.create(app);
     out.append("at once: ").append(findText(pane, "Opening the encrypted database…") != null ? "Opening the encrypted database…" : "?")
         .append(", Ref files button ").append(findText(pane, "Ref files") != null).append('\n');
