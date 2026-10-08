@@ -558,11 +558,24 @@ public final class SogniPadd {
       return videoInput(title, prompt, pictures, duration, resolution, audio, exact, aspect, null, null);
     }
 
+    /**
+     * H3's structured prompt ("integrated_multimodal_description: ... overall_soundscape: ...
+     * non_diegetic_music: ...") with each field starting a paragraph again: Params joins a prompt's
+     * lines into one, and Sogni reads the fields only at line starts ("received none"). A left-out
+     * non_diegetic_music is added as N/A (no score). Any other prompt is sent as it is.
+     */
+    public static String h3Fields(String prompt) {
+      if (prompt == null || prompt.indexOf("integrated_multimodal_description") < 0) return prompt;
+      String out = prompt.replaceAll("\\s*(?<![A-Za-z0-9_])(integrated_multimodal_description|overall_soundscape|non_diegetic_music)\\s*:\\s*", "\n\n$1: ").trim();
+      if (out.indexOf("non_diegetic_music:") < 0) out = out + "\n\nnon_diegetic_music: N/A";
+      return out;
+    }
+
     /** As above, with H3 video LoRAs in order (`strengths` positional; positive only, 0 off). */
     public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect,
         List<String> loras, List<Double> strengths) {
       Map<String, Object> args = new LinkedHashMap<String, Object>();
-      args.put("prompt", prompt);
+      args.put("prompt", h3Fields(prompt));
       args.put("videoModel", videoModel(pictures, resolution));
       if (duration > 0) args.put("duration", Double.valueOf(duration));
       args.put("targetResolution", Integer.valueOf(resolution == 720 || resolution == 1080 || resolution == 1440 ? resolution : 768));

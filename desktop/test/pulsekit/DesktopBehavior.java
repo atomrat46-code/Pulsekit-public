@@ -2767,6 +2767,8 @@ public final class DesktopBehavior {
         "--prompt \"Waves roll onto a beach at sunset\" --loras \"Mystic X v4 0.5,VBVR Video Reasoning 0.7,Better Motion 0.6\"",
         "--prompt \"Waves roll onto a beach at sunset\" --loras \"better motion; Natural Face & Speech: 0.8\"",
         "--prompt \"Waves roll onto a beach at sunset\" --loras \"Fast Zoom 0.5\"",
+        // H3's structured prompt, its lines joined into one by Params: the fields start paragraphs again.
+        "--prompt \"integrated_multimodal_description: [Shot 1] Live-action, waves roll onto a beach. overall_soundscape: Surf and gulls.\"",
         "--prompt \"Waves roll onto a beach at sunset\" --loras none --no_audio",
         "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0",
       };
@@ -2794,6 +2796,7 @@ public final class DesktopBehavior {
               .append(", loras ").append(a.get("loras")).append(' ').append(a.get("loraStrengths")).append(", audio ").append(!Boolean.FALSE.equals(a.get("generateAudio")))
               .append(", uploads ").append(m.get("media_references") == null ? "none" : "some").append(", billing ").append(m.get("billing_mode"))
               .append(", content filter ").append(b.contains("\"safe_content_filter\":false") ? "off" : "on").append('\n');
+          if (String.valueOf(a.get("prompt")).contains("integrated_multimodal_description")) out.append("  prompt sent: ").append(String.valueOf(a.get("prompt")).replace("\n", "|")).append('\n');
         }
       }
     } finally {
