@@ -289,7 +289,29 @@ public class MainActivity extends UiKit {
         this.songEditor.refreshSong();
 
         ArtJava.pinWorkDir(this);
+        this.handler.postDelayed(this.dbWatch, 400);
     }
+
+    /** "Processing DB, please wait" while the prompt library opens or saves for more than a moment (shown over dialogs too). */
+    long dbToastAt;
+    android.widget.Toast dbToast;
+    final Runnable dbWatch = new Runnable() {
+        public void run() {
+            String what = PromptVault.busy(600);
+            long now = System.currentTimeMillis();
+            if (what != null && now - MainActivity.this.dbToastAt > 2500) {
+                MainActivity.this.dbToastAt = now;
+                if (MainActivity.this.dbToast != null) MainActivity.this.dbToast.cancel();
+                MainActivity.this.dbToast = android.widget.Toast.makeText(MainActivity.this, "Processing DB, please wait\u2026\n" + what, android.widget.Toast.LENGTH_SHORT);
+                MainActivity.this.dbToast.show();
+            } else if (what == null && MainActivity.this.dbToast != null) {
+                MainActivity.this.dbToast.cancel();
+                MainActivity.this.dbToast = null;
+                MainActivity.this.dbToastAt = 0;
+            }
+            if (!MainActivity.this.isFinishing()) MainActivity.this.handler.postDelayed(this, 400);
+        }
+    };
 
     View buildUiBase() {
         LinearLayout.LayoutParams layoutParams;

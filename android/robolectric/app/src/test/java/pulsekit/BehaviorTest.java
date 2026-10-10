@@ -1879,9 +1879,9 @@ public class BehaviorTest {
         PromptVault.Version v = vault.versions(p.id).get(vault.versions(p.id).size() - 1);
         out.append("  model ").append(v.model).append(", type ").append(v.codeType).append('\n');
         out.append("  body: ").append(v.body.replace("\n", "|")).append('\n');
-        out.append("  reference 1: ").append(v.ref1Name).append(" (").append(v.ref1 == null ? 0 : v.ref1.length).append(" bytes), reference 2: \"")
+        out.append("  reference 1: ").append(v.ref1Name).append(" (").append(vault.sizeOf(v, 1)).append(" bytes), reference 2: \"")
             .append(v.ref2Name).append("\"\n");
-        out.append("  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+        out.append("  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes)\n");
         out.append("  result text: ").append(v.resultText).append('\n');
       }
     }
@@ -2187,7 +2187,7 @@ public class BehaviorTest {
         if (!p.title.equals("MidiDrumGen")) continue;
         out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
         for (PromptVault.Version v : vault.versions(p.id)) {
-          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3))
               .append(" bytes), result text: ").append(v.resultText).append('\n');
         }
       }
@@ -2213,7 +2213,7 @@ public class BehaviorTest {
       if (!p.title.equals("hard_rock_4")) continue;
       PromptVault.Version v = after.versions(p.id).get(0);
       out.append("  sheet in library: ").append(p.title).append(", model ").append(v.model).append(", result ").append(v.resultName).append(" (")
-          .append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+          .append(vault.sizeOf(v, 3)).append(" bytes)\n");
     }
     for (PromptVault.Prompt p : after.prompts(music)) {
       if (p.title.equals("MidiDrumGen")) out.append("  MidiDrumGen prompt: ").append(after.versions(p.id).size()).append(" versions (setting ")
@@ -2522,7 +2522,7 @@ public class BehaviorTest {
         if (!p.title.equals("SogniMusic")) continue;
         out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
         for (PromptVault.Version v : vault.versions(p.id)) {
-          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3))
               .append(" bytes), result text: ").append(v.resultText.replace("\n", " | ")).append('\n');
         }
       }
@@ -3328,7 +3328,7 @@ public class BehaviorTest {
         if (!p.title.equals("answer")) continue;
         PromptVault.Version v = vault.versions(p.id).get(0);
         out.append("library: ").append(c.name).append(" / ").append(p.title).append(", model ").append(v.model).append(", text ").append(v.body.replace("\n", "|"))
-            .append(", result ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes)\n");
       }
     }
     for (PromptVault.StoredFile f : vault.resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");

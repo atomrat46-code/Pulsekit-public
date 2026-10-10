@@ -55,6 +55,12 @@ public final class PromptVault {
     public String resultText;
     public long created;
     public boolean finalVersion;
+    /**
+     * A large file (BLOB_MIN or more) is kept in its own encrypted file and read only when asked
+     * for (PromptVault.fileBytes): its name and size here, and its byte[] field above is empty.
+     */
+    String ref1Blob, ref2Blob, resultBlob;
+    int ref1Size, ref2Size, resultSize;
   }
 
   private static final int MAGIC = 0x504B4442;
@@ -108,15 +114,49 @@ public final class PromptVault {
   }
 
   private void load() throws Exception {
-    if (file.isFile()) read();
-    if (categories.isEmpty()) seed();
-    ensure("Image");
-    ensure("video");
+    begin("Opening the encrypted database");
+    try {
+      if (file.isFile()) read();
+      if (categories.isEmpty()) seed();
+      ensure("Image");
+      ensure("video");
+    } finally {
+      end();
+    }
+  }
+
+  private static final java.util.concurrent.atomic.AtomicInteger BUSY = new java.util.concurrent.atomic.AtomicInteger();
+  private static volatile long busySince;
+  private static volatile String busyWhat = "";
+
+  private static void begin(String what) {
+    if (BUSY.getAndIncrement() == 0) {
+      busyWhat = what;
+      busySince = System.currentTimeMillis();
+    }
+  }
+
+  private static void end() {
+    if (BUSY.decrementAndGet() <= 0) {
+      BUSY.set(0);
+      busySince = 0;
+    }
+  }
+
+  /**
+   * What the library is doing for longer than `ms` milliseconds ("Saving the encrypted database"),
+   * or null: the apps show "Processing DB, please wait" while it lasts. Never waits.
+   */
+  public static String busy(long ms) {
+    long since = busySince;
+    if (since == 0 || System.currentTimeMillis() - since < ms) return null;
+    return busyWhat;
   }
 
   /** Reads the file again into this same library (it changed on disk). */
   private synchronized void reload() throws Exception {
-    blobNames.clear();
+    lastBlob = null;
+    lastBlobBytes = null;
     categories.clear();
     prompts.clear();
     versions.clear();
@@ -192,31 +232,46 @@ public final class PromptVault {
 
   public synchronized byte[] fileBytes(long versionId, int which) {
     Version version = version(versionId);
-    if (version != null) {
-      byte[] bytes = which == 1 ? version.ref1 : which == 2 ? version.ref2 : version.result;
-      return copy(bytes);
-    }
+    if (version != null) return bytesOf(version, which);
     LibraryFile image = libraryFile(versionId);
     if (image == null) return new byte[0];
+    if (image.blob != null) return blobBytes(image.blob);
     return copy(image.bytes);
   }
 
-  private void addStored(List<StoredFile> out, Version version, int which) {
+  /** The version's file (1 reference file 1, 2 reference file 2, 3 result), a copy; empty when it has none. */
+  public synchronized byte[] bytesOf(Version version, int which) {
+    if (version == null) return new byte[0];
+    String blob = which == 1 ? version.ref1Blob : which == 2 ? version.ref2Blob : version.resultBlob;
+    if (blob != null) return blobBytes(blob);
+    return copy(which == 1 ? version.ref1 : which == 2 ? version.ref2 : version.result);
+  }
+
+  /** The size of the version's file in bytes, without reading it (0 when it has none). */
+  public synchronized int sizeOf(Version version, int which) {
+    if (version == null) return 0;
+    String blob = which == 1 ? version.ref1Blob : which == 2 ? version.ref2Blob : version.resultBlob;
+    if (blob != null) return which == 1 ? version.ref1Size : which == 2 ? version.ref2Size : version.resultSize;
     byte[] bytes = which == 1 ? version.ref1 : which == 2 ? version.ref2 : version.result;
-    if (bytes == null || bytes.length == 0) return;
+    return bytes == null ? 0 : bytes.length;
+  }
+
+  private void addStored(List<StoredFile> out, Version version, int which) {
+    int size = sizeOf(version, which);
+    if (size == 0) return;
     String name = which == 1 ? version.ref1Name : which == 2 ? version.ref2Name : version.resultName;
     if (name == null || name.length() == 0) name = "file";
     String title = titleOf(version.promptId);
     for (int i = 0; i < out.size(); i++) {
       StoredFile have = out.get(i);
-      if (have.which == which && have.size == bytes.length && name.equals(have.name) && title.equals(have.promptTitle)) return;
+      if (have.which == which && have.size == size && name.equals(have.name) && title.equals(have.promptTitle)) return;
     }
     StoredFile row = new StoredFile();
     row.versionId = version.id;
     row.which = which;
     row.name = name;
     row.promptTitle = title;
-    row.size = bytes.length;
+    row.size = size;
     out.add(row);
   }
 
@@ -234,6 +289,7 @@ public final class PromptVault {
       LibraryFile have = library.get(i);
       if (have.name != null && have.name.equalsIgnoreCase(clean)) {
         have.bytes = copy(bytes);
+        have.blob = null;
         have.note = label;
         have.which = which == 2 ? 2 : 1;
         save();
@@ -267,6 +323,7 @@ public final class PromptVault {
       LibraryFile have = library.get(i);
       if (have.which == kind && have.name != null && have.name.equalsIgnoreCase(clean)) {
         have.bytes = copy(bytes);
+        have.blob = null;
         have.note = label;
         save();
         return have.id;
@@ -284,7 +341,7 @@ public final class PromptVault {
   }
 
   private void addLibrary(List<StoredFile> out, LibraryFile image) {
-    if (image == null || image.bytes == null || image.bytes.length == 0) return;
+    if (image == null || image.size() == 0) return;
     String name = image.name == null || image.name.length() == 0 ? "frame.jpg" : image.name;
     String title = image.note == null || image.note.length() == 0 ? "Frame" : image.note;
     StoredFile row = new StoredFile();
@@ -292,7 +349,7 @@ public final class PromptVault {
     row.which = image.which == 2 || image.which == 3 ? image.which : 1;
     row.name = name;
     row.promptTitle = title;
-    row.size = image.bytes.length;
+    row.size = image.size();
     out.add(row);
   }
 
@@ -309,6 +366,13 @@ public final class PromptVault {
     byte[] bytes;
     String note;
     int which;
+    /** Kept in its own file (see Version.ref1Blob): its name and size, and bytes is empty. */
+    String blob;
+    int blobSize;
+
+    int size() {
+      return blob != null ? blobSize : bytes == null ? 0 : bytes.length;
+    }
   }
 
   private String titleOf(long promptId) {
@@ -437,7 +501,7 @@ public final class PromptVault {
         Version version = rows.get(i);
         boolean ok1 = n1.length() == 0 || n1.equals(version.ref1Name);
         boolean ok2 = n2.length() == 0 || n2.equals(version.ref2Name);
-        boolean has = version.ref1 != null && version.ref1.length > 0 || version.ref2 != null && version.ref2.length > 0;
+        boolean has = sizeOf(version, 1) > 0 || sizeOf(version, 2) > 0;
         if (ok1 && ok2 && has) return version;
       }
     }
@@ -509,12 +573,15 @@ public final class PromptVault {
     if (which == 1) {
       version.ref1Name = clean;
       version.ref1 = stored;
+      version.ref1Blob = null;
     } else if (which == 2) {
       version.ref2Name = clean;
       version.ref2 = stored;
+      version.ref2Blob = null;
     } else {
       version.resultName = clean;
       version.result = stored;
+      version.resultBlob = null;
     }
     save();
   }
@@ -617,12 +684,15 @@ public final class PromptVault {
     if (which == 1) {
       version.ref1Name = "";
       version.ref1 = new byte[0];
+      version.ref1Blob = null;
     } else if (which == 2) {
       version.ref2Name = "";
       version.ref2 = new byte[0];
+      version.ref2Blob = null;
     } else {
       version.resultName = "";
       version.result = new byte[0];
+      version.resultBlob = null;
     }
     save();
   }
@@ -687,6 +757,15 @@ public final class PromptVault {
   }
 
   private synchronized void save() throws Exception {
+    begin("Saving the encrypted database");
+    try {
+      write();
+    } finally {
+      end();
+    }
+  }
+
+  private void write() throws Exception {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
@@ -715,14 +794,29 @@ public final class PromptVault {
       writeUtf(out, version.description);
       writeUtf(out, version.body);
       writeUtf(out, version.ref1Name);
-      writeBytes(out, version.ref1);
+      if (version.ref1Blob == null && version.ref1 != null && version.ref1.length >= BLOB_MIN) {
+        version.ref1Size = version.ref1.length;
+        version.ref1Blob = keepBlob(version.ref1);
+        version.ref1 = new byte[0];
+      }
+      writeBytes(out, version.ref1, version.ref1Blob);
       writeUtf(out, version.ref2Name);
-      writeBytes(out, version.ref2);
+      if (version.ref2Blob == null && version.ref2 != null && version.ref2.length >= BLOB_MIN) {
+        version.ref2Size = version.ref2.length;
+        version.ref2Blob = keepBlob(version.ref2);
+        version.ref2 = new byte[0];
+      }
+      writeBytes(out, version.ref2, version.ref2Blob);
       out.writeLong(version.created);
       out.writeBoolean(version.finalVersion);
       writeUtf(out, version.model);
       writeUtf(out, version.resultName);
-      writeBytes(out, version.result);
+      if (version.resultBlob == null && version.result != null && version.result.length >= BLOB_MIN) {
+        version.resultSize = version.result.length;
+        version.resultBlob = keepBlob(version.result);
+        version.result = new byte[0];
+      }
+      writeBytes(out, version.result, version.resultBlob);
       writeUtf(out, version.codeType);
       writeUtf(out, version.resultText);
     }
@@ -735,7 +829,12 @@ public final class PromptVault {
         writeUtf(out, image.name);
         writeUtf(out, image.note);
         out.writeInt(image.which);
-        writeBytes(out, image.bytes);
+        if (image.blob == null && image.bytes != null && image.bytes.length >= BLOB_MIN) {
+          image.blobSize = image.bytes.length;
+          image.blob = keepBlob(image.bytes);
+          image.bytes = new byte[0];
+        }
+        writeBytes(out, image.bytes, image.blob);
       }
     }
     out.flush();
@@ -805,14 +904,26 @@ public final class PromptVault {
       row.body = readUtf(data);
       row.ref1Name = readUtf(data);
       row.ref1 = readBytes(data);
+      if (readBlob != null) {
+        row.ref1Blob = readBlob;
+        row.ref1Size = readSize;
+      }
       row.ref2Name = readUtf(data);
       row.ref2 = readBytes(data);
+      if (readBlob != null) {
+        row.ref2Blob = readBlob;
+        row.ref2Size = readSize;
+      }
       row.created = data.readLong();
       row.finalVersion = data.readBoolean();
       row.model = version >= 2 ? readUtf(data) : "";
       if (version >= 3) {
         row.resultName = readUtf(data);
         row.result = readBytes(data);
+        if (readBlob != null) {
+          row.resultBlob = readBlob;
+          row.resultSize = readSize;
+        }
       } else {
         row.resultName = "";
         row.result = new byte[0];
@@ -832,7 +943,11 @@ public final class PromptVault {
         image.note = readUtf(data);
         image.which = data.readInt();
         image.bytes = readBytes(data);
-        if (image.bytes != null && image.bytes.length > 0) library.add(image);
+        if (readBlob != null) {
+          image.blob = readBlob;
+          image.blobSize = readSize;
+        }
+        if (image.size() > 0) library.add(image);
       }
     }
   }
@@ -885,24 +1000,29 @@ public final class PromptVault {
    * A file of BLOB_MIN bytes or more (a picture, a video) is kept in its own encrypted file beside
    * the library (prompts-blob-<hash>.dat), named by its contents, and the library holds only its
    * name: a save then encrypts the small index and any new file, not every stored video again
-   * (which took half a minute with a large library). Smaller files stay inside.
+   * (which took half a minute with a large library), and opening reads only the index: a kept file
+   * is read and decrypted when it is asked for, so the library does not hold every video in memory
+   * (which ran the phone out of memory). Smaller files stay inside.
    */
-  private void writeBytes(DataOutputStream out, byte[] bytes) throws Exception {
-    if (bytes == null) bytes = new byte[0];
-    if (bytes.length < BLOB_MIN) {
-      out.writeInt(bytes.length);
-      out.write(bytes);
+  private void writeBytes(DataOutputStream out, byte[] bytes, String blob) throws Exception {
+    if (blob != null) {
+      blobsUsed.add(blob);
+      out.writeInt(-1);
+      writeUtf(out, blob);
       return;
     }
-    String name = blobNames.get(bytes);
-    if (name == null) {
-      java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-      byte[] d = md.digest(bytes);
-      StringBuilder sb = new StringBuilder(BLOB_PREFIX);
-      for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
-      name = sb.append(".dat").toString();
-      blobNames.put(bytes, name);
-    }
+    if (bytes == null) bytes = new byte[0];
+    out.writeInt(bytes.length);
+    out.write(bytes);
+  }
+
+  /** Writes `bytes` to its kept file (unless one with the same contents is there) and returns its name. */
+  private String keepBlob(byte[] bytes) throws Exception {
+    java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+    byte[] d = md.digest(bytes);
+    StringBuilder sb = new StringBuilder(BLOB_PREFIX);
+    for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
+    String name = sb.append(".dat").toString();
     File blob = new File(file.getParentFile(), name);
     if (!blob.isFile()) {
       File tmp = new File(file.getParentFile(), name + ".tmp");
@@ -914,37 +1034,62 @@ public final class PromptVault {
       }
       if (!tmp.renameTo(blob)) throw new IllegalStateException("Could not store " + name);
     }
-    blobsUsed.add(name);
-    out.writeInt(-1);
-    writeUtf(out, name);
+    return name;
   }
 
+  /** Set by readBytes: the kept file's name and size when the entry is one (bytes then empty), else null. */
+  private String readBlob;
+  private int readSize;
+
   private byte[] readBytes(DataInputStream in) throws Exception {
+    readBlob = null;
+    readSize = 0;
     int n = in.readInt();
     if (n == -1) {
       String name = readUtf(in);
       if (!name.startsWith(BLOB_PREFIX) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
       File blob = new File(file.getParentFile(), name);
       if (!blob.isFile()) return new byte[0];
-      FileInputStream fin = new FileInputStream(blob);
-      byte[] raw;
-      try {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream((int) Math.min(Integer.MAX_VALUE, blob.length()));
-        byte[] buf = new byte[65536];
-        for (int k; (k = fin.read(buf)) > 0; ) bos.write(buf, 0, k);
-        raw = bos.toByteArray();
-      } finally {
-        fin.close();
-      }
-      byte[] bytes = decrypt(raw);
-      blobNames.put(bytes, name);
-      return bytes;
+      // The kept file is the magic, the 12-byte IV, the file and the 16-byte tag.
+      long size = blob.length() - FILE_MAGIC.length - 12 - 16;
+      if (size <= 0) return new byte[0];
+      readBlob = name;
+      readSize = (int) Math.min(Integer.MAX_VALUE, size);
+      return new byte[0];
     }
     if (n < 0 || n > MAX_BYTES) throw new IllegalStateException("Prompt database is damaged");
     byte[] bytes = new byte[n];
     in.readFully(bytes);
     return bytes;
   }
+
+  /** The kept file read and decrypted (empty when it is gone or cannot be read). The last one read is kept for the next ask. */
+  private byte[] blobBytes(String name) {
+    if (name.equals(lastBlob) && lastBlobBytes != null) return copy(lastBlobBytes);
+    File blob = new File(file.getParentFile(), name);
+    if (!blob.isFile()) return new byte[0];
+    begin("Reading a file from the encrypted database");
+    try {
+      byte[] raw = new byte[(int) blob.length()];
+      DataInputStream fin = new DataInputStream(new FileInputStream(blob));
+      try {
+        fin.readFully(raw);
+      } finally {
+        fin.close();
+      }
+      byte[] bytes = decrypt(raw);
+      lastBlob = name;
+      lastBlobBytes = bytes;
+      return copy(bytes);
+    } catch (Exception ex) {
+      return new byte[0];
+    } finally {
+      end();
+    }
+  }
+
+  private String lastBlob;
+  private byte[] lastBlobBytes;
 
   /** The version the library file was written in (7 keeps large files on their own). */
   private int fileVersion = 7;
@@ -964,8 +1109,6 @@ public final class PromptVault {
   /** Files this large or larger are kept in their own encrypted files (see writeBytes). */
   static final int BLOB_MIN = 64 * 1024;
   static final String BLOB_PREFIX = "prompts-blob-";
-  /** Each kept file's array and its file name, so a save does not hash it again. */
-  private final java.util.IdentityHashMap<byte[], String> blobNames = new java.util.IdentityHashMap<byte[], String>();
   /** The files the last save named. */
   private final java.util.HashSet<String> blobsUsed = new java.util.HashSet<String>();
 

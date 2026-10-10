@@ -856,7 +856,8 @@ final class PromptDb {
             String category = sheet != null && sheet.category != null ? sheet.category : "";
             String n1 = sheet != null && sheet.ref1 != null ? sheet.ref1 : "";
             String n2 = sheet != null && sheet.ref2 != null ? sheet.ref2 : "";
-            PromptVault.Version version = vault().selectedRefs(title, category, n1, n2);
+            PromptVault vault = vault();
+            PromptVault.Version version = vault.selectedRefs(title, category, n1, n2);
             if (version == null) {
                 refs.note = "Reference file 1: none\nReference file 2: none";
                 return refs;
@@ -866,9 +867,9 @@ final class PromptDb {
             String name1 = version.ref1Name == null ? "" : version.ref1Name;
             String name2 = version.ref2Name == null ? "" : version.ref2Name;
             refs.description = version.description == null ? "" : version.description;
-            refs.resultName = version.result != null && version.result.length > 0 && version.resultName != null ? version.resultName : "";
-            if (version.ref1 != null && version.ref1.length > 0) refs.ref1Path = write(dir, "ref1-", name1, version.ref1);
-            if (version.ref2 != null && version.ref2.length > 0) refs.ref2Path = write(dir, "ref2-", name2, version.ref2);
+            refs.resultName = vault.sizeOf(version, 3) > 0 && version.resultName != null ? version.resultName : "";
+            if (vault.sizeOf(version, 1) > 0) refs.ref1Path = write(dir, "ref1-", name1, vault.bytesOf(version, 1));
+            if (vault.sizeOf(version, 2) > 0) refs.ref2Path = write(dir, "ref2-", name2, vault.bytesOf(version, 2));
             refs.note = line("Reference file 1", name1, refs.ref1Path) + "\n" + line("Reference file 2", name2, refs.ref2Path);
         } catch (Exception ex) {
             refs.note = "Could not read the encrypted database.";
@@ -902,7 +903,7 @@ final class PromptDb {
             PromptVault vault = vault();
             PromptVault.Version version = vault.selectedRefs(sheet.name, sheet.category, sheet.ref1, sheet.ref2);
             if (version == null) return "";
-            if (version.result != null && version.result.length > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
+            if (vault.sizeOf(version, 3) > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
             vault.putFile(version.id, 3, fileName, bytes);
             return fileName;
         } catch (Exception ex) {

@@ -540,10 +540,10 @@ final class PromptsPage {
         this.promptModel.setText(this.modelFor(version.promptId, version.model));
         this.ref1Name = version.ref1Name == null ? "" : version.ref1Name;
         this.ref2Name = version.ref2Name == null ? "" : version.ref2Name;
-        this.ref1Bytes = version.ref1 == null ? new byte[0] : version.ref1;
-        this.ref2Bytes = version.ref2 == null ? new byte[0] : version.ref2;
+        this.ref1Bytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 1);
+        this.ref2Bytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 2);
         this.resultName = version.resultName == null ? "" : version.resultName;
-        this.resultBytes = version.result == null ? new byte[0] : version.result;
+        this.resultBytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 3);
         this.resultText = version.resultText == null ? "" : version.resultText;
         this.promptRef1.setText(storedLabel(this.ref1Name, this.ref1Bytes));
         this.promptRef2.setText(storedLabel(this.ref2Name, this.ref2Bytes));

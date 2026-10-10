@@ -723,10 +723,10 @@ public final class PromptSheet {
     if (model != null) model.setText(modelFor(version.promptId, version.model));
     ref1Name = version.ref1Name == null ? "" : version.ref1Name;
     ref2Name = version.ref2Name == null ? "" : version.ref2Name;
-    ref1Bytes = version.ref1 == null ? new byte[0] : version.ref1;
-    ref2Bytes = version.ref2 == null ? new byte[0] : version.ref2;
+    ref1Bytes = vault == null ? new byte[0] : vault.bytesOf(version, 1);
+    ref2Bytes = vault == null ? new byte[0] : vault.bytesOf(version, 2);
     resultName = version.resultName == null ? "" : version.resultName;
-    resultBytes = version.result == null ? new byte[0] : version.result;
+    resultBytes = vault == null ? new byte[0] : vault.bytesOf(version, 3);
     resultText = version.resultText == null ? "" : version.resultText;
     if (ref1 != null) ref1.setText(storedLabel(ref1Name, ref1Bytes));
     if (ref2 != null) ref2.setText(storedLabel(ref2Name, ref2Bytes));
