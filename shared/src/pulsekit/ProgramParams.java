@@ -300,6 +300,8 @@ public final class ProgramParams {
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
     }
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+    // Sogni programs: the render deleted on Sogni once it is downloaded (Sogni keeps it up to 48 hours otherwise).
+    if (p.flag && !p.takesValue && p.token.equals("--delete_from_sogni")) p.label = "Delete from Sogni after download";
     // SogniChat: the sheet goes into the prompt library with the saved chat (.txt) as its result file.
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt") && chat) p.label = "Save the prompt, and the answer .txt as its result file in DB";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
@@ -374,13 +376,16 @@ public final class ProgramParams {
     } else if (p.token.equals("--confirm_cost")) {
       p.label = "Confirm the charge (method 3)";
     } else if (p.token.equals("--unlimited")) {
-      p.label = "Unlimited Plan (method 3; fair use limits apply)";    } else if (p.token.equals("--output_dir")) {
+      p.label = "Unlimited Plan (method 3; fair use limits apply)";
+    } else if (p.token.equals("--output_dir")) {
       p.label = "Output directory";
       p.hint = "download (default) or original: also beside the input picture";
       p.choices = new String[] {"download (Download / program files folder)", "original (also in the input picture's folder)"};
       p.choiceValues = new String[] {"download", "original"};
     } else if (p.token.equals("--addtodb")) {
       p.label = "Add the picture to DB as a Reference file";
+    } else if (p.token.equals("--delete_from_sogni")) {
+      p.label = "Delete from Sogni after download (method 3)";
     }
   }
 

@@ -133,6 +133,7 @@ public final class SogniPadd {
     boolean confirm = false;
     boolean unlimited = false;
     boolean savePrompt = false;
+    boolean deleteFromSogni = false;
     // The model's mature output needs Sogni's Safe Content Filter off: off on every SogniPadd run.
     SogniApi.noFilter = true;
     for (int i = 0; i < args.length; i++) {
@@ -144,6 +145,7 @@ public final class SogniPadd {
       else if (a.equals("--height") && i + 1 < args.length) height = number(a, args[++i]);
       else if (a.equals("--seed") && i + 1 < args.length) seed = number(a, args[++i]);
       else if (a.equals("--saveprompt")) savePrompt = true;
+      else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -269,6 +271,8 @@ public final class SogniPadd {
       say("Wrote " + file.getName() + " (" + size(data.length) + ")");
       resultFile = file.getName();
       if (!"completed".equals(status)) say("Note: workflow " + status);
+      // --delete_from_sogni: the render deleted on Sogni now that it is saved here.
+      if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
       say("Succeeded: " + file.getName());
     } catch (SogniApi.ApiException ex) {
       say("Failed: " + ex.getMessage());
@@ -286,7 +290,7 @@ public final class SogniPadd {
 
   static void usage() {
     say("Usage: java SogniPadd [output.png] [--prompt text] [--loras id:strength,...] [--aspect 16:9|9:16|4:5|1:1] [--width N] [--height N] "
-        + "[--seed N] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id]");
+        + "[--seed N] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni]");
   }
 
   /** "krea2-mystic-x 1, krea2-weight -1". */
@@ -727,6 +731,84 @@ public final class SogniPadd {
       if (title != null && title.length() > 0) input.put("title", title);
       input.put("steps", steps);
       return toJson(input);
+    }
+
+    private static final java.util.regex.Pattern PROJECT_URL = java.util.regex.Pattern.compile(
+      "/projects?/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})");
+
+    /**
+     * The Sogni projects (renders) a workflow record names: projectId / project_id / projectIds
+     * values anywhere in it, and project ids in its result links (.../projects/<id>/...). The ones
+     * Sogni's app deletes with DELETE /v1/projects/<id>. In the order found, each once.
+     */
+    public static List<String> projectIds(Object record) {
+      List<String> out = new ArrayList<String>();
+      collectProjects(record, null, out);
+      return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectProjects(Object v, String key, List<String> out) {
+      String k = key == null ? "" : key.toLowerCase(java.util.Locale.ROOT).replace("_", "");
+      boolean named = k.equals("projectid") || k.equals("projectids") || k.equals("sogniprojectid");
+      if (v instanceof Map) {
+        for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) collectProjects(e.getValue(), e.getKey(), out);
+      } else if (v instanceof List) {
+        for (Object o : (List<Object>) v) collectProjects(o, named ? key : null, out);
+      } else if (v instanceof String) {
+        String t = ((String) v).trim();
+        if (named && t.matches("[A-Za-z0-9_-]{6,80}")) {
+          if (!out.contains(t)) out.add(t);
+        } else {
+          java.util.regex.Matcher m = PROJECT_URL.matcher(t);
+          while (m.find()) if (!out.contains(m.group(1))) out.add(m.group(1));
+        }
+      }
+    }
+
+    /** Deletes a Sogni project (a render and its files), as Sogni's app does: DELETE /v1/projects/<id>. */
+    public void deleteProject(String id) throws IOException {
+      HttpURLConnection c = this.open("DELETE", "/v1/projects/" + enc(id));
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      c.disconnect();
+    }
+
+    /**
+     * Delete from Sogni after download: each project the workflow record names deleted; a line for
+     * the log each. When it names none, `record` (when given) gets the record, so what Sogni sends
+     * can be read, and a note says nothing was deleted.
+     */
+    public List<String> deleteProjects(Map<String, Object> wf, File record) {
+      List<String> lines = new ArrayList<String>();
+      List<String> ids = projectIds(wf);
+      if (ids.isEmpty()) {
+        String saved = "";
+        if (record != null) {
+          try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(record);
+            try {
+              fos.write(toJson(wf).getBytes(StandardCharsets.UTF_8));
+            } finally {
+              fos.close();
+            }
+            saved = "; Sogni's record of the run is saved as " + record.getName();
+          } catch (IOException ex) {
+            // the note says enough
+          }
+        }
+        lines.add("Note: Sogni's record of this run names no project, so nothing was deleted on Sogni" + saved);
+        return lines;
+      }
+      for (String id : ids) {
+        try {
+          this.deleteProject(id);
+          lines.add("Deleted from Sogni: project " + id);
+        } catch (IOException ex) {
+          lines.add("Note: could not delete Sogni project " + id + " (" + ex.getMessage() + ")");
+        }
+      }
+      return lines;
     }
 
     /** The picture results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */

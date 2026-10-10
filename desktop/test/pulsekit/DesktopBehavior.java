@@ -3430,6 +3430,7 @@ public final class DesktopBehavior {
     File pic = new File(home, "pic.png");
     javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
     final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final List<String> deletes = Collections.synchronizedList(new ArrayList<String>());
     final int[] made = new int[2];
     com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
     final int port = server.getAddress().getPort();
@@ -3448,8 +3449,13 @@ public final class DesktopBehavior {
       } else if (path.endsWith("/events/stream")) {
         type = "text/event-stream";
         bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (ex.getRequestMethod().equals("DELETE")) {
+        deletes.add("DELETE " + path);
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
       } else if (path.equals("/v1/creative-agent/workflows/wu")) {
-        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+        // The first run's record names its render (Sogni project); the second's names none.
+        String project = starts.size() == 1 ? ",\"steps\":[{\"id\":\"upscale\",\"projectId\":\"2DBC4994-FC95-4840-A5A1-FE264242D6A2\"}]" : "";
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"completed\"" + project + ",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
             + "/files/big.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
       } else if (path.equals("/files/big.png")) {
         // As RTX VSR: the last start's longest side, in the uploaded picture's shape (square for 1:1, else 4:3).
@@ -3483,7 +3489,7 @@ public final class DesktopBehavior {
       }
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String sogni = " --method 3 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
-      String[] runs = {"\"" + pic.getAbsolutePath() + "\" sq.png --width 1024 --aspect 1:1" + sogni, "\"" + pic.getAbsolutePath() + "\" two.png --confirm_cost --max_cost 5" + sogni,
+      String[] runs = {"\"" + pic.getAbsolutePath() + "\" sq.png --width 1024 --aspect 1:1 --delete_from_sogni" + sogni, "\"" + pic.getAbsolutePath() + "\" two.png --confirm_cost --max_cost 5 --delete_from_sogni" + sogni,
         "\"" + pic.getAbsolutePath() + "\" small.png --scale 0.5" + sogni};
       for (String extra : runs) {
         edt(() -> log.setText(""));
@@ -3494,7 +3500,7 @@ public final class DesktopBehavior {
         idle();
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~").replace(String.valueOf(port), "PORT")).append('\n');
         for (String line : textOf(log).split("\n")) {
-          if (line.matches("(Read|Note|Uploaded|Sogni|Workflow|Method|Wrote|Succeeded|Failed).*")) out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+          if (line.matches("(Read|Note|Uploaded|Sogni|Workflow|Method|Wrote|Succeeded|Failed|Deleted).*")) out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
       }
       synchronized (starts) {
@@ -3505,6 +3511,10 @@ public final class DesktopBehavior {
               .append(", references ").append(((List<?>) m.get("media_references")).size()).append('\n');
         }
       }
+      synchronized (deletes) {
+        for (String d : deletes) out.append(d).append('\n');
+      }
+      out.append("record saved: ").append(new File(home, ".pulsekit/sogni_workflow_record.txt").isFile()).append('\n');
       for (String n : new String[] {"sq.png", "two.png", "small.png"}) {
         File f = new File(home, ".pulsekit/" + n);
         java.awt.image.BufferedImage got = f.isFile() ? javax.imageio.ImageIO.read(f) : null;
