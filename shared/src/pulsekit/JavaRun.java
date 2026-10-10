@@ -132,6 +132,19 @@ public final class JavaRun {
     return argv;
   }
 
+  /**
+   * The key file from File > Drum Midi Settings added as --key_file when the program takes one and
+   * `argv` has none: also for a run with an input file (ImageUpscaler's picture), which argvFor does
+   * not build. `argv` itself, changed.
+   */
+  public static List<String> withKeyFile(String source, List<String> argv) {
+    String key = ApiKeys.path();
+    if (argv == null || key == null || source == null || !source.contains("--key_file") || argv.contains("--key_file")) return argv;
+    argv.add("--key_file");
+    argv.add(key);
+    return argv;
+  }
+
   private static String publicClassName(String src) {
     if (src == null) return null;
     java.util.regex.Matcher m = java.util.regex.Pattern

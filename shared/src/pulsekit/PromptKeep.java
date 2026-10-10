@@ -29,6 +29,7 @@ final class PromptKeep {
         if (musicToDb && "SogniMusic.java".equals(program)) add(kept, keepSogniMusic(dir, result, argv));
         if ("JoinVideo.java".equals(program)) add(kept, keepJoined(dir, result, argv));
         if ("SogniVideo.java".equals(program)) add(kept, keepMerged(dir, result));
+        if ("ImageUpscaler.java".equals(program)) add(kept, keepUpscaled(dir, result, argv));
         return kept.toString();
     }
 
@@ -43,6 +44,7 @@ final class PromptKeep {
         if (genToDb && "MidiDrumGen.java".equals(program)) return true;
         if (musicToDb && "SogniMusic.java".equals(program)) return true;
         if ("JoinVideo.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
+        if ("ImageUpscaler.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
         return "SogniVideo.java".equals(program);
     }
 
@@ -169,6 +171,36 @@ final class PromptKeep {
             }
         }
         return note.toString();
+    }
+
+    /**
+     * ImageUpscaler with --addtodb: the picture it made into the prompt library on its own, as a
+     * Reference file (Ref files, Browse DB). Returns a line for the log, or "".
+     */
+    static String keepUpscaled(File dir, JavaRun.Result result, List<String> argv) {
+        if (dir == null || argv == null || !argv.contains("--addtodb")) return "";
+        JavaRun.FileOut f = made(result);
+        if (f == null) return "";
+        if (f.bytes.length > MAX_BYTES) return "Prompt library: " + f.name + " is over 16 MB, so it is not kept there";
+        try {
+            PromptVault.open(dir).addLibraryFile(f.name, f.bytes, "ImageUpscaler", 1);
+            return "Prompt library: " + f.name + " (reference file)";
+        } catch (Exception ex) {
+            return "Prompt library: could not store " + f.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+        }
+    }
+
+    /** The file a successful run names on its "Succeeded: <file>" line, among the files it made; null if none. */
+    static JavaRun.FileOut made(JavaRun.Result result) {
+        if (result == null || result.files == null || result.code != 0 || result.log == null) return null;
+        String name = null;
+        for (String line : result.log.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Succeeded: ")) name = t.substring(11).trim();
+        }
+        if (name == null) return null;
+        for (JavaRun.FileOut f : result.files) if (name.equals(f.name) && f.bytes != null && f.bytes.length > 0) return f;
+        return null;
     }
 
     /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */

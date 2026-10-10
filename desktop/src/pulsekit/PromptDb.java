@@ -1060,6 +1060,34 @@ final class PromptDb {
         this.vlcPreview(name, video, false, false);
     }
 
+    /** The last frame C saved, for the tests. */
+    File lastCapture;
+
+    /** C: the frame shown (paused) saved as a PNG in the SC folder beside the video (made when it is not there). */
+    void captureFrame(String name, File video, VlcPlayer player) {
+        java.awt.image.BufferedImage img = player.screen.frame;
+        if (img == null) {
+            app.setNow("No frame to capture yet");
+            return;
+        }
+        int vw = player.screen.visibleW;
+        int vh = player.screen.visibleH;
+        if (vw > 0 && vh > 0 && (vw < img.getWidth() || vh < img.getHeight())) img = img.getSubimage(0, 0, Math.min(vw, img.getWidth()), Math.min(vh, img.getHeight()));
+        File folder = new File(video.getAbsoluteFile().getParentFile(), MediaDir.FRAMES_DIR);
+        try {
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
+            String file = MediaDir.frameName(name, player.timeMs());
+            String stem = file.replaceAll("\\.png$", "");
+            File out = new File(folder, file);
+            for (int n = 1; out.exists(); n++) out = new File(folder, stem + " (" + n + ").png");
+            javax.imageio.ImageIO.write(img, "png", out);
+            this.lastCapture = out;
+            app.setNow("Saved the frame as " + out.getPath());
+        } catch (Exception ex) {
+            app.setNow("Could not capture the frame: " + ex.getMessage());
+        }
+    }
+
     /** Media browser: the speed picked (or the remembered one), for the tests. */
     javax.swing.JComboBox<String> lastSpeed;
 
@@ -1089,10 +1117,20 @@ final class PromptDb {
         final double[] rate = new double[] {1};
         final boolean[] dragging = new boolean[1];
         player.volume(startVolume);
+        // Play, Pause and Stop each always shown (as on the phone); C saves the paused frame.
         play.addActionListener(e -> {
-            if (player.playing()) player.pause();
-            else player.play();
+            if (!player.playing()) player.play();
         });
+        JButton pause = new JButton("Pause");
+        pause.setName("video-pause");
+        pause.addActionListener(e -> {
+            if (player.playing()) player.pause();
+        });
+        final JButton capture = new JButton("C");
+        capture.setName("video-capture");
+        capture.setToolTipText("Capture this frame into the SC folder beside the video");
+        capture.setVisible(false);
+        capture.addActionListener(e -> this.captureFrame(name, video, player));
         stop.addActionListener(e -> {
             player.stop();
             position.setValue(0);
@@ -1160,8 +1198,9 @@ final class PromptDb {
                 // Stopped or at its end: the next start begins at 1x.
                 rate[0] = 1;
             }
-            play.setText(on ? "Pause" : "Play");
             long len = player.lengthMs();
+            // C while paused (a frame shown), in the Media browser's player.
+            capture.setVisible(remember && !on && player.screen.frame != null && player.state() != 0);
             int state = player.state();
             // Loop: at its end it plays again from the start.
             if (state == VlcPlayer.ENDED && looping.isSelected()) {
@@ -1174,13 +1213,28 @@ final class PromptDb {
             if (!dragging[0]) position.setValue(state == VlcPlayer.ENDED ? 1000 : Math.round(player.position() * 1000));
         });
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        transport.add(play);
         transport.add(stop);
-        transport.add(mute);
-        transport.add(new JLabel("Volume"));
-        transport.add(volume);
-        transport.add(level);
+        transport.add(play);
+        transport.add(pause);
+        transport.add(capture);
+        // Mute and volume: in the Media browser's player at the top, shown by a click on the picture.
+        final JPanel sound = remember ? new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)) : transport;
+        sound.setName("video-sound");
+        sound.add(mute);
+        sound.add(new JLabel("Volume"));
+        sound.add(volume);
+        sound.add(level);
         transport.add(looping);
+        if (remember) {
+            sound.setVisible(false);
+            player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseClicked(java.awt.event.MouseEvent e) {
+                    sound.setVisible(!sound.isVisible());
+                    sound.getParent().revalidate();
+                }
+            });
+        }
         JPanel zooms = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         zooms.add(zoomOut);
         zooms.add(zoomIn);
@@ -1220,6 +1274,7 @@ final class PromptDb {
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         body.add(player.screen, BorderLayout.CENTER);
         body.add(south, BorderLayout.SOUTH);
+        if (remember) body.add(sound, BorderLayout.NORTH);
         dialog.setContentPane(body);
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override

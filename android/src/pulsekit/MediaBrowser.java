@@ -84,16 +84,21 @@ final class MediaBrowser {
     /** Params' Browse: the system's folder picker, for the waiting Directory row. */
     static void pick(MainActivity app) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        // Writing too: captured frames (SC) and ImageUpscaler's copy go into the folder.
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         app.startActivityForResult(intent, PICK_DIR);
     }
 
     /** The folder picked: kept readable after a restart too (a run opens it again). */
     static void keep(MainActivity app, Uri tree) {
         try {
-            app.getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) {
-            // readable for this session still
+            app.getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ex) {
+            try {
+                app.getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                // readable for this session still
+            }
         }
     }
 
@@ -264,12 +269,117 @@ final class MediaBrowser {
 
     /** Upscale/resize image: ImageUpscaler on PyJav, with the picture (copied into PyJav's input folder) as its input; its Params open. */
     void upscale(final MediaDir.Entry e) {
+        final Uri tree = this.tree;
+        final String base = this.base;
+        final String root = this.root;
+        final List<String> at = new ArrayList<String>(this.path);
+        final MainActivity host = this.app;
         this.chosen(e, (name, file) -> {
-            this.app.openKitView("py");
-            this.app.programMenus.selectProgram("Java", "ImageUpscaler.java");
-            this.app.pyJav.pkUseInputPath(file.getAbsolutePath());
-            this.app.pyJav.pkOpenParams();
+            host.openKitView("py");
+            host.programMenus.selectProgram("Java", "ImageUpscaler.java");
+            host.pyJav.pkUseInputPath(file.getAbsolutePath());
+            // Return: the Media browser again, in this folder (the new picture listed when it was saved here).
+            host.pyJav.pkSetReturn(() -> reopen(host, tree, base, root, at));
+            host.pyJav.pkOpenParams();
         });
+    }
+
+    /** The Media browser again on the folders `at` (the first the folder picked), as Return from ImageUpscaler opens it. */
+    static MediaBrowser reopen(MainActivity app, Uri tree, String base, String root, List<String> at) {
+        MediaBrowser b = at.size() > 0 && DOWNLOADS.equals(at.get(0)) ? new MediaBrowser(app, null, DOWNLOADS) : make(app, base, false);
+        if (b == null) return null;
+        b.path.clear();
+        b.path.addAll(at);
+        b.root = root;
+        load(app);
+        last = b;
+        b.show();
+        return b;
+    }
+
+    /**
+     * Where each file copied into PyJav's input folder came from: {granted folder or "", the folder's
+     * document id, path or DOWNLOADS}. ImageUpscaler's --output_dir original puts its copy there.
+     */
+    static final java.util.Map<String, String[]> ORIGIN = new java.util.concurrent.ConcurrentHashMap<String, String[]>();
+
+    /**
+     * Writes `data` as `name` in a folder (`origin` as ORIGIN keeps it), or in its subfolder `sub`
+     * (made when it is not there); a name taken gets " (1)". Returns where, for the log. Throws with
+     * what to do when the folder cannot be written.
+     */
+    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, byte[] data) throws Exception {
+        String tree = origin[0];
+        String dir = origin[1];
+        if (DOWNLOADS.equals(dir)) {
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                origin = new String[] {"", android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).getAbsolutePath()};
+                return saveInto(app, origin, sub, name, mime, data);
+            }
+            android.content.ContentValues v = new android.content.ContentValues();
+            v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
+            String rel = android.os.Environment.DIRECTORY_DOWNLOADS + (sub == null ? "" : "/" + sub);
+            v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, rel);
+            Uri uri = app.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null) throw new java.io.IOException("Download takes no more files named " + name);
+            java.io.OutputStream os = app.getContentResolver().openOutputStream(uri);
+            try {
+                os.write(data);
+            } finally {
+                os.close();
+            }
+            return rel + "/" + name;
+        }
+        if (tree == null || tree.length() == 0) {
+            File folder = sub == null ? new File(dir) : new File(dir, sub);
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+            String ext = name.substring(stem.length());
+            File f = new File(folder, name);
+            for (int n = 1; f.exists(); n++) f = new File(folder, stem + " (" + n + ")" + ext);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+            try {
+                fos.write(data);
+            } finally {
+                fos.close();
+            }
+            return f.getPath();
+        }
+        Uri treeUri = Uri.parse(tree);
+        try {
+            Uri folder = DocumentsContract.buildDocumentUriUsingTree(treeUri, dir);
+            String label = MediaDir.label(folder.toString());
+            if (sub != null) {
+                Uri found = null;
+                Cursor c = app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, dir),
+                    new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+                if (c != null) {
+                    try {
+                        while (c.moveToNext()) {
+                            if (sub.equals(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) found = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
+                        }
+                    } finally {
+                        c.close();
+                    }
+                }
+                if (found == null) found = DocumentsContract.createDocument(app.getContentResolver(), folder, DocumentsContract.Document.MIME_TYPE_DIR, sub);
+                if (found == null) throw new java.io.IOException("could not make the " + sub + " folder");
+                folder = found;
+                label = label + "/" + sub;
+            }
+            Uri file = DocumentsContract.createDocument(app.getContentResolver(), folder, mime, name);
+            if (file == null) throw new java.io.IOException("could not write " + name);
+            java.io.OutputStream os = app.getContentResolver().openOutputStream(file);
+            try {
+                os.write(data);
+            } finally {
+                os.close();
+            }
+            return label + "/" + name;
+        } catch (SecurityException ex) {
+            throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
+        }
     }
 
     /** Choose file: the file tapped, copied into PyJav's input folder off the main thread, then handed on. */
@@ -299,6 +409,7 @@ final class MediaBrowser {
                 out = null;
             }
             final File got = out;
+            if (got != null) ORIGIN.put(got.getAbsolutePath(), new String[] {this.tree == null ? "" : this.tree.toString(), here()});
             this.main.post(() -> {
                 if (got == null) {
                     this.app.setNow("Could not read " + e.name);
@@ -1114,6 +1225,28 @@ final class MediaBrowser {
         TextView mute;
         TextView speedLabel;
         TextView time;
+        /** Mute and volume (shown by a tap), C, and the position bar. */
+        View sound;
+        TextView capture;
+        SeekBar position;
+        /** The last frame C saved, for the tests. */
+        String captured;
+
+        /** C shows while paused; the position bar follows the video. */
+        void paintTransport() {
+            boolean on = false;
+            int at = 0;
+            int len = 0;
+            try {
+                on = media != null ? media.isPlaying() : view.isPlaying();
+                at = media != null ? media.getCurrentPosition() : view.getCurrentPosition();
+                len = media != null ? media.getDuration() : view.getDuration();
+            } catch (Exception ignored) {
+                // not ready, or closing
+            }
+            if (capture != null) capture.setVisibility(!on && media != null ? View.VISIBLE : View.GONE);
+            if (position != null && len > 0) position.setProgress((int) Math.min(1000, (long) at * 1000 / len));
+        }
 
         /** The player's window and the app's: kept on while it plays. */
         android.view.Window window;
@@ -1260,6 +1393,7 @@ final class MediaBrowser {
             if (!d.isShowing()) return;
             p.showTime();
             p.keepAwake();
+            p.paintTransport();
             this.main.postDelayed(clock[0], 250);
         };
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
@@ -1306,7 +1440,66 @@ final class MediaBrowser {
         p.level.setTag("media-video-level");
         p.level.setMinWidth(this.app.dp(52));
         sound.addView(p.level);
-        col.addView(sound);
+        // Mute and volume at the top, shown by a tap on the video (and hidden by the next).
+        sound.setTag("media-video-sound");
+        sound.setVisibility(View.GONE);
+        p.sound = sound;
+        col.addView(sound, 1);
+        // Stop, Play, Pause and the position: always shown; C (capture the frame) while paused.
+        LinearLayout transport = this.app.row();
+        transport.setPadding(this.app.dp(8), this.app.dp(4), this.app.dp(8), 0);
+        TextView stopBtn = this.app.pill("\u25a0 Stop", false, v -> {
+            try {
+                p.view.pause();
+                p.view.seekTo(0);
+            } catch (RuntimeException ignored) {
+                // not ready
+            }
+            p.paintTransport();
+        });
+        stopBtn.setTag("media-video-stop");
+        TextView playBtn = this.app.pill("\u25b6 Play", false, v -> {
+            p.view.start();
+            p.paintTransport();
+        });
+        playBtn.setTag("media-video-play");
+        TextView pauseBtn = this.app.pill("\u275a\u275a Pause", false, v -> {
+            p.view.pause();
+            p.paintTransport();
+        });
+        pauseBtn.setTag("media-video-pause");
+        p.capture = this.app.pill("C", false, v -> this.capture(e, p));
+        p.capture.setTag("media-video-capture");
+        p.capture.setContentDescription("Capture this frame into the SC folder");
+        p.capture.setVisibility(View.GONE);
+        for (TextView t : new TextView[] {stopBtn, playBtn, pauseBtn, p.capture}) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            transport.addView(t, lp);
+        }
+        p.position = new SeekBar(this.app);
+        p.position.setMax(1000);
+        p.position.setTag("media-video-position");
+        p.position.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                if (!fromUser) return;
+                try {
+                    int len = p.view.getDuration();
+                    if (len > 0) p.view.seekTo((int) ((long) len * value / 1000));
+                } catch (RuntimeException ignored) {
+                    // not ready
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        transport.addView(p.position, new LinearLayout.LayoutParams(0, -2, 1f));
+        col.addView(transport);
         // Zoom.
         LinearLayout zoom = this.app.row();
         zoom.setPadding(this.app.dp(8), 0, this.app.dp(8), this.app.dp(6));
@@ -1388,10 +1581,8 @@ final class MediaBrowser {
                 down[2] = 1;
             } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
                 this.main.removeCallbacks(hold);
-                if (act == MotionEvent.ACTION_UP && down[2] == 0) {
-                    if (controls.isShowing()) controls.hide();
-                    else p.showControls(controls, false);
-                }
+                // A tap shows Mute and the volume at the top (the next tap hides them); held, the position controls come on top.
+                if (act == MotionEvent.ACTION_UP && down[2] == 0) p.sound.setVisibility(p.sound.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             }
             return true;
         };
@@ -1432,6 +1623,49 @@ final class MediaBrowser {
         d.setContentView(col);
         d.show();
         p.view.start();
+    }
+
+    /**
+     * C: the paused video's frame saved as a PNG in the SC folder under the video's folder (made
+     * when it is not there): clip-0m12s345.png. Read and written off the main thread.
+     */
+    void capture(final MediaDir.Entry e, final Video p) {
+        final long ms;
+        try {
+            ms = p.media != null ? p.media.getCurrentPosition() : p.view.getCurrentPosition();
+        } catch (RuntimeException ex) {
+            return;
+        }
+        final Uri u = this.uri(e);
+        final boolean disk = this.onDisk(e);
+        final String[] where = new String[] {this.tree == null ? "" : this.tree.toString(), here()};
+        this.app.setNow("Capturing the frame at " + clock((int) ms) + "\u2026");
+        new Thread(() -> {
+            String said;
+            MediaMetadataRetriever media = new MediaMetadataRetriever();
+            try {
+                if (disk) media.setDataSource(e.id);
+                else media.setDataSource(this.app, u);
+                Bitmap frame = media.getFrameAtTime(ms * 1000, MediaMetadataRetriever.OPTION_CLOSEST);
+                if (frame == null) throw new java.io.IOException("the phone gave no picture at " + clock((int) ms));
+                java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+                frame.compress(Bitmap.CompressFormat.PNG, 100, png);
+                String name = MediaDir.frameName(e.name, ms);
+                said = "Saved the frame as " + saveInto(this.app, where, MediaDir.FRAMES_DIR, name, "image/png", png.toByteArray());
+                p.captured = name;
+            } catch (Throwable ex) {
+                said = "Could not capture the frame: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            } finally {
+                try {
+                    media.release();
+                } catch (Exception ignored) {}
+            }
+            final String shown = said;
+            this.main.post(() -> {
+                this.app.setNow(shown);
+                android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
+            });
+        }, "pulsekit-capture").start();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */

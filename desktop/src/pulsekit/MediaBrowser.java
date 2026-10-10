@@ -44,6 +44,18 @@ final class MediaBrowser {
         this.app = app;
     }
 
+    /** The folder picked (Up stops there) of the folder shown. */
+    File shownRoot;
+
+    /** The Media browser again on `dir` under `root`, as Return from ImageUpscaler opens it. */
+    void reopen(File root, File dir) {
+        this.chooser = null;
+        this.tab = "";
+        this.other = null;
+        loadLoop();
+        this.show(root, dir);
+    }
+
     /** Choose file: what to do with the file picked, or null for the Media browser itself. */
     java.util.function.Consumer<File> chooser;
     /** Choose file's tab: "recent", "download" or "fav:<n>". */
@@ -162,6 +174,7 @@ final class MediaBrowser {
     /** The dialog's contents for `dir`; the thumbnails come in the background. */
     private void fill(final JDialog dialog, final File root, final File dir) {
         this.shown = dir;
+        this.shownRoot = root;
         // Remembered: the folder picked and the folders opened under it, for the next time.
         final List<String> under = new ArrayList<String>();
         for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
@@ -641,10 +654,14 @@ final class MediaBrowser {
     String menuPicked(MediaDir.Entry entry, File f, int which) {
         if (which == MediaDir.UPSCALE_ITEM) {
             // Upscale/resize image: ImageUpscaler on PyJav with this picture as its input; its Params open.
+            final File root = this.shownRoot;
+            final File dir = this.shown;
             if (this.last != null) this.last.dispose();
             app.showView("py");
             app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
             app.pyJav.setInputFile(f);
+            // Return: the Media browser again, in this folder.
+            app.pyJav.setReturn(() -> this.reopen(root, dir));
             SwingUtilities.invokeLater(() -> app.pyJav.openParams());
             return "ImageUpscaler: " + entry.name;
         }

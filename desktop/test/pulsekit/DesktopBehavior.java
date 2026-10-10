@@ -1528,7 +1528,7 @@ public final class DesktopBehavior {
     Thread.sleep(2200);
     out.append("after Play 2 s: frame ").append(color.get()).append(", playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText())
         .append(", slider moved ").append(((javax.swing.JSlider) component(dialog, "video-position")).getValue() > 300).append('\n');
-    edt(() -> b.apply("video-play").doClick());
+    edt(() -> b.apply("video-pause").doClick());
     Thread.sleep(400);
     out.append("Pause: playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText()).append('\n');
     edt(() -> b.apply("video-play").doClick());
@@ -2296,7 +2296,7 @@ public final class DesktopBehavior {
       }
     };
     if (VlcPlayer.available()) {
-      answers.add("Mute");
+      answers.add("Fit");
       SwingUtilities.invokeLater(open);
       for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
       Thread.sleep(1200);
@@ -2338,7 +2338,7 @@ public final class DesktopBehavior {
       out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ').replaceAll("place=\\w+", "place=(sealed)")).append('\n');
       // The next video opens as that one was left.
       set("lastVideo", null);
-      answers.add("Mute");
+      answers.add("Fit");
       SwingUtilities.invokeLater(open);
       for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
       Thread.sleep(800);
@@ -3513,6 +3513,122 @@ public final class DesktopBehavior {
     } finally {
       server.stop(0);
     }
+  }
+
+  /**
+   * ImageUpscaler from the Media browser: a copy in the picture's folder (--output_dir original), the
+   * picture in DB (--addtodb), the key file from Drum Midi Settings, and Return back to the Media
+   * browser. MediaBrowser.java's Run without a folder opens the one last opened.
+   */
+  void s77_upscaler_extras() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "shots-up");
+    media.mkdirs();
+    File pic = new File(media, "a.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    File key = new File(home, "key.txt");
+    Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+    ApiKeys.init(PromptDb.dir());
+    ApiKeys.store(Files.readAllBytes(key.toPath()));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(media)) if (x.name.equals("a.png")) e = x;
+    // As the browser shows the folder (the menu picks from it).
+    set("shown", media);
+    set("shownRoot", media);
+    answers.add("Cancel");
+    final MediaDir.Entry entry = e;
+    edt(() -> mb.menuPicked(entry, pic, MediaDir.UPSCALE_ITEM));
+    Thread.sleep(500);
+    idle();
+    javax.swing.JComponent ret = (javax.swing.JComponent) get("pyReturn");
+    out.append("Return: ").append(ret.isVisible() ? "shown" : "hidden").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    JTextField extra = (JTextField) get("pyExtra");
+    edt(() -> extra.setText(extra.getText() + " --output_dir original --addtodb"));
+    edt(() -> log.setText(""));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    for (String line : textOf(log).split("\n")) {
+      if (line.matches("(Read|Method|Wrote|Succeeded|Failed|Output folder|Add to DB|Prompt library|\\$ ).*"))
+        out.append("log: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--key_file \\S+", "--key_file <key>")).append('\n');
+    }
+    String[] names = media.list();
+    java.util.Arrays.sort(names);
+    out.append("picture's folder: ").append(String.join(", ", names)).append('\n');
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("DB reference file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("after Return: ").append(d.getTitle()).append(", lists a-upscaled.png ").append(component(d, "media-card:a-upscaled.png") != null).append('\n');
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) ret).doClick());
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen).append("Return now: ").append(ret.isVisible() ? "shown" : "hidden").append('\n');
+    // MediaBrowser.java: Run with no folder opens the folder the Media browser opened last.
+    call("selectListedProgram", "Java", "MediaBrowser.java");
+    idle();
+    edt(() -> extra.setText(""));
+    edt(() -> log.setText(""));
+    final StringBuilder opened = new StringBuilder();
+    inspectNext = d -> opened.append("MediaBrowser Run: ").append(d.getTitle().replace(home.getAbsolutePath(), "~")).append('\n');
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 100 && opened.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(opened);
+    ApiKeys.clear();
+  }
+
+  /** The Media browser's video player: Stop, Play and Pause shown, Mute and volume on a click of the picture, C (paused) saves the frame in SC. */
+  void s78_video_capture() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    // Answered (Fit) so the test's watcher leaves the player open.
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    idle();
+    JDialog dialog = (JDialog) get("lastVideo");
+    VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    java.util.function.Function<String, java.awt.Component> c = n -> component(dialog, n);
+    out.append("buttons: ").append(c.apply("video-stop") != null).append(' ').append(c.apply("video-play") != null).append(' ').append(c.apply("video-pause") != null)
+        .append(", sound row ").append(c.apply("video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> {
+      java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 10, 10, 1, false);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseClicked(click);
+    });
+    out.append("clicked the picture: sound row ").append(c.apply("video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-play")).doClick());
+    Thread.sleep(1000);
+    out.append("playing: C ").append(c.apply("video-capture").isVisible() ? "shown" : "hidden");
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-pause")).doClick());
+    Thread.sleep(600);
+    out.append(", paused: C ").append(c.apply("video-capture").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-capture")).doClick());
+    File sc = new File(clips, MediaDir.FRAMES_DIR);
+    String[] got = sc.list();
+    out.append("SC folder: ").append(got == null ? "none" : got.length + " file(s), " + (got.length > 0 && got[0].matches("clip-0m0\\ds\\d{3}\\.png") ? "named clip-<time>.png" : String.join(",", got))).append('\n');
+    if (got != null && got.length > 0) {
+      java.awt.image.BufferedImage frame = javax.imageio.ImageIO.read(new File(sc, got[0]));
+      out.append("frame: ").append(frame == null ? "unreadable" : frame.getWidth() + " x " + frame.getHeight()).append('\n');
+    }
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
   }
 
   private static java.awt.Component component(java.awt.Component c, String name) {

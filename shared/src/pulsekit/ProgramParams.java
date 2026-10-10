@@ -374,7 +374,13 @@ public final class ProgramParams {
     } else if (p.token.equals("--confirm_cost")) {
       p.label = "Confirm the charge (method 3)";
     } else if (p.token.equals("--unlimited")) {
-      p.label = "Unlimited Plan (method 3; fair use limits apply)";
+      p.label = "Unlimited Plan (method 3; fair use limits apply)";    } else if (p.token.equals("--output_dir")) {
+      p.label = "Output directory";
+      p.hint = "download (default) or original: also beside the input picture";
+      p.choices = new String[] {"download (Download / program files folder)", "original (also in the input picture's folder)"};
+      p.choiceValues = new String[] {"download", "original"};
+    } else if (p.token.equals("--addtodb")) {
+      p.label = "Add the picture to DB as a Reference file";
     }
   }
 

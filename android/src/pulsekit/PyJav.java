@@ -400,6 +400,12 @@ final class PyJav {
         slot = slot + 1;
         app.pyPane.addView(app.action("Run", FG, BG, pulsekit.PyJavUi.click(app)), slot);
         slot = slot + 1;
+        // Return: back to what opened this program (the Media browser, for Upscale/resize image).
+        this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
+        this.pkReturnBtn.setTag("pyjav-return");
+        this.pkReturnBtn.setVisibility(this.pkReturn == null ? 8 : 0);
+        app.pyPane.addView(this.pkReturnBtn, slot);
+        slot = slot + 1;
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
@@ -472,6 +478,66 @@ final class PyJav {
         this.pkSaveInventedOutput(shown);
     }
 
+    /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
+    Runnable pkReturn;
+    android.view.View pkReturnBtn;
+
+    public void pkSetReturn(Runnable back) {
+        this.pkReturn = back;
+        if (this.pkReturnBtn != null) this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
+    }
+
+    void pkDoReturn() {
+        Runnable back = this.pkReturn;
+        this.pkSetReturn(null);
+        if (back != null) back.run();
+    }
+
+    /**
+     * ImageUpscaler with --output_dir original: a copy of the picture it made in the input picture's
+     * own folder (the Media browser folder it was picked from, or the folder of a file given by
+     * path), written off the main thread; the line it adds to the log says where.
+     */
+    void pkCopyToOriginal(final pulsekit.JavaRun.Result result, final java.util.List argv) {
+        if (!"ImageUpscaler.java".equals(app.pyName) || argv == null) return;
+        int at = argv.indexOf("--output_dir");
+        if (at < 0 || at + 1 >= argv.size() || !"original".equals(String.valueOf(argv.get(at + 1)).trim().toLowerCase())) return;
+        final pulsekit.JavaRun.FileOut made = pulsekit.PromptKeep.made(result);
+        if (made == null) return;
+        String input = this.pkPyInputPath;
+        String[] origin = input == null ? null : pulsekit.MediaBrowser.ORIGIN.get(input);
+        if (origin == null && input != null) {
+            java.io.File in = new java.io.File(input);
+            // A file the app copied in (Browse DB, the system picker): its own folder is not known.
+            if (in.getParentFile() != null && !in.getAbsolutePath().startsWith(app.getCacheDir().getAbsolutePath())) origin = new String[] {"", in.getParentFile().getAbsolutePath()};
+        }
+        if (origin == null) {
+            this.pkAddLogLine("Output folder: the input picture's own folder is not known (it came from the DB or the system picker); " + made.name + " is in Download");
+            return;
+        }
+        final String[] where = origin;
+        final String mime = made.name.toLowerCase().endsWith(".png") ? "image/png" : made.name.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
+        new Thread(() -> {
+            String line;
+            try {
+                line = "Output folder: copy saved as " + pulsekit.MediaBrowser.saveInto(app, where, null, made.name, mime, made.bytes);
+            } catch (Throwable ex) {
+                line = "Output folder: could not save a copy beside the picture (" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + ")";
+            }
+            final String shown = line;
+            app.runOnUiThread(() -> this.pkAddLogLine(shown));
+        }, "pulsekit-output-dir").start();
+    }
+
+    /** A line under the run's log (kept when the log is still this run's). */
+    void pkAddLogLine(String line) {
+        String now = this.pkRunLog == null ? "" : this.pkRunLog;
+        String next = now.length() == 0 ? line : now + "\n" + line;
+        if (this.pkPyLog != null && (this.pkRunLog == null || this.pkRunLog.equals(this.pkPyLog.getText().toString()))) this.pkPyLog.setText(next);
+        this.pkRunLog = next;
+        app.setNow(line);
+    }
+
     /** This run's entry in the pending database operations (PendingOps), until they are over. */
     String pkPending;
 
@@ -531,6 +597,13 @@ final class PyJav {
         } else {
             int swing = app.swingBar != null ? app.swingBar.getVal() : 0;
             argv = pulsekit.JavaRun.argvFor(src, app.bpm(), app.style, app.bars, swing, extra, app.tsNum, app.tsDen);
+        }
+        // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
+        argv = pulsekit.JavaRun.withKeyFile(this.pkProgramText(), new java.util.ArrayList<String>(argv));
+        // MediaBrowser without a folder: the one the Media browser opened last.
+        if ("MediaBrowser.java".equals(name)) {
+            pulsekit.MediaBrowser.load(app);
+            argv = pulsekit.MediaDir.withLastRoot(argv);
         }
         if (name.toLowerCase().endsWith(".prompt")) {
             argv.add("--pk-run");
@@ -824,6 +897,8 @@ final class PyJav {
                 }
             }, "pulsekit-prompt-keep").start();
         }
+        // --output_dir original: a copy beside the input picture (ImageUpscaler).
+        if (status.startsWith("Succeeded")) this.pkCopyToOriginal(result, argv);
         // What the run made is offered (played, shown, opened). A problem in one of these is a note
         // under the run's log: it never turns a run that succeeded into "Failed".
         final boolean ok = status.startsWith("Succeeded");

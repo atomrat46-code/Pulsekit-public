@@ -19,7 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Usage: java ImageUpscaler <input.png> [output.png] [--method 1|2|3] [--scale N] [--width N] [--height N] [--aspect W:H] [--fit crop|pad|stretch] [--quality N] [--key_file credentials.txt] [--max_cost N] [--confirm_cost] [--unlimited]
+ * Usage: java ImageUpscaler <input.png> [output.png] [--method 1|2|3] [--scale N] [--width N] [--height N] [--aspect W:H] [--fit crop|pad|stretch] [--quality N] [--key_file credentials.txt] [--max_cost N] [--confirm_cost] [--unlimited] [--output_dir original|download] [--addtodb]
  *
  * Resizes / upscales a picture (PNG, JPEG; on the desktop also BMP and GIF, on the phone WebP).
  *
@@ -40,6 +40,9 @@ import java.util.Map;
  *   --fit       when the shape changes: crop (cut the edges, default), pad (add black bars, or
  *               transparent ones in a PNG) or stretch.
  *   --quality N JPEG / WebP quality, 1 to 100 (92).
+ *   --output_dir  where Pulsekit keeps the picture: download (Download on the phone, the program
+ *               files folder; the default) or original (also in the input picture's own folder).
+ *   --addtodb   Pulsekit also keeps the picture in the prompt library as a Reference file.
  *
  * The output is named <input>-upscaled.png when it is not given. The old form
  * "java ImageUpscaler input.png output.png 2" still works (the method last).
@@ -74,6 +77,8 @@ public class ImageUpscaler {
         double aspect = 0;
         String fit = "crop";
         int quality = 92;
+        boolean addToDb = false;
+        String outputDir = "download";
         keyFile = null;
         apiBase = null;
         maxCost = 0;
@@ -94,6 +99,8 @@ public class ImageUpscaler {
                 else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(args[++i]);
                 else if (a.equals("--confirm_cost")) confirm = true;
                 else if (a.equals("--unlimited")) unlimited = true;
+                else if (a.equals("--addtodb")) addToDb = true;
+                else if (a.equals("--output_dir") && i + 1 < args.length) outputDir = args[++i].trim().toLowerCase(Locale.ROOT);
                 else if (a.equals("-h") || a.equals("--help")) {
                     usage();
                     return 0;
@@ -127,6 +134,10 @@ public class ImageUpscaler {
         }
         if (method < 1 || method > 3) {
             System.out.println("Failed: the method is 1 (bicubic, built in), 2 (Real-ESRGAN AI 4x, desktop) or 3 (Sogni AI upscale, online)");
+            return 2;
+        }
+        if (!outputDir.equals("original") && !outputDir.equals("download")) {
+            System.out.println("Failed: --output_dir is original (the picture's own folder) or download");
             return 2;
         }
         if (!fit.equals("crop") && !fit.equals("pad") && !fit.equals("stretch")) {
@@ -203,6 +214,8 @@ public class ImageUpscaler {
             System.out.println("Method " + method + (method == 1 ? " (bicubic)" : method == 2 ? " (Real-ESRGAN AI 4x, then bicubic to the size)" : " (Sogni AI upscale, then bicubic to the size)")
                 + ", fit " + fit + ": " + src.w + " x " + src.h + " -> " + made.w + " x " + made.h);
             System.out.println("Wrote " + out.getName() + " (" + size(out.length()) + ")");
+            if (outputDir.equals("original")) System.out.println("Output folder: original (Pulsekit keeps a copy in " + in.getName() + "'s folder)");
+            if (addToDb) System.out.println("Add to DB: Pulsekit keeps " + out.getName() + " as a Reference file");
             System.out.println("Succeeded: " + out.getName());
             return 0;
         } catch (OutOfMemoryError ex) {
@@ -666,7 +679,7 @@ public class ImageUpscaler {
     }
 
     private static void usage() {
-        System.out.println("Usage: java ImageUpscaler <input.png> [output.png] [--method 1|2|3] [--scale N] [--width N] [--height N] [--aspect W:H] [--fit crop|pad|stretch] [--quality N] [--key_file credentials.txt] [--max_cost N] [--confirm_cost] [--unlimited]");
+        System.out.println("Usage: java ImageUpscaler <input.png> [output.png] [--method 1|2|3] [--scale N] [--width N] [--height N] [--aspect W:H] [--fit crop|pad|stretch] [--quality N] [--key_file credentials.txt] [--max_cost N] [--confirm_cost] [--unlimited] [--output_dir original|download] [--addtodb]");
         System.out.println("  --method 1 = bicubic resize, 2x by default (built in; phone and desktop)");
         System.out.println("  --method 2 = Real-ESRGAN AI upscaling at 4x (desktop; needs realesrgan-ncnn-vulkan on PATH or REALESRGAN_BIN)");
         System.out.println("  --method 3 = Sogni AI upscale (RTX VSR, online; phone and desktop; needs a Sogni API key, paid)");

@@ -132,6 +132,11 @@ final class PyJav {
         controls.add(app.action("Params", ELEV, FG, () -> this.openParams()));
         this.pyRun = app.action("Run", HIT, BG, () -> this.runPython());
         controls.add(this.pyRun);
+        // Return: back to what opened this program (the Media browser, for Upscale/resize image).
+        this.pyReturn = app.action("Return to Media browser", ELEV, FG, () -> this.doReturn());
+        this.pyReturn.setName("pyjav-return");
+        this.pyReturn.setVisible(this.returnTo != null);
+        controls.add(this.pyReturn);
         JLabel extraLab = new JLabel("Extra args");
         extraLab.setForeground(MUTED);
         controls.add(extraLab);
@@ -359,12 +364,20 @@ final class PyJav {
         if (this.pyExtra != null && filled.length() > 0) this.pyExtra.setText(filled);
         PyJavRecent.remember(this.pyRecentDir(), name, filled, src, bytes);
         this.reloadPyRecent(0);
-        final java.util.List<String> argv;
+        java.util.List<String> runArgs;
         if ((app.pyInputPath != null && app.pyInputPath.length() > 0) || outPath.length() > 0) {
-            argv = PyJavHints.programArgs(filled, this.pyInputToken, app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
+            runArgs = PyJavHints.programArgs(filled, this.pyInputToken, app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
         } else {
-            argv = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra, app.tsNum, app.tsDen);
+            runArgs = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra, app.tsNum, app.tsDen);
         }
+        // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
+        runArgs = JavaRun.withKeyFile(this.programText(), new java.util.ArrayList<String>(runArgs));
+        // MediaBrowser without a folder: the one the Media browser opened last.
+        if ("MediaBrowser.java".equals(name)) {
+            MediaBrowser.loadLoop();
+            runArgs = MediaDir.withLastRoot(runArgs);
+        }
+        final java.util.List<String> argv = runArgs;
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
         // The run is pending (PendingOps) until what it stores in the prompt library is stored.
@@ -600,6 +613,13 @@ final class PyJav {
             if (this.pyExtra != null && this.pyExtra.getText().indexOf("--join") >= 0) this.pyExtra.setText(ProgramParams.drop(this.pyExtra.getText(), "--join"));
             String saved = this.loadParams(name);
             if (saved != null && saved.indexOf("--join") >= 0) this.saveParams(name, ProgramParams.drop(saved, "--join"));
+        }
+        // ImageUpscaler with --addtodb: the picture as a Reference file; --output_dir original: a copy beside the input picture.
+        if ("ImageUpscaler.java".equals(name)) {
+            String up = PromptKeep.keepUpscaled(dir, r, argv);
+            if (up.length() > 0) kept = kept.length() > 0 ? kept + "\n" + up : up;
+            String copy = this.copyToOriginal(r, argv);
+            if (copy.length() > 0) kept = kept.length() > 0 ? kept + "\n" + copy : copy;
         }
         if (DrumMidiSettingsPage.musicToDb && "SogniMusic.java".equals(name)) {
             String music = PromptKeep.keepSogniMusic(dir, r, argv);
@@ -939,6 +959,42 @@ final class PyJav {
      * .mp3 or .mid parameter gets a file button, anything else a text field. Switches are saved per
      * program; with Reset to defaults, and Reset to suggested values when the program has them.
      */
+    /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
+    Runnable returnTo;
+    javax.swing.JComponent pyReturn;
+
+    void setReturn(Runnable back) {
+        this.returnTo = back;
+        if (this.pyReturn != null) this.pyReturn.setVisible(back != null);
+    }
+
+    void doReturn() {
+        Runnable back = this.returnTo;
+        this.setReturn(null);
+        if (back != null) back.run();
+    }
+
+    /** ImageUpscaler with --output_dir original: the picture it made, copied into the input picture's folder; a line for the log, or "". */
+    String copyToOriginal(JavaRun.Result r, java.util.List<String> argv) {
+        int at = argv == null ? -1 : argv.indexOf("--output_dir");
+        if (at < 0 || at + 1 >= argv.size() || !"original".equalsIgnoreCase(argv.get(at + 1).trim())) return "";
+        JavaRun.FileOut made = PromptKeep.made(r);
+        if (made == null) return "";
+        File in = app.pyInputPath == null || app.pyInputPath.isEmpty() ? null : new File(app.pyInputPath);
+        File folder = in == null ? null : in.getAbsoluteFile().getParentFile();
+        if (folder == null || !folder.isDirectory()) return "Output folder: the input picture's folder is not known; " + made.name + " is in the program files folder";
+        String stem = made.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        String ext = made.name.substring(stem.length());
+        File f = new File(folder, made.name);
+        for (int n = 1; f.exists(); n++) f = new File(folder, stem + " (" + n + ")" + ext);
+        try {
+            Files.write(f.toPath(), made.bytes);
+            return "Output folder: copy saved as " + f.getPath();
+        } catch (Exception ex) {
+            return "Output folder: could not save a copy in " + folder.getPath() + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+        }
+    }
+
     /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
     boolean mustWait(String program, boolean running) {
         int n = PendingOps.count();

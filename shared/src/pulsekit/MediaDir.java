@@ -158,6 +158,34 @@ public final class MediaDir {
     return label(part[part.length - 1]);
   }
 
+  /**
+   * MediaBrowser.java run without a folder (Run pressed, Params not opened this time): the folder the
+   * Media browser opened last, so Run opens it again. `argv` itself when it names a folder or none is known.
+   */
+  public static List<String> withLastRoot(List<String> argv) {
+    if (argv == null) return argv;
+    for (String a : argv) {
+      if (a == null) continue;
+      String t = a.trim();
+      if (t.startsWith("content://") || (t.length() > 0 && !t.startsWith("<") && !t.startsWith("-") && new java.io.File(t).isDirectory())) return argv;
+    }
+    if (lastRoot == null || lastRoot.length() == 0) return argv;
+    List<String> out = new ArrayList<String>();
+    for (String a : argv) if (a != null && !a.trim().startsWith("<") && a.trim().length() > 0) out.add(a);
+    out.add(lastRoot);
+    return out;
+  }
+
+  /** The folder captured frames go in, under the video's folder (C in the video player). */
+  public static final String FRAMES_DIR = "SC";
+
+  /** A captured frame's name: "clip-0m12s345.png" for clip.mp4 at 0:12.345. */
+  public static String frameName(String video, long ms) {
+    String stem = (video == null ? "video" : video).replaceAll("\\.[A-Za-z0-9]{1,5}$", "").replace('/', '_').replace('\\', '_');
+    long t = Math.max(0, ms);
+    return stem + "-" + (t / 60000) + "m" + String.format(java.util.Locale.ROOT, "%02d", (t / 1000) % 60) + "s" + String.format(java.util.Locale.ROOT, "%03d", t % 1000) + ".png";
+  }
+
   /** The folders under `root` to open again: the remembered ones when `root` is the folder last picked, else none. */
   public static List<String> pathFor(String root) {
     if (root == null || !root.equals(lastRoot)) return new ArrayList<String>();

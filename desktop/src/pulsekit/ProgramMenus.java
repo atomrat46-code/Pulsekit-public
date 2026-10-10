@@ -73,6 +73,8 @@ final class ProgramMenus {
 
     /** Java or Python: this file becomes the program Run executes. */
     void selectListedProgram(String kind, String name) {
+        // Another program: Return (back to the Media browser after ImageUpscaler) goes.
+        app.pyJav.setReturn(null);
         try {
             byte[] data = ProgramFiles.read(kind, name);
             String low = name.toLowerCase();
