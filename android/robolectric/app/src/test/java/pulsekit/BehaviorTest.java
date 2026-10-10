@@ -2840,6 +2840,47 @@ public class BehaviorTest {
    * after the library is opened again, and it goes when the file is deleted.
    */
   @Test
+  public void s89_general_settings() throws Exception {
+    // File > General settings: Use encrypted DB unticked copies the library unencrypted; ticked again, the copy goes.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    byte[] video = new byte[300 * 1024];
+    new java.util.Random(3).nextBytes(video);
+    DbImport.store(app, "clip.mp4", video, true);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = app.getFilesDir().listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
+      return sb.toString().trim();
+    };
+    GeneralSettings.show(app);
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
+    out.append("Use encrypted DB: ").append(box.isChecked()).append("; files: ").append(files.get()).append('\n');
+    box.setChecked(false);
+    idle();
+    out.append("unticked: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append("; encrypted ").append(PromptVault.encrypted(app.getFilesDir())).append("; files: ").append(files.get()).append('\n');
+    PromptVault v = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : v.resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("clip.mp4 in the unencrypted library: ").append(clip != null && java.util.Arrays.equals(v.fileBytes(clip.versionId, clip.which), video)).append('\n');
+    DbImport.store(app, "note.txt", "added unencrypted".getBytes(StandardCharsets.UTF_8), false);
+    box.setChecked(true);
+    idle();
+    out.append("ticked: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append("; encrypted ").append(PromptVault.encrypted(app.getFilesDir())).append("; files: ").append(files.get()).append('\n');
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    StringBuilder names = new StringBuilder();
+    PromptVault again = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : again.resultFiles()) names.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : again.referenceFiles()) names.append(f.name).append(' ');
+    out.append("encrypted library opened again: ").append(names.toString().trim()).append('\n');
+    write("s89_general_settings", out.toString());
+  }
+
+  @Test
   public void s88_pending_db() throws Exception {
     // A Sogni run whose prompt library work is not over: other Sogni programs wait, SogniChat may run.
     StringBuilder out = new StringBuilder();

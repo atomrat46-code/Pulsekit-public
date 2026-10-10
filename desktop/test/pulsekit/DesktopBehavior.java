@@ -3272,6 +3272,52 @@ public final class DesktopBehavior {
     out.append("after done: pending ").append(PendingOps.count()).append(", Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
   }
 
+  /** File > General settings: Use encrypted DB unticked copies the library unencrypted; ticked again, the copy goes. */
+  void s72_general_settings() throws Exception {
+    File dir = PromptDb.dir();
+    byte[] video = new byte[300 * 1024];
+    new java.util.Random(3).nextBytes(video);
+    PromptDb.vault().addLibraryFile("clip.mp4", video, "Imported", 3);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = dir.listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
+      return sb.toString().trim();
+    };
+    final javax.swing.JCheckBox[] box = new javax.swing.JCheckBox[1];
+    inspectNext = d -> box[0] = (javax.swing.JCheckBox) component(d, "settings-encrypted");
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && box[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append("Use encrypted DB: ").append(box[0] != null && box[0].isSelected()).append("; files: ").append(files.get()).append('\n');
+    final javax.swing.JCheckBox b = new javax.swing.JCheckBox("Use encrypted DB", true);
+    edt(() -> {
+      b.setSelected(false);
+      GeneralSettings.change((Pulsekit) frame, b, false);
+    });
+    for (int i = 0; i < 100 && !b.isEnabled(); i++) Thread.sleep(100);
+    idle();
+    out.append("unticked: encrypted ").append(PromptVault.encrypted(dir)).append("; files: ").append(files.get()).append('\n');
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("clip.mp4 in the unencrypted library: ").append(clip != null && java.util.Arrays.equals(PromptDb.vault().fileBytes(clip.versionId, clip.which), video)).append('\n');
+    PromptDb.vault().addLibraryFile("note.txt", "added unencrypted".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    edt(() -> {
+      b.setSelected(true);
+      GeneralSettings.change((Pulsekit) frame, b, true);
+    });
+    for (int i = 0; i < 100 && !b.isEnabled(); i++) Thread.sleep(100);
+    Thread.sleep(200);
+    idle();
+    out.append("ticked: encrypted ").append(PromptVault.encrypted(dir)).append("; files: ").append(files.get()).append('\n');
+    StringBuilder names = new StringBuilder();
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) names.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : PromptDb.vault().referenceFiles()) names.append(f.name).append(' ');
+    out.append("encrypted library: ").append(names.toString().trim()).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

@@ -1014,6 +1014,10 @@ public class MainActivity extends UiKit {
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
+        android.widget.TextView general = this.text("General settings", 14, true);
+        general.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        general.setTextColor(FG);
+        general.setTag("file-general-settings");
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
@@ -1026,6 +1030,7 @@ public class MainActivity extends UiKit {
         menu.addView(saveCodeAs);
         menu.addView(importRef);
         menu.addView(importResult);
+        menu.addView(general);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -1053,6 +1058,10 @@ public class MainActivity extends UiKit {
         importResult.setOnClickListener(v -> {
             pop.dismiss();
             DbImport.pick(this, true);
+        });
+        general.setOnClickListener(v -> {
+            pop.dismiss();
+            GeneralSettings.show(this);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

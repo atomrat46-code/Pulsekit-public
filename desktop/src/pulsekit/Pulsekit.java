@@ -583,6 +583,8 @@ public final class Pulsekit extends UiKit {
             importRef.addActionListener(e -> this.promptDb.importFile(false));
             JMenuItem importResult = new JMenuItem("Import as Result file");
             importResult.addActionListener(e -> this.promptDb.importFile(true));
+            JMenuItem general = new JMenuItem("General settings");
+            general.addActionListener(e -> GeneralSettings.show(this));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem compare = new JMenuItem("Compare Hits");
@@ -595,6 +597,7 @@ public final class Pulsekit extends UiKit {
             menu.add(importResult);
             menu.add(saveCode);
             menu.add(saveCodeAs);
+            menu.add(general);
             menu.add(midi);
             menu.add(compare);
             menu.add(help);

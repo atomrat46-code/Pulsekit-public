@@ -86,6 +86,7 @@ public final class PromptVault {
 
   private PromptVault(File file) {
     this.file = file;
+    this.plain = PLAIN_NAME.equals(file.getName());
   }
 
   /**
@@ -94,7 +95,7 @@ public final class PromptVault {
    */
   public static PromptVault ready(File dir) {
     PromptVault v = shared;
-    File at = new File(dir, "prompts.vault");
+    File at = fileIn(dir);
     if (v == null || !v.file.getAbsolutePath().equals(at.getAbsolutePath())) return null;
     if (at.isFile() ? at.lastModified() != v.stamp : v.stamp != 0) return null;
     return v;
@@ -102,7 +103,7 @@ public final class PromptVault {
 
   /** The library kept in `dir` (the app's files folder on the phone, ~/.pulsekit on the desktop). */
   public static synchronized PromptVault open(File dir) throws Exception {
-    File at = new File(dir, "prompts.vault");
+    File at = fileIn(dir);
     if (shared != null && shared.file.getAbsolutePath().equals(at.getAbsolutePath())) {
       if (at.isFile() ? at.lastModified() != shared.stamp : shared.stamp != 0) shared.reload();
       return shared;
@@ -838,7 +839,7 @@ public final class PromptVault {
       }
     }
     out.flush();
-    byte[] cipher = encrypt(plain.toByteArray());
+    byte[] cipher = seal(plain.toByteArray());
     File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
     FileOutputStream fos = new FileOutputStream(tmp);
     try {
@@ -854,7 +855,7 @@ public final class PromptVault {
     if (kids != null) {
       for (File k : kids) {
         String n = k.getName();
-        if (n.startsWith(BLOB_PREFIX) && n.endsWith(".dat") && !blobsUsed.contains(n)) k.delete();
+        if (n.startsWith(blobPrefix()) && n.endsWith(".dat") && !blobsUsed.contains(n)) k.delete();
       }
     }
   }
@@ -872,7 +873,7 @@ public final class PromptVault {
       in.close();
     }
     stamp = file.lastModified();
-    byte[] plain = decrypt(raw);
+    byte[] plain = unseal(raw);
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
@@ -1020,7 +1021,7 @@ public final class PromptVault {
   private String keepBlob(byte[] bytes) throws Exception {
     java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
     byte[] d = md.digest(bytes);
-    StringBuilder sb = new StringBuilder(BLOB_PREFIX);
+    StringBuilder sb = new StringBuilder(blobPrefix());
     for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
     String name = sb.append(".dat").toString();
     File blob = new File(file.getParentFile(), name);
@@ -1028,7 +1029,7 @@ public final class PromptVault {
       File tmp = new File(file.getParentFile(), name + ".tmp");
       FileOutputStream fos = new FileOutputStream(tmp);
       try {
-        fos.write(encrypt(bytes));
+        fos.write(seal(bytes));
       } finally {
         fos.close();
       }
@@ -1047,11 +1048,11 @@ public final class PromptVault {
     int n = in.readInt();
     if (n == -1) {
       String name = readUtf(in);
-      if (!name.startsWith(BLOB_PREFIX) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
+      if (!(name.startsWith(BLOB_PREFIX) || name.startsWith(PLAIN_BLOB_PREFIX)) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
       File blob = new File(file.getParentFile(), name);
       if (!blob.isFile()) return new byte[0];
-      // The kept file is the magic, the 12-byte IV, the file and the 16-byte tag.
-      long size = blob.length() - FILE_MAGIC.length - 12 - 16;
+      // The kept file is the magic, the 12-byte IV, the file and the 16-byte tag (unencrypted: the magic and the file).
+      long size = blob.length() - FILE_MAGIC.length - (name.startsWith(PLAIN_BLOB_PREFIX) ? 0 : 12 + 16);
       if (size <= 0) return new byte[0];
       readBlob = name;
       readSize = (int) Math.min(Integer.MAX_VALUE, size);
@@ -1077,7 +1078,7 @@ public final class PromptVault {
       } finally {
         fin.close();
       }
-      byte[] bytes = decrypt(raw);
+      byte[] bytes = unseal(raw);
       lastBlob = name;
       lastBlobBytes = bytes;
       return copy(bytes);
@@ -1090,6 +1091,13 @@ public final class PromptVault {
 
   private String lastBlob;
   private byte[] lastBlobBytes;
+
+  /** The kept file, for setEncrypted; throws when it cannot be read (nothing is lost then). */
+  private byte[] storedBlob(String name) {
+    byte[] bytes = blobBytes(name);
+    if (bytes.length == 0) throw new IllegalStateException("Could not read a stored file (" + name + ")");
+    return bytes;
+  }
 
   /** The version the library file was written in (7 keeps large files on their own). */
   private int fileVersion = 7;
@@ -1109,17 +1117,151 @@ public final class PromptVault {
   /** Files this large or larger are kept in their own encrypted files (see writeBytes). */
   static final int BLOB_MIN = 64 * 1024;
   static final String BLOB_PREFIX = "prompts-blob-";
+
+  /**
+   * General settings > Use encrypted DB, unticked: the library is kept unencrypted as
+   * prompts-plain.vault and prompts-plainblob-*.dat (a quicker save and open on a slow phone). Its
+   * being there is the setting. The encrypted one stays as it was; ticked again, it is brought up to
+   * date from the unencrypted one, which is then deleted.
+   */
+  static final String PLAIN_NAME = "prompts-plain.vault";
+  static final String PLAIN_BLOB_PREFIX = "prompts-plainblob-";
+  private static final byte[] PLAIN_MAGIC = new byte[] {'P', 'K', 'V', '0'};
+  private final boolean plain;
+
+  /** The library file in use in `dir`: the unencrypted one when it is there, else the encrypted one. */
+  static File fileIn(File dir) {
+    File p = new File(dir, PLAIN_NAME);
+    return p.isFile() ? p : new File(dir, "prompts.vault");
+  }
+
+  /** Whether the library in `dir` is the encrypted one (General settings > Use encrypted DB). */
+  public static boolean encrypted(File dir) {
+    return !new File(dir, PLAIN_NAME).isFile();
+  }
+
+  private String blobPrefix() {
+    return plain ? PLAIN_BLOB_PREFIX : BLOB_PREFIX;
+  }
+
+  private byte[] seal(byte[] bytes) throws Exception {
+    if (!plain) return encrypt(bytes);
+    byte[] out = new byte[PLAIN_MAGIC.length + bytes.length];
+    System.arraycopy(PLAIN_MAGIC, 0, out, 0, PLAIN_MAGIC.length);
+    System.arraycopy(bytes, 0, out, PLAIN_MAGIC.length, bytes.length);
+    return out;
+  }
+
+  private static byte[] unseal(byte[] raw) throws Exception {
+    boolean bare = raw.length >= PLAIN_MAGIC.length;
+    for (int i = 0; bare && i < PLAIN_MAGIC.length; i++) bare = raw[i] == PLAIN_MAGIC[i];
+    if (bare) return java.util.Arrays.copyOfRange(raw, PLAIN_MAGIC.length, raw.length);
+    return decrypt(raw);
+  }
+
+  /**
+   * General settings > Use encrypted DB: `on` false copies the library into the unencrypted one and
+   * uses that; true brings the encrypted one up to date from it and deletes the unencrypted files.
+   * Each kept file is read and written one at a time. Throws with what went wrong (the library in use
+   * stays as it was).
+   */
+  public static synchronized void setEncrypted(File dir, boolean on) throws Exception {
+    if (encrypted(dir) == on) return;
+    PromptVault from = open(dir);
+    begin(on ? "Encrypting the database" : "Copying the database unencrypted");
+    try {
+      PromptVault to = new PromptVault(new File(dir, on ? "prompts.vault" : PLAIN_NAME));
+      synchronized (from) {
+        to.nextId = from.nextId;
+        for (Category c : from.categories) {
+          Category n = new Category();
+          n.id = c.id;
+          n.parentId = c.parentId;
+          n.name = c.name;
+          to.categories.add(n);
+        }
+        for (Prompt p : from.prompts) {
+          Prompt n = new Prompt();
+          n.id = p.id;
+          n.categoryId = p.categoryId;
+          n.title = p.title;
+          n.created = p.created;
+          to.prompts.add(n);
+        }
+        for (Version v : from.versions) {
+          Version n = new Version();
+          n.id = v.id;
+          n.promptId = v.promptId;
+          n.description = v.description;
+          n.body = v.body;
+          n.ref1Name = v.ref1Name;
+          n.ref2Name = v.ref2Name;
+          n.resultName = v.resultName;
+          n.model = v.model;
+          n.codeType = v.codeType;
+          n.resultText = v.resultText;
+          n.created = v.created;
+          n.finalVersion = v.finalVersion;
+          n.ref1 = copy(v.ref1);
+          n.ref2 = copy(v.ref2);
+          n.result = copy(v.result);
+          if (v.ref1Blob != null) {
+            n.ref1Blob = to.keepBlob(from.storedBlob(v.ref1Blob));
+            n.ref1Size = v.ref1Size;
+          }
+          if (v.ref2Blob != null) {
+            n.ref2Blob = to.keepBlob(from.storedBlob(v.ref2Blob));
+            n.ref2Size = v.ref2Size;
+          }
+          if (v.resultBlob != null) {
+            n.resultBlob = to.keepBlob(from.storedBlob(v.resultBlob));
+            n.resultSize = v.resultSize;
+          }
+          to.versions.add(n);
+        }
+        for (LibraryFile f : from.library) {
+          LibraryFile n = new LibraryFile();
+          n.id = f.id;
+          n.name = f.name;
+          n.note = f.note;
+          n.which = f.which;
+          n.bytes = copy(f.bytes);
+          if (f.blob != null) {
+            n.blob = to.keepBlob(from.storedBlob(f.blob));
+            n.blobSize = f.blobSize;
+          }
+          to.library.add(n);
+        }
+      }
+      to.save();
+      if (on) {
+        // Back to the encrypted library: the unencrypted files go.
+        File[] kids = dir.listFiles();
+        if (kids != null) {
+          for (File k : kids) {
+            String n = k.getName();
+            if (n.equals(PLAIN_NAME) || n.startsWith(PLAIN_BLOB_PREFIX)) k.delete();
+          }
+        }
+      }
+      shared = to;
+    } finally {
+      end();
+    }
+  }
   /** The files the last save named. */
   private final java.util.HashSet<String> blobsUsed = new java.util.HashSet<String>();
 
   /** The library's size on disk in `dir`, its kept files included (bytes). */
   public static long storedSize(File dir) {
     long total = 0;
+    File at = fileIn(dir);
+    String prefix = PLAIN_NAME.equals(at.getName()) ? PLAIN_BLOB_PREFIX : BLOB_PREFIX;
     File[] kids = dir == null ? null : dir.listFiles();
     if (kids == null) return 0;
     for (File k : kids) {
       String n = k.getName();
-      if (n.equals("prompts.vault") || (n.startsWith(BLOB_PREFIX) && n.endsWith(".dat"))) total += k.length();
+      if (n.equals(at.getName()) || (n.startsWith(prefix) && n.endsWith(".dat"))) total += k.length();
     }
     return total;
   }
