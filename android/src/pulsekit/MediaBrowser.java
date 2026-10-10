@@ -589,9 +589,32 @@ final class MediaBrowser {
             .setTitle(e.name)
             // A file already in the playlist: its third item takes it out.
             .setItems(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id) ? MediaDir.MENU_LISTED : MediaDir.MENU,
-                (d, which) -> this.app.setNow(this.menuPicked(e, which)))
+                (d, which) -> this.pick(e, which))
             .setNegativeButton("Cancel", null)
             .show();
+    }
+
+    /** A menu item picked: adding to the prompt library reads and stores the file off the main thread (a large one takes a while). */
+    void pick(final MediaDir.Entry e, final int which) {
+        if (which == 2) {
+            this.app.setNow(this.menuPicked(e, which));
+            return;
+        }
+        this.app.setNow("Adding " + e.name + " to the prompt library\u2026");
+        PyJav.KEEPING.incrementAndGet();
+        new Thread(() -> {
+            String said;
+            try {
+                said = this.menuPicked(e, which);
+            } catch (Throwable ex) {
+                said = "Could not add " + e.name + " (" + ex.getClass().getSimpleName() + ")";
+            }
+            final String shown = said;
+            this.main.post(() -> {
+                PyJav.KEEPING.decrementAndGet();
+                this.app.setNow(shown);
+            });
+        }, "pulsekit-add-to-db").start();
     }
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 adds it to the default playlist (or takes it out when it is in). Returns the status line. */

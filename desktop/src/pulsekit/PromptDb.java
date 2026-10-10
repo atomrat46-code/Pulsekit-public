@@ -63,6 +63,8 @@ final class PromptDb {
     static synchronized File dir() {
         File d = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (PromptVault.keys == null) PromptVault.keys = new DesktopVaultKey(d);
+        // Runs a stopped app left in the pending list are cleared, once.
+        PendingOps.start(d);
         return d;
     }
 

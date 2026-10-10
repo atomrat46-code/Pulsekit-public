@@ -327,6 +327,7 @@ final class PyJav {
         final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
+        if (this.mustWait(name, true)) return;
         final byte[] bytes = app.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
         final String runSrc = promptProg ? PromptRun.withoutDescription(this.promptDescription, src) : src;
@@ -366,6 +367,9 @@ final class PyJav {
         }
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
+        // The run is pending (PendingOps) until what it stores in the prompt library is stored.
+        PromptDb.dir();
+        final String pending = PendingOps.guarded(name, false) ? PendingOps.add(name, PendingOps.files(argv)) : null;
         new Thread(() -> {
             final boolean javaProg = !promptProg && isJavaName(name);
             java.util.List<String> runArgv = argv;
@@ -382,6 +386,8 @@ final class PyJav {
                     : PythonRun.run(src, name, argv);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
+                // The library work below runs on this same thread, before anything else can start.
+                PendingOps.done(pending);
                 String shown = result.log == null || result.log.isEmpty() ? "(no output)" : result.log;
                 if (promptProg && this.promptOutputName.length() > 0) shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
@@ -933,8 +939,18 @@ final class PyJav {
      * .mp3 or .mid parameter gets a file button, anything else a text field. Switches are saved per
      * program; with Reset to defaults, and Reset to suggested values when the program has them.
      */
+    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    boolean mustWait(String program, boolean running) {
+        int n = PendingOps.count();
+        if (n == 0 || !PendingOps.guarded(program, running)) return false;
+        app.setNow(PendingOps.waitText(n));
+        if (app.pyLog != null) app.pyLog.setText(PendingOps.waitText(n));
+        return true;
+    }
+
     void openParams() {
         final String program = app.pyName == null || app.pyName.isEmpty() ? "program" : app.pyName;
+        if (this.mustWait(program, false)) return;
         final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(this.programText());
         if (ps.isEmpty()) {
             JOptionPane.showMessageDialog(app, "No parameters found in " + program + ". A line such as\n"

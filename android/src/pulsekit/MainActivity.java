@@ -290,6 +290,9 @@ public class MainActivity extends UiKit {
 
         ArtJava.pinWorkDir(this);
         this.handler.postDelayed(this.dbWatch, 400);
+        // Runs a stopped app left unfinished are not pending any more.
+        int left = PendingOps.start(this.getFilesDir());
+        if (left > 0) this.setNow(left + " database " + (left == 1 ? "operation" : "operations") + " did not finish when Pulsekit last stopped");
     }
 
     /** "Processing DB, please wait" while the prompt library opens or saves for more than a moment (shown over dialogs too). */

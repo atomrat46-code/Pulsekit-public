@@ -79,7 +79,7 @@ public final class SogniChat {
   }
 
   /** Printed first, so a run's log shows which SogniChat ran. */
-  static final String VERSION = "SogniChat 2026-10-07";
+  static final String VERSION = "SogniChat 2026-10-10";
 
   /** The first line of a saved conversation, and the lines that start each turn in it. */
   static final String HEAD = "SogniChat conversation";
@@ -247,16 +247,24 @@ public final class SogniChat {
         System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
         a.data = null;
       }
-      // A chat run (Unlimited Plan) takes pictures as uploaded URLs: the model sees the smaller copy of a big one.
+      // The model sees pictures as uploaded URLs, as Sogni's own apps send them (a data: URI in the
+      // request was not always shown to a vision model): the smaller copy of a big one. A chat run
+      // (Unlimited Plan) takes only URLs; otherwise a picture that cannot be uploaded goes inline.
       int views = 0;
       for (Attachment a : attached) {
-        if (!unlimited || a.seen == null) continue;
+        if (a.seen == null) continue;
         if (!a.shrunk && a.url != null) {
           a.seenUrl = a.url;
           continue;
         }
         String copy = a.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-seen" + ("image/png".equals(a.seenMime) ? ".png" : ".jpg");
-        a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
+        try {
+          a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
+        } catch (IOException ex) {
+          if (unlimited) throw ex;
+          System.out.println("Note: could not upload " + a.name + " for the model to see (" + ex.getMessage() + "); it is sent inside the request");
+        }
+        if (a.seenUrl != null && a.seenUrl.length() == 0) a.seenUrl = null;
       }
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
@@ -268,7 +276,7 @@ public final class SogniChat {
       List<String> sent = new ArrayList<String>();
       sent.add("user");
       sent.add(question);
-      for (Attachment a : attached) if (a.image != null) sent.add(a.image);
+      for (Attachment a : attached) if (a.image != null) sent.add(a.seenUrl != null ? a.seenUrl : a.image);
       turns.add(sent.toArray(new String[0]));
       List<String[]> runTurns = new ArrayList<String[]>(turns);
       if (unlimited) {

@@ -2840,6 +2840,29 @@ public class BehaviorTest {
    * after the library is opened again, and it goes when the file is deleted.
    */
   @Test
+  public void s88_pending_db() throws Exception {
+    // A Sogni run whose prompt library work is not over: other Sogni programs wait, SogniChat may run.
+    StringBuilder out = new StringBuilder();
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append('\n');
+    File list = new File(app.getFilesDir(), "pending-db.txt");
+    out.append("list file: ").append(list.isFile() ? new String(Files.readAllBytes(list.toPath()), StandardCharsets.UTF_8).trim().replaceAll("^\\d+", "N") : "none").append('\n');
+    app.pyJav.pkRunPyJav();
+    idle();
+    out.append("Run SogniTextVideo: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+    out.append("SogniTextVideo Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append(", its Params wait: ")
+        .append(app.pyJav.pkMustWait("SogniChat.java", false)).append('\n');
+    out.append("MidiDrumGen waits: ").append(app.pyJav.pkMustWait("MidiDrumGen.java", true)).append('\n');
+    PendingOps.done(entry);
+    out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    write("s88_pending_db", out.toString());
+  }
+
+  @Test
   public void s87_large_files_apart() throws Exception {
     StringBuilder out = new StringBuilder();
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);

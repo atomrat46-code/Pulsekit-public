@@ -472,7 +472,21 @@ final class PyJav {
         this.pkSaveInventedOutput(shown);
     }
 
+    /** This run's entry in the pending database operations (PendingOps), until they are over. */
+    String pkPending;
+
+    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    boolean pkMustWait(String program, boolean running) {
+        int n = pulsekit.PendingOps.count();
+        if (n == 0 || !pulsekit.PendingOps.guarded(program, running)) return false;
+        String text = pulsekit.PendingOps.waitText(n);
+        app.setNow(text);
+        android.widget.Toast.makeText(app, text, 0).show();
+        return true;
+    }
+
     public void pkRunPyJav() {
+        if (this.pkMustWait(app.pyName, true)) return;
         if (app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt")) {
             if (!this.pkOutputResume) {
                 this.pkLoadRefs(app.pkPromptSource);
@@ -526,6 +540,8 @@ final class PyJav {
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         this.pkLastArgv = argv;
+        pulsekit.PendingOps.done(this.pkPending);
+        this.pkPending = pulsekit.PendingOps.guarded(name, false) ? pulsekit.PendingOps.add(name, pulsekit.PendingOps.files(argv)) : null;
         pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app));
     }
 
@@ -569,6 +585,7 @@ final class PyJav {
 
     public void pkOpenParams() {
         java.lang.String name = app.pyName == null ? "DrumMidi" : app.pyName;
+        if (this.pkMustWait(name, false)) return;
         java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
         pulsekit.PyJavParams.open(app, name, extra, this.pkProgramText());
     }
@@ -758,6 +775,8 @@ final class PyJav {
         final String program = app.pyName;
         final boolean genToDb = DrumMidiSettingsPage.genToDb;
         final boolean musicToDb = DrumMidiSettingsPage.musicToDb;
+        final String pending = this.pkPending;
+        this.pkPending = null;
         final java.io.File filesDir = app.getFilesDir();
         if (program != null && program.equals("SogniVideo.java")) {
             // Join is unticked for the next run.
@@ -769,6 +788,7 @@ final class PyJav {
         }
         final String shown = log;
         final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb);
+        if (!any) pulsekit.PendingOps.done(pending);
         if (any) {
             log = log + "\nPrompt library: storing\u2026";
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
@@ -778,12 +798,21 @@ final class PyJav {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    final String kept = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                    String stored;
+                    try {
+                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                    } catch (Throwable ex) {
+                        // Never left at "storing…": what went wrong is said instead.
+                        String m = ex.getMessage();
+                        stored = "Prompt library: could not store (" + ex.getClass().getSimpleName() + (m == null || m.length() == 0 ? "" : ": " + m) + ")";
+                    }
+                    final String kept = stored;
                     app.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             pkKeeping = false;
                             KEEPING.decrementAndGet();
+                            pulsekit.PendingOps.done(pending);
                             // The "storing" line becomes what was stored; notes added since stay.
                             String now = pkRunLog == null ? shown + "\nPrompt library: storing\u2026" : pkRunLog;
                             String done = now.replace("\nPrompt library: storing\u2026", kept.length() > 0 ? "\n" + kept : "");
@@ -813,6 +842,8 @@ final class PyJav {
             if (browse != null) MediaBrowser.open(app, browse);
         });
         } catch (Throwable ex) {
+            pulsekit.PendingOps.done(this.pkPending);
+            this.pkPending = null;
             String m = ex.getMessage();
             status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
             if (this.pkPyHint != null) this.pkPyHint.setText(status);

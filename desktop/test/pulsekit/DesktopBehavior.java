@@ -3255,6 +3255,23 @@ public final class DesktopBehavior {
     out.append("editable field menu: ").append(editable).append('\n');
   }
 
+  /** A Sogni run whose prompt library work is not over: other Sogni programs (and Params) wait, SogniChat may run. */
+  void s71_pending_db() throws Exception {
+    call("selectListedProgram", "Java", "SogniTextVideo.java");
+    idle();
+    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append('\n');
+    edt(() -> call("runPython"));
+    idle();
+    out.append("Run SogniTextVideo: ").append(((javax.swing.JTextArea) get("pyLog")).getText()).append('\n');
+    PyJav pj = (PyJav) get("pyJav");
+    out.append("SogniTextVideo Params wait: ").append(pj.mustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(pj.mustWait("SogniChat.java", true)).append(", its Params wait: ").append(pj.mustWait("SogniChat.java", false)).append('\n');
+    out.append("MidiDrumGen waits: ").append(pj.mustWait("MidiDrumGen.java", true)).append('\n');
+    PendingOps.done(entry);
+    out.append("after done: pending ").append(PendingOps.count()).append(", Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {
