@@ -3318,6 +3318,48 @@ public final class DesktopBehavior {
     out.append("encrypted library: ").append(names.toString().trim()).append('\n');
   }
 
+  /** Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a clicked file fills the row. */
+  void s73_choose_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-choose");
+    File sub = new File(media, "shots");
+    sub.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(sub, "notes.txt").toPath(), "hi".getBytes(StandardCharsets.UTF_8));
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.saveLoop();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File[] picked = new File[1];
+    final StringBuilder seen = new StringBuilder();
+    java.util.function.Function<JDialog, String> tabs = d -> {
+      StringBuilder sb = new StringBuilder();
+      for (String t : new String[] {"recent", "download", "fav:0", "other"}) {
+        AbstractButton b = (AbstractButton) component(d, "media-tab:" + t);
+        if (b != null) sb.append('[').append(b.getText()).append(b.isSelected() ? " *" : "").append(']');
+      }
+      return sb.toString();
+    };
+    inspectNext = d -> {
+      seen.append("opens on: ").append(mb.tab).append(", tabs ").append(tabs.apply(d)).append('\n');
+      ((AbstractButton) component(d, "media-folder:shots")).doClick();
+      seen.append("a text file is listed: ").append(component(d, "media-card:notes.txt") != null).append('\n');
+      ((AbstractButton) component(d, "media-favourite")).doClick();
+      seen.append("favourite added: ").append(MediaDir.favourites.size()).append(", tabs now ").append(tabs.apply(d)).append('\n');
+      ((AbstractButton) component(d, "media-tab:download")).doClick();
+      seen.append("Download tab: ").append(mb.tab).append(", Recent MB folder still ").append(MediaDir.lastRoot.equals(media.getAbsolutePath())).append('\n');
+      ((AbstractButton) component(d, "media-tab:fav:0")).doClick();
+      seen.append("favourite tab: ").append(mb.tab).append(", shows ").append(mb.shown.getName()).append('\n');
+      ((AbstractButton) component(d, "media-card:notes.txt")).doClick();
+    };
+    SwingUtilities.invokeLater(() -> mb.choose(f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("picked: ").append(picked[0] == null ? "none" : home.toPath().relativize(picked[0].toPath())).append('\n');
+    MediaBrowser.loadLoop();
+    out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

@@ -44,25 +44,93 @@ final class MediaBrowser {
         this.app = app;
     }
 
+    /** Choose file: what to do with the file picked, or null for the Media browser itself. */
+    java.util.function.Consumer<File> chooser;
+    /** Choose file's tab: "recent", "download" or "fav:<n>". */
+    String tab = "";
+    /** For Choose file's "Other…": the system's file chooser. */
+    Runnable other;
+
     /** Opens the Media browser on `dir` (the folder picked: Up stops there). */
     void open(File dir) {
         if (dir == null || !dir.isDirectory()) {
             app.setNow((dir == null ? "That" : dir.getPath()) + " is not a directory");
             return;
         }
+        this.chooser = null;
+        this.tab = "";
+        this.other = null;
+        this.show(dir);
+    }
+
+    /**
+     * Choose file: the Media browser, with tabs for the Recent MB folder (the folder the Media browser
+     * opened last), Download and the favourite folders; the file clicked goes to `picked`. "Other…"
+     * opens the system's file chooser (`other`).
+     */
+    void choose(java.util.function.Consumer<File> picked, Runnable other) {
         loadLoop();
+        this.chooser = picked;
+        this.other = other;
+        this.tab = MediaDir.lastRoot.length() > 0 && new File(MediaDir.lastRoot).isDirectory() ? "recent" : "download";
+        File[] at = this.tabFolders(this.tab);
+        this.show(at[0], at[1]);
+    }
+
+    /** The tab's folder: {root (Up stops there), the folder to show}. */
+    File[] tabFolders(String t) {
+        if (t.equals("recent") && new File(MediaDir.lastRoot).isDirectory()) {
+            File root = new File(MediaDir.lastRoot).getAbsoluteFile();
+            return new File[] {root, under(root, MediaDir.pathFor(root.getPath()))};
+        }
+        if (t.startsWith("fav:")) {
+            int i = Integer.parseInt(t.substring(4));
+            if (i < MediaDir.favourites.size()) {
+                String[] part = MediaDir.favourites.get(i).split("\t");
+                File root = new File(part[0]).getAbsoluteFile();
+                if (root.isDirectory()) {
+                    java.util.List<String> below = new ArrayList<String>();
+                    for (int k = 1; k < part.length; k++) below.add(part[k]);
+                    return new File[] {root, under(root, below)};
+                }
+            }
+        }
+        File dl = downloads();
+        return new File[] {dl, dl};
+    }
+
+    /** The Download folder (~/Downloads, or ~/Download). */
+    static File downloads() {
+        File home = new File(System.getProperty("user.home", "."));
+        File d = new File(home, "Downloads");
+        if (!d.isDirectory() && new File(home, "Download").isDirectory()) d = new File(home, "Download");
+        if (!d.isDirectory()) d.mkdirs();
+        return d;
+    }
+
+    /** The deepest of the folders `below` (in order) still there under `root`. */
+    private static File under(File root, java.util.List<String> below) {
+        File start = root;
+        for (String u : below) {
+            File f = new File(u);
+            if (!f.isDirectory() || !u.startsWith(start.getPath() + File.separator)) break;
+            start = f;
+        }
+        return start;
+    }
+
+    private void show(File dir) {
+        loadLoop();
+        // The folder it was last in under this one, when it is still there.
+        File root = dir.getAbsoluteFile();
+        this.show(root, under(root, MediaDir.pathFor(root.getPath())));
+    }
+
+    private void show(File root, File start) {
         final JDialog dialog = new JDialog(app, "Media browser", true);
         dialog.setName("media-browser");
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         this.last = dialog;
-        // The folder it was last in under this one, when it is still there.
-        File root = dir.getAbsoluteFile();
-        File start = root;
-        for (String under : MediaDir.pathFor(root.getPath())) {
-            File f = new File(under);
-            if (!f.isDirectory() || !under.startsWith(start.getPath() + File.separator)) break;
-            start = f;
-        }
         this.fill(dialog, root, start);
         dialog.pack();
         dialog.setLocationRelativeTo(app);
@@ -70,6 +138,11 @@ final class MediaBrowser {
     }
 
     static List<MediaDir.Entry> list(File dir) {
+        return list(dir, false);
+    }
+
+    /** As above; `every` (Choose file) lists every file. */
+    static List<MediaDir.Entry> list(File dir, boolean every) {
         List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
         File[] files = dir.listFiles();
         if (files != null) {
@@ -83,19 +156,20 @@ final class MediaBrowser {
                 all.add(e);
             }
         }
-        return MediaDir.shown(all);
+        return MediaDir.shown(all, every);
     }
 
     /** The dialog's contents for `dir`; the thumbnails come in the background. */
     private void fill(final JDialog dialog, final File root, final File dir) {
         this.shown = dir;
         // Remembered: the folder picked and the folders opened under it, for the next time.
-        List<String> under = new ArrayList<String>();
+        final List<String> under = new ArrayList<String>();
         for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
-        MediaDir.remember(root.getPath(), under);
+        // Choose file's Download and favourite tabs do not change the Recent MB folder.
+        if (this.chooser == null || "recent".equals(this.tab)) MediaDir.remember(root.getPath(), under);
         saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
-        final List<MediaDir.Entry> entries = list(dir);
+        final List<MediaDir.Entry> entries = list(dir, this.chooser != null);
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -131,7 +205,27 @@ final class MediaBrowser {
             });
             top.add(up, BorderLayout.WEST);
         }
-        body.add(top, BorderLayout.NORTH);
+        // Add to favourites: this folder, as a tab in Choose file.
+        JButton fav = new JButton("Add to favourites");
+        fav.setName("media-favourite");
+        fav.addActionListener(e -> {
+            boolean added = MediaDir.addFavourite(root.getPath(), under);
+            saveLoop();
+            app.setNow(added ? MediaDir.label(dir.getPath()) + " is a favourite: a tab in Choose file" : MediaDir.label(dir.getPath()) + " is a favourite already");
+            if (added && this.chooser != null) {
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            }
+        });
+        loopRow.add(fav, 0);
+        if (this.chooser != null) {
+            JPanel north = new JPanel(new BorderLayout(0, 6));
+            north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
+            north.add(top, BorderLayout.CENTER);
+            body.add(north, BorderLayout.NORTH);
+        } else {
+            body.add(top, BorderLayout.NORTH);
+        }
         JPanel grid = new JPanel(new GridLayout(0, 4, 8, 8));
         if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
         final List<JButton> waiting = new ArrayList<JButton>();
@@ -158,7 +252,12 @@ final class MediaBrowser {
                 final boolean[] held = new boolean[1];
                 card.addActionListener(e -> {
                     if (held[0]) held[0] = false;
-                    else this.openEntry(entry, f);
+                    else if (this.chooser != null) {
+                        // Choose file: this file fills the row.
+                        java.util.function.Consumer<File> picked = this.chooser;
+                        dialog.dispose();
+                        picked.accept(f);
+                    } else this.openEntry(entry, f);
                 });
                 card.addMouseListener(new java.awt.event.MouseAdapter() {
                     javax.swing.Timer hold;
@@ -226,6 +325,57 @@ final class MediaBrowser {
         dialog.revalidate();
         dialog.repaint();
         this.load(waiting, gone);
+    }
+
+    /** Choose file's tabs: Recent MB folder, Download, the favourites (a right click takes one out), Other…. */
+    private JPanel tabs(final JDialog dialog, final AtomicBoolean gone) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        java.util.List<String[]> all = new ArrayList<String[]>();
+        if (MediaDir.lastRoot.length() > 0 && new File(MediaDir.lastRoot).isDirectory()) all.add(new String[] {"recent", "Recent MB folder"});
+        all.add(new String[] {"download", "Download"});
+        for (int i = 0; i < MediaDir.favourites.size(); i++) all.add(new String[] {"fav:" + i, MediaDir.favouriteLabel(MediaDir.favourites.get(i))});
+        for (final String[] t : all) {
+            javax.swing.JToggleButton b = new javax.swing.JToggleButton(t[1], t[0].equals(this.tab));
+            b.setName("media-tab:" + t[0]);
+            b.addActionListener(e -> {
+                if (t[0].equals(this.tab)) {
+                    b.setSelected(true);
+                    return;
+                }
+                this.tab = t[0];
+                File[] at = this.tabFolders(t[0]);
+                gone.set(true);
+                this.fill(dialog, at[0], at[1]);
+            });
+            if (t[0].startsWith("fav:")) {
+                b.setToolTipText("A right click takes it out of the favourites");
+                b.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (!e.isPopupTrigger() && !javax.swing.SwingUtilities.isRightMouseButton(e)) return;
+                        MediaDir.removeFavourite(Integer.parseInt(t[0].substring(4)));
+                        saveLoop();
+                        app.setNow(t[1] + " is no longer a favourite");
+                        MediaBrowser.this.tab = "download";
+                        File[] at = MediaBrowser.this.tabFolders("download");
+                        gone.set(true);
+                        MediaBrowser.this.fill(dialog, at[0], at[1]);
+                    }
+                });
+            }
+            row.add(b);
+        }
+        if (this.other != null) {
+            JButton o = new JButton("Other\u2026");
+            o.setName("media-tab:other");
+            o.addActionListener(e -> {
+                Runnable r = this.other;
+                dialog.dispose();
+                r.run();
+            });
+            row.add(o);
+        }
+        return row;
     }
 
     /** Reads the pictures' thumbnails, and with VLC the videos' first frames, putting each on its card as it comes. */

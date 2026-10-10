@@ -370,15 +370,29 @@ public final class PyJavParams {
         .show();
   }
 
-  static void pickFile(Activity activity, String[] values, int index, TextView label) {
-    pendingPrompt = null;
-    pendingValues = values;
-    pendingIndex = index;
-    pendingLabel = label;
-    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-    intent.addCategory(Intent.CATEGORY_OPENABLE);
-    intent.setType("*/*");
-    activity.startActivityForResult(intent, PICK_FILE);
+  /**
+   * Choose file: the Media browser, on the Recent MB folder, Download or a favourite folder (its
+   * tabs); the file tapped fills the row. "Other…" there opens the system's picker as before.
+   */
+  static void pickFile(final Activity activity, final String[] values, final int index, final TextView label) {
+    Runnable system = () -> {
+      pendingPrompt = null;
+      pendingValues = values;
+      pendingIndex = index;
+      pendingLabel = label;
+      Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+      intent.addCategory(Intent.CATEGORY_OPENABLE);
+      intent.setType("*/*");
+      activity.startActivityForResult(intent, PICK_FILE);
+    };
+    if (!(activity instanceof MainActivity)) {
+      system.run();
+      return;
+    }
+    MediaBrowser.choose((MainActivity) activity, (name, file) -> {
+      values[index] = file.getAbsolutePath();
+      label.setText(fileLabel(values[index]));
+    }, system);
   }
 
   /** Select file for a prompt field (Params, the Prompts page): the picker's text file fills it. */

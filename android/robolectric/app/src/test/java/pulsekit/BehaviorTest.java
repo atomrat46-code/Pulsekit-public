@@ -996,6 +996,11 @@ public class BehaviorTest {
     out.append("--log field: ").append(log != null ? log.getHint() : "none").append('\n');
     log.setText("CompareHits_test_results.txt");
     dv.findViewWithTag("params-file:drums.mid").performClick();
+    idle();
+    // Choose file opens the Media browser; its Other… tab is the system's picker.
+    out.append("Choose file: ").append(MediaBrowser.last != null && MediaBrowser.last.chooser != null ? "the Media browser" : "none").append('\n');
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:other").performClick();
+    idle();
     android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("picker: ").append(pick.getAction()).append('\n');
     PyJavParams.filePicked("/x/drums.mid");
@@ -2839,6 +2844,59 @@ public class BehaviorTest {
    * encrypts only the small index: the library file stays small, the file reads back the same
    * after the library is opened again, and it goes when the file is deleted.
    */
+  @Test
+  public void s90_choose_file() throws Exception {
+    // Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a tapped file fills the row.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "media-choose");
+    File sub = new File(media, "shots");
+    sub.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(sub, "b.jpg").toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, 1, 2});
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.save(app);
+    final String[] values = {""};
+    final TextView label = new TextView(app);
+    PyJavParams.pickFile(app, values, 0, label);
+    idle();
+    MediaBrowser b = MediaBrowser.last;
+    java.util.function.Function<MediaBrowser, String> tabs = x -> {
+      StringBuilder sb = new StringBuilder();
+      for (String t : new String[] {"recent", "download", "fav:0", "other"}) {
+        TextView v = (TextView) x.dialog.getWindow().getDecorView().findViewWithTag("media-tab:" + t);
+        if (v != null) sb.append('[').append(v.getText()).append(t.equals(x.tab) ? " *" : "").append(']');
+      }
+      return sb.toString();
+    };
+    out.append("opens on: ").append(b.tab).append(", tabs ").append(tabs.apply(b)).append('\n');
+    // Into the folder, and Add to favourites.
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-folder:shots").performClick();
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-favourite").performClick();
+    idle();
+    out.append("favourite added: ").append(MediaDir.favourites.size()).append(", tabs now ").append(tabs.apply(MediaBrowser.last)).append('\n');
+    // Download does not become the Recent MB folder.
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:download").performClick();
+    idle();
+    out.append("Download tab: ").append(MediaBrowser.last.tab).append(", Recent MB folder still ").append(MediaDir.lastRoot.equals(media.getAbsolutePath())).append('\n');
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:fav:0").performClick();
+    idle();
+    b = MediaBrowser.last;
+    out.append("favourite tab: ").append(b.tab).append(", shows ").append(b.entries.size()).append(" file(s)\n");
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:b.jpg").performClick();
+    for (int i = 0; i < 100 && values[0].length() == 0; i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    out.append("picked: ").append(new File(values[0]).getName()).append(" in ").append(new File(values[0]).getParentFile().getName())
+        .append(", row shows ").append(label.getText()).append(", browser closed ").append(!b.dialog.isShowing()).append('\n');
+    // The favourite is kept: read back from the saved settings.
+    MediaBrowser.load(app);
+    out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    write("s90_choose_file", out.toString());
+  }
+
   @Test
   public void s89_general_settings() throws Exception {
     // File > General settings: Use encrypted DB unticked copies the library unencrypted; ticked again, the copy goes.
