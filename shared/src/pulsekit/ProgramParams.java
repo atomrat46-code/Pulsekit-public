@@ -297,6 +297,8 @@ public final class ProgramParams {
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
     }
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+    // SogniChat: the sheet goes into the prompt library with the saved chat (.txt) as its result file.
+    if (p.flag && !p.takesValue && p.token.equals("--saveprompt") && chat) p.label = "Save the prompt, and the answer .txt as its result file in DB";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
     if (p.flag && p.takesValue && p.token.equals("--keyscale") && p.hint.equals("key")) p.hint = "e.g. C major, A minor (or C, Am)";
     if (p.flag && p.takesValue && p.token.equals("--timesig") && p.hint.indexOf('|') >= 0) p.hint = "2, 3, 4 or 6 (4 = 4/4, 6 = 6/8)";
@@ -370,7 +372,7 @@ public final class ProgramParams {
       p.hint = "1.1 (default); -0.5 smoother to 3 more detail; 0 off";
     }
     if (p.token.equals("--loras")) {
-      p.label = "More Krea 2 LoRAs (id:strength, comma separated)";
+      p.label = "More Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "e.g. krea2-warm-light:0.6,krea2-film-grain:1";
     }
     if (p.token.equals("--max_cost")) {
@@ -394,7 +396,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--prompt")) p.hint = "the picture to make";
     if (p.token.equals("--loras")) {
-      p.label = "Krea 2 LoRAs (id:strength, comma separated)";
+      p.label = "Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X 1, Realism Engine 0.8, Chest Size 0.5, Weight -1, Filter Bypass 2vector 1; none for no LoRAs";
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5; empty for 1024 square";
@@ -430,7 +432,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty for the model's own";
     if (p.token.equals("--loras")) {
-      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.label = "H3 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X v4 0.5, VBVR Video Reasoning 1; none for no LoRAs";
     }
     if (p.token.equals("--max_cost")) {
@@ -484,7 +486,7 @@ public final class ProgramParams {
     }
     if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty keeps the picture's shape";
     if (p.token.equals("--loras")) {
-      p.label = "H3 LoRAs (id:strength, comma separated)";
+      p.label = "H3 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: h3-vbvr-video-reasoning:1 with the filter off; none for no LoRAs; e.g. h3-better-motion:0.6";
     }
     if (p.token.equals("--max_cost")) {
@@ -520,6 +522,24 @@ public final class ProgramParams {
     String t = p.token;
     // A LoRA list (SogniVideo, SogniPedit, SogniPadd) too: wrapped so the whole list shows.
     return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
+  }
+
+  /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */
+  public static boolean promptFromFile(Param p) {
+    return p != null && p.flag && p.takesValue && !p.isFile() && p.token.equals("--prompt");
+  }
+
+  /**
+   * A picked text file's contents for a prompt field (an Answer Prompt 1.txt made by Extract
+   * prompt, say): UTF-8 without a byte order mark, trimmed; a Pulsekit prompt sheet gives its prompt.
+   */
+  public static String promptText(byte[] bytes) {
+    if (bytes == null) return "";
+    String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    if (text.startsWith("\uFEFF")) text = text.substring(1);
+    PromptRun.Sheet sheet = PromptRun.parse(text);
+    if (sheet != null) text = sheet.body;
+    return text.replace("\r\n", "\n").replace('\r', '\n').trim();
   }
 
   /** A several-line field's text as one argument: lines joined with spaces. */

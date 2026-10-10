@@ -289,7 +289,32 @@ public class MainActivity extends UiKit {
         this.songEditor.refreshSong();
 
         ArtJava.pinWorkDir(this);
+        this.handler.postDelayed(this.dbWatch, 400);
+        // Runs a stopped app left unfinished are not pending any more.
+        int left = PendingOps.start(this.getFilesDir());
+        if (left > 0) this.setNow(left + " database " + (left == 1 ? "operation" : "operations") + " did not finish when Pulsekit last stopped");
     }
+
+    /** "Processing DB, please wait" while the prompt library opens or saves for more than a moment (shown over dialogs too). */
+    long dbToastAt;
+    android.widget.Toast dbToast;
+    final Runnable dbWatch = new Runnable() {
+        public void run() {
+            String what = PromptVault.busy(600);
+            long now = System.currentTimeMillis();
+            if (what != null && now - MainActivity.this.dbToastAt > 2500) {
+                MainActivity.this.dbToastAt = now;
+                if (MainActivity.this.dbToast != null) MainActivity.this.dbToast.cancel();
+                MainActivity.this.dbToast = android.widget.Toast.makeText(MainActivity.this, "Processing DB, please wait\u2026\n" + what, android.widget.Toast.LENGTH_SHORT);
+                MainActivity.this.dbToast.show();
+            } else if (what == null && MainActivity.this.dbToast != null) {
+                MainActivity.this.dbToast.cancel();
+                MainActivity.this.dbToast = null;
+                MainActivity.this.dbToastAt = 0;
+            }
+            if (!MainActivity.this.isFinishing()) MainActivity.this.handler.postDelayed(this, 400);
+        }
+    };
 
     View buildUiBase() {
         LinearLayout.LayoutParams layoutParams;
@@ -989,6 +1014,10 @@ public class MainActivity extends UiKit {
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
+        android.widget.TextView general = this.text("General settings", 14, true);
+        general.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        general.setTextColor(FG);
+        general.setTag("file-general-settings");
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
@@ -1001,6 +1030,7 @@ public class MainActivity extends UiKit {
         menu.addView(saveCodeAs);
         menu.addView(importRef);
         menu.addView(importResult);
+        menu.addView(general);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -1028,6 +1058,10 @@ public class MainActivity extends UiKit {
         importResult.setOnClickListener(v -> {
             pop.dismiss();
             DbImport.pick(this, true);
+        });
+        general.setOnClickListener(v -> {
+            pop.dismiss();
+            GeneralSettings.show(this);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

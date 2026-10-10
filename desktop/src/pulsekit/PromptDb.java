@@ -41,6 +41,8 @@ final class PromptDb {
     static final String SOUNDS_OR_MIDIS = "sounds-or-midis";
     /** MP4 videos (SogniVideo's Join with this video). */
     static final String VIDEOS = "videos";
+    /** Text files (a prompt field's Browse DB: an Answer Prompt 1.txt). */
+    static final String TEXTS = "texts";
     private static final long MAX_BYTES = 16L * 1024 * 1024;
     private static final int CELL = 150;
 
@@ -61,6 +63,8 @@ final class PromptDb {
     static synchronized File dir() {
         File d = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (PromptVault.keys == null) PromptVault.keys = new DesktopVaultKey(d);
+        // Runs a stopped app left in the pending list are cleared, once.
+        PendingOps.start(d);
         return d;
     }
 
@@ -75,6 +79,7 @@ final class PromptDb {
         if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi)");
         if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
         if (VIDEOS.equals(only)) return low.matches(".+\\.(mp4|m4v|mov)");
+        if (TEXTS.equals(only)) return DbFilter.isText(name);
         return true;
     }
 
@@ -555,7 +560,27 @@ final class PromptDb {
             dialog.dispose();
             this.gallery(showResults);
         });
-        JPanel grid = this.grid(stored(results), (file, card) -> this.preview(file, card),
+        // Sort by type, date or size: the gallery opens again in that order (kept for next time).
+        FileSort.current = FileSort.valid(readSort());
+        javax.swing.JComboBox<String> sort = new javax.swing.JComboBox<String>(FileSort.CHOICES);
+        sort.setName("gallery-sort");
+        sort.setSelectedItem(FileSort.current);
+        sort.addActionListener(e -> {
+            String picked = (String) sort.getSelectedItem();
+            if (picked == null || picked.equals(FileSort.current)) return;
+            FileSort.current = picked;
+            writeSort(picked);
+            dialog.dispose();
+            this.gallery(results);
+        });
+        JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        sortRow.add(new JLabel("Sort by"));
+        sortRow.add(sort);
+        JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
+        top.add(kinds);
+        top.add(sortRow);
+        List<PromptVault.StoredFile> list = FileSort.sorted(stored(results), FileSort.current);
+        JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
                 this.gallery(results);
@@ -569,7 +594,25 @@ final class PromptDb {
             }
         });
         this.lastGallery = dialog;
-        this.show(dialog, this.withPreviews(kinds, stored(results), dialog, () -> this.gallery(results)), grid, close);
+        this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(results)), grid, close);
+    }
+
+    /** Sort by as last chosen (~/.pulsekit/file-sort.txt), or null. */
+    static String readSort() {
+        try {
+            File f = new File(dir(), "file-sort.txt");
+            return f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim() : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    static void writeSort(String choice) {
+        try {
+            Files.write(new File(dir(), "file-sort.txt").toPath(), (choice + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ex) {
+            // Kept for this run only.
+        }
     }
 
     /** A card's click: a sound (WAV, MP3) or a MIDI (with the kit) plays in place, again stops; anything else opens. */
@@ -680,7 +723,7 @@ final class PromptDb {
         }
     }
 
-    /** The right-click menu: Open, Save as, Rename, Delete. `changed` shows the gallery again. */
+    /** The right-click menu: Open, Save as, Extract prompt (a text file with a **Prompt:**), Strip headers (lines that start with **...**), Rename, Delete. `changed` shows the gallery again. */
     void menu(PromptVault.StoredFile file, JButton card, Runnable changed) {
         JPopupMenu menu = new JPopupMenu();
         JMenuItem open = new JMenuItem("Open");
@@ -708,10 +751,54 @@ final class PromptDb {
         });
         menu.add(open);
         menu.add(save);
+        boolean extractable = false;
+        try {
+            extractable = PromptExtract.offered(vault(), file.versionId, file.which, file.name);
+        } catch (Exception ex) {
+            // No library: no Extract prompt.
+        }
+        if (extractable) {
+            // A text file with a **Prompt:** (a SogniChat answer.txt): the text after its **Prompt:** as a new file of the same kind.
+            JMenuItem extract = new JMenuItem("Extract prompt");
+            extract.addActionListener(e -> {
+                try {
+                    String made = PromptExtract.keep(vault(), file.versionId, file.which, file.name, file.promptTitle);
+                    app.setNow("Extracted the prompt of " + file.name + " as " + made);
+                    changed.run();
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() != null ? ex.getMessage() : "Could not extract the prompt of " + file.name);
+                }
+            });
+            menu.add(extract);
+        }
+        boolean strippable = false;
+        try {
+            strippable = PromptExtract.stripOffered(vault(), file.versionId, file.which, file.name);
+        } catch (Exception ex) {
+            // No library: no Strip headers.
+        }
+        if (strippable) {
+            // Lines that start with **Header:**: the text without them as <file> noheaders.txt.
+            JMenuItem strip = new JMenuItem("Strip headers");
+            strip.addActionListener(e -> {
+                try {
+                    String made = PromptExtract.keepStripped(vault(), file.versionId, file.which, file.name, file.promptTitle);
+                    app.setNow("Stripped the headers of " + file.name + " as " + made);
+                    changed.run();
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() != null ? ex.getMessage() : "Could not strip the headers of " + file.name);
+                }
+            });
+            menu.add(strip);
+        }
         menu.add(rename);
         menu.add(delete);
+        this.lastFileMenu = menu;
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
     }
+
+    /** The right-click menu shown last, for the tests. */
+    JPopupMenu lastFileMenu;
 
     void saveAs(PromptVault.StoredFile file) {
         JFileChooser chooser = new JFileChooser();
@@ -771,7 +858,8 @@ final class PromptDb {
             String category = sheet != null && sheet.category != null ? sheet.category : "";
             String n1 = sheet != null && sheet.ref1 != null ? sheet.ref1 : "";
             String n2 = sheet != null && sheet.ref2 != null ? sheet.ref2 : "";
-            PromptVault.Version version = vault().selectedRefs(title, category, n1, n2);
+            PromptVault vault = vault();
+            PromptVault.Version version = vault.selectedRefs(title, category, n1, n2);
             if (version == null) {
                 refs.note = "Reference file 1: none\nReference file 2: none";
                 return refs;
@@ -781,9 +869,9 @@ final class PromptDb {
             String name1 = version.ref1Name == null ? "" : version.ref1Name;
             String name2 = version.ref2Name == null ? "" : version.ref2Name;
             refs.description = version.description == null ? "" : version.description;
-            refs.resultName = version.result != null && version.result.length > 0 && version.resultName != null ? version.resultName : "";
-            if (version.ref1 != null && version.ref1.length > 0) refs.ref1Path = write(dir, "ref1-", name1, version.ref1);
-            if (version.ref2 != null && version.ref2.length > 0) refs.ref2Path = write(dir, "ref2-", name2, version.ref2);
+            refs.resultName = vault.sizeOf(version, 3) > 0 && version.resultName != null ? version.resultName : "";
+            if (vault.sizeOf(version, 1) > 0) refs.ref1Path = write(dir, "ref1-", name1, vault.bytesOf(version, 1));
+            if (vault.sizeOf(version, 2) > 0) refs.ref2Path = write(dir, "ref2-", name2, vault.bytesOf(version, 2));
             refs.note = line("Reference file 1", name1, refs.ref1Path) + "\n" + line("Reference file 2", name2, refs.ref2Path);
         } catch (Exception ex) {
             refs.note = "Could not read the encrypted database.";
@@ -817,7 +905,7 @@ final class PromptDb {
             PromptVault vault = vault();
             PromptVault.Version version = vault.selectedRefs(sheet.name, sheet.category, sheet.ref1, sheet.ref2);
             if (version == null) return "";
-            if (version.result != null && version.result.length > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
+            if (vault.sizeOf(version, 3) > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
             vault.putFile(version.id, 3, fileName, bytes);
             return fileName;
         } catch (Exception ex) {
@@ -1249,6 +1337,8 @@ final class PromptDb {
             javax.swing.JTextArea text = new javax.swing.JTextArea(new String(bytes, java.nio.charset.StandardCharsets.UTF_8), 24, 70);
             text.setName("preview-text");
             text.setEditable(false);
+            // Right click or a long press: Select all, Copy (as on the phone).
+            TextMenu.attach(text);
             text.setLineWrap(true);
             text.setWrapStyleWord(true);
             final java.awt.Font base = new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13);

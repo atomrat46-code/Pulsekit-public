@@ -88,6 +88,7 @@ public final class Pulsekit extends UiKit {
     final JTextField tsDenField = new JTextField("4", 2);
 
     final JLabel nowPlaying = new JLabel(" ");
+    final JLabel dbBusy = new JLabel(" ");
 
     final RangeBar tempoBar = new RangeBar(40, 240, 124, n -> {
         if (this.bpmField != null && !Integer.toString(n).equals(this.bpmField.getText())) {
@@ -360,6 +361,19 @@ public final class Pulsekit extends UiKit {
         this.nowPlaying.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
         this.nowPlaying.setVisible(false);
         jPanel8.add((Component)this.nowPlaying, "South");
+        // "Processing DB, please wait" while the prompt library opens or saves for more than a moment.
+        this.dbBusy.setForeground(HIT);
+        this.dbBusy.setFont(new Font("SansSerif", 1, 13));
+        this.dbBusy.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        this.dbBusy.setVisible(false);
+        jPanel8.add((Component)this.dbBusy, "Center");
+        javax.swing.Timer dbWatch = new javax.swing.Timer(400, e -> {
+            String what = PromptVault.busy(600);
+            String text = what == null ? "" : "Processing DB, please wait\u2026 (" + what + ")";
+            if (!text.equals(this.dbBusy.getText().trim())) this.dbBusy.setText(text.length() == 0 ? " " : text);
+            if (this.dbBusy.isVisible() != (what != null)) this.dbBusy.setVisible(what != null);
+        });
+        dbWatch.start();
         jPanel6.add((Component)jPanel8, "North");
         this.chrome = new JPanel();
         this.chrome.setOpaque(false);
@@ -569,6 +583,8 @@ public final class Pulsekit extends UiKit {
             importRef.addActionListener(e -> this.promptDb.importFile(false));
             JMenuItem importResult = new JMenuItem("Import as Result file");
             importResult.addActionListener(e -> this.promptDb.importFile(true));
+            JMenuItem general = new JMenuItem("General settings");
+            general.addActionListener(e -> GeneralSettings.show(this));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem compare = new JMenuItem("Compare Hits");
@@ -581,6 +597,7 @@ public final class Pulsekit extends UiKit {
             menu.add(importResult);
             menu.add(saveCode);
             menu.add(saveCodeAs);
+            menu.add(general);
             menu.add(midi);
             menu.add(compare);
             menu.add(help);

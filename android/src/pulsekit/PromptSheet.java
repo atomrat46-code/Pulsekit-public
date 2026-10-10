@@ -97,16 +97,58 @@ public final class PromptSheet {
     host.setOrientation(LinearLayout.VERTICAL);
     host.setBackgroundColor(Color.parseColor("#0A0B0C"));
     host.setClickable(true);
-    try {
-      vault = PromptVault.open(activity.getFilesDir());
-      if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
-    } catch (Exception ex) {
-      vault = null;
-      toast(activity, ex);
+    java.io.File file = new java.io.File(activity.getFilesDir(), "prompts.vault");
+    if (PromptVault.ready(activity.getFilesDir()) != null || !file.isFile() || PromptVault.storedSize(activity.getFilesDir()) < OPEN_IN_BACKGROUND) {
+      try {
+        vault = PromptVault.open(activity.getFilesDir());
+        if (categoryId == 0 && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
+      } catch (Exception ex) {
+        vault = null;
+        toast(activity, ex);
+      }
+      rebuild(activity);
+      return host;
     }
+    // A large library (videos kept in it) takes a while to read and decrypt: in the background, so
+    // the app starts at once (on the main thread it froze for half a minute).
+    vault = null;
+    opening = true;
+    OPENING.incrementAndGet();
     rebuild(activity);
+    final java.io.File dir = activity.getFilesDir();
+    new Thread(new Runnable() {
+      @Override
+      public void run() {
+        PromptVault opened = null;
+        Exception failed = null;
+        try {
+          opened = PromptVault.open(dir);
+          // A library from before this app keeps its videos inside: kept on their own now, once.
+          opened.upgrade();
+        } catch (Exception ex) {
+          failed = ex;
+        }
+        final PromptVault done = opened;
+        final Exception why = failed;
+        activity.runOnUiThread(() -> {
+          vault = done;
+          opening = false;
+          OPENING.decrementAndGet();
+          if (done != null && categoryId == 0 && !done.categories().isEmpty()) categoryId = done.categories().get(0).id;
+          if (why != null) toast(activity, why);
+          rebuild(activity);
+        });
+      }
+    }, "pulsekit-prompts-open").start();
     return host;
   }
+
+  /** A library file this large (bytes) is opened in the background at start. */
+  static final long OPEN_IN_BACKGROUND = 2L * 1024 * 1024;
+  /** True while the library is being opened in the background. */
+  static volatile boolean opening;
+  /** Libraries still being opened in the background (the tests wait for 0). */
+  static final java.util.concurrent.atomic.AtomicInteger OPENING = new java.util.concurrent.atomic.AtomicInteger();
 
   public static void beginPick(Activity activity, int which) {
     picking = which;
@@ -233,7 +275,9 @@ public final class PromptSheet {
     TextView lead = label(activity, "Encrypted database on this phone. Each save keeps a version. One version can be final.", 14, "#8A8B86", false);
     lead.setPadding(0, dp(activity, 4), 0, dp(activity, 12));
     col.addView(lead);
-    if (vault == null) {
+    if (vault == null && opening) {
+      col.addView(label(activity, "Opening the encrypted database\u2026", 14, "#ECEBE6", false));
+    } else if (vault == null) {
       col.addView(label(activity, "The encrypted database could not be opened.", 14, "#ECEBE6", false));
     } else if (previewBack != 0) {
       buildPreview(activity, col);
@@ -337,7 +381,38 @@ public final class PromptSheet {
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
     boolean results = resultsOpen && !refsOpen;
     col.addView(caption(activity, results ? "RESULT FILES" : "REFERENCE FILES"));
-    List<PromptVault.StoredFile> files = results ? vault.resultFiles() : vault.referenceFiles();
+    // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
+    FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
+    LinearLayout sortRow = new LinearLayout(activity);
+    sortRow.setOrientation(LinearLayout.HORIZONTAL);
+    sortRow.setGravity(Gravity.CENTER_VERTICAL);
+    sortRow.addView(label(activity, "Sort by", 14, "#ECEBE6", false));
+    android.widget.Spinner sort = new android.widget.Spinner(activity);
+    sort.setTag("refs-sort");
+    android.widget.ArrayAdapter<String> choices = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, FileSort.CHOICES);
+    choices.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    sort.setAdapter(choices);
+    sort.setSelection(java.util.Arrays.asList(FileSort.CHOICES).indexOf(FileSort.current), false);
+    sort.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+      @Override
+      public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+        String picked = FileSort.CHOICES[position];
+        if (picked.equals(FileSort.current)) return;
+        FileSort.current = picked;
+        activity.getSharedPreferences(SORT_PREFS, 0).edit().putString("sort", picked).apply();
+        rebuild(activity);
+      }
+
+      @Override
+      public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+    });
+    LinearLayout.LayoutParams sortLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+    sortLp.leftMargin = dp(activity, 12);
+    sortRow.addView(sort, sortLp);
+    LinearLayout.LayoutParams rowLpSort = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+    rowLpSort.bottomMargin = dp(activity, 8);
+    col.addView(sortRow, rowLpSort);
+    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;
@@ -554,7 +629,31 @@ public final class PromptSheet {
     col.addView(resultTextBtn, buttonLp(activity));
     col.addView(caption(activity, "PROMPT"));
     prompt = area(activity, 8);
+    prompt.setTag("prompt-body");
+    textMenu(activity, prompt);
     col.addView(prompt, areaLp(activity, 200));
+    // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
+    LinearLayout fromFile = new LinearLayout(activity);
+    fromFile.setOrientation(LinearLayout.HORIZONTAL);
+    final EditText promptField = prompt;
+    TextView selectFile = button(activity, "Select file", "#1B1D1F", "#ECEBE6");
+    selectFile.setTag("prompt-body-file");
+    selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(activity, promptField));
+    fromFile.addView(selectFile, new LinearLayout.LayoutParams(0, dp(activity, 44), 1f));
+    TextView browseDb = button(activity, "Browse DB", "#1B1D1F", "#ECEBE6");
+    browseDb.setTag("prompt-body-db");
+    boolean texts = !RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty();
+    browseDb.setEnabled(texts);
+    browseDb.setAlpha(texts ? 1f : 0.4f);
+    browseDb.setOnClickListener(v -> {
+      // A prompt is a text file: Browse DB starts on T.
+      DbFilter.current = "T";
+      RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> PyJavParams.promptFrom(activity, promptField, file));
+    });
+    LinearLayout.LayoutParams browseLp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
+    browseLp.leftMargin = dp(activity, 8);
+    fromFile.addView(browseDb, browseLp);
+    col.addView(fromFile, buttonLp(activity));
     PromptVault.Version loaded = vault.version(loadedVersionId);
     if (loaded != null && loaded.promptId == promptId) fill(loaded);
     else {
@@ -624,10 +723,10 @@ public final class PromptSheet {
     if (model != null) model.setText(modelFor(version.promptId, version.model));
     ref1Name = version.ref1Name == null ? "" : version.ref1Name;
     ref2Name = version.ref2Name == null ? "" : version.ref2Name;
-    ref1Bytes = version.ref1 == null ? new byte[0] : version.ref1;
-    ref2Bytes = version.ref2 == null ? new byte[0] : version.ref2;
+    ref1Bytes = vault == null ? new byte[0] : vault.bytesOf(version, 1);
+    ref2Bytes = vault == null ? new byte[0] : vault.bytesOf(version, 2);
     resultName = version.resultName == null ? "" : version.resultName;
-    resultBytes = version.result == null ? new byte[0] : version.result;
+    resultBytes = vault == null ? new byte[0] : vault.bytesOf(version, 3);
     resultText = version.resultText == null ? "" : version.resultText;
     if (ref1 != null) ref1.setText(storedLabel(ref1Name, ref1Bytes));
     if (ref2 != null) ref2.setText(storedLabel(ref2Name, ref2Bytes));
@@ -1087,18 +1186,79 @@ public final class PromptSheet {
         toast(activity, ex);
       }
     });
-    if (!fullSize) {
+    // A text file with a **Prompt:** (a SogniChat answer.txt): Extract prompt keeps the text after its **Prompt:** as a new file.
+    boolean extract = PromptExtract.offered(vault, versionId, which, name);
+    java.util.List<CharSequence> items = new java.util.ArrayList<CharSequence>();
+    java.util.List<Runnable> runs = new java.util.ArrayList<Runnable>();
+    if (fullSize) {
+      items.add("Open in full size");
+      runs.add(() -> openPreview(activity, name, vault.fileBytes(versionId, which), 3));
+    }
+    if (extract) {
+      items.add("Extract prompt");
+      runs.add(() -> extractPrompt(activity, versionId, which, name));
+    }
+    // Lines that start with **Header:**: Strip headers keeps the text without them as <file> noheaders.txt.
+    boolean strip = PromptExtract.stripOffered(vault, versionId, which, name);
+    if (strip) {
+      items.add("Strip headers");
+      runs.add(() -> stripHeaders(activity, versionId, which, name));
+    }
+    items.add("Rename");
+    runs.add(rename);
+    items.add("Delete");
+    runs.add(delete);
+    if (!fullSize && !extract && !strip) {
       itemMenu(activity, name, rename, delete);
       return;
     }
-    new AlertDialog.Builder(activity)
+    lastFileMenu = new AlertDialog.Builder(activity)
         .setTitle(name)
-        .setItems(new CharSequence[] {"Open in full size", "Rename", "Delete"}, (dialog, pick) -> {
-          if (pick == 0) openPreview(activity, name, vault.fileBytes(versionId, which), 3);
-          else if (pick == 1) rename.run();
-          else delete.run();
-        })
+        .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
         .show();
+  }
+
+  /** Where Sort by (the Ref files and Result files galleries) is kept. */
+  static final String SORT_PREFS = "pulsekit-file-sort";
+
+  /** The file menu shown last, for the tests. */
+  static AlertDialog lastFileMenu;
+
+  /** Strip headers: the file's text without its line headers kept as <file> noheaders.txt, of the same kind. */
+  private static void stripHeaders(Activity activity, long versionId, int which, String name) {
+    try {
+      String made = PromptExtract.keepStripped(vault, versionId, which, name, storedTitle(versionId, which));
+      rebuild(activity);
+      toast(activity, "Saved " + made);
+      if (activity instanceof MainActivity) ((MainActivity) activity).setNow("Stripped the headers of " + name + " as " + made);
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
+  }
+
+  /** The prompt title (or import note) a stored file is listed under. */
+  private static String storedTitle(long versionId, int which) {
+    String title = "";
+    for (PromptVault.StoredFile f : which == 3 ? vault.resultFiles() : vault.referenceFiles()) {
+      if (f.versionId == versionId && f.which == which && f.promptTitle != null) title = f.promptTitle;
+    }
+    return title;
+  }
+
+  /** Extract prompt: the text after the file's last **Prompt:** kept as <File> Prompt <n>.txt, of the same kind. */
+  private static void extractPrompt(Activity activity, long versionId, int which, String name) {
+    try {
+      String title = "";
+      for (PromptVault.StoredFile f : which == 3 ? vault.resultFiles() : vault.referenceFiles()) {
+        if (f.versionId == versionId && f.which == which && f.promptTitle != null) title = f.promptTitle;
+      }
+      String made = PromptExtract.keep(vault, versionId, which, name, title);
+      rebuild(activity);
+      toast(activity, "Saved " + made);
+      if (activity instanceof MainActivity) ((MainActivity) activity).setNow("Extracted the prompt of " + name + " as " + made);
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
   }
 
   private static void itemMenu(Activity activity, String title, Runnable rename, Runnable delete) {
@@ -1327,6 +1487,8 @@ public final class PromptSheet {
       TextView body = label(activity, previewText(previewBytes), 14, "#ECEBE6", false);
       body.setTextSize(14f * previewZoom);
       body.setPadding(0, dp(activity, 8), 0, 0);
+      body.setTag("preview-text");
+      readOnlyMenu(activity, body);
       previewBody = body;
       col.addView(body);
     } else if (kind == 2) {
@@ -1979,6 +2141,87 @@ public final class PromptSheet {
     field.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
     return field;
   }
+
+  /**
+   * A long press on the field: Select all, Copy, Cut, Paste. Copy and Cut work on the selection
+   * (greyed without one), Paste puts the clipboard's text in its place. The field also scrolls
+   * under a finger, inside the page.
+   */
+  static void textMenu(Activity activity, EditText field) {
+    field.setOnLongClickListener(v -> {
+      android.widget.PopupMenu menu = new android.widget.PopupMenu(activity, field);
+      int start = Math.min(field.getSelectionStart(), field.getSelectionEnd());
+      int end = Math.max(field.getSelectionStart(), field.getSelectionEnd());
+      boolean picked = start >= 0 && end > start;
+      android.content.ClipboardManager clips = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+      boolean canPaste = clips != null && clips.hasPrimaryClip() && clips.getPrimaryClip() != null && clips.getPrimaryClip().getItemCount() > 0;
+      menu.getMenu().add(0, 1, 0, "Select all");
+      menu.getMenu().add(0, 2, 1, "Copy").setEnabled(picked);
+      menu.getMenu().add(0, 3, 2, "Cut").setEnabled(picked);
+      menu.getMenu().add(0, 4, 3, "Paste").setEnabled(canPaste);
+      menu.setOnMenuItemClickListener(item -> {
+        CharSequence text = field.getText() == null ? "" : field.getText();
+        int a = Math.max(0, Math.min(field.getSelectionStart(), field.getSelectionEnd()));
+        int b = Math.max(0, Math.max(field.getSelectionStart(), field.getSelectionEnd()));
+        if (item.getItemId() == 1) {
+          field.requestFocus();
+          field.selectAll();
+        } else if (item.getItemId() == 2 || item.getItemId() == 3) {
+          if (clips != null && b > a) clips.setPrimaryClip(android.content.ClipData.newPlainText("prompt", text.subSequence(a, b)));
+          if (item.getItemId() == 3 && b > a && field.getText() != null) field.getText().delete(a, b);
+        } else if (item.getItemId() == 4 && clips != null && clips.getPrimaryClip() != null && clips.getPrimaryClip().getItemCount() > 0) {
+          CharSequence paste = clips.getPrimaryClip().getItemAt(0).coerceToText(activity);
+          if (paste != null && field.getText() != null) {
+            field.getText().replace(a, b, paste);
+            field.setSelection(Math.min(field.length(), a + paste.length()));
+          }
+        }
+        return true;
+      });
+      lastTextMenu = menu;
+      menu.show();
+      return true;
+    });
+    field.setOnTouchListener((v, ev) -> {
+      if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
+      if ((ev.getAction() & android.view.MotionEvent.ACTION_MASK) == android.view.MotionEvent.ACTION_UP) v.getParent().requestDisallowInterceptTouchEvent(false);
+      return false;
+    });
+  }
+
+  /**
+   * A long press on read-only text (a text file shown full size): Select all, Copy. Copy takes
+   * the selection, or the whole text when nothing is selected.
+   */
+  static void readOnlyMenu(Activity activity, TextView view) {
+    view.setTextIsSelectable(true);
+    view.setOnLongClickListener(v -> {
+      android.widget.PopupMenu menu = new android.widget.PopupMenu(activity, view);
+      menu.getMenu().add(0, 1, 0, "Select all");
+      menu.getMenu().add(0, 2, 1, "Copy");
+      menu.setOnMenuItemClickListener(item -> {
+        CharSequence text = view.getText() == null ? "" : view.getText();
+        if (item.getItemId() == 1) {
+          view.requestFocus();
+          if (text instanceof android.text.Spannable) android.text.Selection.selectAll((android.text.Spannable) text);
+        } else {
+          int a = Math.max(0, Math.min(view.getSelectionStart(), view.getSelectionEnd()));
+          int b = Math.max(0, Math.max(view.getSelectionStart(), view.getSelectionEnd()));
+          CharSequence copied = b > a ? text.subSequence(a, b) : text;
+          android.content.ClipboardManager clips = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+          if (clips != null) clips.setPrimaryClip(android.content.ClipData.newPlainText("text", copied));
+          toast(activity, "Copied " + copied.length() + " characters");
+        }
+        return true;
+      });
+      lastTextMenu = menu;
+      menu.show();
+      return true;
+    });
+  }
+
+  /** The text menu shown last, for the tests. */
+  static android.widget.PopupMenu lastTextMenu;
 
   private static EditText area(Activity activity, int lines) {
     EditText field = new EditText(activity);

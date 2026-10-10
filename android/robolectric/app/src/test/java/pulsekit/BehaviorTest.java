@@ -996,6 +996,11 @@ public class BehaviorTest {
     out.append("--log field: ").append(log != null ? log.getHint() : "none").append('\n');
     log.setText("CompareHits_test_results.txt");
     dv.findViewWithTag("params-file:drums.mid").performClick();
+    idle();
+    // Choose file opens the Media browser; its Other… tab is the system's picker.
+    out.append("Choose file: ").append(MediaBrowser.last != null && MediaBrowser.last.chooser != null ? "the Media browser" : "none").append('\n');
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:other").performClick();
+    idle();
     android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("picker: ").append(pick.getAction()).append('\n');
     PyJavParams.filePicked("/x/drums.mid");
@@ -1879,9 +1884,9 @@ public class BehaviorTest {
         PromptVault.Version v = vault.versions(p.id).get(vault.versions(p.id).size() - 1);
         out.append("  model ").append(v.model).append(", type ").append(v.codeType).append('\n');
         out.append("  body: ").append(v.body.replace("\n", "|")).append('\n');
-        out.append("  reference 1: ").append(v.ref1Name).append(" (").append(v.ref1 == null ? 0 : v.ref1.length).append(" bytes), reference 2: \"")
+        out.append("  reference 1: ").append(v.ref1Name).append(" (").append(vault.sizeOf(v, 1)).append(" bytes), reference 2: \"")
             .append(v.ref2Name).append("\"\n");
-        out.append("  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+        out.append("  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes)\n");
         out.append("  result text: ").append(v.resultText).append('\n');
       }
     }
@@ -2187,7 +2192,7 @@ public class BehaviorTest {
         if (!p.title.equals("MidiDrumGen")) continue;
         out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
         for (PromptVault.Version v : vault.versions(p.id)) {
-          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3))
               .append(" bytes), result text: ").append(v.resultText).append('\n');
         }
       }
@@ -2213,7 +2218,7 @@ public class BehaviorTest {
       if (!p.title.equals("hard_rock_4")) continue;
       PromptVault.Version v = after.versions(p.id).get(0);
       out.append("  sheet in library: ").append(p.title).append(", model ").append(v.model).append(", result ").append(v.resultName).append(" (")
-          .append(v.result == null ? 0 : v.result.length).append(" bytes)\n");
+          .append(vault.sizeOf(v, 3)).append(" bytes)\n");
     }
     for (PromptVault.Prompt p : after.prompts(music)) {
       if (p.title.equals("MidiDrumGen")) out.append("  MidiDrumGen prompt: ").append(after.versions(p.id).size()).append(" versions (setting ")
@@ -2522,7 +2527,7 @@ public class BehaviorTest {
         if (!p.title.equals("SogniMusic")) continue;
         out.append("library: ").append(c.name).append(" / ").append(p.title).append(", ").append(vault.versions(p.id).size()).append(" versions\n");
         for (PromptVault.Version v : vault.versions(p.id)) {
-          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(v.result == null ? 0 : v.result.length)
+          out.append("  text: ").append(v.body).append("\n  result: ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3))
               .append(" bytes), result text: ").append(v.resultText.replace("\n", " | ")).append('\n');
         }
       }
@@ -2832,6 +2837,625 @@ public class BehaviorTest {
     idle();
     out.append("args: ").append(args.getText()).append('\n');
     write("s75_sogni_textvideo", out.toString());
+  }
+
+  /**
+   * A large file (a video) is kept in its own encrypted file beside the library, so a save
+   * encrypts only the small index: the library file stays small, the file reads back the same
+   * after the library is opened again, and it goes when the file is deleted.
+   */
+  @Test
+  public void s90_choose_file() throws Exception {
+    // Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a tapped file fills the row.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "media-choose");
+    File sub = new File(media, "shots");
+    sub.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(sub, "b.jpg").toPath(), new byte[] {(byte) 0xff, (byte) 0xd8, 1, 2});
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.save(app);
+    final String[] values = {""};
+    final TextView label = new TextView(app);
+    PyJavParams.pickFile(app, values, 0, label);
+    idle();
+    MediaBrowser b = MediaBrowser.last;
+    java.util.function.Function<MediaBrowser, String> tabs = x -> {
+      StringBuilder sb = new StringBuilder();
+      for (String t : new String[] {"recent", "download", "fav:0", "other"}) {
+        TextView v = (TextView) x.dialog.getWindow().getDecorView().findViewWithTag("media-tab:" + t);
+        if (v != null) sb.append('[').append(v.getText()).append(t.equals(x.tab) ? " *" : "").append(']');
+      }
+      return sb.toString();
+    };
+    out.append("opens on: ").append(b.tab).append(", tabs ").append(tabs.apply(b)).append('\n');
+    // Into the folder, and Add to favourites.
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-folder:shots").performClick();
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-favourite").performClick();
+    idle();
+    out.append("favourite added: ").append(MediaDir.favourites.size()).append(", tabs now ").append(tabs.apply(MediaBrowser.last)).append('\n');
+    // Download does not become the Recent MB folder.
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:download").performClick();
+    idle();
+    out.append("Download tab: ").append(MediaBrowser.last.tab).append(", Recent MB folder still ").append(MediaDir.lastRoot.equals(media.getAbsolutePath())).append('\n');
+    MediaBrowser.last.dialog.getWindow().getDecorView().findViewWithTag("media-tab:fav:0").performClick();
+    idle();
+    b = MediaBrowser.last;
+    out.append("favourite tab: ").append(b.tab).append(", shows ").append(b.entries.size()).append(" file(s)\n");
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:b.jpg").performClick();
+    for (int i = 0; i < 100 && values[0].length() == 0; i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    out.append("picked: ").append(new File(values[0]).getName()).append(" in ").append(new File(values[0]).getParentFile().getName())
+        .append(", row shows ").append(label.getText()).append(", browser closed ").append(!b.dialog.isShowing()).append('\n');
+    // The favourite is kept: read back from the saved settings.
+    MediaBrowser.load(app);
+    out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    write("s90_choose_file", out.toString());
+  }
+
+  @Test
+  public void s89_general_settings() throws Exception {
+    // File > General settings: Use encrypted DB unticked copies the library unencrypted; ticked again, the copy goes.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    byte[] video = new byte[300 * 1024];
+    new java.util.Random(3).nextBytes(video);
+    DbImport.store(app, "clip.mp4", video, true);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = app.getFilesDir().listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
+      return sb.toString().trim();
+    };
+    GeneralSettings.show(app);
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
+    out.append("Use encrypted DB: ").append(box.isChecked()).append("; files: ").append(files.get()).append('\n');
+    box.setChecked(false);
+    idle();
+    out.append("unticked: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append("; encrypted ").append(PromptVault.encrypted(app.getFilesDir())).append("; files: ").append(files.get()).append('\n');
+    PromptVault v = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : v.resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("clip.mp4 in the unencrypted library: ").append(clip != null && java.util.Arrays.equals(v.fileBytes(clip.versionId, clip.which), video)).append('\n');
+    DbImport.store(app, "note.txt", "added unencrypted".getBytes(StandardCharsets.UTF_8), false);
+    box.setChecked(true);
+    idle();
+    out.append("ticked: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append("; encrypted ").append(PromptVault.encrypted(app.getFilesDir())).append("; files: ").append(files.get()).append('\n');
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    StringBuilder names = new StringBuilder();
+    PromptVault again = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : again.resultFiles()) names.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : again.referenceFiles()) names.append(f.name).append(' ');
+    out.append("encrypted library opened again: ").append(names.toString().trim()).append('\n');
+    write("s89_general_settings", out.toString());
+  }
+
+  @Test
+  public void s88_pending_db() throws Exception {
+    // A Sogni run whose prompt library work is not over: other Sogni programs wait, SogniChat may run.
+    StringBuilder out = new StringBuilder();
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append('\n');
+    File list = new File(app.getFilesDir(), "pending-db.txt");
+    out.append("list file: ").append(list.isFile() ? new String(Files.readAllBytes(list.toPath()), StandardCharsets.UTF_8).trim().replaceAll("^\\d+", "N") : "none").append('\n');
+    app.pyJav.pkRunPyJav();
+    idle();
+    out.append("Run SogniTextVideo: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+    out.append("SogniTextVideo Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append(", its Params wait: ")
+        .append(app.pyJav.pkMustWait("SogniChat.java", false)).append('\n');
+    out.append("MidiDrumGen waits: ").append(app.pyJav.pkMustWait("MidiDrumGen.java", true)).append('\n');
+    PendingOps.done(entry);
+    out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    write("s88_pending_db", out.toString());
+  }
+
+  @Test
+  public void s87_large_files_apart() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    byte[] video = new byte[5 * 1024 * 1024];
+    new java.util.Random(7).nextBytes(video);
+    DbImport.store(app, "clip.mp4", video, true);
+    DbImport.store(app, "note.txt", "small".getBytes(StandardCharsets.UTF_8), true);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = app.getFilesDir().listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) {
+        if (k.getName().equals("prompts.vault")) sb.append("library ").append(k.length() < 64 * 1024 ? "small" : (k.length() / 1024) + " KB").append(", ");
+        if (k.getName().startsWith("prompts-blob-")) sb.append("kept file ").append(k.length() / (1024 * 1024)).append(" MB, encrypted ")
+            .append(!new String(java.util.Arrays.copyOf(readAll(k), 64), StandardCharsets.ISO_8859_1).contains(new String(java.util.Arrays.copyOf(video, 16), StandardCharsets.ISO_8859_1))).append(", ");
+      }
+      return sb.toString();
+    };
+    out.append("stored: ").append(files.get()).append('\n');
+    // Another save (a small change) does not write the video again.
+    File blob = null;
+    for (File k : app.getFilesDir().listFiles()) if (k.getName().startsWith("prompts-blob-")) blob = k;
+    long stamp = blob.lastModified();
+    Thread.sleep(20);
+    PromptVault.open(app.getFilesDir()).addCategory("Clips");
+    out.append("after a small save: kept file rewritten ").append(blob.lastModified() != stamp).append('\n');
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    PromptVault again = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : again.resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("opened again: clip.mp4 ").append(clip == null ? "missing" : java.util.Arrays.equals(again.fileBytes(clip.versionId, clip.which), video) ? "the same bytes" : "different").append('\n');
+    again.deleteFile(clip.versionId, clip.which);
+    out.append("after deleting it: ").append(files.get()).append('\n');
+    write("s87_large_files_apart", out.toString());
+  }
+
+  private static byte[] readAll(File f) {
+    try {
+      return Files.readAllBytes(f.toPath());
+    } catch (Exception ex) {
+      return new byte[0];
+    }
+  }
+
+  /**
+   * A large prompt library (videos kept in it) opens in the background at start: the Prompts page
+   * says it is opening, then shows the library. A problem showing what a run made is a note under
+   * the run's log, not a "Failed" run.
+   */
+  @Test
+  public void s86_open_in_background() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbImport.store(app, "big.mp4", new byte[3 * 1024 * 1024], true);
+    java.lang.reflect.Field shared = PromptVault.class.getDeclaredField("shared");
+    shared.setAccessible(true);
+    shared.set(null, null);
+    out.append("library on disk: ").append(PromptVault.storedSize(app.getFilesDir()) / (1024 * 1024)).append(" MB, in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    out.append("at once: ").append(findText(pane, "Opening the encrypted database…") != null ? "Opening the encrypted database…" : "?")
+        .append(", Ref files button ").append(findText(pane, "Ref files") != null).append('\n');
+    idle();
+    out.append("then: opening shown ").append(findText(pane, "Opening the encrypted database…") != null).append(", Ref files button ").append(findText(pane, "Ref files") != null)
+        .append(", in memory ").append(PromptVault.ready(app.getFilesDir()) != null).append('\n');
+    // A problem showing what a run made: a note, the run stays as it was.
+    call("show", "py");
+    idle();
+    ((TextView) get("pkPyLog")).setText("Succeeded: clip.mp4");
+    java.lang.reflect.Field runLog = PyJav.class.getDeclaredField("pkRunLog");
+    runLog.setAccessible(true);
+    runLog.set(app.pyJav, "Succeeded: clip.mp4");
+    app.pyJav.pkOffer("the video", true, () -> { throw new IllegalStateException(""); });
+    out.append("after a failing offer: ").append(((TextView) get("pkPyLog")).getText().toString().replace("\n", "|")).append('\n');
+    write("s86_open_in_background", out.toString());
+  }
+
+  /**
+   * A run with a large result and a prompt sheet (SogniTextVideo's 10 s video with --saveprompt):
+   * the result shows at once and the prompt library stores it in the background (on the main
+   * thread its encryption froze the app); the log then says what was stored.
+   */
+  @Test
+  public void s85_keep_in_background() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniTextVideo.java");
+    byte[] clip = mp4Header(10000, 438, 768);
+    byte[] big = new byte[12 * 1024 * 1024];
+    System.arraycopy(clip, 0, big, 0, clip.length);
+    String sheet = "PKPROMPT1\nsogni-textvideo-waves\n\n\n\n\nCategory: video\nModel: Sogni MiniMax H3\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Waves roll onto a beach\n\nResult file: sogni-textvideo-waves.mp4\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-textvideo-waves.mp4", big));
+    files.add(new JavaRun.FileOut("sogni-textvideo-waves.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Waves roll onto a beach", "--duration", "10", "--aspect", "4:7", "--saveprompt"));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(10000, 0));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Saved prompt sogni-textvideo-waves.prompt\nWrote sogni-textvideo-waves.mp4\nSucceeded: sogni-textvideo-waves.mp4", files, 0));
+    String right = ((TextView) get("pkPyLog")).getText().toString();
+    out.append("right after the run: ").append(right.contains("Prompt library: storing") ? "storing in the background" : "not storing").append(", stored ")
+        .append(right.contains("Prompt library: sogni-textvideo-waves (")).append('\n');
+    idle();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("then: ").append(line).append('\n');
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) out.append("result file: ").append(f.name).append(", ").append(f.size / (1024 * 1024)).append(" MB\n");
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    idle();
+    write("s85_keep_in_background", out.toString());
+  }
+
+  /**
+   * A text file opened full size: a long press gives Select all and Copy; Copy takes the
+   * selection, or the whole text when nothing is selected.
+   */
+  @Test
+  public void s84_preview_text_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    open.setAccessible(true);
+    open.invoke(null, app, "looks.txt", "She appears to be a young adult.\nHer hair is dark.\n".getBytes(StandardCharsets.UTF_8), 3);
+    idle();
+    TextView body = (TextView) pane.findViewWithTag("preview-text");
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    java.util.function.Consumer<String> press = t -> {
+      body.performLongClick();
+      idle();
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) {
+        if (m.getItem(i).getTitle().toString().equals(t)) org.robolectric.Shadows.shadowOf(PromptSheet.lastTextMenu).getOnMenuItemClickListener().onMenuItemClick(m.getItem(i));
+      }
+      idle();
+    };
+    out.append("long press handled: ").append(body.performLongClick()).append(", menu ");
+    android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+    for (int i = 0; i < m.size(); i++) out.append('[').append(m.getItem(i).getTitle()).append(']');
+    out.append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    press.accept("Copy");
+    out.append("Copy, nothing selected: ").append(clips.getPrimaryClip().getItemAt(0).getText().toString().replace("\n", "|")).append('\n');
+    android.text.Selection.setSelection((android.text.Spannable) body.getText(), 4, 11);
+    press.accept("Copy");
+    out.append("Copy \"appears\": ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    press.accept("Select all");
+    out.append("Select all: ").append(body.getSelectionStart()).append("..").append(body.getSelectionEnd()).append(" of ").append(body.length()).append('\n');
+    findText(pane, "Back").performClick();
+    idle();
+    write("s84_preview_text_menu", out.toString());
+  }
+
+  /**
+   * Strip headers in a stored text file's long-press menu (lines that start with **Header:**): the
+   * text without them kept as <file> noheaders.txt (then noheaders 2); other files have no such item.
+   */
+  @Test
+  public void s83_strip_headers() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
+    DbImport.store(app, "looks.txt", looks.getBytes(StandardCharsets.UTF_8), true);
+    String chat = "SogniChat conversation\nModel: qwen\n\n=== You ===\nHow would you describe the woman in the reference file 1? Be precise.\n\nPicture a.webp is attached as media_ref_1.\n\n"
+        + "=== Sogni ===\nBased on the reference image provided, the woman is depicted as follows:\n\n- **Age/Appearance:** She appears to be a young adult.\n- **Hair:** Her hair is dark, worn long.\n- **Background:** The background is blurred.\n\n=== You ===\nThanks\n\n=== Sogni ===\nYou are welcome.\n";
+    DbImport.store(app, "chat.txt", chat.getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    for (String n : new String[] {"looks.txt", "looks.txt", "chat.txt", "notes.txt"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals(n)) at = f;
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      int strip = -1;
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+        Object item = menu.getListView().getAdapter().getItem(i);
+        items.append('[').append(item).append(']');
+        if ("Strip headers".equals(String.valueOf(item))) strip = i;
+      }
+      out.append(n).append(" menu: ").append(items).append('\n');
+      if (strip >= 0) {
+        org.robolectric.Shadows.shadowOf(menu).clickOnItem(strip);
+        idle();
+        out.append("  now: ").append(((TextView) get("now")).getText()).append('\n');
+      } else {
+        menu.dismiss();
+        idle();
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.resultFiles()) {
+      if (!f.name.contains("noheaders")) continue;
+      out.append("result file: ").append(f.name).append(": ").append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+    write("s83_strip_headers", out.toString());
+  }
+
+  /**
+   * The Prompts page's Prompt field: Select file and Browse DB (text files, starting on T) fill it
+   * from a text file; a long press opens Select all, Copy, Cut, Paste.
+   */
+  @Test
+  public void s82_prompt_page_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbImport.store(app, "Answer Prompt 1.txt", "A studio portrait.\nSoft key light.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "sunset.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1}, true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long id = vault.addPrompt(vault.categories().get(0).id, "Portrait");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method open = PromptSheet.class.getDeclaredMethod("openPrompt", android.app.Activity.class, long.class);
+    open.setAccessible(true);
+    open.invoke(null, app, id);
+    idle();
+    android.widget.EditText prompt = (android.widget.EditText) pane.findViewWithTag("prompt-body");
+    TextView select = (TextView) pane.findViewWithTag("prompt-body-file");
+    TextView db = (TextView) pane.findViewWithTag("prompt-body-db");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)")).append('\n');
+    DbFilter.current = "I";
+    db.performClick();
+    idle();
+    AlertDialog browser = (AlertDialog) ShadowDialog.getLatestDialog();
+    View bv = browser.getWindow().getDecorView();
+    out.append("Browse DB: starts on ").append(DbFilter.current).append(", Answer Prompt 1.txt ").append(bv.findViewWithTag("refs-pick:Answer Prompt 1.txt") != null)
+        .append(", sunset.png ").append(bv.findViewWithTag("refs-pick:sunset.png") != null).append('\n');
+    bv.findViewWithTag("refs-pick:Answer Prompt 1.txt").performClick();
+    idle();
+    out.append("prompt from DB: ").append(prompt.getText().toString().replace("\n", "|")).append('\n');
+    File notes = new File(app.getCacheDir(), "pyjav-in/notes.txt");
+    notes.getParentFile().mkdirs();
+    Files.write(notes.toPath(), "A red drum kit.\n".getBytes(StandardCharsets.UTF_8));
+    select.performClick();
+    idle();
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    out.append("Select file asks for: ").append(asked == null ? "nothing" : asked.getAction() + " " + asked.getType()).append('\n');
+    PyJavParams.filePicked(notes.getAbsolutePath());
+    idle();
+    out.append("prompt from file: ").append(prompt.getText().toString()).append('\n');
+    // A long press: the text menu.
+    java.util.function.Function<String, android.view.MenuItem> item = t -> {
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) if (m.getItem(i).getTitle().toString().equals(t)) return m.getItem(i);
+      return null;
+    };
+    java.util.function.Supplier<String> items = () -> {
+      StringBuilder sb = new StringBuilder();
+      android.view.Menu m = PromptSheet.lastTextMenu.getMenu();
+      for (int i = 0; i < m.size(); i++) sb.append('[').append(m.getItem(i).getTitle()).append(m.getItem(i).isEnabled() ? "" : " greyed").append(']');
+      return sb.toString();
+    };
+    java.util.function.Consumer<String> press = t -> {
+      prompt.performLongClick();
+      idle();
+      android.view.MenuItem mi = item.apply(t);
+      org.robolectric.Shadows.shadowOf(PromptSheet.lastTextMenu).getOnMenuItemClickListener().onMenuItemClick(mi);
+      idle();
+    };
+    prompt.setSelection(0);
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    clips.clearPrimaryClip();
+    out.append("long press handled: ").append(prompt.performLongClick()).append(", menu ").append(items.get()).append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    press.accept("Select all");
+    out.append("Select all: selected ").append(prompt.getSelectionStart()).append("..").append(prompt.getSelectionEnd()).append('\n');
+    prompt.performLongClick();
+    idle();
+    out.append("  menu now ").append(items.get()).append('\n');
+    PromptSheet.lastTextMenu.dismiss();
+    prompt.setSelection(6, 14);
+    press.accept("Cut");
+    out.append("Cut \"drum kit\": text ").append(prompt.getText()).append(", clipboard ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    prompt.setSelection(prompt.length() - 1);
+    press.accept("Paste");
+    out.append("Paste before the dot: ").append(prompt.getText()).append('\n');
+    prompt.setSelection(0, 2);
+    press.accept("Copy");
+    out.append("Copy \"A \": clipboard ").append(clips.getPrimaryClip().getItemAt(0).getText()).append(", text unchanged ").append(prompt.getText()).append('\n');
+    DbFilter.current = "A";
+    write("s82_prompt_page_file", out.toString());
+  }
+
+  /**
+   * The Prompts page's Ref files gallery: Sort by type, date or size lays the previews out again in
+   * that order, and the choice is kept for the next time.
+   */
+  @Test
+  public void s81_file_sort() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String[][] files = {{"notes.txt", "300"}, {"walk.mp4", "900"}, {"beat.wav", "100"}, {"sunset.png", "500"}, {"groove.mid", "700"}};
+    for (String[] f : files) DbImport.store(app, f[0], new byte[Integer.parseInt(f[1])], false);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder sb = new StringBuilder();
+      // Cards in reading order: depth-first.
+      java.util.ArrayDeque<View> stack = new java.util.ArrayDeque<View>();
+      stack.push(pane);
+      while (!stack.isEmpty()) {
+        View v = stack.pop();
+        if (v instanceof TextView && !(v instanceof android.widget.Button)) {
+          String t = ((TextView) v).getText().toString();
+          for (String[] f : files) if (t.equals(f[0])) sb.append(t).append(' ');
+        }
+        if (v instanceof android.view.ViewGroup) {
+          android.view.ViewGroup g = (android.view.ViewGroup) v;
+          for (int i = g.getChildCount() - 1; i >= 0; i--) stack.push(g.getChildAt(i));
+        }
+      }
+      return sb.toString().trim();
+    };
+    android.widget.Spinner sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+    out.append("Sort by: ").append(sort == null ? "none" : sort.getSelectedItem() + " of " + sort.getCount()).append('\n');
+    out.append("by date: ").append(order.get()).append('\n');
+    for (String choice : new String[] {"by type", "by size", "by date"}) {
+      sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+      sort.setSelection(java.util.Arrays.asList(FileSort.CHOICES).indexOf(choice));
+      idle();
+      sort = (android.widget.Spinner) pane.findViewWithTag("refs-sort");
+      out.append(choice).append(" (shows ").append(sort.getSelectedItem()).append("): ").append(order.get()).append('\n');
+      if (choice.equals("by size")) break;
+    }
+    out.append("kept: ").append(app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).getString("sort", "")).append('\n');
+    // Opened again: still by size.
+    findText(pane, "Back").performClick();
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("again: ").append(((android.widget.Spinner) pane.findViewWithTag("refs-sort")).getSelectedItem()).append(": ").append(order.get()).append('\n');
+    app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).edit().clear().apply();
+    FileSort.current = "by date";
+    findText(pane, "Back").performClick();
+    idle();
+    write("s81_file_sort", out.toString());
+  }
+
+  /**
+   * A Params prompt field from a text file: Select file (the picker's file) and Browse DB (the
+   * prompt library's text files only) put the file's text in --prompt; a prompt sheet gives its prompt.
+   */
+  @Test
+  public void s80_prompt_from_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbFilter.current = "A";
+    DbImport.store(app, "Answer Prompt 1.txt", "A photorealistic studio portrait.\nSoft key light from the left.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "hit.wav", AudioIo.encodeWav(new short[100], 22050), true);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPadd.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView prompt = (TextView) dv.findViewWithTag("params-field:--prompt");
+    android.widget.Button select = (android.widget.Button) dv.findViewWithTag("params-prompt-file:--prompt");
+    android.widget.Button db = (android.widget.Button) dv.findViewWithTag("params-prompt-db:--prompt");
+    // The last Browse DB showed pictures: the prompt's Browse DB still starts on T.
+    DbFilter.current = "I";
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
+        .append(", --loras has them ").append(dv.findViewWithTag("params-prompt-file:--loras") != null).append('\n');
+    db.performClick();
+    idle();
+    AlertDialog browser = (AlertDialog) ShadowDialog.getLatestDialog();
+    View bv = browser.getWindow().getDecorView();
+    out.append("Browse DB: ").append(org.robolectric.Shadows.shadowOf(browser).getTitle()).append(", Answer Prompt 1.txt ").append(bv.findViewWithTag("refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(bv.findViewWithTag("refs-pick:hit.wav") != null).append(", starts on ").append(DbFilter.current).append('\n');
+    bv.findViewWithTag("refs-pick:Answer Prompt 1.txt").performClick();
+    idle();
+    out.append("prompt from DB: ").append(prompt.getText().toString().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
+    // Select file: the picker's file (a prompt sheet) is copied in and its prompt fills the field.
+    File sheet = new File(app.getCacheDir(), "pyjav-in/kit.prompt");
+    sheet.getParentFile().mkdirs();
+    Files.write(sheet.toPath(), "PKPROMPT1\nkit\n\n\n\n\nCategory: image\nType: ai\n---\nA red drum kit on a stage.\n\nResult file: kit.png\n".getBytes(StandardCharsets.UTF_8));
+    select.performClick();
+    idle();
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    out.append("Select file asks for: ").append(asked == null ? "nothing" : asked.getAction() + " " + asked.getType()).append('\n');
+    PyJavParams.filePicked(sheet.getAbsolutePath());
+    idle();
+    out.append("prompt from file: ").append(prompt.getText().toString().replace("\n", "|")).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    DbFilter.current = "A";
+    write("s80_prompt_from_file", out.toString());
+  }
+
+  /**
+   * Extract prompt in a stored text file's long-press menu: the text after the last **Prompt:** of
+   * answer.txt kept as Answer Prompt 1.txt (then 2), a result file as answer.txt is; a text file
+   * without one and a sound file have no such item.
+   */
+  @Test
+  public void s79_extract_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String answer = "SogniChat conversation\nModel: qwen\n\n=== You ===\nWrite me a portrait prompt\n\n=== Sogni ===\nHere it is.\n\n---\n\n**Prompt:**\n\n"
+        + "> A photorealistic studio portrait of a woman with jet-black hair.\n> Soft key light from the left.\n\n**Negative prompt:** blurry\n";
+    DbImport.store(app, "answer.txt", answer.getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "hit.wav", AudioIo.encodeWav(new short[100], 22050), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    for (String n : new String[] {"answer.txt", "answer.txt", "notes.txt", "hit.wav"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals(n)) at = f;
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      int extract = -1;
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+        Object item = menu.getListView().getAdapter().getItem(i);
+        items.append('[').append(item).append(']');
+        if ("Extract prompt".equals(String.valueOf(item))) extract = i;
+      }
+      out.append(n).append(" menu: ").append(items).append('\n');
+      if (extract >= 0) {
+        org.robolectric.Shadows.shadowOf(menu).clickOnItem(extract);
+        idle();
+        out.append("  now: ").append(((TextView) get("now")).getText()).append(", toast ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
+      } else {
+        menu.dismiss();
+        idle();
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.resultFiles()) {
+      if (!f.name.contains("Prompt")) continue;
+      out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+    write("s79_extract_prompt", out.toString());
+  }
+
+  /**
+   * SogniChat --saveprompt: Params shows the switch; the run's sheet (as SogniChat writes it) goes
+   * into the prompt library in Writing with the saved chat .txt as its result file.
+   */
+  @Test
+  public void s78_chat_saveprompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniChat.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.CheckBox box = (android.widget.CheckBox) d.getWindow().getDecorView().findViewWithTag("params-check:--saveprompt");
+    out.append("--saveprompt box: ").append(box == null ? "none" : box.getText() + (box.isChecked() ? ", ticked" : ", not ticked")).append('\n');
+    d.dismiss();
+    idle();
+    File notes = new File(app.getCacheDir(), "pyjav-in/notes.txt");
+    notes.getParentFile().mkdirs();
+    Files.write(notes.toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+    String chat = "SogniChat conversation\nModel: qwen3.6-35b-a3b-gguf-iq4xs\n\n=== You ===\nSuggest one fill\n\n=== Sogni ===\nTry a snare roll into the crash.\n";
+    String sheet = "PKPROMPT1\nanswer\n\n\nnotes.txt\n\nCategory: Writing\nModel: Sogni chat qwen3.6-35b-a3b-gguf-iq4xs\nReference file 1: notes.txt\nReference file 2: \nType: ai\n---\n"
+        + "Suggest one fill\n\nSystem: Answer briefly.\n\nResult file: answer.txt\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("answer.txt", chat.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("answer.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("answer", "--prompt", "Suggest one fill", "--file", notes.getAbsolutePath(), "--saveprompt"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote answer.txt\nWrote answer.prompt (the prompt, with answer.txt as its result file)\nSucceeded: answer.txt", files, 0));
+    idle();
+    AlertDialog shown = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (shown != null && shown.isShowing()) shown.dismiss();
+    idle();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        if (!p.title.equals("answer")) continue;
+        PromptVault.Version v = vault.versions(p.id).get(0);
+        out.append("library: ").append(c.name).append(" / ").append(p.title).append(", model ").append(v.model).append(", text ").append(v.body.replace("\n", "|"))
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes)\n");
+      }
+    }
+    for (PromptVault.StoredFile f : vault.resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    for (PromptVault.StoredFile f : vault.referenceFiles()) out.append("reference file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    write("s78_chat_saveprompt", out.toString());
   }
 
   /**
@@ -3980,6 +4604,15 @@ public class BehaviorTest {
 
   private static void idle() {
     for (int i = 0; i < 5; i++) ShadowLooper.idleMainLooper();
+    // A run's result stored in the prompt library in the background: wait for it, as a user would see.
+    for (int i = 0; i < 500 && (PyJav.KEEPING.get() > 0 || PromptSheet.OPENING.get() > 0); i++) {
+      try {
+        Thread.sleep(20);
+      } catch (InterruptedException ex) {
+        break;
+      }
+      ShadowLooper.idleMainLooper();
+    }
   }
 
   // --------------------------------------------------------- member lookup

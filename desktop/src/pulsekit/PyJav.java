@@ -327,6 +327,7 @@ final class PyJav {
         final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
+        if (this.mustWait(name, true)) return;
         final byte[] bytes = app.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
         final String runSrc = promptProg ? PromptRun.withoutDescription(this.promptDescription, src) : src;
@@ -366,6 +367,9 @@ final class PyJav {
         }
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
+        // The run is pending (PendingOps) until what it stores in the prompt library is stored.
+        PromptDb.dir();
+        final String pending = PendingOps.guarded(name, false) ? PendingOps.add(name, PendingOps.files(argv)) : null;
         new Thread(() -> {
             final boolean javaProg = !promptProg && isJavaName(name);
             java.util.List<String> runArgv = argv;
@@ -382,6 +386,8 @@ final class PyJav {
                     : PythonRun.run(src, name, argv);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
+                // The library work below runs on this same thread, before anything else can start.
+                PendingOps.done(pending);
                 String shown = result.log == null || result.log.isEmpty() ? "(no output)" : result.log;
                 if (promptProg && this.promptOutputName.length() > 0) shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
@@ -545,6 +551,21 @@ final class PyJav {
             } catch (Exception ex) {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
+        }
+    }
+
+    /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
+    void promptFrom(javax.swing.JTextArea area, File file) {
+        try {
+            String text = ProgramParams.promptText(java.nio.file.Files.readAllBytes(file.toPath()));
+            if (text.length() == 0) {
+                app.setNow(file.getName() + " has no text");
+                return;
+            }
+            area.setText(text);
+            area.setCaretPosition(0);
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
         }
     }
 
@@ -918,8 +939,18 @@ final class PyJav {
      * .mp3 or .mid parameter gets a file button, anything else a text field. Switches are saved per
      * program; with Reset to defaults, and Reset to suggested values when the program has them.
      */
+    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    boolean mustWait(String program, boolean running) {
+        int n = PendingOps.count();
+        if (n == 0 || !PendingOps.guarded(program, running)) return false;
+        app.setNow(PendingOps.waitText(n));
+        if (app.pyLog != null) app.pyLog.setText(PendingOps.waitText(n));
+        return true;
+    }
+
     void openParams() {
         final String program = app.pyName == null || app.pyName.isEmpty() ? "program" : app.pyName;
+        if (this.mustWait(program, false)) return;
         final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(this.programText());
         if (ps.isEmpty()) {
             JOptionPane.showMessageDialog(app, "No parameters found in " + program + ". A line such as\n"
@@ -991,14 +1022,18 @@ final class PyJav {
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 JButton pick = new JButton("any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
-                pick.addActionListener(e -> {
+                // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
+                pick.addActionListener(e -> app.mediaBrowser.choose(f -> {
+                    values[index] = f.getAbsolutePath();
+                    chosen.setText(f.getName());
+                }, () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
-                });
+                }));
                 if (p.newChat) {
                     // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
                     JButton fresh = new JButton("New chat");
@@ -1090,6 +1125,33 @@ final class PyJav {
                 // Right click or a long press: Select all, Cut, Copy, Paste (as on the phone).
                 TextMenu.attach(area);
                 areas[i] = area;
+                if (ProgramParams.promptFromFile(p)) {
+                    // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
+                    JPanel holder = new JPanel(new BorderLayout(0, 4));
+                    holder.add(new javax.swing.JScrollPane(area), BorderLayout.CENTER);
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    JButton select = new JButton("Select file");
+                    select.setName("params-prompt-file:" + p.token);
+                    select.addActionListener(e -> {
+                        JFileChooser chooser = new JFileChooser();
+                        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md", "prompt"));
+                        if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                        this.promptFrom(area, chooser.getSelectedFile());
+                    });
+                    JButton db = new JButton("Browse DB");
+                    db.setName("params-prompt-db:" + p.token);
+                    db.setEnabled(!PromptDb.allFiles(PromptDb.TEXTS).isEmpty());
+                    db.addActionListener(e -> {
+                        // A prompt is a text file: Browse DB starts on T.
+                        DbFilter.current = "T";
+                        app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.promptFrom(area, file));
+                    });
+                    picks.add(select);
+                    picks.add(db);
+                    holder.add(picks, BorderLayout.SOUTH);
+                    form.add(holder);
+                    continue;
+                }
                 form.add(new javax.swing.JScrollPane(area));
                 continue;
             }

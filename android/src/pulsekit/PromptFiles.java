@@ -35,9 +35,9 @@ public final class PromptFiles {
       saved.ref1Name = version.ref1Name == null ? "" : version.ref1Name;
       saved.ref2Name = version.ref2Name == null ? "" : version.ref2Name;
       saved.description = version.description == null ? "" : version.description;
-      saved.resultName = version.result != null && version.result.length > 0 && version.resultName != null ? version.resultName : "";
-      if (version.ref1 != null && version.ref1.length > 0) saved.ref1Path = store(dir, "ref1-", saved.ref1Name, version.ref1);
-      if (version.ref2 != null && version.ref2.length > 0) saved.ref2Path = store(dir, "ref2-", saved.ref2Name, version.ref2);
+      saved.resultName = vault.sizeOf(version, 3) > 0 && version.resultName != null ? version.resultName : "";
+      if (vault.sizeOf(version, 1) > 0) saved.ref1Path = store(dir, "ref1-", saved.ref1Name, vault.bytesOf(version, 1));
+      if (vault.sizeOf(version, 2) > 0) saved.ref2Path = store(dir, "ref2-", saved.ref2Name, vault.bytesOf(version, 2));
       saved.note = line("Reference file 1", saved.ref1Name, saved.ref1Path) + "\n" + line("Reference file 2", saved.ref2Name, saved.ref2Path);
       String kind = version.codeType == null ? "" : PromptRun.normalizeType(version.codeType);
       String raw = version.body == null ? "" : version.body;
@@ -77,7 +77,7 @@ public final class PromptFiles {
       PromptVault vault = PromptVault.open(context.getFilesDir());
       PromptVault.Version version = vault.selectedRefs(title, category, ref1Name, ref2Name);
       if (version == null) return fileName;
-      if (version.result != null && version.result.length > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
+      if (vault.sizeOf(version, 3) > 0 && version.resultName != null && version.resultName.length() > 0) return version.resultName;
       vault.putFile(version.id, 3, fileName, bytes);
       return fileName;
     } catch (Exception ex) {

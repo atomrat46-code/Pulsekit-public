@@ -712,24 +712,12 @@ public final class ArtJava {
     String chosen = toFolder(ctx, safe, data);
     if (chosen != null) return chosen;
     if (android.os.Build.VERSION.SDK_INT >= 29) {
-      try {
-        android.content.ContentValues v = new android.content.ContentValues();
-        v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe);
-        v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeOf(safe));
-        v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
-        android.net.Uri uri = ctx.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-        if (uri != null) {
-          java.io.OutputStream os = ctx.getContentResolver().openOutputStream(uri);
-          if (os != null) {
-            try {
-              os.write(data);
-            } finally {
-              os.close();
-            }
-            return "Download/" + safe;
-          }
-        }
-      } catch (Throwable ignored) {}
+      // Download numbers a second copy "name (1).png", but only up to "name (32).png": after that it
+      // takes no more of that name, so the file gets the time it was made in its name instead.
+      for (String given : new String[] {safe, stamped(safe, ""), stamped(safe, "-" + (System.nanoTime() % 1000))}) {
+        String saved = toDownloads(ctx, given, data);
+        if (saved != null) return saved;
+      }
     }
     try {
       File dir = ctx.getExternalFilesDir(null);
@@ -739,6 +727,42 @@ public final class ArtJava {
     } catch (Throwable ignored) {
       return null;
     }
+  }
+
+  /** Writes the file into Download as `safe` (or Download's own "safe (n)"); null when Download takes no file of that name. */
+  private static String toDownloads(Context ctx, String safe, byte[] data) {
+    android.net.Uri uri = null;
+    try {
+      android.content.ContentValues v = new android.content.ContentValues();
+      v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe);
+      v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeOf(safe));
+      v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+      uri = ctx.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+      if (uri == null) return null;
+      java.io.OutputStream os = ctx.getContentResolver().openOutputStream(uri);
+      if (os == null) return null;
+      try {
+        os.write(data);
+      } finally {
+        os.close();
+      }
+      return "Download/" + safe;
+    } catch (Throwable ex) {
+      if (uri != null) {
+        try {
+          ctx.getContentResolver().delete(uri, null, null);
+        } catch (Throwable ignored) {}
+      }
+      return null;
+    }
+  }
+
+  /** "name-20261010-142501.png" for "name.png" (`more` after the time). */
+  static String stamped(String safe, String more) {
+    int dot = safe.lastIndexOf('.');
+    String stem = dot > 0 ? safe.substring(0, dot) : safe;
+    String ext = dot > 0 ? safe.substring(dot) : "";
+    return stem + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date()) + more + ext;
   }
 
   /**

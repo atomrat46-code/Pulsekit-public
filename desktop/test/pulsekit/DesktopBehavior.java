@@ -2763,6 +2763,12 @@ public final class DesktopBehavior {
       String[] runs = {
         "--prompt \"Waves roll onto a beach at sunset, the camera drifts along the shore\" --duration 8 --aspect 9:16 --saveprompt --unlimited",
         "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0.6 --resolution 1080",
+        // The names Sogni's app shows, with their strengths.
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"Mystic X v4 0.5,VBVR Video Reasoning 0.7,Better Motion 0.6\"",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"better motion; Natural Face & Speech: 0.8\"",
+        "--prompt \"Waves roll onto a beach at sunset\" --loras \"Fast Zoom 0.5\"",
+        // H3's structured prompt, its lines joined into one by Params: the fields start paragraphs again.
+        "--prompt \"integrated_multimodal_description: [Shot 1] Live-action, waves roll onto a beach. overall_soundscape: Surf and gulls.\"",
         "--prompt \"Waves roll onto a beach at sunset\" --loras none --no_audio",
         "--prompt \"Waves roll onto a beach at sunset\" --loras h3-better-motion:0",
       };
@@ -2790,6 +2796,7 @@ public final class DesktopBehavior {
               .append(", loras ").append(a.get("loras")).append(' ').append(a.get("loraStrengths")).append(", audio ").append(!Boolean.FALSE.equals(a.get("generateAudio")))
               .append(", uploads ").append(m.get("media_references") == null ? "none" : "some").append(", billing ").append(m.get("billing_mode"))
               .append(", content filter ").append(b.contains("\"safe_content_filter\":false") ? "off" : "on").append('\n');
+          if (String.valueOf(a.get("prompt")).contains("integrated_multimodal_description")) out.append("  prompt sent: ").append(String.valueOf(a.get("prompt")).replace("\n", "|")).append('\n');
         }
       }
     } finally {
@@ -2930,6 +2937,427 @@ public final class DesktopBehavior {
     final JDialog last = d;
     edt(() -> ((javax.swing.JButton) component(last, "refs-pick:loop.wav")).doClick());
     out.append("picked: ").append(picked[0]).append(", dialog ").append(last.isShowing() ? "open" : "closed").append('\n');
+  }
+
+  /**
+   * SogniChat --saveprompt: the question goes into the prompt library as a prompt (category
+   * Writing) with the saved chat (answer.txt) as its result file and the --file as reference file.
+   */
+  void s64_chat_saveprompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      ex.getRequestBody().readAllBytes();
+      byte[] bytes = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Try a snare roll into the crash.\"}}]}".getBytes(StandardCharsets.UTF_8);
+      ex.getResponseHeaders().set("Content-Type", "application/json");
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File notes = new File(home, "notes.txt");
+      Files.write(notes.toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniChat.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--saveprompt")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.defaultOn ? " ticked" : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[] runs = {
+        "answer --prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\" --saveprompt",
+        "answer --prompt \"And another\" --saveprompt",
+        "--prompt \"Not kept\"",
+      };
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(log.getText().contains("Prompt library") || log.getText().contains("Failed") || (!extra.contains("--saveprompt") && log.getText().contains("Succeeded"))); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+        for (String line : log.getText().split("\n")) {
+          if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+          out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      PromptVault vault = PromptDb.vault();
+      for (PromptVault.Category c : vault.categories()) {
+        for (PromptVault.Prompt p : vault.prompts(c.id)) {
+          out.append("prompt ").append(c.name).append(" / ").append(p.title).append(": ").append(vault.versions(p.id).size()).append(" versions\n");
+        }
+      }
+      for (PromptVault.StoredFile f : vault.resultFiles()) out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(vault.fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).trim().replace("\n", "|")).append('\n');
+      for (PromptVault.StoredFile f : vault.referenceFiles()) out.append("reference file: ").append(f.name).append('\n');
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * Extract prompt in a text file's menu in the Result files gallery: the text after the last
+   * **Prompt:** of answer.txt kept as Answer Prompt 1.txt (then 2); a file without one says so.
+   */
+  void s65_extract_prompt() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    String answer = "SogniChat conversation\nModel: qwen\n\n=== You ===\nWrite me a portrait prompt\n\n=== Sogni ===\nHere it is.\n\n---\n\n**Prompt:**\n\n"
+        + "> A photorealistic studio portrait of a woman with jet-black hair.\n> Soft key light from the left.\n\n**Negative prompt:** blurry\n";
+    PromptDb.vault().addLibraryFile("answer.txt", answer.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    for (String n : new String[] {"answer.txt", "answer.txt", "notes.txt", "hit.wav"}) {
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals(n)) file = f;
+      final PromptVault.StoredFile at = file;
+      final StringBuilder seen = new StringBuilder();
+      final boolean[] done = {false};
+      // The gallery is checked while it is open (the watcher closes it after).
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        javax.swing.JMenuItem extract = null;
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals("Extract prompt")) extract = (javax.swing.JMenuItem) c;
+        }
+        db.lastFileMenu.setVisible(false);
+        if (extract != null) extract.doClick();
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(true));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(" menu: ").append(seen).append('\n');
+      if (seen.indexOf("Extract prompt") >= 0) out.append("  now: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    }
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) {
+      if (!f.name.contains("Prompt")) continue;
+      out.append("result file: ").append(f.name).append(" (").append(f.promptTitle).append("): ")
+          .append(new String(PromptDb.vault().fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+  }
+
+  /**
+   * A Params prompt field from a text file: Browse DB (the prompt library's text files only) and
+   * Select file put the file's text in --prompt; a prompt sheet gives its prompt.
+   */
+  void s66_prompt_from_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    DbFilter.current = "A";
+    PromptDb.vault().addLibraryFile("Answer Prompt 1.txt", "A photorealistic studio portrait.\nSoft key light from the left.\n".getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    File sheet = new File(home, "kit.prompt");
+    Files.write(sheet.toPath(), "PKPROMPT1\nkit\n\n\n\n\nCategory: image\nType: ai\n---\nA red drum kit on a stage.\n\nResult file: kit.png\n".getBytes(StandardCharsets.UTF_8));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPadd.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    // Reset to defaults keeps the Params dialog open for the test to work in.
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("Reset to defaults");
+    Thread opener = new Thread(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    opener.start();
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog d = params[0];
+    javax.swing.JTextArea prompt = (javax.swing.JTextArea) component(d, "params-field:--prompt");
+    javax.swing.JButton select = (javax.swing.JButton) component(d, "params-prompt-file:--prompt");
+    javax.swing.JButton db = (javax.swing.JButton) component(d, "params-prompt-db:--prompt");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)"))
+        .append(", --loras has them ").append(component(d, "params-prompt-file:--loras") != null).append('\n');
+    // Browse DB: the shown list's own (greyed) button keeps it open for the test to pick from.
+    // The last Browse DB showed pictures: the prompt's Browse DB still starts on T.
+    DbFilter.current = "I";
+    Object before = get("lastBrowse");
+    answers.add("Result files (1)");
+    SwingUtilities.invokeLater(db::doClick);
+    for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog browser = (JDialog) get("lastBrowse");
+    out.append("Browse DB: ").append(browser.getTitle()).append(", Answer Prompt 1.txt ").append(component(browser, "refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append(", starts on ").append(DbFilter.current).append('\n');
+    edt(() -> ((javax.swing.JButton) component(browser, "refs-pick:Answer Prompt 1.txt")).doClick());
+    out.append("prompt from DB: ").append(prompt.getText().replace("\n", "|")).append(", browser closed ").append(!browser.isShowing()).append('\n');
+    // Select file: the watcher picks the prompt sheet in the file chooser.
+    chooseNext = sheet;
+    SwingUtilities.invokeLater(select::doClick);
+    for (int i = 0; i < 100 && !prompt.getText().startsWith("A red"); i++) Thread.sleep(100);
+    out.append("prompt from file: ").append(prompt.getText().replace("\n", "|")).append('\n');
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    opener.join(10000);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText()).append('\n');
+  }
+
+  /**
+   * The Prompts page's Ref files gallery: Sort by type, date or size opens it again in that order,
+   * and the choice is kept (~/.pulsekit/file-sort.txt).
+   */
+  void s67_file_sort() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb db = (PromptDb) get("promptDb");
+    String[][] files = {{"notes.txt", "300"}, {"walk.mp4", "900"}, {"beat.wav", "100"}, {"sunset.png", "500"}, {"groove.mid", "700"}};
+    for (String[] f : files) PromptDb.vault().addLibraryFile(f[0], new byte[Integer.parseInt(f[1])], "Imported", 1);
+    java.util.function.Function<JDialog, String> order = g -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.ArrayDeque<java.awt.Component> stack = new java.util.ArrayDeque<java.awt.Component>();
+      stack.push(g.getContentPane());
+      while (!stack.isEmpty()) {
+        java.awt.Component c = stack.pop();
+        if (c.getName() != null && c.getName().startsWith("gallery:") && !(c.getName().startsWith("gallery-"))) sb.append(c.getName().substring(8)).append(' ');
+        if (c instanceof java.awt.Container) {
+          java.awt.Component[] kids = ((java.awt.Container) c).getComponents();
+          for (int i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+        }
+      }
+      return sb.toString().trim();
+    };
+    // The shown list's own (greyed) button keeps each gallery open for the test.
+    Object before = get("lastGallery");
+    answers.add("Ref files (5)");
+    SwingUtilities.invokeLater(() -> db.gallery(false));
+    for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+    Thread.sleep(400);
+    JDialog g = (JDialog) get("lastGallery");
+    javax.swing.JComboBox<?> sort = (javax.swing.JComboBox<?>) component(g, "gallery-sort");
+    out.append("Sort by: ").append(sort == null ? "none" : sort.getSelectedItem() + " of " + sort.getItemCount()).append('\n');
+    out.append("by date: ").append(order.apply(g)).append('\n');
+    for (String choice : new String[] {"by type", "by size"}) {
+      before = get("lastGallery");
+      answers.add("Ref files (5)");
+      final javax.swing.JComboBox<?> box = (javax.swing.JComboBox<?>) component(g, "gallery-sort");
+      SwingUtilities.invokeLater(() -> box.setSelectedItem(choice));
+      for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+      Thread.sleep(400);
+      out.append("first closed ").append(!((JDialog) before).isShowing()).append(", ");
+      g = (JDialog) get("lastGallery");
+      out.append(choice).append(" (shows ").append(((javax.swing.JComboBox<?>) component(g, "gallery-sort")).getSelectedItem()).append("): ").append(order.apply(g)).append('\n');
+    }
+    final JDialog last = g;
+    edt(last::dispose);
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/file-sort.txt").toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+  }
+
+  /**
+   * The Prompts page's Prompt field: Select file and Browse DB (text files, starting on T) fill it
+   * from a text file; its menu (right click or a long press) has Select all, Cut, Copy, Paste.
+   */
+  void s68_prompt_page_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptDb.vault().addLibraryFile("Answer Prompt 1.txt", "A studio portrait.\nSoft key light.\n".getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("hit.wav", AudioIo.encodeWav(new short[100], 22050), "Imported", 3);
+    File notes = new File(home, "notes.txt");
+    Files.write(notes.toPath(), "A red drum kit.\n".getBytes(StandardCharsets.UTF_8));
+    call("showView", "prompts");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    PromptVault vault = PromptDb.vault();
+    long id = vault.addPrompt(vault.mains().get(0).id, "Portrait");
+    edt(() -> page.openPrompt(id));
+    javax.swing.JButton select = (javax.swing.JButton) component(frame, "prompt-body-file");
+    javax.swing.JButton db = (javax.swing.JButton) component(frame, "prompt-body-db");
+    out.append("buttons: ").append(select == null ? "none" : select.getText()).append(", ").append(db == null ? "none" : db.getText() + (db.isEnabled() ? "" : " (greyed)")).append('\n');
+    StringBuilder items = new StringBuilder();
+    edt(() -> {
+      for (java.awt.Component c : TextMenu.menu(page.promptBody).getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    });
+    out.append("text menu: ").append(items).append(", attached ").append(page.promptBody.getMouseListeners().length > 1).append('\n');
+    DbFilter.current = "I";
+    Object before = get("lastBrowse");
+    answers.add("Result files (1)");
+    SwingUtilities.invokeLater(db::doClick);
+    for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog browser = (JDialog) get("lastBrowse");
+    out.append("Browse DB: starts on ").append(DbFilter.current).append(", Answer Prompt 1.txt ").append(component(browser, "refs-pick:Answer Prompt 1.txt") != null)
+        .append(", hit.wav ").append(component(browser, "refs-pick:hit.wav") != null).append('\n');
+    edt(() -> ((javax.swing.JButton) component(browser, "refs-pick:Answer Prompt 1.txt")).doClick());
+    out.append("prompt from DB: ").append(page.promptBody.getText().replace("\n", "|")).append('\n');
+    chooseNext = notes;
+    SwingUtilities.invokeLater(select::doClick);
+    for (int i = 0; i < 100 && !page.promptBody.getText().startsWith("A red"); i++) Thread.sleep(100);
+    out.append("prompt from file: ").append(page.promptBody.getText()).append('\n');
+    DbFilter.current = "A";
+  }
+
+  /**
+   * Strip headers in a text file's menu in the Result files gallery (lines that start with
+   * **Header:**): the text without them kept as <file> noheaders.txt; other files have no such item.
+   */
+  void s69_strip_headers() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    String looks = "Here is the description:\n\n- **Age/Appearance:** She is a young adult.\n- **Hair:** She has long, straight, dark brown hair.\n**Face** An oval face.\n  * **Pose:** Centered.\n**Notes:**\nPlain line stays.\n";
+    PromptDb.vault().addLibraryFile("looks.txt", looks.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    String chat = "SogniChat conversation\nModel: qwen\n\n=== You ===\nHow would you describe the woman in the reference file 1? Be precise.\n\nPicture a.webp is attached as media_ref_1.\n\n"
+        + "=== Sogni ===\nBased on the reference image provided, the woman is depicted as follows:\n\n- **Age/Appearance:** She appears to be a young adult.\n- **Hair:** Her hair is dark, worn long.\n- **Background:** The background is blurred.\n\n=== You ===\nThanks\n\n=== Sogni ===\nYou are welcome.\n";
+    PromptDb.vault().addLibraryFile("chat.txt", chat.getBytes(StandardCharsets.UTF_8), "answer", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    for (String n : new String[] {"looks.txt", "chat.txt", "notes.txt"}) {
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals(n)) file = f;
+      final PromptVault.StoredFile at = file;
+      final StringBuilder seen = new StringBuilder();
+      final boolean[] done = {false};
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        javax.swing.JMenuItem strip = null;
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals("Strip headers")) strip = (javax.swing.JMenuItem) c;
+        }
+        db.lastFileMenu.setVisible(false);
+        if (strip != null) strip.doClick();
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(true));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(" menu: ").append(seen).append('\n');
+      if (seen.indexOf("Strip headers") >= 0) out.append("  now: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    }
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) {
+      if (!f.name.contains("noheaders")) continue;
+      out.append("result file: ").append(f.name).append(": ").append(new String(PromptDb.vault().fileBytes(f.versionId, f.which), StandardCharsets.UTF_8).replace("\n", "|")).append('\n');
+    }
+  }
+
+  /** A text file's Preview: its menu (right click or a long press) has only Select all and Copy; the Prompt field keeps Cut and Paste. */
+  void s70_preview_text_menu() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    inspectNext = d -> {
+      javax.swing.JTextArea text = (javax.swing.JTextArea) component(d, "preview-text");
+      seen.append("preview menu: ");
+      for (java.awt.Component c : TextMenu.menu(text).getComponents()) if (c instanceof javax.swing.JMenuItem) seen.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+      seen.append(", attached ").append(text.getMouseListeners().length > 1);
+      done[0] = true;
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("looks.txt", "She appears to be a young adult.\n".getBytes(StandardCharsets.UTF_8)));
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen).append('\n');
+    javax.swing.JTextArea field = new javax.swing.JTextArea("x");
+    StringBuilder editable = new StringBuilder();
+    for (java.awt.Component c : TextMenu.menu(field).getComponents()) if (c instanceof javax.swing.JMenuItem) editable.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("editable field menu: ").append(editable).append('\n');
+  }
+
+  /** A Sogni run whose prompt library work is not over: other Sogni programs (and Params) wait, SogniChat may run. */
+  void s71_pending_db() throws Exception {
+    call("selectListedProgram", "Java", "SogniTextVideo.java");
+    idle();
+    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append('\n');
+    edt(() -> call("runPython"));
+    idle();
+    out.append("Run SogniTextVideo: ").append(((javax.swing.JTextArea) get("pyLog")).getText()).append('\n');
+    PyJav pj = (PyJav) get("pyJav");
+    out.append("SogniTextVideo Params wait: ").append(pj.mustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(pj.mustWait("SogniChat.java", true)).append(", its Params wait: ").append(pj.mustWait("SogniChat.java", false)).append('\n');
+    out.append("MidiDrumGen waits: ").append(pj.mustWait("MidiDrumGen.java", true)).append('\n');
+    PendingOps.done(entry);
+    out.append("after done: pending ").append(PendingOps.count()).append(", Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
+  }
+
+  /** File > General settings: Use encrypted DB unticked copies the library unencrypted; ticked again, the copy goes. */
+  void s72_general_settings() throws Exception {
+    File dir = PromptDb.dir();
+    byte[] video = new byte[300 * 1024];
+    new java.util.Random(3).nextBytes(video);
+    PromptDb.vault().addLibraryFile("clip.mp4", video, "Imported", 3);
+    java.util.function.Supplier<String> files = () -> {
+      StringBuilder sb = new StringBuilder();
+      File[] kids = dir.listFiles();
+      java.util.Arrays.sort(kids);
+      for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
+      return sb.toString().trim();
+    };
+    final javax.swing.JCheckBox[] box = new javax.swing.JCheckBox[1];
+    inspectNext = d -> box[0] = (javax.swing.JCheckBox) component(d, "settings-encrypted");
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && box[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append("Use encrypted DB: ").append(box[0] != null && box[0].isSelected()).append("; files: ").append(files.get()).append('\n');
+    final javax.swing.JCheckBox b = new javax.swing.JCheckBox("Use encrypted DB", true);
+    edt(() -> {
+      b.setSelected(false);
+      GeneralSettings.change((Pulsekit) frame, b, false);
+    });
+    for (int i = 0; i < 100 && !b.isEnabled(); i++) Thread.sleep(100);
+    idle();
+    out.append("unticked: encrypted ").append(PromptVault.encrypted(dir)).append("; files: ").append(files.get()).append('\n');
+    PromptVault.StoredFile clip = null;
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) if (f.name.equals("clip.mp4")) clip = f;
+    out.append("clip.mp4 in the unencrypted library: ").append(clip != null && java.util.Arrays.equals(PromptDb.vault().fileBytes(clip.versionId, clip.which), video)).append('\n');
+    PromptDb.vault().addLibraryFile("note.txt", "added unencrypted".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    edt(() -> {
+      b.setSelected(true);
+      GeneralSettings.change((Pulsekit) frame, b, true);
+    });
+    for (int i = 0; i < 100 && !b.isEnabled(); i++) Thread.sleep(100);
+    Thread.sleep(200);
+    idle();
+    out.append("ticked: encrypted ").append(PromptVault.encrypted(dir)).append("; files: ").append(files.get()).append('\n');
+    StringBuilder names = new StringBuilder();
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) names.append(f.name).append(' ');
+    for (PromptVault.StoredFile f : PromptDb.vault().referenceFiles()) names.append(f.name).append(' ');
+    out.append("encrypted library: ").append(names.toString().trim()).append('\n');
+  }
+
+  /** Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a clicked file fills the row. */
+  void s73_choose_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-choose");
+    File sub = new File(media, "shots");
+    sub.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(sub, "notes.txt").toPath(), "hi".getBytes(StandardCharsets.UTF_8));
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.saveLoop();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File[] picked = new File[1];
+    final StringBuilder seen = new StringBuilder();
+    java.util.function.Function<JDialog, String> tabs = d -> {
+      StringBuilder sb = new StringBuilder();
+      for (String t : new String[] {"recent", "download", "fav:0", "other"}) {
+        AbstractButton b = (AbstractButton) component(d, "media-tab:" + t);
+        if (b != null) sb.append('[').append(b.getText()).append(b.isSelected() ? " *" : "").append(']');
+      }
+      return sb.toString();
+    };
+    inspectNext = d -> {
+      seen.append("opens on: ").append(mb.tab).append(", tabs ").append(tabs.apply(d)).append('\n');
+      ((AbstractButton) component(d, "media-folder:shots")).doClick();
+      seen.append("a text file is listed: ").append(component(d, "media-card:notes.txt") != null).append('\n');
+      ((AbstractButton) component(d, "media-favourite")).doClick();
+      seen.append("favourite added: ").append(MediaDir.favourites.size()).append(", tabs now ").append(tabs.apply(d)).append('\n');
+      ((AbstractButton) component(d, "media-tab:download")).doClick();
+      seen.append("Download tab: ").append(mb.tab).append(", Recent MB folder still ").append(MediaDir.lastRoot.equals(media.getAbsolutePath())).append('\n');
+      ((AbstractButton) component(d, "media-tab:fav:0")).doClick();
+      seen.append("favourite tab: ").append(mb.tab).append(", shows ").append(mb.shown.getName()).append('\n');
+      ((AbstractButton) component(d, "media-card:notes.txt")).doClick();
+    };
+    SwingUtilities.invokeLater(() -> mb.choose(f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("picked: ").append(picked[0] == null ? "none" : home.toPath().relativize(picked[0].toPath())).append('\n');
+    MediaBrowser.loadLoop();
+    out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
   }
 
   private static java.awt.Component component(java.awt.Component c, String name) {

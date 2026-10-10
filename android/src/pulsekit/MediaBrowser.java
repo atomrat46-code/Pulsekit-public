@@ -108,6 +108,18 @@ final class MediaBrowser {
 
     /** Opens the Media browser on `dir`: a granted folder's content:// address, or a path. */
     static MediaBrowser open(MainActivity app, String dir) {
+        MediaBrowser b = make(app, dir, true);
+        if (b == null) return null;
+        last = b;
+        b.show();
+        return b;
+    }
+
+    /**
+     * The browser on `dir`, not shown yet; null after saying why it cannot be. `recent`: the folder
+     * becomes the Recent MB folder, and opens where it was last left.
+     */
+    static MediaBrowser make(MainActivity app, String dir, boolean recent) {
         if (dir == null || dir.trim().length() == 0) {
             app.setNow("No directory: Params, Browse");
             return null;
@@ -134,17 +146,198 @@ final class MediaBrowser {
             b = new MediaBrowser(app, null, new File(d).getAbsolutePath());
         }
         load(app);
+        b.base = b.tree != null ? d : b.path.get(0);
+        if (!recent) return b;
         // The folder picked, and the folder it was last in under it (when it is still there).
-        b.root = b.tree != null ? d : b.path.get(0);
+        b.root = b.base;
         for (String under : MediaDir.pathFor(b.root)) {
-            boolean there = b.tree != null ? b.list(under) != null
-                : new File(under).isDirectory() && under.startsWith(b.root + File.separator);
-            if (!there) break;
+            if (!b.there(under)) break;
             b.path.add(under);
         }
+        return b;
+    }
+
+    /** Whether `under` is a folder that can still be opened in this browser. */
+    boolean there(String under) {
+        return this.tree != null ? this.list(under) != null : new File(under).isDirectory() && under.startsWith(this.base + File.separator);
+    }
+
+    /** The folder this browser was made on, as Params gives it (Add to favourites keeps it). */
+    String base;
+
+    /** Choose file: what to do with the file picked, or null for the Media browser itself. */
+    RefBrowser.Picked chooser;
+    /** Choose file's tab: "recent", "download" or "fav:<n>". */
+    String tab = "";
+    /** For Choose file's "Other…": the system's file picker. */
+    Runnable other;
+
+    /** Download, listed from Android's Downloads (the files Pulsekit and its programs saved there). */
+    static final String DOWNLOADS = "pulsekit:downloads";
+    /** A Downloads file's id, as the entry's id. */
+    static final String DL = "pulsekit-dl:";
+
+    /**
+     * Choose file: the Media browser, with tabs for the Recent MB folder (the folder the Media browser
+     * opened last), Download and the favourite folders; a file tapped is copied into PyJav's input
+     * folder and handed to `picked`. "Other…" opens the system's picker (`other`).
+     */
+    static MediaBrowser choose(MainActivity app, RefBrowser.Picked picked, Runnable other) {
+        load(app);
+        return chooseTab(app, MediaDir.lastRoot.length() > 0 ? "recent" : "download", picked, other);
+    }
+
+    static MediaBrowser chooseTab(MainActivity app, String tab, RefBrowser.Picked picked, Runnable other) {
+        MediaBrowser b = null;
+        if (tab.equals("recent")) b = make(app, MediaDir.lastRoot, true);
+        else if (tab.startsWith("fav:")) {
+            int i = Integer.parseInt(tab.substring(4));
+            if (i < MediaDir.favourites.size()) {
+                String[] part = MediaDir.favourites.get(i).split("\t");
+                b = make(app, part[0], false);
+                for (int k = 1; b != null && k < part.length; k++) {
+                    if (!b.there(part[k])) break;
+                    b.path.add(part[k]);
+                }
+            }
+        }
+        if (b == null) {
+            tab = "download";
+            b = new MediaBrowser(app, null, DOWNLOADS);
+            b.base = null;
+        }
+        b.chooser = picked;
+        b.tab = tab;
+        b.other = other;
         last = b;
         b.show();
         return b;
+    }
+
+    /** The files in Download (newest first); null when they cannot be listed. */
+    List<MediaDir.Entry> downloads() {
+        List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            File[] files = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).listFiles();
+            if (files == null) return null;
+            for (File f : files) {
+                if (f.isHidden() || f.isDirectory()) continue;
+                MediaDir.Entry e = new MediaDir.Entry();
+                e.name = f.getName();
+                e.id = f.getAbsolutePath();
+                e.size = f.length();
+                all.add(e);
+            }
+            return MediaDir.shown(all, this.chooser != null);
+        }
+        Cursor c = null;
+        try {
+            c = this.app.getContentResolver().query(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                new String[] {android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME, android.provider.MediaStore.MediaColumns.SIZE},
+                null, null, android.provider.MediaStore.MediaColumns.DATE_ADDED + " DESC");
+            if (c == null) return all;
+            while (c.moveToNext()) {
+                MediaDir.Entry e = new MediaDir.Entry();
+                e.id = DL + c.getLong(0);
+                e.name = c.getString(1);
+                e.size = c.isNull(2) ? 0 : c.getLong(2);
+                if (e.name != null) all.add(e);
+            }
+        } catch (Exception ex) {
+            return null;
+        } finally {
+            if (c != null) c.close();
+        }
+        // Newest first, as Downloads gives them.
+        List<MediaDir.Entry> out = new ArrayList<MediaDir.Entry>();
+        for (MediaDir.Entry e : all) {
+            e.kind = MediaDir.kind(e.name);
+            if (e.kind != 0 || this.chooser != null) out.add(e);
+        }
+        return out;
+    }
+
+    /** Whether the entry is a file on disk by its path (not in a granted folder, not in Downloads). */
+    boolean onDisk(MediaDir.Entry e) {
+        return this.tree == null && !e.id.startsWith(DL);
+    }
+
+    /** Choose file: the file tapped, copied into PyJav's input folder off the main thread, then handed on. */
+    void chosen(final MediaDir.Entry e) {
+        this.app.setNow("Reading " + e.name + "\u2026");
+        final RefBrowser.Picked picked = this.chooser;
+        new Thread(() -> {
+            File out = null;
+            try {
+                File dir = new File(this.app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                out = new File(dir, e.name.replace('/', '_'));
+                InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                try {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) fos.write(buf, 0, n);
+                } finally {
+                    fos.close();
+                    in.close();
+                }
+            } catch (Throwable ex) {
+                out = null;
+            }
+            final File got = out;
+            this.main.post(() -> {
+                if (got == null) {
+                    this.app.setNow("Could not read " + e.name);
+                    return;
+                }
+                if (this.dialog != null) this.dialog.dismiss();
+                this.app.setNow("Chose " + e.name);
+                picked.picked(e.name, got);
+            });
+        }, "pulsekit-choose-file").start();
+    }
+
+    /** Choose file's tabs: Recent MB folder, Download, the favourites (a long press takes one out), Other…. */
+    void tabs() {
+        LinearLayout row = this.app.row();
+        java.util.List<String[]> all = new ArrayList<String[]>();
+        if (MediaDir.lastRoot.length() > 0) all.add(new String[] {"recent", "Recent MB folder"});
+        all.add(new String[] {"download", "Download"});
+        for (int i = 0; i < MediaDir.favourites.size(); i++) all.add(new String[] {"fav:" + i, MediaDir.favouriteLabel(MediaDir.favourites.get(i))});
+        for (final String[] t : all) {
+            TextView pill = this.app.pill(t[1], t[0].equals(this.tab), v -> {
+                if (t[0].equals(this.tab)) return;
+                if (this.dialog != null) this.dialog.dismiss();
+                chooseTab(this.app, t[0], this.chooser, this.other);
+            });
+            pill.setTag("media-tab:" + t[0]);
+            if (t[0].startsWith("fav:")) {
+                pill.setOnLongClickListener(v -> {
+                    MediaDir.removeFavourite(Integer.parseInt(t[0].substring(4)));
+                    save(this.app);
+                    this.app.setNow(t[1] + " is no longer a favourite");
+                    if (this.dialog != null) this.dialog.dismiss();
+                    chooseTab(this.app, "download", this.chooser, this.other);
+                    return true;
+                });
+            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            row.addView(pill, lp);
+        }
+        if (this.other != null) {
+            TextView other = this.app.pill("Other\u2026", false, v -> {
+                if (this.dialog != null) this.dialog.dismiss();
+                this.other.run();
+            });
+            other.setTag("media-tab:other");
+            row.addView(other);
+        }
+        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this.app);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.addView(row);
+        scroll.setPadding(0, 0, 0, this.app.dp(8));
+        this.body.addView(scroll);
     }
 
     /** The folder picked, as Params gives it: what the last folder opened is remembered under. */
@@ -237,7 +430,7 @@ final class MediaBrowser {
                 } finally {
                     if (in != null) in.close();
                 }
-                if (bytes <= 0 && this.tree == null) bytes = new File(e.id).length();
+                if (bytes <= 0 && this.onDisk(e)) bytes = new File(e.id).length();
                 return MediaDir.info(MediaDir.PICTURE, bounds.outWidth, bounds.outHeight, 0, bytes);
             }
             if (e.kind == MediaDir.VIDEO) {
@@ -245,7 +438,7 @@ final class MediaBrowser {
                 int w = 0, h = 0;
                 MediaMetadataRetriever media = new MediaMetadataRetriever();
                 try {
-                    if (this.tree == null) media.setDataSource(e.id);
+                    if (this.onDisk(e)) media.setDataSource(e.id);
                     else media.setDataSource(this.app, u);
                     len = number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
                     w = (int) number(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
@@ -264,7 +457,7 @@ final class MediaBrowser {
                         media.release();
                     } catch (Exception ignored) {}
                 }
-                if ((len <= 0 || w <= 0) && this.tree == null) {
+                if ((len <= 0 || w <= 0) && this.onDisk(e)) {
                     long[] head = MediaDir.mp4Info(new File(e.id));
                     if (head != null) {
                         if (len <= 0) len = head[0];
@@ -340,6 +533,7 @@ final class MediaBrowser {
 
     /** The folder's entries, shown in order; null when it cannot be read. */
     List<MediaDir.Entry> list(String at) {
+        if (DOWNLOADS.equals(at)) return this.downloads();
         List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
         if (this.tree == null) {
             File[] files = new File(at).listFiles();
@@ -353,7 +547,7 @@ final class MediaBrowser {
                 e.size = e.folder ? 0 : f.length();
                 all.add(e);
             }
-            return MediaDir.shown(all);
+            return MediaDir.shown(all, this.chooser != null);
         }
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(this.tree, at);
         String[] cols = new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -375,15 +569,17 @@ final class MediaBrowser {
         } finally {
             if (c != null) c.close();
         }
-        return MediaDir.shown(all);
+        return MediaDir.shown(all, this.chooser != null);
     }
 
     /** A file's address for the players and decoders. */
     Uri uri(MediaDir.Entry e) {
+        if (e.id.startsWith(DL)) return android.content.ContentUris.withAppendedId(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, Long.parseLong(e.id.substring(DL.length())));
         return this.tree == null ? Uri.fromFile(new File(e.id)) : DocumentsContract.buildDocumentUriUsingTree(this.tree, e.id);
     }
 
     private String label() {
+        if (DOWNLOADS.equals(here())) return "Download";
         if (this.tree == null) return MediaDir.label(here());
         return MediaDir.label(DocumentsContract.buildDocumentUriUsingTree(this.tree, here()).toString());
     }
@@ -467,11 +663,27 @@ final class MediaBrowser {
         loopRow.addView(this.playlistButton);
         this.body.addView(loopRow);
         this.paintPlaylist();
+        if (this.chooser != null) this.tabs();
+        LinearLayout tools = this.app.row();
         if (this.path.size() > 1) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
-            this.body.addView(up);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            tools.addView(up, lp);
         }
+        // Add to favourites: this folder, as a tab in Choose file.
+        if (this.base != null && !DOWNLOADS.equals(here())) {
+            TextView fav = this.app.pill("Add to favourites", false, v -> {
+                boolean added = MediaDir.addFavourite(this.base, this.path.subList(1, this.path.size()));
+                save(this.app);
+                this.app.setNow(added ? this.label() + " is a favourite: a tab in Choose file" : this.label() + " is a favourite already");
+                if (added && this.chooser != null) this.paint();
+            });
+            fav.setTag("media-favourite");
+            tools.addView(fav);
+        }
+        if (tools.getChildCount() > 0) this.body.addView(tools);
         if (this.entries.isEmpty()) {
             this.body.addView(this.app.text("No pictures, videos or sounds here", 14, false));
             return;
@@ -519,6 +731,7 @@ final class MediaBrowser {
             card.addView(name);
             card.setOnClickListener(v -> {
                 if (e.folder) this.openFolder(e);
+                else if (this.chooser != null) this.chosen(e);
                 else this.openEntry(e);
             });
             // A long press on a file: Add to DB (reference or result file), Add to default playlist.
@@ -589,9 +802,32 @@ final class MediaBrowser {
             .setTitle(e.name)
             // A file already in the playlist: its third item takes it out.
             .setItems(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id) ? MediaDir.MENU_LISTED : MediaDir.MENU,
-                (d, which) -> this.app.setNow(this.menuPicked(e, which)))
+                (d, which) -> this.pick(e, which))
             .setNegativeButton("Cancel", null)
             .show();
+    }
+
+    /** A menu item picked: adding to the prompt library reads and stores the file off the main thread (a large one takes a while). */
+    void pick(final MediaDir.Entry e, final int which) {
+        if (which == 2) {
+            this.app.setNow(this.menuPicked(e, which));
+            return;
+        }
+        this.app.setNow("Adding " + e.name + " to the prompt library\u2026");
+        PyJav.KEEPING.incrementAndGet();
+        new Thread(() -> {
+            String said;
+            try {
+                said = this.menuPicked(e, which);
+            } catch (Throwable ex) {
+                said = "Could not add " + e.name + " (" + ex.getClass().getSimpleName() + ")";
+            }
+            final String shown = said;
+            this.main.post(() -> {
+                PyJav.KEEPING.decrementAndGet();
+                this.app.setNow(shown);
+            });
+        }, "pulsekit-add-to-db").start();
     }
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 adds it to the default playlist (or takes it out when it is in). Returns the status line. */
@@ -673,7 +909,7 @@ final class MediaBrowser {
             if (e.kind == MediaDir.VIDEO) {
                 MediaMetadataRetriever media = new MediaMetadataRetriever();
                 try {
-                    if (this.tree == null) media.setDataSource(e.id);
+                    if (this.onDisk(e)) media.setDataSource(e.id);
                     else media.setDataSource(this.app, u);
                     Bitmap frame = media.getFrameAtTime(0);
                     if (frame == null) frame = media.getFrameAtTime();

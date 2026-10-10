@@ -43,12 +43,17 @@ public final class MediaDir {
 
   /** The entries shown: folders and media files, no hidden ones; folders first, then by name. */
   public static List<Entry> shown(List<Entry> all) {
+    return shown(all, false);
+  }
+
+  /** As above; `every` (Choose file) keeps every file, not only pictures, videos and sounds. */
+  public static List<Entry> shown(List<Entry> all, boolean every) {
     List<Entry> out = new ArrayList<Entry>();
     if (all == null) return out;
     for (Entry e : all) {
       if (e == null || e.name == null || e.name.startsWith(".")) continue;
       if (!e.folder) e.kind = kind(e.name);
-      if (e.folder || e.kind != 0) out.add(e);
+      if (e.folder || e.kind != 0 || every) out.add(e);
     }
     Collections.sort(out, new Comparator<Entry>() {
       @Override
@@ -120,6 +125,39 @@ public final class MediaDir {
   public static volatile String lastRoot = "";
   public static volatile List<String> lastPath = new ArrayList<String>();
 
+  /**
+   * Media browser: Add to favourites. Each is a folder as "root\tfolder under it\t...", the root as
+   * Params gives it (a granted folder's content:// address, or a path); kept sealed like the folder
+   * last opened. Choose file shows them as tabs after Recent MB folder and Download.
+   */
+  public static volatile List<String> favourites = new ArrayList<String>();
+
+  /** Adds the folder (`root`, then the folders opened under it); false when it is a favourite already. */
+  public static synchronized boolean addFavourite(String root, List<String> under) {
+    StringBuilder sb = new StringBuilder(root == null ? "" : root.replace('\t', ' ').replace('\n', ' '));
+    if (under != null) for (String u : under) sb.append('\t').append(u.replace('\t', ' ').replace('\n', ' '));
+    String f = sb.toString();
+    if (f.trim().length() == 0 || favourites.contains(f)) return false;
+    List<String> next = new ArrayList<String>(favourites);
+    next.add(f);
+    favourites = next;
+    return true;
+  }
+
+  /** Takes a favourite out (its place in favourites). */
+  public static synchronized void removeFavourite(int i) {
+    if (i < 0 || i >= favourites.size()) return;
+    List<String> next = new ArrayList<String>(favourites);
+    next.remove(i);
+    favourites = next;
+  }
+
+  /** A favourite's tab: its folder's name. */
+  public static String favouriteLabel(String f) {
+    String[] part = f.split("\t");
+    return label(part[part.length - 1]);
+  }
+
   /** The folders under `root` to open again: the remembered ones when `root` is the folder last picked, else none. */
   public static List<String> pathFor(String root) {
     if (root == null || !root.equals(lastRoot)) return new ArrayList<String>();
@@ -162,8 +200,16 @@ public final class MediaDir {
         sealed = "";
       }
     }
+    StringBuilder favs = new StringBuilder();
+    for (String f : favourites) {
+      try {
+        favs.append("\nfav=").append(Sealed.sealText(f));
+      } catch (Exception ex) {
+        // without a key, favourites are not kept
+      }
+    }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + "\n";
+        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -174,6 +220,8 @@ public final class MediaDir {
     speed = 1;
     lastRoot = "";
     lastPath = new ArrayList<String>();
+    List<String> favs = new ArrayList<String>();
+    favourites = favs;
     if (text == null) return;
     for (String line : text.split("\n")) {
       int eq = line.indexOf('=');
@@ -185,6 +233,13 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("fav")) {
+          try {
+            favs.add(Sealed.openText(v));
+          } catch (Exception ex) {
+            // unreadable: left out
+          }
+        }
         else if (k.equals("place")) {
           String[] part;
           try {

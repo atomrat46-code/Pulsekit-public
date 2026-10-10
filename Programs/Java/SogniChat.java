@@ -41,6 +41,11 @@ import java.util.Map;
  * first (kit-ideas) names everything a run saves: kit-ideas.txt, and any tool results
  * kit-ideas-1.png, kit-ideas-2.mp3...; the extensions come from what Sogni sends.
  *
+ * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
+ * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
+ * text under the question), with the saved chat as its result file: Pulsekit keeps it in the prompt
+ * library, the chat .txt as a result file.
+ *
  * --models lists the chat models Sogni offers; --model picks one.
  *
  * --tools offers the model Sogni's creative tools (generate_image, generate_music, edit_image...).
@@ -74,7 +79,7 @@ public final class SogniChat {
   }
 
   /** Printed first, so a run's log shows which SogniChat ran. */
-  static final String VERSION = "SogniChat 2026-10-06";
+  static final String VERSION = "SogniChat 2026-10-10";
 
   /** The first line of a saved conversation, and the lines that start each turn in it. */
   static final String HEAD = "SogniChat conversation";
@@ -122,6 +127,7 @@ public final class SogniChat {
     boolean runTools = false;
     boolean unlimited = false;
     boolean confirm = false;
+    boolean savePrompt = false;
     double maxCost = 0;
     String rejoin = null;
     // SogniChat runs with Sogni's Safe Content Filter off unless --filter_on asks for it, on every run.
@@ -155,6 +161,7 @@ public final class SogniChat {
       else if (a.equals("--no_filter")) continue;
       else if (a.equals("--filter_on")) SogniApi.noFilter = false;
       else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--run") && i + 1 < args.length) {
         String id = args[++i].trim();
@@ -240,16 +247,24 @@ public final class SogniChat {
         System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
         a.data = null;
       }
-      // A chat run (Unlimited Plan) takes pictures as uploaded URLs: the model sees the smaller copy of a big one.
+      // The model sees pictures as uploaded URLs, as Sogni's own apps send them (a data: URI in the
+      // request was not always shown to a vision model): the smaller copy of a big one. A chat run
+      // (Unlimited Plan) takes only URLs; otherwise a picture that cannot be uploaded goes inline.
       int views = 0;
       for (Attachment a : attached) {
-        if (!unlimited || a.seen == null) continue;
+        if (a.seen == null) continue;
         if (!a.shrunk && a.url != null) {
           a.seenUrl = a.url;
           continue;
         }
         String copy = a.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-seen" + ("image/png".equals(a.seenMime) ? ".png" : ".jpg");
-        a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
+        try {
+          a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
+        } catch (IOException ex) {
+          if (unlimited) throw ex;
+          System.out.println("Note: could not upload " + a.name + " for the model to see (" + ex.getMessage() + "); it is sent inside the request");
+        }
+        if (a.seenUrl != null && a.seenUrl.length() == 0) a.seenUrl = null;
       }
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
@@ -261,7 +276,7 @@ public final class SogniChat {
       List<String> sent = new ArrayList<String>();
       sent.add("user");
       sent.add(question);
-      for (Attachment a : attached) if (a.image != null) sent.add(a.image);
+      for (Attachment a : attached) if (a.image != null) sent.add(a.seenUrl != null ? a.seenUrl : a.image);
       turns.add(sent.toArray(new String[0]));
       List<String[]> runTurns = new ArrayList<String[]>(turns);
       if (unlimited) {
@@ -383,6 +398,13 @@ public final class SogniChat {
       File saved = save(name, transcript(chosen, system, turns));
       if (saved == null) System.out.println("Could not save the reply (it is in the log above)");
       else System.out.println("Wrote " + saved.getName());
+      if (savePrompt && saved != null) {
+        List<String> names = new ArrayList<String>();
+        for (String f : files) names.add(new File(f.trim()).getName());
+        File sheet = savePrompt(saved.getName().replaceAll("\\.[^.]*$", ""), chosen, prompt, system, names, saved.getName(), stopped);
+        if (sheet == null) System.out.println("Could not save the prompt sheet");
+        else System.out.println("Wrote " + sheet.getName() + " (the prompt, with " + saved.getName() + " as its result file)");
+      }
       List<String> made = new ArrayList<String>();
       if (saved != null) made.add(saved.getName());
       if (unlimited && !runMedia.isEmpty()) {
@@ -431,7 +453,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
   }
 
   /**
@@ -1226,6 +1248,31 @@ public final class SogniChat {
     return "sogni-chat" + (sb.length() > 0 ? "-" + sb : "") + ".txt";
   }
 
+  /**
+   * --saveprompt: a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it) named as the
+   * saved chat: category Writing, the chat model, the first two --file names as its reference files,
+   * type AI, the question (and the system text under it), and the saved chat as its result file.
+   * Pulsekit stores it in the prompt library after the run, the chat .txt as a result file. Never
+   * over an existing file; null if it could not be written.
+   */
+  static File savePrompt(String name, String model, String prompt, String system, List<String> files, String result, String note) {
+    String ref1 = files.size() > 0 ? files.get(0) : "";
+    String ref2 = files.size() > 1 ? files.get(1) : "";
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
+    sb.append("Category: Writing\n");
+    sb.append("Model: Sogni chat ").append(model == null ? SogniApi.CHAT_MODEL : model).append('\n');
+    sb.append("Reference file 1: ").append(ref1).append('\n');
+    sb.append("Reference file 2: ").append(ref2).append('\n');
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt == null ? "" : prompt.trim());
+    if (system != null && system.trim().length() > 0) sb.append("\n\nSystem: ").append(system.trim());
+    sb.append("\n\nResult file: ").append(result).append('\n');
+    if (note != null && note.length() > 0) sb.append("Result text:\nNote: ").append(note).append('\n');
+    return saveData(name + ".prompt", sb.toString().getBytes(StandardCharsets.UTF_8));
+  }
+
   /** Writes a result beside the program's other files, never over an existing file. Null if it could not. */
   static File saveData(String name, byte[] data) {
     File file = inWork(name);
@@ -1444,11 +1491,24 @@ public final class SogniChat {
       return videoInput(title, prompt, pictures, duration, resolution, audio, exact, aspect, null, null);
     }
 
+    /**
+     * H3's structured prompt ("integrated_multimodal_description: ... overall_soundscape: ...
+     * non_diegetic_music: ...") with each field starting a paragraph again: Params joins a prompt's
+     * lines into one, and Sogni reads the fields only at line starts ("received none"). A left-out
+     * non_diegetic_music is added as N/A (no score). Any other prompt is sent as it is.
+     */
+    public static String h3Fields(String prompt) {
+      if (prompt == null || prompt.indexOf("integrated_multimodal_description") < 0) return prompt;
+      String out = prompt.replaceAll("\\s*(?<![A-Za-z0-9_])(integrated_multimodal_description|overall_soundscape|non_diegetic_music)\\s*:\\s*", "\n\n$1: ").trim();
+      if (out.indexOf("non_diegetic_music:") < 0) out = out + "\n\nnon_diegetic_music: N/A";
+      return out;
+    }
+
     /** As above, with H3 video LoRAs in order (`strengths` positional; positive only, 0 off). */
     public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect,
         List<String> loras, List<Double> strengths) {
       Map<String, Object> args = new LinkedHashMap<String, Object>();
-      args.put("prompt", prompt);
+      args.put("prompt", h3Fields(prompt));
       args.put("videoModel", videoModel(pictures, resolution));
       if (duration > 0) args.put("duration", Double.valueOf(duration));
       args.put("targetResolution", Integer.valueOf(resolution == 720 || resolution == 1080 || resolution == 1440 ? resolution : 768));
@@ -2702,6 +2762,84 @@ public final class SogniChat {
     static void expect(String s, int[] at, char ch) {
       if (at[0] >= s.length() || s.charAt(at[0]) != ch) throw new IllegalArgumentException("Expected " + ch + " in JSON at " + at[0]);
       at[0]++;
+    }
+
+    /** MiniMax H3 video LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] H3_LORAS = {
+      {"h3-mystic-xxx-v4", "Mystic X v4"},
+      {"h3-vbvr-video-reasoning", "VBVR Video Reasoning"},
+      {"h3-better-motion", "Better Motion"},
+      {"h3-natural-face-speech", "Natural Face & Speech"},
+      {"h3-combat-base-v2", "Combat Base V2"},
+    };
+
+    /** Krea 2 LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] KREA2_LORAS = {
+      {"krea2-mystic-x", "Mystic X"}, {"krea2-realism-engine", "Realism Engine v3"}, {"krea2-skin-detail", "Skin Detail"},
+      {"krea2-breast", "Chest Size"}, {"krea2-weight", "Weight"}, {"krea2-height", "Height"}, {"krea2-age", "Age"},
+      {"krea2-hourglass-figure", "Figure"}, {"krea2-chest-firmness", "Natural Sag → Firm"}, {"krea2-filter-bypass-2", "Krea2FilterBypass 2vector"},
+      {"krea2-filter-bypass-3", "Krea2FilterBypass 3vector"}, {"krea2-detail-enhancer", "Detail Enhancer"}, {"krea2-amateur", "Professional ↔ Amateur"},
+      {"krea2-candid", "Editorial ↔ Candid"}, {"krea2-realism", "Illustrated ↔ Realistic"}, {"krea2-bloomgirls", "BloomGirls UltraRealism"},
+      {"krea2-aberrant", "Aberrant"}, {"krea2-afterlight", "Afterlight"}, {"krea2-purple-grainy", "Purple Grainy"},
+      {"krea2-scene-complexity", "Scene Complexity"}, {"krea2-skin-tone", "Skin Tone"}, {"krea2-warm-light", "Warm Light"},
+      {"krea2-wetness", "Wetness"}, {"krea2-zoom", "Zoom"}, {"krea2-nipple-projection", "Nipple Flat → Protruding"},
+    };
+
+    /**
+     * A LoRA list as typed in Params: entries separated by commas, semicolons or new lines, each an
+     * id with its strength (h3-better-motion:0.6) or the name Sogni's app shows (Better Motion 0.6,
+     * or Better Motion: 0.6). Several id:strength pairs may also share an entry, separated by spaces.
+     * Each result is {id, strength}: a name in `known` (any case, symbols ignored) becomes its id,
+     * anything else is kept as typed for the program to check; the strength is null when not given.
+     */
+    public static List<String[]> loraList(String text, String[][] known) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (text == null) return out;
+      for (String entry : text.split("[,;\\r\\n]+")) {
+        String e = entry.trim();
+        if (e.length() == 0) continue;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*?)(?:\\s*:\\s*|\\s+)(-?\\d*\\.?\\d+)$").matcher(e);
+        String name = m.matches() ? m.group(1).trim() : e;
+        String strength = m.matches() ? m.group(2) : null;
+        String id = loraId(name, known);
+        if (id != null) {
+          out.add(new String[] {id, strength});
+          continue;
+        }
+        if (e.matches("[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?(\\s+[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?)+")) {
+          // id:strength pairs separated by spaces (ids have hyphens; an unknown name is kept whole for the program to refuse).
+          for (String token : e.split("\\s+")) {
+            int colon = token.lastIndexOf(':');
+            String tid = colon > 0 ? token.substring(0, colon) : token;
+            String found = loraId(tid, known);
+            out.add(new String[] {found != null ? found : tid, colon > 0 ? token.substring(colon + 1) : null});
+          }
+          continue;
+        }
+        out.add(new String[] {name, strength});
+      }
+      return out;
+    }
+
+    /** The id for a LoRA's id or shown name in `known` (any case, symbols and spaces ignored), or null. */
+    public static String loraId(String name, String[][] known) {
+      String key = loraKey(name);
+      if (key.length() == 0 || known == null) return null;
+      for (String[] k : known) {
+        if (loraKey(k[0]).equals(key) || loraKey(k[1]).equals(key)) return k[0];
+      }
+      return null;
+    }
+
+    static String loraKey(String s) {
+      return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+    }
+
+    /** "Better Motion (h3-better-motion), ..." for a message: the names `known` gives. */
+    public static String loraNames(String[][] known) {
+      StringBuilder sb = new StringBuilder();
+      for (String[] k : known) sb.append(sb.length() > 0 ? ", " : "").append(k[1]).append(" (").append(k[0]).append(')');
+      return sb.toString();
     }
     // --- SogniApi end ---
   }

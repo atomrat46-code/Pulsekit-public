@@ -472,7 +472,21 @@ final class PyJav {
         this.pkSaveInventedOutput(shown);
     }
 
+    /** This run's entry in the pending database operations (PendingOps), until they are over. */
+    String pkPending;
+
+    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    boolean pkMustWait(String program, boolean running) {
+        int n = pulsekit.PendingOps.count();
+        if (n == 0 || !pulsekit.PendingOps.guarded(program, running)) return false;
+        String text = pulsekit.PendingOps.waitText(n);
+        app.setNow(text);
+        android.widget.Toast.makeText(app, text, 0).show();
+        return true;
+    }
+
     public void pkRunPyJav() {
+        if (this.pkMustWait(app.pyName, true)) return;
         if (app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt")) {
             if (!this.pkOutputResume) {
                 this.pkLoadRefs(app.pkPromptSource);
@@ -526,6 +540,8 @@ final class PyJav {
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         this.pkLastArgv = argv;
+        pulsekit.PendingOps.done(this.pkPending);
+        this.pkPending = pulsekit.PendingOps.guarded(name, false) ? pulsekit.PendingOps.add(name, pulsekit.PendingOps.files(argv)) : null;
         pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app));
     }
 
@@ -569,6 +585,7 @@ final class PyJav {
 
     public void pkOpenParams() {
         java.lang.String name = app.pyName == null ? "DrumMidi" : app.pyName;
+        if (this.pkMustWait(name, false)) return;
         java.lang.String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
         pulsekit.PyJavParams.open(app, name, extra, this.pkProgramText());
     }
@@ -751,55 +768,84 @@ final class PyJav {
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
-        // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result.
-        String kept = PromptKeep.keep(app.getFilesDir(), result, this.pkLastArgv);
-        // MidiDrumGen's MIDI too, when Drum Midi Settings says so.
-        if (DrumMidiSettingsPage.genToDb && app.pyName != null && app.pyName.equals("MidiDrumGen.java")) {
-            String gen = PromptKeep.keepMidiDrumGen(app.getFilesDir(), result, this.pkLastArgv);
-            if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
-        }
-        // SogniMusic's track too, when Drum Midi Settings says so.
-        if (DrumMidiSettingsPage.musicToDb && app.pyName != null && app.pyName.equals("SogniMusic.java")) {
-            String music = PromptKeep.keepSogniMusic(app.getFilesDir(), result, this.pkLastArgv);
-            if (music.length() > 0) kept = kept.length() > 0 ? kept + "\n" + music : music;
-        }
-        // JoinVideo with --addtodb: the joined video goes into the prompt library as a result file.
-        if (app.pyName != null && app.pyName.equals("JoinVideo.java")) {
-            String joined = PromptKeep.keepJoined(app.getFilesDir(), result, this.pkLastArgv);
-            if (joined.length() > 0) kept = kept.length() > 0 ? kept + "\n" + joined : joined;
-        }
-        // SogniVideo: a joined clip (Join with this video) goes into the prompt library as a result file,
-        // and Join is unticked for the next run.
-        if (app.pyName != null && app.pyName.equals("SogniVideo.java")) {
-            String merged = PromptKeep.keepMerged(app.getFilesDir(), result);
-            if (merged.length() > 0) kept = kept.length() > 0 ? kept + "\n" + merged : merged;
+        // The prompt library work runs in the background: storing a large result (a 10 s video)
+        // re-encrypts the whole library, which on the main thread froze the app ("not responding").
+        final pulsekit.JavaRun.Result kept0 = result;
+        final java.util.List<String> argv = this.pkLastArgv;
+        final String program = app.pyName;
+        final boolean genToDb = DrumMidiSettingsPage.genToDb;
+        final boolean musicToDb = DrumMidiSettingsPage.musicToDb;
+        final String pending = this.pkPending;
+        this.pkPending = null;
+        final java.io.File filesDir = app.getFilesDir();
+        if (program != null && program.equals("SogniVideo.java")) {
+            // Join is unticked for the next run.
             if (this.pkPyArgs != null) {
                 String now = this.pkPyArgs.getText().toString();
                 if (now.indexOf("--join") >= 0) this.pkPyArgs.setText(ProgramParams.drop(now, "--join"));
             }
-            PyJavParams.dropJoin(app, app.pyName);
+            PyJavParams.dropJoin(app, program);
         }
-        if (kept.length() > 0) {
-            log = log + "\n" + kept;
+        final String shown = log;
+        final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb);
+        if (!any) pulsekit.PendingOps.done(pending);
+        if (any) {
+            log = log + "\nPrompt library: storing\u2026";
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
             this.pkRunLog = log;
+            this.pkKeeping = true;
+            KEEPING.incrementAndGet();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String stored;
+                    try {
+                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                    } catch (Throwable ex) {
+                        // Never left at "storing…": what went wrong is said instead.
+                        String m = ex.getMessage();
+                        stored = "Prompt library: could not store (" + ex.getClass().getSimpleName() + (m == null || m.length() == 0 ? "" : ": " + m) + ")";
+                    }
+                    final String kept = stored;
+                    app.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            pkKeeping = false;
+                            KEEPING.decrementAndGet();
+                            pulsekit.PendingOps.done(pending);
+                            // The "storing" line becomes what was stored; notes added since stay.
+                            String now = pkRunLog == null ? shown + "\nPrompt library: storing\u2026" : pkRunLog;
+                            String done = now.replace("\nPrompt library: storing\u2026", kept.length() > 0 ? "\n" + kept : "");
+                            // Only when the text below Run is still this run's (another run may have started).
+                            if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
+                            pkRunLog = done;
+                        }
+                    });
+                }
+            }, "pulsekit-prompt-keep").start();
         }
-        // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
-        if (status.startsWith("Succeeded")) AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(log), result);
+        // What the run made is offered (played, shown, opened). A problem in one of these is a note
+        // under the run's log: it never turns a run that succeeded into "Failed".
+        final boolean ok = status.startsWith("Succeeded");
+        final pulsekit.JavaRun.Result made = result;
+        final String madeLog = log;
+        this.pkOffer("the sound", ok, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
         // Pictures it made (SogniChat's tool results) are shown.
-        if (status.startsWith("Succeeded")) PictureOffer.offer(app, result);
+        this.pkOffer("the pictures", ok, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
-        if (status.startsWith("Succeeded")) VideoOffer.offer(app, result);
+        this.pkOffer("the video", ok, () -> VideoOffer.offer(app, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
-        if (status.startsWith("Succeeded") && "MidiDrumGen.java".equals(app.pyName)) MidiOffer.offer(app, result);
+        this.pkOffer("the groove", ok && "MidiDrumGen.java".equals(app.pyName), () -> MidiOffer.offer(app, made));
         // MediaBrowser: its folder in the Media browser.
-        if (status.startsWith("Succeeded") && "MediaBrowser.java".equals(app.pyName)) {
-            String browse = MediaDir.opened(log);
+        this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
+            String browse = MediaDir.opened(madeLog);
             if (browse != null) MediaBrowser.open(app, browse);
-        }
+        });
         } catch (Throwable ex) {
+            pulsekit.PendingOps.done(this.pkPending);
+            this.pkPending = null;
             String m = ex.getMessage();
-            status = "Failed: " + (m == null ? ex.toString() : m);
+            status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
             if (this.pkPyHint != null) this.pkPyHint.setText(status);
             app.setNow(status);
             android.widget.Toast.makeText(app, status, 1).show();
@@ -807,6 +853,32 @@ final class PyJav {
             this.pkRunLog = status;
         }
     }
+
+    /**
+     * One offer after a run (`when` it applies): a problem in it is added to the run's log as a
+     * note, with the error's name, instead of failing the run.
+     */
+    void pkOffer(String what, boolean when, Runnable offer) {
+        if (!when) return;
+        try {
+            offer.run();
+        } catch (Throwable ex) {
+            String m = ex.getMessage();
+            String note = "Note: could not show " + what + " (" + ex.getClass().getSimpleName() + (m == null || m.trim().length() == 0 ? "" : ": " + m) + ")";
+            if (this.pkPyLog != null) {
+                boolean ours = this.pkLogIsRun();
+                String now = this.pkPyLog.getText().toString() + "\n" + note;
+                this.pkPyLog.setText(now);
+                if (ours) this.pkRunLog = now;
+            }
+            app.setNow(note);
+        }
+    }
+
+    /** True while a run's result is being stored in the prompt library (in the background). */
+    volatile boolean pkKeeping;
+    /** Runs whose results are still being stored, all PyJavs together (the tests wait for 0). */
+    static final java.util.concurrent.atomic.AtomicInteger KEEPING = new java.util.concurrent.atomic.AtomicInteger();
 
     /** True while the text below Run is a run's output, not a hint or a note. */
     boolean pkLogIsRun() {

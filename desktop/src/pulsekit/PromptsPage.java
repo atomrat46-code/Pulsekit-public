@@ -433,7 +433,32 @@ final class PromptsPage {
         this.col.add(this.caption("PROMPT"));
         this.promptBody = this.area(10);
         this.promptBody.setName("prompt-body");
+        // Right click or a long press: Select all, Cut, Copy, Paste (as on the phone).
+        TextMenu.attach(this.promptBody);
         this.col.add(this.scroll(this.promptBody, 220));
+        // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
+        JPanel fromFile = this.row();
+        JButton select = app.action("Select file", ELEV, FG);
+        select.setName("prompt-body-file");
+        select.addActionListener(e -> {
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md", "prompt"));
+            if (chooser.showOpenDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            this.promptFrom(chooser.getSelectedFile());
+        });
+        fromFile.add(select);
+        JButton browse = app.action("Browse DB", ELEV, FG);
+        browse.setName("prompt-body-db");
+        browse.setEnabled(!PromptDb.allFiles(PromptDb.TEXTS).isEmpty());
+        browse.addActionListener(e -> {
+            // A prompt is a text file: Browse DB starts on T.
+            DbFilter.current = "T";
+            app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.promptFrom(file));
+        });
+        fromFile.add(Box.createHorizontalStrut(8));
+        fromFile.add(browse);
+        this.col.add(Box.createVerticalStrut(4));
+        this.col.add(fromFile);
         if (ours) {
             this.fill(loaded);
         } else {
@@ -515,10 +540,10 @@ final class PromptsPage {
         this.promptModel.setText(this.modelFor(version.promptId, version.model));
         this.ref1Name = version.ref1Name == null ? "" : version.ref1Name;
         this.ref2Name = version.ref2Name == null ? "" : version.ref2Name;
-        this.ref1Bytes = version.ref1 == null ? new byte[0] : version.ref1;
-        this.ref2Bytes = version.ref2 == null ? new byte[0] : version.ref2;
+        this.ref1Bytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 1);
+        this.ref2Bytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 2);
         this.resultName = version.resultName == null ? "" : version.resultName;
-        this.resultBytes = version.result == null ? new byte[0] : version.result;
+        this.resultBytes = this.vault == null ? new byte[0] : this.vault.bytesOf(version, 3);
         this.resultText = version.resultText == null ? "" : version.resultText;
         this.promptRef1.setText(storedLabel(this.ref1Name, this.ref1Bytes));
         this.promptRef2.setText(storedLabel(this.ref2Name, this.ref2Bytes));
@@ -563,6 +588,21 @@ final class PromptsPage {
         actions.add(preview);
         this.col.add(Box.createVerticalStrut(4));
         this.col.add(actions);
+    }
+
+    /** A text file's contents into the Prompt field (a prompt sheet gives its prompt). */
+    void promptFrom(java.io.File file) {
+        try {
+            String text = ProgramParams.promptText(java.nio.file.Files.readAllBytes(file.toPath()));
+            if (text.length() == 0) {
+                app.setNow(file.getName() + " has no text");
+                return;
+            }
+            this.promptBody.setText(text);
+            this.promptBody.setCaretPosition(0);
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
+        }
     }
 
     static String slotLabel(int which) {
