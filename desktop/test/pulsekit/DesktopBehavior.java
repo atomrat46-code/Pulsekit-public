@@ -3360,6 +3360,66 @@ public final class DesktopBehavior {
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
   }
 
+  /** ImageUpscaler from the Java menu: its Params, and runs with method 1 (sizes, shapes) and method 2 (no Real-ESRGAN here). */
+  void s74_image_upscaler() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pic = new File(home, "pic.png");
+    java.awt.image.BufferedImage b = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    for (int y = 0; y < 30; y++) for (int x = 0; x < 40; x++) b.setRGB(x, y, x < 20 ? 0xff0000 : 0x0000ff);
+    javax.imageio.ImageIO.write(b, "png", pic);
+    call("selectListedProgram", "Java", "ImageUpscaler.java");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"input.png", "--method", "--aspect", "--fit"}) {
+        java.awt.Component c = component(d, "params-file:" + t);
+        if (c == null) c = component(d, "params-field:" + t);
+        seen.append("Params ").append(t).append(": ").append(c == null ? "none" : c.getClass().getSimpleName()).append('\n');
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    out.append(seen);
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {"\"" + pic.getAbsolutePath() + "\"", "\"" + pic.getAbsolutePath() + "\" sq.jpg --width 100 --aspect 1:1", "\"" + pic.getAbsolutePath() + "\" big.png --method 2"};
+    for (String extra : runs) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+        out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+  }
+
+  /** Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params. */
+  void s75_menu_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-up");
+    media.mkdirs();
+    File pic = new File(media, "a.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 3, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(media)) if (x.name.equals("a.png")) e = x;
+    out.append("picture menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, e.kind))).append('\n');
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("Params: ").append(d.getTitle()).append(", picture row ").append(component(d, "params-file:input.png") != null).append('\n');
+    answers.add("Cancel");
+    final MediaDir.Entry entry = e;
+    edt(() -> out.append("menu: ").append(mb.menuPicked(entry, pic, MediaDir.UPSCALE_ITEM)).append('\n'));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("program: ").append((String) get("pyName")).append(", input ").append(new File((String) get("pyInputPath")).getName())
+        .append(", args ").append(((javax.swing.JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

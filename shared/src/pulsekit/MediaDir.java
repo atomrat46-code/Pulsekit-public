@@ -296,6 +296,19 @@ public final class MediaDir {
   /** The menu for a file already in the playlist: its third item takes it out. */
   public static final String[] MENU_LISTED = {"Add to DB Reference files", "Add to DB result files", "Remove from default playlist"};
 
+  /** A picture's fourth item: ImageUpscaler loaded with the picture as its input, and its Params open. */
+  public static final String UPSCALE = "Upscale/resize image";
+  public static final int UPSCALE_ITEM = 3;
+
+  /** The menu for a file: MENU or MENU_LISTED, and Upscale/resize image for a picture. */
+  public static String[] menu(boolean listed, int kind) {
+    String[] base = listed ? MENU_LISTED : MENU;
+    if (kind != PICTURE) return base;
+    String[] out = java.util.Arrays.copyOf(base, base.length + 1);
+    out[UPSCALE_ITEM] = UPSCALE;
+    return out;
+  }
+
   /**
    * Add to DB: the file into the prompt library kept in `dir`, on its own, as a reference file or
    * (with `result`) a result file; up to the library's 16 MB. Returns a line for the status.

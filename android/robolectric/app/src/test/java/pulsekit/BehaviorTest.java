@@ -2845,6 +2845,94 @@ public class BehaviorTest {
    * after the library is opened again, and it goes when the file is deleted.
    */
   @Test
+  public void s92_menu_upscale() throws Exception {
+    // Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params.
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-up");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(media, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    MediaDir.Entry pic = null, clip = null;
+    for (MediaDir.Entry e : b.entries) {
+      if (e.name.equals("a.png")) pic = e;
+      if (e.name.equals("b.mp4")) clip = e;
+    }
+    out.append("picture menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, pic.kind))).append('\n');
+    out.append("video menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, clip.kind))).append('\n');
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("program: ").append(app.pyName).append(", input ").append(new File(app.pyJav.pkPyInputPath).getName()).append(" in ")
+        .append(new File(app.pyJav.pkPyInputPath).getParentFile().getName()).append(", browser closed ").append(!b.dialog.isShowing()).append('\n');
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("Params open: ").append(dv.findViewWithTag("params-file:input.png") != null).append(", picture row shows ")
+        .append(((TextView) dv.findViewWithTag("params-chosen:input.png")).getText()).append('\n');
+    write("s92_menu_upscale", out.toString());
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s91_image_upscaler() throws Exception {
+    // ImageUpscaler in the Java menu, its Params, and its phone path (Android's Bitmap, no java.awt) run here.
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("ImageUpscaler.java");
+    out.append("in the Java menu: ").append(src != null).append('\n');
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      out.append("param ").append(p.token).append(": ").append(p.label).append(p.isFile() ? " (file, Browse DB " + p.refs + ")" : "")
+          .append(p.choices != null ? " choices " + java.util.Arrays.toString(p.choiceValues != null ? p.choiceValues : p.choices) : "").append('\n');
+    }
+    // The program compiled as PyJav compiles it, and run with Android's picture classes.
+    File dir = new File(app.getCacheDir(), "upscaler");
+    dir.mkdirs();
+    File java = new File(dir, "ImageUpscaler.java");
+    Files.write(java.toPath(), src.getBytes(StandardCharsets.UTF_8));
+    // javax.tools is not in android.jar: the JDK's compiler, by reflection.
+    Object jc = Class.forName("javax.tools.ToolProvider").getMethod("getSystemJavaCompiler").invoke(null);
+    int compiled = (Integer) Class.forName("javax.tools.Tool").getMethod("run", java.io.InputStream.class, java.io.OutputStream.class, java.io.OutputStream.class, String[].class)
+        .invoke(jc, null, null, null, new String[] {"-nowarn", "-d", dir.getAbsolutePath(), java.getAbsolutePath()});
+    out.append("compiled: ").append(compiled == 0).append('\n');
+    ClassLoader loader = new java.net.URLClassLoader(new java.net.URL[] {dir.toURI().toURL()}, getClass().getClassLoader());
+    java.lang.reflect.Method run = loader.loadClass("ImageUpscaler").getDeclaredMethod("run", String[].class);
+    run.setAccessible(true);
+    android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    for (int y = 0; y < 30; y++) for (int x = 0; x < 40; x++) b.setPixel(x, y, x < 20 ? 0xffff0000 : 0xff0000ff);
+    File pic = new File(dir, "pic.png");
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    System.setProperty("pulsekit.work", dir.getAbsolutePath());
+    String[][] runs = {{pic.getAbsolutePath()}, {pic.getAbsolutePath(), "sq.jpg", "--width", "100", "--aspect", "1:1"},
+      {pic.getAbsolutePath(), "pad.webp", "--width", "80", "--height", "80", "--fit", "pad"}, {pic.getAbsolutePath(), "ai.png", "--method", "2"}};
+    java.io.PrintStream was = System.out;
+    for (String[] r : runs) {
+      java.io.ByteArrayOutputStream log = new java.io.ByteArrayOutputStream();
+      System.setOut(new java.io.PrintStream(log, true, "UTF-8"));
+      int code;
+      try {
+        code = (Integer) run.invoke(null, (Object) r);
+      } finally {
+        System.setOut(was);
+      }
+      out.append("== ").append(String.join(" ", r).replace(dir.getAbsolutePath() + "/", "")).append(" -> ").append(code).append('\n');
+      for (String line : log.toString("UTF-8").split("\n")) if (line.trim().length() > 0) out.append("  ").append(line.replace(dir.getAbsolutePath() + "/", "")).append('\n');
+    }
+    for (String n : new String[] {"pic-upscaled.png", "sq.jpg", "pad.webp"}) {
+      android.graphics.Bitmap got = android.graphics.BitmapFactory.decodeFile(new File(dir, n).getAbsolutePath());
+      out.append(n).append(": ").append(got == null ? "unreadable" : got.getWidth() + " x " + got.getHeight()
+          + ", left " + Integer.toHexString(got.getPixel(got.getWidth() / 4, got.getHeight() / 2)) + ", right " + Integer.toHexString(got.getPixel(got.getWidth() * 3 / 4, got.getHeight() / 2))
+          + ", corner " + Integer.toHexString(got.getPixel(0, 0))).append('\n');
+    }
+    System.clearProperty("pulsekit.work");
+    write("s91_image_upscaler", out.toString());
+  }
+
+  @Test
   public void s90_choose_file() throws Exception {
     // Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a tapped file fills the row.
     StringBuilder out = new StringBuilder();

@@ -262,10 +262,24 @@ final class MediaBrowser {
         return this.tree == null && !e.id.startsWith(DL);
     }
 
+    /** Upscale/resize image: ImageUpscaler on PyJav, with the picture (copied into PyJav's input folder) as its input; its Params open. */
+    void upscale(final MediaDir.Entry e) {
+        this.chosen(e, (name, file) -> {
+            this.app.openKitView("py");
+            this.app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+            this.app.pyJav.pkUseInputPath(file.getAbsolutePath());
+            this.app.pyJav.pkOpenParams();
+        });
+    }
+
     /** Choose file: the file tapped, copied into PyJav's input folder off the main thread, then handed on. */
     void chosen(final MediaDir.Entry e) {
+        this.chosen(e, this.chooser);
+    }
+
+    /** The file copied into PyJav's input folder off the main thread; then the browser closes and `picked` gets it. */
+    void chosen(final MediaDir.Entry e, final RefBrowser.Picked picked) {
         this.app.setNow("Reading " + e.name + "\u2026");
-        final RefBrowser.Picked picked = this.chooser;
         new Thread(() -> {
             File out = null;
             try {
@@ -801,7 +815,7 @@ final class MediaBrowser {
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             // A file already in the playlist: its third item takes it out.
-            .setItems(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id) ? MediaDir.MENU_LISTED : MediaDir.MENU,
+            .setItems(MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind),
                 (d, which) -> this.pick(e, which))
             .setNegativeButton("Cancel", null)
             .show();
@@ -809,6 +823,10 @@ final class MediaBrowser {
 
     /** A menu item picked: adding to the prompt library reads and stores the file off the main thread (a large one takes a while). */
     void pick(final MediaDir.Entry e, final int which) {
+        if (which == MediaDir.UPSCALE_ITEM) {
+            this.upscale(e);
+            return;
+        }
         if (which == 2) {
             this.app.setNow(this.menuPicked(e, which));
             return;

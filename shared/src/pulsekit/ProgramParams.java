@@ -94,6 +94,8 @@ public final class ProgramParams {
     boolean padd = has(out, "--loras") && has(out, "--seed") && !has(out, "--image2");
     // SogniTextVideo: a clip from a prompt alone, with H3 LoRAs.
     boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image");
+    // ImageUpscaler: a picture made larger (bicubic, or Real-ESRGAN on the desktop), in a size and shape.
+    boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
@@ -106,6 +108,7 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      if (upscaler) knownUpscaler(p);
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);
@@ -318,6 +321,50 @@ public final class ProgramParams {
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
+  }
+
+  /** ImageUpscaler's labels: the picture (also from the prompt library), the method, the size and the shape. */
+  private static void knownUpscaler(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; <picture>-upscaled.png (.png, .jpg; phone also .webp)";
+      return;
+    }
+    if (!p.flag) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Picture to upscale";
+      p.hint = "a PNG or JPEG";
+      return;
+    }
+    if (p.token.equals("--method")) {
+      p.label = "Upscale method";
+      p.hint = "1 (default) or 2";
+      p.choices = new String[] {"1 = standard bicubic resize, 2x (built in; phone and desktop)",
+        "2 = Real-ESRGAN AI upscale, 4x (desktop only; needs realesrgan-ncnn-vulkan)"};
+      p.choiceValues = new String[] {"1", "2"};
+    } else if (p.token.equals("--scale")) {
+      p.label = "Scale (times larger)";
+      p.hint = "2 for method 1, 4 for method 2; 0.1 to 8";
+    } else if (p.token.equals("--width")) {
+      p.label = "Preferred width (pixels)";
+      p.hint = "empty: from the scale; width alone keeps the shape";
+    } else if (p.token.equals("--height")) {
+      p.label = "Preferred height (pixels)";
+      p.hint = "empty: from the scale; both width and height give that exact size";
+    } else if (p.token.equals("--aspect")) {
+      p.label = "Aspect ratio (width:height)";
+      p.hint = "empty: the picture's own; e.g. 16:9";
+      p.choices = new String[] {"1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "4:7", "21:9"};
+    } else if (p.token.equals("--fit")) {
+      p.label = "When the shape changes";
+      p.hint = "crop (default), pad or stretch";
+      p.choices = new String[] {"crop (cut the edges)", "pad (add bars)", "stretch"};
+      p.choiceValues = new String[] {"crop", "pad", "stretch"};
+    } else if (p.token.equals("--quality")) {
+      p.label = "JPEG / WebP quality (1-100)";
+      p.hint = "92";
+    }
   }
 
   /** JoinVideo's labels: the two videos (also from the prompt library), the order, and the library. */

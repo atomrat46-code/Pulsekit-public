@@ -618,7 +618,7 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        String[] items = this.listed.contains(f.getAbsolutePath()) ? MediaDir.MENU_LISTED : MediaDir.MENU;
+        String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
@@ -639,6 +639,15 @@ final class MediaBrowser {
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
     String menuPicked(MediaDir.Entry entry, File f, int which) {
+        if (which == MediaDir.UPSCALE_ITEM) {
+            // Upscale/resize image: ImageUpscaler on PyJav with this picture as its input; its Params open.
+            if (this.last != null) this.last.dispose();
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+            app.pyJav.setInputFile(f);
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            return "ImageUpscaler: " + entry.name;
+        }
         if (which == 2 && this.listed.contains(f.getAbsolutePath())) {
             String said = MediaPlaylist.remove(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name);
             this.listed.remove(f.getAbsolutePath());
