@@ -2908,7 +2908,8 @@ public class BehaviorTest {
     fos.close();
     System.setProperty("pulsekit.work", dir.getAbsolutePath());
     String[][] runs = {{pic.getAbsolutePath()}, {pic.getAbsolutePath(), "sq.jpg", "--width", "100", "--aspect", "1:1"},
-      {pic.getAbsolutePath(), "pad.webp", "--width", "80", "--height", "80", "--fit", "pad"}, {pic.getAbsolutePath(), "ai.png", "--method", "2"}};
+      {pic.getAbsolutePath(), "pad.webp", "--width", "80", "--height", "80", "--fit", "pad"}, {pic.getAbsolutePath(), "ai.png", "--method", "2"},
+      {pic.getAbsolutePath(), "sogni.png", "--method", "3", "--width", "1024", "--key_file", new File(dir, "none.txt").getAbsolutePath()}};
     java.io.PrintStream was = System.out;
     for (String[] r : runs) {
       java.io.ByteArrayOutputStream log = new java.io.ByteArrayOutputStream();

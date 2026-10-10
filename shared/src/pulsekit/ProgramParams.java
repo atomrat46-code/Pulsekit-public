@@ -339,10 +339,11 @@ public final class ProgramParams {
     }
     if (p.token.equals("--method")) {
       p.label = "Upscale method";
-      p.hint = "1 (default) or 2";
+      p.hint = "1 (default), 2 or 3";
       p.choices = new String[] {"1 = standard bicubic resize, 2x (built in; phone and desktop)",
-        "2 = Real-ESRGAN AI upscale, 4x (desktop only; needs realesrgan-ncnn-vulkan)"};
-      p.choiceValues = new String[] {"1", "2"};
+        "2 = Real-ESRGAN AI upscale, 4x (desktop only; needs realesrgan-ncnn-vulkan)",
+        "3 = Sogni AI upscale (RTX VSR, online; phone and desktop; paid)"};
+      p.choiceValues = new String[] {"1", "2", "3"};
     } else if (p.token.equals("--scale")) {
       p.label = "Scale (times larger)";
       p.hint = "2 for method 1, 4 for method 2; 0.1 to 8";
@@ -364,6 +365,16 @@ public final class ProgramParams {
     } else if (p.token.equals("--quality")) {
       p.label = "JPEG / WebP quality (1-100)";
       p.hint = "92";
+    } else if (p.token.equals("--key_file")) {
+      p.label = "Sogni API key file (method 3)";
+      p.hint = "empty: the one in Drum Midi Settings";
+    } else if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units, method 3)";
+      p.hint = "e.g. 5; empty for no limit";
+    } else if (p.token.equals("--confirm_cost")) {
+      p.label = "Confirm the charge (method 3)";
+    } else if (p.token.equals("--unlimited")) {
+      p.label = "Unlimited Plan (method 3; fair use limits apply)";
     }
   }
 

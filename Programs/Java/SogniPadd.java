@@ -697,6 +697,38 @@ public final class SogniPadd {
       return toJson(input);
     }
 
+    /**
+     * A promptless picture upscale (upscale_image: NVIDIA RTX VSR) of the first uploaded picture:
+     * `scale` 2, 3 or 4, or `targetLongestEdge` pixels (512-15360) when it is more than 0. Sogni keeps
+     * the shape, aligns both edges to 8 px and returns a JPG above 7680 px.
+     */
+    public static String upscaleInput(String title, int scale, int targetLongestEdge) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      if (targetLongestEdge > 0) args.put("targetLongestEdge", Integer.valueOf(targetLongestEdge));
+      else args.put("scale", Integer.valueOf(scale < 2 ? 2 : scale > 4 ? 4 : scale));
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "upscale");
+      step.put("toolName", "upscale_image");
+      step.put("arguments", args);
+      List<Object> deps = new ArrayList<Object>();
+      Map<String, Object> d = new LinkedHashMap<String, Object>();
+      d.put("sourceStepId", "$input_media");
+      d.put("targetArgument", "sourceImageIndex");
+      d.put("transform", "image_index");
+      d.put("sourceArtifactIndex", Integer.valueOf(0));
+      d.put("mediaType", "image");
+      d.put("required", Boolean.TRUE);
+      deps.add(d);
+      step.put("dependsOn", deps);
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
     /** The picture results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
     public static List<Map<String, Object>> imageArtifacts(Map<String, Object> record) {
       List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();

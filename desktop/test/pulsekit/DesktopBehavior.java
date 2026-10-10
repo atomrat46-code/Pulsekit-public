@@ -3420,6 +3420,101 @@ public final class DesktopBehavior {
         .append(", args ").append(((javax.swing.JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
   }
 
+  /**
+   * ImageUpscaler method 3 (Sogni AI upscale): the picture (cropped to the shape first) is uploaded,
+   * upscale_image is started with the longest side wanted (at least 512 px on both sides), and Sogni's
+   * picture is fitted to the size asked for. A size no larger than the picture does not use Sogni.
+   */
+  void s76_sogni_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pic = new File(home, "pic.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final int[] made = new int[2];
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/uploadUrl")) {
+        bytes = ("{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put/1\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/downloadUrl")) {
+        bytes = ("{\"downloadUrl\":\"http://127.0.0.1:" + port + "/stored/1.png\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wu")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/big.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/big.png")) {
+        // As RTX VSR: the last start's longest side, in the uploaded picture's shape (square for 1:1, else 4:3).
+        String last = starts.get(starts.size() - 1);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"targetLongestEdge\":(\\d+)").matcher(last);
+        int edge = m.find() ? Integer.parseInt(m.group(1)) : 80;
+        made[0] = edge;
+        made[1] = starts.size() == 1 ? edge : edge * 3 / 4;
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(made[0], made[1], java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+        type = "image/png";
+        bytes = png.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "ImageUpscaler.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--method") || p.token.startsWith("--key") || p.token.contains("cost") || p.token.equals("--unlimited"))
+          out.append("param ").append(p.token).append(" \"").append(p.label).append("\"")
+              .append(p.choices != null ? " " + java.util.Arrays.toString(p.choices) : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String sogni = " --method 3 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      String[] runs = {"\"" + pic.getAbsolutePath() + "\" sq.png --width 1024 --aspect 1:1" + sogni, "\"" + pic.getAbsolutePath() + "\" two.png --confirm_cost --max_cost 5" + sogni,
+        "\"" + pic.getAbsolutePath() + "\" small.png --scale 0.5" + sogni};
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~").replace(String.valueOf(port), "PORT")).append('\n');
+        for (String line : textOf(log).split("\n")) {
+          if (line.matches("(Read|Note|Uploaded|Sogni|Workflow|Method|Wrote|Succeeded|Failed).*")) out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          out.append("step: ").append(step.get("toolName")).append(' ').append(SogniApi.toJson(step.get("arguments")))
+              .append(", references ").append(((List<?>) m.get("media_references")).size()).append('\n');
+        }
+      }
+      for (String n : new String[] {"sq.png", "two.png", "small.png"}) {
+        File f = new File(home, ".pulsekit/" + n);
+        java.awt.image.BufferedImage got = f.isFile() ? javax.imageio.ImageIO.read(f) : null;
+        out.append(n).append(": ").append(got == null ? "missing" : got.getWidth() + " x " + got.getHeight()).append('\n');
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {
