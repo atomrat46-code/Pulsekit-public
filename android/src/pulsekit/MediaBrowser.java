@@ -184,12 +184,13 @@ final class MediaBrowser {
 
     /**
      * Choose file: the Media browser, with tabs for the Recent MB folder (the folder the Media browser
-     * opened last), Download and the favourite folders; a file tapped is copied into PyJav's input
+     * opened last), Download and the favourite folders, open on the tab used last; a file tapped is copied into PyJav's input
      * folder and handed to `picked`. "Other…" opens the system's picker (`other`).
      */
     static MediaBrowser choose(MainActivity app, RefBrowser.Picked picked, Runnable other) {
         load(app);
-        return chooseTab(app, MediaDir.lastRoot.length() > 0 ? "recent" : "download", picked, other);
+        // The tab used last (a favourite, say), else the Recent MB folder.
+        return chooseTab(app, MediaDir.openTab(MediaDir.lastRoot.length() > 0), picked, other);
     }
 
     static MediaBrowser chooseTab(MainActivity app, String tab, RefBrowser.Picked picked, Runnable other) {
@@ -433,6 +434,9 @@ final class MediaBrowser {
             TextView pill = this.app.pill(t[1], t[0].equals(this.tab), v -> {
                 if (t[0].equals(this.tab)) return;
                 if (this.dialog != null) this.dialog.dismiss();
+                // Choose file opens on this tab next time.
+                MediaDir.usedTab(t[0]);
+                save(this.app);
                 chooseTab(this.app, t[0], this.chooser, this.other);
             });
             pill.setTag("media-tab:" + t[0]);

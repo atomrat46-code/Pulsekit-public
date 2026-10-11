@@ -3276,6 +3276,15 @@ public class BehaviorTest {
     // The favourite is kept: read back from the saved settings.
     MediaBrowser.load(app);
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    // Choose file opens on the tab used last: the favourite, not the Recent MB folder.
+    PyJavParams.pickFile(app, values, 0, label);
+    idle();
+    out.append("opens again on: ").append(MediaBrowser.last.tab).append(", tabs ").append(tabs.apply(MediaBrowser.last)).append('\n');
+    MediaBrowser.last.dialog.dismiss();
+    idle();
+    // A favourite taken out: Choose file opens on the Recent MB folder.
+    MediaDir.removeFavourite(0);
+    out.append("favourite taken out, opens on: ").append(MediaDir.openTab(true)).append('\n');
     write("s90_choose_file", out.toString());
   }
 

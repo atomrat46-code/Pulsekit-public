@@ -77,14 +77,15 @@ final class MediaBrowser {
 
     /**
      * Choose file: the Media browser, with tabs for the Recent MB folder (the folder the Media browser
-     * opened last), Download and the favourite folders; the file clicked goes to `picked`. "Other…"
-     * opens the system's file chooser (`other`).
+     * opened last), Download and the favourite folders, open on the tab used last; the file clicked
+     * goes to `picked`. "Other…" opens the system's file chooser (`other`).
      */
     void choose(java.util.function.Consumer<File> picked, Runnable other) {
         loadLoop();
         this.chooser = picked;
         this.other = other;
-        this.tab = MediaDir.lastRoot.length() > 0 && new File(MediaDir.lastRoot).isDirectory() ? "recent" : "download";
+        // The tab used last (a favourite, say), else the Recent MB folder.
+        this.tab = MediaDir.openTab(MediaDir.lastRoot.length() > 0 && new File(MediaDir.lastRoot).isDirectory());
         File[] at = this.tabFolders(this.tab);
         this.show(at[0], at[1]);
     }
@@ -364,6 +365,9 @@ final class MediaBrowser {
                     return;
                 }
                 this.tab = t[0];
+                // Choose file opens on this tab next time.
+                MediaDir.usedTab(t[0]);
+                saveLoop();
                 File[] at = this.tabFolders(t[0]);
                 gone.set(true);
                 this.fill(dialog, at[0], at[1]);

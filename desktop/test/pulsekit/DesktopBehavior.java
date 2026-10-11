@@ -3358,6 +3358,15 @@ public final class DesktopBehavior {
     out.append("picked: ").append(picked[0] == null ? "none" : home.toPath().relativize(picked[0].toPath())).append('\n');
     MediaBrowser.loadLoop();
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    // Choose file opens on the tab used last: the favourite, not the Recent MB folder.
+    final StringBuilder again = new StringBuilder();
+    inspectNext = d -> again.append("opens again on: ").append(mb.tab).append(", tabs ").append(tabs.apply(d)).append(", shows ").append(mb.shown.getName()).append('\n');
+    SwingUtilities.invokeLater(() -> mb.choose(f -> {}, () -> {}));
+    for (int i = 0; i < 50 && again.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(again);
+    MediaDir.removeFavourite(0);
+    out.append("favourite taken out, opens on: ").append(MediaDir.openTab(true)).append('\n');
   }
 
   /** ImageUpscaler from the Java menu: its Params, and runs with method 1 (sizes, shapes) and method 2 (no Real-ESRGAN here). */
