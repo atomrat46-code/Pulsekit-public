@@ -478,6 +478,9 @@ final class PyJav {
         this.pkSaveInventedOutput(shown);
     }
 
+    /** This run's "Save this run into DB" (Params). */
+    boolean pkSaveRun;
+
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable pkReturn;
     android.view.View pkReturnBtn;
@@ -605,6 +608,9 @@ final class PyJav {
             pulsekit.MediaBrowser.load(app);
             argv = pulsekit.MediaDir.withLastRoot(argv);
         }
+        // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
+        this.pkSaveRun = false;
+        while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
         if (name.toLowerCase().endsWith(".prompt")) {
             argv.add("--pk-run");
             argv.add(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
@@ -860,7 +866,9 @@ final class PyJav {
             PyJavParams.dropJoin(app, program);
         }
         final String shown = log;
-        final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb);
+        final boolean saveRun = this.pkSaveRun && status.startsWith("Succeeded");
+        this.pkSaveRun = false;
+        final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb) || saveRun;
         if (!any) pulsekit.PendingOps.done(pending);
         if (any) {
             log = log + "\nPrompt library: storing\u2026";
@@ -874,6 +882,10 @@ final class PyJav {
                     String stored;
                     try {
                         stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                        if (saveRun) {
+                            String run = PromptKeep.keepRun(filesDir, kept0, argv, program);
+                            stored = stored.length() == 0 ? run : run.length() == 0 ? stored : stored + "\n" + run;
+                        }
                     } catch (Throwable ex) {
                         // Never left at "storing…": what went wrong is said instead.
                         String m = ex.getMessage();

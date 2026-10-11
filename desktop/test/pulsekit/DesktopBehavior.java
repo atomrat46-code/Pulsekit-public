@@ -3729,6 +3729,87 @@ public final class DesktopBehavior {
     out.append("next picture opens at ").append(shown[0] != null && shown[0].contains("156%") ? "156%" : shown[0]).append('\n');
   }
 
+  /**
+   * Browse prompts (Params' Prompt): category tabs, a subcategory, a prompt fills the field.
+   * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
+   * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
+   */
+  void s80_browse_import_saverun() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptVault vault = PromptDb.vault();
+    long image = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name.equals("Image")) image = c.id;
+    long faces = vault.addSubcategory(image, "Faces");
+    long smile = vault.addPrompt(faces, "Smile");
+    vault.addVersion(smile, "Smile", "", "A smiling face, soft light", "", "", null, "", null, "", null, "ai", "");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniTextVideo.java");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("Params: Browse prompts ").append(component(d, "params-prompt-browse:--prompt") != null ? "shown" : "missing").append('\n');
+    answers.add("Cancel");
+    call("openParams");
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    // The browser itself, as Browse prompts opens it.
+    final String[] got = new String[1];
+    inspectNext = b -> {
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-tab:Image")).doClick();
+      seen.append("Image tab: ").append(component(b, "prompt-browser-sub:Faces") != null ? "subcategory Faces" : "no Faces").append('\n');
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-sub:Faces")).doClick();
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-item:Smile")).doClick();
+    };
+    answers.add("Cancel");
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> got[0] = title + ": " + text));
+    for (int i = 0; i < 50 && got[0] == null; i++) Thread.sleep(100);
+    idle();
+    seen.append("picked: ").append(got[0]).append('\n');
+    out.append(seen);
+    // Import: the files a sheet names are found beside it.
+    File dir = new File(home, "to-import");
+    dir.mkdirs();
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    Files.write(new File(dir, "face.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "out.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "Portrait.prompt").toPath(), PromptRun.encode("Portrait", "", "", "face.png", "", "Image", "v2 \u00b7 FINAL", "Sogni Krea", "out.png", "ai", "Draw a portrait").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Portrait 2.prompt").toPath(), PromptRun.encode("Portrait 2", "", "", "face.png", "", "Image", "", "", "", "ai", "Another portrait").getBytes(StandardCharsets.UTF_8));
+    call("showView", "prompts");
+    idle();
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    for (String n : new String[] {"Portrait.prompt", "Portrait.prompt", "Portrait 2.prompt"}) {
+      page.importNext = new File[] {new File(dir, n)};
+      answers.add("OK");
+      edt(() -> ((javax.swing.AbstractButton) component(frame, "prompts-import")).doClick());
+      Thread.sleep(300);
+      idle();
+      out.append("import ").append(n).append(": ").append(page.lastImport).append('\n');
+    }
+    // Save this run into DB: a real ImageUpscaler run.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "ImageUpscaler.java");
+    idle();
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + new File(dir, "face.png").getAbsolutePath() + "\" --scale 3 " + PromptKeep.SAVE_RUN));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    for (String line : textOf(log).split("\n")) {
+      if (line.matches("(\\$ |Succeeded|Failed|Prompt library|Unknown).*")) out.append("log: ").append(line.replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    }
+    for (PromptVault.Category c : vault.categories()) {
+      if (!c.name.equals("Programs")) continue;
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("DB: Programs / ").append(p.title).append(": text \"").append(v.body).append("\", reference ").append(v.ref1Name)
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3) > 0 ? "stored" : "none").append(")\n");
+      }
+    }
+  }
+
   private static JTextField textFieldIn(java.awt.Component c) {
     if (c instanceof JTextField) return (JTextField) c;
     if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {

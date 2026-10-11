@@ -136,6 +136,59 @@ final class PromptsPage {
         this.col.repaint();
     }
 
+    /** The files Import picks next (the tests set it), else the file chooser asks. */
+    File[] importNext;
+    /** What the last Import said, for the tests. */
+    String lastImport;
+
+    /**
+     * Import: .prompt sheets picked (with their files, or the files they name found beside them)
+     * into the prompt library, the files they name linked when the library has them already.
+     */
+    void importPrompts() {
+        File[] picked = this.importNext;
+        this.importNext = null;
+        if (picked == null) {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setMultiSelectionEnabled(true);
+            chooser.setDialogTitle("Import prompt sheets (and their files)");
+            if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+            picked = chooser.getSelectedFiles();
+            if (picked == null || picked.length == 0) return;
+        }
+        java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+        StringBuilder skipped = new StringBuilder();
+        try {
+            for (File f : picked) {
+                if (f.length() > 16L * 1024 * 1024) {
+                    skipped.append(skipped.length() > 0 ? ", " : "").append(f.getName());
+                    continue;
+                }
+                files.put(f.getName(), Files.readAllBytes(f.toPath()));
+            }
+            // A file a sheet names that was not picked: the one beside the sheet.
+            for (File f : picked) {
+                byte[] b = files.get(f.getName());
+                if (!PromptImport.isSheet(f.getName(), b)) continue;
+                PromptRun.Sheet sheet = PromptRun.parse(new String(b, StandardCharsets.UTF_8));
+                if (sheet == null) continue;
+                for (String n : new String[] {sheet.ref1, sheet.ref2, sheet.result}) {
+                    if (n == null || n.trim().isEmpty() || files.containsKey(n.trim())) continue;
+                    File near = new File(f.getAbsoluteFile().getParentFile(), n.trim());
+                    if (near.isFile() && near.length() <= 16L * 1024 * 1024) files.put(n.trim(), Files.readAllBytes(near.toPath()));
+                }
+            }
+            String said = PromptImport.importAll(this.vault, files);
+            if (skipped.length() > 0) said = said + "\nOver 16 MB, not read: " + skipped;
+            this.lastImport = said;
+            app.setNow(said.split("\n")[0]);
+            JOptionPane.showMessageDialog(app, said, "Import", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            this.say(ex);
+        }
+        this.rebuild();
+    }
+
     // ------------------------------------------------------------ list
 
     void buildList() {
@@ -146,9 +199,15 @@ final class PromptsPage {
         JButton results = app.action("Result files", ELEV, FG);
         results.setName("prompts-result-files");
         results.addActionListener(e -> app.promptDb.gallery(true));
+        // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files.
+        JButton imp = app.action("Import", ELEV, FG);
+        imp.setName("prompts-import");
+        imp.addActionListener(e -> this.importPrompts());
         library.add(refs);
         library.add(Box.createHorizontalStrut(8));
         library.add(results);
+        library.add(Box.createHorizontalStrut(8));
+        library.add(imp);
         this.col.add(Box.createVerticalStrut(12));
         this.col.add(library);
         this.col.add(this.caption("CATEGORIES"));
@@ -495,6 +554,15 @@ final class PromptsPage {
         });
         fromFile.add(Box.createHorizontalStrut(8));
         fromFile.add(browse);
+        // Browse prompts: another prompt's text, by category.
+        JButton prompts = app.action("Browse prompts", ELEV, FG);
+        prompts.setName("prompt-body-browse");
+        prompts.addActionListener(e -> PromptBrowser.show(app, (title, text) -> {
+            this.promptBody.setText(text);
+            this.promptBody.setCaretPosition(0);
+        }));
+        fromFile.add(Box.createHorizontalStrut(8));
+        fromFile.add(prompts);
         this.col.add(Box.createVerticalStrut(4));
         this.col.add(fromFile);
         if (ours) {

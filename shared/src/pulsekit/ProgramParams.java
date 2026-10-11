@@ -125,6 +125,16 @@ public final class ProgramParams {
         p.choices = StyleDb.names();
       }
     }
+    // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
+    if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
+      Param save = new Param();
+      save.token = PromptKeep.SAVE_RUN;
+      save.flag = true;
+      save.takesValue = false;
+      save.optional = true;
+      save.label = "Save this run into DB (the program, all its params, input and result files)";
+      out.add(save);
+    }
     return out;
   }
 
@@ -299,7 +309,7 @@ public final class ProgramParams {
       p.label = "System role/answer";
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
     }
-    if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+    if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
     // Sogni programs: the render deleted on Sogni once it is downloaded (Sogni keeps it up to 48 hours otherwise).
     if (p.flag && !p.takesValue && p.token.equals("--delete_from_sogni")) p.label = "Delete from Sogni after download";
     // SogniChat: the sheet goes into the prompt library with the saved chat (.txt) as its result file.
@@ -417,7 +427,7 @@ public final class ProgramParams {
       p.hint = "optional; sogni-pedit-<first words>.png";
     }
     if (!p.flag || !p.takesValue) {
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -457,7 +467,7 @@ public final class ProgramParams {
       p.hint = "optional; sogni-padd-<first words>.png";
     }
     if (!p.flag || !p.takesValue) {
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -486,7 +496,7 @@ public final class ProgramParams {
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -519,7 +529,7 @@ public final class ProgramParams {
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       // Ticked in Params from the start: the sheet keeps the prompt, and the filter can pause a run for a safety review.
       if (p.token.equals("--saveprompt") || p.token.equals("--no_filter")) p.defaultOn = true;
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";

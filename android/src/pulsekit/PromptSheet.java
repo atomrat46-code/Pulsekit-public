@@ -304,6 +304,52 @@ public final class PromptSheet {
     }
   }
 
+  static final int PICK_IMPORT = 37;
+
+  /**
+   * Import's pick: every file read, then the sheets among them imported with the others as their
+   * files (off the main thread); the status says what came in.
+   */
+  static void importPicked(final MainActivity app, android.content.Intent data) {
+    final java.util.List<android.net.Uri> uris = new java.util.ArrayList<android.net.Uri>();
+    if (data.getClipData() != null) {
+      for (int i = 0; i < data.getClipData().getItemCount(); i++) uris.add(data.getClipData().getItemAt(i).getUri());
+    } else if (data.getData() != null) {
+      uris.add(data.getData());
+    }
+    if (uris.isEmpty()) return;
+    app.setNow("Importing\u2026");
+    PyJav.KEEPING.incrementAndGet();
+    new Thread(() -> {
+      String said;
+      try {
+        java.util.Map<String, byte[]> picked = new java.util.LinkedHashMap<String, byte[]>();
+        java.util.List<String> big = new java.util.ArrayList<String>();
+        for (android.net.Uri u : uris) {
+          String name = DbImport.displayName(app, u);
+          byte[] bytes = DbImport.read(app, u);
+          if (bytes == null) big.add(name);
+          else picked.put(name, bytes);
+        }
+        said = PromptImport.importAll(PromptVault.open(app.getFilesDir()), picked);
+        if (!big.isEmpty()) said = said + "\nOver 16 MB, not read: " + String.join(", ", big);
+      } catch (Throwable ex) {
+        said = "Could not import: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+      }
+      final String shown = said;
+      app.runOnUiThread(() -> {
+        PyJav.KEEPING.decrementAndGet();
+        app.setNow(shown.split("\n")[0]);
+        lastImport = shown;
+        new AlertDialog.Builder(app).setTitle("Import").setMessage(shown).setPositiveButton("OK", null).show();
+        rebuild(app);
+      });
+    }, "pulsekit-prompt-import").start();
+  }
+
+  /** What the last Import said, for the tests. */
+  static String lastImport;
+
   /** The Ref files / Result files thumbnail opened in full size last: Back returns to it. */
   private static long focusId;
   private static int focusWhich;
@@ -323,6 +369,18 @@ public final class PromptSheet {
       rebuild(activity);
     });
     col.addView(results, buttonLp(activity));
+    // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files, picked together.
+    TextView imp = button(activity, "Import", "#1B1D1F", "#ECEBE6");
+    imp.setTag("prompts-import");
+    imp.setOnClickListener(v -> {
+      android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+      intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+      intent.setType("*/*");
+      intent.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+      activity.startActivityForResult(intent, PICK_IMPORT);
+      toast(activity, "Pick the .prompt sheet and its reference and result files together");
+    });
+    col.addView(imp, buttonLp(activity));
     col.addView(caption(activity, "CATEGORIES"));
     col.addView(categoryBlock(activity, false));
     TextView addCat = button(activity, "New category", "#1B1D1F", "#ECEBE6");
@@ -678,6 +736,16 @@ public final class PromptSheet {
     LinearLayout.LayoutParams browseLp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
     browseLp.leftMargin = dp(activity, 8);
     fromFile.addView(browseDb, browseLp);
+    // Browse prompts: another prompt's text, by category.
+    TextView browsePrompts = button(activity, "Browse prompts", "#1B1D1F", "#ECEBE6");
+    browsePrompts.setTag("prompt-body-browse");
+    browsePrompts.setOnClickListener(v -> PromptBrowser.show(activity, (picked, text) -> {
+      promptField.setText(text);
+      promptField.setSelection(0);
+    }));
+    LinearLayout.LayoutParams promptsLp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
+    promptsLp.leftMargin = dp(activity, 8);
+    fromFile.addView(browsePrompts, promptsLp);
     col.addView(fromFile, buttonLp(activity));
     PromptVault.Version loaded = vault.version(loadedVersionId);
     if (loaded != null && loaded.promptId == promptId) fill(loaded);

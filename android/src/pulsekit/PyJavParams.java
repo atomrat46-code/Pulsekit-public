@@ -272,6 +272,15 @@ public final class PyJavParams {
           RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file));
         });
         row.addView(db);
+        // Browse prompts: a prompt from the prompt library, by category.
+        android.widget.Button prompts = new android.widget.Button(activity);
+        prompts.setText("Browse prompts");
+        prompts.setTag("params-prompt-browse:" + p.token);
+        prompts.setOnClickListener(v -> PromptBrowser.show(activity, (title, text) -> {
+          target.setText(text);
+          target.setSelection(0);
+        }));
+        row.addView(prompts);
         box.addView(row);
         continue;
       }

@@ -2860,6 +2860,103 @@ public class BehaviorTest {
    */
   @Test
   @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s95_browse_import_saverun() throws Exception {
+    // Browse prompts (Params' Prompt): category tabs, a subcategory, a prompt fills the field.
+    // Prompts page Import: a sheet with its files; again it is not added twice; a file the library has is linked.
+    // Params' Save this run into DB: the switch is taken off the program's arguments and the run stored.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name.equals("Image")) image = c.id;
+    long faces = vault.addSubcategory(image, "Faces");
+    long smile = vault.addPrompt(faces, "Smile");
+    vault.addVersion(smile, "Smile", "", "A smiling face, soft light", "", "", null, "", null, "", null, "ai", "");
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    app.pyJav.pkOpenParams();
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    pv.findViewWithTag("params-prompt-browse:--prompt").performClick();
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("prompt-browser-tab:Image").performClick();
+    idle();
+    out.append("Image tab: ").append(bv.findViewWithTag("prompt-browser-sub:Faces") != null ? "subcategory Faces" : "no Faces").append('\n');
+    bv.findViewWithTag("prompt-browser-sub:Faces").performClick();
+    idle();
+    bv.findViewWithTag("prompt-browser-item:Smile").performClick();
+    idle();
+    out.append("Prompt field: ").append(((TextView) pv.findViewWithTag("params-field:--prompt")).getText()).append(", browser closed ").append(!PromptBrowser.last.isShowing()).append('\n');
+    params.dismiss();
+    // Import.
+    File dir = new File(app.getCacheDir(), "to-import");
+    dir.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    Files.write(new File(dir, "face.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "out.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "Portrait.prompt").toPath(), PromptRun.encode("Portrait", "", "", "face.png", "", "Image", "v2 \u00b7 FINAL", "Sogni Krea", "out.png", "ai", "Draw a portrait").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Portrait 2.prompt").toPath(), PromptRun.encode("Portrait 2", "", "", "face.png", "", "Image", "", "", "", "ai", "Another portrait").getBytes(StandardCharsets.UTF_8));
+    java.util.function.Function<String[], android.content.Intent> pick = names -> {
+      android.content.Intent data = new android.content.Intent();
+      android.content.ClipData clip = null;
+      for (String n : names) {
+        android.net.Uri u = android.net.Uri.fromFile(new File(dir, n));
+        if (clip == null) clip = android.content.ClipData.newRawUri("files", u);
+        else clip.addItem(new android.content.ClipData.Item(u));
+      }
+      data.setClipData(clip);
+      return data;
+    };
+    for (String[] names : new String[][] {{"Portrait.prompt", "face.png", "out.png"}, {"Portrait.prompt", "face.png", "out.png"}, {"Portrait 2.prompt"}}) {
+      PromptSheet.importPicked(app, pick.apply(names));
+      idle();
+      out.append("import ").append(String.join(", ", names)).append(": ").append(PromptSheet.lastImport).append('\n');
+    }
+    // Save this run into DB.
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("ImageUpscaler.java"));
+    ProgramParams.Param last = ps.get(ps.size() - 1);
+    out.append("ImageUpscaler's last param: ").append(last.token).append(" \"").append(last.label).append("\"; SogniTextVideo has it ")
+        .append(ProgramParams.parse(app.programMenus.bundledSource("SogniTextVideo.java")).stream().anyMatch(x -> x.token.equals(PromptKeep.SAVE_RUN))).append('\n');
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    idle();
+    File pic = new File(dir, "face.png");
+    ((TextView) get("pkPyArgs")).setText(pic.getAbsolutePath() + " --scale 3 " + PromptKeep.SAVE_RUN);
+    app.pyJav.pkRunPyJav();
+    TextView log = (TextView) get("pkPyLog");
+    for (int i = 0; i < 500 && !(log.getText().toString().contains("Succeeded") || log.getText().toString().contains("Failed")); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("program's arguments: ").append(String.join(" ", (java.util.List<String>) app.pyJav.pkLastArgv).replace(dir.getAbsolutePath() + "/", "")).append('\n');
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<>();
+    made.add(new JavaRun.FileOut("face-upscaled.png", png.toByteArray()));
+    // (The run itself failed here, with no compiler, which ends its Save; the app gets one result a run.)
+    app.pyJav.pkSaveRun = true;
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Read face.png (30 x 20)\nWrote face-upscaled.png (1 KB)\nSucceeded: face-upscaled.png", made, 0));
+    for (int i = 0; i < 500 && PyJav.KEEPING.get() > 0; i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    for (String line : log.getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    for (PromptVault.Category c : vault.categories()) {
+      if (!c.name.equals("Programs")) continue;
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("DB: Programs / ").append(p.title).append(": text \"").append(v.body).append("\", model ").append(v.model).append(", reference ").append(v.ref1Name)
+            .append(" (").append(vault.sizeOf(v, 1)).append(" bytes), result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes), result text ").append(v.resultText.replace("\n", " | ")).append('\n');
+      }
+    }
+    write("s95_browse_import_saverun", out.toString());
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
   public void s94_categories_media_focus() throws Exception {
     // Prompts: main categories as tabs, "Add subcategory to <main>" puts it under that main category.
     // Media browser: a big folder is read off the main thread and opens on the page it was left on.

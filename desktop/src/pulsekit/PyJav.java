@@ -377,6 +377,10 @@ final class PyJav {
             MediaBrowser.loadLoop();
             runArgs = MediaDir.withLastRoot(runArgs);
         }
+        // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
+        boolean saving = false;
+        while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
+        this.saveRun = saving;
         final java.util.List<String> argv = runArgs;
         if (app.pyLog != null) app.pyLog.setText("Running…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
@@ -620,6 +624,11 @@ final class PyJav {
             if (up.length() > 0) kept = kept.length() > 0 ? kept + "\n" + up : up;
             String copy = this.copyToOriginal(r, argv);
             if (copy.length() > 0) kept = kept.length() > 0 ? kept + "\n" + copy : copy;
+        }
+        if (this.saveRun) {
+            this.saveRun = false;
+            String run = PromptKeep.keepRun(dir, r, argv, name);
+            if (run.length() > 0) kept = kept.length() > 0 ? kept + "\n" + run : run;
         }
         if (DrumMidiSettingsPage.musicToDb && "SogniMusic.java".equals(name)) {
             String music = PromptKeep.keepSogniMusic(dir, r, argv);
@@ -959,6 +968,9 @@ final class PyJav {
      * .mp3 or .mid parameter gets a file button, anything else a text field. Switches are saved per
      * program; with Reset to defaults, and Reset to suggested values when the program has them.
      */
+    /** This run's "Save this run into DB" (Params). */
+    boolean saveRun;
+
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable returnTo;
     javax.swing.JComponent pyReturn;
@@ -1202,8 +1214,16 @@ final class PyJav {
                         DbFilter.current = "T";
                         app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.promptFrom(area, file));
                     });
+                    // Browse prompts: a prompt from the prompt library, by category.
+                    JButton prompts = new JButton("Browse prompts");
+                    prompts.setName("params-prompt-browse:" + p.token);
+                    prompts.addActionListener(e -> PromptBrowser.show(app, (title, text) -> {
+                        area.setText(text);
+                        area.setCaretPosition(0);
+                    }));
                     picks.add(select);
                     picks.add(db);
+                    picks.add(prompts);
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;
