@@ -44,6 +44,18 @@ final class MediaBrowser {
         this.app = app;
     }
 
+    /** The folder picked (Up stops there) of the folder shown. */
+    File shownRoot;
+
+    /** The Media browser again on `dir` under `root`, as Return from ImageUpscaler opens it. */
+    void reopen(File root, File dir) {
+        this.chooser = null;
+        this.tab = "";
+        this.other = null;
+        loadLoop();
+        this.show(root, dir);
+    }
+
     /** Choose file: what to do with the file picked, or null for the Media browser itself. */
     java.util.function.Consumer<File> chooser;
     /** Choose file's tab: "recent", "download" or "fav:<n>". */
@@ -162,6 +174,7 @@ final class MediaBrowser {
     /** The dialog's contents for `dir`; the thumbnails come in the background. */
     private void fill(final JDialog dialog, final File root, final File dir) {
         this.shown = dir;
+        this.shownRoot = root;
         // Remembered: the folder picked and the folders opened under it, for the next time.
         final List<String> under = new ArrayList<String>();
         for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
@@ -300,6 +313,13 @@ final class MediaBrowser {
         JScrollPane scroll = new JScrollPane(wrap);
         scroll.setPreferredSize(new Dimension(4 * (CELL + 28) + 24, 520));
         scroll.getVerticalScrollBar().setUnitIncrement(24);
+        // Where this folder was last scrolled to comes back; moving remembers it (kept on the next save).
+        final String placeOf = dir.getAbsolutePath();
+        final int was = MediaDir.place(placeOf);
+        if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
+        scroll.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (!e.getValueIsAdjusting() || e.getValue() > 0) MediaDir.place(placeOf, e.getValue());
+        });
         body.add(scroll, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         // Without VLC, the browser reads the videos' first frames (one tab for them all).
@@ -319,6 +339,7 @@ final class MediaBrowser {
             @Override
             public void windowClosed(java.awt.event.WindowEvent e) {
                 gone.set(true);
+                saveLoop();
             }
         });
         dialog.setContentPane(body);
@@ -618,7 +639,7 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        String[] items = this.listed.contains(f.getAbsolutePath()) ? MediaDir.MENU_LISTED : MediaDir.MENU;
+        String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
@@ -639,6 +660,19 @@ final class MediaBrowser {
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
     String menuPicked(MediaDir.Entry entry, File f, int which) {
+        if (which == MediaDir.UPSCALE_ITEM) {
+            // Upscale/resize image: ImageUpscaler on PyJav with this picture as its input; its Params open.
+            final File root = this.shownRoot;
+            final File dir = this.shown;
+            if (this.last != null) this.last.dispose();
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+            app.pyJav.setInputFile(f);
+            // Return: the Media browser again, in this folder.
+            app.pyJav.setReturn(() -> this.reopen(root, dir));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            return "ImageUpscaler: " + entry.name;
+        }
         if (which == 2 && this.listed.contains(f.getAbsolutePath())) {
             String said = MediaPlaylist.remove(PromptDb.dir(), this.shown.getAbsolutePath(), f.getAbsolutePath(), entry.name);
             this.listed.remove(f.getAbsolutePath());

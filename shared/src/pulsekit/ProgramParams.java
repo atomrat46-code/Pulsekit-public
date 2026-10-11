@@ -94,6 +94,8 @@ public final class ProgramParams {
     boolean padd = has(out, "--loras") && has(out, "--seed") && !has(out, "--image2");
     // SogniTextVideo: a clip from a prompt alone, with H3 LoRAs.
     boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image");
+    // ImageUpscaler: a picture made larger (bicubic, or Real-ESRGAN on the desktop), in a size and shape.
+    boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     for (Param p : out) {
@@ -106,6 +108,7 @@ public final class ProgramParams {
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
+      if (upscaler) knownUpscaler(p);
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);
@@ -121,6 +124,16 @@ public final class ProgramParams {
         p.hint = "the app's style, or one from the list";
         p.choices = StyleDb.names();
       }
+    }
+    // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
+    if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
+      Param save = new Param();
+      save.token = PromptKeep.SAVE_RUN;
+      save.flag = true;
+      save.takesValue = false;
+      save.optional = true;
+      save.label = "Save this run into DB (the program, all its params, input and result files)";
+      out.add(save);
     }
     return out;
   }
@@ -296,7 +309,9 @@ public final class ProgramParams {
       p.label = "System role/answer";
       p.hint = "who answers and how, e.g. You are a drum teacher. Answer briefly.";
     }
-    if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+    if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
+    // Sogni programs: the render deleted on Sogni once it is downloaded (Sogni keeps it up to 48 hours otherwise).
+    if (p.flag && !p.takesValue && p.token.equals("--delete_from_sogni")) p.label = "Delete from Sogni after download";
     // SogniChat: the sheet goes into the prompt library with the saved chat (.txt) as its result file.
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt") && chat) p.label = "Save the prompt, and the answer .txt as its result file in DB";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";
@@ -318,6 +333,70 @@ public final class ProgramParams {
     if (!p.flag && p.hint.length() == 0 && p.optional) p.hint = "optional";
     if (p.flag && !p.takesValue && p.hint.length() == 0) p.hint = "1 to turn on";
     if (p.flag && p.takesValue && p.hint.length() == 0 && p.token.matches("--?log(file)?")) p.hint = "a file name, such as results.txt";
+  }
+
+  /** ImageUpscaler's labels: the picture (also from the prompt library), the method, the size and the shape. */
+  private static void knownUpscaler(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output name";
+      p.hint = "optional; <picture>-upscaled.png (.png, .jpg; phone also .webp)";
+      return;
+    }
+    if (!p.flag) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Picture to upscale";
+      p.hint = "a PNG or JPEG";
+      return;
+    }
+    if (p.token.equals("--method")) {
+      p.label = "Upscale method";
+      p.hint = "1 (default), 2 or 3";
+      p.choices = new String[] {"1 = standard bicubic resize, 2x (built in; phone and desktop)",
+        "2 = Real-ESRGAN AI upscale, 4x (desktop only; needs realesrgan-ncnn-vulkan)",
+        "3 = Sogni AI upscale (RTX VSR, online; phone and desktop; paid)"};
+      p.choiceValues = new String[] {"1", "2", "3"};
+    } else if (p.token.equals("--scale")) {
+      p.label = "Scale (times larger)";
+      p.hint = "2 for method 1, 4 for method 2; 0.1 to 8";
+    } else if (p.token.equals("--width")) {
+      p.label = "Preferred width (pixels)";
+      p.hint = "empty: from the scale; width alone keeps the shape";
+    } else if (p.token.equals("--height")) {
+      p.label = "Preferred height (pixels)";
+      p.hint = "empty: from the scale; both width and height give that exact size";
+    } else if (p.token.equals("--aspect")) {
+      p.label = "Aspect ratio (width:height)";
+      p.hint = "empty: the picture's own; e.g. 16:9";
+      p.choices = new String[] {"1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "4:7", "21:9"};
+    } else if (p.token.equals("--fit")) {
+      p.label = "When the shape changes";
+      p.hint = "crop (default), pad or stretch";
+      p.choices = new String[] {"crop (cut the edges)", "pad (add bars)", "stretch"};
+      p.choiceValues = new String[] {"crop", "pad", "stretch"};
+    } else if (p.token.equals("--quality")) {
+      p.label = "JPEG / WebP quality (1-100)";
+      p.hint = "92";
+    } else if (p.token.equals("--key_file")) {
+      p.label = "Sogni API key file (method 3)";
+      p.hint = "empty: the one in Drum Midi Settings";
+    } else if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units, method 3)";
+      p.hint = "e.g. 5; empty for no limit";
+    } else if (p.token.equals("--confirm_cost")) {
+      p.label = "Confirm the charge (method 3)";
+    } else if (p.token.equals("--unlimited")) {
+      p.label = "Unlimited Plan (method 3; fair use limits apply)";
+    } else if (p.token.equals("--output_dir")) {
+      p.label = "Output directory";
+      p.hint = "download (default) or original: also beside the input picture";
+      p.choices = new String[] {"download (Download / program files folder)", "original (also in the input picture's folder)"};
+      p.choiceValues = new String[] {"download", "original"};
+    } else if (p.token.equals("--addtodb")) {
+      p.label = "Add the picture to DB as a Reference file";
+    } else if (p.token.equals("--delete_from_sogni")) {
+      p.label = "Delete from Sogni after download (method 3)";
+    }
   }
 
   /** JoinVideo's labels: the two videos (also from the prompt library), the order, and the library. */
@@ -348,7 +427,7 @@ public final class ProgramParams {
       p.hint = "optional; sogni-pedit-<first words>.png";
     }
     if (!p.flag || !p.takesValue) {
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -388,7 +467,7 @@ public final class ProgramParams {
       p.hint = "optional; sogni-padd-<first words>.png";
     }
     if (!p.flag || !p.takesValue) {
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -417,7 +496,7 @@ public final class ProgramParams {
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--saveprompt") || p.token.equals("--unlimited")) p.defaultOn = true;
@@ -450,7 +529,7 @@ public final class ProgramParams {
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
       if (p.token.equals("--exact_prompt")) p.label = "Send the prompt as written";
-      if (p.token.equals("--saveprompt")) p.label = "Save the prompt as a prompt sheet";
+      if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
       // Ticked in Params from the start: the sheet keeps the prompt, and the filter can pause a run for a safety review.
       if (p.token.equals("--saveprompt") || p.token.equals("--no_filter")) p.defaultOn = true;
       if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";

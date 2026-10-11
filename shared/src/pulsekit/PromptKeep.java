@@ -29,7 +29,67 @@ final class PromptKeep {
         if (musicToDb && "SogniMusic.java".equals(program)) add(kept, keepSogniMusic(dir, result, argv));
         if ("JoinVideo.java".equals(program)) add(kept, keepJoined(dir, result, argv));
         if ("SogniVideo.java".equals(program)) add(kept, keepMerged(dir, result));
+        if ("ImageUpscaler.java".equals(program)) add(kept, keepUpscaled(dir, result, argv));
         return kept.toString();
+    }
+
+    /** Params' "Save this run into DB": the switch PyJav takes off the program's arguments (the program never sees it). */
+    static final String SAVE_RUN = "--pk-savedb";
+
+    /**
+     * Save this run into DB: a new version of the prompt named for the program (in Programs): the
+     * program and every argument it ran with as its text, its first two input files as reference
+     * files, the file it made as result file, and its Wrote / Succeeded / Note lines as result text.
+     * Returns a line for the log, or "" for a run that failed.
+     */
+    static String keepRun(File dir, JavaRun.Result result, List<String> argv, String program) {
+        if (dir == null || result == null || result.code != 0 || program == null) return "";
+        String title = program.replaceAll("\\.(java|py|jar|class)$", "");
+        StringBuilder args = new StringBuilder(program);
+        List<File> inputs = new java.util.ArrayList<File>();
+        JavaRun.FileOut made = made(result);
+        if (made == null && result.files != null) for (JavaRun.FileOut f : result.files) if (made == null && f.bytes != null && f.bytes.length > 0) made = f;
+        if (argv != null) {
+            for (String a : argv) {
+                if (a == null) continue;
+                File f = new File(a);
+                boolean file = a.indexOf('/') >= 0 && f.isFile();
+                String shown = file ? f.getName() : a;
+                args.append(' ').append(shown.indexOf(' ') >= 0 ? "\"" + shown + "\"" : shown);
+                if (file && inputs.size() < 2 && (made == null || !f.getName().equals(made.name)) && !a.contains("key")) inputs.add(f);
+            }
+        }
+        StringBuilder said = new StringBuilder();
+        for (String line : (result.log == null ? "" : result.log).split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Wrote ") || t.startsWith("Succeeded") || t.startsWith("Note") || t.startsWith("Workflow: ")) said.append(said.length() > 0 ? "\n" : "").append(t);
+        }
+        StringBuilder note = new StringBuilder("Prompt library: ").append(title).append(" (Programs)");
+        StringBuilder byName = new StringBuilder();
+        byte[][] refs = new byte[2][];
+        String[] refNames = {"", ""};
+        for (int i = 0; i < inputs.size(); i++) {
+            refNames[i] = inputs.get(i).getName();
+            refs[i] = input(refNames[i], argv, byName);
+        }
+        byte[] kept = made == null ? null : made.bytes.length > MAX_BYTES ? null : made.bytes;
+        try {
+            PromptVault vault = PromptVault.open(dir);
+            long catId = 0;
+            for (PromptVault.Category c : vault.categories()) if (c.name != null && c.name.trim().equalsIgnoreCase("Programs")) catId = c.id;
+            if (catId == 0) catId = vault.addCategory("Programs");
+            long promptId = 0;
+            for (PromptVault.Prompt p : vault.prompts(catId)) if (title.equalsIgnoreCase(p.title == null ? "" : p.title.trim())) promptId = p.id;
+            if (promptId == 0) promptId = vault.addPrompt(catId, title);
+            vault.addVersion(promptId, title, "", args.toString(), program, refNames[0], refs[0], refNames[1], refs[1], made == null ? "" : made.name, kept, "", said.toString());
+            if (refs[0] != null) note.append(", reference ").append(refNames[0]);
+            if (refs[1] != null) note.append(", ").append(refNames[1]);
+            if (made != null) note.append(", result ").append(made.name).append(kept == null ? " (by name only, over 16 MB)" : "");
+            if (byName.length() > 0) note.append(" (by name only: ").append(byName).append(')');
+            return note.toString();
+        } catch (Exception ex) {
+            return "Prompt library: could not store the run (" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + ")";
+        }
     }
 
     private static void add(StringBuilder sb, String line) {
@@ -43,6 +103,7 @@ final class PromptKeep {
         if (genToDb && "MidiDrumGen.java".equals(program)) return true;
         if (musicToDb && "SogniMusic.java".equals(program)) return true;
         if ("JoinVideo.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
+        if ("ImageUpscaler.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
         return "SogniVideo.java".equals(program);
     }
 
@@ -169,6 +230,36 @@ final class PromptKeep {
             }
         }
         return note.toString();
+    }
+
+    /**
+     * ImageUpscaler with --addtodb: the picture it made into the prompt library on its own, as a
+     * Reference file (Ref files, Browse DB). Returns a line for the log, or "".
+     */
+    static String keepUpscaled(File dir, JavaRun.Result result, List<String> argv) {
+        if (dir == null || argv == null || !argv.contains("--addtodb")) return "";
+        JavaRun.FileOut f = made(result);
+        if (f == null) return "";
+        if (f.bytes.length > MAX_BYTES) return "Prompt library: " + f.name + " is over 16 MB, so it is not kept there";
+        try {
+            PromptVault.open(dir).addLibraryFile(f.name, f.bytes, "ImageUpscaler", 1);
+            return "Prompt library: " + f.name + " (reference file)";
+        } catch (Exception ex) {
+            return "Prompt library: could not store " + f.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
+        }
+    }
+
+    /** The file a successful run names on its "Succeeded: <file>" line, among the files it made; null if none. */
+    static JavaRun.FileOut made(JavaRun.Result result) {
+        if (result == null || result.files == null || result.code != 0 || result.log == null) return null;
+        String name = null;
+        for (String line : result.log.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Succeeded: ")) name = t.substring(11).trim();
+        }
+        if (name == null) return null;
+        for (JavaRun.FileOut f : result.files) if (name.equals(f.name) && f.bytes != null && f.bytes.length > 0) return f;
+        return null;
     }
 
     /** A program's output file (a MIDI, or with `audio` a sound file) as a new version of the prompt named for the program. */

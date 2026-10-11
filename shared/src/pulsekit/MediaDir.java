@@ -132,6 +132,29 @@ public final class MediaDir {
    */
   public static volatile List<String> favourites = new ArrayList<String>();
 
+  /**
+   * The Media browser's place in each folder, so it opens there again: the page on the phone, the
+   * scroll position on the desktop. Kept by a hash of the folder (no folder names in the settings),
+   * the 60 folders seen last.
+   */
+  private static final java.util.LinkedHashMap<String, Integer> PLACES = new java.util.LinkedHashMap<String, Integer>(16, 0.75f, true);
+
+  public static synchronized int place(String folder) {
+    Integer at = PLACES.get(placeKey(folder));
+    return at == null ? 0 : at.intValue();
+  }
+
+  public static synchronized void place(String folder, int at) {
+    String k = placeKey(folder);
+    if (at <= 0) PLACES.remove(k);
+    else PLACES.put(k, Integer.valueOf(at));
+    while (PLACES.size() > 60) PLACES.remove(PLACES.keySet().iterator().next());
+  }
+
+  private static String placeKey(String folder) {
+    return Integer.toHexString((folder == null ? "" : folder).hashCode());
+  }
+
   /** Adds the folder (`root`, then the folders opened under it); false when it is a favourite already. */
   public static synchronized boolean addFavourite(String root, List<String> under) {
     StringBuilder sb = new StringBuilder(root == null ? "" : root.replace('\t', ' ').replace('\n', ' '));
@@ -156,6 +179,34 @@ public final class MediaDir {
   public static String favouriteLabel(String f) {
     String[] part = f.split("\t");
     return label(part[part.length - 1]);
+  }
+
+  /**
+   * MediaBrowser.java run without a folder (Run pressed, Params not opened this time): the folder the
+   * Media browser opened last, so Run opens it again. `argv` itself when it names a folder or none is known.
+   */
+  public static List<String> withLastRoot(List<String> argv) {
+    if (argv == null) return argv;
+    for (String a : argv) {
+      if (a == null) continue;
+      String t = a.trim();
+      if (t.startsWith("content://") || (t.length() > 0 && !t.startsWith("<") && !t.startsWith("-") && new java.io.File(t).isDirectory())) return argv;
+    }
+    if (lastRoot == null || lastRoot.length() == 0) return argv;
+    List<String> out = new ArrayList<String>();
+    for (String a : argv) if (a != null && !a.trim().startsWith("<") && a.trim().length() > 0) out.add(a);
+    out.add(lastRoot);
+    return out;
+  }
+
+  /** The folder captured frames go in, under the video's folder (C in the video player). */
+  public static final String FRAMES_DIR = "SC";
+
+  /** A captured frame's name: "clip-0m12s345.png" for clip.mp4 at 0:12.345. */
+  public static String frameName(String video, long ms) {
+    String stem = (video == null ? "video" : video).replaceAll("\\.[A-Za-z0-9]{1,5}$", "").replace('/', '_').replace('\\', '_');
+    long t = Math.max(0, ms);
+    return stem + "-" + (t / 60000) + "m" + String.format(java.util.Locale.ROOT, "%02d", (t / 1000) % 60) + "s" + String.format(java.util.Locale.ROOT, "%03d", t % 1000) + ".png";
   }
 
   /** The folders under `root` to open again: the remembered ones when `root` is the folder last picked, else none. */
@@ -208,8 +259,12 @@ public final class MediaDir {
         // without a key, favourites are not kept
       }
     }
+    StringBuilder places = new StringBuilder();
+    synchronized (MediaDir.class) {
+      for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
+    }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + "\n";
+        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + places + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -222,6 +277,9 @@ public final class MediaDir {
     lastPath = new ArrayList<String>();
     List<String> favs = new ArrayList<String>();
     favourites = favs;
+    synchronized (MediaDir.class) {
+      PLACES.clear();
+    }
     if (text == null) return;
     for (String line : text.split("\n")) {
       int eq = line.indexOf('=');
@@ -233,6 +291,14 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("at")) {
+          int colon = v.lastIndexOf(':');
+          if (colon > 0) {
+            synchronized (MediaDir.class) {
+              PLACES.put(v.substring(0, colon), Integer.valueOf(Integer.parseInt(v.substring(colon + 1).trim())));
+            }
+          }
+        }
         else if (k.equals("fav")) {
           try {
             favs.add(Sealed.openText(v));
@@ -295,6 +361,19 @@ public final class MediaDir {
 
   /** The menu for a file already in the playlist: its third item takes it out. */
   public static final String[] MENU_LISTED = {"Add to DB Reference files", "Add to DB result files", "Remove from default playlist"};
+
+  /** A picture's fourth item: ImageUpscaler loaded with the picture as its input, and its Params open. */
+  public static final String UPSCALE = "Upscale/resize image";
+  public static final int UPSCALE_ITEM = 3;
+
+  /** The menu for a file: MENU or MENU_LISTED, and Upscale/resize image for a picture. */
+  public static String[] menu(boolean listed, int kind) {
+    String[] base = listed ? MENU_LISTED : MENU;
+    if (kind != PICTURE) return base;
+    String[] out = java.util.Arrays.copyOf(base, base.length + 1);
+    out[UPSCALE_ITEM] = UPSCALE;
+    return out;
+  }
 
   /**
    * Add to DB: the file into the prompt library kept in `dir`, on its own, as a reference file or

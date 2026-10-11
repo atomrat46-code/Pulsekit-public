@@ -2605,6 +2605,20 @@ public class BehaviorTest {
     out.append("tap: controls raised ").append(v.raised - raisedBefore);
     press.accept(0, 800L);
     out.append(", held: raised ").append(v.raised - raisedBefore).append('\n');
+    // Stop, Play and Pause always shown; a tap brings Mute and the volume to the top; C while paused.
+    View soundRow = tv.findViewWithTag("media-video-sound");
+    out.append("transport: ").append(tv.findViewWithTag("media-video-stop") != null).append(' ').append(tv.findViewWithTag("media-video-play") != null)
+        .append(' ').append(tv.findViewWithTag("media-video-pause") != null).append(", sound row after tap + hold ").append(soundRow.getVisibility() == View.VISIBLE ? "shown" : "hidden");
+    press.accept(0, 100L);
+    out.append(", after another tap ").append(soundRow.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    tv.findViewWithTag("media-video-play").performClick();
+    mp.start();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    out.append("playing: C ").append(tv.findViewWithTag("media-video-capture").getVisibility() == View.VISIBLE ? "shown" : "hidden");
+    tv.findViewWithTag("media-video-pause").performClick();
+    mp.pause();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    out.append(", paused: C ").append(tv.findViewWithTag("media-video-capture").getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
     // The screen stays on while it plays, not while it is paused.
     mp.start();
     ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
@@ -2844,6 +2858,374 @@ public class BehaviorTest {
    * encrypts only the small index: the library file stays small, the file reads back the same
    * after the library is opened again, and it goes when the file is deleted.
    */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s95_browse_import_saverun() throws Exception {
+    // Browse prompts (Params' Prompt): category tabs, a subcategory, a prompt fills the field.
+    // Prompts page Import: a sheet with its files; again it is not added twice; a file the library has is linked.
+    // Params' Save this run into DB: the switch is taken off the program's arguments and the run stored.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name.equals("Image")) image = c.id;
+    long faces = vault.addSubcategory(image, "Faces");
+    long smile = vault.addPrompt(faces, "Smile");
+    vault.addVersion(smile, "Smile", "", "A smiling face, soft light", "", "", null, "", null, "", null, "ai", "");
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    app.pyJav.pkOpenParams();
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    pv.findViewWithTag("params-prompt-browse:--prompt").performClick();
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("prompt-browser-tab:Image").performClick();
+    idle();
+    out.append("Image tab: ").append(bv.findViewWithTag("prompt-browser-sub:Faces") != null ? "subcategory Faces" : "no Faces").append('\n');
+    bv.findViewWithTag("prompt-browser-sub:Faces").performClick();
+    idle();
+    bv.findViewWithTag("prompt-browser-item:Smile").performClick();
+    idle();
+    out.append("Prompt field: ").append(((TextView) pv.findViewWithTag("params-field:--prompt")).getText()).append(", browser closed ").append(!PromptBrowser.last.isShowing()).append('\n');
+    params.dismiss();
+    // Import.
+    File dir = new File(app.getCacheDir(), "to-import");
+    dir.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    Files.write(new File(dir, "face.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "out.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "Portrait.prompt").toPath(), PromptRun.encode("Portrait", "", "", "face.png", "", "Image", "v2 \u00b7 FINAL", "Sogni Krea", "out.png", "ai", "Draw a portrait").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Portrait 2.prompt").toPath(), PromptRun.encode("Portrait 2", "", "", "face.png", "", "Image", "", "", "", "ai", "Another portrait").getBytes(StandardCharsets.UTF_8));
+    java.util.function.Function<String[], android.content.Intent> pick = names -> {
+      android.content.Intent data = new android.content.Intent();
+      android.content.ClipData clip = null;
+      for (String n : names) {
+        android.net.Uri u = android.net.Uri.fromFile(new File(dir, n));
+        if (clip == null) clip = android.content.ClipData.newRawUri("files", u);
+        else clip.addItem(new android.content.ClipData.Item(u));
+      }
+      data.setClipData(clip);
+      return data;
+    };
+    for (String[] names : new String[][] {{"Portrait.prompt", "face.png", "out.png"}, {"Portrait.prompt", "face.png", "out.png"}, {"Portrait 2.prompt"}}) {
+      PromptSheet.importPicked(app, pick.apply(names));
+      idle();
+      out.append("import ").append(String.join(", ", names)).append(": ").append(PromptSheet.lastImport).append('\n');
+    }
+    // Save this run into DB.
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("ImageUpscaler.java"));
+    ProgramParams.Param last = ps.get(ps.size() - 1);
+    out.append("ImageUpscaler's last param: ").append(last.token).append(" \"").append(last.label).append("\"; SogniTextVideo has it ")
+        .append(ProgramParams.parse(app.programMenus.bundledSource("SogniTextVideo.java")).stream().anyMatch(x -> x.token.equals(PromptKeep.SAVE_RUN))).append('\n');
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    idle();
+    File pic = new File(dir, "face.png");
+    ((TextView) get("pkPyArgs")).setText(pic.getAbsolutePath() + " --scale 3 " + PromptKeep.SAVE_RUN);
+    app.pyJav.pkRunPyJav();
+    TextView log = (TextView) get("pkPyLog");
+    for (int i = 0; i < 500 && !(log.getText().toString().contains("Succeeded") || log.getText().toString().contains("Failed")); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("program's arguments: ").append(String.join(" ", (java.util.List<String>) app.pyJav.pkLastArgv).replace(dir.getAbsolutePath() + "/", "")).append('\n');
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<>();
+    made.add(new JavaRun.FileOut("face-upscaled.png", png.toByteArray()));
+    // (The run itself failed here, with no compiler, which ends its Save; the app gets one result a run.)
+    app.pyJav.pkSaveRun = true;
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Read face.png (30 x 20)\nWrote face-upscaled.png (1 KB)\nSucceeded: face-upscaled.png", made, 0));
+    for (int i = 0; i < 500 && PyJav.KEEPING.get() > 0; i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    for (String line : log.getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    for (PromptVault.Category c : vault.categories()) {
+      if (!c.name.equals("Programs")) continue;
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("DB: Programs / ").append(p.title).append(": text \"").append(v.body).append("\", model ").append(v.model).append(", reference ").append(v.ref1Name)
+            .append(" (").append(vault.sizeOf(v, 1)).append(" bytes), result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3)).append(" bytes), result text ").append(v.resultText.replace("\n", " | ")).append('\n');
+      }
+    }
+    write("s95_browse_import_saverun", out.toString());
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s94_categories_media_focus() throws Exception {
+    // Prompts: main categories as tabs, "Add subcategory to <main>" puts it under that main category.
+    // Media browser: a big folder is read off the main thread and opens on the page it was left on.
+    // Ref files: full size opens at the last picture zoom; Back returns to that thumbnail.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long alpha = vault.addCategory("Alpha");
+    long beta = vault.addCategory("Beta");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.util.function.Consumer<String> addSub = (String name) -> {
+      pane.findViewWithTag("add-subcategory").performClick();
+      idle();
+      AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+      android.widget.EditText field = findEdit(ask.getWindow().getDecorView());
+      field.setText(name);
+      ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    };
+    findText(pane, "Alpha").performClick();
+    idle();
+    out.append("tabs: ").append(pane.findViewWithTag("category-tabs") != null).append(", button: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    addSub.accept("A1");
+    findText(pane, "Beta").performClick();
+    idle();
+    out.append("Beta chosen: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    addSub.accept("B1");
+    for (PromptVault.Category c : vault.categories()) {
+      if (c.parentId != 0) out.append("subcategory ").append(c.name).append(" under ").append(vault.category(c.parentId).name).append('\n');
+    }
+    out.append("shown: ").append(((TextView) pane.findViewWithTag("subcategories-of")).getText()).append(", B1 ").append(findText(pane, "B1") != null)
+        .append(", A1 ").append(findText(pane, "A1") != null).append('\n');
+    // Media browser: 120 pictures, three pages; page 3, closed, opened again on page 3.
+    File big = new File(app.getCacheDir(), "big-folder");
+    big.mkdirs();
+    for (int k = 0; k < 120; k++) Files.write(new File(big, String.format("p%03d.png", k)).toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    MediaBrowser b = MediaBrowser.open(app, big.getAbsolutePath());
+    out.append("while reading: ").append(b.dialog.getWindow().getDecorView().findViewWithTag("media-reading") != null ? "Reading the folder…" : "nothing");
+    idle();
+    out.append(", then ").append(b.entries.size()).append(" files, page ").append(b.page + 1).append('\n');
+    b.showPage(2);
+    b.dialog.dismiss();
+    MediaBrowser again = MediaBrowser.open(app, big.getAbsolutePath());
+    idle();
+    out.append("opened again: page ").append(again.page + 1).append(", ").append(((TextView) again.dialog.getWindow().getDecorView().findViewWithTag("media-page")).getText()).append('\n');
+    again.dialog.dismiss();
+    // Ref files: a picture opened in full size at 156%, Back, then another opens at 156% too; the one opened is outlined.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "one.png", png.toByteArray(), false);
+    DbImport.store(app, "two.png", png.toByteArray(), false);
+    PromptVault.StoredFile one = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (f.name.equals("one.png")) one = f;
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    java.lang.reflect.Method zoom = sheet.getDeclaredMethod("setZoom", android.app.Activity.class, float.class);
+    java.lang.reflect.Field level = sheet.getDeclaredField("previewZoom");
+    java.lang.reflect.Field refsOpen = sheet.getDeclaredField("refsOpen");
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {open, zoom, level, refsOpen, focusId, focusWhich, back}) o.setAccessible(true);
+    refsOpen.set(null, true);
+    focusId.set(null, one.versionId);
+    focusWhich.set(null, one.which);
+    open.invoke(null, app, "one.png", vault.fileBytes(one.versionId, one.which), 3);
+    zoom.invoke(null, app, 1.5625f);
+    back.set(null, 0);
+    open.invoke(null, app, "two.png", png.toByteArray(), 3);
+    out.append("next picture opens at ").append(Math.round((Float) level.get(null) * 100)).append("%");
+    back.set(null, 0);
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    rebuild.setAccessible(true);
+    rebuild.invoke(null, app);
+    idle();
+    View focus = pane.findViewWithTag("refs-focus");
+    out.append(", back in Ref files: outlined ").append(focus != null ? findText(focus, "one.png") != null ? "one.png" : "another" : "none").append('\n');
+    write("s94_categories_media_focus", out.toString());
+  }
+
+  private static android.widget.EditText findEdit(View v) {
+    if (v instanceof android.widget.EditText) return (android.widget.EditText) v;
+    if (v instanceof android.view.ViewGroup) {
+      android.view.ViewGroup g = (android.view.ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) {
+        android.widget.EditText e = findEdit(g.getChildAt(i));
+        if (e != null) return e;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s93_upscaler_extras() throws Exception {
+    // ImageUpscaler from the Media browser: the key file from Drum Midi Settings, a copy in the picture's
+    // folder (--output_dir original), the picture in DB (--addtodb), and Return back to the Media browser.
+    // MediaBrowser.java's Run without a folder opens the one last opened.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    ApiKeys.init(new File(app.getFilesDir(), "sogni"));
+    ApiKeys.store("SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+    File media = new File(app.getCacheDir(), "shots-up");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(new File(media, "a.png"));
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("a.png")) pic = e;
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    View ret = app.pyPane.findViewWithTag("pyjav-return");
+    out.append("Return: ").append(ret != null && ret.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText(args.getText() + " --output_dir original --addtodb");
+    app.pyJav.pkRunPyJav();
+    TextView log = (TextView) get("pkPyLog");
+    for (int i = 0; i < 500 && !(log.getText().toString().contains("Succeeded") || log.getText().toString().contains("Failed")); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("key file given: ").append(app.pyJav.pkLastArgv.contains("--key_file")).append(", args ")
+        .append(String.join(" ", (java.util.List<String>) app.pyJav.pkLastArgv).replaceAll("/\\S*/", "").replaceAll("--key_file \\S+", "--key_file <key>")).append('\n');
+    // The phone's in-app compiler is not here: the run's result as ImageUpscaler gives it.
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<>();
+    java.io.ByteArrayOutputStream big = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(80, 60, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, big);
+    made.add(new JavaRun.FileOut("a-upscaled.png", big.toByteArray()));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Read a.png (40 x 30)\nWrote a-upscaled.png (1 KB)\nOutput folder: original\nSucceeded: a-upscaled.png", made, 0));
+    for (int i = 0; i < 500 && !(log.getText().toString().contains("copy saved") && PyJav.KEEPING.get() == 0); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    for (String line : log.getText().toString().split("\n")) {
+      if (line.matches("(Output folder: copy|Output folder: could|Prompt library|Succeeded).*")) out.append("log: ").append(line.replace(media.getAbsolutePath(), "<folder>")).append('\n');
+    }
+    String[] names = media.list();
+    java.util.Arrays.sort(names);
+    out.append("picture's folder: ").append(String.join(", ", names)).append('\n');
+    StringBuilder refs = new StringBuilder();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).referenceFiles()) refs.append(f.name).append(" (").append(f.promptTitle).append(") ");
+    out.append("DB reference files: ").append(refs.toString().trim()).append('\n');
+    ret.performClick();
+    idle();
+    MediaBrowser back = MediaBrowser.last;
+    StringBuilder listed = new StringBuilder();
+    for (MediaDir.Entry e : back.entries) listed.append(e.name).append(' ');
+    out.append("after Return: browser ").append(back.dialog.isShowing() ? "open" : "closed").append(", lists ").append(listed.toString().trim())
+        .append(", Return ").append(ret.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    back.dialog.dismiss();
+    // MediaBrowser.java: Run with no folder given opens the folder the Media browser opened last.
+    app.programMenus.selectProgram("Java", "MediaBrowser.java");
+    idle();
+    args.setText("");
+    app.pyJav.pkRunPyJav();
+    for (int i = 0; i < 500 && !(log.getText().toString().contains("Succeeded") || log.getText().toString().contains("Failed")); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: 1 picture\nMedia browser: " + media.getAbsolutePath(), new java.util.ArrayList<>(), 0));
+    idle();
+    out.append("MediaBrowser Run: folder given ").append(app.pyJav.pkLastArgv.contains(media.getAbsolutePath())).append(", browser ")
+        .append(MediaBrowser.last != null && MediaBrowser.last.dialog.isShowing() ? "open" : "not open").append('\n');
+    ApiKeys.clear();
+    write("s93_upscaler_extras", out.toString());
+  }
+
+  @Test
+  public void s92_menu_upscale() throws Exception {
+    // Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params.
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-up");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    Files.write(new File(media, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    MediaDir.Entry pic = null, clip = null;
+    for (MediaDir.Entry e : b.entries) {
+      if (e.name.equals("a.png")) pic = e;
+      if (e.name.equals("b.mp4")) clip = e;
+    }
+    out.append("picture menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, pic.kind))).append('\n');
+    out.append("video menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, clip.kind))).append('\n');
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("program: ").append(app.pyName).append(", input ").append(new File(app.pyJav.pkPyInputPath).getName()).append(" in ")
+        .append(new File(app.pyJav.pkPyInputPath).getParentFile().getName()).append(", browser closed ").append(!b.dialog.isShowing()).append('\n');
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("Params open: ").append(dv.findViewWithTag("params-file:input.png") != null).append(", picture row shows ")
+        .append(((TextView) dv.findViewWithTag("params-chosen:input.png")).getText()).append('\n');
+    write("s92_menu_upscale", out.toString());
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s91_image_upscaler() throws Exception {
+    // ImageUpscaler in the Java menu, its Params, and its phone path (Android's Bitmap, no java.awt) run here.
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("ImageUpscaler.java");
+    out.append("in the Java menu: ").append(src != null).append('\n');
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      out.append("param ").append(p.token).append(": ").append(p.label).append(p.isFile() ? " (file, Browse DB " + p.refs + ")" : "")
+          .append(p.choices != null ? " choices " + java.util.Arrays.toString(p.choiceValues != null ? p.choiceValues : p.choices) : "").append('\n');
+    }
+    // The program compiled as PyJav compiles it, and run with Android's picture classes.
+    File dir = new File(app.getCacheDir(), "upscaler");
+    dir.mkdirs();
+    File java = new File(dir, "ImageUpscaler.java");
+    Files.write(java.toPath(), src.getBytes(StandardCharsets.UTF_8));
+    // javax.tools is not in android.jar: the JDK's compiler, by reflection.
+    Object jc = Class.forName("javax.tools.ToolProvider").getMethod("getSystemJavaCompiler").invoke(null);
+    int compiled = (Integer) Class.forName("javax.tools.Tool").getMethod("run", java.io.InputStream.class, java.io.OutputStream.class, java.io.OutputStream.class, String[].class)
+        .invoke(jc, null, null, null, new String[] {"-nowarn", "-d", dir.getAbsolutePath(), java.getAbsolutePath()});
+    out.append("compiled: ").append(compiled == 0).append('\n');
+    ClassLoader loader = new java.net.URLClassLoader(new java.net.URL[] {dir.toURI().toURL()}, getClass().getClassLoader());
+    java.lang.reflect.Method run = loader.loadClass("ImageUpscaler").getDeclaredMethod("run", String[].class);
+    run.setAccessible(true);
+    android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    for (int y = 0; y < 30; y++) for (int x = 0; x < 40; x++) b.setPixel(x, y, x < 20 ? 0xffff0000 : 0xff0000ff);
+    File pic = new File(dir, "pic.png");
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    System.setProperty("pulsekit.work", dir.getAbsolutePath());
+    String[][] runs = {{pic.getAbsolutePath()}, {pic.getAbsolutePath(), "sq.jpg", "--width", "100", "--aspect", "1:1"},
+      {pic.getAbsolutePath(), "pad.webp", "--width", "80", "--height", "80", "--fit", "pad"}, {pic.getAbsolutePath(), "ai.png", "--method", "2"},
+      {pic.getAbsolutePath(), "sogni.png", "--method", "3", "--width", "1024", "--key_file", new File(dir, "none.txt").getAbsolutePath()}};
+    java.io.PrintStream was = System.out;
+    for (String[] r : runs) {
+      java.io.ByteArrayOutputStream log = new java.io.ByteArrayOutputStream();
+      System.setOut(new java.io.PrintStream(log, true, "UTF-8"));
+      int code;
+      try {
+        code = (Integer) run.invoke(null, (Object) r);
+      } finally {
+        System.setOut(was);
+      }
+      out.append("== ").append(String.join(" ", r).replace(dir.getAbsolutePath() + "/", "")).append(" -> ").append(code).append('\n');
+      for (String line : log.toString("UTF-8").split("\n")) if (line.trim().length() > 0) out.append("  ").append(line.replace(dir.getAbsolutePath() + "/", "")).append('\n');
+    }
+    for (String n : new String[] {"pic-upscaled.png", "sq.jpg", "pad.webp"}) {
+      android.graphics.Bitmap got = android.graphics.BitmapFactory.decodeFile(new File(dir, n).getAbsolutePath());
+      out.append(n).append(": ").append(got == null ? "unreadable" : got.getWidth() + " x " + got.getHeight()
+          + ", left " + Integer.toHexString(got.getPixel(got.getWidth() / 4, got.getHeight() / 2)) + ", right " + Integer.toHexString(got.getPixel(got.getWidth() * 3 / 4, got.getHeight() / 2))
+          + ", corner " + Integer.toHexString(got.getPixel(0, 0))).append('\n');
+    }
+    System.clearProperty("pulsekit.work");
+    write("s91_image_upscaler", out.toString());
+  }
+
   @Test
   public void s90_choose_file() throws Exception {
     // Choose file: the Media browser with Recent MB folder, Download and favourite tabs; a tapped file fills the row.

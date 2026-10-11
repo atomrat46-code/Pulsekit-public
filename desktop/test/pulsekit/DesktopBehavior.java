@@ -1528,7 +1528,7 @@ public final class DesktopBehavior {
     Thread.sleep(2200);
     out.append("after Play 2 s: frame ").append(color.get()).append(", playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText())
         .append(", slider moved ").append(((javax.swing.JSlider) component(dialog, "video-position")).getValue() > 300).append('\n');
-    edt(() -> b.apply("video-play").doClick());
+    edt(() -> b.apply("video-pause").doClick());
     Thread.sleep(400);
     out.append("Pause: playing ").append(player.playing()).append(", button ").append(b.apply("video-play").getText()).append('\n');
     edt(() -> b.apply("video-play").doClick());
@@ -2296,7 +2296,7 @@ public final class DesktopBehavior {
       }
     };
     if (VlcPlayer.available()) {
-      answers.add("Mute");
+      answers.add("Fit");
       SwingUtilities.invokeLater(open);
       for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
       Thread.sleep(1200);
@@ -2338,7 +2338,7 @@ public final class DesktopBehavior {
       out.append("kept: ").append(new String(Files.readAllBytes(new File(home, ".pulsekit/media-browser.txt").toPath()), StandardCharsets.UTF_8).trim().replace('\n', ' ').replaceAll("place=\\w+", "place=(sealed)")).append('\n');
       // The next video opens as that one was left.
       set("lastVideo", null);
-      answers.add("Mute");
+      answers.add("Fit");
       SwingUtilities.invokeLater(open);
       for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
       Thread.sleep(800);
@@ -3358,6 +3358,474 @@ public final class DesktopBehavior {
     out.append("picked: ").append(picked[0] == null ? "none" : home.toPath().relativize(picked[0].toPath())).append('\n');
     MediaBrowser.loadLoop();
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+  }
+
+  /** ImageUpscaler from the Java menu: its Params, and runs with method 1 (sizes, shapes) and method 2 (no Real-ESRGAN here). */
+  void s74_image_upscaler() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pic = new File(home, "pic.png");
+    java.awt.image.BufferedImage b = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    for (int y = 0; y < 30; y++) for (int x = 0; x < 40; x++) b.setRGB(x, y, x < 20 ? 0xff0000 : 0x0000ff);
+    javax.imageio.ImageIO.write(b, "png", pic);
+    call("selectListedProgram", "Java", "ImageUpscaler.java");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"input.png", "--method", "--aspect", "--fit"}) {
+        java.awt.Component c = component(d, "params-file:" + t);
+        if (c == null) c = component(d, "params-field:" + t);
+        seen.append("Params ").append(t).append(": ").append(c == null ? "none" : c.getClass().getSimpleName()).append('\n');
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    out.append(seen);
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {"\"" + pic.getAbsolutePath() + "\"", "\"" + pic.getAbsolutePath() + "\" sq.jpg --width 100 --aspect 1:1", "\"" + pic.getAbsolutePath() + "\" big.png --method 2"};
+    for (String extra : runs) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
+        out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+  }
+
+  /** Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params. */
+  void s75_menu_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-up");
+    media.mkdirs();
+    File pic = new File(media, "a.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 3, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(media)) if (x.name.equals("a.png")) e = x;
+    out.append("picture menu: ").append(java.util.Arrays.toString(MediaDir.menu(false, e.kind))).append('\n');
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("Params: ").append(d.getTitle()).append(", picture row ").append(component(d, "params-file:input.png") != null).append('\n');
+    answers.add("Cancel");
+    final MediaDir.Entry entry = e;
+    edt(() -> out.append("menu: ").append(mb.menuPicked(entry, pic, MediaDir.UPSCALE_ITEM)).append('\n'));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    out.append("program: ").append((String) get("pyName")).append(", input ").append(new File((String) get("pyInputPath")).getName())
+        .append(", args ").append(((javax.swing.JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
+  /**
+   * ImageUpscaler method 3 (Sogni AI upscale): the picture (cropped to the shape first) is uploaded,
+   * upscale_image is started with the longest side wanted (at least 512 px on both sides), and Sogni's
+   * picture is fitted to the size asked for. A size no larger than the picture does not use Sogni.
+   */
+  void s76_sogni_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pic = new File(home, "pic.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    final List<String> deletes = Collections.synchronizedList(new ArrayList<String>());
+    final int[] made = new int[2];
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/uploadUrl")) {
+        bytes = ("{\"uploadUrl\":\"http://127.0.0.1:" + port + "/put/1\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/image/downloadUrl")) {
+        bytes = ("{\"downloadUrl\":\"http://127.0.0.1:" + port + "/stored/1.png\"}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (ex.getRequestMethod().equals("DELETE")) {
+        deletes.add("DELETE " + path);
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wu")) {
+        // The first run's record names its render (Sogni project); the second's names none.
+        String project = starts.size() == 1 ? ",\"steps\":[{\"id\":\"upscale\",\"projectId\":\"2DBC4994-FC95-4840-A5A1-FE264242D6A2\"}]" : "";
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wu\",\"status\":\"completed\"" + project + ",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/big.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/big.png")) {
+        // As RTX VSR: the last start's longest side, in the uploaded picture's shape (square for 1:1, else 4:3).
+        String last = starts.get(starts.size() - 1);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"targetLongestEdge\":(\\d+)").matcher(last);
+        int edge = m.find() ? Integer.parseInt(m.group(1)) : 80;
+        made[0] = edge;
+        made[1] = starts.size() == 1 ? edge : edge * 3 / 4;
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(made[0], made[1], java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+        type = "image/png";
+        bytes = png.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "ImageUpscaler.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--method") || p.token.startsWith("--key") || p.token.contains("cost") || p.token.equals("--unlimited"))
+          out.append("param ").append(p.token).append(" \"").append(p.label).append("\"")
+              .append(p.choices != null ? " " + java.util.Arrays.toString(p.choices) : "").append('\n');
+      }
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String sogni = " --method 3 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      String[] runs = {"\"" + pic.getAbsolutePath() + "\" sq.png --width 1024 --aspect 1:1 --delete_from_sogni" + sogni, "\"" + pic.getAbsolutePath() + "\" two.png --confirm_cost --max_cost 5 --delete_from_sogni" + sogni,
+        "\"" + pic.getAbsolutePath() + "\" small.png --scale 0.5" + sogni};
+      for (String extra : runs) {
+        edt(() -> log.setText(""));
+        edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        out.append("== ").append(extra.replace(home.getAbsolutePath(), "~").replace(String.valueOf(port), "PORT")).append('\n');
+        for (String line : textOf(log).split("\n")) {
+          if (line.matches("(Read|Note|Uploaded|Sogni|Workflow|Method|Wrote|Succeeded|Failed|Deleted).*")) out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+        }
+      }
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          out.append("step: ").append(step.get("toolName")).append(' ').append(SogniApi.toJson(step.get("arguments")))
+              .append(", references ").append(((List<?>) m.get("media_references")).size()).append('\n');
+        }
+      }
+      synchronized (deletes) {
+        for (String d : deletes) out.append(d).append('\n');
+      }
+      out.append("record saved: ").append(new File(home, ".pulsekit/sogni_workflow_record.txt").isFile()).append('\n');
+      for (String n : new String[] {"sq.png", "two.png", "small.png"}) {
+        File f = new File(home, ".pulsekit/" + n);
+        java.awt.image.BufferedImage got = f.isFile() ? javax.imageio.ImageIO.read(f) : null;
+        out.append(n).append(": ").append(got == null ? "missing" : got.getWidth() + " x " + got.getHeight()).append('\n');
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * ImageUpscaler from the Media browser: a copy in the picture's folder (--output_dir original), the
+   * picture in DB (--addtodb), the key file from Drum Midi Settings, and Return back to the Media
+   * browser. MediaBrowser.java's Run without a folder opens the one last opened.
+   */
+  void s77_upscaler_extras() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "shots-up");
+    media.mkdirs();
+    File pic = new File(media, "a.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    File key = new File(home, "key.txt");
+    Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+    ApiKeys.init(PromptDb.dir());
+    ApiKeys.store(Files.readAllBytes(key.toPath()));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(media)) if (x.name.equals("a.png")) e = x;
+    // As the browser shows the folder (the menu picks from it).
+    set("shown", media);
+    set("shownRoot", media);
+    answers.add("Cancel");
+    final MediaDir.Entry entry = e;
+    edt(() -> mb.menuPicked(entry, pic, MediaDir.UPSCALE_ITEM));
+    Thread.sleep(500);
+    idle();
+    javax.swing.JComponent ret = (javax.swing.JComponent) get("pyReturn");
+    out.append("Return: ").append(ret.isVisible() ? "shown" : "hidden").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    JTextField extra = (JTextField) get("pyExtra");
+    edt(() -> extra.setText(extra.getText() + " --output_dir original --addtodb"));
+    edt(() -> log.setText(""));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    for (String line : textOf(log).split("\n")) {
+      if (line.matches("(Read|Method|Wrote|Succeeded|Failed|Output folder|Add to DB|Prompt library|\\$ ).*"))
+        out.append("log: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--key_file \\S+", "--key_file <key>")).append('\n');
+    }
+    String[] names = media.list();
+    java.util.Arrays.sort(names);
+    out.append("picture's folder: ").append(String.join(", ", names)).append('\n');
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) out.append("DB reference file: ").append(f.name).append(" (").append(f.promptTitle).append(")\n");
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("after Return: ").append(d.getTitle()).append(", lists a-upscaled.png ").append(component(d, "media-card:a-upscaled.png") != null).append('\n');
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) ret).doClick());
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen).append("Return now: ").append(ret.isVisible() ? "shown" : "hidden").append('\n');
+    // MediaBrowser.java: Run with no folder opens the folder the Media browser opened last.
+    call("selectListedProgram", "Java", "MediaBrowser.java");
+    idle();
+    edt(() -> extra.setText(""));
+    edt(() -> log.setText(""));
+    final StringBuilder opened = new StringBuilder();
+    inspectNext = d -> opened.append("MediaBrowser Run: ").append(d.getTitle().replace(home.getAbsolutePath(), "~")).append('\n');
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 100 && opened.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(opened);
+    ApiKeys.clear();
+  }
+
+  /** The Media browser's video player: Stop, Play and Pause shown, Mute and volume on a click of the picture, C (paused) saves the frame in SC. */
+  void s78_video_capture() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    // Answered (Fit) so the test's watcher leaves the player open.
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    idle();
+    JDialog dialog = (JDialog) get("lastVideo");
+    VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    java.util.function.Function<String, java.awt.Component> c = n -> component(dialog, n);
+    out.append("buttons: ").append(c.apply("video-stop") != null).append(' ').append(c.apply("video-play") != null).append(' ').append(c.apply("video-pause") != null)
+        .append(", sound row ").append(c.apply("video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> {
+      java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 10, 10, 1, false);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseClicked(click);
+    });
+    out.append("clicked the picture: sound row ").append(c.apply("video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-play")).doClick());
+    Thread.sleep(1000);
+    out.append("playing: C ").append(c.apply("video-capture").isVisible() ? "shown" : "hidden");
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-pause")).doClick());
+    Thread.sleep(600);
+    out.append(", paused: C ").append(c.apply("video-capture").isVisible() ? "shown" : "hidden").append('\n');
+    edt(() -> ((javax.swing.AbstractButton) c.apply("video-capture")).doClick());
+    File sc = new File(clips, MediaDir.FRAMES_DIR);
+    String[] got = sc.list();
+    out.append("SC folder: ").append(got == null ? "none" : got.length + " file(s), " + (got.length > 0 && got[0].matches("clip-0m0\\ds\\d{3}\\.png") ? "named clip-<time>.png" : String.join(",", got))).append('\n');
+    if (got != null && got.length > 0) {
+      java.awt.image.BufferedImage frame = javax.imageio.ImageIO.read(new File(sc, got[0]));
+      out.append("frame: ").append(frame == null ? "unreadable" : frame.getWidth() + " x " + frame.getHeight()).append('\n');
+    }
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+  }
+
+  /**
+   * Prompts: main categories as tabs in one row, "Add subcategory to <main>" puts it under that
+   * main category. Media browser: a folder opens where it was last scrolled to. Full size: a picture
+   * opens at the zoom the last one had.
+   */
+  void s79_categories_media_focus() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptVault vault = PromptDb.vault();
+    vault.addCategory("Alpha");
+    vault.addCategory("Beta");
+    call("showView", "prompts");
+    idle();
+    java.util.function.Consumer<String> addSub = name -> {
+      inspectNext = d -> {
+        JTextField field = textFieldIn(d.getContentPane());
+        if (field != null) field.setText(name);
+      };
+      answers.add("OK");
+      SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).doClick());
+      try {
+        Thread.sleep(800);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    edt(() -> ((javax.swing.AbstractButton) component(frame, "category:Alpha")).doClick());
+    out.append("tabs: ").append(component(frame, "category-tabs") != null).append(", button: ").append(((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).getText()).append('\n');
+    addSub.accept("A1");
+    edt(() -> ((javax.swing.AbstractButton) component(frame, "category:Beta")).doClick());
+    out.append("Beta chosen: ").append(((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).getText()).append('\n');
+    addSub.accept("B1");
+    for (PromptVault.Category c : vault.categories()) {
+      if (c.parentId != 0) out.append("subcategory ").append(c.name).append(" under ").append(vault.category(c.parentId).name).append('\n');
+    }
+    out.append("shown: ").append(((JLabel) component(frame, "subcategories-of")).getText()).append(", B1 ").append(component(frame, "category:B1") != null)
+        .append(", A1 ").append(component(frame, "category:A1") != null).append('\n');
+    // Media browser: scrolled down, closed, opened again where it was.
+    File big = new File(home, "big-folder");
+    big.mkdirs();
+    for (int k = 0; k < 120; k++) javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(big, String.format("p%03d.png", k)));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final int[] at = new int[2];
+    inspectNext = d -> {
+      javax.swing.JScrollPane sp = scrollIn(d.getContentPane());
+      sp.getVerticalScrollBar().setValue(900);
+      at[0] = sp.getVerticalScrollBar().getValue();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> mb.open(big));
+    for (int i = 0; i < 50 && at[0] == 0; i++) Thread.sleep(100);
+    Thread.sleep(400);
+    idle();
+    inspectNext = d -> {
+      try {
+        Thread.sleep(300);
+      } catch (InterruptedException ignored) {}
+    };
+    final javax.swing.JDialog[] second = new javax.swing.JDialog[1];
+    inspectNext = d -> second[0] = d;
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> mb.open(big));
+    for (int i = 0; i < 50 && second[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append("scrolled to ").append(at[0] > 0 ? "a place" : "the top").append(", opened again ").append(MediaDir.place(big.getAbsolutePath()) == at[0] ? "at that place" : "elsewhere (" + MediaDir.place(big.getAbsolutePath()) + ")").append('\n');
+    // Full size: 156% kept for the next picture.
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptDb db = (PromptDb) get("promptDb");
+    inspectNext = d -> {
+      javax.swing.AbstractButton plus = find(d.getContentPane(), "+");
+      plus.doClick();
+      plus.doClick();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("one.png", png.toByteArray()));
+    Thread.sleep(800);
+    idle();
+    final String[] shown = new String[1];
+    inspectNext = d -> shown[0] = texts(d.getContentPane()).toString();
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("two.png", png.toByteArray()));
+    Thread.sleep(800);
+    idle();
+    out.append("next picture opens at ").append(shown[0] != null && shown[0].contains("156%") ? "156%" : shown[0]).append('\n');
+  }
+
+  /**
+   * Browse prompts (Params' Prompt): category tabs, a subcategory, a prompt fills the field.
+   * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
+   * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
+   */
+  void s80_browse_import_saverun() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptVault vault = PromptDb.vault();
+    long image = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name.equals("Image")) image = c.id;
+    long faces = vault.addSubcategory(image, "Faces");
+    long smile = vault.addPrompt(faces, "Smile");
+    vault.addVersion(smile, "Smile", "", "A smiling face, soft light", "", "", null, "", null, "", null, "ai", "");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniTextVideo.java");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> seen.append("Params: Browse prompts ").append(component(d, "params-prompt-browse:--prompt") != null ? "shown" : "missing").append('\n');
+    answers.add("Cancel");
+    call("openParams");
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    // The browser itself, as Browse prompts opens it.
+    final String[] got = new String[1];
+    inspectNext = b -> {
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-tab:Image")).doClick();
+      seen.append("Image tab: ").append(component(b, "prompt-browser-sub:Faces") != null ? "subcategory Faces" : "no Faces").append('\n');
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-sub:Faces")).doClick();
+      ((javax.swing.AbstractButton) component(b, "prompt-browser-item:Smile")).doClick();
+    };
+    answers.add("Cancel");
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> got[0] = title + ": " + text));
+    for (int i = 0; i < 50 && got[0] == null; i++) Thread.sleep(100);
+    idle();
+    seen.append("picked: ").append(got[0]).append('\n');
+    out.append(seen);
+    // Import: the files a sheet names are found beside it.
+    File dir = new File(home, "to-import");
+    dir.mkdirs();
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    Files.write(new File(dir, "face.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "out.png").toPath(), png.toByteArray());
+    Files.write(new File(dir, "Portrait.prompt").toPath(), PromptRun.encode("Portrait", "", "", "face.png", "", "Image", "v2 \u00b7 FINAL", "Sogni Krea", "out.png", "ai", "Draw a portrait").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Portrait 2.prompt").toPath(), PromptRun.encode("Portrait 2", "", "", "face.png", "", "Image", "", "", "", "ai", "Another portrait").getBytes(StandardCharsets.UTF_8));
+    call("showView", "prompts");
+    idle();
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    for (String n : new String[] {"Portrait.prompt", "Portrait.prompt", "Portrait 2.prompt"}) {
+      page.importNext = new File[] {new File(dir, n)};
+      answers.add("OK");
+      edt(() -> ((javax.swing.AbstractButton) component(frame, "prompts-import")).doClick());
+      Thread.sleep(300);
+      idle();
+      out.append("import ").append(n).append(": ").append(page.lastImport).append('\n');
+    }
+    // Save this run into DB: a real ImageUpscaler run.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "ImageUpscaler.java");
+    idle();
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + new File(dir, "face.png").getAbsolutePath() + "\" --scale 3 " + PromptKeep.SAVE_RUN));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    for (String line : textOf(log).split("\n")) {
+      if (line.matches("(\\$ |Succeeded|Failed|Prompt library|Unknown).*")) out.append("log: ").append(line.replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    }
+    for (PromptVault.Category c : vault.categories()) {
+      if (!c.name.equals("Programs")) continue;
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("DB: Programs / ").append(p.title).append(": text \"").append(v.body).append("\", reference ").append(v.ref1Name)
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3) > 0 ? "stored" : "none").append(")\n");
+      }
+    }
+  }
+
+  private static JTextField textFieldIn(java.awt.Component c) {
+    if (c instanceof JTextField) return (JTextField) c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      JTextField f = textFieldIn(k);
+      if (f != null) return f;
+    }
+    return null;
+  }
+
+  private static javax.swing.JScrollPane scrollIn(java.awt.Component c) {
+    if (c instanceof javax.swing.JScrollPane) return (javax.swing.JScrollPane) c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      javax.swing.JScrollPane f = scrollIn(k);
+      if (f != null) return f;
+    }
+    return null;
   }
 
   private static java.awt.Component component(java.awt.Component c, String name) {

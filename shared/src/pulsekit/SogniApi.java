@@ -291,6 +291,116 @@ public final class SogniApi {
     return toJson(input);
   }
 
+  /**
+   * A promptless picture upscale (upscale_image: NVIDIA RTX VSR) of the first uploaded picture:
+   * `scale` 2, 3 or 4, or `targetLongestEdge` pixels (512-15360) when it is more than 0. Sogni keeps
+   * the shape, aligns both edges to 8 px and returns a JPG above 7680 px.
+   */
+  public static String upscaleInput(String title, int scale, int targetLongestEdge) {
+    Map<String, Object> args = new LinkedHashMap<String, Object>();
+    args.put("sourceImageIndex", Integer.valueOf(-1));
+    if (targetLongestEdge > 0) args.put("targetLongestEdge", Integer.valueOf(targetLongestEdge));
+    else args.put("scale", Integer.valueOf(scale < 2 ? 2 : scale > 4 ? 4 : scale));
+    Map<String, Object> step = new LinkedHashMap<String, Object>();
+    step.put("id", "upscale");
+    step.put("toolName", "upscale_image");
+    step.put("arguments", args);
+    List<Object> deps = new ArrayList<Object>();
+    Map<String, Object> d = new LinkedHashMap<String, Object>();
+    d.put("sourceStepId", "$input_media");
+    d.put("targetArgument", "sourceImageIndex");
+    d.put("transform", "image_index");
+    d.put("sourceArtifactIndex", Integer.valueOf(0));
+    d.put("mediaType", "image");
+    d.put("required", Boolean.TRUE);
+    deps.add(d);
+    step.put("dependsOn", deps);
+    List<Object> steps = new ArrayList<Object>();
+    steps.add(step);
+    Map<String, Object> input = new LinkedHashMap<String, Object>();
+    if (title != null && title.length() > 0) input.put("title", title);
+    input.put("steps", steps);
+    return toJson(input);
+  }
+
+  private static final java.util.regex.Pattern PROJECT_URL = java.util.regex.Pattern.compile(
+    "/projects?/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})");
+
+  /**
+   * The Sogni projects (renders) a workflow record names: projectId / project_id / projectIds
+   * values anywhere in it, and project ids in its result links (.../projects/<id>/...). The ones
+   * Sogni's app deletes with DELETE /v1/projects/<id>. In the order found, each once.
+   */
+  public static List<String> projectIds(Object record) {
+    List<String> out = new ArrayList<String>();
+    collectProjects(record, null, out);
+    return out;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void collectProjects(Object v, String key, List<String> out) {
+    String k = key == null ? "" : key.toLowerCase(java.util.Locale.ROOT).replace("_", "");
+    boolean named = k.equals("projectid") || k.equals("projectids") || k.equals("sogniprojectid");
+    if (v instanceof Map) {
+      for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) collectProjects(e.getValue(), e.getKey(), out);
+    } else if (v instanceof List) {
+      for (Object o : (List<Object>) v) collectProjects(o, named ? key : null, out);
+    } else if (v instanceof String) {
+      String t = ((String) v).trim();
+      if (named && t.matches("[A-Za-z0-9_-]{6,80}")) {
+        if (!out.contains(t)) out.add(t);
+      } else {
+        java.util.regex.Matcher m = PROJECT_URL.matcher(t);
+        while (m.find()) if (!out.contains(m.group(1))) out.add(m.group(1));
+      }
+    }
+  }
+
+  /** Deletes a Sogni project (a render and its files), as Sogni's app does: DELETE /v1/projects/<id>. */
+  public void deleteProject(String id) throws IOException {
+    HttpURLConnection c = this.open("DELETE", "/v1/projects/" + enc(id));
+    int code = c.getResponseCode();
+    if (code / 100 != 2) throw failure(c, code);
+    c.disconnect();
+  }
+
+  /**
+   * Delete from Sogni after download: each project the workflow record names deleted; a line for
+   * the log each. When it names none, `record` (when given) gets the record, so what Sogni sends
+   * can be read, and a note says nothing was deleted.
+   */
+  public List<String> deleteProjects(Map<String, Object> wf, File record) {
+    List<String> lines = new ArrayList<String>();
+    List<String> ids = projectIds(wf);
+    if (ids.isEmpty()) {
+      String saved = "";
+      if (record != null) {
+        try {
+          java.io.FileOutputStream fos = new java.io.FileOutputStream(record);
+          try {
+            fos.write(toJson(wf).getBytes(StandardCharsets.UTF_8));
+          } finally {
+            fos.close();
+          }
+          saved = "; Sogni's record of the run is saved as " + record.getName();
+        } catch (IOException ex) {
+          // the note says enough
+        }
+      }
+      lines.add("Note: Sogni's record of this run names no project, so nothing was deleted on Sogni" + saved);
+      return lines;
+    }
+    for (String id : ids) {
+      try {
+        this.deleteProject(id);
+        lines.add("Deleted from Sogni: project " + id);
+      } catch (IOException ex) {
+        lines.add("Note: could not delete Sogni project " + id + " (" + ex.getMessage() + ")");
+      }
+    }
+    return lines;
+  }
+
   /** The picture results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
   public static List<Map<String, Object>> imageArtifacts(Map<String, Object> record) {
     List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();

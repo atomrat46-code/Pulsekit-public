@@ -136,6 +136,59 @@ final class PromptsPage {
         this.col.repaint();
     }
 
+    /** The files Import picks next (the tests set it), else the file chooser asks. */
+    File[] importNext;
+    /** What the last Import said, for the tests. */
+    String lastImport;
+
+    /**
+     * Import: .prompt sheets picked (with their files, or the files they name found beside them)
+     * into the prompt library, the files they name linked when the library has them already.
+     */
+    void importPrompts() {
+        File[] picked = this.importNext;
+        this.importNext = null;
+        if (picked == null) {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setMultiSelectionEnabled(true);
+            chooser.setDialogTitle("Import prompt sheets (and their files)");
+            if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+            picked = chooser.getSelectedFiles();
+            if (picked == null || picked.length == 0) return;
+        }
+        java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+        StringBuilder skipped = new StringBuilder();
+        try {
+            for (File f : picked) {
+                if (f.length() > 16L * 1024 * 1024) {
+                    skipped.append(skipped.length() > 0 ? ", " : "").append(f.getName());
+                    continue;
+                }
+                files.put(f.getName(), Files.readAllBytes(f.toPath()));
+            }
+            // A file a sheet names that was not picked: the one beside the sheet.
+            for (File f : picked) {
+                byte[] b = files.get(f.getName());
+                if (!PromptImport.isSheet(f.getName(), b)) continue;
+                PromptRun.Sheet sheet = PromptRun.parse(new String(b, StandardCharsets.UTF_8));
+                if (sheet == null) continue;
+                for (String n : new String[] {sheet.ref1, sheet.ref2, sheet.result}) {
+                    if (n == null || n.trim().isEmpty() || files.containsKey(n.trim())) continue;
+                    File near = new File(f.getAbsoluteFile().getParentFile(), n.trim());
+                    if (near.isFile() && near.length() <= 16L * 1024 * 1024) files.put(n.trim(), Files.readAllBytes(near.toPath()));
+                }
+            }
+            String said = PromptImport.importAll(this.vault, files);
+            if (skipped.length() > 0) said = said + "\nOver 16 MB, not read: " + skipped;
+            this.lastImport = said;
+            app.setNow(said.split("\n")[0]);
+            JOptionPane.showMessageDialog(app, said, "Import", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            this.say(ex);
+        }
+        this.rebuild();
+    }
+
     // ------------------------------------------------------------ list
 
     void buildList() {
@@ -146,9 +199,15 @@ final class PromptsPage {
         JButton results = app.action("Result files", ELEV, FG);
         results.setName("prompts-result-files");
         results.addActionListener(e -> app.promptDb.gallery(true));
+        // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files.
+        JButton imp = app.action("Import", ELEV, FG);
+        imp.setName("prompts-import");
+        imp.addActionListener(e -> this.importPrompts());
         library.add(refs);
         library.add(Box.createHorizontalStrut(8));
         library.add(results);
+        library.add(Box.createHorizontalStrut(8));
+        library.add(imp);
         this.col.add(Box.createVerticalStrut(12));
         this.col.add(library);
         this.col.add(this.caption("CATEGORIES"));
@@ -166,7 +225,7 @@ final class PromptsPage {
                 this.say(ex);
             }
         });
-        JButton addSub = app.action("Add subcategory", ELEV, FG);
+        JButton addSub = app.action(this.subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + this.subcategoryParent(), ELEV, FG);
         addSub.setName("prompts-add-subcategory");
         addSub.addActionListener(e -> this.addSubcategory());
         catButtons.add(addCat);
@@ -224,12 +283,49 @@ final class PromptsPage {
             if (item != null) selected = item.categoryId;
         }
         long mainId = this.vault.mainOf(selected);
-        this.col.add(this.chipRow(this.vault.mains(), mainId));
+        // The main categories as tabs in one row (it scrolls); the chosen one's subcategories under it,
+        // named for it, so a subcategory is never taken for another category's.
+        this.col.add(this.oneRow(this.chipRow(this.vault.mains(), mainId), "category-tabs"));
+        PromptVault.Category main = this.vault.category(mainId);
         List<PromptVault.Category> subs = this.vault.children(mainId);
-        if (!subs.isEmpty()) {
+        if (main != null && !subs.isEmpty()) {
             this.col.add(Box.createVerticalStrut(6));
-            this.col.add(this.chipRow(subs, selected));
+            JLabel under = new JLabel("Subcategories of " + main.name);
+            under.setName("subcategories-of");
+            under.setForeground(MUTED);
+            under.setAlignmentX(0.0f);
+            this.col.add(under);
+            this.col.add(this.oneRow(this.chipRow(subs, selected), "subcategory-row"));
         }
+    }
+
+    /** A row of chips that stays one line and scrolls sideways (a wrapped row hid chips that did not fit its height). */
+    JComponent oneRow(JPanel row, String name) {
+        row.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        row.setMaximumSize(null);
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(row, javax.swing.JScrollPane.VERTICAL_SCROLLBAR_NEVER, javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scroll.setName(name);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getHorizontalScrollBar().setUnitIncrement(24);
+        scroll.setAlignmentX(0.0f);
+        int h = row.getPreferredSize().height + scroll.getHorizontalScrollBar().getPreferredSize().height + 2;
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+        scroll.setPreferredSize(new Dimension(200, h));
+        return scroll;
+    }
+
+    /** The main category a new subcategory goes under: the open prompt's, else the one chosen. */
+    String subcategoryParent() {
+        if (this.vault == null) return "";
+        long selected = this.categoryId;
+        if (this.promptId != 0) {
+            PromptVault.Prompt item = this.vault.prompt(this.promptId);
+            if (item != null) selected = item.categoryId;
+        }
+        PromptVault.Category main = this.vault.category(this.vault.mainOf(selected));
+        return main == null || main.name == null ? "" : main.name;
     }
 
     JPanel chipRow(List<PromptVault.Category> categories, long selectedId) {
@@ -334,7 +430,8 @@ final class PromptsPage {
     }
 
     void addSubcategory() {
-        String name = this.ask("Add subcategory", "");
+        String parent = this.subcategoryParent();
+        String name = this.ask(parent.length() == 0 ? "Add subcategory" : "Add subcategory to " + parent, "");
         if (name == null) return;
         try {
             long selected = this.categoryId;
@@ -389,7 +486,7 @@ final class PromptsPage {
         this.col.add(top);
         this.col.add(this.caption("CATEGORY"));
         this.categoryBlock(true);
-        JButton addSub = app.action("Add subcategory", ELEV, FG);
+        JButton addSub = app.action(this.subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + this.subcategoryParent(), ELEV, FG);
         addSub.setAlignmentX(0.0f);
         addSub.addActionListener(e -> this.addSubcategory());
         this.col.add(Box.createVerticalStrut(6));
@@ -457,6 +554,15 @@ final class PromptsPage {
         });
         fromFile.add(Box.createHorizontalStrut(8));
         fromFile.add(browse);
+        // Browse prompts: another prompt's text, by category.
+        JButton prompts = app.action("Browse prompts", ELEV, FG);
+        prompts.setName("prompt-body-browse");
+        prompts.addActionListener(e -> PromptBrowser.show(app, (title, text) -> {
+            this.promptBody.setText(text);
+            this.promptBody.setCaretPosition(0);
+        }));
+        fromFile.add(Box.createHorizontalStrut(8));
+        fromFile.add(prompts);
         this.col.add(Box.createVerticalStrut(4));
         this.col.add(fromFile);
         if (ours) {
