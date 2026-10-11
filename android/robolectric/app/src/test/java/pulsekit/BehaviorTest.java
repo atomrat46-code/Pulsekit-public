@@ -2860,6 +2860,102 @@ public class BehaviorTest {
    */
   @Test
   @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s94_categories_media_focus() throws Exception {
+    // Prompts: main categories as tabs, "Add subcategory to <main>" puts it under that main category.
+    // Media browser: a big folder is read off the main thread and opens on the page it was left on.
+    // Ref files: full size opens at the last picture zoom; Back returns to that thumbnail.
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long alpha = vault.addCategory("Alpha");
+    long beta = vault.addCategory("Beta");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.util.function.Consumer<String> addSub = (String name) -> {
+      pane.findViewWithTag("add-subcategory").performClick();
+      idle();
+      AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+      android.widget.EditText field = findEdit(ask.getWindow().getDecorView());
+      field.setText(name);
+      ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    };
+    findText(pane, "Alpha").performClick();
+    idle();
+    out.append("tabs: ").append(pane.findViewWithTag("category-tabs") != null).append(", button: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    addSub.accept("A1");
+    findText(pane, "Beta").performClick();
+    idle();
+    out.append("Beta chosen: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    addSub.accept("B1");
+    for (PromptVault.Category c : vault.categories()) {
+      if (c.parentId != 0) out.append("subcategory ").append(c.name).append(" under ").append(vault.category(c.parentId).name).append('\n');
+    }
+    out.append("shown: ").append(((TextView) pane.findViewWithTag("subcategories-of")).getText()).append(", B1 ").append(findText(pane, "B1") != null)
+        .append(", A1 ").append(findText(pane, "A1") != null).append('\n');
+    // Media browser: 120 pictures, three pages; page 3, closed, opened again on page 3.
+    File big = new File(app.getCacheDir(), "big-folder");
+    big.mkdirs();
+    for (int k = 0; k < 120; k++) Files.write(new File(big, String.format("p%03d.png", k)).toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    MediaBrowser b = MediaBrowser.open(app, big.getAbsolutePath());
+    out.append("while reading: ").append(b.dialog.getWindow().getDecorView().findViewWithTag("media-reading") != null ? "Reading the folder…" : "nothing");
+    idle();
+    out.append(", then ").append(b.entries.size()).append(" files, page ").append(b.page + 1).append('\n');
+    b.showPage(2);
+    b.dialog.dismiss();
+    MediaBrowser again = MediaBrowser.open(app, big.getAbsolutePath());
+    idle();
+    out.append("opened again: page ").append(again.page + 1).append(", ").append(((TextView) again.dialog.getWindow().getDecorView().findViewWithTag("media-page")).getText()).append('\n');
+    again.dialog.dismiss();
+    // Ref files: a picture opened in full size at 156%, Back, then another opens at 156% too; the one opened is outlined.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "one.png", png.toByteArray(), false);
+    DbImport.store(app, "two.png", png.toByteArray(), false);
+    PromptVault.StoredFile one = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (f.name.equals("one.png")) one = f;
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    java.lang.reflect.Method zoom = sheet.getDeclaredMethod("setZoom", android.app.Activity.class, float.class);
+    java.lang.reflect.Field level = sheet.getDeclaredField("previewZoom");
+    java.lang.reflect.Field refsOpen = sheet.getDeclaredField("refsOpen");
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {open, zoom, level, refsOpen, focusId, focusWhich, back}) o.setAccessible(true);
+    refsOpen.set(null, true);
+    focusId.set(null, one.versionId);
+    focusWhich.set(null, one.which);
+    open.invoke(null, app, "one.png", vault.fileBytes(one.versionId, one.which), 3);
+    zoom.invoke(null, app, 1.5625f);
+    back.set(null, 0);
+    open.invoke(null, app, "two.png", png.toByteArray(), 3);
+    out.append("next picture opens at ").append(Math.round((Float) level.get(null) * 100)).append("%");
+    back.set(null, 0);
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    rebuild.setAccessible(true);
+    rebuild.invoke(null, app);
+    idle();
+    View focus = pane.findViewWithTag("refs-focus");
+    out.append(", back in Ref files: outlined ").append(focus != null ? findText(focus, "one.png") != null ? "one.png" : "another" : "none").append('\n');
+    write("s94_categories_media_focus", out.toString());
+  }
+
+  private static android.widget.EditText findEdit(View v) {
+    if (v instanceof android.widget.EditText) return (android.widget.EditText) v;
+    if (v instanceof android.view.ViewGroup) {
+      android.view.ViewGroup g = (android.view.ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) {
+        android.widget.EditText e = findEdit(g.getChildAt(i));
+        if (e != null) return e;
+      }
+    }
+    return null;
+  }
+
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
   public void s93_upscaler_extras() throws Exception {
     // ImageUpscaler from the Media browser: the key file from Drum Midi Settings, a copy in the picture's
     // folder (--output_dir original), the picture in DB (--addtodb), and Return back to the Media browser.

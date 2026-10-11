@@ -313,6 +313,13 @@ final class MediaBrowser {
         JScrollPane scroll = new JScrollPane(wrap);
         scroll.setPreferredSize(new Dimension(4 * (CELL + 28) + 24, 520));
         scroll.getVerticalScrollBar().setUnitIncrement(24);
+        // Where this folder was last scrolled to comes back; moving remembers it (kept on the next save).
+        final String placeOf = dir.getAbsolutePath();
+        final int was = MediaDir.place(placeOf);
+        if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
+        scroll.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (!e.getValueIsAdjusting() || e.getValue() > 0) MediaDir.place(placeOf, e.getValue());
+        });
         body.add(scroll, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         // Without VLC, the browser reads the videos' first frames (one tab for them all).
@@ -332,6 +339,7 @@ final class MediaBrowser {
             @Override
             public void windowClosed(java.awt.event.WindowEvent e) {
                 gone.set(true);
+                saveLoop();
             }
         });
         dialog.setContentPane(body);

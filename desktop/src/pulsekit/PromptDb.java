@@ -1385,7 +1385,9 @@ final class PromptDb {
 
     private void zoomPreview(String name, byte[] bytes, int kind) {
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
-        final float[] zoom = new float[] {1f};
+        // A picture opens at the zoom the last one had.
+        if (kind == 2) loadPromptVideo();
+        final float[] zoom = new float[] {kind == 2 ? (float) PromptVideo.imageZoom : 1f};
         final javax.swing.JComponent view;
         final Runnable apply;
         if (kind == 1) {
@@ -1426,7 +1428,8 @@ final class PromptDb {
             };
         }
         apply.run();
-        JLabel percent = new JLabel("100%");
+        JLabel percent = new JLabel(Math.round(zoom[0] * 100) + "%");
+        if (zoom[0] != 1f) apply.run();
         JButton out = new JButton("\u2212");
         JButton in = new JButton("+");
         JButton reset = new JButton("100%");
@@ -1435,6 +1438,10 @@ final class PromptDb {
             percent.setText(Math.round(zoom[0] * 100) + "%");
             apply.run();
             view.revalidate();
+            if (kind == 2) {
+                PromptVideo.imageZoom = zoom[0];
+                savePromptVideo();
+            }
         };
         out.addActionListener(e -> set.accept(zoom[0] / 1.25f));
         in.addActionListener(e -> set.accept(zoom[0] * 1.25f));

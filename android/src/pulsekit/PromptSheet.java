@@ -294,7 +294,20 @@ public final class PromptSheet {
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(col);
     host.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    final View focus = focusCard;
+    focusCard = null;
+    if (focus != null) {
+      scroll.post(() -> {
+        View row = (View) focus.getParent();
+        scroll.scrollTo(0, Math.max(0, (row == null ? 0 : row.getTop()) + focus.getTop() - dp(activity, 12)));
+      });
+    }
   }
+
+  /** The Ref files / Result files thumbnail opened in full size last: Back returns to it. */
+  private static long focusId;
+  private static int focusWhich;
+  private static View focusCard;
 
   private static void buildList(Activity activity, LinearLayout col) {
     releasePreview();
@@ -322,7 +335,8 @@ public final class PromptSheet {
       }
     }));
     col.addView(addCat, buttonLp(activity));
-    TextView addSub = button(activity, "Add subcategory", "#1B1D1F", "#ECEBE6");
+    TextView addSub = button(activity, subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + subcategoryParent(), "#1B1D1F", "#ECEBE6");
+    addSub.setTag("add-subcategory");
     addSub.setOnClickListener(v -> addSubcategory(activity));
     col.addView(addSub, buttonLp(activity));
     col.addView(caption(activity, "PROMPTS"));
@@ -476,6 +490,16 @@ public final class PromptSheet {
       LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(cell, LinearLayout.LayoutParams.WRAP_CONTENT);
       if (i % 2 == 1) cardLp.leftMargin = gap;
       row.addView(card, cardLp);
+      if (versionId == focusId && which == focusWhich) {
+        // The thumbnail opened in full size last: outlined, and scrolled to (rebuild).
+        android.graphics.drawable.GradientDrawable lit = new android.graphics.drawable.GradientDrawable();
+        lit.setCornerRadius(dp(activity, 8));
+        lit.setColor(Color.parseColor("#131416"));
+        lit.setStroke(dp(activity, 2), Color.parseColor("#ECEBE6"));
+        card.setBackground(lit);
+        card.setTag("refs-focus");
+        focusCard = card;
+      }
       views[i] = thumb;
       marks[i] = mark;
       ids[i] = versionId;
@@ -596,7 +620,8 @@ public final class PromptSheet {
     col.addView(top, topLp);
     col.addView(caption(activity, "CATEGORY"));
     col.addView(categoryBlock(activity, true));
-    TextView addSub = button(activity, "Add subcategory", "#1B1D1F", "#ECEBE6");
+    TextView addSub = button(activity, subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + subcategoryParent(), "#1B1D1F", "#ECEBE6");
+    addSub.setTag("add-subcategory");
     addSub.setOnClickListener(v -> addSubcategory(activity));
     col.addView(addSub, buttonLp(activity));
     PromptVault.Version typed = vault.version(loadedVersionId);
@@ -1002,10 +1027,46 @@ public final class PromptSheet {
       if (item != null) selected = item.categoryId;
     }
     long mainId = vault.mainOf(selected);
-    box.addView(chipRow(activity, vault.mains(), mainId, true));
+    // The main categories as tabs in one row (it scrolls); the chosen one's subcategories under it,
+    // named for it, so a subcategory is never taken for another category's.
+    android.widget.HorizontalScrollView tabs = new android.widget.HorizontalScrollView(activity);
+    tabs.setHorizontalScrollBarEnabled(false);
+    LinearLayout tabRow = new LinearLayout(activity);
+    tabRow.setOrientation(LinearLayout.HORIZONTAL);
+    FlowLayout mains = chipRow(activity, vault.mains(), mainId, true);
+    while (mains.getChildCount() > 0) {
+      View chip = mains.getChildAt(0);
+      mains.removeViewAt(0);
+      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 36));
+      lp.rightMargin = dp(activity, 8);
+      tabRow.addView(chip, lp);
+    }
+    tabs.addView(tabRow);
+    tabs.setTag("category-tabs");
+    LinearLayout.LayoutParams tabsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+    tabsLp.bottomMargin = dp(activity, 8);
+    box.addView(tabs, tabsLp);
+    PromptVault.Category main = vault.category(mainId);
     List<PromptVault.Category> subs = vault.children(mainId);
-    if (!subs.isEmpty()) box.addView(chipRow(activity, subs, selected, false));
+    if (main != null && !subs.isEmpty()) {
+      TextView under = label(activity, "Subcategories of " + main.name, 12, "#8A8B86", false);
+      under.setTag("subcategories-of");
+      box.addView(under);
+      box.addView(chipRow(activity, subs, selected, false));
+    }
     return box;
+  }
+
+  /** The main category a new subcategory goes under: the open prompt's, else the one chosen. */
+  private static String subcategoryParent() {
+    if (vault == null) return "";
+    long selected = categoryId;
+    if (promptId != 0) {
+      PromptVault.Prompt item = vault.prompt(promptId);
+      if (item != null) selected = item.categoryId;
+    }
+    PromptVault.Category main = vault.category(vault.mainOf(selected));
+    return main == null || main.name == null ? "" : main.name;
   }
 
   private static FlowLayout chipRow(Activity activity, List<PromptVault.Category> categories, long selectedId, boolean mainRow) {
@@ -1192,7 +1253,12 @@ public final class PromptSheet {
     java.util.List<Runnable> runs = new java.util.ArrayList<Runnable>();
     if (fullSize) {
       items.add("Open in full size");
-      runs.add(() -> openPreview(activity, name, vault.fileBytes(versionId, which), 3));
+      runs.add(() -> {
+        // Back comes to this thumbnail again (scrolled to and outlined).
+        focusId = versionId;
+        focusWhich = which;
+        openPreview(activity, name, vault.fileBytes(versionId, which), 3);
+      });
     }
     if (extract) {
       items.add("Extract prompt");
@@ -1281,7 +1347,8 @@ public final class PromptSheet {
   }
 
   private static void addSubcategory(Activity activity) {
-    ask(activity, "Add subcategory", "Name", name -> {
+    String parent = subcategoryParent();
+    ask(activity, parent.length() == 0 ? "Add subcategory" : "Add subcategory to " + parent, "Name", name -> {
       try {
         long selected = categoryId;
         if (promptId != 0) {
@@ -1463,6 +1530,11 @@ public final class PromptSheet {
       previewZoom = (float) PromptVideo.zoom;
       previewVideoVol = PromptVideo.volume;
     }
+    // A picture opens at the zoom the last one had.
+    if (previewKind(previewName, bytes) == 2) {
+      loadVideoPrefs(activity);
+      previewZoom = (float) Math.max(0.5, PromptVideo.imageZoom);
+    }
     previewBack = back;
     rebuild(activity);
   }
@@ -1548,6 +1620,9 @@ public final class PromptSheet {
     previewZoom = next;
     if (previewVideo != null) {
       PromptVideo.zoom = next;
+      saveVideoPrefs(activity);
+    } else if (previewBox != null) {
+      PromptVideo.imageZoom = next;
       saveVideoPrefs(activity);
     }
     if (zoomLabel != null) zoomLabel.setText(zoomPercent());

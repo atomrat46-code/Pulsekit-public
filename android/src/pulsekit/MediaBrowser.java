@@ -737,12 +737,37 @@ final class MediaBrowser {
             MediaDir.remember(this.root, this.path.subList(1, this.path.size()));
             save(this.app);
         }
-        List<MediaDir.Entry> got = this.list(at);
-        this.entries = got == null ? new ArrayList<MediaDir.Entry>() : got;
-        this.page = 0;
-        if (got == null) this.app.setNow("Could not read " + this.label() + ": pick it again with Browse");
+        // Read off the main thread: a folder of thousands of files took long enough for the phone to
+        // stop the app ("not responding"). The page it was last on comes back.
+        final int mine = ++this.listing;
+        this.entries = new ArrayList<MediaDir.Entry>();
+        this.loading = true;
         this.paint();
+        PyJav.KEEPING.incrementAndGet();
+        new Thread(() -> {
+            List<MediaDir.Entry> read;
+            try {
+                read = this.list(at);
+            } catch (Throwable ex) {
+                read = null;
+            }
+            final List<MediaDir.Entry> got = read;
+            this.main.post(() -> {
+                PyJav.KEEPING.decrementAndGet();
+                if (mine != this.listing) return;
+                this.loading = false;
+                this.entries = got == null ? new ArrayList<MediaDir.Entry>() : got;
+                int pages = Math.max(1, (this.entries.size() + PAGE - 1) / PAGE);
+                this.page = Math.max(0, Math.min(pages - 1, MediaDir.place(this.folderKey())));
+                if (got == null) this.app.setNow("Could not read " + this.label() + ": pick it again with Browse");
+                this.paint();
+            });
+        }, "pulsekit-media-list").start();
     }
+
+    /** True while the folder is being read ("Reading the folder…"); bumped for each folder read, so an older read is dropped. */
+    boolean loading;
+    private int listing;
 
     void openFolder(MediaDir.Entry e) {
         this.path.add(e.id);
@@ -758,6 +783,9 @@ final class MediaBrowser {
     void showPage(int p) {
         int pages = Math.max(1, (this.entries.size() + PAGE - 1) / PAGE);
         this.page = Math.max(0, Math.min(pages - 1, p));
+        // Remembered: this folder's page, for the next time it opens.
+        MediaDir.place(this.folderKey(), this.page);
+        save(this.app);
         this.paint();
     }
 
@@ -809,6 +837,12 @@ final class MediaBrowser {
             tools.addView(fav);
         }
         if (tools.getChildCount() > 0) this.body.addView(tools);
+        if (this.loading) {
+            TextView reading = this.app.text("Reading the folder\u2026", 14, false);
+            reading.setTag("media-reading");
+            this.body.addView(reading);
+            return;
+        }
         if (this.entries.isEmpty()) {
             this.body.addView(this.app.text("No pictures, videos or sounds here", 14, false));
             return;
@@ -1040,7 +1074,16 @@ final class MediaBrowser {
                 try {
                     if (this.onDisk(e)) media.setDataSource(e.id);
                     else media.setDataSource(this.app, u);
-                    Bitmap frame = media.getFrameAtTime(0);
+                    // A small frame straight away (a 4K video's full frame took 33 MB per card).
+                    Bitmap frame = null;
+                    if (android.os.Build.VERSION.SDK_INT >= 27) {
+                        try {
+                            frame = media.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, px, px);
+                        } catch (Throwable ignored) {
+                            // the full frame below
+                        }
+                    }
+                    if (frame == null) frame = media.getFrameAtTime(0);
                     if (frame == null) frame = media.getFrameAtTime();
                     return frame == null ? null : scaleDown(frame, px);
                 } finally {

@@ -12,11 +12,13 @@ public final class PromptVideo {
   public static volatile int volume = 80;
   /** The zoom the player last had (the phone's preview 0.5..4, the desktop's 1..4). */
   public static volatile double zoom = 1;
+  /** The zoom a picture opened in full size last had (Ref files / Result files), 0.25..4. */
+  public static volatile double imageZoom = 1;
 
   private PromptVideo() {}
 
   public static String encode() {
-    return "loop=" + (loop ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\n";
+    return "loop=" + (loop ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nimage_zoom=" + imageZoom + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 80%, 100%). */
@@ -24,6 +26,7 @@ public final class PromptVideo {
     loop = false;
     volume = 80;
     zoom = 1;
+    imageZoom = 1;
     if (text == null) return;
     for (String line : text.split("\n")) {
       int eq = line.indexOf('=');
@@ -34,6 +37,7 @@ public final class PromptVideo {
         if (k.equals("loop")) loop = v.equals("1");
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = Math.max(0.5, Math.min(4, Double.parseDouble(v)));
+        else if (k.equals("image_zoom")) imageZoom = Math.max(0.25, Math.min(4, Double.parseDouble(v)));
       } catch (NumberFormatException ignored) {
         // that one keeps its default
       }

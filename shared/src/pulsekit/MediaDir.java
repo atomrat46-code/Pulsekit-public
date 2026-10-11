@@ -132,6 +132,29 @@ public final class MediaDir {
    */
   public static volatile List<String> favourites = new ArrayList<String>();
 
+  /**
+   * The Media browser's place in each folder, so it opens there again: the page on the phone, the
+   * scroll position on the desktop. Kept by a hash of the folder (no folder names in the settings),
+   * the 60 folders seen last.
+   */
+  private static final java.util.LinkedHashMap<String, Integer> PLACES = new java.util.LinkedHashMap<String, Integer>(16, 0.75f, true);
+
+  public static synchronized int place(String folder) {
+    Integer at = PLACES.get(placeKey(folder));
+    return at == null ? 0 : at.intValue();
+  }
+
+  public static synchronized void place(String folder, int at) {
+    String k = placeKey(folder);
+    if (at <= 0) PLACES.remove(k);
+    else PLACES.put(k, Integer.valueOf(at));
+    while (PLACES.size() > 60) PLACES.remove(PLACES.keySet().iterator().next());
+  }
+
+  private static String placeKey(String folder) {
+    return Integer.toHexString((folder == null ? "" : folder).hashCode());
+  }
+
   /** Adds the folder (`root`, then the folders opened under it); false when it is a favourite already. */
   public static synchronized boolean addFavourite(String root, List<String> under) {
     StringBuilder sb = new StringBuilder(root == null ? "" : root.replace('\t', ' ').replace('\n', ' '));
@@ -236,8 +259,12 @@ public final class MediaDir {
         // without a key, favourites are not kept
       }
     }
+    StringBuilder places = new StringBuilder();
+    synchronized (MediaDir.class) {
+      for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
+    }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + "\n";
+        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + places + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -250,6 +277,9 @@ public final class MediaDir {
     lastPath = new ArrayList<String>();
     List<String> favs = new ArrayList<String>();
     favourites = favs;
+    synchronized (MediaDir.class) {
+      PLACES.clear();
+    }
     if (text == null) return;
     for (String line : text.split("\n")) {
       int eq = line.indexOf('=');
@@ -261,6 +291,14 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("at")) {
+          int colon = v.lastIndexOf(':');
+          if (colon > 0) {
+            synchronized (MediaDir.class) {
+              PLACES.put(v.substring(0, colon), Integer.valueOf(Integer.parseInt(v.substring(colon + 1).trim())));
+            }
+          }
+        }
         else if (k.equals("fav")) {
           try {
             favs.add(Sealed.openText(v));

@@ -3641,6 +3641,112 @@ public final class DesktopBehavior {
     edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
   }
 
+  /**
+   * Prompts: main categories as tabs in one row, "Add subcategory to <main>" puts it under that
+   * main category. Media browser: a folder opens where it was last scrolled to. Full size: a picture
+   * opens at the zoom the last one had.
+   */
+  void s79_categories_media_focus() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptVault vault = PromptDb.vault();
+    vault.addCategory("Alpha");
+    vault.addCategory("Beta");
+    call("showView", "prompts");
+    idle();
+    java.util.function.Consumer<String> addSub = name -> {
+      inspectNext = d -> {
+        JTextField field = textFieldIn(d.getContentPane());
+        if (field != null) field.setText(name);
+      };
+      answers.add("OK");
+      SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).doClick());
+      try {
+        Thread.sleep(800);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    edt(() -> ((javax.swing.AbstractButton) component(frame, "category:Alpha")).doClick());
+    out.append("tabs: ").append(component(frame, "category-tabs") != null).append(", button: ").append(((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).getText()).append('\n');
+    addSub.accept("A1");
+    edt(() -> ((javax.swing.AbstractButton) component(frame, "category:Beta")).doClick());
+    out.append("Beta chosen: ").append(((javax.swing.AbstractButton) component(frame, "prompts-add-subcategory")).getText()).append('\n');
+    addSub.accept("B1");
+    for (PromptVault.Category c : vault.categories()) {
+      if (c.parentId != 0) out.append("subcategory ").append(c.name).append(" under ").append(vault.category(c.parentId).name).append('\n');
+    }
+    out.append("shown: ").append(((JLabel) component(frame, "subcategories-of")).getText()).append(", B1 ").append(component(frame, "category:B1") != null)
+        .append(", A1 ").append(component(frame, "category:A1") != null).append('\n');
+    // Media browser: scrolled down, closed, opened again where it was.
+    File big = new File(home, "big-folder");
+    big.mkdirs();
+    for (int k = 0; k < 120; k++) javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(big, String.format("p%03d.png", k)));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final int[] at = new int[2];
+    inspectNext = d -> {
+      javax.swing.JScrollPane sp = scrollIn(d.getContentPane());
+      sp.getVerticalScrollBar().setValue(900);
+      at[0] = sp.getVerticalScrollBar().getValue();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> mb.open(big));
+    for (int i = 0; i < 50 && at[0] == 0; i++) Thread.sleep(100);
+    Thread.sleep(400);
+    idle();
+    inspectNext = d -> {
+      try {
+        Thread.sleep(300);
+      } catch (InterruptedException ignored) {}
+    };
+    final javax.swing.JDialog[] second = new javax.swing.JDialog[1];
+    inspectNext = d -> second[0] = d;
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> mb.open(big));
+    for (int i = 0; i < 50 && second[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append("scrolled to ").append(at[0] > 0 ? "a place" : "the top").append(", opened again ").append(MediaDir.place(big.getAbsolutePath()) == at[0] ? "at that place" : "elsewhere (" + MediaDir.place(big.getAbsolutePath()) + ")").append('\n');
+    // Full size: 156% kept for the next picture.
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptDb db = (PromptDb) get("promptDb");
+    inspectNext = d -> {
+      javax.swing.AbstractButton plus = find(d.getContentPane(), "+");
+      plus.doClick();
+      plus.doClick();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("one.png", png.toByteArray()));
+    Thread.sleep(800);
+    idle();
+    final String[] shown = new String[1];
+    inspectNext = d -> shown[0] = texts(d.getContentPane()).toString();
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> db.preview("two.png", png.toByteArray()));
+    Thread.sleep(800);
+    idle();
+    out.append("next picture opens at ").append(shown[0] != null && shown[0].contains("156%") ? "156%" : shown[0]).append('\n');
+  }
+
+  private static JTextField textFieldIn(java.awt.Component c) {
+    if (c instanceof JTextField) return (JTextField) c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      JTextField f = textFieldIn(k);
+      if (f != null) return f;
+    }
+    return null;
+  }
+
+  private static javax.swing.JScrollPane scrollIn(java.awt.Component c) {
+    if (c instanceof javax.swing.JScrollPane) return (javax.swing.JScrollPane) c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      javax.swing.JScrollPane f = scrollIn(k);
+      if (f != null) return f;
+    }
+    return null;
+  }
+
   private static java.awt.Component component(java.awt.Component c, String name) {
     if (name.equals(c.getName())) return c;
     if (c instanceof java.awt.Container) {

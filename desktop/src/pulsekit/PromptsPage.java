@@ -166,7 +166,7 @@ final class PromptsPage {
                 this.say(ex);
             }
         });
-        JButton addSub = app.action("Add subcategory", ELEV, FG);
+        JButton addSub = app.action(this.subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + this.subcategoryParent(), ELEV, FG);
         addSub.setName("prompts-add-subcategory");
         addSub.addActionListener(e -> this.addSubcategory());
         catButtons.add(addCat);
@@ -224,12 +224,49 @@ final class PromptsPage {
             if (item != null) selected = item.categoryId;
         }
         long mainId = this.vault.mainOf(selected);
-        this.col.add(this.chipRow(this.vault.mains(), mainId));
+        // The main categories as tabs in one row (it scrolls); the chosen one's subcategories under it,
+        // named for it, so a subcategory is never taken for another category's.
+        this.col.add(this.oneRow(this.chipRow(this.vault.mains(), mainId), "category-tabs"));
+        PromptVault.Category main = this.vault.category(mainId);
         List<PromptVault.Category> subs = this.vault.children(mainId);
-        if (!subs.isEmpty()) {
+        if (main != null && !subs.isEmpty()) {
             this.col.add(Box.createVerticalStrut(6));
-            this.col.add(this.chipRow(subs, selected));
+            JLabel under = new JLabel("Subcategories of " + main.name);
+            under.setName("subcategories-of");
+            under.setForeground(MUTED);
+            under.setAlignmentX(0.0f);
+            this.col.add(under);
+            this.col.add(this.oneRow(this.chipRow(subs, selected), "subcategory-row"));
         }
+    }
+
+    /** A row of chips that stays one line and scrolls sideways (a wrapped row hid chips that did not fit its height). */
+    JComponent oneRow(JPanel row, String name) {
+        row.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        row.setMaximumSize(null);
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(row, javax.swing.JScrollPane.VERTICAL_SCROLLBAR_NEVER, javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scroll.setName(name);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getHorizontalScrollBar().setUnitIncrement(24);
+        scroll.setAlignmentX(0.0f);
+        int h = row.getPreferredSize().height + scroll.getHorizontalScrollBar().getPreferredSize().height + 2;
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+        scroll.setPreferredSize(new Dimension(200, h));
+        return scroll;
+    }
+
+    /** The main category a new subcategory goes under: the open prompt's, else the one chosen. */
+    String subcategoryParent() {
+        if (this.vault == null) return "";
+        long selected = this.categoryId;
+        if (this.promptId != 0) {
+            PromptVault.Prompt item = this.vault.prompt(this.promptId);
+            if (item != null) selected = item.categoryId;
+        }
+        PromptVault.Category main = this.vault.category(this.vault.mainOf(selected));
+        return main == null || main.name == null ? "" : main.name;
     }
 
     JPanel chipRow(List<PromptVault.Category> categories, long selectedId) {
@@ -334,7 +371,8 @@ final class PromptsPage {
     }
 
     void addSubcategory() {
-        String name = this.ask("Add subcategory", "");
+        String parent = this.subcategoryParent();
+        String name = this.ask(parent.length() == 0 ? "Add subcategory" : "Add subcategory to " + parent, "");
         if (name == null) return;
         try {
             long selected = this.categoryId;
@@ -389,7 +427,7 @@ final class PromptsPage {
         this.col.add(top);
         this.col.add(this.caption("CATEGORY"));
         this.categoryBlock(true);
-        JButton addSub = app.action("Add subcategory", ELEV, FG);
+        JButton addSub = app.action(this.subcategoryParent().length() == 0 ? "Add subcategory" : "Add subcategory to " + this.subcategoryParent(), ELEV, FG);
         addSub.setAlignmentX(0.0f);
         addSub.addActionListener(e -> this.addSubcategory());
         this.col.add(Box.createVerticalStrut(6));
