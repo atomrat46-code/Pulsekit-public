@@ -1088,6 +1088,7 @@ final class PyJav {
             if (p.isFile()) {
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
+                chosen.setName("params-chosen:" + p.token);
                 JButton pick = new JButton("any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
@@ -1136,9 +1137,13 @@ final class PyJav {
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                     picks.add(pick);
                     picks.add(db);
+                    picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 } else {
-                    row.add(pick, BorderLayout.WEST);
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    picks.add(pick);
+                    picks.add(this.clearButton(p, values, index, chosen));
+                    row.add(picks, BorderLayout.WEST);
                 }
                 row.add(chosen, BorderLayout.CENTER);
                 if ("mid".equals(p.ext)) {
@@ -1302,6 +1307,17 @@ final class PyJav {
     }
 
     /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */
+    /** Clear: a file picked by mistake leaves the row (a second reference image, say). */
+    private JButton clearButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {
+        JButton clear = new JButton("Clear");
+        clear.setName("params-clear:" + p.token);
+        clear.addActionListener(e -> {
+            values[index] = "";
+            chosen.setText("None");
+        });
+        return clear;
+    }
+
     String pickFileSetMidi() {
         java.util.LinkedHashMap<String, String> sets = HitCompare.fileSetsWithMidi(Engine.fileSetSources(app.learned, app.learnedFills));
         if (sets.isEmpty()) {

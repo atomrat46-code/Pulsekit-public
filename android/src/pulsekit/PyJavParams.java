@@ -183,6 +183,16 @@ public final class PyJavParams {
             chosen.setText(fileLabel(""));
           });
           row.addView(fresh);
+        } else {
+          // Clear: a file picked by mistake leaves the row (a second reference image, say).
+          android.widget.Button clear = new android.widget.Button(activity);
+          clear.setText("Clear");
+          clear.setTag("params-clear:" + p.token);
+          clear.setOnClickListener(v -> {
+            values[index] = "";
+            chosen.setText(fileLabel(""));
+          });
+          row.addView(clear);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         if (p.join) {

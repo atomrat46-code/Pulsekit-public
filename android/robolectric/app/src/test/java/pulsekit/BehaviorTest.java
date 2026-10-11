@@ -4429,6 +4429,32 @@ public class BehaviorTest {
     write("s64_export_to_db", out.toString());
   }
 
+  /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
+  @Test
+  public void s96_params_clear_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--prompt Hi --image /sdcard/Download/me.png --image2 /sdcard/Download/suit.png");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--image", "--image2"}) {
+      android.widget.Button clear = (android.widget.Button) dv.findViewWithTag("params-clear:" + t);
+      out.append(t).append(": ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append(", button ").append(clear == null ? "none" : clear.getText()).append('\n');
+    }
+    ((android.widget.Button) dv.findViewWithTag("params-clear:--image2")).performClick();
+    idle();
+    out.append("after Clear: ").append(((TextView) dv.findViewWithTag("params-chosen:--image2")).getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s96_params_clear_file", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {

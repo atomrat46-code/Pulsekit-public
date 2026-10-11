@@ -3734,6 +3734,32 @@ public final class DesktopBehavior {
    * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
+  /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
+  void s81_params_clear_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File me = new File(home, "me.png");
+    File suit = new File(home, "suit.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", suit);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\" --image2 \"" + suit.getAbsolutePath() + "\""));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"--image", "--image2"}) {
+        javax.swing.JButton clear = (javax.swing.JButton) component(d, "params-clear:" + t);
+        seen.append(t).append(": ").append(((JLabel) component(d, "params-chosen:" + t)).getText()).append(", button ").append(clear == null ? "none" : clear.getText()).append('\n');
+      }
+      ((javax.swing.JButton) component(d, "params-clear:--image2")).doClick();
+      seen.append("after Clear: ").append(((JLabel) component(d, "params-chosen:--image2")).getText()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    idle();
+    out.append(seen);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   void s80_browse_import_saverun() throws Exception {
     File home = new File(System.getProperty("user.home"));
     PromptVault vault = PromptDb.vault();
