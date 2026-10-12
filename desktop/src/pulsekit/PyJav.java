@@ -40,7 +40,7 @@ final class PyJav {
 
     JTextField pyExtra;
 
-    JComboBox<String> pyRecent;
+    JButton pyRecent;
 
     JLabel pyHint;
 
@@ -93,13 +93,16 @@ final class PyJav {
         north.setLayout(new BoxLayout(north, 1));
         north.add(jLabel);
         north.add(Box.createVerticalStrut(8));
-        this.pyRecent = new JComboBox<String>();
+        // Recent: each program once; a click runs it, a right click lists its runs.
+        this.pyRecent = new JButton("Select program \u25be");
+        this.pyRecent.setName("pyjav-recent");
         this.pyRecent.setBackground(ELEV);
         this.pyRecent.setForeground(FG);
+        this.pyRecent.setHorizontalAlignment(JButton.LEFT);
         this.pyRecent.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         this.pyRecent.setAlignmentX(0.0f);
         this.reloadPyRecent(0);
-        this.pyRecent.addActionListener(ev -> this.applyPyRecent());
+        this.pyRecent.addActionListener(ev -> this.recentMenu().show(this.pyRecent, 0, this.pyRecent.getHeight()));
         north.add(this.pyRecent);
         north.add(Box.createVerticalStrut(6));
         north.add(app.programMenus.buildProgramMenus());
@@ -841,21 +844,64 @@ final class PyJav {
 
     void reloadPyRecent(int select) {
         this.pyRecentItems = PyJavRecent.load(this.pyRecentDir());
-        if (this.pyRecent == null) return;
-        this.pyRecentMute = true;
-        this.pyRecent.removeAllItems();
-        this.pyRecent.addItem("Select program");
-        for (PyJavRecent.Item item : this.pyRecentItems) this.pyRecent.addItem(item.label());
-        int index = select > 0 && select <= this.pyRecentItems.size() ? select : 0;
-        this.pyRecent.setSelectedIndex(index);
-        this.pyRecentMute = false;
     }
 
-    void applyPyRecent() {
-        if (this.pyRecentMute || this.pyRecent == null) return;
-        int index = this.pyRecent.getSelectedIndex();
-        if (index <= 0 || this.pyRecentItems == null || index > this.pyRecentItems.size()) return;
-        PyJavRecent.Item item = this.pyRecentItems.get(index - 1);
+    /**
+     * Recent's menu: each program once, the one run last first. A click runs it (without parameters
+     * when such a run is remembered, else with its last ones); a right click lists its runs.
+     */
+    javax.swing.JPopupMenu recentMenu() {
+        this.reloadPyRecent(0);
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("pyjav-recent-menu");
+        java.util.List<String> programs = PyJavRecent.programs(this.pyRecentItems);
+        if (programs.isEmpty()) {
+            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No recent programs");
+            none.setEnabled(false);
+            menu.add(none);
+        }
+        for (final String name : programs) {
+            final javax.swing.JMenuItem item = new javax.swing.JMenuItem(name);
+            item.setName("pyjav-recent:" + name);
+            item.setToolTipText("A right click lists its recent parameters");
+            item.addActionListener(e -> this.runRecent(PyJavRecent.tapped(this.pyRecentItems, name)));
+            item.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (!SwingUtilities.isRightMouseButton(e)) return;
+                    menu.setVisible(false);
+                    runsMenu(name).show(pyRecent, 0, pyRecent.getHeight());
+                }
+            });
+            menu.add(item);
+        }
+        return menu;
+    }
+
+    /** A program's runs (the last first); a click runs it with those parameters. */
+    javax.swing.JPopupMenu runsMenu(String name) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("pyjav-recent-runs");
+        java.util.List<PyJavRecent.Item> runs = PyJavRecent.runsOf(this.pyRecentItems, name);
+        for (int i = 0; i < runs.size(); i++) {
+            final PyJavRecent.Item run = runs.get(i);
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));
+            item.setName("pyjav-recent-run:" + i);
+            item.addActionListener(e -> this.runRecent(run));
+            menu.add(item);
+        }
+        return menu;
+    }
+
+    /** Recent: the run picked is loaded and run. */
+    void runRecent(PyJavRecent.Item item) {
+        if (item == null) return;
+        this.applyPyRecent(item);
+        this.runPython();
+    }
+
+    void applyPyRecent(PyJavRecent.Item item) {
+        if (item == null) return;
         app.pyInputPath = null;
         boolean binary = item.bytes != null && item.bytes.length > 0;
         // A bundled program (Programs/Java or Python) runs as the app ships it now, not the copy

@@ -125,6 +125,9 @@ public final class PyJavUi implements JavaRun.Listener {
   }
 
   /** Recent programs under a collapsed "Select program" row. The spinner popup draws no rows on this screen. */
+  /** A program's runs, as a long press on it in Recent showed them last (for the tests). */
+  static android.app.AlertDialog lastRuns;
+
   public static void fillRecent(final MainActivity host, android.view.View anchor, java.util.List items) {
     if (host == null || anchor == null) return;
     android.view.ViewParent parent = anchor.getParent();
@@ -164,8 +167,12 @@ public final class PyJavUi implements JavaRun.Listener {
     tlp.bottomMargin = pad / 2;
     box.addView(toggle, tlp);
     box.addView(list);
-    int count = items == null ? 0 : items.size();
-    if (count == 0) {
+    // Each program once: a tap runs it (without parameters when such a run is remembered, else
+    // with its last ones); a long press lists its runs, a tap on one runs it with those.
+    final java.util.List<PyJavRecent.Item> runs = new java.util.ArrayList<PyJavRecent.Item>();
+    if (items != null) for (Object row : items) if (row instanceof PyJavRecent.Item) runs.add((PyJavRecent.Item) row);
+    java.util.List<String> programs = PyJavRecent.programs(runs);
+    if (programs.isEmpty()) {
       TextView empty = new TextView(host);
       empty.setText("No recent programs");
       empty.setTextColor(0xFF8A8B86);
@@ -173,18 +180,10 @@ public final class PyJavUi implements JavaRun.Listener {
       empty.setPadding(pad, pad, pad, pad);
       list.addView(empty);
     } else {
-      for (int i = 0; i < count; i++) {
-        Object row = items.get(i);
-        String name = "program";
-        if (row instanceof PyJavRecent.Item) {
-          PyJavRecent.Item item = (PyJavRecent.Item) row;
-          name = item.label();
-        } else if (row != null) {
-          name = row.toString();
-        }
-        final int pick = i + 1;
+      for (final String name : programs) {
         TextView button = new TextView(host);
         button.setText(name);
+        button.setTag("pk-recent-item:" + name);
         button.setTextColor(0xFFECEBE6);
         button.setTextSize(15);
         button.setSingleLine(true);
@@ -198,7 +197,25 @@ public final class PyJavUi implements JavaRun.Listener {
           public void onClick(View v) {
             list.setVisibility(View.GONE);
             toggle.setText("Select program \u25be");
-            host.pyJav.pkApplyRecent(pick);
+            host.pyJav.pkRunRecent(runs.indexOf(PyJavRecent.tapped(runs, name)) + 1);
+          }
+        });
+        button.setOnLongClickListener(new View.OnLongClickListener() {
+          @Override
+          public boolean onLongClick(View v) {
+            final java.util.List<PyJavRecent.Item> mine = PyJavRecent.runsOf(runs, name);
+            CharSequence[] labels = new CharSequence[mine.size()];
+            for (int i = 0; i < mine.size(); i++) labels[i] = PyJavRecent.argsLabel(mine.get(i));
+            lastRuns = new android.app.AlertDialog.Builder(host)
+                .setTitle(name)
+                .setItems(labels, (d, which) -> {
+                  list.setVisibility(View.GONE);
+                  toggle.setText("Select program \u25be");
+                  host.pyJav.pkRunRecent(runs.indexOf(mine.get(which)) + 1);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+            return true;
           }
         });
         list.addView(button, lp);

@@ -320,7 +320,7 @@ public class BehaviorTest {
     List<Object> items = (List<Object>) get("pkPyRecentItems");
     out.append("recent items=").append(items == null ? 0 : items.size()).append('\n');
     View box = root().findViewWithTag("pk-recent");
-    String label = "DrumMidi_CRT.java  " + used;
+    String label = "DrumMidi_CRT.java";
     TextView entry = box == null ? null : findText(box, label);
     out.append("recent row shown=").append(entry != null).append('\n');
     // open something else, then pick the recent entry
@@ -4436,6 +4436,51 @@ public class BehaviorTest {
     out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.EXPORT_TO_DB, false)).append('\n');
     box.setChecked(false);
     write("s64_export_to_db", out.toString());
+  }
+
+  /**
+   * Recent: each program once. A tap runs it without parameters when such a run is remembered,
+   * else with its last ones; a long press lists its runs, and a tap on one runs it with those.
+   */
+  @Test
+  public void s97_recent_programs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = app.getFilesDir();
+    PyJavRecent.remember(dir, "CompareHits.java", "a.wav b.mid", "", null);
+    PyJavRecent.remember(dir, "ImageUpscaler.java", "pic.png --scale 2", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "c.wav d.mid", "", null);
+    call("pkRefreshRecent", 0);
+    idle();
+    View box = root().findViewWithTag("pk-recent");
+    View list = box.findViewWithTag("pk-recent-list");
+    StringBuilder rows = new StringBuilder();
+    for (int i = 0; i < ((android.view.ViewGroup) list).getChildCount(); i++) rows.append('[').append(((TextView) ((android.view.ViewGroup) list).getChildAt(i)).getText()).append(']');
+    out.append("list: ").append(rows).append('\n');
+    // Long press: CompareHits' runs.
+    box.findViewWithTag("pk-recent-item:CompareHits.java").performLongClick();
+    idle();
+    android.widget.ListView runs = PyJavUi.lastRuns.getListView();
+    StringBuilder labels = new StringBuilder();
+    for (int i = 0; i < runs.getAdapter().getCount(); i++) labels.append('[').append(runs.getAdapter().getItem(i)).append(']');
+    out.append("CompareHits runs: ").append(PyJavUi.lastRuns.isShowing()).append(' ').append(labels).append('\n');
+    // Tap a run: runs with its parameters.
+    runs.performItemClick(runs.getChildAt(2), 2, 2);
+    idle();
+    out.append("run picked: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    // Tap the name: the run without parameters.
+    box = root().findViewWithTag("pk-recent");
+    box.findViewWithTag("pk-recent-item:CompareHits.java").performClick();
+    idle();
+    out.append("CompareHits tapped: args [").append(((TextView) get("pkPyArgs")).getText()).append("]\n");
+    // ImageUpscaler has no run without parameters: its last one.
+    box = root().findViewWithTag("pk-recent");
+    box.findViewWithTag("pk-recent-item:ImageUpscaler.java").performClick();
+    idle();
+    out.append("ImageUpscaler tapped: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s97_recent_programs", out.toString());
   }
 
   /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */

@@ -3743,6 +3743,46 @@ public final class DesktopBehavior {
    * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
+  /**
+   * Recent: each program once. A click runs it without parameters when such a run is remembered,
+   * else with its last ones; a right click lists its runs, and a click on one runs it with those.
+   */
+  void s82_recent_programs() throws Exception {
+    File dir = new File(System.getProperty("user.home"), ".pulsekit");
+    dir.mkdirs();
+    PyJavRecent.remember(dir, "CompareHits.java", "a.wav b.mid", "", null);
+    PyJavRecent.remember(dir, "ImageUpscaler.java", "pic.png --scale 2", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "c.wav d.mid", "", null);
+    call("showView", "py");
+    javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) call("recentMenu");
+    StringBuilder rows = new StringBuilder();
+    for (Component c : menu.getComponents()) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("menu: ").append(rows).append('\n');
+    javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
+    StringBuilder labels = new StringBuilder();
+    for (Component c : runs.getComponents()) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("CompareHits runs: ").append(labels).append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[][] picks = {{"run", "2"}, {"name", "CompareHits.java"}, {"name", "ImageUpscaler.java"}};
+    for (String[] pick : picks) {
+      edt(() -> log.setText(""));
+      if (pick[0].equals("run")) {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
+        edt(() -> ((javax.swing.JMenuItem) m.getComponent(Integer.parseInt(pick[1]))).doClick());
+      } else {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("recentMenu");
+        for (Component c : m.getComponents()) {
+          if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
+        }
+      }
+      for (int i = 0; i < 200 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed") || log.getText().contains("exit")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      out.append(pick[0]).append(' ').append(pick[1]).append(": ").append((String) get("pyName")).append(", args [").append(((JTextField) get("pyExtra")).getText()).append("], ran ").append(!log.getText().equals("")).append('\n');
+    }
+  }
+
   /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
   void s81_params_clear_file() throws Exception {
     File home = new File(System.getProperty("user.home"));

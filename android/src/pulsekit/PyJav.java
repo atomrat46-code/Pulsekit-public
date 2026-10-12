@@ -343,6 +343,13 @@ final class PyJav {
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
     }
 
+    /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
+    public void pkRunRecent(int index) {
+        if (this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
+        this.pkApplyRecent(index);
+        this.pkRunPyJav();
+    }
+
     void pkWirePyJavCore() {
         if (app.tabs != null) {
             for (int i = 0; i < app.tabs.size(); i++) {
