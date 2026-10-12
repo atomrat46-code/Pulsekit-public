@@ -876,6 +876,9 @@ final class PyJav {
         final boolean saveRun = this.pkSaveRun && status.startsWith("Succeeded");
         this.pkSaveRun = false;
         final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb) || saveRun;
+        // The run's prompt sheets (--saveprompt): not saved again when unchanged; else PyJav asks where they go.
+        final java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(kept0);
+        PromptSave.load(filesDir);
         if (!any) pulsekit.PendingOps.done(pending);
         if (any) {
             log = log + "\nPrompt library: storing\u2026";
@@ -887,11 +890,28 @@ final class PyJav {
                 @Override
                 public void run() {
                     String stored;
+                    final java.util.List<PromptSave.Pending> asking = new java.util.ArrayList<PromptSave.Pending>();
                     try {
-                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb, sheets.isEmpty());
                         if (saveRun) {
                             String run = PromptKeep.keepRun(filesDir, kept0, argv, program);
                             stored = stored.length() == 0 ? run : run.length() == 0 ? stored : stored + "\n" + run;
+                        }
+                        if (!sheets.isEmpty()) {
+                            PromptVault vault = PromptVault.open(filesDir);
+                            for (PromptSave.Pending p : sheets) {
+                                String same = PromptSave.unchanged(vault, p.sheet);
+                                String line;
+                                if (same != null) {
+                                    line = PromptSave.unchangedNote(p.sheet, same);
+                                } else if (PromptSave.ask()) {
+                                    asking.add(p);
+                                    continue;
+                                } else {
+                                    line = pkWriteSheet(PromptSave.storeAsIs(filesDir, p, kept0, argv));
+                                }
+                                stored = stored.length() == 0 ? line : stored + "\n" + line;
+                            }
                         }
                     } catch (Throwable ex) {
                         // Never left at "storing…": what went wrong is said instead.
@@ -904,13 +924,15 @@ final class PyJav {
                         public void run() {
                             pkKeeping = false;
                             KEEPING.decrementAndGet();
-                            pulsekit.PendingOps.done(pending);
+                            // Sheets to ask about: the run stays pending until each is saved or cancelled.
+                            if (asking.isEmpty()) pulsekit.PendingOps.done(pending);
                             // The "storing" line becomes what was stored; notes added since stay.
                             String now = pkRunLog == null ? shown + "\nPrompt library: storing\u2026" : pkRunLog;
                             String done = now.replace("\nPrompt library: storing\u2026", kept.length() > 0 ? "\n" + kept : "");
                             // Only when the text below Run is still this run's (another run may have started).
                             if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
                             pkRunLog = done;
+                            if (!asking.isEmpty()) pkAskSheets(asking, 0, kept0, argv, pending);
                         }
                     });
                 }
@@ -946,6 +968,55 @@ final class PyJav {
             if (this.pkPyLog != null) this.pkPyLog.setText(status);
             this.pkRunLog = status;
         }
+    }
+
+    /** Writes a saved sheet to disk (Download, or the program files folder); its log lines. */
+    String pkWriteSheet(PromptSave.Saved saved) {
+        if (saved.bytes == null) return saved.note;
+        String at = ArtJava.publish(app, saved.fileName, saved.bytes);
+        return saved.note + (at == null ? "\nCould not save " + saved.fileName : "\nsaved " + at);
+    }
+
+    /**
+     * The run's changed prompt sheets, one by one: where each goes (Save prompt), then stored in the
+     * background and written to disk; the run's database operations are over after the last.
+     */
+    void pkAskSheets(final java.util.List<PromptSave.Pending> sheets, final int i, final pulsekit.JavaRun.Result result,
+            final java.util.List<String> argv, final String pending) {
+        if (i >= sheets.size()) {
+            pulsekit.PendingOps.done(pending);
+            return;
+        }
+        final PromptSave.Pending p = sheets.get(i);
+        final java.io.File filesDir = app.getFilesDir();
+        PromptVault vault = null;
+        try {
+            vault = PromptVault.open(filesDir);
+        } catch (Exception ignored) {
+            // the dialog offers no categories then
+        }
+        SavePromptDialog.show(app, vault, p.sheet, choice -> {
+            if (choice == null) {
+                this.pkAddLogLine(PromptSave.cancelledNote(p.sheet));
+                this.pkAskSheets(sheets, i + 1, result, argv, pending);
+                return;
+            }
+            KEEPING.incrementAndGet();
+            new Thread(() -> {
+                String line;
+                try {
+                    line = this.pkWriteSheet(PromptSave.store(filesDir, p, result, argv, choice));
+                } catch (Throwable ex) {
+                    line = "Prompt library: could not store " + p.file.name;
+                }
+                final String note = line;
+                app.runOnUiThread(() -> {
+                    KEEPING.decrementAndGet();
+                    for (String l : note.split("\n")) this.pkAddLogLine(l);
+                    this.pkAskSheets(sheets, i + 1, result, argv, pending);
+                });
+            }, "pulsekit-prompt-save").start();
+        });
     }
 
     /**

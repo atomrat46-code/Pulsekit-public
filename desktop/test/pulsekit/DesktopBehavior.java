@@ -60,6 +60,9 @@ public final class DesktopBehavior {
     int code = 0;
     try {
       t.start();
+      // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
+      PromptSave.load(PromptDb.dir());
+      PromptSave.setAsk(false);
       Method m = DesktopBehavior.class.getDeclaredMethod(args[0]);
       m.invoke(t);
     } catch (Throwable e) {
@@ -3743,6 +3746,105 @@ public final class DesktopBehavior {
    * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
+  /**
+   * SogniChat: Params' Chat model has a note, image analyze mode for a DeepSeek vision model and
+   * tools mode otherwise; a run says the mode, and a DeepSeek run leaves the tools out.
+   */
+  void s84_chat_modes() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniChat.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt hi"));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      JTextField model = (JTextField) component(d, "params-field:--model");
+      JLabel note = (JLabel) component(d, "params-note:--model");
+      seen.append("default model: ").append(note == null ? "no note" : note.getText()).append('\n');
+      model.setText("deepseek-v4-flash-vision-exp-dspark-1m");
+      seen.append("deepseek: ").append(note == null ? "no note" : note.getText()).append('\n');
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    out.append(seen);
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String none = "--key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\"";
+    for (String extra : new String[] {"--prompt hi --model deepseek-v4-flash-vision-exp-dspark-1m --tools " + none, "--prompt hi " + none, "--prompt hi --tools " + none}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      out.append("== ").append(extra.replace(none, "")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("Image analyze") || t.startsWith("Tools mode") || t.startsWith("Note:")) out.append("  ").append(t).append('\n');
+      }
+    }
+  }
+
+  /**
+   * --saveprompt with Save prompt (General settings: Ask where to save): a changed sheet asks for the
+   * main category, subcategory, name and description and is saved as the prompt's next version with
+   * the date (in the library and on disk); the same sheet again is not saved; Cancel saves nothing.
+   */
+  void s83_save_prompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptSave.setAsk(true);
+    PromptVault vault = PromptDb.vault();
+    long image = vault.addCategory("Image");
+    vault.addSubcategory(image, "Portraits");
+    String today = PromptSave.today();
+    String[] prompts = {"Same person, smiling", "Same person, smiling", "Same person, laughing", "Same person, frowning"};
+    for (int run = 0; run < prompts.length; run++) {
+      String sheet = "PKPROMPT1\nsogni-pedit-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+          + prompts[run] + "\n\nLoRAs: none. Picture: me.png.\n\nResult file: sogni-pedit-same-person.png\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+      final JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-same-person.png", files, 0);
+      final int at = run;
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        seen.append("Save prompt: ").append(d.getTitle()).append(", recent ").append(component(d, "save-prompt-recent:Image \u203a Portraits") != null)
+            .append(", main ").append(((javax.swing.JComboBox<?>) component(d, "save-prompt-main")).getEditor().getItem())
+            .append(", sub ").append(((javax.swing.JComboBox<?>) component(d, "save-prompt-sub")).getEditor().getItem())
+            .append(", name ").append(((JTextField) component(d, "save-prompt-name")).getText())
+            .append(", ").append(((JLabel) component(d, "save-prompt-version")).getText().replace(today, "<today>")).append('\n');
+        if (at == 0) {
+          ((javax.swing.JComboBox<?>) component(d, "save-prompt-sub")).getEditor().setItem("Portraits");
+          ((javax.swing.JTextArea) component(d, "save-prompt-description")).setText("First try");
+        }
+        ((JTextField) component(d, "save-prompt-name")).setText("Smile");
+      };
+      answers.add(run == 3 ? "Cancel" : "OK");
+      String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+      idle();
+      out.append("== run ").append(run + 1).append(": ").append(prompts[run]).append('\n').append(seen.length() == 0 ? "no Save prompt\n" : seen);
+      for (String line : kept.split("\n")) out.append("  log: ").append(line.replace(today, "<today>").replace(home.getAbsolutePath(), "~")).append('\n');
+      answers.clear();
+      inspectNext = null;
+    }
+    vault = PromptDb.vault();
+    for (PromptVault.Prompt p : vault.prompts(PromptSave.find(vault, "Image", "Portraits"))) {
+      java.util.List<PromptVault.Version> rows = vault.versions(p.id);
+      out.append("library Image \u203a Portraits: ").append(p.title).append(", ").append(rows.size()).append(" versions\n");
+      for (int i = 0; i < rows.size(); i++) out.append("  v").append(rows.size() - i).append(": ").append(rows.get(i).body.split("\n")[0]).append(" | ").append(rows.get(i).description).append('\n');
+    }
+    File[] disk = new File(home, new File(home, "Downloads").isDirectory() ? "Downloads" : ".pulsekit").listFiles();
+    if (disk != null) {
+      java.util.Arrays.sort(disk);
+      for (File f : disk) {
+        if (!f.getName().endsWith(".prompt")) continue;
+        PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+        out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
+            .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description)
+            .append(", prompt ").append(sheet.body.split("\n")[0]).append('\n');
+      }
+    }
+  }
+
   /**
    * Recent: each program once. A click runs it without parameters when such a run is remembered,
    * else with its last ones; a right click lists its runs, and a click on one runs it with those.

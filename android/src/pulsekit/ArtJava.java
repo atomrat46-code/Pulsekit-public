@@ -175,7 +175,11 @@ public final class ArtJava {
         if (fn.equals(skip) || fn.endsWith(".class") || fn.endsWith(".dex") || fn.endsWith(".java")) continue;
         if (f.length() > JavaRun.maxFileBytes(fn)) continue;
         byte[] body = read(f);
-        files.add(new JavaRun.FileOut(fn, body));
+        JavaRun.FileOut out = new JavaRun.FileOut(fn, body);
+        files.add(out);
+        // A prompt sheet (--saveprompt) is written to disk after the run, once PyJav knows where it
+        // goes (and not at all when it is the same as one in the library already: PromptSave).
+        if (PromptSave.isSheetFile(out)) continue;
         String saved = publish(ctx, fn, body);
         if (saved != null) ps.println("saved " + saved);
       }

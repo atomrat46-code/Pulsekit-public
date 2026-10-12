@@ -453,6 +453,10 @@ final class PyJav {
                         } catch (Exception ex) {
                             if (app.pyLog != null) app.pyLog.append("\nCould not read " + f.name);
                         }
+                    } else if (lower.endsWith(".prompt") && PromptSave.isSheetFile(new JavaRun.FileOut(f.name, f.bytes))) {
+                        // A prompt sheet (--saveprompt) is saved after the run, once it is known where it goes
+                        // (and not at all when it is the same as one in the library already): keepInLibrary.
+                        continue;
                     } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) {
                         // Audio, a prompt sheet, a picture or a video a program wrote in its work folder (SogniMusic's
                         // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android.
@@ -596,13 +600,53 @@ final class PyJav {
         }
     }
 
+    /**
+     * The run's prompt sheets (--saveprompt): one the same as a version in the library already is not
+     * saved again; the others go where Save prompt says (or where the sheet says, when General
+     * settings does not ask), as the prompt's next version, and are written to disk with that version
+     * number and the date. Lines for the log.
+     */
+    String saveSheets(File dir, JavaRun.Result r, java.util.List<String> argv) {
+        java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(r);
+        if (sheets.isEmpty()) return "";
+        PromptSave.load(dir);
+        StringBuilder out = new StringBuilder();
+        PromptVault vault = null;
+        try {
+            vault = PromptVault.open(dir);
+        } catch (Exception ignored) {
+            // store says why
+        }
+        for (PromptSave.Pending p : sheets) {
+            String same = PromptSave.unchanged(vault, p.sheet);
+            String line;
+            if (same != null) {
+                line = PromptSave.unchangedNote(p.sheet, same);
+            } else {
+                PromptSave.Choice c = PromptSave.ask() ? SavePromptDialog.ask(app, vault, p.sheet) : null;
+                if (PromptSave.ask() && c == null) {
+                    line = PromptSave.cancelledNote(p.sheet);
+                } else {
+                    PromptSave.Saved saved = c == null ? PromptSave.storeAsIs(dir, p, r, argv) : PromptSave.store(dir, p, r, argv, c);
+                    line = saved.note;
+                    if (saved.bytes != null) {
+                        File at = this.saveProgramFile(saved.fileName, saved.bytes);
+                        line = line + "\n" + (at == null ? "Could not save " + saved.fileName : "Saved " + at.getPath());
+                    }
+                }
+            }
+            out.append(out.length() > 0 ? "\n" : "").append(line);
+        }
+        return out.toString();
+    }
+
     /** The run's prompt sheets, and its MIDI or track when Drum Midi Settings says so, into the prompt library; a line for the log. */
     String keepInLibrary(String name, PythonRun.Result result, java.util.List<String> argv) {
         java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
         for (PythonRun.FileOut f : result.files) files.add(new JavaRun.FileOut(f.name, f.bytes));
         JavaRun.Result r = new JavaRun.Result(result.log, files, result.code);
         File dir = PromptDb.dir();
-        String kept = PromptKeep.keep(dir, r, argv);
+        String kept = this.saveSheets(dir, r, argv);
         if (DrumMidiSettingsPage.genToDb && "MidiDrumGen.java".equals(name)) {
             String gen = PromptKeep.keepMidiDrumGen(dir, r, argv);
             if (gen.length() > 0) kept = kept.length() > 0 ? kept + "\n" + gen : gen;
@@ -1300,6 +1344,30 @@ final class PyJav {
                 row.add(field, BorderLayout.CENTER);
                 row.add(choose, BorderLayout.EAST);
                 form.add(row);
+                if (p.modelNote) {
+                    // SogniChat: image analyze mode (a DeepSeek vision model) or tools mode, as the model is picked.
+                    final JLabel note = new JLabel(ProgramParams.chatModelNote(field.getText()));
+                    note.setName("params-note:" + p.token);
+                    field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                        @Override
+                        public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                            note.setText(ProgramParams.chatModelNote(field.getText()));
+                        }
+
+                        @Override
+                        public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                            note.setText(ProgramParams.chatModelNote(field.getText()));
+                        }
+
+                        @Override
+                        public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                            note.setText(ProgramParams.chatModelNote(field.getText()));
+                        }
+                    });
+                    // The form is two columns (label, field): the note sits under the field.
+                    form.add(new JLabel(""));
+                    form.add(note);
+                }
                 continue;
             }
             form.add(field);

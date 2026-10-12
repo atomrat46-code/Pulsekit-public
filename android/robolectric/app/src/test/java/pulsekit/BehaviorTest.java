@@ -52,6 +52,9 @@ public class BehaviorTest {
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
+    // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
+    PromptSave.load(app.getFilesDir());
+    PromptSave.setAsk(false);
   }
 
   @After
@@ -4436,6 +4439,101 @@ public class BehaviorTest {
     out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.EXPORT_TO_DB, false)).append('\n');
     box.setChecked(false);
     write("s64_export_to_db", out.toString());
+  }
+
+  /** SogniChat Params: Chat model has a note, image analyze mode for a DeepSeek vision model and tools mode otherwise. */
+  @Test
+  public void s99_chat_modes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniChat.java");
+    ((TextView) get("pkPyArgs")).setText("--prompt hi");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView model = (TextView) dv.findViewWithTag("params-field:--model");
+    TextView note = (TextView) dv.findViewWithTag("params-note:--model");
+    out.append("default model: ").append(note == null ? "no note" : note.getText()).append('\n');
+    model.setText("deepseek-v4-flash-vision-exp-dspark-1m");
+    out.append("deepseek: ").append(note == null ? "no note" : note.getText()).append('\n');
+    write("s99_chat_modes", out.toString());
+  }
+
+  /**
+   * --saveprompt with Save prompt (General settings: Ask where to save): a changed sheet asks for the
+   * main category, subcategory, name and description and is saved as the prompt's next version with
+   * the date (in the library and on disk); the same sheet again is not saved; Cancel saves nothing.
+   */
+  @Test
+  public void s98_save_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptSave.setAsk(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = vault.addCategory("Image");
+    vault.addSubcategory(image, "Portraits");
+    call("show", "py");
+    idle();
+    app.pyName = "SogniPedit.java";
+    String today = PromptSave.today();
+    String[] prompts = {"Same person, smiling", "Same person, smiling", "Same person, laughing", "Same person, frowning"};
+    for (int run = 0; run < prompts.length; run++) {
+      String sheet = "PKPROMPT1\nsogni-pedit-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+          + prompts[run] + "\n\nLoRAs: none. Picture: me.png.\n\nResult file: sogni-pedit-same-person.png\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+      app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", prompts[run], "--saveprompt");
+      SavePromptDialog.last = null;
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniPedit\nWrote sogni-pedit-same-person.png (1 KB)\nSucceeded: sogni-pedit-same-person.png", files, 0));
+      idle();
+      out.append("== run ").append(run + 1).append(": ").append(prompts[run]).append('\n');
+      AlertDialog d = SavePromptDialog.last;
+      out.append("Save prompt shown: ").append(d != null && d.isShowing()).append('\n');
+      if (d != null && d.isShowing()) {
+        View dv = d.getWindow().getDecorView();
+        StringBuilder recent = new StringBuilder();
+        for (String r : new String[] {"Image \u203a Portraits"}) if (dv.findViewWithTag("save-prompt-recent:" + r) != null) recent.append('[').append(r).append(']');
+        out.append("  recent ").append(recent).append(", main ").append(((TextView) dv.findViewWithTag("save-prompt-main")).getText())
+            .append(", sub ").append(((TextView) dv.findViewWithTag("save-prompt-sub")).getText())
+            .append(", name ").append(((TextView) dv.findViewWithTag("save-prompt-name")).getText())
+            .append(", ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
+        if (run == 3) {
+          d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        } else {
+          if (run == 0) {
+            ((TextView) dv.findViewWithTag("save-prompt-sub")).setText("Portraits");
+            ((TextView) dv.findViewWithTag("save-prompt-description")).setText("First try");
+          }
+          ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Smile");
+          out.append("  after edits: ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
+          d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+        }
+        idle();
+      }
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) {
+        if (line.startsWith("Prompt library") || line.startsWith("saved ") && line.contains(".prompt")) out.append("  log: ").append(line.replace(today, "<today>").replace(app.getExternalFilesDir(null).getAbsolutePath(), "<files>")).append('\n');
+      }
+    }
+    vault = PromptVault.open(app.getFilesDir());
+    long portraits = PromptSave.find(vault, "Image", "Portraits");
+    for (PromptVault.Prompt p : vault.prompts(portraits)) {
+      java.util.List<PromptVault.Version> rows = vault.versions(p.id);
+      out.append("library Image \u203a Portraits: ").append(p.title).append(", ").append(rows.size()).append(" versions\n");
+      for (int i = 0; i < rows.size(); i++) out.append("  v").append(rows.size() - i).append(": ").append(rows.get(i).body.split("\n")[0]).append(" | ").append(rows.get(i).description).append('\n');
+    }
+    // The sheet written to disk: its version and date.
+    File[] disk = app.getExternalFilesDir(null).listFiles();
+    java.util.Arrays.sort(disk);
+    for (File f : disk) {
+      if (!f.getName().endsWith(".prompt")) continue;
+      PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+      out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
+          .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description).append('\n');
+    }
+    write("s98_save_prompt", out.toString());
   }
 
   /**

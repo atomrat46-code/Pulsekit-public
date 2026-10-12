@@ -46,7 +46,8 @@ import java.util.Map;
  * text under the question), with the saved chat as its result file: Pulsekit keeps it in the prompt
  * library, the chat .txt as a result file.
  *
- * --models lists the chat models Sogni offers; --model picks one.
+ * --models lists the chat models Sogni offers; --model picks one. A DeepSeek vision model is image
+ * analyze mode (it reads the pictures sent; no Sogni tools with it); any other model is tools mode.
  *
  * --tools offers the model Sogni's creative tools (generate_image, generate_music, edit_image...).
  * The chat never runs them itself: the model proposes tool calls, which are shown and kept in the
@@ -191,6 +192,19 @@ public final class SogniChat {
       files.clear();
       copies.clear();
       unlimited = true;
+    }
+    // A DeepSeek vision model is image analyze mode: it reads the pictures sent with the question;
+    // no Sogni tools are offered with it (it does not call them), so --tools, --run_tools and
+    // --unlimited are left out. Any other model is tools mode.
+    boolean analyze = rejoin == null && model != null && model.toLowerCase().contains("deepseek");
+    if (analyze) {
+      System.out.println("Image analyze mode (" + model + "): it reads the pictures sent with --file; no other Sogni tools are available with this model");
+      if (tools || runTools || unlimited) System.out.println("Note: " + (unlimited ? "--unlimited" : runTools ? "--run_tools" : "--tools") + " is not used in image analyze mode");
+      tools = false;
+      runTools = false;
+      unlimited = false;
+    } else if (!models) {
+      System.out.println("Tools mode" + (tools || runTools || unlimited || rejoin != null ? "" : " (Sogni's tools are off: tick Offer Sogni tools or Unlimited Plan to use them)"));
     }
     // With Sogni's tools on, pictures, audio and video are uploaded for the tools to work on.
     boolean toolsOn = tools || runTools || unlimited;

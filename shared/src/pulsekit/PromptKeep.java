@@ -24,7 +24,12 @@ final class PromptKeep {
      * (the library is encrypted as a whole): the app calls it off the main thread. Returns the log lines.
      */
     static String keepAll(File dir, JavaRun.Result result, List<String> argv, String program, boolean genToDb, boolean musicToDb) {
-        StringBuilder kept = new StringBuilder(keep(dir, result, argv));
+        return keepAll(dir, result, argv, program, genToDb, musicToDb, true);
+    }
+
+    /** keepAll; `sheets` false leaves the run's prompt sheets to PromptSave (the app asks where they go). */
+    static String keepAll(File dir, JavaRun.Result result, List<String> argv, String program, boolean genToDb, boolean musicToDb, boolean sheets) {
+        StringBuilder kept = new StringBuilder(sheets ? keep(dir, result, argv) : "");
         if (genToDb && "MidiDrumGen.java".equals(program)) add(kept, keepMidiDrumGen(dir, result, argv));
         if (musicToDb && "SogniMusic.java".equals(program)) add(kept, keepSogniMusic(dir, result, argv));
         if ("JoinVideo.java".equals(program)) add(kept, keepJoined(dir, result, argv));
@@ -135,6 +140,11 @@ final class PromptKeep {
             }
         }
         if (catId == 0) catId = vault.addCategory(catName);
+        return store(vault, sheet, result, argv, catId, catName);
+    }
+
+    /** Stores the sheet in category `catId` (`catName` for the log line), with its description. */
+    static String store(PromptVault vault, PromptRun.Sheet sheet, JavaRun.Result result, List<String> argv, long catId, String catName) throws Exception {
         long promptId = 0;
         for (PromptVault.Prompt p : vault.prompts(catId)) {
             if (p.title != null && p.title.trim().equalsIgnoreCase(sheet.name.trim())) promptId = p.id;
@@ -152,7 +162,7 @@ final class PromptKeep {
                 made = null;
             }
         }
-        vault.addVersion(promptId, sheet.name.trim(), "", sheet.body, sheet.model, sheet.ref1, ref1, sheet.ref2, ref2,
+        vault.addVersion(promptId, sheet.name.trim(), sheet.description == null ? "" : sheet.description.trim(), sheet.body, sheet.model, sheet.ref1, ref1, sheet.ref2, ref2,
             sheet.result, made, sheet.type, sheet.resultText);
         StringBuilder sb = new StringBuilder("Prompt library: ").append(sheet.name.trim()).append(" (").append(catName).append(added ? ", new" : ", new version").append(')');
         if (ref1 != null) sb.append(", reference ").append(sheet.ref1);
