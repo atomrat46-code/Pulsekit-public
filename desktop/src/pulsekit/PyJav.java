@@ -392,6 +392,8 @@ final class PyJav {
                 app.setNow("Could not write Pulsekit's kit as a SoundFont: " + ex.getMessage());
             }
         }
+        // Hydrogen songs and patterns given to a program: their MIDI.
+        runArgs = Hydrogen.midiArgs(runArgs, new File(PromptDb.dir(), "pyjav-in"));
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             MediaBrowser.loadLoop();
@@ -1384,7 +1386,7 @@ final class PyJav {
                     chosen.setText(f.getName());
                 }, () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
-                    String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
+                    String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();

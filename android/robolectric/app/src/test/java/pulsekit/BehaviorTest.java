@@ -4448,6 +4448,60 @@ public class BehaviorTest {
    * on the WAV set from what the track was asked to be (the tempo asked; with bass asked for, the
    * switches suggested for a mix), and the report reads the request: instruments, tempo, length.
    */
+  /** Hydrogen: a pattern file into the grid, a song (Verse x3, Fill) as an imported song, and its MIDI for a program. */
+  @Test
+  public void s105_import_hydrogen() throws Exception {
+    StringBuilder sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?><song><bpm>100</bpm><name>Test song</name><instrumentList>");
+    int[][] inst = {{0, 36}, {2, 38}, {5, 41}, {6, 42}, {7, 43}};
+    for (int[] i : inst) sb.append("<instrument><id>").append(i[0]).append("</id><midiOutNote>").append(i[1]).append("</midiOutNote></instrument>");
+    sb.append("</instrumentList><patternList><pattern><name>Verse</name><size>192</size><denominator>4</denominator><noteList>");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, 6, 0.6));
+    sb.append(h2note(0, 0, 0.9)).append(h2note(96, 0, 0.9)).append(h2note(48, 2, 0.9)).append(h2note(144, 2, 0.9));
+    sb.append("</noteList></pattern><pattern><name>Fill</name><size>192</size><denominator>4</denominator><noteList>");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, pos < 96 ? 7 : 5, 0.8));
+    sb.append("</noteList></pattern></patternList><patternSequence>");
+    for (String n : new String[] {"Verse", "Verse", "Verse", "Fill"}) sb.append("<group><patternID>").append(n).append("</patternID></group>");
+    byte[] song = sb.append("</patternSequence></song>").toString().getBytes(StandardCharsets.UTF_8);
+    String pat = "<drumkit_pattern><pattern_for_drumkit>GMkit</pattern_for_drumkit><pattern><pattern_name>c:\\beats\\Beat</pattern_name><size>192</size><noteList>"
+        + h2note(0, 0, 0.9) + h2note(96, 2, 0.9) + h2note(120, 2, 0.0) + "</noteList></pattern></drumkit_pattern>";
+    StringBuilder log = new StringBuilder();
+    Hydrogen.Result r = Hydrogen.toMidi(song);
+    log.append(Hydrogen.summary(r)).append('\n');
+    if (r.bars != 4 || r.notes != 44 || r.bpm != 100) throw new AssertionError("h2song read as " + Hydrogen.summary(r));
+    log.append(Hydrogen.summary(Hydrogen.toMidi(pat.getBytes(StandardCharsets.UTF_8)))).append('\n');
+    call("ingest", pat.getBytes(StandardCharsets.UTF_8), "Beat.h2pattern", null);
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    int[][] cells = (int[][]) get("cells");
+    log.append("pattern kick ").append(cells[0][0]).append(" snare ").append(cells[2][8]).append('\n');
+    if (cells[0][0] <= 0 || cells[2][8] <= 0) throw new AssertionError("Hydrogen pattern not in the grid");
+    call("ingest", song, "Test song.h2song", null);
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> imported = (List<Engine.ImportedSong>) get("importedSongs");
+    log.append("imported ").append(imported.isEmpty() ? "none" : imported.get(0).name + " \u00b7 " + imported.get(0).parts.size() + " parts").append('\n');
+    if (imported.isEmpty() || imported.get(0).parts.isEmpty()) throw new AssertionError("Hydrogen song made no song");
+    java.io.File h2 = new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "Test song.h2song");
+    java.nio.file.Files.write(h2.toPath(), song);
+    List<String> args = Hydrogen.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "h2mid"));
+    log.append("program args ").append(new java.io.File(args.get(0)).getName()).append(' ').append(args.subList(1, args.size())).append('\n');
+    if (!args.get(0).endsWith("Test song.mid")) throw new AssertionError("program got " + args);
+    write("s105_import_hydrogen", log.toString());
+  }
+
+  private static String h2note(int pos, int inst, double vel) {
+    return "<note><position>" + pos + "</position><velocity>" + vel + "</velocity><instrument>" + inst + "</instrument></note>";
+  }
+
   @Test
   public void s104_sogni_music_test() throws Exception {
     StringBuilder out = new StringBuilder();

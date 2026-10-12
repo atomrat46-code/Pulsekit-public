@@ -450,6 +450,17 @@ final class ProjectIo {
     }
 
     void ingest(byte[] byArray, String string, Uri uri) throws Exception {
+        // Hydrogen songs and patterns import as the drum MIDI they play.
+        if (pulsekit.Hydrogen.isHydrogen(byArray)) {
+            pulsekit.Hydrogen.Result h2 = pulsekit.Hydrogen.toMidi(byArray);
+            if (h2.notes == 0) {
+                Toast.makeText((Context)app, (CharSequence)"No notes in that Hydrogen file", (int)0).show();
+                return;
+            }
+            app.setNow(pulsekit.Hydrogen.summary(h2));
+            this.ingest(h2.midi, pulsekit.Hydrogen.midiName(string), uri);
+            return;
+        }
         // WAV and MP3 become the input file of the PyJav program (e.g. MidiDrumGen.java).
         if (app.pyJav.pkTakeAudioInput(byArray, string)) {
             return;

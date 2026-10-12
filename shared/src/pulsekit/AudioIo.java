@@ -366,6 +366,14 @@ public final class AudioIo {
 
   /** Drum hits in a MIDI file, one bar at a time, rendered with the kit voices. */
   public static short[] renderMidiDrums(byte[] midi, short[][] voices, int sr) {
+    // A Hydrogen song or pattern plays as its MIDI.
+    if (Hydrogen.isHydrogen(midi)) {
+      try {
+        midi = Hydrogen.toMidi(midi).midi;
+      } catch (Exception ex) {
+        return new short[0];
+      }
+    }
     Engine.MidiBars bars = Engine.parseMidiBars(midi);
     if (bars == null || bars.bars.isEmpty()) return new short[0];
     java.util.ArrayList<Engine.Part> parts = new java.util.ArrayList<Engine.Part>();

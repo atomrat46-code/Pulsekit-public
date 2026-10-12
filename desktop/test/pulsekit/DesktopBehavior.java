@@ -3819,6 +3819,57 @@ public final class DesktopBehavior {
     }
   }
 
+  /** A small Hydrogen song: Verse (kick, snare, hats) three times, then Fill (toms), at 100 BPM. */
+  static String h2song() {
+    StringBuilder sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<song>\n <bpm>100</bpm>\n <name>Test song</name>\n <instrumentList>\n");
+    int[][] inst = {{0, 36}, {2, 38}, {5, 41}, {6, 42}, {7, 43}};
+    for (int[] i : inst) sb.append("  <instrument><id>").append(i[0]).append("</id><isMuted>false</isMuted><midiOutNote>").append(i[1]).append("</midiOutNote></instrument>\n");
+    sb.append(" </instrumentList>\n <patternList>\n  <pattern><name>Verse</name><size>192</size><denominator>4</denominator><noteList>\n");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, 6, 0.6));
+    sb.append(h2note(0, 0, 0.9)).append(h2note(96, 0, 0.9)).append(h2note(48, 2, 0.9)).append(h2note(144, 2, 0.9));
+    sb.append("  </noteList></pattern>\n  <pattern><name>Fill</name><size>192</size><denominator>4</denominator><noteList>\n");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, pos < 96 ? 7 : 5, 0.8));
+    sb.append("  </noteList></pattern>\n </patternList>\n <patternSequence>\n");
+    for (String n : new String[] {"Verse", "Verse", "Verse", "Fill"}) sb.append("  <group><patternID>").append(n).append("</patternID></group>\n");
+    return sb.append(" </patternSequence>\n</song>\n").toString();
+  }
+
+  static String h2note(int pos, int inst, double vel) {
+    return "   <note><position>" + pos + "</position><velocity>" + vel + "</velocity><instrument>" + inst + "</instrument><note_off>false</note_off></note>\n";
+  }
+
+  void s90_import_hydrogen() throws Exception {
+    byte[] song = h2song().getBytes(StandardCharsets.UTF_8);
+    Hydrogen.Result r = Hydrogen.toMidi(song);
+    out.append("h2song: ").append(Hydrogen.summary(r)).append('\n');
+    if (r.bars != 4 || r.notes != 3 * 12 + 8 || r.bpm != 100) throw new AssertionError("h2song read as " + Hydrogen.summary(r));
+    // A pattern file: GM kit notes (36 + instrument), no tempo of its own.
+    String pat = "<drumkit_pattern><pattern_for_drumkit>GMkit</pattern_for_drumkit><pattern><pattern_name>Beat</pattern_name><size>192</size><noteList>"
+        + h2note(0, 0, 0.9) + h2note(96, 2, 0.9) + h2note(120, 2, 0.0) + "</noteList></pattern></drumkit_pattern>";
+    Hydrogen.Result pr = Hydrogen.toMidi(pat.getBytes(StandardCharsets.UTF_8));
+    out.append("h2pattern: ").append(Hydrogen.summary(pr)).append('\n');
+    if (pr.notes != 2 || pr.bpm != 0) throw new AssertionError("h2pattern read as " + Hydrogen.summary(pr));
+    call("ingest", pat.getBytes(StandardCharsets.UTF_8), "Beat.h2pattern");
+    int[][] cells = (int[][]) get("cells");
+    out.append("pattern kick ").append(cells[0][0]).append(" snare ").append(cells[2][8]).append(" bpm ").append(call("bpm")).append('\n');
+    if (cells[0][0] <= 0 || cells[2][8] <= 0) throw new AssertionError("Hydrogen pattern not in the grid");
+    answers.add("Yes");
+    call("ingest", song, "Test song.h2song");
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> imported = (List<Engine.ImportedSong>) get("importedSongs");
+    Engine.ImportedSong made = imported.isEmpty() ? null : imported.get(0);
+    out.append("song bpm ").append(call("bpm")).append(", imported song ").append(made == null ? "none" : made.name + " \u00b7 " + made.parts.size() + " parts").append('\n');
+    if (made == null || made.parts.isEmpty()) throw new AssertionError("Hydrogen song made no song");
+    // Given to a program: its MIDI instead.
+    File h2 = new File(System.getProperty("java.io.tmpdir"), "Test song.h2song");
+    Files.write(h2.toPath(), song);
+    List<String> args = Hydrogen.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new File(System.getProperty("java.io.tmpdir"), "h2mid"));
+    out.append("program args ").append(new File(args.get(0)).getName()).append(' ').append(args.subList(1, args.size())).append('\n');
+    Engine.MidiBars bars = Engine.parseMidiBars(Files.readAllBytes(new File(args.get(0)).toPath()));
+    if (!args.get(0).endsWith("Test song.mid") || bars == null || bars.bars.size() != 4) throw new AssertionError("program got " + args);
+    snap("after Hydrogen song");
+  }
+
   /**
    * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (a WAV with Pulsekit's kit); --test: on to
    * Midi2Wav's test, ending with the report (DrumMidi on the WAV, CompareHits against the groove).
