@@ -10,7 +10,7 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 
 /**
- * File > General settings: "Use encrypted DB". Unticked, the prompt library is copied into an
+ * File > General settings: "Use encrypted DB" and "Ask where to save a prompt after a run" (PromptSave). Unticked, the prompt library is copied into an
  * unencrypted one (~/.pulsekit/prompts-plain.vault), which is used from then on; ticked again, the
  * encrypted one is brought up to date and the unencrypted one deleted. The copy runs off the
  * window's thread ("Processing DB, please wait"); the setting is kept by which library is there.
@@ -30,7 +30,21 @@ final class GeneralSettings {
             + "and the unencrypted one is deleted.");
         note.setEditable(false);
         note.setOpaque(false);
-        col.add(note, BorderLayout.CENTER);
+        // After a run with --saveprompt: ask where the prompt goes (Save prompt), or store it where its sheet says.
+        PromptSave.load(PromptDb.dir());
+        final JCheckBox ask = new JCheckBox("Ask where to save a prompt after a run", PromptSave.ask());
+        ask.setName("settings-ask-save");
+        ask.addActionListener(e -> PromptSave.setAsk(ask.isSelected()));
+        JTextArea askNote = new JTextArea("A run with --saveprompt (Save the prompt into DB) shows Save prompt: main category, subcategory,\n"
+            + "name and description; the prompt is saved as its next version, with the date. A prompt the same as one in the\n"
+            + "library already is not saved again. Unticked, it goes into the category its sheet names.");
+        askNote.setEditable(false);
+        askNote.setOpaque(false);
+        JPanel middle = new JPanel(new BorderLayout(0, 8));
+        middle.add(note, BorderLayout.NORTH);
+        middle.add(ask, BorderLayout.CENTER);
+        middle.add(askNote, BorderLayout.SOUTH);
+        col.add(middle, BorderLayout.CENTER);
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());
         JPanel south = new JPanel(new BorderLayout());

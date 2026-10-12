@@ -51,6 +51,8 @@ public final class ProgramParams {
     public boolean output;
     /** SogniChat's saved chat to continue: the row has New chat, which clears it (the next run starts a new chat). */
     public boolean newChat;
+    /** SogniChat's Chat model: a note under it says image analyze mode or tools mode (chatModelNote). */
+    public boolean modelNote;
     /** An on/off switch that starts ticked in Params until the program's Params are saved (SogniVideo's --saveprompt and --no_filter). */
     public boolean defaultOn;
     /**
@@ -247,6 +249,16 @@ public final class ProgramParams {
   }
 
   /** Labels, hints and suggested values for DrumMidi's switches; a readable label for anything else. */
+  /**
+   * SogniChat Params' note under Chat model: a DeepSeek vision model is image analyze mode (it reads
+   * the pictures sent; no other tools), any other model tools mode.
+   */
+  public static String chatModelNote(String model) {
+    String m = model == null ? "" : model.trim().toLowerCase(java.util.Locale.ROOT);
+    if (m.contains("deepseek")) return "Image analyze mode: this model reads the pictures sent with File; no other Sogni tools are available with it";
+    return "Tools mode: Sogni's tools (pictures, music, video) can be used with this model (Offer Sogni tools, Unlimited Plan)";
+  }
+
   /** The chat models Sogni offered (SogniChat --models, October 2026), the default first. */
   static final String[] CHAT_MODELS = {
     "qwen3.6-35b-a3b-gguf-iq4xs", "deepseek-v4-flash-vision-exp-dspark-1m", "qwen3.5-35b-a3b-abliterated-gguf-q4km"
@@ -274,6 +286,7 @@ public final class ProgramParams {
       p.hint = "empty for the default, or one from the list";
       p.choices = CHAT_MODEL_LABELS;
       p.choiceValues = CHAT_MODELS;
+      p.modelNote = true;
     }
     if (p.flag && p.takesValue && p.token.equals("--file") && chat) {
       // SogniChat reads text, MIDI, pictures, audio and video: any file can be picked, also from the prompt library (Browse DB).

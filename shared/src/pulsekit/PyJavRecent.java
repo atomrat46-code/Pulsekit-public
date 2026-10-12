@@ -8,9 +8,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Recently run PyJav programs and the extra arguments used with them. */
+/**
+ * Recently run PyJav programs and the extra arguments used with them. The Recent list shows each
+ * program once (programs()); a long press lists its runs (runsOf()); a tap runs tapped().
+ */
 public final class PyJavRecent {
-  private static final int MAX = 8;
+  /** Runs kept: all of them, and of one program. */
+  private static final int MAX = 60;
+  private static final int PER_PROGRAM = 8;
   private static final int MAX_BYTES = 400000;
 
   public static final class Item {
@@ -62,9 +67,11 @@ public final class PyJavRecent {
     Item fresh = new Item(name, extra, source, kept);
     List<Item> list = new ArrayList<Item>();
     list.add(fresh);
+    int same = 1;
     for (Item old : load(dir)) {
       if (list.size() >= MAX) break;
       if (old.name.equals(fresh.name) && old.extra.equals(fresh.extra)) continue;
+      if (old.name.equals(fresh.name) && ++same > PER_PROGRAM) continue;
       list.add(old);
     }
     StringBuilder text = new StringBuilder();
@@ -85,6 +92,38 @@ public final class PyJavRecent {
     } catch (Exception ignored) {
       /* recent list is optional */
     }
+  }
+
+  /** The programs run, each once, the one run last first. */
+  public static List<String> programs(List<Item> items) {
+    List<String> out = new ArrayList<String>();
+    if (items == null) return out;
+    for (Item item : items) if (!out.contains(item.name)) out.add(item.name);
+    return out;
+  }
+
+  /** The runs of `name`, the last first. */
+  public static List<Item> runsOf(List<Item> items, String name) {
+    List<Item> out = new ArrayList<Item>();
+    if (items == null) return out;
+    for (Item item : items) if (item.name.equals(name)) out.add(item);
+    return out;
+  }
+
+  /**
+   * The run a tap on the program's name starts: its run without parameters when one is remembered,
+   * else its last run; null when it has none.
+   */
+  public static Item tapped(List<Item> items, String name) {
+    List<Item> runs = runsOf(items, name);
+    for (Item item : runs) if (item.extra.trim().length() == 0) return item;
+    return runs.isEmpty() ? null : runs.get(0);
+  }
+
+  /** "(no parameters)" for a run without extra arguments, else the arguments. */
+  public static String argsLabel(Item item) {
+    String args = item == null ? "" : item.extra.trim();
+    return args.length() == 0 ? "(no parameters)" : args;
   }
 
   private static byte[] read(File file) throws Exception {

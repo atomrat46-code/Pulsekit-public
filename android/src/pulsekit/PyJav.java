@@ -343,6 +343,13 @@ final class PyJav {
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
     }
 
+    /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
+    public void pkRunRecent(int index) {
+        if (this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
+        this.pkApplyRecent(index);
+        this.pkRunPyJav();
+    }
+
     void pkWirePyJavCore() {
         if (app.tabs != null) {
             for (int i = 0; i < app.tabs.size(); i++) {
@@ -619,8 +626,11 @@ final class PyJav {
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         this.pkLastArgv = argv;
-        pulsekit.PendingOps.done(this.pkPending);
+        this.pkDone(this.pkPending);
         this.pkPending = pulsekit.PendingOps.guarded(name, false) ? pulsekit.PendingOps.add(name, pulsekit.PendingOps.files(argv)) : null;
+        // File > Downloads: the Sogni run is in progress until its result is in.
+        pulsekit.SogniDownloads.init(app.getFilesDir());
+        if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
         pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app));
     }
 
@@ -869,7 +879,12 @@ final class PyJav {
         final boolean saveRun = this.pkSaveRun && status.startsWith("Succeeded");
         this.pkSaveRun = false;
         final boolean any = PromptKeep.hasWork(kept0, argv, program, genToDb, musicToDb) || saveRun;
-        if (!any) pulsekit.PendingOps.done(pending);
+        // The run's prompt sheets (--saveprompt): not saved again when unchanged; else PyJav asks where they go.
+        final java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(kept0);
+        PromptSave.load(filesDir);
+        // File > Downloads: what the run saved; pending until what it stores is stored.
+        if (pending != null && DOWNLOAD_OF.containsKey(pending)) pulsekit.SogniDownloads.result(DOWNLOAD_OF.get(pending).longValue(), status, log, ArtJava.SAVED);
+        if (!any) this.pkDone(pending);
         if (any) {
             log = log + "\nPrompt library: storing\u2026";
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
@@ -880,11 +895,28 @@ final class PyJav {
                 @Override
                 public void run() {
                     String stored;
+                    final java.util.List<PromptSave.Pending> asking = new java.util.ArrayList<PromptSave.Pending>();
                     try {
-                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb);
+                        stored = PromptKeep.keepAll(filesDir, kept0, argv, program, genToDb, musicToDb, sheets.isEmpty());
                         if (saveRun) {
                             String run = PromptKeep.keepRun(filesDir, kept0, argv, program);
                             stored = stored.length() == 0 ? run : run.length() == 0 ? stored : stored + "\n" + run;
+                        }
+                        if (!sheets.isEmpty()) {
+                            PromptVault vault = PromptVault.open(filesDir);
+                            for (PromptSave.Pending p : sheets) {
+                                String same = PromptSave.unchanged(vault, p.sheet);
+                                String line;
+                                if (same != null) {
+                                    line = PromptSave.unchangedNote(p.sheet, same);
+                                } else if (PromptSave.ask()) {
+                                    asking.add(p);
+                                    continue;
+                                } else {
+                                    line = pkWriteSheet(PromptSave.storeAsIs(filesDir, p, kept0, argv), pending);
+                                }
+                                stored = stored.length() == 0 ? line : stored + "\n" + line;
+                            }
                         }
                     } catch (Throwable ex) {
                         // Never left at "storing…": what went wrong is said instead.
@@ -897,13 +929,15 @@ final class PyJav {
                         public void run() {
                             pkKeeping = false;
                             KEEPING.decrementAndGet();
-                            pulsekit.PendingOps.done(pending);
+                            // Sheets to ask about: the run stays pending until each is saved or cancelled.
+                            if (asking.isEmpty()) pkDone(pending);
                             // The "storing" line becomes what was stored; notes added since stay.
                             String now = pkRunLog == null ? shown + "\nPrompt library: storing\u2026" : pkRunLog;
                             String done = now.replace("\nPrompt library: storing\u2026", kept.length() > 0 ? "\n" + kept : "");
                             // Only when the text below Run is still this run's (another run may have started).
                             if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
                             pkRunLog = done;
+                            if (!asking.isEmpty()) pkAskSheets(asking, 0, kept0, argv, pending);
                         }
                     });
                 }
@@ -929,7 +963,7 @@ final class PyJav {
             if (browse != null) MediaBrowser.open(app, browse);
         });
         } catch (Throwable ex) {
-            pulsekit.PendingOps.done(this.pkPending);
+            this.pkDone(this.pkPending);
             this.pkPending = null;
             String m = ex.getMessage();
             status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
@@ -939,6 +973,72 @@ final class PyJav {
             if (this.pkPyLog != null) this.pkPyLog.setText(status);
             this.pkRunLog = status;
         }
+    }
+
+    /** Writes a saved sheet to disk (Download, or the program files folder); its log lines. */
+    String pkWriteSheet(PromptSave.Saved saved, String pending) {
+        if (saved.bytes == null) return saved.note;
+        String at = ArtJava.publish(app, saved.fileName, saved.bytes);
+        String lines = saved.note + (at == null ? "\nCould not save " + saved.fileName : "\nsaved " + at);
+        // File > Downloads: the run's sheet and its prompt library version, for Delete.
+        Long download = pending == null ? null : DOWNLOAD_OF.get(pending);
+        if (download != null) {
+            pulsekit.SogniDownloads.saved(download.longValue(), lines, ArtJava.SAVED);
+            pulsekit.SogniDownloads.stored(download.longValue(), saved.versionId);
+        }
+        return lines;
+    }
+
+    /** The Sogni run (File > Downloads) of each pending entry (PendingOps) still open. */
+    static final java.util.Map<String, Long> DOWNLOAD_OF = new java.util.concurrent.ConcurrentHashMap<String, Long>();
+
+    /** The run's database operations are over (PendingOps), and its downloads finished or failed. */
+    void pkDone(String pending) {
+        pulsekit.PendingOps.done(pending);
+        Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
+        if (download != null) pulsekit.SogniDownloads.done(download.longValue());
+    }
+
+    /**
+     * The run's changed prompt sheets, one by one: where each goes (Save prompt), then stored in the
+     * background and written to disk; the run's database operations are over after the last.
+     */
+    void pkAskSheets(final java.util.List<PromptSave.Pending> sheets, final int i, final pulsekit.JavaRun.Result result,
+            final java.util.List<String> argv, final String pending) {
+        if (i >= sheets.size()) {
+            this.pkDone(pending);
+            return;
+        }
+        final PromptSave.Pending p = sheets.get(i);
+        final java.io.File filesDir = app.getFilesDir();
+        PromptVault vault = null;
+        try {
+            vault = PromptVault.open(filesDir);
+        } catch (Exception ignored) {
+            // the dialog offers no categories then
+        }
+        SavePromptDialog.show(app, vault, p.sheet, choice -> {
+            if (choice == null) {
+                this.pkAddLogLine(PromptSave.cancelledNote(p.sheet));
+                this.pkAskSheets(sheets, i + 1, result, argv, pending);
+                return;
+            }
+            KEEPING.incrementAndGet();
+            new Thread(() -> {
+                String line;
+                try {
+                    line = this.pkWriteSheet(PromptSave.store(filesDir, p, result, argv, choice), pending);
+                } catch (Throwable ex) {
+                    line = "Prompt library: could not store " + p.file.name;
+                }
+                final String note = line;
+                app.runOnUiThread(() -> {
+                    KEEPING.decrementAndGet();
+                    for (String l : note.split("\n")) this.pkAddLogLine(l);
+                    this.pkAskSheets(sheets, i + 1, result, argv, pending);
+                });
+            }, "pulsekit-prompt-save").start();
+        });
     }
 
     /**

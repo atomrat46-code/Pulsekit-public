@@ -60,6 +60,9 @@ public final class DesktopBehavior {
     int code = 0;
     try {
       t.start();
+      // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
+      PromptSave.load(PromptDb.dir());
+      PromptSave.setAsk(false);
       Method m = DesktopBehavior.class.getDeclaredMethod(args[0]);
       m.invoke(t);
     } catch (Throwable e) {
@@ -3358,6 +3361,15 @@ public final class DesktopBehavior {
     out.append("picked: ").append(picked[0] == null ? "none" : home.toPath().relativize(picked[0].toPath())).append('\n');
     MediaBrowser.loadLoop();
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    // Choose file opens on the tab used last: the favourite, not the Recent MB folder.
+    final StringBuilder again = new StringBuilder();
+    inspectNext = d -> again.append("opens again on: ").append(mb.tab).append(", tabs ").append(tabs.apply(d)).append(", shows ").append(mb.shown.getName()).append('\n');
+    SwingUtilities.invokeLater(() -> mb.choose(f -> {}, () -> {}));
+    for (int i = 0; i < 50 && again.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(again);
+    MediaDir.removeFavourite(0);
+    out.append("favourite taken out, opens on: ").append(MediaDir.openTab(true)).append('\n');
   }
 
   /** ImageUpscaler from the Java menu: its Params, and runs with method 1 (sizes, shapes) and method 2 (no Real-ESRGAN here). */
@@ -3734,6 +3746,255 @@ public final class DesktopBehavior {
    * Prompts page Import: a sheet with its files (found beside it); again it is not added twice; a
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
+  /**
+   * File > Downloads: "No downloads yet" at first; a Sogni run is listed (failed: no key), and a
+   * finished run's files are listed by program in Finished / failed. Rename, Copy to, Move to,
+   * Clear and Delete (with its prompt file and prompt library entry) work on a file.
+   */
+  void s85_downloads() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final StringBuilder seen = new StringBuilder();
+    java.util.function.Function<JDialog, String> listing = d -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.ArrayDeque<Component> todo = new java.util.ArrayDeque<Component>();
+      todo.add(d.getContentPane());
+      while (!todo.isEmpty()) {
+        Component c = todo.poll();
+        if (c.getName() != null && c.getName().startsWith("downloads-")) all.add(c);
+        if (c instanceof Container) for (Component k : ((Container) c).getComponents()) todo.add(k);
+      }
+      for (Component c : all) {
+        String t = textOf(c);
+        sb.append("  ").append(c.getName().replaceAll("downloads-run:\\d+", "downloads-run")).append(t == null || t.isEmpty() ? "" : " \"" + t.replace(home.getAbsolutePath(), "~").replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>") + "\"").append('\n');
+      }
+      return sb.toString();
+    };
+    inspectNext = d -> seen.append("empty:\n").append(listing.apply(d));
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    // A Sogni run through PyJav: SogniMusic with no key fails; its prompt sheet is saved.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniMusic.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !log.getText().contains("Prompt library"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    idle();
+    // A finished run: its picture and answer in Downloads, its sheet stored in the library.
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    File pic = new File(dl, "sogni-pedit-smile.png");
+    File txt = new File(dl, "answer.txt");
+    File sheet = new File(dl, "sogni-pedit-smile.prompt");
+    Files.write(pic.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    Files.write(txt.toPath(), "An answer".getBytes(StandardCharsets.UTF_8));
+    Files.write(sheet.toPath(), PromptRun.encode("Smile", "", "", "", "", "Image", "1", "Krea", "sogni-pedit-smile.png", "ai", "Smile").getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.addCategory("Image");
+    long prompt = vault.addPrompt(cat, "Smile");
+    long version = vault.addVersion(prompt, "Smile", "", "Smile", "Krea", "", null, "", null, "sogni-pedit-smile.png", null, "ai", "");
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("SogniPedit.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: sogni-pedit-smile.png", "Saved " + pic.getAbsolutePath() + "\nSaved " + txt.getAbsolutePath() + "\nSaved " + sheet.getAbsolutePath(), null);
+    SogniDownloads.stored(run, version);
+    SogniDownloads.done(run);
+    seen.setLength(0);
+    DownloadsScreen.tab = "";
+    inspectNext = d -> seen.append("after runs:\n").append(listing.apply(d));
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    SogniDownloads.Run r = SogniDownloads.run(run);
+    out.append("menu: ").append(java.util.Arrays.toString(DownloadsScreen.MENU)).append('\n');
+    SogniDownloads.Item picItem = r.items.get(0);
+    SogniDownloads.Item txtItem = r.items.get(1);
+    out.append("rename: ").append(DownloadsScreen.rename(picItem, "smile.png")).append(", now ").append(picItem.where.replace(home.getAbsolutePath(), "~")).append('\n');
+    File other = new File(home, "elsewhere");
+    other.mkdirs();
+    out.append("copy: ").append(DownloadsScreen.put(r, txtItem, other, false).replace(home.getAbsolutePath(), "~")).append(", still at ").append(txtItem.where.replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("move: ").append(DownloadsScreen.put(r, txtItem, other, true).replace(home.getAbsolutePath(), "~")).append(", now ").append(txtItem.where.replace(home.getAbsolutePath(), "~"))
+        .append(", gone from Downloads ").append(!txt.exists()).append('\n');
+    out.append("clear: ").append(DownloadsScreen.clear(r, txtItem)).append(", file stays ").append(new File(txtItem.where).exists()).append('\n');
+    out.append("delete: ").append(DownloadsScreen.delete(r, picItem, true)).append('\n');
+    out.append("  picture gone ").append(!new File(home, "Downloads/smile.png").exists()).append(", sheet gone ").append(!sheet.exists())
+        .append(", library version gone ").append(PromptDb.vault().version(version) == null).append(", run listed ").append(SogniDownloads.run(run) != null).append('\n');
+    // Kept: read back as the app starts again.
+    out.append("kept runs: ").append(SogniDownloads.count()).append('\n');
+  }
+
+  /**
+   * SogniChat: Params' Chat model has a note, image analyze mode for a DeepSeek vision model and
+   * tools mode otherwise; a run says the mode, and a DeepSeek run leaves the tools out.
+   */
+  void s84_chat_modes() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniChat.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt hi"));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      JTextField model = (JTextField) component(d, "params-field:--model");
+      JLabel note = (JLabel) component(d, "params-note:--model");
+      seen.append("default model: ").append(note == null ? "no note" : note.getText()).append('\n');
+      model.setText("deepseek-v4-flash-vision-exp-dspark-1m");
+      seen.append("deepseek: ").append(note == null ? "no note" : note.getText()).append('\n');
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    out.append(seen);
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String none = "--key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\"";
+    for (String extra : new String[] {"--prompt hi --model deepseek-v4-flash-vision-exp-dspark-1m --tools " + none, "--prompt hi " + none, "--prompt hi --tools " + none}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      out.append("== ").append(extra.replace(none, "")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("Image analyze") || t.startsWith("Tools mode") || t.startsWith("Note:")) out.append("  ").append(t).append('\n');
+      }
+    }
+  }
+
+  /**
+   * --saveprompt with Save prompt (General settings: Ask where to save): a changed sheet asks for the
+   * main category, subcategory, name and description and is saved as the prompt's next version with
+   * the date (in the library and on disk); the same sheet again is not saved; Cancel saves nothing.
+   */
+  void s83_save_prompt() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PromptSave.setAsk(true);
+    PromptVault vault = PromptDb.vault();
+    long image = vault.addCategory("Image");
+    vault.addSubcategory(image, "Portraits");
+    String today = PromptSave.today();
+    String[] prompts = {"Same person, smiling", "Same person, smiling", "Same person, laughing", "Same person, frowning"};
+    for (int run = 0; run < prompts.length; run++) {
+      String sheet = "PKPROMPT1\nsogni-pedit-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+          + prompts[run] + "\n\nLoRAs: none. Picture: me.png.\n\nResult file: sogni-pedit-same-person.png\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+      final JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-same-person.png", files, 0);
+      final int at = run;
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        seen.append("Save prompt: ").append(d.getTitle()).append(", recent ").append(component(d, "save-prompt-recent:Image \u203a Portraits") != null)
+            .append(", main ").append(((javax.swing.JComboBox<?>) component(d, "save-prompt-main")).getEditor().getItem())
+            .append(", sub ").append(((javax.swing.JComboBox<?>) component(d, "save-prompt-sub")).getEditor().getItem())
+            .append(", name ").append(((JTextField) component(d, "save-prompt-name")).getText())
+            .append(", ").append(((JLabel) component(d, "save-prompt-version")).getText().replace(today, "<today>")).append('\n');
+        if (at == 0) {
+          ((javax.swing.JComboBox<?>) component(d, "save-prompt-sub")).getEditor().setItem("Portraits");
+          ((javax.swing.JTextArea) component(d, "save-prompt-description")).setText("First try");
+        }
+        ((JTextField) component(d, "save-prompt-name")).setText("Smile");
+      };
+      answers.add(run == 3 ? "Cancel" : "OK");
+      String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+      idle();
+      out.append("== run ").append(run + 1).append(": ").append(prompts[run]).append('\n').append(seen.length() == 0 ? "no Save prompt\n" : seen);
+      for (String line : kept.split("\n")) out.append("  log: ").append(line.replace(today, "<today>").replace(home.getAbsolutePath(), "~")).append('\n');
+      answers.clear();
+      inspectNext = null;
+    }
+    vault = PromptDb.vault();
+    for (PromptVault.Prompt p : vault.prompts(PromptSave.find(vault, "Image", "Portraits"))) {
+      java.util.List<PromptVault.Version> rows = vault.versions(p.id);
+      out.append("library Image \u203a Portraits: ").append(p.title).append(", ").append(rows.size()).append(" versions\n");
+      for (int i = 0; i < rows.size(); i++) out.append("  v").append(rows.size() - i).append(": ").append(rows.get(i).body.split("\n")[0]).append(" | ").append(rows.get(i).description).append('\n');
+    }
+    File[] disk = new File(home, new File(home, "Downloads").isDirectory() ? "Downloads" : ".pulsekit").listFiles();
+    if (disk != null) {
+      java.util.Arrays.sort(disk);
+      for (File f : disk) {
+        if (!f.getName().endsWith(".prompt")) continue;
+        PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+        out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
+            .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description)
+            .append(", prompt ").append(sheet.body.split("\n")[0]).append('\n');
+      }
+    }
+  }
+
+  /**
+   * Recent: each program once. A click runs it without parameters when such a run is remembered,
+   * else with its last ones; a right click lists its runs, and a click on one runs it with those.
+   */
+  void s82_recent_programs() throws Exception {
+    File dir = new File(System.getProperty("user.home"), ".pulsekit");
+    dir.mkdirs();
+    PyJavRecent.remember(dir, "CompareHits.java", "a.wav b.mid", "", null);
+    PyJavRecent.remember(dir, "ImageUpscaler.java", "pic.png --scale 2", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "c.wav d.mid", "", null);
+    call("showView", "py");
+    javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) call("recentMenu");
+    StringBuilder rows = new StringBuilder();
+    for (Component c : menu.getComponents()) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("menu: ").append(rows).append('\n');
+    javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
+    StringBuilder labels = new StringBuilder();
+    for (Component c : runs.getComponents()) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    out.append("CompareHits runs: ").append(labels).append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[][] picks = {{"run", "2"}, {"name", "CompareHits.java"}, {"name", "ImageUpscaler.java"}};
+    for (String[] pick : picks) {
+      edt(() -> log.setText(""));
+      if (pick[0].equals("run")) {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
+        edt(() -> ((javax.swing.JMenuItem) m.getComponent(Integer.parseInt(pick[1]))).doClick());
+      } else {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("recentMenu");
+        for (Component c : m.getComponents()) {
+          if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
+        }
+      }
+      for (int i = 0; i < 200 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed") || log.getText().contains("exit")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      out.append(pick[0]).append(' ').append(pick[1]).append(": ").append((String) get("pyName")).append(", args [").append(((JTextField) get("pyExtra")).getText()).append("], ran ").append(!log.getText().equals("")).append('\n');
+    }
+  }
+
+  /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
+  void s81_params_clear_file() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File me = new File(home, "me.png");
+    File suit = new File(home, "suit.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", suit);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\" --image2 \"" + suit.getAbsolutePath() + "\""));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"--image", "--image2"}) {
+        javax.swing.JButton clear = (javax.swing.JButton) component(d, "params-clear:" + t);
+        seen.append(t).append(": ").append(((JLabel) component(d, "params-chosen:" + t)).getText()).append(", button ").append(clear == null ? "none" : clear.getText()).append('\n');
+      }
+      ((javax.swing.JButton) component(d, "params-clear:--image2")).doClick();
+      seen.append("after Clear: ").append(((JLabel) component(d, "params-chosen:--image2")).getText()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    idle();
+    out.append(seen);
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+  }
+
   void s80_browse_import_saverun() throws Exception {
     File home = new File(System.getProperty("user.home"));
     PromptVault vault = PromptDb.vault();

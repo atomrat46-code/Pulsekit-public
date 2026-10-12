@@ -25,6 +25,9 @@ public final class PromptRun {
     public String ref2 = "";
     public String category = "";
     public String version = "";
+    /** The date the sheet was saved (Date: 2026-10-12), and its subcategory (Subcategory:). */
+    public String date = "";
+    public String subcategory = "";
     public String model = "";
     public String result = "";
     /** What a run that made the result said (its errors and warnings), from the end of the sheet. */
@@ -658,6 +661,8 @@ public final class PromptRun {
       String line = lines[i];
       if (line.startsWith("Category: ")) sheet.category = line.substring(10).trim();
       else if (line.startsWith("Version: ")) sheet.version = line.substring(9).trim();
+      else if (line.startsWith("Date: ")) sheet.date = line.substring(6).trim();
+      else if (line.startsWith("Subcategory: ")) sheet.subcategory = line.substring(13).trim();
       else if (line.startsWith("Model: ")) sheet.model = line.substring(7).trim();
       else if (line.startsWith("Reference file 1: ")) sheet.ref1 = line.substring(18).trim();
       else if (line.startsWith("Reference file 2: ")) sheet.ref2 = line.substring(18).trim();

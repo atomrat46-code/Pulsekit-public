@@ -128,7 +128,8 @@ public final class MediaDir {
   /**
    * Media browser: Add to favourites. Each is a folder as "root\tfolder under it\t...", the root as
    * Params gives it (a granted folder's content:// address, or a path); kept sealed like the folder
-   * last opened. Choose file shows them as tabs after Recent MB folder and Download.
+   * last opened. Choose file shows them as tabs after Recent MB folder and Download, and opens on
+   * the tab used last (lastTab).
    */
   public static volatile List<String> favourites = new ArrayList<String>();
 
@@ -165,6 +166,42 @@ public final class MediaDir {
     next.add(f);
     favourites = next;
     return true;
+  }
+
+  /**
+   * Choose file's tab used last, so Choose file opens on it again: "recent", "download", or a
+   * favourite as its folder text (kept sealed); "" when none.
+   */
+  public static volatile String lastTab = "";
+
+  /** Choose file opened `tab` ("recent", "download", "fav:<its place in favourites>"). */
+  public static synchronized void usedTab(String tab) {
+    if (tab == null) return;
+    if (tab.startsWith("fav:")) {
+      try {
+        int i = Integer.parseInt(tab.substring(4));
+        if (i >= 0 && i < favourites.size()) lastTab = "fav\t" + favourites.get(i);
+      } catch (NumberFormatException ignored) {
+        // not a favourite tab
+      }
+    } else if (tab.equals("recent") || tab.equals("download")) {
+      lastTab = tab;
+    }
+  }
+
+  /**
+   * The tab Choose file opens on: the one used last (a favourite still among the favourites, the
+   * Recent MB folder when `recentThere`, Download), else the Recent MB folder, else Download.
+   */
+  public static synchronized String openTab(boolean recentThere) {
+    String t = lastTab == null ? "" : lastTab;
+    if (t.startsWith("fav\t")) {
+      int i = favourites.indexOf(t.substring(4));
+      if (i >= 0) return "fav:" + i;
+    } else if (t.equals("download")) {
+      return "download";
+    }
+    return recentThere ? "recent" : "download";
   }
 
   /** Takes a favourite out (its place in favourites). */
@@ -259,12 +296,21 @@ public final class MediaDir {
         // without a key, favourites are not kept
       }
     }
+    String tab = lastTab == null ? "" : lastTab;
+    if (tab.startsWith("fav\t")) {
+      try {
+        tab = "fav:" + Sealed.sealText(tab.substring(4));
+      } catch (Exception ex) {
+        // without a key, favourites are not kept
+        tab = "";
+      }
+    }
     StringBuilder places = new StringBuilder();
     synchronized (MediaDir.class) {
       for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
     }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + places + "\n";
+        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + (tab.length() > 0 ? "\ntab=" + tab : "") + places + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -277,6 +323,7 @@ public final class MediaDir {
     lastPath = new ArrayList<String>();
     List<String> favs = new ArrayList<String>();
     favourites = favs;
+    lastTab = "";
     synchronized (MediaDir.class) {
       PLACES.clear();
     }
@@ -297,6 +344,17 @@ public final class MediaDir {
             synchronized (MediaDir.class) {
               PLACES.put(v.substring(0, colon), Integer.valueOf(Integer.parseInt(v.substring(colon + 1).trim())));
             }
+          }
+        }
+        else if (k.equals("tab")) {
+          if (v.startsWith("fav:")) {
+            try {
+              lastTab = "fav\t" + Sealed.openText(v.substring(4));
+            } catch (Exception ex) {
+              // unreadable: opens as before
+            }
+          } else {
+            lastTab = v;
           }
         }
         else if (k.equals("fav")) {

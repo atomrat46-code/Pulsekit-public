@@ -52,6 +52,9 @@ public class BehaviorTest {
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
     idle();
+    // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
+    PromptSave.load(app.getFilesDir());
+    PromptSave.setAsk(false);
   }
 
   @After
@@ -320,7 +323,7 @@ public class BehaviorTest {
     List<Object> items = (List<Object>) get("pkPyRecentItems");
     out.append("recent items=").append(items == null ? 0 : items.size()).append('\n');
     View box = root().findViewWithTag("pk-recent");
-    String label = "DrumMidi_CRT.java  " + used;
+    String label = "DrumMidi_CRT.java";
     TextView entry = box == null ? null : findText(box, label);
     out.append("recent row shown=").append(entry != null).append('\n');
     // open something else, then pick the recent entry
@@ -3276,6 +3279,15 @@ public class BehaviorTest {
     // The favourite is kept: read back from the saved settings.
     MediaBrowser.load(app);
     out.append("kept favourites: ").append(MediaDir.favourites.size()).append('\n');
+    // Choose file opens on the tab used last: the favourite, not the Recent MB folder.
+    PyJavParams.pickFile(app, values, 0, label);
+    idle();
+    out.append("opens again on: ").append(MediaBrowser.last.tab).append(", tabs ").append(tabs.apply(MediaBrowser.last)).append('\n');
+    MediaBrowser.last.dialog.dismiss();
+    idle();
+    // A favourite taken out: Choose file opens on the Recent MB folder.
+    MediaDir.removeFavourite(0);
+    out.append("favourite taken out, opens on: ").append(MediaDir.openTab(true)).append('\n');
     write("s90_choose_file", out.toString());
   }
 
@@ -4427,6 +4439,262 @@ public class BehaviorTest {
     out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.EXPORT_TO_DB, false)).append('\n');
     box.setChecked(false);
     write("s64_export_to_db", out.toString());
+  }
+
+  /**
+   * File > Downloads: "No downloads yet" at first; a Sogni run's files (its picture, SogniChat's
+   * answer) are listed by program in Finished / failed once its result is in; a long press offers
+   * Preview, Clear, Rename, Delete, Move to and Copy to; Delete can take the prompt file and the
+   * prompt library entry too.
+   */
+  @Test
+  public void s100_downloads() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.function.Supplier<String> listing = () -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.ArrayDeque<View> todo = new java.util.ArrayDeque<View>();
+      todo.add(DownloadsScreen.last.getWindow().getDecorView());
+      while (!todo.isEmpty()) {
+        View v = todo.poll();
+        Object tag = v.getTag();
+        if (tag instanceof String && ((String) tag).startsWith("downloads-")) {
+          sb.append("  ").append(((String) tag).replaceAll("downloads-run:\\d+", "downloads-run"));
+          if (v instanceof TextView) sb.append(" \"").append(((TextView) v).getText().toString().replace('\n', '|').replace(app.getExternalFilesDir(null).getAbsolutePath(), "<files>").replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>")).append('"');
+          sb.append('\n');
+        }
+        if (v instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) todo.add(((android.view.ViewGroup) v).getChildAt(i));
+      }
+      return sb.toString();
+    };
+    DownloadsScreen.tab = "";
+    DownloadsScreen.show(app);
+    idle();
+    out.append("empty:\n").append(listing.get());
+    DownloadsScreen.last.dismiss();
+    // A SogniChat run, as PyJav starts it: in progress, then its result with its picture and answer.
+    call("show", "py");
+    idle();
+    app.pyName = "SogniChat.java";
+    app.pyJav.pkPending = PendingOps.add("SogniChat.java", new java.util.ArrayList<String>());
+    SogniDownloads.init(app.getFilesDir());
+    PyJav.DOWNLOAD_OF.put(app.pyJav.pkPending, SogniDownloads.started("SogniChat.java", System.currentTimeMillis()));
+    DownloadsScreen.show(app);
+    idle();
+    out.append("running:\n").append(listing.get());
+    DownloadsScreen.last.dismiss();
+    File dir = app.getExternalFilesDir(null);
+    File pic = new File(dir, "kit-1.png");
+    File txt = new File(dir, "kit.txt");
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 6, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    Files.write(txt.toPath(), "Try a ghost note on the snare.".getBytes(StandardCharsets.UTF_8));
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("kit-1.png", Files.readAllBytes(pic.toPath())));
+    files.add(new JavaRun.FileOut("kit.txt", Files.readAllBytes(txt.toPath())));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("kit", "--prompt", "Draw a kit", "--tools"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniChat\nsaved " + pic.getAbsolutePath() + "\nsaved " + txt.getAbsolutePath() + "\nSucceeded: kit.txt", files, 0));
+    idle();
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    DownloadsScreen.show(app);
+    idle();
+    out.append("after the run:\n").append(listing.get());
+    View dv = DownloadsScreen.last.getWindow().getDecorView();
+    dv.findViewWithTag("downloads-item:kit.txt").performLongClick();
+    idle();
+    android.widget.ListView menu = DownloadsScreen.lastMenu.getListView();
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < menu.getAdapter().getCount(); i++) items.append('[').append(menu.getAdapter().getItem(i)).append(']');
+    out.append("long press: ").append(items).append('\n');
+    // Rename.
+    menu.performItemClick(menu.getChildAt(2), 2, 2);
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((TextView) ask.getWindow().getDecorView().findViewWithTag("downloads-rename")).setText("ghost-note.txt");
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("renamed: ").append(new File(dir, "ghost-note.txt").isFile()).append(", old gone ").append(!txt.exists()).append('\n');
+    // Delete the picture (no prompt sheet with this run: no "also" box).
+    dv = DownloadsScreen.last.getWindow().getDecorView();
+    dv.findViewWithTag("downloads-item:kit-1.png").performLongClick();
+    idle();
+    menu = DownloadsScreen.lastMenu.getListView();
+    menu.performItemClick(menu.getChildAt(3), 3, 3);
+    idle();
+    out.append("delete asks: ").append(DownloadsScreen.lastDelete.isShowing()).append(", also box ").append(DownloadsScreen.lastDelete.getWindow().getDecorView().findViewWithTag("downloads-delete-also") != null).append('\n');
+    DownloadsScreen.lastDelete.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("picture deleted: ").append(!pic.exists()).append('\n');
+    out.append("now:\n").append(listing.get());
+    write("s100_downloads", out.toString());
+  }
+
+  /** SogniChat Params: Chat model has a note, image analyze mode for a DeepSeek vision model and tools mode otherwise. */
+  @Test
+  public void s99_chat_modes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniChat.java");
+    ((TextView) get("pkPyArgs")).setText("--prompt hi");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    TextView model = (TextView) dv.findViewWithTag("params-field:--model");
+    TextView note = (TextView) dv.findViewWithTag("params-note:--model");
+    out.append("default model: ").append(note == null ? "no note" : note.getText()).append('\n');
+    model.setText("deepseek-v4-flash-vision-exp-dspark-1m");
+    out.append("deepseek: ").append(note == null ? "no note" : note.getText()).append('\n');
+    write("s99_chat_modes", out.toString());
+  }
+
+  /**
+   * --saveprompt with Save prompt (General settings: Ask where to save): a changed sheet asks for the
+   * main category, subcategory, name and description and is saved as the prompt's next version with
+   * the date (in the library and on disk); the same sheet again is not saved; Cancel saves nothing.
+   */
+  @Test
+  public void s98_save_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptSave.setAsk(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = vault.addCategory("Image");
+    vault.addSubcategory(image, "Portraits");
+    call("show", "py");
+    idle();
+    app.pyName = "SogniPedit.java";
+    String today = PromptSave.today();
+    String[] prompts = {"Same person, smiling", "Same person, smiling", "Same person, laughing", "Same person, frowning"};
+    for (int run = 0; run < prompts.length; run++) {
+      String sheet = "PKPROMPT1\nsogni-pedit-same-person\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+          + prompts[run] + "\n\nLoRAs: none. Picture: me.png.\n\nResult file: sogni-pedit-same-person.png\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("sogni-pedit-same-person.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+      app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", prompts[run], "--saveprompt");
+      SavePromptDialog.last = null;
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniPedit\nWrote sogni-pedit-same-person.png (1 KB)\nSucceeded: sogni-pedit-same-person.png", files, 0));
+      idle();
+      out.append("== run ").append(run + 1).append(": ").append(prompts[run]).append('\n');
+      AlertDialog d = SavePromptDialog.last;
+      out.append("Save prompt shown: ").append(d != null && d.isShowing()).append('\n');
+      if (d != null && d.isShowing()) {
+        View dv = d.getWindow().getDecorView();
+        StringBuilder recent = new StringBuilder();
+        for (String r : new String[] {"Image \u203a Portraits"}) if (dv.findViewWithTag("save-prompt-recent:" + r) != null) recent.append('[').append(r).append(']');
+        out.append("  recent ").append(recent).append(", main ").append(((TextView) dv.findViewWithTag("save-prompt-main")).getText())
+            .append(", sub ").append(((TextView) dv.findViewWithTag("save-prompt-sub")).getText())
+            .append(", name ").append(((TextView) dv.findViewWithTag("save-prompt-name")).getText())
+            .append(", ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
+        if (run == 3) {
+          d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        } else {
+          if (run == 0) {
+            ((TextView) dv.findViewWithTag("save-prompt-sub")).setText("Portraits");
+            ((TextView) dv.findViewWithTag("save-prompt-description")).setText("First try");
+          }
+          ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Smile");
+          out.append("  after edits: ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
+          d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+        }
+        idle();
+      }
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) {
+        if (line.startsWith("Prompt library") || line.startsWith("saved ") && line.contains(".prompt")) out.append("  log: ").append(line.replace(today, "<today>").replace(app.getExternalFilesDir(null).getAbsolutePath(), "<files>")).append('\n');
+      }
+    }
+    vault = PromptVault.open(app.getFilesDir());
+    long portraits = PromptSave.find(vault, "Image", "Portraits");
+    for (PromptVault.Prompt p : vault.prompts(portraits)) {
+      java.util.List<PromptVault.Version> rows = vault.versions(p.id);
+      out.append("library Image \u203a Portraits: ").append(p.title).append(", ").append(rows.size()).append(" versions\n");
+      for (int i = 0; i < rows.size(); i++) out.append("  v").append(rows.size() - i).append(": ").append(rows.get(i).body.split("\n")[0]).append(" | ").append(rows.get(i).description).append('\n');
+    }
+    // The sheet written to disk: its version and date.
+    File[] disk = app.getExternalFilesDir(null).listFiles();
+    java.util.Arrays.sort(disk);
+    for (File f : disk) {
+      if (!f.getName().endsWith(".prompt")) continue;
+      PromptRun.Sheet sheet = PromptRun.parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+      out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
+          .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description).append('\n');
+    }
+    write("s98_save_prompt", out.toString());
+  }
+
+  /**
+   * Recent: each program once. A tap runs it without parameters when such a run is remembered,
+   * else with its last ones; a long press lists its runs, and a tap on one runs it with those.
+   */
+  @Test
+  public void s97_recent_programs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = app.getFilesDir();
+    PyJavRecent.remember(dir, "CompareHits.java", "a.wav b.mid", "", null);
+    PyJavRecent.remember(dir, "ImageUpscaler.java", "pic.png --scale 2", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "", "", null);
+    PyJavRecent.remember(dir, "CompareHits.java", "c.wav d.mid", "", null);
+    call("pkRefreshRecent", 0);
+    idle();
+    View box = root().findViewWithTag("pk-recent");
+    View list = box.findViewWithTag("pk-recent-list");
+    StringBuilder rows = new StringBuilder();
+    for (int i = 0; i < ((android.view.ViewGroup) list).getChildCount(); i++) rows.append('[').append(((TextView) ((android.view.ViewGroup) list).getChildAt(i)).getText()).append(']');
+    out.append("list: ").append(rows).append('\n');
+    // Long press: CompareHits' runs.
+    box.findViewWithTag("pk-recent-item:CompareHits.java").performLongClick();
+    idle();
+    android.widget.ListView runs = PyJavUi.lastRuns.getListView();
+    StringBuilder labels = new StringBuilder();
+    for (int i = 0; i < runs.getAdapter().getCount(); i++) labels.append('[').append(runs.getAdapter().getItem(i)).append(']');
+    out.append("CompareHits runs: ").append(PyJavUi.lastRuns.isShowing()).append(' ').append(labels).append('\n');
+    // Tap a run: runs with its parameters.
+    runs.performItemClick(runs.getChildAt(2), 2, 2);
+    idle();
+    out.append("run picked: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    // Tap the name: the run without parameters.
+    box = root().findViewWithTag("pk-recent");
+    box.findViewWithTag("pk-recent-item:CompareHits.java").performClick();
+    idle();
+    out.append("CompareHits tapped: args [").append(((TextView) get("pkPyArgs")).getText()).append("]\n");
+    // ImageUpscaler has no run without parameters: its last one.
+    box = root().findViewWithTag("pk-recent");
+    box.findViewWithTag("pk-recent-item:ImageUpscaler.java").performClick();
+    idle();
+    out.append("ImageUpscaler tapped: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    write("s97_recent_programs", out.toString());
+  }
+
+  /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
+  @Test
+  public void s96_params_clear_file() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--prompt Hi --image /sdcard/Download/me.png --image2 /sdcard/Download/suit.png");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"--image", "--image2"}) {
+      android.widget.Button clear = (android.widget.Button) dv.findViewWithTag("params-clear:" + t);
+      out.append(t).append(": ").append(((TextView) dv.findViewWithTag("params-chosen:" + t)).getText()).append(", button ").append(clear == null ? "none" : clear.getText()).append('\n');
+    }
+    ((android.widget.Button) dv.findViewWithTag("params-clear:--image2")).performClick();
+    idle();
+    out.append("after Clear: ").append(((TextView) dv.findViewWithTag("params-chosen:--image2")).getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    write("s96_params_clear_file", out.toString());
   }
 
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */

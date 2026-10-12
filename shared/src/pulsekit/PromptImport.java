@@ -29,7 +29,13 @@ public final class PromptImport {
     String name = sheet.name.trim().length() > 0 ? sheet.name.trim() : PromptVault.fileTitle(fileName).replaceAll("\\.prompt$", "");
     String catName = sheet.category.trim().length() == 0 ? "General" : sheet.category.trim();
     long catId = 0;
+    if (sheet.subcategory.trim().length() > 0) {
+      // A sheet saved into a subcategory (Subcategory: line) goes back there.
+      catId = PromptSave.place(vault, catName, sheet.subcategory);
+      catName = PromptSave.placeLabel(catName, sheet.subcategory);
+    }
     for (PromptVault.Category c : vault.categories()) {
+      if (catId != 0) break;
       if (c.name != null && c.name.trim().equalsIgnoreCase(catName)) {
         catId = c.id;
         break;

@@ -183,6 +183,16 @@ public final class PyJavParams {
             chosen.setText(fileLabel(""));
           });
           row.addView(fresh);
+        } else {
+          // Clear: a file picked by mistake leaves the row (a second reference image, say).
+          android.widget.Button clear = new android.widget.Button(activity);
+          clear.setText("Clear");
+          clear.setTag("params-clear:" + p.token);
+          clear.setOnClickListener(v -> {
+            values[index] = "";
+            chosen.setText(fileLabel(""));
+          });
+          row.addView(clear);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         if (p.join) {
@@ -296,6 +306,27 @@ public final class PyJavParams {
         choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choiceValue(at))));
         row.addView(choose);
         box.addView(row);
+        if (p.modelNote) {
+          // SogniChat: image analyze mode (a DeepSeek vision model) or tools mode, as the model is picked.
+          final TextView modeNote = new TextView(activity);
+          modeNote.setTag("params-note:" + p.token);
+          modeNote.setTextSize(12);
+          modeNote.setPadding(dp(activity, 4), 0, 0, dp(activity, 6));
+          modeNote.setText(ProgramParams.chatModelNote(field.getText().toString()));
+          field.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+              modeNote.setText(ProgramParams.chatModelNote(s.toString()));
+            }
+          });
+          box.addView(modeNote);
+        }
         continue;
       }
       box.addView(field);

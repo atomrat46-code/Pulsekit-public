@@ -31,6 +31,21 @@ final class GeneralSettings {
         note.setPadding(0, app.dp(8), 0, 0);
         col.addView(note);
         box.setOnCheckedChangeListener((b, on) -> change(app, box, on));
+        // After a run with --saveprompt: ask where the prompt goes (Save prompt), or store it where its sheet says.
+        PromptSave.load(app.getFilesDir());
+        final CheckBox ask = new CheckBox(app);
+        ask.setText("Ask where to save a prompt after a run");
+        ask.setTag("settings-ask-save");
+        ask.setChecked(PromptSave.ask());
+        ask.setOnCheckedChangeListener((b, on) -> PromptSave.setAsk(on));
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
+        alp.topMargin = app.dp(12);
+        col.addView(ask, alp);
+        TextView askNote = app.text("A run with --saveprompt (Save the prompt into DB) shows Save prompt: main category, subcategory, name and description; "
+            + "the prompt is saved as its next version, with the date. A prompt the same as one in the library already is not saved again. "
+            + "Unticked, it goes into the category its sheet names.", 12, false);
+        askNote.setPadding(0, app.dp(4), 0, 0);
+        col.addView(askNote);
         last = new AlertDialog.Builder(app)
             .setTitle("General settings")
             .setView(col)

@@ -175,7 +175,11 @@ public final class ArtJava {
         if (fn.equals(skip) || fn.endsWith(".class") || fn.endsWith(".dex") || fn.endsWith(".java")) continue;
         if (f.length() > JavaRun.maxFileBytes(fn)) continue;
         byte[] body = read(f);
-        files.add(new JavaRun.FileOut(fn, body));
+        JavaRun.FileOut out = new JavaRun.FileOut(fn, body);
+        files.add(out);
+        // A prompt sheet (--saveprompt) is written to disk after the run, once PyJav knows where it
+        // goes (and not at all when it is the same as one in the library already: PromptSave).
+        if (PromptSave.isSheetFile(out)) continue;
         String saved = publish(ctx, fn, body);
         if (saved != null) ps.println("saved " + saved);
       }
@@ -729,6 +733,12 @@ public final class ArtJava {
     }
   }
 
+  /**
+   * Where each file publish() wrote went, by what it said ("Download/x.png" -> its content://
+   * address): File > Downloads renames, moves and deletes it there.
+   */
+  static final java.util.Map<String, String> SAVED = new java.util.concurrent.ConcurrentHashMap<String, String>();
+
   /** Writes the file into Download as `safe` (or Download's own "safe (n)"); null when Download takes no file of that name. */
   private static String toDownloads(Context ctx, String safe, byte[] data) {
     android.net.Uri uri = null;
@@ -746,6 +756,7 @@ public final class ArtJava {
       } finally {
         os.close();
       }
+      SAVED.put("Download/" + safe, uri.toString());
       return "Download/" + safe;
     } catch (Throwable ex) {
       if (uri != null) {
@@ -786,6 +797,7 @@ public final class ArtJava {
       } finally {
         os.close();
       }
+      SAVED.put(ProgramFolder.label() + "/" + safe, file.toString());
       return ProgramFolder.label() + "/" + safe;
     } catch (Throwable ex) {
       return null;
@@ -796,7 +808,7 @@ public final class ArtJava {
    * Android's own type for the extension (audio/mpeg for .mp3, audio/x-wav for .wav), so Downloads
    * keeps the extension last and numbers a second copy "name (1).mp3", not "name.mp3(1)".
    */
-  private static String mimeOf(String name) {
+  static String mimeOf(String name) {
     String n = name.toLowerCase();
     int dot = n.lastIndexOf('.');
     String known = dot < 0 ? null : android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(n.substring(dot + 1));
