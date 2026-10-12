@@ -7,6 +7,10 @@
  *   java CompareHits <drums.mid> <song.mid> [--log <logfile>]
  *     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
  *
+ *   java CompareHits <played.mid> <drums.mid> --truth [--log <logfile>]
+ *     DrumMidi's MIDI (drums.mid) against the drums actually played (played.mid: the MIDI Midi2Wav
+ *     made the WAV from), so every hit DrumMidi missed or added is known; the suggestions follow.
+ *
  *   --log <logfile>  also writes the results to this text file. --log alone writes
  *                    CompareHits_test_results.txt. In PyJav on Android, a plain file name is saved
  *                    with the program's other output.
@@ -74,9 +78,14 @@ public final class CompareHits {
 
   static void run(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
+    boolean truth = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
+      if ("--truth".equals(a)) {
+        truth = true;
+        continue;
+      }
       if ("--log".equals(a)) {
         // --log alone writes CompareHits_test_results.txt.
         boolean named = i + 1 < args.length && args[i + 1] != null && args[i + 1].trim().length() > 0
@@ -87,12 +96,20 @@ public final class CompareHits {
       files.add(a);
     }
     if (files.size() < 2) {
-      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>]");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>] | <played.mid> <drums.mid> --truth");
       finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
     String first = files.get(0).toLowerCase(Locale.ROOT);
     boolean wav = first.endsWith(".wav") || first.endsWith(".wave");
+    if (truth) {
+      if (wav) {
+        finish("Failed: --truth compares two MIDI files: the drums played, then DrumMidi's MIDI");
+        return;
+      }
+      runTruth(files.get(0), files.get(1));
+      return;
+    }
     double[][] audio = null;
     if (wav) {
       long t0 = System.currentTimeMillis();
@@ -125,6 +142,76 @@ public final class CompareHits {
     out(suggestionsText(suggestions(midi, cymbalKinds(midiBytes), midiBpm(midiBytes), vsWav, songVsMidi, settings, wav ? name(files.get(0)) : null)));
     out(LEGEND);
     finish("Succeeded: compared " + files.size() + " files");
+  }
+
+  /**
+   * --truth: DrumMidi's MIDI against the drums actually played. Recall is what DrumMidi found of
+   * each family, precision how many of its hits were played; the suggestions follow from them.
+   */
+  static void runTruth(String playedPath, String drumsPath) throws Exception {
+    double[][] played = midiHits(read(playedPath));
+    byte[] drumsBytes = read(drumsPath);
+    double[][] drums = midiHits(drumsBytes);
+    java.util.LinkedHashMap<String, String> settings = drumMidiSettings(drumsBytes);
+    out("Played: " + name(playedPath) + "; DrumMidi's MIDI: " + name(drumsPath)
+        + (settings.isEmpty() ? "" : " (DrumMidi settings: " + drumMidiArgsText(settings) + ")"));
+    out("");
+    Result r = compare("DrumMidi against the drums played", "Played", played, "DrumMidi", drums, false);
+    out(text(r));
+    out(suggestionsText(truthSuggestions(r, settings)));
+    out(LEGEND);
+    finish("Succeeded: compared " + name(drumsPath) + " with the drums played");
+  }
+
+  /** Suggestions for DrumMidi's switches when the drums played are known. */
+  static List<String> truthSuggestions(Result r, java.util.Map<String, String> settings) {
+    List<String> out = new ArrayList<String>();
+    java.util.LinkedHashMap<String, Double> next = new java.util.LinkedHashMap<String, Double>();
+    Row k = row(r, KICK);
+    Row sn = row(r, SNARE);
+    Row c = row(r, CYMBAL);
+    Row t = row(r, TOM);
+    Double sens = num(settings, "sens");
+    double kr = k == null || k.ref == 0 ? 1 : k.recall();
+    double sr = sn == null || sn.ref == 0 ? 1 : sn.recall();
+    double kp = k == null || k.test == 0 ? 1 : k.precision();
+    double sp = sn == null || sn.test == 0 ? 1 : sn.precision();
+    if (kr < 0.9 || sr < 0.9) {
+      if (sens != null) next.put("sens", Double.valueOf(sens.doubleValue() + 0.2));
+      out.add(String.format(Locale.ROOT, "--sens should be greater: DrumMidi found %.0f%% of the kicks and %.0f%% of the snares played ", 100 * kr, 100 * sr)
+          + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(sens.doubleValue() + 0.2) + ")." : "(raise it by about 0.2, e.g. 0.4 -> 0.6)."));
+    } else if (kp < 0.85 || sp < 0.85) {
+      if (sens != null) next.put("sens", Double.valueOf(Math.max(0.1, sens.doubleValue() - 0.1)));
+      out.add(String.format(Locale.ROOT, "--sens could be lower: %.0f%% of DrumMidi's kicks and %.0f%% of its snares were not played ", 100 * (1 - kp), 100 * (1 - sp))
+          + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(Math.max(0.1, sens.doubleValue() - 0.1)) + ")." : "(lower it by about 0.1)."));
+    }
+    if ("off".equals(settings == null ? null : settings.get("cymbals"))) {
+      out.add("Cymbals were left out (--no-cymbals), so there is no hat, ride or crash advice.");
+    } else if (c != null && c.ref > 0) {
+      String[] cym = {"hat", "ride"};
+      Double[] was = {num(settings, "hat"), num(settings, "ride")};
+      boolean room = was[0] == null || was[1] == null || was[0].doubleValue() < CYMBAL_MAX || was[1].doubleValue() < CYMBAL_MAX;
+      if (c.recall() < 0.7 && room) {
+        out.add(String.format(Locale.ROOT, "--hat and --ride could be higher: DrumMidi found %.0f%% of the cymbal hits played", 100 * c.recall())
+            + step(next, cym, was, 0.1, ". Raise them by about 0.1, to no more than " + fmt(CYMBAL_MAX) + "."));
+      } else if (c.recall() < 0.7) {
+        out.add(String.format(Locale.ROOT, "Cymbals: DrumMidi found %.0f%% of the cymbal hits played, with --hat and --ride at %s and %s already "
+            + "(above %s they pick up cymbal wash on a full mix); hits close together are heard as one.", 100 * c.recall(), fmt(was[0].doubleValue()), fmt(was[1].doubleValue()), fmt(CYMBAL_MAX)));
+      } else if (c.test > 0 && c.precision() < 0.7) {
+        out.add(String.format(Locale.ROOT, "--hat and --ride could be lower: %.0f%% of DrumMidi's cymbal hits were not played", 100 * (1 - c.precision()))
+            + step(next, cym, was, -0.1, ". Lower them by about 0.1."));
+      }
+    }
+    if (t != null && t.ref >= 2 && t.recall() < 0.5) {
+      out.add(String.format(Locale.ROOT, "Toms: DrumMidi found %.0f%% of the toms played (it hears toms in the kick and snare bands; a higher --sens can help).", 100 * t.recall()));
+    }
+    double worst = 0;
+    for (Row row : r.rows) if (row.matched > 0) worst = Math.max(worst, row.medianMs);
+    if (worst > 20) out.add(String.format(Locale.ROOT, "Timing: matched hits are up to %.0f ms off the drums played (a median); the hits are found, but late or early.", worst));
+    if (Math.abs(r.offsetSec) > 0.02) out.add(String.format(Locale.ROOT, "DrumMidi's MIDI is shifted %+.0f ms from the drums played as a whole.", -1000 * r.offsetSec));
+    if (out.isEmpty()) out.add("No changes suggested: DrumMidi found the drums played.");
+    if (!next.isEmpty()) out.add("Next run: " + nextArgs(settings, next));
+    return out;
   }
 
   static byte[] read(String path) throws java.io.IOException {

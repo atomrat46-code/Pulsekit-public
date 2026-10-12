@@ -608,6 +608,11 @@ final class PyJav {
             int swing = app.swingBar != null ? app.swingBar.getVal() : 0;
             argv = pulsekit.JavaRun.argvFor(src, app.bpm(), app.style, app.bars, swing, extra, app.tsNum, app.tsDen);
         }
+        // A step of Midi2Wav's test (CompareHits on the test's files): exactly these arguments.
+        if (this.pkForcedArgs != null) {
+            argv = new java.util.ArrayList<String>(this.pkForcedArgs);
+            this.pkForcedArgs = null;
+        }
         // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
         argv = pulsekit.JavaRun.withKeyFile(this.pkProgramText(), new java.util.ArrayList<String>(argv));
         // Midi2Wav without a SoundFont: Pulsekit's kit (the active drum set) as one.
@@ -965,7 +970,9 @@ final class PyJav {
         final boolean ok = status.startsWith("Succeeded");
         final pulsekit.JavaRun.Result made = result;
         final String madeLog = log;
-        this.pkOffer("the sound", ok, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
+        // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
+        final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
+        this.pkOffer("the sound", ok && !testing, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
         // Pictures it made (SogniChat's tool results) are shown.
         this.pkOffer("the pictures", ok, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
@@ -988,6 +995,120 @@ final class PyJav {
             if (this.pkPyLog != null) this.pkPyLog.setText(status);
             this.pkRunLog = status;
         }
+    }
+
+    /** The next run's arguments as they are (a step of Midi2Wav's test), or null. */
+    java.util.List<String> pkForcedArgs;
+    /** The test's report shown last, for the tests. */
+    static android.app.AlertDialog pkTestReport;
+
+    /**
+     * Midi2Wav's test (--test), one step a run: after Midi2Wav, DrumMidi_CRT on its WAV; after
+     * DrumMidi, CompareHits on the WAV, DrumMidi's MIDI and the song; then CompareHits --truth on
+     * DrumMidi's MIDI against the MIDI played; then the report. True when the test took this run.
+     */
+    boolean pkTestStep(String program, java.util.List<String> argv, String status, pulsekit.JavaRun.Result result, String log) {
+        pulsekit.Midi2WavTest t = pulsekit.Midi2WavTest.current();
+        if (pulsekit.Midi2WavTest.wanted(program, argv)) {
+            String wavName = pulsekit.PyJavHints.madeAudio(log);
+            byte[] wav = null;
+            if (wavName != null && result != null && result.files != null) {
+                for (int i = 0; i < result.files.size(); i++) {
+                    pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                    if (wavName.equals(f.name)) wav = f.bytes;
+                }
+            }
+            String path = wav == null ? null : AudioOffer.useAsInput(app, wavName, wav);
+            t = pulsekit.Midi2WavTest.start(status, argv, path == null ? null : new java.io.File(path));
+            if (t == null) return false;
+            this.pkAddLogLine("Test: DrumMidi_CRT on " + wavName + ", then CompareHits");
+            ImportLibrary.makeSongNow = true;
+            app.handler.post(() -> AudioOffer.makeDrumMidi(app, true));
+            return true;
+        }
+        if (t == null) return false;
+        final pulsekit.Midi2WavTest test = t;
+        try {
+            if (t.stage == pulsekit.Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(program)) {
+                ImportLibrary.makeSongNow = false;
+                byte[] drums = null;
+                String drumsName = null;
+                if (result != null && result.files != null) {
+                    for (int i = 0; i < result.files.size() && drums == null; i++) {
+                        pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                        String low = f.name.toLowerCase();
+                        if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') {
+                            drums = f.bytes;
+                            drumsName = f.name;
+                        }
+                    }
+                }
+                if (drums == null && this.pkPyOutputPath != null && new java.io.File(this.pkPyOutputPath).isFile()) {
+                    drums = java.nio.file.Files.readAllBytes(new java.io.File(this.pkPyOutputPath).toPath());
+                    drumsName = new java.io.File(this.pkPyOutputPath).getName();
+                }
+                if (!t.drumMidiDone(drums, drumsName, app.learned, app.importedSongs)) {
+                    this.pkAddLogLine("Test stopped: DrumMidi_CRT made no MIDI");
+                    return true;
+                }
+                this.pkAddLogLine("Test: CompareHits on " + new java.io.File(t.wav).getName() + ", " + new java.io.File(t.drums).getName()
+                    + (t.song.length() > 0 ? ", " + new java.io.File(t.song).getName() : " (no song was made)"));
+                app.handler.post(() -> this.pkRunTestCompare(test.compareArgs()));
+                return true;
+            }
+            if ((t.stage == pulsekit.Midi2WavTest.COMPARE || t.stage == pulsekit.Midi2WavTest.AGAINST_PLAYED) && "CompareHits.java".equals(program)
+                    && (status == null || !status.startsWith("Succeeded"))) {
+                pulsekit.Midi2WavTest.stop();
+                this.pkAddLogLine("Test stopped: CompareHits did not run (" + (status == null ? "no result" : status) + ")");
+                return true;
+            }
+            if (t.stage == pulsekit.Midi2WavTest.COMPARE && "CompareHits.java".equals(program)) {
+                if (t.compareDone(log)) {
+                    this.pkAddLogLine("Test: CompareHits --truth: " + new java.io.File(t.drums).getName() + " against the drums played (" + new java.io.File(t.played).getName() + ")");
+                    app.handler.post(() -> this.pkRunTestCompare(test.againstPlayedArgs()));
+                } else {
+                    app.handler.post(() -> this.pkShowTestReport(test));
+                }
+                return true;
+            }
+            if (t.stage == pulsekit.Midi2WavTest.AGAINST_PLAYED && "CompareHits.java".equals(program)) {
+                t.againstPlayedDone(log);
+                app.handler.post(() -> this.pkShowTestReport(test));
+                return true;
+            }
+        } catch (Exception ex) {
+            this.pkAddLogLine("Test stopped: " + ex.getMessage());
+        }
+        // Another program ran in between: the test is over.
+        pulsekit.Midi2WavTest.stop();
+        return false;
+    }
+
+    void pkRunTestCompare(java.util.List<String> args) {
+        this.pkPyInputPath = null;
+        app.programMenus.selectProgram("Java", "CompareHits.java");
+        this.pkForcedArgs = args;
+        this.pkRunPyJav();
+    }
+
+    /** The test's report: both comparisons, in a dialog; also saved as <wav>-test.txt (Download). */
+    void pkShowTestReport(pulsekit.Midi2WavTest t) {
+        String text = "Midi2Wav test: " + new java.io.File(t.wav).getName() + "\n\n" + t.report.toString().trim();
+        String name = new java.io.File(t.wav).getName().replaceAll("(?i)\\.wav$", "") + "-test.txt";
+        String at = ArtJava.publish(app, name, text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        this.pkAddLogLine("Test done" + (at == null ? "" : ": report saved as " + at));
+        android.widget.TextView body = new android.widget.TextView(app);
+        body.setText(text);
+        body.setTag("midi2wav-test-report");
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextSize(11);
+        body.setTextIsSelectable(true);
+        body.setPadding(app.dp(14), app.dp(8), app.dp(14), app.dp(8));
+        android.widget.HorizontalScrollView wide = new android.widget.HorizontalScrollView(app);
+        wide.addView(body);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(wide);
+        pkTestReport = new android.app.AlertDialog.Builder(app).setTitle("Midi2Wav test").setView(scroll).setPositiveButton("Close", null).show();
     }
 
     /** Writes a saved sheet to disk (Download, or the program files folder); its log lines. */

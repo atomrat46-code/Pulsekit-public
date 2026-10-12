@@ -3747,6 +3747,59 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * Midi2Wav --test: the WAV made goes to DrumMidi_CRT (its MIDI imported as a file set and a song),
+   * then CompareHits compares the WAV, DrumMidi's MIDI and the song, and the MIDI played against
+   * DrumMidi's; the report is shown and kept beside the WAV.
+   */
+  void s87_midi2wav_test() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    cells[2][4] = 1;
+    cells[2][12] = 1;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 1;
+    // Four bars, so DrumMidi has a groove to hear.
+    int[][] two = new int[12][32];
+    for (int t = 0; t < 12; t++) for (int i = 0; i < 32; i++) two[t][i] = cells[t][i % 16];
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(two, 120, 32));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    final StringBuilder report = new StringBuilder();
+    // Watches every dialog until the report's (the MIDI synth notice and Make a song? come first).
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + midi.getAbsolutePath() + "\" --test"));
+    edt(() -> call("runPython"));
+    long began = System.currentTimeMillis();
+    for (int i = 0; i < 1050 && report.length() == 0; i++) Thread.sleep(100);
+    System.err.println("s87 chain took " + (System.currentTimeMillis() - began) + " ms");
+    if (report.length() == 0) out.append("NO REPORT; log:\n").append(log.getText()).append('\n');
+    idle();
+    out.append("program now: ").append((String) get("pyName")).append('\n');
+    String text = report.toString().replace(home.getAbsolutePath(), "~");
+    // The report's headings and its suggestions.
+    for (String line : text.split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Midi2Wav test") || t.startsWith("==") || t.startsWith("- ") || t.startsWith("Played:") || t.toLowerCase().contains("match") || t.startsWith("Next run") || t.toLowerCase().startsWith("suggest") || t.startsWith("Kick") || t.startsWith("Snare") || t.startsWith("Cymbals"))
+        out.append("  ").append(t).append('\n');
+    }
+    File saved = new File(home, ".pulsekit/groove2wav-test.txt");
+    if (!saved.isFile()) saved = new File(home, "Downloads/groove2wav-test.txt");
+    out.append("report kept: ").append(saved.isFile()).append(", report length ").append(text.length() > 200).append('\n');
+  }
+
+  /**
    * Midi2Wav (PyJav's Java menu): Params has the drum MIDI, the output name, the SoundFont, the rate
    * and Add to DB. Without a SoundFont it plays the MIDI with Pulsekit's kit, into <drums>2wav.wav;
    * with one and --addtodb the MIDI, the SoundFont and the WAV go into the prompt library.

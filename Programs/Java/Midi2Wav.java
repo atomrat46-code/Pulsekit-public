@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb]
+ * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test]
  *
  * Plays a drum MIDI file with a SoundFont and saves what it sounds like as a WAV file (16-bit stereo).
  *
@@ -28,6 +28,10 @@ import java.util.TreeMap;
  *   --volume N  percent, 1 to 400 (100). A mix that would clip is turned down to fit.
  *   --addtodb   Pulsekit also keeps the run in the prompt library (Programs > Midi2Wav): the MIDI and
  *               the SoundFont as reference files, the WAV as its result file.
+ *   --test      Pulsekit then tests its drum import on the WAV: DrumMidi_CRT makes a MIDI of the
+ *               hits it hears (imported as a file set and a song), and CompareHits compares the WAV,
+ *               that MIDI and the song (with suggestions for DrumMidi's switches), and the MIDI
+ *               played against DrumMidi's (what it missed or added).
  *
  * Plain Java (no lambdas, java.* only), so PyJav can compile it on a phone.
  */
@@ -48,7 +52,7 @@ public class Midi2Wav {
     }
 
     static void usage() {
-        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb]");
+        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test]");
     }
 
     static int run(String[] args) throws Exception {
@@ -63,8 +67,8 @@ public class Midi2Wav {
             if (a.equals("--sf2") && i + 1 < args.length) sf2 = args[++i].trim();
             else if (a.equals("--rate") && i + 1 < args.length) rate = (int) Math.round(number(args[++i], a));
             else if (a.equals("--volume") && i + 1 < args.length) volume = number(args[++i], a);
-            else if (a.equals("--addtodb")) {
-                // Pulsekit keeps the files after the run; nothing for the program to do.
+            else if (a.equals("--addtodb") || a.equals("--test")) {
+                // Pulsekit keeps the files, or tests its drum import on the WAV, after the run.
             } else if (a.equals("-h") || a.equals("--help")) {
                 usage();
                 return 0;

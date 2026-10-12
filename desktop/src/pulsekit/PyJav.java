@@ -373,6 +373,11 @@ final class PyJav {
         } else {
             runArgs = PythonRun.kitArgv(src, app.bpm(), app.style, app.bars, app.swingBar.getVal(), extra, app.tsNum, app.tsDen);
         }
+        // A step of Midi2Wav's test (CompareHits on the test's files): exactly these arguments.
+        if (this.forcedArgs != null) {
+            runArgs = new java.util.ArrayList<String>(this.forcedArgs);
+            this.forcedArgs = null;
+        }
         // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
         runArgs = JavaRun.withKeyFile(this.programText(), new java.util.ArrayList<String>(runArgs));
         // Midi2Wav without a SoundFont: Pulsekit's kit (the active drum set) as one.
@@ -547,7 +552,9 @@ final class PyJav {
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
-                if (made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
+                boolean testing = this.testStep(name, argv, verdict, madeMidi, made == null ? null : savedAudio.get(made), result.log);
+                if (!testing && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // Pictures it made (SogniChat's tool results) are shown.
                 if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
@@ -634,6 +641,109 @@ final class PyJav {
      * settings does not ask), as the prompt's next version, and are written to disk with that version
      * number and the date. Lines for the log.
      */
+    /** The next run's arguments as they are (a step of Midi2Wav's test), or null. */
+    java.util.List<String> forcedArgs;
+
+    /**
+     * Midi2Wav's test (--test), one step a run: after Midi2Wav, DrumMidi_CRT on its WAV; after
+     * DrumMidi, CompareHits on the WAV, DrumMidi's MIDI and the song; then CompareHits on the MIDI
+     * played against DrumMidi's; then the report. True when the test took this run (no audio offer).
+     */
+    boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
+        Midi2WavTest t = Midi2WavTest.current();
+        if (Midi2WavTest.wanted(name, argv)) {
+            t = Midi2WavTest.start(verdict, argv, wav);
+            if (t == null) return false;
+            this.testNote("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+            ImportLibrary.makeSongNow = true;
+            SwingUtilities.invokeLater(() -> {
+                this.audioInputPath = wav.getAbsolutePath();
+                app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+                this.runPython();
+            });
+            return true;
+        }
+        if (t == null) return false;
+        final Midi2WavTest test = t;
+        try {
+            if (t.stage == Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(name)) {
+                ImportLibrary.makeSongNow = false;
+                byte[] drums = madeMidi != null ? madeMidi.bytes : null;
+                String drumsName = madeMidi != null ? madeMidi.name : null;
+                if (drums == null && this.pyOutputPath != null && new File(this.pyOutputPath).isFile()) {
+                    drums = Files.readAllBytes(new File(this.pyOutputPath).toPath());
+                    drumsName = new File(this.pyOutputPath).getName();
+                }
+                if (!t.drumMidiDone(drums, drumsName, app.learned, app.importedSongs)) {
+                    this.testNote("Test stopped: DrumMidi_CRT made no MIDI");
+                    return true;
+                }
+                this.testNote("Test: CompareHits on " + new File(t.wav).getName() + ", " + new File(t.drums).getName() + (t.song.length() > 0 ? ", " + new File(t.song).getName() : " (no song was made)"));
+                SwingUtilities.invokeLater(() -> this.runTestCompare(test.compareArgs()));
+                return true;
+            }
+            if ((t.stage == Midi2WavTest.COMPARE || t.stage == Midi2WavTest.AGAINST_PLAYED) && "CompareHits.java".equals(name) && !verdict.startsWith("Succeeded")) {
+                Midi2WavTest.stop();
+                this.testNote("Test stopped: CompareHits did not run (" + (verdict.length() == 0 ? "no result" : verdict) + ")");
+                return true;
+            }
+            if (t.stage == Midi2WavTest.COMPARE && "CompareHits.java".equals(name)) {
+                if (t.compareDone(log)) {
+                    this.testNote("Test: CompareHits --truth: " + new File(t.drums).getName() + " against the drums played (" + new File(t.played).getName() + ")");
+                    SwingUtilities.invokeLater(() -> this.runTestCompare(test.againstPlayedArgs()));
+                } else {
+                    SwingUtilities.invokeLater(() -> this.showTestReport(test));
+                }
+                return true;
+            }
+            if (t.stage == Midi2WavTest.AGAINST_PLAYED && "CompareHits.java".equals(name)) {
+                t.againstPlayedDone(log);
+                SwingUtilities.invokeLater(() -> this.showTestReport(test));
+                return true;
+            }
+        } catch (Exception ex) {
+            this.testNote("Test stopped: " + ex.getMessage());
+        }
+        // Another program ran in between: the test is over.
+        Midi2WavTest.stop();
+        return false;
+    }
+
+    private void testNote(String line) {
+        app.setNow(line);
+        if (app.pyLog != null) {
+            app.pyLog.append("\n" + line);
+            this.runLog = app.pyLog.getText();
+        }
+    }
+
+    void runTestCompare(java.util.List<String> args) {
+        app.pyInputPath = null;
+        app.programMenus.selectListedProgram("Java", "CompareHits.java");
+        this.forcedArgs = args;
+        this.runPython();
+    }
+
+    /** The test's report: both comparisons, in a window (also kept as <wav>-test.txt beside the WAV). */
+    void showTestReport(Midi2WavTest t) {
+        String text = "Midi2Wav test: " + new File(t.wav).getName() + "\n\n" + t.report.toString().trim();
+        File saved = null;
+        try {
+            File f = new File(new File(t.wav).getParentFile(), new File(t.wav).getName().replaceAll("(?i)\\.wav$", "") + "-test.txt");
+            Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            saved = f;
+        } catch (Exception ignored) {
+            // shown only
+        }
+        this.testNote("Test done" + (saved == null ? "" : ": report saved as " + saved.getPath()));
+        javax.swing.JTextArea area = new javax.swing.JTextArea(text, 24, 80);
+        area.setName("midi2wav-test-report");
+        area.setEditable(false);
+        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        area.setCaretPosition(0);
+        JOptionPane.showMessageDialog(app, new JScrollPane(area), "Midi2Wav test", JOptionPane.PLAIN_MESSAGE);
+    }
+
     /** The prompt library version the last run's sheet was stored as (File > Downloads: Delete with it). */
     long lastSheetVersion;
 

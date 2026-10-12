@@ -297,6 +297,7 @@ public final class ProgramParams {
       p.refs = true;
       p.label = "File (text, MIDI, picture, audio or video)";
     }
+    if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
     if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
     if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
@@ -438,6 +439,8 @@ public final class ProgramParams {
       p.hint = "100; a mix that would clip is turned down to fit";
     } else if (p.token.equals("--addtodb")) {
       p.label = "Add the MIDI, the SoundFont and the WAV to DB";
+    } else if (p.token.equals("--test")) {
+      p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions)";
     }
   }
 
