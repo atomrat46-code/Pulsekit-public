@@ -24,6 +24,8 @@ public final class PyJavParams {
   private static String[] pendingValues;
   private static int pendingIndex = -1;
   private static TextView pendingLabel;
+  /** The folder picked is MediaBrowser's (opened on it), not a program's folder switch. */
+  private static boolean pendingOpensMedia = true;
   /** The prompt field waiting for the picker's text file (Select file under --prompt). */
   private static EditText pendingPrompt;
 
@@ -123,7 +125,8 @@ public final class PyJavParams {
         browse.setText("Browse");
         browse.setTag("params-dir:" + p.token);
         // Empty: the folder the Media browser last opened.
-        if (values[i].length() == 0 && activity instanceof MainActivity) {
+        // (A folder switch, as Midi2HydroPattern's --dir, stays empty until one is picked.)
+        if (values[i].length() == 0 && !p.flag && activity instanceof MainActivity) {
           MediaBrowser.load((MainActivity) activity);
           values[i] = MediaDir.lastRoot;
         }
@@ -136,6 +139,7 @@ public final class PyJavParams {
           pendingValues = values;
           pendingIndex = index;
           pendingLabel = chosen;
+          pendingOpensMedia = !p.flag;
           if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
         });
         row.addView(browse);
@@ -498,7 +502,9 @@ public final class PyJavParams {
     pendingValues = null;
     pendingIndex = -1;
     pendingLabel = null;
-    MediaBrowser.open(app, dir);
+    boolean open = pendingOpensMedia;
+    pendingOpensMedia = true;
+    if (open) MediaBrowser.open(app, dir);
   }
 
   /** After a run: --join (SogniVideo's Join with this video) out of the program's saved Params, so it is unticked next time. */

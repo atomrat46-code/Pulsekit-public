@@ -632,6 +632,10 @@ final class PyJav {
         }
         // Hydrogen songs and patterns, and Reaper projects, given to a program: their MIDI.
         argv = pulsekit.DrumFiles.midiArgs(argv, dir);
+        // A folder picked for Midi2HydroPattern (--dir): its MIDI files copied into the work folder.
+        StringBuilder staged = new StringBuilder();
+        argv = MidiFolder.forProgram(app, name, argv, dir, staged);
+        if (staged.length() > 0) app.setNow("Midi2HydroPattern \u00b7 " + staged);
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             pulsekit.MediaBrowser.load(app);

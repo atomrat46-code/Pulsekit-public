@@ -84,6 +84,8 @@ public class DrumMidi_CRT{
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
     static final double SAME_CYMBAL = 0.035;
+    static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.6;
+    static final int RIDE_SEEN = 3;
     static final double PEDAL_BODY = 0.2, LOUD_BODY = 0.4, PEDAL_ALONE = 1.0, PEDAL_RUN = 0.7;
     /**
      * Rises in band level (linear, in units of the band's loud hits): a kick raises the kick band by
@@ -290,6 +292,7 @@ public class DrumMidi_CRT{
         // Above the body band, unnormalized: a drum's body is a tone over it, plain noise is as loud there.
         double[] gapRaw = bandMean(mag, bin(GAP_LO, sr, maxBin), bin(GAP_HI, sr, maxBin));
         double[] lowPitch = lowPitch(mag, sr, maxBin);
+        CymbalShape shape = new CymbalShape(mag, sr, maxBin);
         double[] hatLevel = hatRaw.clone();
         normalize(hatLevel);
         normalize(kickLevel);
@@ -450,7 +453,6 @@ public class DrumMidi_CRT{
             if (!crashAttack(ride, top, t)) continue;
             hits.add(new Hit(t * (double) HOP / sr, CRASH_NOTE, crash[t]));
         }
-        ridesInHats(hits, fps);
         // A room or reverb keeps the ride band ringing after a hat too: where no ride or crash was
         // found at a hat taken for one, it is the hat.
         for (int i = 0; i < nHats; i++) {
@@ -491,6 +493,7 @@ public class DrumMidi_CRT{
             }
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
         }
+        rideOrHats(hits, shape, fps, bass);
         hits.sort(Comparator.comparingDouble(new java.util.function.ToDoubleFunction<Hit>() {
             public double applyAsDouble(Hit h) { return h.time; }
         }));
@@ -1183,27 +1186,97 @@ public class DrumMidi_CRT{
     }
 
     /**
-     * A "ride" among hats keeping time (hats on both sides at the same spacing) is a hat: a room or
-     * reverb makes a closed hat ring on like a ride, but a ride is played instead of the hats.
+     * The shape of the cymbal bands before HPSS, per frame: 1-3 kHz, 3-7 kHz (the ride band) and
+     * 7-14 kHz levels, and how alike the ride band's spectrum is to its spectrum 4 frames on.
      */
-    static void ridesInHats(List<Hit> hits, double fps) {
-        List<Double> hats = new ArrayList<Double>();
-        for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == OPEN_HAT) hats.add(Double.valueOf(h.time));
-        Collections.sort(hats);
-        for (int i = 0; i < hits.size(); i++) {
-            Hit h = hits.get(i);
-            if (h.note != RIDE_NOTE) continue;
-            double before = -1, after = -1;
-            for (Double t : hats) {
-                double v = t.doubleValue();
-                if (v < h.time - 0.01) before = v;
-                else if (v > h.time + 0.01) {
-                    after = v;
-                    break;
+    static final class CymbalShape {
+        final double[] lo, ride, hi, stab;
+
+        CymbalShape(float[][] mag, double sr, int maxBin) {
+            int n = mag.length;
+            lo = new double[n];
+            ride = new double[n];
+            hi = new double[n];
+            stab = new double[n];
+            int l0 = bin(1000, sr, maxBin), r0 = bin(3000, sr, maxBin), r1 = bin(7000, sr, maxBin), h1 = bin(14000, sr, maxBin);
+            for (int f = 0; f < n; f++) {
+                lo[f] = mean(mag[f], l0, r0);
+                ride[f] = mean(mag[f], r0, r1);
+                hi[f] = mean(mag[f], r1, h1);
+                if (f + 4 < n) {
+                    double ab = 0, aa = 0, bb = 0;
+                    for (int k = r0; k <= r1; k++) {
+                        ab += mag[f][k] * mag[f + 4][k];
+                        aa += mag[f][k] * mag[f][k];
+                        bb += mag[f + 4][k] * mag[f + 4][k];
+                    }
+                    stab[f] = ab / Math.sqrt(aa * bb + 1e-18);
                 }
             }
-            if (before < 0 || after < 0) continue;
-            if (sameGap((int) Math.round((h.time - before) * fps), (int) Math.round((after - h.time) * fps))) hits.set(i, new Hit(h.time, CLOSED_HAT, h.strength));
+        }
+
+        private static double mean(float[] v, int a, int b) {
+            double s = 0;
+            for (int k = a; k <= b; k++) s += v[k];
+            return s / Math.max(1, b - a + 1);
+        }
+    }
+
+    /**
+     * Ride or hats, passage by passage. A ride's ring keeps its partials (the ride band alike
+     * from 4 to 8 frames on, RIDE_STABLE) or sits low (1-3 kHz at RIDE_LOW of the ride band,
+     * 7-14 kHz under RIDE_HIGH); a closed hat with a room or reverb rings on too, but these only
+     * here and there. Where most (RIDE_SHARE) of the clean cymbal hits within RIDE_WINDOW seconds
+     * (no kick, snare or crash on them; RIDE_SEEN at least) are ride-like, the passage's closed hats
+     * are the ride; elsewhere its rides are hats. The levels are taken as rises at the hit, so what
+     * already sounds does not count. Over a bass line the partials are not asked about, and hats
+     * are not turned into a ride (chords struck with the hats rise low as a ride does).
+     */
+    static void rideOrHats(List<Hit> hits, CymbalShape sh, double fps, boolean bass) {
+        List<Hit> cym = new ArrayList<Hit>();
+        List<Double> all = new ArrayList<Double>();
+        for (Hit h : hits) {
+            all.add(Double.valueOf(h.time));
+            if (h.note == CLOSED_HAT || h.note == RIDE_NOTE) cym.add(h);
+        }
+        Collections.sort(all);
+        int n = cym.size();
+        boolean[] clean = new boolean[n], like = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            Hit h = cym.get(i);
+            clean[i] = true;
+            for (Hit o : hits) {
+                if ((o.note == KICK_NOTE || o.note == SNARE_NOTE || o.note == CRASH_NOTE) && Math.abs(o.time - h.time) < 0.06) clean[i] = false;
+            }
+            int t = (int) Math.round(h.time * fps), b = t;
+            for (int k = t; k <= Math.min(sh.ride.length - 1, t + 3); k++) if (sh.ride[k] + sh.hi[k] > sh.ride[b] + sh.hi[b]) b = k;
+            if (b >= sh.ride.length || sh.ride[b] < 1e-9) continue;
+            double next = Double.MAX_VALUE;
+            for (Double v : all) if (v.doubleValue() > h.time + 2.5 / fps) {
+                next = v.doubleValue();
+                break;
+            }
+            // Over a band, a guitar or keys hold the ride band's spectrum steady between hits too.
+            boolean stable = !bass && (next - h.time) * fps > 8 && b + 4 < sh.stab.length && sh.stab[b + 4] >= RIDE_STABLE;
+            // Rises at the hit: what already sounds (a band, a ride's own wash) does not count.
+            int pre = Math.max(0, t - 3);
+            double dl = Math.max(0, sh.lo[b] - sh.lo[pre]), dr = Math.max(1e-9, sh.ride[b] - sh.ride[pre]), dh = Math.max(0, sh.hi[b] - sh.hi[pre]);
+            boolean low = dl >= RIDE_LOW * dr && dh <= RIDE_HIGH * dr;
+            like[i] = stable || low;
+        }
+        for (int i = 0; i < n; i++) {
+            Hit h = cym.get(i);
+            int seen = 0, rides = 0;
+            for (int j = 0; j < n; j++) {
+                if (!clean[j] || Math.abs(cym.get(j).time - h.time) > RIDE_WINDOW) continue;
+                seen++;
+                if (like[j]) rides++;
+            }
+            if (seen < RIDE_SEEN) continue;
+            int note = rides >= RIDE_SHARE * seen ? RIDE_NOTE : CLOSED_HAT;
+            // Over a band, guitar chords struck with the hats look low too: hats are not made rides.
+            if (bass && note == RIDE_NOTE) continue;
+            if (note != h.note) hits.set(hits.indexOf(h), new Hit(h.time, note, h.strength));
         }
     }
 

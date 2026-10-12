@@ -102,6 +102,8 @@ public final class ProgramParams {
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
     // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
+    // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
+    boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -114,6 +116,7 @@ public final class ProgramParams {
       if (joinVideo) knownJoinVideo(p);
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
+      if (midi2hydro) knownMidi2Hydro(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -446,6 +449,38 @@ public final class ProgramParams {
       p.label = "Add the MIDI, the SoundFont and the WAV to DB";
     } else if (p.token.equals("--test")) {
       p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions)";
+    }
+  }
+
+  /** Midi2HydroPattern's labels: the MIDI pattern or a folder of them, Hydrogen's category, name and kit. */
+  private static void knownMidi2Hydro(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output pattern name";
+      p.hint = "optional; <input>.h2pattern";
+    } else if (!p.flag && p.isFile()) {
+      p.label = "MIDI pattern";
+      p.hint = "a General MIDI drum .mid (or give a folder below)";
+      p.refs = true;
+    } else if (p.token.equals("--category")) {
+      p.label = "Category in Hydrogen";
+      p.hint = "Uncategorized; with subfolders, each one's name";
+    } else if (p.token.equals("--name")) {
+      p.label = "Pattern name in Hydrogen";
+      p.hint = "the file's name";
+    } else if (p.token.equals("--kit")) {
+      p.label = "Drum kit";
+      p.choices = new String[] {"GMkit (default: instrument = note - 36)", "GMRockKit"};
+      p.choiceValues = new String[] {"GMkit", "GMRockKit"};
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Folder of MIDI files (all of them at once)";
+      p.hint = "every .mid in it, each to its own .h2pattern";
+    } else if (p.token.equals("--recursive")) {
+      p.label = "Its subfolders too";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Output folder";
+      p.hint = "next to each MIDI file; on the phone: Download";
     }
   }
 

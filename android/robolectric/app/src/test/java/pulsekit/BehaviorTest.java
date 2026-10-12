@@ -4470,6 +4470,29 @@ public class BehaviorTest {
         + "    <ITEM\n      POSITION 10\n      LENGTH 2.4\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n>\n";
   }
 
+  /** Midi2HydroPattern: its Params (a folder row for --dir), and a plain folder path left as it is for the program. */
+  @Test
+  public void s107_midi2hydro_params() throws Exception {
+    String src = app.programMenus.bundledSource("Midi2HydroPattern.java");
+    StringBuilder log = new StringBuilder();
+    boolean dir = false, kit = false;
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      log.append(p.token).append(" \"").append(p.label).append("\"").append(p.dir ? " folder" : "").append('\n');
+      if (p.token.equals("--dir") && p.dir) dir = true;
+      if (p.token.equals("--kit") && p.choices != null) kit = true;
+    }
+    if (!dir || !kit) throw new AssertionError("Params: " + log);
+    java.util.List<String> args = java.util.Arrays.asList("--dir", "/sdcard/Patterns", "--recursive");
+    java.util.List<String> got = MidiFolder.forProgram(org.robolectric.RuntimeEnvironment.getApplication(), "Midi2HydroPattern.java", args,
+        org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), new StringBuilder());
+    log.append("plain folder: ").append(got).append('\n');
+    if (!got.equals(args)) throw new AssertionError("a plain folder was changed: " + got);
+    java.util.List<String> other = MidiFolder.forProgram(org.robolectric.RuntimeEnvironment.getApplication(), "Midi2Wav.java", java.util.Arrays.asList("--outdir", "content://x"),
+        org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), new StringBuilder());
+    if (!other.contains("content://x")) throw new AssertionError("another program's arguments changed");
+    write("s107_midi2hydro_params", log.toString());
+  }
+
   /** Reaper: a project's drum items (looped, pooled, the muted bass left out) as MIDI, imported and given to a program. */
   @Test
   public void s106_import_reaper() throws Exception {
