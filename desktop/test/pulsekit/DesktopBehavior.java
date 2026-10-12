@@ -4022,6 +4022,58 @@ public final class DesktopBehavior {
    * and Add to DB. Without a SoundFont it plays the MIDI with Pulsekit's kit, into <drums>2wav.wav;
    * with one and --addtodb the MIDI, the SoundFont and the WAV go into the prompt library.
    */
+  void s92_midi2hydro_pattern() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 100;
+    cells[2][12] = 100;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 80;
+    File one = new File(home, "beat.mid");
+    Files.write(one.toPath(), Engine.encodeMidi(cells, 120));
+    File folder = new File(home, "Patterns");
+    new File(folder, "Funk").mkdirs();
+    Files.write(new File(folder, "rock.mid").toPath(), Engine.encodeMidi(cells, 100));
+    Files.write(new File(folder, "Funk/funk.mid").toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("funk")), 96));
+    Files.write(new File(folder, "notes.txt").toPath(), "not MIDI".getBytes(StandardCharsets.UTF_8));
+    File outDir = new File(home, "h2");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2HydroPattern.java");
+    idle();
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.dir ? " folder" : "").append(p.choices != null ? " choices" : "").append('\n');
+    }
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {"\"" + one.getAbsolutePath() + "\" --category Tests", "--dir \"" + folder.getAbsolutePath() + "\" --recursive --outdir \"" + outDir.getAbsolutePath() + "\""};
+    for (String extra : runs) {
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      answers.add("Close");
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(400);
+      idle();
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        String t = line.trim();
+        if (t.contains(".h2pattern") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.contains("pattern")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      answers.clear();
+    }
+    File single = new File(home, "beat.mid.h2pattern");
+    File[] made = outDir.listFiles();
+    if (!single.isFile() || made == null || made.length != 2) throw new AssertionError("patterns not written: " + single + " " + java.util.Arrays.toString(made));
+    java.util.Arrays.sort(made);
+    for (File f : made) out.append("made ").append(f.getName()).append('\n');
+    // Read back by Pulsekit's own Hydrogen reader: the same hits as the MIDI.
+    Hydrogen.Result r = Hydrogen.toMidi(Files.readAllBytes(single.toPath()));
+    out.append("read back: ").append(Hydrogen.summary(r)).append('\n');
+    if (r.notes != 4 + 2 + 8) throw new AssertionError("pattern has " + r.notes + " notes");
+    String funk = new String(Files.readAllBytes(new File(outDir, "Funk - funk.mid.h2pattern").toPath()), StandardCharsets.UTF_8);
+    if (!funk.contains("<category>Funk</category>") || !funk.contains("<pattern_name>funk</pattern_name>")) throw new AssertionError("subfolder category or name wrong");
+    snap("after Midi2HydroPattern");
+  }
+
   void s86_midi2wav() throws Exception {
     File home = new File(System.getProperty("user.home"));
     int[][] cells = new int[12][16];

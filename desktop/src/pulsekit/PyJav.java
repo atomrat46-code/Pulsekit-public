@@ -1351,7 +1351,8 @@ final class PyJav {
                 // A folder (MediaBrowser's directory): Browse picks it and opens the Media browser on it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 // Empty: the folder the Media browser last opened.
-                if (values[i].length() == 0) {
+                // (A folder switch, as Midi2HydroPattern's --dir, stays empty until one is picked.)
+                if (values[i].length() == 0 && !p.flag) {
                     MediaBrowser.loadLoop();
                     values[i] = MediaDir.lastRoot;
                 }
@@ -1367,7 +1368,7 @@ final class PyJav {
                     File picked = chooser.getSelectedFile();
                     values[index] = picked.getAbsolutePath();
                     chosen.setText(MediaDir.label(values[index]));
-                    app.mediaBrowser.open(picked);
+                    if (!p.flag) app.mediaBrowser.open(picked);
                 });
                 row.add(browse, BorderLayout.WEST);
                 row.add(chosen, BorderLayout.CENTER);
