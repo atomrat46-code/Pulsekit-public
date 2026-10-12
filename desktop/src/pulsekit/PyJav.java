@@ -552,8 +552,18 @@ final class PyJav {
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
-                // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
-                boolean testing = this.testStep(name, argv, verdict, madeMidi, made == null ? null : savedAudio.get(made), result.log);
+                // SogniMusic's track is also kept as a WAV (unless --no_wav), beside the MP3.
+                File musicWav = null;
+                if (result.code == 0 && made != null && savedAudio.get(made) != null && made.toLowerCase().endsWith(".mp3") && Midi2WavTest.musicToWav(name, argv)) {
+                    File mp3 = savedAudio.get(made);
+                    File w = this.asWav(mp3);
+                    if (w != null && !w.equals(mp3)) {
+                        musicWav = w;
+                        this.testNote("Saved " + w.getPath());
+                    }
+                }
+                // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
+                boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
                 if (!testing && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // Pictures it made (SogniChat's tool results) are shown.
                 if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
@@ -653,11 +663,28 @@ final class PyJav {
      */
     boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
         Midi2WavTest t = Midi2WavTest.current();
+        if (Midi2WavTest.musicWanted(name, argv)) {
+            if (!verdict.startsWith("Succeeded")) return false;
+            t = Midi2WavTest.startMusic(argv, wav != null && wav.getName().toLowerCase().endsWith(".wav") ? wav : null, this.loadParams("DrumMidi_CRT.jar"));
+            if (t == null) {
+                this.testNote("Test stopped: no WAV was made of the track");
+                return false;
+            }
+            final java.util.List<String> drumArgs = t.drumMidiArgs();
+            this.testNote("Test: " + t.expect.drumMidiWhy(t.drumSaved));
+            this.testNote("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+            SwingUtilities.invokeLater(() -> {
+                app.pyInputPath = null;
+                app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+                this.forcedArgs = drumArgs;
+                this.runPython();
+            });
+            return true;
+        }
         if (Midi2WavTest.wanted(name, argv)) {
             t = Midi2WavTest.start(verdict, argv, wav);
             if (t == null) return false;
             this.testNote("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
-            ImportLibrary.makeSongNow = true;
             SwingUtilities.invokeLater(() -> {
                 this.audioInputPath = wav.getAbsolutePath();
                 app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
@@ -669,7 +696,6 @@ final class PyJav {
         final Midi2WavTest test = t;
         try {
             if (t.stage == Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(name)) {
-                ImportLibrary.makeSongNow = false;
                 byte[] drums = madeMidi != null ? madeMidi.bytes : null;
                 String drumsName = madeMidi != null ? madeMidi.name : null;
                 if (drums == null && this.pyOutputPath != null && new File(this.pyOutputPath).isFile()) {
@@ -749,7 +775,7 @@ final class PyJav {
 
     /** The test's report: both comparisons, in a window (also kept as <wav>-test.txt beside the WAV). */
     void showTestReport(Midi2WavTest t) {
-        String text = "Midi2Wav test: " + new File(t.wav).getName() + "\n\n" + t.report.toString().trim();
+        String text = t.text();
         File saved = null;
         try {
             File f = new File(new File(t.wav).getParentFile(), new File(t.wav).getName().replaceAll("(?i)\\.wav$", "") + "-test.txt");
@@ -764,7 +790,7 @@ final class PyJav {
         area.setEditable(false);
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         area.setCaretPosition(0);
-        JOptionPane.showMessageDialog(app, new JScrollPane(area), "Midi2Wav test", JOptionPane.PLAIN_MESSAGE);
+        JOptionPane.showMessageDialog(app, new JScrollPane(area), t.expect != null ? "SogniMusic test" : "Midi2Wav test", JOptionPane.PLAIN_MESSAGE);
     }
 
     /** The prompt library version the last run's sheet was stored as (File > Downloads: Delete with it). */

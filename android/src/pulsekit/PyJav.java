@@ -1011,6 +1011,36 @@ final class PyJav {
      */
     boolean pkTestStep(String program, java.util.List<String> argv, String status, pulsekit.JavaRun.Result result, String log) {
         pulsekit.Midi2WavTest t = pulsekit.Midi2WavTest.current();
+        // SogniMusic: the track is also kept as a WAV (unless --no_wav); with --test, the test follows.
+        if (pulsekit.Midi2WavTest.musicToWav(program, argv) && status != null && status.startsWith("Succeeded")) {
+            String mp3Name = pulsekit.PyJavHints.madeAudio(log);
+            byte[] mp3 = null;
+            if (mp3Name != null && mp3Name.toLowerCase().endsWith(".mp3") && result != null && result.files != null) {
+                for (int i = 0; i < result.files.size(); i++) {
+                    pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                    if (mp3Name.equals(f.name)) mp3 = f.bytes;
+                }
+            }
+            String path = mp3 == null ? null : AudioOffer.useAsInput(app, mp3Name, mp3);
+            if (path == null) return false;
+            final boolean test = pulsekit.Midi2WavTest.musicWanted(program, argv);
+            final java.util.List<String> musicArgv = argv;
+            this.pkAddLogLine("Making a WAV of " + mp3Name + "…");
+            AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
+                if (wav == null) {
+                    this.pkAddLogLine("Could not make a WAV of " + mp3Name + (why == null ? "" : ": " + why));
+                    return;
+                }
+                try {
+                    String at = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()));
+                    this.pkAddLogLine(at == null ? "Could not save " + wav.getName() : "saved " + at);
+                } catch (Exception ex) {
+                    this.pkAddLogLine("Could not save " + wav.getName());
+                }
+                if (test) this.pkStartMusicTest(musicArgv, wav);
+            });
+            return test;
+        }
         if (pulsekit.Midi2WavTest.wanted(program, argv)) {
             String wavName = pulsekit.PyJavHints.madeAudio(log);
             byte[] wav = null;
@@ -1024,7 +1054,6 @@ final class PyJav {
             t = pulsekit.Midi2WavTest.start(status, argv, path == null ? null : new java.io.File(path));
             if (t == null) return false;
             this.pkAddLogLine("Test: DrumMidi_CRT on " + wavName + ", then CompareHits");
-            ImportLibrary.makeSongNow = true;
             app.handler.post(() -> AudioOffer.makeDrumMidi(app, true));
             return true;
         }
@@ -1032,7 +1061,6 @@ final class PyJav {
         final pulsekit.Midi2WavTest test = t;
         try {
             if (t.stage == pulsekit.Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(program)) {
-                ImportLibrary.makeSongNow = false;
                 byte[] drums = null;
                 String drumsName = null;
                 if (result != null && result.files != null) {
@@ -1123,6 +1151,24 @@ final class PyJav {
         }
     }
 
+    /** SogniMusic's test: DrumMidi_CRT on the track's WAV, set from what the track was asked to be. */
+    void pkStartMusicTest(java.util.List<String> argv, java.io.File wav) {
+        pulsekit.Midi2WavTest t = pulsekit.Midi2WavTest.startMusic(argv, wav, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"));
+        if (t == null) {
+            this.pkAddLogLine("Test stopped: no WAV was made of the track");
+            return;
+        }
+        this.pkAddLogLine("Test: " + t.expect.drumMidiWhy(t.drumSaved));
+        this.pkAddLogLine("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+        final java.util.List<String> drumArgs = t.drumMidiArgs();
+        app.handler.post(() -> {
+            this.pkPyInputPath = null;
+            app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+            this.pkForcedArgs = drumArgs;
+            this.pkRunPyJav();
+        });
+    }
+
     void pkRunTestCompare(java.util.List<String> args) {
         this.pkPyInputPath = null;
         app.programMenus.selectProgram("Java", "CompareHits.java");
@@ -1132,7 +1178,7 @@ final class PyJav {
 
     /** The test's report: both comparisons, in a dialog; also saved as <wav>-test.txt (Download). */
     void pkShowTestReport(pulsekit.Midi2WavTest t) {
-        String text = "Midi2Wav test: " + new java.io.File(t.wav).getName() + "\n\n" + t.report.toString().trim();
+        String text = t.text();
         String name = new java.io.File(t.wav).getName().replaceAll("(?i)\\.wav$", "") + "-test.txt";
         String at = ArtJava.publish(app, name, text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         this.pkAddLogLine("Test done" + (at == null ? "" : ": report saved as " + at));
@@ -1147,7 +1193,7 @@ final class PyJav {
         wide.addView(body);
         android.widget.ScrollView scroll = new android.widget.ScrollView(app);
         scroll.addView(wide);
-        pkTestReport = new android.app.AlertDialog.Builder(app).setTitle("Midi2Wav test").setView(scroll).setPositiveButton("Close", null).show();
+        pkTestReport = new android.app.AlertDialog.Builder(app).setTitle(t.expect != null ? "SogniMusic test" : "Midi2Wav test").setView(scroll).setPositiveButton("Close", null).show();
     }
 
     /** Writes a saved sheet to disk (Download, or the program files folder); its log lines. */

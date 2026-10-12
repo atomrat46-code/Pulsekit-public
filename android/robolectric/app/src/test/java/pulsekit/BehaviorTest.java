@@ -55,6 +55,8 @@ public class BehaviorTest {
     // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
     PromptSave.load(app.getFilesDir());
     PromptSave.setAsk(false);
+    // A test chain (Midi2Wav's, SogniMusic's) is static: none carries over from an earlier scenario.
+    Midi2WavTest.stop();
   }
 
   @After
@@ -4442,6 +4444,62 @@ public class BehaviorTest {
   }
 
   /**
+   * SogniMusic: its track is also made into a WAV (unless --no_wav); with --test, DrumMidi_CRT runs
+   * on the WAV set from what the track was asked to be (the tempo asked; with bass asked for, the
+   * switches suggested for a mix), and the report reads the request: instruments, tempo, length.
+   */
+  @Test
+  public void s104_sogni_music_test() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    dir.mkdirs();
+    // 1. The run's result: the MP3 is kept and made into a WAV (the phone's decoder; not in this test JVM).
+    File fixture = new File("../../../desktop/test/funk.mp3");
+    for (File up = new File(".").getAbsoluteFile(); up != null && !fixture.isFile(); up = up.getParentFile()) fixture = new File(up, "desktop/test/funk.mp3");
+    app.pyName = "SogniMusic.java";
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--genre", "Funk", "--prompt", "tight groove", "--instruments", "drums, bass",
+        "--bpm", "120", "--duration", "10", "--test"));
+    app.pyJav.pkLastArgv = argv;
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-Funk-wf9.mp3", Files.readAllBytes(fixture.toPath())));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Workflow: wf9\nWrote sogni-Funk-wf9.mp3 (46 KB)\nSucceeded: sogni-Funk-wf9.mp3", files, 0));
+    for (int i = 0; i < 50; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("MP3 for the WAV: ").append(new File(dir, "sogni-Funk-wf9.mp3").isFile()).append('\n');
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Making a WAV") || line.startsWith("Could not make") || line.startsWith("saved ")) out.append("  ").append(line.length() > 70 ? line.substring(0, 70) + "..." : line).append('\n');
+    // 2. The WAV (as the phone makes it): the test starts, and DrumMidi_CRT runs with what the track calls for.
+    File wav = new File(dir, "sogni-Funk-wf9.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[22050 * 4], 22050));
+    call("pkStartMusicTest", argv, wav);
+    for (int i = 0; i < 20 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
+    out.append("program: ").append(get("pyName")).append(", DrumMidi args ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<in>")).append('\n');
+    Midi2WavTest t = Midi2WavTest.current();
+    out.append("test on: ").append(t != null).append('\n');
+    Midi2WavTest.stop();
+    // 3. What the report reads from a few kinds of request.
+    String[][] asks = {
+      {"--genre", "Funk", "--prompt", "tight groove", "--instruments", "drums, bass", "--bpm", "120", "--duration", "10"},
+      {"--drums_only", "--genre", "Rock", "--bpm", "96"},
+      {"--prompt", "dreamy piano and strings with a soft female vocal", "--lyrics", "la la"},
+    };
+    for (String[] ask : asks) {
+      MusicExpect e = MusicExpect.of(java.util.Arrays.asList(ask));
+      out.append("== ").append(String.join(" ", ask)).append('\n');
+      for (String line : e.asked().split("\n")) if (line.startsWith("Instruments") || line.startsWith("Tempo") || line.startsWith("Drums") || line.startsWith("With") || line.startsWith("No drums")) out.append("  ").append(line).append('\n');
+      out.append("  ").append(e.drumMidiWhy("")).append('\n');
+    }
+    int[][] cells = new int[12][32];
+    for (int i = 0; i < 32; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 32; i += 8) cells[2][i] = 100;
+    out.append(MusicExpect.of(java.util.Arrays.asList(asks[0])).checks(Engine.encodeMidi(cells, 60, 32), 6.0));
+    write("s104_sogni_music_test", out.toString());
+  }
+
+  /**
    * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (no groove dialog); --test: to Midi2Wav with
    * --test, so its test (DrumMidi, CompareHits, the report) follows.
    */
@@ -4452,7 +4510,7 @@ public class BehaviorTest {
     idle();
     File dir = new File(app.getCacheDir(), "pyjav-in");
     int[][] cells = new int[12][16];
-    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
     byte[] groove = Engine.encodeMidi(cells, 120);
     for (String flag : new String[] {"--towav", "--test", "(neither)"}) {
       app.pyName = "MidiDrumGen.java";
@@ -4492,9 +4550,9 @@ public class BehaviorTest {
     File dir = new File(app.getCacheDir(), "pyjav-in");
     dir.mkdirs();
     int[][] cells = new int[12][32];
-    for (int i = 0; i < 32; i += 4) cells[0][i] = 1;
-    for (int i = 4; i < 32; i += 8) cells[2][i] = 1;
-    for (int i = 0; i < 32; i += 2) cells[5][i] = 1;
+    for (int i = 0; i < 32; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 32; i += 8) cells[2][i] = 100;
+    for (int i = 0; i < 32; i += 2) cells[5][i] = 100;
     byte[] groove = Engine.encodeMidi(cells, 120, 32);
     File midi = new File(dir, "groove.mid");
     Files.write(midi.toPath(), groove);
@@ -4546,7 +4604,7 @@ public class BehaviorTest {
     File dir = new File(app.getCacheDir(), "pyjav-in");
     dir.mkdirs();
     int[][] cells = new int[12][16];
-    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
     File midi = new File(dir, "groove.mid");
     Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
     args.setText(midi.getAbsolutePath());

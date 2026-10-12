@@ -134,6 +134,10 @@ public class Midi2Wav {
             if (peak > 0.98) {
                 g = g * 0.98 / peak;
                 System.out.println("Note: turned down to " + Math.round(g * 100) + "% so the mix does not clip");
+            } else if (peak < 0.01) {
+                // Velocity 1 is about 80 dB down: a MIDI with very soft notes is played as it is.
+                System.out.println(String.format(Locale.ROOT, "Note: the mix is very quiet (%.0f dB below full scale): the MIDI's notes are soft "
+                    + "(low velocities); --volume raises it", 20 * Math.log10(Math.max(1e-9, peak))));
             }
             if (sf.missing.size() > 0) {
                 StringBuilder sb = new StringBuilder("Note: no sound in the SoundFont for ");

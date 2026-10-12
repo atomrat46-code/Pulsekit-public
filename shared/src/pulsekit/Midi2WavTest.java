@@ -29,6 +29,11 @@ public final class Midi2WavTest {
   public int stage;
   /** The steps' reports, for the summary at the end. */
   public final StringBuilder report = new StringBuilder();
+  /** SogniMusic's test: what the track was asked to be, and the user's saved DrumMidi switches; null for Midi2Wav's. */
+  public MusicExpect expect;
+  public String drumSaved = "";
+  /** What was checked once DrumMidi had run (SogniMusic's test). */
+  public String checks = "";
 
   /** The test in progress, or null. */
   private static Midi2WavTest now;
@@ -41,6 +46,11 @@ public final class Midi2WavTest {
 
   public static synchronized void stop() {
     now = null;
+  }
+
+  /** True while a test waits for DrumMidi's MIDI: its import makes the song without asking "Make a song?". */
+  public static synchronized boolean makesSong() {
+    return now != null && now.stage == DRUM_MIDI;
   }
 
   /** True for a MidiDrumGen run whose MIDI goes on to Midi2Wav (--towav), or to its test (--test). */
@@ -66,6 +76,86 @@ public final class Midi2WavTest {
     }
     if (genArgv != null && genArgv.contains(FLAG)) out.add(FLAG);
     return out;
+  }
+
+  /** True for a SogniMusic run with --test. */
+  public static boolean musicWanted(String program, List<String> argv) {
+    return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);
+  }
+
+  /** True for a SogniMusic run whose track gets a WAV copy (all of them but --no_wav; --test needs it). */
+  public static boolean musicToWav(String program, List<String> argv) {
+    return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG));
+  }
+
+  /**
+   * SogniMusic's test starts with the WAV made from its track: there is no MIDI played to compare
+   * with, so the test runs DrumMidi (set from what the track was asked to be) and CompareHits, and
+   * its report says what was asked for and checks DrumMidi's MIDI against it.
+   */
+  public static synchronized Midi2WavTest startMusic(List<String> argv, File wav, String savedDrumMidi) {
+    now = null;
+    if (wav == null || !wav.isFile()) return null;
+    Midi2WavTest t = new Midi2WavTest();
+    t.wav = wav.getAbsolutePath();
+    t.expect = MusicExpect.of(argv);
+    t.drumSaved = savedDrumMidi == null ? "" : savedDrumMidi;
+    t.stage = DRUM_MIDI;
+    now = t;
+    return t;
+  }
+
+  /** DrumMidi_CRT's arguments in SogniMusic's test: the WAV, its MIDI's name, and the switches the track calls for. */
+  public List<String> drumMidiArgs() {
+    String stem = new File(this.wav).getName().replaceAll("(?i)\\.wav$", "");
+    return this.expect.drumMidiArgs(this.wav, stem + ".mid", this.drumSaved);
+  }
+
+  /** The report's title. */
+  public String title() {
+    return (this.expect != null ? "SogniMusic test: " : "Midi2Wav test: ") + new File(this.wav).getName();
+  }
+
+  /** The whole report: for SogniMusic, what was asked for, how DrumMidi ran and the checks first; then the comparisons. */
+  public String text() {
+    StringBuilder sb = new StringBuilder(title()).append("\n\n");
+    if (this.expect != null) {
+      sb.append(this.expect.asked()).append(this.expect.drumMidiWhy(this.drumSaved)).append("\n\n");
+      if (this.checks.length() > 0) sb.append(this.checks).append('\n');
+    }
+    return sb.append(this.report.toString().trim()).toString();
+  }
+
+  /** The WAV's length in seconds, from its header; 0 when it cannot be read. */
+  static double wavSeconds(File f) {
+    try {
+      java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r");
+      try {
+        byte[] h = new byte[4096];
+        int n = r.read(h);
+        int rate = 0;
+        int block = 0;
+        for (int i = 12; i + 8 <= n; ) {
+          String id = new String(h, i, 4, java.nio.charset.StandardCharsets.US_ASCII);
+          int len = (h[i + 4] & 0xff) | ((h[i + 5] & 0xff) << 8) | ((h[i + 6] & 0xff) << 16) | ((h[i + 7] & 0xff) << 24);
+          if (id.equals("fmt ") && i + 22 <= n) {
+            rate = (h[i + 12] & 0xff) | ((h[i + 13] & 0xff) << 8) | ((h[i + 14] & 0xff) << 16) | ((h[i + 15] & 0xff) << 24);
+            block = (h[i + 20] & 0xff) | ((h[i + 21] & 0xff) << 8);
+          }
+          if (id.equals("data")) {
+            long data = len & 0xffffffffL;
+            if (data == 0 || data > r.length()) data = r.length() - i - 8;
+            return rate > 0 && block > 0 ? data / (double) block / rate : 0;
+          }
+          i += 8 + len + (len & 1);
+        }
+      } finally {
+        r.close();
+      }
+    } catch (Exception ignored) {
+      // no length
+    }
+    return 0;
   }
 
   /** True for a Midi2Wav run with --test. */
@@ -119,6 +209,7 @@ public final class Midi2WavTest {
       java.nio.file.Files.write(sm.toPath(), Engine.encodeSongMidi(s.parts));
       this.song = sm.getAbsolutePath();
     }
+    if (this.expect != null) this.checks = this.expect.checks(drumsMidi, wavSeconds(new File(this.wav)));
     this.stage = COMPARE;
     return true;
   }

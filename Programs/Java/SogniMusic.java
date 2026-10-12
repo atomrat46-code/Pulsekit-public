@@ -37,6 +37,11 @@ import java.util.Map;
  * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
  * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
+ *
+ * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
+ * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
+ * switches suggested for a mix when other instruments were asked for), then CompareHits on the WAV,
+ * DrumMidi's MIDI and the song, in a report that starts with what the track was asked to be.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
@@ -163,6 +168,8 @@ public final class SogniMusic {
       else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
+      // PyJav's, after the run (the WAV copy, the test): nothing for the program to do.
+      else if (a.equals("--no_wav") || a.equals("--test")) continue;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -285,7 +292,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test]");
   }
 
   /**

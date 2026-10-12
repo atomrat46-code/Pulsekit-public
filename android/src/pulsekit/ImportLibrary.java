@@ -227,8 +227,7 @@ final class ImportLibrary {
             String string6 = string2;
             ArrayList<Engine.Part> object2 = new ArrayList<Engine.Part>(arrayList);
             // Midi2Wav's test makes the song without asking: CompareHits compares it.
-            if (makeSongNow) {
-                makeSongNow = false;
+            if (Midi2WavTest.makesSong()) {
                 app.songEditor.addImportedArrangement(string6, object2);
                 return true;
             }
@@ -722,9 +721,6 @@ final class ImportLibrary {
         app.songEditor.addImportedArrangement(string, list);
     }
 
-    /** The next song import makes its song without asking "Make a song?" (Midi2Wav's test). */
-    static boolean makeSongNow;
-
     android.widget.LinearLayout pkPackHost;
 
     java.lang.String pkPackKey;
@@ -828,8 +824,7 @@ final class ImportLibrary {
             // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
             java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             // Midi2Wav's test makes the song without asking: CompareHits compares it.
-            if (!song.isEmpty() && makeSongNow) {
-                makeSongNow = false;
+            if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
                 app.songEditor.addImportedMidiSong(stem, song);
             } else if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)

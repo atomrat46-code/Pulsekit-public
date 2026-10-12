@@ -3747,6 +3747,79 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * SogniMusic (stand-in Sogni serving a real MP3): its track is also kept as a WAV; with --test,
+   * DrumMidi_CRT runs on the WAV with the tempo asked (and the switches for a mix, as bass was asked
+   * for), then CompareHits, and the report starts with what the track was asked to be and the checks.
+   */
+  void s89_sogni_music_test() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      ex.getRequestBody().readAllBytes();
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.equals("/v1/creative-agent/workflows/wf9")) {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/take.mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--no_wav") || p.token.equals("--test")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"\n");
+      }
+      final StringBuilder report = new StringBuilder();
+      final Object[] look = new Object[1];
+      look[0] = (java.util.function.Consumer<JDialog>) d -> {
+        java.awt.Component c = component(d, "midi2wav-test-report");
+        if (c != null) report.append(d.getTitle()).append('\n').append(((javax.swing.JTextArea) c).getText());
+        else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+      };
+      @SuppressWarnings("unchecked")
+      java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+      inspectNext = first;
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText("--genre Funk --prompt \"tight groove\" --instruments \"drums, bass\" --bpm 120 --duration 10 --test --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1500 && report.length() == 0; i++) Thread.sleep(100);
+      idle();
+      File wav = new File(home, ".pulsekit/sogni-Funk-wf9.wav");
+      if (!wav.isFile()) wav = new File(home, "Downloads/sogni-Funk-wf9.wav");
+      out.append("WAV kept: ").append(wav.isFile()).append(", ").append(String.format(java.util.Locale.ROOT, "%.1f s", wav.isFile() ? AudioIo.parseWav(Files.readAllBytes(wav.toPath())).samples.length / (double) AudioIo.parseWav(Files.readAllBytes(wav.toPath())).sr : 0)).append('\n');
+      out.append("program now: ").append((String) get("pyName")).append('\n');
+      for (String line : report.toString().replace(home.getAbsolutePath(), "~").split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("SogniMusic test") || t.startsWith("==") || t.startsWith("Instruments:") || t.startsWith("Tempo:") || t.startsWith("Length:")
+            || t.startsWith("Drum hits:") || t.startsWith("Drums with") || t.startsWith("DrumMidi runs") || t.startsWith("- ") || t.startsWith("Few") || t.startsWith("No kicks"))
+          out.append("  ").append(t).append('\n');
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
    * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (a WAV with Pulsekit's kit); --test: on to
    * Midi2Wav's test, ending with the report (DrumMidi on the WAV, CompareHits against the groove).
    */
@@ -3806,10 +3879,10 @@ public final class DesktopBehavior {
   void s87_midi2wav_test() throws Exception {
     File home = new File(System.getProperty("user.home"));
     int[][] cells = new int[12][16];
-    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
-    cells[2][4] = 1;
-    cells[2][12] = 1;
-    for (int i = 0; i < 16; i += 2) cells[5][i] = 1;
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 100;
+    cells[2][12] = 100;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 100;
     // Four bars, so DrumMidi has a groove to hear.
     int[][] two = new int[12][32];
     for (int t = 0; t < 12; t++) for (int i = 0; i < 32; i++) two[t][i] = cells[t][i % 16];
@@ -3859,10 +3932,10 @@ public final class DesktopBehavior {
   void s86_midi2wav() throws Exception {
     File home = new File(System.getProperty("user.home"));
     int[][] cells = new int[12][16];
-    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
-    cells[2][4] = 1;
-    cells[2][12] = 1;
-    for (int i = 0; i < 16; i += 2) cells[5][i] = 1;
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 100;
+    cells[2][12] = 100;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 100;
     File midi = new File(home, "groove.mid");
     Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
     File sf2 = new File(home, "test-kit.sf2");
