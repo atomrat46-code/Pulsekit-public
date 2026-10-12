@@ -77,11 +77,14 @@ public class DrumMidi_CRT{
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
-    static final double OPEN_HAT_TAIL = 0.45;
+    static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
     /** At a kick or snare, a hat raises the hat band's level by HAT_OVER_DRUM (0.13 and more); the drum's own leak raises it about 0.06. */
     static final double HAT_OVER_DRUM = 0.1;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
     static final int HAT_TIME_MAX = 48;
+    /** Seconds within which a ride or crash and a hat peak are the same hit. */
+    static final double SAME_CYMBAL = 0.035;
+    static final double PEDAL_BODY = 0.2, LOUD_BODY = 0.4, PEDAL_ALONE = 1.0, PEDAL_RUN = 0.7;
     /**
      * Rises in band level (linear, in units of the band's loud hits): a kick raises the kick band by
      * KICK_JUMP or more (soft kicks rise 0.29-0.32; a hat's leak into it, or a snare's thump without a
@@ -91,7 +94,7 @@ public class DrumMidi_CRT{
      * KICK_WITH_SNARE (a snare's thump alone reaches 0.6 in some kits).
      */
     static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
-    static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.12, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.08, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
     /**
      * Snare wires: the noise band (2-6 kHz) still holds this much of its onset's rise 60-90 ms on
      * (wiresLeft). A snare whose body shows holds WIRES or more; a tom's stick noise dies to
@@ -103,10 +106,11 @@ public class DrumMidi_CRT{
      */
     /**
      * A snare's body (150-350 Hz) rises BODY_TONE times the band above it (400-1000 Hz), even a ghost
-     * note under a hat (1.0-1.2); plain noise, as Pulsekit's own hats, rises 0.3-0.7 times. A hat
+     * note under a hat (1.0-1.2; a roomy kit's snare 0.73 and more); plain noise, as Pulsekit's own
+     * hats, rises 0.3-0.66 times. Over a bass line BODY_TONE_BAND, as guitar and piano add tones. A hat
      * struck with the snare (its band jumping HAT_WITH) hides the wires, so they are not asked for then.
      */
-    static final double GAP_LO = 400, GAP_HI = 1000, BODY_TONE = 0.9, HAT_WITH = 0.4;
+    static final double GAP_LO = 400, GAP_HI = 1000, BODY_TONE = 0.7, BODY_TONE_BAND = 0.9, HAT_WITH = 0.4;
     static final double WIRES = 0.08, WIRES_BAND = 0.23, WIRES_MAX = 0.6, WIRES_NOISE_JUMP = 0.5, MASKED_BODY = 0.25;
     /**
      * A ride washing under the band keeps the noise band at RINGING_NOISE or more before the
@@ -123,7 +127,7 @@ public class DrumMidi_CRT{
     static final double BASE_DELTA = 0.30;
 
     static final int PPQ = 480;
-    static final int KICK_NOTE = 36, SNARE_NOTE = 38, CLOSED_HAT = 42, OPEN_HAT = 46, RIDE_NOTE = 51, CRASH_NOTE = 49;
+    static final int KICK_NOTE = 36, SNARE_NOTE = 38, CLOSED_HAT = 42, PEDAL_HAT = 44, OPEN_HAT = 46, RIDE_NOTE = 51, CRASH_NOTE = 49;
     static final int FLOOR_TOM = 41, MID_TOM = 47, RACK_TOM = 50;
 
     static final double[] COS = new double[FFT_SIZE / 2];
@@ -288,10 +292,10 @@ public class DrumMidi_CRT{
         double[] lowPitch = lowPitch(mag, sr, maxBin);
         double[] hatLevel = hatRaw.clone();
         normalize(hatLevel);
-        Levels lv = new Levels(kickLevel, bodyLevel, noiseLevel, bodyRaw, gapRaw, hatLevel);
         normalize(kickLevel);
         normalize(bodyLevel);
         normalize(tomLevel);
+        Levels lv = new Levels(kickLevel, bodyLevel, noiseLevel, bodyRaw, gapRaw, hatLevel);
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             applyHpss(mag);
@@ -364,10 +368,12 @@ public class DrumMidi_CRT{
         List<Hit> hits = new ArrayList<Hit>();
         // A snare's body jumps more than the kick band. Kick plus hat looks like a snare otherwise.
         List<Integer> snarePeaks = new ArrayList<Integer>();
+        List<Double> snareBodies = new ArrayList<Double>();
         for (Integer p : pickPeaks(snare, delta)) {
             int t = p.intValue();
             if (!isSnare(lv, t, sens, rideRings(rideEnergy, t))) continue;
             snarePeaks.add(p);
+            snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
         }
         List<Integer> kickFrames = new ArrayList<Integer>();
@@ -384,6 +390,7 @@ public class DrumMidi_CRT{
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
         if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr);
+        pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
         boolean[] busy = new boolean[kick.length];
@@ -399,10 +406,14 @@ public class DrumMidi_CRT{
         int nHats = hatPeaks.size();
         boolean[] keep = new boolean[nHats];
         boolean[] under = new boolean[nHats];
+        // Taken for a ride or crash (their band rings on): a hat after all if neither is found there.
+        boolean[] maybeCymbal = new boolean[nHats];
         for (int i = 0; i < nHats; i++) {
             int t = hatPeaks.get(i).intValue();
-            if (isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
-            if (ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) continue;
+            if (isCrash(ride, top, rideEnergy, topEnergy, t) || ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) {
+                maybeCymbal[i] = true;
+                continue;
+            }
             if (snare[t] > 1.0 && hat[t] < snare[t]) {
                 under[i] = jump(hatLevel, t) >= HAT_OVER_DRUM;
                 continue;
@@ -438,6 +449,21 @@ public class DrumMidi_CRT{
             if (!isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
             if (!crashAttack(ride, top, t)) continue;
             hits.add(new Hit(t * (double) HOP / sr, CRASH_NOTE, crash[t]));
+        }
+        ridesInHats(hits, fps);
+        // A room or reverb keeps the ride band ringing after a hat too: where no ride or crash was
+        // found at a hat taken for one, it is the hat.
+        for (int i = 0; i < nHats; i++) {
+            if (!maybeCymbal[i]) continue;
+            int t = hatPeaks.get(i).intValue();
+            double time = t * (double) HOP / sr;
+            boolean found = false;
+            for (Hit h : hits) {
+                if ((h.note == RIDE_NOTE || h.note == CRASH_NOTE) && Math.abs(h.time - time) <= SAME_CYMBAL) found = true;
+            }
+            if (found) continue;
+            boolean open = openHat(hatRaw, hatPeaks, i);
+            hits.add(new Hit(time, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
         List<Integer> tomPeaks = pickPeaks(toms, BASE_DELTA / Math.max(0.05, tomSens), 4);
         for (int i = 0; i < tomPeaks.size(); i++) {
@@ -499,7 +525,7 @@ public class DrumMidi_CRT{
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
-        int kicks = 0, snares = 0, closed = 0, open = 0, rides = 0, crashes = 0, floors = 0, mids = 0, racks = 0;
+        int kicks = 0, snares = 0, closed = 0, pedals = 0, open = 0, rides = 0, crashes = 0, floors = 0, mids = 0, racks = 0;
         for (int i = 0; i < hits.size(); i++) {
             Hit h = hits.get(i);
             long tick = Math.round(h.time * tickPerSec);
@@ -516,6 +542,7 @@ public class DrumMidi_CRT{
             else if (h.note == SNARE_NOTE) snares++;
             else if (h.note == OPEN_HAT) open++;
             else if (h.note == CLOSED_HAT) closed++;
+            else if (h.note == PEDAL_HAT) pedals++;
             else if (h.note == RIDE_NOTE) rides++;
             else if (h.note == CRASH_NOTE) crashes++;
             else if (h.note == FLOOR_TOM) floors++;
@@ -527,8 +554,8 @@ public class DrumMidi_CRT{
             finish("Failed: MIDI file was not written");
             return;
         }
-        note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
-                written.getName(), kicks, snares, closed, open, rides, crashes, racks, mids, floors));
+        note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
+                written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors));
         note("MIDI Extracted to: " + written.getAbsolutePath());
         finish("Succeeded: " + written.getName());
     }
@@ -951,7 +978,17 @@ public class DrumMidi_CRT{
             count++;
         }
         tail /= Math.max(1, count);
-        return tail - pre > peak * OPEN_HAT_TAIL;
+        if (tail - pre <= peak * OPEN_HAT_TAIL) return false;
+        // A room or reverb keeps a closed hat up 60-100 ms on; an open hat still rings 115-185 ms on
+        // (frames 10-16, up to the next hit). A hat hit again before then is taken as closed.
+        int next = index + 1 < peaks.size() ? peaks.get(index + 1).intValue() : n;
+        double late = 0;
+        int lc = 0;
+        for (int i = t + 10; i <= Math.min(n - 1, Math.min(next - 2, t + 16)); i++) {
+            late += energy[i];
+            lc++;
+        }
+        return lc > 0 && late / lc - pre > peak * OPEN_HAT_LATE;
     }
 
     /** A ride keeps ringing in the mid-high band well after an open hat would have died. */
@@ -1047,12 +1084,15 @@ public class DrumMidi_CRT{
         double jb = jump(lv.body, t);
         return jb >= SNARE_JUMP / sens && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
                 && (wiresLeft(lv.noise, t) >= WIRES_BAND || (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t))
-                && jump(lv.bodyRaw, t) >= BODY_TONE * jump(lv.gapRaw, t);
+                && jump(lv.bodyRaw, t) >= (lv.bass ? BODY_TONE_BAND : BODY_TONE) * jump(lv.gapRaw, t);
     }
 
-    /** A band already sounds in the body band before the onset. */
+    /**
+     * A band already sounds in the body band before the onset (and a bass line plays: a roomy kit
+     * alone also keeps the body band up between its hits).
+     */
     static boolean masked(Levels lv, int t) {
-        return t >= 3 && lv.body[t - 3] >= MASKED_BODY;
+        return lv.bass && t >= 3 && lv.body[t - 3] >= MASKED_BODY;
     }
 
     /**
@@ -1081,9 +1121,12 @@ public class DrumMidi_CRT{
     /** Band levels before HPSS, for telling the drums apart at an onset. */
     static final class Levels {
         final double[] kick, body, noise, bodyRaw, gapRaw, hat;
+        /** The song has a bass line (bassLine). */
+        final boolean bass;
 
         Levels(double[] kick, double[] body, double[] noise, double[] bodyRaw, double[] gapRaw, double[] hat) {
             this.hat = hat;
+            this.bass = bassLine(kick);
             this.kick = kick;
             this.body = body;
             this.noise = noise;
@@ -1139,8 +1182,66 @@ public class DrumMidi_CRT{
         return na >= 2 && sameGap(after[0] - t, after[1] - after[0]);
     }
 
+    /**
+     * A "ride" among hats keeping time (hats on both sides at the same spacing) is a hat: a room or
+     * reverb makes a closed hat ring on like a ride, but a ride is played instead of the hats.
+     */
+    static void ridesInHats(List<Hit> hits, double fps) {
+        List<Double> hats = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == OPEN_HAT) hats.add(Double.valueOf(h.time));
+        Collections.sort(hats);
+        for (int i = 0; i < hits.size(); i++) {
+            Hit h = hits.get(i);
+            if (h.note != RIDE_NOTE) continue;
+            double before = -1, after = -1;
+            for (Double t : hats) {
+                double v = t.doubleValue();
+                if (v < h.time - 0.01) before = v;
+                else if (v > h.time + 0.01) {
+                    after = v;
+                    break;
+                }
+            }
+            if (before < 0 || after < 0) continue;
+            if (sameGap((int) Math.round((h.time - before) * fps), (int) Math.round((after - h.time) * fps))) hits.set(i, new Hit(h.time, CLOSED_HAT, h.strength));
+        }
+    }
+
     static boolean sameGap(int a, int b) {
         return a > 0 && b > 0 && a <= HAT_TIME_MAX && b <= HAT_TIME_MAX && Math.abs(a - b) <= Math.max(2, 0.4 * Math.max(a, b));
+    }
+
+    /**
+     * A quiet "snare" (its body rising under PEDAL_BODY) with no kick and no loud snare (body
+     * LOUD_BODY) within PEDAL_ALONE seconds is a hi-hat pedal's chick, as in a count-in (its last
+     * chicks, just before the downbeat, too: within PEDAL_RUN of the one before): it has a
+     * little body and some noise, as a ghost note does, but ghost notes come among the beat's kicks
+     * and snares.
+     */
+    static void pedalHats(List<Hit> hits, List<Integer> snareFrames, List<Double> bodies, double sr) {
+        List<Double> beat = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == KICK_NOTE) beat.add(Double.valueOf(h.time));
+        for (int i = 0; i < snareFrames.size(); i++) {
+            if (bodies.get(i).doubleValue() >= LOUD_BODY) beat.add(Double.valueOf(snareFrames.get(i) * (double) HOP / sr));
+        }
+        // In time order, so a count-in's last chicks (just before the downbeat) follow the run.
+        double lastPedal = -1e9;
+        for (int i = 0; i < snareFrames.size(); i++) {
+            if (bodies.get(i).doubleValue() >= PEDAL_BODY) continue;
+            double time = snareFrames.get(i) * (double) HOP / sr;
+            boolean before = false, after = false;
+            for (Double b : beat) {
+                double d = b.doubleValue() - time;
+                if (d < 0 && d >= -PEDAL_ALONE) before = true;
+                if (d >= 0 && d <= PEDAL_ALONE) after = true;
+            }
+            if (before || after && time - lastPedal > PEDAL_RUN) continue;
+            lastPedal = time;
+            for (int h = 0; h < hits.size(); h++) {
+                Hit x = hits.get(h);
+                if (x.note == SNARE_NOTE && x.time == time) hits.set(h, new Hit(time, PEDAL_HAT, x.strength));
+            }
+        }
     }
 
     /** The band's level 3 frames before the onset is under QUIET_BEFORE of its loud level. */
