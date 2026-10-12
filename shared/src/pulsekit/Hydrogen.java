@@ -54,52 +54,6 @@ public final class Hydrogen {
         + (r.bars == 1 ? " bar, " : " bars, ") + r.notes + " notes" + (r.bpm > 0 ? " at " + Math.round(r.bpm) + " BPM" : "");
   }
 
-  /**
-   * Program arguments with every Hydrogen song or pattern file swapped for its MIDI, written to dir
-   * (CompareHits, Midi2Wav and the other programs read MIDI only).
-   */
-  public static List<String> midiArgs(List<String> argv, java.io.File dir) {
-    if (argv == null) return argv;
-    List<String> out = new ArrayList<String>(argv);
-    for (int i = 0; i < out.size(); i++) {
-      String a = out.get(i);
-      String low = a.toLowerCase(Locale.ROOT);
-      if (!low.endsWith(".h2song") && !low.endsWith(".h2pattern") && !low.endsWith(".xml")) continue;
-      java.io.File f = new java.io.File(a);
-      if (!f.isFile()) continue;
-      try {
-        byte[] data = readAll(f);
-        if (!isHydrogen(data)) continue;
-        Result r = toMidi(data);
-        dir.mkdirs();
-        java.io.File mid = new java.io.File(dir, midiName(f.getName()));
-        java.io.FileOutputStream fos = new java.io.FileOutputStream(mid);
-        try {
-          fos.write(r.midi);
-        } finally {
-          fos.close();
-        }
-        out.set(i, mid.getAbsolutePath());
-      } catch (Exception ex) {
-        // Left as it is: the program says what it could not read.
-      }
-    }
-    return out;
-  }
-
-  private static byte[] readAll(java.io.File f) throws java.io.IOException {
-    java.io.FileInputStream in = new java.io.FileInputStream(f);
-    try {
-      ByteArrayOutputStream o = new ByteArrayOutputStream();
-      byte[] b = new byte[8192];
-      int n;
-      while ((n = in.read(b)) > 0) o.write(b, 0, n);
-      return o.toByteArray();
-    } finally {
-      in.close();
-    }
-  }
-
   /** The file name with .mid in place of .h2song / .h2pattern (and any .xml after it). */
   public static String midiName(String name) {
     String n = name == null || name.isEmpty() ? "hydrogen" : name;

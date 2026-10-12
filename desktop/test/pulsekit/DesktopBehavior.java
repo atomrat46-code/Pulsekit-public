@@ -3838,6 +3838,48 @@ public final class DesktopBehavior {
     return "   <note><position>" + pos + "</position><velocity>" + vel + "</velocity><instrument>" + inst + "</instrument><note_off>false</note_off></note>\n";
   }
 
+  /**
+   * A small Reaper project at 100 BPM: a muted bass track, and a drum track whose item starts at
+   * 2 s and loops its one bar (kick, snare, kick, snare) twice, plus a pooled copy at 10 s.
+   */
+  static String rpp() {
+    StringBuilder ev = new StringBuilder();
+    // One bar at 192 per quarter: kick 0, snare 192, kick 384, snare 576; source ends at 768.
+    int[][] notes = {{0, 0x24}, {192, 0x26}, {384, 0x24}, {576, 0x26}};
+    int at = 0;
+    for (int[] n : notes) {
+      ev.append("        E ").append(n[0] - at).append(" 99 ").append(Integer.toHexString(n[1])).append(" 64\n");
+      ev.append("        E 48 89 ").append(Integer.toHexString(n[1])).append(" 00\n");
+      at = n[0] + 48;
+    }
+    ev.append("        E ").append(768 - at).append(" b0 7b 00\n");
+    return "<REAPER_PROJECT 0.1 \"6.46/win64\" 1\n  TEMPO 100 4 4\n  <TEMPOENVEX\n    ACT 0 -1\n  >\n"
+        + "  <TRACK\n    NAME \"Bass\"\n    MUTESOLO 1 0 0\n    <ITEM\n      POSITION 0\n      LENGTH 10\n      LOOP 0\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        E 0 90 28 64\n        E 96 80 28 00\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n"
+        + "  <TRACK\n    NAME \"Drums\"\n    <ITEM\n      POSITION 2\n      LENGTH 4.8\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n"
+        + ev + "        IGNTEMPO 0 120 4 4\n      >\n    >\n"
+        + "    <ITEM\n      POSITION 10\n      LENGTH 2.4\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n>\n";
+  }
+
+  void s91_import_reaper() throws Exception {
+    byte[] project = rpp().getBytes(StandardCharsets.UTF_8);
+    Reaper.Result r = Reaper.toMidi(project);
+    out.append(Reaper.summary(r)).append('\n');
+    // Two loops of 4 hits from 2 s, one bar from 10 s; the muted bass is left out.
+    if (r.notes != 12 || r.bpm != 100 || r.items != 2) throw new AssertionError("rpp read as " + Reaper.summary(r));
+    double[][] hits = HitCompare.midiHits(r.midi);
+    out.append(String.format(java.util.Locale.ROOT, "first kick %.2f s, kicks %d, snares %d%n", hits[0][0], hits[0].length, hits[1].length));
+    if (Math.abs(hits[0][0] - 2.0) > 0.01 || hits[0].length != 6 || hits[1].length != 6 || Math.abs(hits[0][4] - 10.0) > 0.01) throw new AssertionError("rpp hits at the wrong times");
+    answers.add("Yes");
+    call("ingest", project, "Session.rpp");
+    out.append("now ").append(((javax.swing.JLabel) get("nowPlaying")).getText()).append('\n');
+    File f = new File(System.getProperty("java.io.tmpdir"), "Session.rpp");
+    Files.write(f.toPath(), project);
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(f.getAbsolutePath()), new File(System.getProperty("java.io.tmpdir"), "rppmid"));
+    out.append("program args ").append(new File(args.get(0)).getName()).append('\n');
+    if (!args.get(0).endsWith("Session.mid")) throw new AssertionError("program got " + args);
+    snap("after Reaper project");
+  }
+
   void s90_import_hydrogen() throws Exception {
     byte[] song = h2song().getBytes(StandardCharsets.UTF_8);
     Hydrogen.Result r = Hydrogen.toMidi(song);
@@ -3863,7 +3905,7 @@ public final class DesktopBehavior {
     // Given to a program: its MIDI instead.
     File h2 = new File(System.getProperty("java.io.tmpdir"), "Test song.h2song");
     Files.write(h2.toPath(), song);
-    List<String> args = Hydrogen.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new File(System.getProperty("java.io.tmpdir"), "h2mid"));
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new File(System.getProperty("java.io.tmpdir"), "h2mid"));
     out.append("program args ").append(new File(args.get(0)).getName()).append(' ').append(args.subList(1, args.size())).append('\n');
     Engine.MidiBars bars = Engine.parseMidiBars(Files.readAllBytes(new File(args.get(0)).toPath()));
     if (!args.get(0).endsWith("Test song.mid") || bars == null || bars.bars.size() != 4) throw new AssertionError("program got " + args);

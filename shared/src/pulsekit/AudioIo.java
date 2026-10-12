@@ -366,10 +366,10 @@ public final class AudioIo {
 
   /** Drum hits in a MIDI file, one bar at a time, rendered with the kit voices. */
   public static short[] renderMidiDrums(byte[] midi, short[][] voices, int sr) {
-    // A Hydrogen song or pattern plays as its MIDI.
-    if (Hydrogen.isHydrogen(midi)) {
+    // A Hydrogen song or pattern, or a Reaper project, plays as its MIDI.
+    if (DrumFiles.isDrumFile(midi)) {
       try {
-        midi = Hydrogen.toMidi(midi).midi;
+        midi = DrumFiles.toMidi(midi, "").midi;
       } catch (Exception ex) {
         return new short[0];
       }

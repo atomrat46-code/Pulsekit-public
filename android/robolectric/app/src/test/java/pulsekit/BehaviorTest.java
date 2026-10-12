@@ -4448,6 +4448,54 @@ public class BehaviorTest {
    * on the WAV set from what the track was asked to be (the tempo asked; with bass asked for, the
    * switches suggested for a mix), and the report reads the request: instruments, tempo, length.
    */
+  /**
+   * A small Reaper project at 100 BPM: a muted bass track, and a drum track whose item starts at
+   * 2 s and loops its one bar (kick, snare, kick, snare) twice, plus a pooled copy at 10 s.
+   */
+  private static String rpp() {
+    StringBuilder ev = new StringBuilder();
+    // One bar at 192 per quarter: kick 0, snare 192, kick 384, snare 576; source ends at 768.
+    int[][] notes = {{0, 0x24}, {192, 0x26}, {384, 0x24}, {576, 0x26}};
+    int at = 0;
+    for (int[] n : notes) {
+      ev.append("        E ").append(n[0] - at).append(" 99 ").append(Integer.toHexString(n[1])).append(" 64\n");
+      ev.append("        E 48 89 ").append(Integer.toHexString(n[1])).append(" 00\n");
+      at = n[0] + 48;
+    }
+    ev.append("        E ").append(768 - at).append(" b0 7b 00\n");
+    return "<REAPER_PROJECT 0.1 \"6.46/win64\" 1\n  TEMPO 100 4 4\n  <TEMPOENVEX\n    ACT 0 -1\n  >\n"
+        + "  <TRACK\n    NAME \"Bass\"\n    MUTESOLO 1 0 0\n    <ITEM\n      POSITION 0\n      LENGTH 10\n      LOOP 0\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        E 0 90 28 64\n        E 96 80 28 00\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n"
+        + "  <TRACK\n    NAME \"Drums\"\n    <ITEM\n      POSITION 2\n      LENGTH 4.8\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n"
+        + ev + "        IGNTEMPO 0 120 4 4\n      >\n    >\n"
+        + "    <ITEM\n      POSITION 10\n      LENGTH 2.4\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n>\n";
+  }
+
+  /** Reaper: a project's drum items (looped, pooled, the muted bass left out) as MIDI, imported and given to a program. */
+  @Test
+  public void s106_import_reaper() throws Exception {
+    byte[] project = rpp().getBytes(StandardCharsets.UTF_8);
+    Reaper.Result r = Reaper.toMidi(project);
+    StringBuilder log = new StringBuilder(Reaper.summary(r)).append('\n');
+    if (r.notes != 12 || r.bpm != 100 || r.items != 2) throw new AssertionError("rpp read as " + Reaper.summary(r));
+    double[][] hits = HitCompare.midiHits(r.midi);
+    if (Math.abs(hits[0][0] - 2.0) > 0.01 || hits[0].length != 6 || Math.abs(hits[0][4] - 10.0) > 0.01) throw new AssertionError("rpp hits at the wrong times");
+    call("ingest", project, "Session.rpp", null);
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    int[][] cells = (int[][]) get("cells");
+    log.append("grid kick ").append(cells[0][0]).append(" snare ").append(cells[2][4]).append('\n');
+    java.io.File f = new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "Session.rpp");
+    java.nio.file.Files.write(f.toPath(), project);
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(f.getAbsolutePath()), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "rppmid"));
+    log.append("program args ").append(new java.io.File(args.get(0)).getName()).append('\n');
+    if (!args.get(0).endsWith("Session.mid")) throw new AssertionError("program got " + args);
+    write("s106_import_reaper", log.toString());
+  }
+
   /** Hydrogen: a pattern file into the grid, a song (Verse x3, Fill) as an imported song, and its MIDI for a program. */
   @Test
   public void s105_import_hydrogen() throws Exception {
@@ -4492,7 +4540,7 @@ public class BehaviorTest {
     if (imported.isEmpty() || imported.get(0).parts.isEmpty()) throw new AssertionError("Hydrogen song made no song");
     java.io.File h2 = new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "Test song.h2song");
     java.nio.file.Files.write(h2.toPath(), song);
-    List<String> args = Hydrogen.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "h2mid"));
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "h2mid"));
     log.append("program args ").append(new java.io.File(args.get(0)).getName()).append(' ').append(args.subList(1, args.size())).append('\n');
     if (!args.get(0).endsWith("Test song.mid")) throw new AssertionError("program got " + args);
     write("s105_import_hydrogen", log.toString());

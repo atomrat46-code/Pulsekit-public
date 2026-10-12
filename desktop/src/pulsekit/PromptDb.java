@@ -76,7 +76,7 @@ final class PromptDb {
         if (only == null) return true;
         String low = name == null ? "" : name.toLowerCase();
         if (SOUNDS.equals(only)) return low.matches(".+\\.(wav|wave|mp3|flac|m4a|ogg|aac)");
-        if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi|h2song|h2pattern)");
+        if (MIDIS.equals(only)) return low.matches(".+\\.(mid|midi|h2song|h2pattern|rpp)");
         if (SOUNDS_OR_MIDIS.equals(only)) return fits(name, SOUNDS) || fits(name, MIDIS);
         if (VIDEOS.equals(only)) return low.matches(".+\\.(mp4|m4v|mov)");
         if (TEXTS.equals(only)) return DbFilter.isText(name);

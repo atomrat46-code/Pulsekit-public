@@ -630,8 +630,8 @@ final class PyJav {
                 app.setNow("Could not write Pulsekit's kit as a SoundFont: " + ex.getMessage());
             }
         }
-        // Hydrogen songs and patterns given to a program: their MIDI.
-        argv = pulsekit.Hydrogen.midiArgs(argv, dir);
+        // Hydrogen songs and patterns, and Reaper projects, given to a program: their MIDI.
+        argv = pulsekit.DrumFiles.midiArgs(argv, dir);
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             pulsekit.MediaBrowser.load(app);
