@@ -3747,6 +3747,90 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * File > Downloads: "No downloads yet" at first; a Sogni run is listed (failed: no key), and a
+   * finished run's files are listed by program in Finished / failed. Rename, Copy to, Move to,
+   * Clear and Delete (with its prompt file and prompt library entry) work on a file.
+   */
+  void s85_downloads() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final StringBuilder seen = new StringBuilder();
+    java.util.function.Function<JDialog, String> listing = d -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.ArrayDeque<Component> todo = new java.util.ArrayDeque<Component>();
+      todo.add(d.getContentPane());
+      while (!todo.isEmpty()) {
+        Component c = todo.poll();
+        if (c.getName() != null && c.getName().startsWith("downloads-")) all.add(c);
+        if (c instanceof Container) for (Component k : ((Container) c).getComponents()) todo.add(k);
+      }
+      for (Component c : all) {
+        String t = textOf(c);
+        sb.append("  ").append(c.getName().replaceAll("downloads-run:\\d+", "downloads-run")).append(t == null || t.isEmpty() ? "" : " \"" + t.replace(home.getAbsolutePath(), "~").replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>") + "\"").append('\n');
+      }
+      return sb.toString();
+    };
+    inspectNext = d -> seen.append("empty:\n").append(listing.apply(d));
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    // A Sogni run through PyJav: SogniMusic with no key fails; its prompt sheet is saved.
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniMusic.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 300 && !log.getText().contains("Prompt library"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    idle();
+    // A finished run: its picture and answer in Downloads, its sheet stored in the library.
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    File pic = new File(dl, "sogni-pedit-smile.png");
+    File txt = new File(dl, "answer.txt");
+    File sheet = new File(dl, "sogni-pedit-smile.prompt");
+    Files.write(pic.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    Files.write(txt.toPath(), "An answer".getBytes(StandardCharsets.UTF_8));
+    Files.write(sheet.toPath(), PromptRun.encode("Smile", "", "", "", "", "Image", "1", "Krea", "sogni-pedit-smile.png", "ai", "Smile").getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.addCategory("Image");
+    long prompt = vault.addPrompt(cat, "Smile");
+    long version = vault.addVersion(prompt, "Smile", "", "Smile", "Krea", "", null, "", null, "sogni-pedit-smile.png", null, "ai", "");
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("SogniPedit.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: sogni-pedit-smile.png", "Saved " + pic.getAbsolutePath() + "\nSaved " + txt.getAbsolutePath() + "\nSaved " + sheet.getAbsolutePath(), null);
+    SogniDownloads.stored(run, version);
+    SogniDownloads.done(run);
+    seen.setLength(0);
+    DownloadsScreen.tab = "";
+    inspectNext = d -> seen.append("after runs:\n").append(listing.apply(d));
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && seen.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    SogniDownloads.Run r = SogniDownloads.run(run);
+    out.append("menu: ").append(java.util.Arrays.toString(DownloadsScreen.MENU)).append('\n');
+    SogniDownloads.Item picItem = r.items.get(0);
+    SogniDownloads.Item txtItem = r.items.get(1);
+    out.append("rename: ").append(DownloadsScreen.rename(picItem, "smile.png")).append(", now ").append(picItem.where.replace(home.getAbsolutePath(), "~")).append('\n');
+    File other = new File(home, "elsewhere");
+    other.mkdirs();
+    out.append("copy: ").append(DownloadsScreen.put(r, txtItem, other, false).replace(home.getAbsolutePath(), "~")).append(", still at ").append(txtItem.where.replace(home.getAbsolutePath(), "~")).append('\n');
+    out.append("move: ").append(DownloadsScreen.put(r, txtItem, other, true).replace(home.getAbsolutePath(), "~")).append(", now ").append(txtItem.where.replace(home.getAbsolutePath(), "~"))
+        .append(", gone from Downloads ").append(!txt.exists()).append('\n');
+    out.append("clear: ").append(DownloadsScreen.clear(r, txtItem)).append(", file stays ").append(new File(txtItem.where).exists()).append('\n');
+    out.append("delete: ").append(DownloadsScreen.delete(r, picItem, true)).append('\n');
+    out.append("  picture gone ").append(!new File(home, "Downloads/smile.png").exists()).append(", sheet gone ").append(!sheet.exists())
+        .append(", library version gone ").append(PromptDb.vault().version(version) == null).append(", run listed ").append(SogniDownloads.run(run) != null).append('\n');
+    // Kept: read back as the app starts again.
+    out.append("kept runs: ").append(SogniDownloads.count()).append('\n');
+  }
+
+  /**
    * SogniChat: Params' Chat model has a note, image analyze mode for a DeepSeek vision model and
    * tools mode otherwise; a run says the mode, and a DeepSeek run leaves the tools out.
    */

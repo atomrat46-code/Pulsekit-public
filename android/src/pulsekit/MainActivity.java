@@ -708,6 +708,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) PyJavParams.dirPicked(this, intent.getData());
             return;
         }
+        if (n == DownloadsScreen.PICK_FOLDER) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) DownloadsScreen.folderPicked(this, intent.getData());
+            return;
+        }
         if (n == PromptSheet.PICK_IMPORT) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null) PromptSheet.importPicked(this, intent);
@@ -1023,6 +1028,11 @@ public class MainActivity extends UiKit {
         general.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         general.setTextColor(FG);
         general.setTag("file-general-settings");
+        // The Sogni runs' downloads: pending, in progress, finished / failed.
+        android.widget.TextView downloads = this.text("Downloads", 14, true);
+        downloads.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        downloads.setTextColor(FG);
+        downloads.setTag("file-downloads");
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
@@ -1035,6 +1045,7 @@ public class MainActivity extends UiKit {
         menu.addView(saveCodeAs);
         menu.addView(importRef);
         menu.addView(importResult);
+        menu.addView(downloads);
         menu.addView(general);
         menu.addView(midi);
         menu.addView(compare);
@@ -1067,6 +1078,10 @@ public class MainActivity extends UiKit {
         general.setOnClickListener(v -> {
             pop.dismiss();
             GeneralSettings.show(this);
+        });
+        downloads.setOnClickListener(v -> {
+            pop.dismiss();
+            DownloadsScreen.show(this);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

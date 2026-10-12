@@ -4441,6 +4441,96 @@ public class BehaviorTest {
     write("s64_export_to_db", out.toString());
   }
 
+  /**
+   * File > Downloads: "No downloads yet" at first; a Sogni run's files (its picture, SogniChat's
+   * answer) are listed by program in Finished / failed once its result is in; a long press offers
+   * Preview, Clear, Rename, Delete, Move to and Copy to; Delete can take the prompt file and the
+   * prompt library entry too.
+   */
+  @Test
+  public void s100_downloads() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.function.Supplier<String> listing = () -> {
+      StringBuilder sb = new StringBuilder();
+      java.util.ArrayDeque<View> todo = new java.util.ArrayDeque<View>();
+      todo.add(DownloadsScreen.last.getWindow().getDecorView());
+      while (!todo.isEmpty()) {
+        View v = todo.poll();
+        Object tag = v.getTag();
+        if (tag instanceof String && ((String) tag).startsWith("downloads-")) {
+          sb.append("  ").append(((String) tag).replaceAll("downloads-run:\\d+", "downloads-run"));
+          if (v instanceof TextView) sb.append(" \"").append(((TextView) v).getText().toString().replace('\n', '|').replace(app.getExternalFilesDir(null).getAbsolutePath(), "<files>").replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>")).append('"');
+          sb.append('\n');
+        }
+        if (v instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) todo.add(((android.view.ViewGroup) v).getChildAt(i));
+      }
+      return sb.toString();
+    };
+    DownloadsScreen.tab = "";
+    DownloadsScreen.show(app);
+    idle();
+    out.append("empty:\n").append(listing.get());
+    DownloadsScreen.last.dismiss();
+    // A SogniChat run, as PyJav starts it: in progress, then its result with its picture and answer.
+    call("show", "py");
+    idle();
+    app.pyName = "SogniChat.java";
+    app.pyJav.pkPending = PendingOps.add("SogniChat.java", new java.util.ArrayList<String>());
+    SogniDownloads.init(app.getFilesDir());
+    PyJav.DOWNLOAD_OF.put(app.pyJav.pkPending, SogniDownloads.started("SogniChat.java", System.currentTimeMillis()));
+    DownloadsScreen.show(app);
+    idle();
+    out.append("running:\n").append(listing.get());
+    DownloadsScreen.last.dismiss();
+    File dir = app.getExternalFilesDir(null);
+    File pic = new File(dir, "kit-1.png");
+    File txt = new File(dir, "kit.txt");
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 6, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    Files.write(txt.toPath(), "Try a ghost note on the snare.".getBytes(StandardCharsets.UTF_8));
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("kit-1.png", Files.readAllBytes(pic.toPath())));
+    files.add(new JavaRun.FileOut("kit.txt", Files.readAllBytes(txt.toPath())));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("kit", "--prompt", "Draw a kit", "--tools"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("SogniChat\nsaved " + pic.getAbsolutePath() + "\nsaved " + txt.getAbsolutePath() + "\nSucceeded: kit.txt", files, 0));
+    idle();
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    DownloadsScreen.show(app);
+    idle();
+    out.append("after the run:\n").append(listing.get());
+    View dv = DownloadsScreen.last.getWindow().getDecorView();
+    dv.findViewWithTag("downloads-item:kit.txt").performLongClick();
+    idle();
+    android.widget.ListView menu = DownloadsScreen.lastMenu.getListView();
+    StringBuilder items = new StringBuilder();
+    for (int i = 0; i < menu.getAdapter().getCount(); i++) items.append('[').append(menu.getAdapter().getItem(i)).append(']');
+    out.append("long press: ").append(items).append('\n');
+    // Rename.
+    menu.performItemClick(menu.getChildAt(2), 2, 2);
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((TextView) ask.getWindow().getDecorView().findViewWithTag("downloads-rename")).setText("ghost-note.txt");
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("renamed: ").append(new File(dir, "ghost-note.txt").isFile()).append(", old gone ").append(!txt.exists()).append('\n');
+    // Delete the picture (no prompt sheet with this run: no "also" box).
+    dv = DownloadsScreen.last.getWindow().getDecorView();
+    dv.findViewWithTag("downloads-item:kit-1.png").performLongClick();
+    idle();
+    menu = DownloadsScreen.lastMenu.getListView();
+    menu.performItemClick(menu.getChildAt(3), 3, 3);
+    idle();
+    out.append("delete asks: ").append(DownloadsScreen.lastDelete.isShowing()).append(", also box ").append(DownloadsScreen.lastDelete.getWindow().getDecorView().findViewWithTag("downloads-delete-also") != null).append('\n');
+    DownloadsScreen.lastDelete.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("picture deleted: ").append(!pic.exists()).append('\n');
+    out.append("now:\n").append(listing.get());
+    write("s100_downloads", out.toString());
+  }
+
   /** SogniChat Params: Chat model has a note, image analyze mode for a DeepSeek vision model and tools mode otherwise. */
   @Test
   public void s99_chat_modes() throws Exception {

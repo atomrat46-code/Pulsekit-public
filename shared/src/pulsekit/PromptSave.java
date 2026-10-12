@@ -36,6 +36,8 @@ public final class PromptSave {
     public String note = "";
     public String fileName;
     public byte[] bytes;
+    /** The prompt library version it was stored as (0: not stored). */
+    public long versionId;
   }
 
   /** The library folder's settings: Ask where to save (default on) and the recent places. */
@@ -293,6 +295,12 @@ public final class PromptSave {
       sheet.description = one(c.description);
       out.note = PromptKeep.store(vault, sheet, result, argv, cat, placeLabel(c.main.length() == 0 ? "General" : c.main, c.sub)) + ", v" + version + ", " + date;
       used(pending.sheet.category, c.main.length() == 0 ? "General" : c.main, c.sub, given, name);
+      for (PromptVault.Prompt p : vault.prompts(cat)) {
+        if (p.title != null && p.title.trim().equalsIgnoreCase(name)) {
+          List<PromptVault.Version> rows = vault.versions(p.id);
+          if (!rows.isEmpty()) out.versionId = rows.get(0).id;
+        }
+      }
       out.bytes = rewrite(new String(pending.file.bytes, StandardCharsets.UTF_8), name, c, version, date).getBytes(StandardCharsets.UTF_8);
       out.fileName = fileName(pending.file.name, sheet, name);
     } catch (Exception ex) {

@@ -390,6 +390,9 @@ final class PyJav {
         // The run is pending (PendingOps) until what it stores in the prompt library is stored.
         PromptDb.dir();
         final String pending = PendingOps.guarded(name, false) ? PendingOps.add(name, PendingOps.files(argv)) : null;
+        // File > Downloads: the Sogni run is in progress until its result is in.
+        SogniDownloads.init(PromptDb.dir());
+        final long download = pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
         new Thread(() -> {
             final boolean javaProg = !promptProg && isJavaName(name);
             java.util.List<String> runArgv = argv;
@@ -511,10 +514,23 @@ final class PyJav {
                 SogniHistory.record(result.log, System.currentTimeMillis());
                 // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
                 // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
+                // Pending (File > Downloads) while what the run stores is stored.
+                String verdict = "";
+                for (String line : (result.log == null ? "" : result.log).split("\n")) {
+                    String t = line.trim();
+                    if (t.startsWith("Succeeded") || t.startsWith("Failed")) verdict = t;
+                }
+                if (download != 0) SogniDownloads.result(download, verdict, status.toString(), null);
+                this.lastSheetVersion = 0;
                 String kept = this.keepInLibrary(name, result, argv);
                 if (kept.length() > 0 && app.pyLog != null) {
                     app.pyLog.append("\n" + kept);
                     this.runLog = app.pyLog.getText();
+                }
+                if (download != 0) {
+                    SogniDownloads.saved(download, kept, null);
+                    SogniDownloads.stored(download, this.lastSheetVersion);
+                    SogniDownloads.done(download);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
@@ -606,6 +622,9 @@ final class PyJav {
      * settings does not ask), as the prompt's next version, and are written to disk with that version
      * number and the date. Lines for the log.
      */
+    /** The prompt library version the last run's sheet was stored as (File > Downloads: Delete with it). */
+    long lastSheetVersion;
+
     String saveSheets(File dir, JavaRun.Result r, java.util.List<String> argv) {
         java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(r);
         if (sheets.isEmpty()) return "";
@@ -629,6 +648,7 @@ final class PyJav {
                 } else {
                     PromptSave.Saved saved = c == null ? PromptSave.storeAsIs(dir, p, r, argv) : PromptSave.store(dir, p, r, argv, c);
                     line = saved.note;
+                    if (saved.versionId != 0) this.lastSheetVersion = saved.versionId;
                     if (saved.bytes != null) {
                         File at = this.saveProgramFile(saved.fileName, saved.bytes);
                         line = line + "\n" + (at == null ? "Could not save " + saved.fileName : "Saved " + at.getPath());

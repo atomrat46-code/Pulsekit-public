@@ -655,6 +655,19 @@ public final class PromptVault {
     save();
   }
 
+  /** Deletes one version of a prompt (File > Downloads: Delete with its prompt library entry); the prompt goes with its last version. */
+  public synchronized void deleteVersion(long versionId) throws Exception {
+    Version v = version(versionId);
+    if (v == null) return;
+    versions.remove(v);
+    boolean left = false;
+    for (Version o : versions) if (o.promptId == v.promptId) left = true;
+    if (!left) {
+      for (int i = prompts.size() - 1; i >= 0; i--) if (prompts.get(i).id == v.promptId) prompts.remove(i);
+    }
+    save();
+  }
+
   public synchronized String renameFile(long versionId, int which, String name) throws Exception {
     String clean = fileTitle(name);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the file");

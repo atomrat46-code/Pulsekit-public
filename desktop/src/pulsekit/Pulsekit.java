@@ -583,6 +583,9 @@ public final class Pulsekit extends UiKit {
             importRef.addActionListener(e -> this.promptDb.importFile(false));
             JMenuItem importResult = new JMenuItem("Import as Result file");
             importResult.addActionListener(e -> this.promptDb.importFile(true));
+            // The Sogni runs' downloads: pending, in progress, finished / failed.
+            JMenuItem downloads = new JMenuItem("Downloads");
+            downloads.addActionListener(e -> DownloadsScreen.show(this));
             JMenuItem general = new JMenuItem("General settings");
             general.addActionListener(e -> GeneralSettings.show(this));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
@@ -597,6 +600,7 @@ public final class Pulsekit extends UiKit {
             menu.add(importResult);
             menu.add(saveCode);
             menu.add(saveCodeAs);
+            menu.add(downloads);
             menu.add(general);
             menu.add(midi);
             menu.add(compare);
