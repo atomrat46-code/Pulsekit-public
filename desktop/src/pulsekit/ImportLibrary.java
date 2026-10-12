@@ -354,7 +354,10 @@ final class ImportLibrary {
 
         // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
         List<Engine.Part> parts = new ArrayList<>(Engine.songFromFileSet(madeSet));
-        if (!parts.isEmpty()) {
+        // Midi2Wav's test makes the song without asking: CompareHits compares it.
+        if (!parts.isEmpty() && Midi2WavTest.makesSong()) {
+            app.songEditor.addImportedSong(stem, parts);
+        } else if (!parts.isEmpty()) {
             int ans = JOptionPane.showConfirmDialog(
                 app,
                 app.nowPlaying.getText() + "\n\nMake a song from these? It goes under Imported. Your original song stays.",

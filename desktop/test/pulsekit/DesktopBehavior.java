@@ -3747,6 +3747,235 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * SogniMusic (stand-in Sogni serving a real MP3): its track is also kept as a WAV; with --test,
+   * DrumMidi_CRT runs on the WAV with the tempo asked (and the switches for a mix, as bass was asked
+   * for), then CompareHits, and the report starts with what the track was asked to be and the checks.
+   */
+  void s89_sogni_music_test() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      ex.getRequestBody().readAllBytes();
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.equals("/v1/creative-agent/workflows/wf9")) {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/take.mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+        if (p.token.equals("--no_wav") || p.token.equals("--test")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"\n");
+      }
+      final StringBuilder report = new StringBuilder();
+      final Object[] look = new Object[1];
+      look[0] = (java.util.function.Consumer<JDialog>) d -> {
+        java.awt.Component c = component(d, "midi2wav-test-report");
+        if (c != null) report.append(d.getTitle()).append('\n').append(((javax.swing.JTextArea) c).getText());
+        else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+      };
+      @SuppressWarnings("unchecked")
+      java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+      inspectNext = first;
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText("--genre Funk --prompt \"tight groove\" --instruments \"drums, bass\" --bpm 120 --duration 10 --test --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1500 && report.length() == 0; i++) Thread.sleep(100);
+      idle();
+      File wav = new File(home, ".pulsekit/sogni-Funk-wf9.wav");
+      if (!wav.isFile()) wav = new File(home, "Downloads/sogni-Funk-wf9.wav");
+      out.append("WAV kept: ").append(wav.isFile()).append(", ").append(String.format(java.util.Locale.ROOT, "%.1f s", wav.isFile() ? AudioIo.parseWav(Files.readAllBytes(wav.toPath())).samples.length / (double) AudioIo.parseWav(Files.readAllBytes(wav.toPath())).sr : 0)).append('\n');
+      out.append("program now: ").append((String) get("pyName")).append('\n');
+      for (String line : report.toString().replace(home.getAbsolutePath(), "~").split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("SogniMusic test") || t.startsWith("==") || t.startsWith("Instruments:") || t.startsWith("Tempo:") || t.startsWith("Length:")
+            || t.startsWith("Drum hits:") || t.startsWith("Drums with") || t.startsWith("DrumMidi runs") || t.startsWith("- ") || t.startsWith("Few") || t.startsWith("No kicks"))
+          out.append("  ").append(t).append('\n');
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (a WAV with Pulsekit's kit); --test: on to
+   * Midi2Wav's test, ending with the report (DrumMidi on the WAV, CompareHits against the groove).
+   */
+  void s88_drumgen_to_wav() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    idle();
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      if (p.token.equals("--towav") || p.token.equals("--test")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"\n");
+    }
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    // --towav: MidiDrumGen, then Midi2Wav (its WAV offered: Close).
+    answers.add("Close");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --towav"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !"Midi2Wav.java".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded: "); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    out.append("--towav: program now ").append((String) get("pyName")).append('\n');
+    for (String line : log.getText().split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    answers.clear();
+    // --test: MidiDrumGen, Midi2Wav, DrumMidi, CompareHits twice, the report.
+    final StringBuilder report = new StringBuilder();
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1500 && report.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append("--test: program now ").append((String) get("pyName")).append('\n');
+    for (String line : report.toString().replace(home.getAbsolutePath(), "~").split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Midi2Wav test") || t.startsWith("==") || t.startsWith("Played:")) out.append("  ").append(t).append('\n');
+    }
+  }
+
+  /**
+   * Midi2Wav --test: the WAV made goes to DrumMidi_CRT (its MIDI imported as a file set and a song),
+   * then CompareHits compares the WAV, DrumMidi's MIDI and the song, and the MIDI played against
+   * DrumMidi's; the report is shown and kept beside the WAV.
+   */
+  void s87_midi2wav_test() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 100;
+    cells[2][12] = 100;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 100;
+    // Four bars, so DrumMidi has a groove to hear.
+    int[][] two = new int[12][32];
+    for (int t = 0; t < 12; t++) for (int i = 0; i < 32; i++) two[t][i] = cells[t][i % 16];
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(two, 120, 32));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    final StringBuilder report = new StringBuilder();
+    // Watches every dialog until the report's (the MIDI synth notice and Make a song? come first).
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + midi.getAbsolutePath() + "\" --test"));
+    edt(() -> call("runPython"));
+    long began = System.currentTimeMillis();
+    for (int i = 0; i < 1050 && report.length() == 0; i++) Thread.sleep(100);
+    System.err.println("s87 chain took " + (System.currentTimeMillis() - began) + " ms");
+    if (report.length() == 0) out.append("NO REPORT; log:\n").append(log.getText()).append('\n');
+    idle();
+    out.append("program now: ").append((String) get("pyName")).append('\n');
+    String text = report.toString().replace(home.getAbsolutePath(), "~");
+    // The report's headings and its suggestions.
+    for (String line : text.split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Midi2Wav test") || t.startsWith("==") || t.startsWith("- ") || t.startsWith("Played:") || t.toLowerCase().contains("match") || t.startsWith("Next run") || t.toLowerCase().startsWith("suggest") || t.startsWith("Kick") || t.startsWith("Snare") || t.startsWith("Cymbals"))
+        out.append("  ").append(t).append('\n');
+    }
+    File saved = new File(home, ".pulsekit/groove2wav-test.txt");
+    if (!saved.isFile()) saved = new File(home, "Downloads/groove2wav-test.txt");
+    out.append("report kept: ").append(saved.isFile()).append(", report length ").append(text.length() > 200).append('\n');
+  }
+
+  /**
+   * Midi2Wav (PyJav's Java menu): Params has the drum MIDI, the output name, the SoundFont, the rate
+   * and Add to DB. Without a SoundFont it plays the MIDI with Pulsekit's kit, into <drums>2wav.wav;
+   * with one and --addtodb the MIDI, the SoundFont and the WAV go into the prompt library.
+   */
+  void s86_midi2wav() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 100;
+    cells[2][12] = 100;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 100;
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Test kit"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.isFile() ? " file ." + p.ext : "").append(p.refs ? " Browse DB" : "")
+          .append(p.choices != null ? " choices" : "").append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+    }
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {"\"" + midi.getAbsolutePath() + "\"", "\"" + midi.getAbsolutePath() + "\" kept.wav --sf2 \"" + sf2.getAbsolutePath() + "\" --rate 22050 --addtodb"};
+    for (String extra : runs) {
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      answers.add("Close");
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(600);
+      idle();
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Saved") || t.startsWith("Prompt library"))
+          out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      answers.clear();
+    }
+    PromptVault vault = PromptDb.vault();
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("library ").append(c.name).append(" / ").append(p.title).append(": refs ").append(v.ref1Name).append(", ").append(v.ref2Name)
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3) > 44 ? "has audio" : "empty").append(")\n");
+      }
+    }
+  }
+
+  /**
    * File > Downloads: "No downloads yet" at first; a Sogni run is listed (failed: no key), and a
    * finished run's files are listed by program in Finished / failed. Rename, Copy to, Move to,
    * Clear and Delete (with its prompt file and prompt library entry) work on a file.

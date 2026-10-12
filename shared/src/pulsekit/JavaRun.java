@@ -137,6 +137,37 @@ public final class JavaRun {
    * `argv` has none: also for a run with an input file (ImageUpscaler's picture), which argvFor does
    * not build. `argv` itself, changed.
    */
+  /**
+   * Midi2Wav without a SoundFont (--sf2): true, and Pulsekit's own kit (the active drum set, as
+   * Export SF2 writes it) is given with withKit.
+   */
+  public static boolean needsKit(String program, List<String> argv) {
+    if (!"Midi2Wav.java".equals(program) || argv == null) return false;
+    for (int i = 0; i < argv.size(); i++) {
+      if (!"--sf2".equals(argv.get(i))) continue;
+      String v = i + 1 < argv.size() ? argv.get(i + 1) : null;
+      if (v != null && v.trim().length() > 0 && !v.startsWith("--")) return false;
+    }
+    return true;
+  }
+
+  /** `argv` with --sf2 `path` (an empty --sf2 taken out). */
+  public static List<String> withKit(List<String> argv, String path) {
+    List<String> out = new ArrayList<String>();
+    for (int i = 0; i < argv.size(); i++) {
+      String a = argv.get(i);
+      if ("--sf2".equals(a)) {
+        String v = i + 1 < argv.size() ? argv.get(i + 1) : null;
+        if (v != null && !v.startsWith("--")) i++;
+        continue;
+      }
+      out.add(a);
+    }
+    out.add("--sf2");
+    out.add(path);
+    return out;
+  }
+
   public static List<String> withKeyFile(String source, List<String> argv) {
     String key = ApiKeys.path();
     if (argv == null || key == null || source == null || !source.contains("--key_file") || argv.contains("--key_file")) return argv;

@@ -226,6 +226,11 @@ final class ImportLibrary {
         if (!arrayList.isEmpty()) {
             String string6 = string2;
             ArrayList<Engine.Part> object2 = new ArrayList<Engine.Part>(arrayList);
+            // Midi2Wav's test makes the song without asking: CompareHits compares it.
+            if (Midi2WavTest.makesSong()) {
+                app.songEditor.addImportedArrangement(string6, object2);
+                return true;
+            }
             new AlertDialog.Builder((Context)app).setTitle((CharSequence)"Make a song?").setMessage((CharSequence)(stringBuilder + "\n\nIt goes under Imported. Your original song stays.")).setPositiveButton((CharSequence)"Make song", (arg_0, arg_1) -> this.learnFromSongImportAction100(string6, object2, arg_0, arg_1)).setNegativeButton((CharSequence)"Not now", null).show();
         }
         return true;
@@ -818,7 +823,10 @@ final class ImportLibrary {
             this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
             // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
             java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
-            if (!song.isEmpty()) {
+            // Midi2Wav's test makes the song without asking: CompareHits compares it.
+            if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
+                app.songEditor.addImportedMidiSong(stem, song);
+            } else if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")
                     .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays."))

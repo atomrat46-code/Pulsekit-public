@@ -55,6 +55,8 @@ public class BehaviorTest {
     // Save prompt (General settings: Ask where to save) is off, as before it was made, but in the scenarios that test it.
     PromptSave.load(app.getFilesDir());
     PromptSave.setAsk(false);
+    // A test chain (Midi2Wav's, SogniMusic's) is static: none carries over from an earlier scenario.
+    Midi2WavTest.stop();
   }
 
   @After
@@ -4439,6 +4441,208 @@ public class BehaviorTest {
     out.append("kept: ").append(app.getSharedPreferences(ProjectIo.EXPORT_PREFS, 0).getBoolean(ProjectIo.EXPORT_TO_DB, false)).append('\n');
     box.setChecked(false);
     write("s64_export_to_db", out.toString());
+  }
+
+  /**
+   * SogniMusic: its track is also made into a WAV (unless --no_wav); with --test, DrumMidi_CRT runs
+   * on the WAV set from what the track was asked to be (the tempo asked; with bass asked for, the
+   * switches suggested for a mix), and the report reads the request: instruments, tempo, length.
+   */
+  @Test
+  public void s104_sogni_music_test() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    dir.mkdirs();
+    // 1. The run's result: the MP3 is kept and made into a WAV (the phone's decoder; not in this test JVM).
+    File fixture = new File("../../../desktop/test/funk.mp3");
+    for (File up = new File(".").getAbsoluteFile(); up != null && !fixture.isFile(); up = up.getParentFile()) fixture = new File(up, "desktop/test/funk.mp3");
+    app.pyName = "SogniMusic.java";
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--genre", "Funk", "--prompt", "tight groove", "--instruments", "drums, bass",
+        "--bpm", "120", "--duration", "10", "--test"));
+    app.pyJav.pkLastArgv = argv;
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-Funk-wf9.mp3", Files.readAllBytes(fixture.toPath())));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Workflow: wf9\nWrote sogni-Funk-wf9.mp3 (46 KB)\nSucceeded: sogni-Funk-wf9.mp3", files, 0));
+    for (int i = 0; i < 50; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("MP3 for the WAV: ").append(new File(dir, "sogni-Funk-wf9.mp3").isFile()).append('\n');
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Making a WAV") || line.startsWith("Could not make") || line.startsWith("saved ")) out.append("  ").append(line.length() > 70 ? line.substring(0, 70) + "..." : line).append('\n');
+    // 2. The WAV (as the phone makes it): the test starts, and DrumMidi_CRT runs with what the track calls for.
+    File wav = new File(dir, "sogni-Funk-wf9.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[22050 * 4], 22050));
+    call("pkStartMusicTest", argv, wav);
+    for (int i = 0; i < 20 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
+    out.append("program: ").append(get("pyName")).append(", DrumMidi args ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<in>")).append('\n');
+    Midi2WavTest t = Midi2WavTest.current();
+    out.append("test on: ").append(t != null).append('\n');
+    Midi2WavTest.stop();
+    // 3. What the report reads from a few kinds of request.
+    String[][] asks = {
+      {"--genre", "Funk", "--prompt", "tight groove", "--instruments", "drums, bass", "--bpm", "120", "--duration", "10"},
+      {"--drums_only", "--genre", "Rock", "--bpm", "96"},
+      {"--prompt", "dreamy piano and strings with a soft female vocal", "--lyrics", "la la"},
+    };
+    for (String[] ask : asks) {
+      MusicExpect e = MusicExpect.of(java.util.Arrays.asList(ask));
+      out.append("== ").append(String.join(" ", ask)).append('\n');
+      for (String line : e.asked().split("\n")) if (line.startsWith("Instruments") || line.startsWith("Tempo") || line.startsWith("Drums") || line.startsWith("With") || line.startsWith("No drums")) out.append("  ").append(line).append('\n');
+      out.append("  ").append(e.drumMidiWhy("")).append('\n');
+    }
+    int[][] cells = new int[12][32];
+    for (int i = 0; i < 32; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 32; i += 8) cells[2][i] = 100;
+    out.append(MusicExpect.of(java.util.Arrays.asList(asks[0])).checks(Engine.encodeMidi(cells, 60, 32), 6.0));
+    write("s104_sogni_music_test", out.toString());
+  }
+
+  /**
+   * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (no groove dialog); --test: to Midi2Wav with
+   * --test, so its test (DrumMidi, CompareHits, the report) follows.
+   */
+  @Test
+  public void s103_drumgen_to_wav() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    byte[] groove = Engine.encodeMidi(cells, 120);
+    for (String flag : new String[] {"--towav", "--test", "(neither)"}) {
+      app.pyName = "MidiDrumGen.java";
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Rock", "--bars", "2"));
+      if (flag.startsWith("--")) app.pyJav.pkLastArgv.add(flag);
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("drum_track_full_db.mid", groove));
+      for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+      app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote drum_track_full_db.mid\nSucceeded: drum_track_full_db.mid", files, 0));
+      for (int i = 0; i < 20 && !"Midi2Wav.java".equals(get("pyName")); i++) idle();
+      if (!flag.startsWith("--")) app.pyJav.pkLastArgv = new java.util.ArrayList<String>();
+      boolean grooveDialog = false;
+      for (android.app.Dialog d : ShadowDialog.getShownDialogs()) {
+        if (d.isShowing() && d instanceof AlertDialog && d.getWindow().getDecorView().findViewWithTag("midi-offer:play") != null) grooveDialog = true;
+      }
+      @SuppressWarnings("unchecked")
+      java.util.List<String> argv = (java.util.List<String>) app.pyJav.pkLastArgv;
+      out.append(flag).append(": program ").append(get("pyName")).append(", Midi2Wav args ").append(String.valueOf(argv).replace(dir.getAbsolutePath(), "<in>"))
+          .append(", groove dialog ").append(grooveDialog).append('\n');
+      Midi2WavTest.stop();
+    }
+    write("s103_drumgen_to_wav", out.toString());
+  }
+
+  /**
+   * Midi2Wav --test: after Midi2Wav's WAV, DrumMidi_CRT runs on it; after DrumMidi's MIDI (imported
+   * as a file set), CompareHits runs on the WAV, that MIDI and the song, then with --truth on
+   * DrumMidi's MIDI against the MIDI played. (Programs do not run here: each step's result is given
+   * as PyJav would get it; the desktop's s87 runs the whole test.)
+   */
+  @Test
+  public void s102_midi2wav_test() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    dir.mkdirs();
+    int[][] cells = new int[12][32];
+    for (int i = 0; i < 32; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 32; i += 8) cells[2][i] = 100;
+    for (int i = 0; i < 32; i += 2) cells[5][i] = 100;
+    byte[] groove = Engine.encodeMidi(cells, 120, 32);
+    File midi = new File(dir, "groove.mid");
+    Files.write(midi.toPath(), groove);
+    java.util.function.Supplier<String> testLines = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Test")) sb.append("  ").append(line.replace(dir.getAbsolutePath(), "<in>")).append('\n');
+      return sb.toString();
+    };
+    // 1. Midi2Wav's result: the test starts, and DrumMidi_CRT is run on the WAV (it fails here).
+    app.pyName = "Midi2Wav.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList(midi.getAbsolutePath(), "--test"));
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("groove2wav.wav", AudioIo.encodeWav(new short[22050], 22050)));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("MIDI: groove.mid\nWrote groove2wav.wav\nSucceeded: groove2wav.wav", files, 0));
+    idle();
+    for (int i = 0; i < 50 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
+    out.append("after Midi2Wav: program ").append(get("pyName")).append(", audio input ").append(new File(String.valueOf(get("pkAudioInputPath"))).getName()).append('\n');
+    out.append(testLines.get());
+    out.append("test still on: ").append(Midi2WavTest.current() != null).append('\n');
+    // 2. As if DrumMidi had run: its MIDI comes back (imported as a file set), and CompareHits follows.
+    Midi2WavTest.start("Succeeded: groove2wav.wav", java.util.Arrays.asList(midi.getAbsolutePath(), "--test"), new File(dir, "groove2wav.wav"));
+    app.pyName = "DrumMidi_CRT.jar";
+    files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("groove2wav.mid", groove));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList(new File(dir, "groove2wav.wav").getAbsolutePath()));
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote groove2wav.mid", files, 0));
+    for (int i = 0; i < 20; i++) idle();
+    out.append("after DrumMidi:\n").append(testLines.get());
+    out.append("drums MIDI kept: ").append(new File(dir, "groove2wav-drums.mid").isFile()).append(", song MIDI: ").append(new File(dir, "groove2wav-song.mid").isFile()).append('\n');
+    out.append("CompareHits args: ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<in>")).append('\n');
+    Midi2WavTest.stop();
+    write("s102_midi2wav_test", out.toString());
+  }
+
+  /**
+   * Midi2Wav (PyJav's Java menu): Params has the drum MIDI and the SoundFont as file rows (also from
+   * the prompt library), the rate and Add to DB. Run without a SoundFont gives Pulsekit's kit (the
+   * active drum set, as an SF2); with --addtodb the MIDI, the SoundFont and the WAV go into the library.
+   */
+  @Test
+  public void s101_midi2wav() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "Midi2Wav.java");
+    TextView args = (TextView) get("pkPyArgs");
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    dir.mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    File midi = new File(dir, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    args.setText(midi.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"params-file:drums.mid", "params-db:drums.mid", "params-file:--sf2", "params-db:--sf2", "params-choose:--rate", "params-check:--addtodb"}) {
+      View v = dv.findViewWithTag(t);
+      out.append(t).append(": ").append(v == null ? "none" : v instanceof TextView ? ((TextView) v).getText() : "shown").append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // Run: the program cannot be compiled here, but its arguments are made first.
+    call("pkRunPyJav");
+    idle();
+    @SuppressWarnings("unchecked")
+    java.util.List<String> argv = (java.util.List<String>) app.pyJav.pkLastArgv;
+    int at = argv.indexOf("--sf2");
+    File kit = at >= 0 ? new File(argv.get(at + 1)) : null;
+    out.append("run args: ").append(String.valueOf(argv).replace(dir.getAbsolutePath(), "<in>")).append('\n');
+    out.append("kit SoundFont: ").append(kit != null && kit.isFile() ? kit.getName() + ", " + AudioIo.parseSf2(Files.readAllBytes(kit.toPath())).length + " voices" : "none").append('\n');
+    // A run with --addtodb, as its result comes back.
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("kept.wav", AudioIo.encodeWav(new short[2205], 22050)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList(midi.getAbsolutePath(), "kept.wav", "--sf2", kit.getAbsolutePath(), "--addtodb"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("MIDI: groove.mid, 4 drum notes\nWrote kept.wav (8 KB)\nSucceeded: kept.wav", files, 0));
+    idle();
+    for (android.app.Dialog dd : ShadowDialog.getShownDialogs()) if (dd.isShowing()) dd.dismiss();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("library ").append(c.name).append(" / ").append(p.title).append(": refs ").append(v.ref1Name).append(", ").append(v.ref2Name).append(", result ").append(v.resultName).append('\n');
+      }
+    }
+    write("s101_midi2wav", out.toString());
   }
 
   /**

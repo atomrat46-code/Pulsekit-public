@@ -34,9 +34,17 @@ import java.util.Set;
  * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
  *
  * Bass guitar shares the kick and tom bands, so a low-band onset alone is not a drum.
- * A kick needs a beater click (2-6 kHz) with it, a tom needs a stick attack (1-4 kHz)
- * and a jump in raw low-mid level, and a snare needs its body (150-350 Hz) to jump
- * more than the kick band. Cutting the bass out with a filter would cut the kick too.
+ * A kick needs a beater click (2-6 kHz) with it and a jump in the kick band's level (linear:
+ * a hat leaking into the band rises out of near silence, which only looks big in log terms).
+ * A snare needs its body (150-350 Hz) to jump more than the kick band, as a tone above the
+ * 400-1000 Hz band (plain noise, as a synthesized hat, is flat), with wires (2-6 kHz) that ring
+ * on after the hit. Under guitar and piano the body hardly shows, so there a noise onset whose
+ * wires ring is a snare too. A tom jumps in the low-mid level without wires; over a bass line it
+ * also needs a stick attack (1-4 kHz). Without a bass line, a "kick" well above the song's kick
+ * pitch is a floor tom. Cutting the bass out with a filter would cut the kick too.
+ *
+ * Hats, rides and crashes ring when their band's quietest point 160-500 ms on stays up, so the
+ * next hit does not make a hat look like it rings.
  */
 public class DrumMidi_CRT{
 
@@ -57,10 +65,42 @@ public class DrumMidi_CRT{
 
     static final double ATTACK_LO = 1000, ATTACK_HI = 4000;
     static final double KICK_CLICK = 0.5;
-    static final double SNARE_BODY_RISE = 0.6;
     static final double TOM_ATTACK_GATE = 0.5, TOM_ATTACK = 0.6, TOM_RISE = 0.5;
+    /**
+     * A tom raises its band's level (70-320 Hz, linear) by TOM_JUMP, and its stick noise dies at
+     * once (wiresLeft under TOM_WIRES; a snare's wires ring on). Where the band was quiet before
+     * (under QUIET_BEFORE of its loud level) no stick attack is asked for: synthesized toms have
+     * none, and no bass note is there to mistake. A kick whose low pitch is TOM_OVER_KICK times the
+     * song's kick pitch (and at least FLOOR_TOM_HZ), where no bass line plays, is a floor tom.
+     */
+    static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
+    /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
+    static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45;
-
+    /**
+     * Rises in band level (linear, in units of the band's loud hits): a kick raises the kick band by
+     * KICK_JUMP or more (a hat's leak into it rises from near silence in log terms, not in level);
+     * a snare raises its body band by SNARE_JUMP and by SNARE_OVER_KICK times the kick band's rise
+     * (a kick's own body rises 0.6-0.9 times its kick band); a kick on a snare raises the kick band by
+     * KICK_WITH_SNARE (a snare's thump alone reaches 0.6 in some kits).
+     */
+    static final double KICK_JUMP = 0.35, SNARE_JUMP = 0.12, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    /**
+     * Snare wires: the noise band (2-6 kHz) still holds this much of its onset's rise 60-90 ms on
+     * (wiresLeft). A snare whose body shows holds WIRES or more; a tom's stick noise dies to
+     * 0.00-0.05. Under guitar and piano (the body band already at MASKED_BODY of its loud level
+     * before the onset) a snare's body hardly shows: a noise onset of WIRES_NOISE_JUMP whose rise
+     * rings WIRES_BAND (snares keep 0.24-0.40, kicks and their bass note 0.04-0.21) up to WIRES_MAX
+     * (a crash washes longer) is a snare too. Without a band, a ride ringing over a kick would look
+     * like wires, so the body has to show.
+     */
+    /**
+     * A snare's body (150-350 Hz) rises BODY_TONE times the band above it (400-1000 Hz), even a ghost
+     * note under a hat (1.0-1.2); plain noise, as Pulsekit's own hats, rises 0.3-0.7 times. A hat
+     * struck with the snare (its band jumping HAT_WITH) hides the wires, so they are not asked for then.
+     */
+    static final double GAP_LO = 400, GAP_HI = 1000, BODY_TONE = 0.9, HAT_WITH = 0.4;
+    static final double WIRES = 0.08, WIRES_BAND = 0.23, WIRES_MAX = 0.6, WIRES_NOISE_JUMP = 0.5, MASKED_BODY = 0.25;
     static final int MIN_GAP_FRAMES = 5;
     static final double BASE_DELTA = 0.30;
 
@@ -217,10 +257,23 @@ public class DrumMidi_CRT{
         float[][] mag = spectrogram(audio.samples, sr);
         int maxBin = mag[0].length - 1;
         // Rises in the raw spectrum, before HPSS evens them out. A drum jumps; a bass note mostly does not.
-        double[] lowRise = rise(mag, bin(40, sr, maxBin), bin(100, sr, maxBin));
-        double[] bodyRise = rise(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
         double[] tomRise = rise(mag, bin(FLOOR_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
         double[] hatRaw = bandMean(mag, bin(HAT_LO, sr, maxBin), bin(HAT_HI, sr, maxBin));
+        double[] kickLevel = bandMean(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
+        double[] bodyLevel = bandMean(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
+        double[] bodyRaw = bodyLevel.clone();
+        double[] tomLevel = bandMean(mag, bin(FLOOR_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
+        double[] noiseLevel = bandMean(mag, bin(SNARE_NOISE_LO, sr, maxBin), bin(SNARE_NOISE_HI, sr, maxBin));
+        normalize(noiseLevel);
+        // Above the body band, unnormalized: a drum's body is a tone over it, plain noise is as loud there.
+        double[] gapRaw = bandMean(mag, bin(GAP_LO, sr, maxBin), bin(GAP_HI, sr, maxBin));
+        double[] lowPitch = lowPitch(mag, sr, maxBin);
+        double[] hatLevel = hatRaw.clone();
+        normalize(hatLevel);
+        Levels lv = new Levels(kickLevel, bodyLevel, noiseLevel, bodyRaw, gapRaw, hatLevel);
+        normalize(kickLevel);
+        normalize(bodyLevel);
+        normalize(tomLevel);
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             applyHpss(mag);
@@ -281,7 +334,7 @@ public class DrumMidi_CRT{
         double[] toms = new double[kick.length];
         for (int t = 0; t < toms.length; t++) {
             if (hat[t] > 0.75) continue;
-            double g = Math.min(1.0, Math.max(attack[t], t > 0 ? attack[t - 1] : 0) / TOM_ATTACK_GATE);
+            double g = quietBefore(tomLevel, t) ? 1.0 : Math.min(1.0, Math.max(attack[t], t > 0 ? attack[t - 1] : 0) / TOM_ATTACK_GATE);
             toms[t] = Math.max(floor[t], Math.max(mid[t], rack[t])) * g * g;
         }
         normalize(toms);
@@ -295,26 +348,31 @@ public class DrumMidi_CRT{
         List<Integer> snarePeaks = new ArrayList<Integer>();
         for (Integer p : pickPeaks(snare, delta)) {
             int t = p.intValue();
-            double body = near(bodyRise, t);
-            if (body < SNARE_BODY_RISE || body <= near(lowRise, t)) continue;
+            if (!isSnare(lv, t, sens, rideRings(rideEnergy, t))) continue;
             snarePeaks.add(p);
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
         }
+        List<Integer> kickFrames = new ArrayList<Integer>();
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : snarePeaks) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
             int t = p.intValue();
-            if (snareAt[t] && kick[t] < 0.85 * near(snareBody, t)) continue;
+            double jk = jump(kickLevel, t);
+            if (jk < KICK_JUMP) continue;
+            if (snareAt[t] && jk < KICK_WITH_SNARE) continue;
+            kickFrames.add(p);
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
+        // A floor tom is heard as a kick, but well above the song's kick pitch.
+        floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
         boolean[] busy = new boolean[kick.length];
         for (Integer p : pickPeaks(snare, BASE_DELTA)) {
             int t = p.intValue();
-            if (near(bodyRise, t) >= SNARE_BODY_RISE && near(bodyRise, t) > near(lowRise, t)) mark(busy, t, 2);
+            if (isSnare(lv, t, 1, rideRings(rideEnergy, t))) mark(busy, t, 2);
         }
-        for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) mark(busy, p.intValue(), 2);
+        for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) if (jump(kickLevel, p.intValue()) >= KICK_JUMP) mark(busy, p.intValue(), 2);
         List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
         for (int i = 0; i < hatPeaks.size(); i++) {
             int t = hatPeaks.get(i).intValue();
@@ -345,7 +403,10 @@ public class DrumMidi_CRT{
             int t = tomPeaks.get(i).intValue();
             if (busy[t]) continue;
             // A tom is struck as hard as a snare and its low-mid jumps. Bass notes fail one or both.
-            if (near(attack, t) < TOM_ATTACK || near(tomRise, t) < TOM_RISE) continue;
+            // Its band's level jumps (a hat's leak into it rises from near silence in log terms only),
+            // and its body is a tone without wires. Over a band, bass notes are told apart by the stick.
+            if (jump(tomLevel, t) < TOM_JUMP / Math.max(0.05, tomSens) || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+            if (!quietBefore(tomLevel, t) && (near(attack, t) < TOM_ATTACK || near(tomRise, t) < TOM_RISE)) continue;
             double f = floor[t], m = mid[t], r = rack[t];
             int note;
             double strength;
@@ -801,10 +862,11 @@ public class DrumMidi_CRT{
 
     static double[] flux(float[][] mag, int lo, int hi) {
         double[] o = new double[mag.length];
-        for (int t = 1; t < mag.length; t++) {
+        // Before the first frame is silence, so a hit right at the start rises like any other.
+        for (int t = 0; t < mag.length; t++) {
             double s = 0;
             for (int k = lo; k <= hi; k++) {
-                double d = Math.log1p(LOG_GAMMA * mag[t][k]) - Math.log1p(LOG_GAMMA * mag[t - 1][k]);
+                double d = Math.log1p(LOG_GAMMA * mag[t][k]) - (t > 0 ? Math.log1p(LOG_GAMMA * mag[t - 1][k]) : 0);
                 if (d > 0) s += d;
             }
             o[t] = s / (hi - lo + 1);
@@ -858,14 +920,7 @@ public class DrumMidi_CRT{
         int a = Math.min(energy.length - 1, t + 14);
         int b = Math.min(energy.length - 1, t + 32);
         if (b <= a) return false;
-        double tail = 0;
-        int count = 0;
-        for (int i = a; i <= b; i++) {
-            tail += energy[i];
-            count++;
-        }
-        tail /= Math.max(1, count);
-        return tail > now * 0.22;
+        return tailFloor(energy, a, b) > now * 0.22;
     }
 
     /** A crash hits the ride band and the top band together, and both keep washing. */
@@ -894,14 +949,23 @@ public class DrumMidi_CRT{
         int a = Math.min(energy.length - 1, t + 16);
         int b = Math.min(energy.length - 1, t + 42);
         if (b <= a) return false;
-        double tail = 0;
-        int count = 0;
+        return tailFloor(energy, a, b) > now * 0.30;
+    }
+
+    /**
+     * The quietest a band gets over frames a..b (three-frame means). A cymbal's wash stays up the
+     * whole time; hats and snares die between their hits, so the next hit in the window does not
+     * make them look like they ring.
+     */
+    static double tailFloor(double[] energy, int a, int b) {
+        double floor = Double.MAX_VALUE;
         for (int i = a; i <= b; i++) {
-            tail += energy[i];
-            count++;
+            int c = Math.min(b, i + 2);
+            double s = 0;
+            for (int k = i; k <= c; k++) s += energy[k];
+            floor = Math.min(floor, s / (c - i + 1));
         }
-        tail /= Math.max(1, count);
-        return tail > now * 0.30;
+        return floor;
     }
 
     /** Mean log rise over two frames in a band of the raw spectrum. */
@@ -915,6 +979,138 @@ public class DrumMidi_CRT{
             o[t] = s / (hi - lo + 1);
         }
         return o;
+    }
+
+    /**
+     * How much a band's level (bandMean, normalized) rose at an onset: its peak over frames t-1..t+2
+     * above its level three frames before. A ringing note before it does not count, and a rise out
+     * of near silence counts as little as it is loud.
+     */
+    static double jump(double[] level, int t) {
+        double peak = 0;
+        for (int k = Math.max(0, t - 1); k <= Math.min(level.length - 1, t + 2); k++) peak = Math.max(peak, level[k]);
+        return Math.max(0, peak - (t >= 3 ? level[t - 3] : 0));
+    }
+
+    /**
+     * A snare: its body band rises, by more than a kick's own body would with the kick band's rise,
+     * and its wires ring on (a tom has the body without them). Or, where a band covers the body, a
+     * noise onset whose wires ring.
+     */
+    static boolean isSnare(Levels lv, int t, double sens, boolean rideRinging) {
+        return bodySnare(lv, t, sens) || maskedSnare(lv, t, sens, rideRinging);
+    }
+
+    /** The body shows: it jumps, more than with a kick, as a tone, and the wires ring (or a hat hides them). */
+    static boolean bodySnare(Levels lv, int t, double sens) {
+        double jb = jump(lv.body, t);
+        return jb >= SNARE_JUMP / sens && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
+                && (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH)
+                && jump(lv.bodyRaw, t) >= BODY_TONE * jump(lv.gapRaw, t);
+    }
+
+    /** A band covers the body: a noise onset whose rise rings like wires. */
+    static boolean maskedSnare(Levels lv, int t, double sens, boolean rideRinging) {
+        // A ride ringing on keeps the noise band up after a kick as wires would.
+        if (t < 3 || lv.body[t - 3] < MASKED_BODY || rideRinging) return false;
+        double wires = wiresLeft(lv.noise, t);
+        return jump(lv.noise, t) >= WIRES_NOISE_JUMP / sens && wires >= WIRES_BAND && wires <= WIRES_MAX;
+    }
+
+    /** Band levels before HPSS, for telling the drums apart at an onset. */
+    static final class Levels {
+        final double[] kick, body, noise, bodyRaw, gapRaw, hat;
+
+        Levels(double[] kick, double[] body, double[] noise, double[] bodyRaw, double[] gapRaw, double[] hat) {
+            this.hat = hat;
+            this.kick = kick;
+            this.body = body;
+            this.noise = noise;
+            this.bodyRaw = bodyRaw;
+            this.gapRaw = gapRaw;
+        }
+    }
+
+    /**
+     * Kicks found whose low pitch is TOM_OVER_KICK times the kick pitch become floor toms. The
+     * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
+     * nearly as many floor toms). Not where a bass line plays: its notes would be read instead.
+     */
+    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr) {
+        if (kickFrames.size() < 4 || bassLine(kickLevel)) return;
+        double[] p = new double[kickFrames.size()];
+        for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
+        double[] sorted = p.clone();
+        Arrays.sort(sorted);
+        double kickPitch = sorted[sorted.length / 4];
+        for (int i = 0; i < p.length; i++) {
+            int t = kickFrames.get(i).intValue();
+            if (p[i] < TOM_OVER_KICK * kickPitch || p[i] < FLOOR_TOM_HZ || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+            double time = t * (double) HOP / sr;
+            for (int h = 0; h < hits.size(); h++) {
+                Hit x = hits.get(h);
+                if (x.note == KICK_NOTE && x.time == time) hits.set(h, new Hit(time, FLOOR_TOM, x.strength));
+            }
+        }
+    }
+
+    /** Something keeps the kick band up half the time: a bass line (drums alone leave it quiet between hits). */
+    static boolean bassLine(double[] kickLevel) {
+        double[] s = kickLevel.clone();
+        Arrays.sort(s);
+        return s[s.length / 2] >= QUIET_BEFORE;
+    }
+
+    /** The band's level 3 frames before the onset is under QUIET_BEFORE of its loud level. */
+    static boolean quietBefore(double[] level, int t) {
+        return t < 3 || level[t - 3] < QUIET_BEFORE;
+    }
+
+    /**
+     * The loudest frequency (40-400 Hz) over each frame and the next three, interpolated between
+     * bins: a kick's, a tom's or a snare's body pitch at an onset. Not its rise: a kick ringing on
+     * under the next one would leave only the new kick's overtones.
+     */
+    static double[] lowPitch(float[][] mag, double sr, int maxBin) {
+        int lo = Math.max(1, bin(40, sr, maxBin)), hi = Math.min(maxBin - 1, bin(400, sr, maxBin));
+        double[] out = new double[mag.length];
+        double[] r = new double[hi + 2];
+        for (int t = 0; t < mag.length; t++) {
+            for (int k = lo - 1; k <= hi + 1; k++) {
+                double v = 0;
+                for (int f = t; f <= Math.min(mag.length - 1, t + 3); f++) v += mag[f][k];
+                r[k] = v;
+            }
+            int best = lo;
+            for (int k = lo; k <= hi; k++) if (r[k] > r[best]) best = k;
+            double den = r[best - 1] - 2 * r[best] + r[best + 1];
+            double off = Math.abs(den) < 1e-12 ? 0 : Math.max(-0.5, Math.min(0.5, 0.5 * (r[best - 1] - r[best + 1]) / den));
+            out[t] = (best + off) * sr / FFT_SIZE;
+        }
+        return out;
+    }
+
+    /** How much of the onset's rise a band keeps 5-8 frames (60-90 ms) on. */
+    static double wiresLeft(double[] level, int t) {
+        return left(level, t, 5, 8);
+    }
+
+    /**
+     * How much of the onset's rise (above the level 3 frames before) a band keeps frames a..b on.
+     * What already sounded before, a guitar or a ringing cymbal, does not count as ringing.
+     */
+    static double left(double[] level, int t, int a, int b) {
+        double peak = 0;
+        for (int k = Math.max(0, t - 1); k <= Math.min(level.length - 1, t + 2); k++) peak = Math.max(peak, level[k]);
+        double pre = t >= 3 ? level[t - 3] : 0;
+        if (peak - pre < 1e-9) return 0;
+        double s = 0;
+        int c = 0;
+        for (int k = t + a; k <= Math.min(level.length - 1, t + b); k++) {
+            s += level[k];
+            c++;
+        }
+        return c == 0 ? 0 : Math.max(0, s / c - pre) / (peak - pre);
     }
 
     /** Largest value within one frame of t. Onsets in different bands can land a frame apart. */
@@ -945,7 +1141,7 @@ public class DrumMidi_CRT{
         final int W = 3, MEAN_W = 16;
         List<Integer> peaks = new ArrayList<Integer>();
         int n = o.length, last = -1000;
-        for (int t = 1; t < n - 1; t++) {
+        for (int t = 0; t < n - 1; t++) {
             double v = o[t];
             if (v < delta) continue;
             boolean isMax = true;
