@@ -44,7 +44,8 @@ import java.util.Set;
  * pitch is a floor tom. Cutting the bass out with a filter would cut the kick too.
  *
  * Hats, rides and crashes ring when their band's quietest point 160-500 ms on stays up, so the
- * next hit does not make a hat look like it rings.
+ * next hit does not make a hat look like it rings. A snare or kick leaks into the hat band, so a
+ * hat struck with one is kept where it keeps the time of the hats around it.
  */
 public class DrumMidi_CRT{
 
@@ -77,15 +78,20 @@ public class DrumMidi_CRT{
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45;
+    /** At a kick or snare, a hat raises the hat band's level by HAT_OVER_DRUM (0.13 and more); the drum's own leak raises it about 0.06. */
+    static final double HAT_OVER_DRUM = 0.1;
+    /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
+    static final int HAT_TIME_MAX = 48;
     /**
      * Rises in band level (linear, in units of the band's loud hits): a kick raises the kick band by
-     * KICK_JUMP or more (a hat's leak into it rises from near silence in log terms, not in level);
+     * KICK_JUMP or more (soft kicks rise 0.29-0.32; a hat's leak into it, or a snare's thump without a
+     * kick, rises 0.15 at most: from near silence it only looks big in log terms);
      * a snare raises its body band by SNARE_JUMP and by SNARE_OVER_KICK times the kick band's rise
      * (a kick's own body rises 0.6-0.9 times its kick band); a kick on a snare raises the kick band by
      * KICK_WITH_SNARE (a snare's thump alone reaches 0.6 in some kits).
      */
     static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
-    static final double KICK_JUMP = 0.35, SNARE_JUMP = 0.12, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.12, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
     /**
      * Snare wires: the noise band (2-6 kHz) still holds this much of its onset's rise 60-90 ms on
      * (wiresLeft). A snare whose body shows holds WIRES or more; a tom's stick noise dies to
@@ -387,11 +393,33 @@ public class DrumMidi_CRT{
         }
         for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) if (jump(kickLevel, p.intValue()) >= KICK_JUMP) mark(busy, p.intValue(), 2);
         List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
-        for (int i = 0; i < hatPeaks.size(); i++) {
+        // A snare's noise (or a kick's click) reaches the hat band, so a hat under one is taken only
+        // where it keeps the time of the hats around it (hats on both sides at the same spacing, or
+        // two before or after it): a lone snare or a tom fill has no hats to keep time with.
+        int nHats = hatPeaks.size();
+        boolean[] keep = new boolean[nHats];
+        boolean[] under = new boolean[nHats];
+        for (int i = 0; i < nHats; i++) {
             int t = hatPeaks.get(i).intValue();
-            if (snare[t] > 1.0 && hat[t] < snare[t]) continue;
             if (isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
             if (ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) continue;
+            if (snare[t] > 1.0 && hat[t] < snare[t]) {
+                under[i] = jump(hatLevel, t) >= HAT_OVER_DRUM;
+                continue;
+            }
+            keep[i] = true;
+        }
+        for (boolean more = true; more; ) {
+            more = false;
+            for (int i = 0; i < nHats; i++) {
+                if (!under[i] || keep[i] || !keepsTime(hatPeaks, keep, i)) continue;
+                keep[i] = true;
+                more = true;
+            }
+        }
+        for (int i = 0; i < nHats; i++) {
+            if (!keep[i]) continue;
+            int t = hatPeaks.get(i).intValue();
             boolean open = openHat(hatRaw, hatPeaks, i);
             hits.add(new Hit(t * (double) HOP / sr, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
@@ -1092,6 +1120,27 @@ public class DrumMidi_CRT{
         double[] s = kickLevel.clone();
         Arrays.sort(s);
         return s[s.length / 2] >= QUIET_BEFORE;
+    }
+
+    /**
+     * Hat i keeps the time of the hats kept so far: kept hats on both sides at the same spacing, or
+     * two kept hats before it (or after it) spaced as it is from the nearer one; spacings up to
+     * HAT_TIME_MAX frames, equal within 40% (hat onsets land a few frames early or late: 16ths at
+     * 100 BPM come out 11 and 15 frames apart).
+     */
+    static boolean keepsTime(List<Integer> peaks, boolean[] keep, int i) {
+        int t = peaks.get(i).intValue();
+        int[] before = new int[2], after = new int[2];
+        int nb = 0, na = 0;
+        for (int j = i - 1; j >= 0 && nb < 2; j--) if (keep[j]) before[nb++] = peaks.get(j).intValue();
+        for (int j = i + 1; j < peaks.size() && na < 2; j++) if (keep[j]) after[na++] = peaks.get(j).intValue();
+        if (nb >= 1 && na >= 1 && sameGap(t - before[0], after[0] - t)) return true;
+        if (nb >= 2 && sameGap(t - before[0], before[0] - before[1])) return true;
+        return na >= 2 && sameGap(after[0] - t, after[1] - after[0]);
+    }
+
+    static boolean sameGap(int a, int b) {
+        return a > 0 && b > 0 && a <= HAT_TIME_MAX && b <= HAT_TIME_MAX && Math.abs(a - b) <= Math.max(2, 0.4 * Math.max(a, b));
     }
 
     /** The band's level 3 frames before the onset is under QUIET_BEFORE of its loud level. */
