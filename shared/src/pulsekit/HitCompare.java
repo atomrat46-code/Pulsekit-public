@@ -764,9 +764,24 @@ public final class HitCompare {
       out[f] = new double[l.size()];
       for (int i = 0; i < out[f].length; i++) out[f][i] = l.get(i).doubleValue();
       Arrays.sort(out[f]);
+      out[f] = once(out[f]);
     }
     return out;
   }
+
+  /**
+   * Hits of one family closer than SAME_HIT are one hit: two snare notes at once (a snare and a
+   * rimshot on the same note, say) sound as one, and can only be found once.
+   */
+  private static double[] once(double[] sorted) {
+    int n = 0;
+    double[] out = new double[sorted.length];
+    for (double t : sorted) if (n == 0 || t - out[n - 1] >= SAME_HIT) out[n++] = t;
+    return n == sorted.length ? sorted : Arrays.copyOf(out, n);
+  }
+
+  /** Seconds within which hits of one family count as one. */
+  static final double SAME_HIT = 0.015;
 
   private static long be32(byte[] d, int i) {
     if (i + 4 > d.length) return 0;

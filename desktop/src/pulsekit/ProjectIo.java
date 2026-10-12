@@ -809,7 +809,7 @@ final class ProjectIo {
 
     void openFile() {
         JFileChooser jFileChooser = new JFileChooser();
-        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set", "sng", "mid", "midi", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset"));
+        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, Hydrogen, Reaper, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set", "sng", "mid", "midi", "h2song", "h2pattern", "xml", "rpp", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset"));
         if (jFileChooser.showOpenDialog(app) != 0) {
             return;
         }
@@ -831,6 +831,14 @@ final class ProjectIo {
     }
 
     void ingest(byte[] byArray, String string) throws Exception {
+        // Hydrogen songs and patterns, and Reaper projects, import as the drum MIDI they play.
+        if (DrumFiles.isDrumFile(byArray)) {
+            DrumFiles.Converted c = DrumFiles.toMidi(byArray, string);
+            if (c.notes == 0) throw new IllegalArgumentException("No drum notes in " + string);
+            app.setNow(c.summary);
+            this.ingest(c.midi, c.midiName);
+            return;
+        }
         int n;
         String string2 = string.toLowerCase();
         String string3 = AudioIo.sniff(byArray);

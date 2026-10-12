@@ -4448,6 +4448,108 @@ public class BehaviorTest {
    * on the WAV set from what the track was asked to be (the tempo asked; with bass asked for, the
    * switches suggested for a mix), and the report reads the request: instruments, tempo, length.
    */
+  /**
+   * A small Reaper project at 100 BPM: a muted bass track, and a drum track whose item starts at
+   * 2 s and loops its one bar (kick, snare, kick, snare) twice, plus a pooled copy at 10 s.
+   */
+  private static String rpp() {
+    StringBuilder ev = new StringBuilder();
+    // One bar at 192 per quarter: kick 0, snare 192, kick 384, snare 576; source ends at 768.
+    int[][] notes = {{0, 0x24}, {192, 0x26}, {384, 0x24}, {576, 0x26}};
+    int at = 0;
+    for (int[] n : notes) {
+      ev.append("        E ").append(n[0] - at).append(" 99 ").append(Integer.toHexString(n[1])).append(" 64\n");
+      ev.append("        E 48 89 ").append(Integer.toHexString(n[1])).append(" 00\n");
+      at = n[0] + 48;
+    }
+    ev.append("        E ").append(768 - at).append(" b0 7b 00\n");
+    return "<REAPER_PROJECT 0.1 \"6.46/win64\" 1\n  TEMPO 100 4 4\n  <TEMPOENVEX\n    ACT 0 -1\n  >\n"
+        + "  <TRACK\n    NAME \"Bass\"\n    MUTESOLO 1 0 0\n    <ITEM\n      POSITION 0\n      LENGTH 10\n      LOOP 0\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        E 0 90 28 64\n        E 96 80 28 00\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n"
+        + "  <TRACK\n    NAME \"Drums\"\n    <ITEM\n      POSITION 2\n      LENGTH 4.8\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n"
+        + ev + "        IGNTEMPO 0 120 4 4\n      >\n    >\n"
+        + "    <ITEM\n      POSITION 10\n      LENGTH 2.4\n      LOOP 1\n      <SOURCE MIDI\n        HASDATA 1 192 QN\n        POOLEDEVTS {POOL-1}\n        IGNTEMPO 0 120 4 4\n      >\n    >\n  >\n>\n";
+  }
+
+  /** Reaper: a project's drum items (looped, pooled, the muted bass left out) as MIDI, imported and given to a program. */
+  @Test
+  public void s106_import_reaper() throws Exception {
+    byte[] project = rpp().getBytes(StandardCharsets.UTF_8);
+    Reaper.Result r = Reaper.toMidi(project);
+    StringBuilder log = new StringBuilder(Reaper.summary(r)).append('\n');
+    if (r.notes != 12 || r.bpm != 100 || r.items != 2) throw new AssertionError("rpp read as " + Reaper.summary(r));
+    double[][] hits = HitCompare.midiHits(r.midi);
+    if (Math.abs(hits[0][0] - 2.0) > 0.01 || hits[0].length != 6 || Math.abs(hits[0][4] - 10.0) > 0.01) throw new AssertionError("rpp hits at the wrong times");
+    call("ingest", project, "Session.rpp", null);
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    int[][] cells = (int[][]) get("cells");
+    log.append("grid kick ").append(cells[0][0]).append(" snare ").append(cells[2][4]).append('\n');
+    java.io.File f = new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "Session.rpp");
+    java.nio.file.Files.write(f.toPath(), project);
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(f.getAbsolutePath()), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "rppmid"));
+    log.append("program args ").append(new java.io.File(args.get(0)).getName()).append('\n');
+    if (!args.get(0).endsWith("Session.mid")) throw new AssertionError("program got " + args);
+    write("s106_import_reaper", log.toString());
+  }
+
+  /** Hydrogen: a pattern file into the grid, a song (Verse x3, Fill) as an imported song, and its MIDI for a program. */
+  @Test
+  public void s105_import_hydrogen() throws Exception {
+    StringBuilder sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?><song><bpm>100</bpm><name>Test song</name><instrumentList>");
+    int[][] inst = {{0, 36}, {2, 38}, {5, 41}, {6, 42}, {7, 43}};
+    for (int[] i : inst) sb.append("<instrument><id>").append(i[0]).append("</id><midiOutNote>").append(i[1]).append("</midiOutNote></instrument>");
+    sb.append("</instrumentList><patternList><pattern><name>Verse</name><size>192</size><denominator>4</denominator><noteList>");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, 6, 0.6));
+    sb.append(h2note(0, 0, 0.9)).append(h2note(96, 0, 0.9)).append(h2note(48, 2, 0.9)).append(h2note(144, 2, 0.9));
+    sb.append("</noteList></pattern><pattern><name>Fill</name><size>192</size><denominator>4</denominator><noteList>");
+    for (int pos = 0; pos < 192; pos += 24) sb.append(h2note(pos, pos < 96 ? 7 : 5, 0.8));
+    sb.append("</noteList></pattern></patternList><patternSequence>");
+    for (String n : new String[] {"Verse", "Verse", "Verse", "Fill"}) sb.append("<group><patternID>").append(n).append("</patternID></group>");
+    byte[] song = sb.append("</patternSequence></song>").toString().getBytes(StandardCharsets.UTF_8);
+    String pat = "<drumkit_pattern><pattern_for_drumkit>GMkit</pattern_for_drumkit><pattern><pattern_name>c:\\beats\\Beat</pattern_name><size>192</size><noteList>"
+        + h2note(0, 0, 0.9) + h2note(96, 2, 0.9) + h2note(120, 2, 0.0) + "</noteList></pattern></drumkit_pattern>";
+    StringBuilder log = new StringBuilder();
+    Hydrogen.Result r = Hydrogen.toMidi(song);
+    log.append(Hydrogen.summary(r)).append('\n');
+    if (r.bars != 4 || r.notes != 44 || r.bpm != 100) throw new AssertionError("h2song read as " + Hydrogen.summary(r));
+    log.append(Hydrogen.summary(Hydrogen.toMidi(pat.getBytes(StandardCharsets.UTF_8)))).append('\n');
+    call("ingest", pat.getBytes(StandardCharsets.UTF_8), "Beat.h2pattern", null);
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    int[][] cells = (int[][]) get("cells");
+    log.append("pattern kick ").append(cells[0][0]).append(" snare ").append(cells[2][8]).append('\n');
+    if (cells[0][0] <= 0 || cells[2][8] <= 0) throw new AssertionError("Hydrogen pattern not in the grid");
+    call("ingest", song, "Test song.h2song", null);
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    if (d != null && d.isShowing()) {
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> imported = (List<Engine.ImportedSong>) get("importedSongs");
+    log.append("imported ").append(imported.isEmpty() ? "none" : imported.get(0).name + " \u00b7 " + imported.get(0).parts.size() + " parts").append('\n');
+    if (imported.isEmpty() || imported.get(0).parts.isEmpty()) throw new AssertionError("Hydrogen song made no song");
+    java.io.File h2 = new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "Test song.h2song");
+    java.nio.file.Files.write(h2.toPath(), song);
+    List<String> args = DrumFiles.midiArgs(java.util.Arrays.asList(h2.getAbsolutePath(), "--sf2", "kit.sf2"), new java.io.File(org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), "h2mid"));
+    log.append("program args ").append(new java.io.File(args.get(0)).getName()).append(' ').append(args.subList(1, args.size())).append('\n');
+    if (!args.get(0).endsWith("Test song.mid")) throw new AssertionError("program got " + args);
+    write("s105_import_hydrogen", log.toString());
+  }
+
+  private static String h2note(int pos, int inst, double vel) {
+    return "<note><position>" + pos + "</position><velocity>" + vel + "</velocity><instrument>" + inst + "</instrument></note>";
+  }
+
   @Test
   public void s104_sogni_music_test() throws Exception {
     StringBuilder out = new StringBuilder();
