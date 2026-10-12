@@ -3747,6 +3747,57 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * Midi2Wav (PyJav's Java menu): Params has the drum MIDI, the output name, the SoundFont, the rate
+   * and Add to DB. Without a SoundFont it plays the MIDI with Pulsekit's kit, into <drums>2wav.wav;
+   * with one and --addtodb the MIDI, the SoundFont and the WAV go into the prompt library.
+   */
+  void s86_midi2wav() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    cells[2][4] = 1;
+    cells[2][12] = 1;
+    for (int i = 0; i < 16; i += 2) cells[5][i] = 1;
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Test kit"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      out.append("param ").append(p.token).append(" \"").append(p.label).append("\"").append(p.isFile() ? " file ." + p.ext : "").append(p.refs ? " Browse DB" : "")
+          .append(p.choices != null ? " choices" : "").append(p.hint.length() > 0 ? " hint: " + p.hint : "").append('\n');
+    }
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String[] runs = {"\"" + midi.getAbsolutePath() + "\"", "\"" + midi.getAbsolutePath() + "\" kept.wav --sf2 \"" + sf2.getAbsolutePath() + "\" --rate 22050 --addtodb"};
+    for (String extra : runs) {
+      edt(() -> log.setText(""));
+      edt(() -> ((JTextField) get("pyExtra")).setText(extra));
+      answers.add("Close");
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(600);
+      idle();
+      out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : log.getText().split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Saved") || t.startsWith("Prompt library"))
+          out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+      answers.clear();
+    }
+    PromptVault vault = PromptDb.vault();
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("library ").append(c.name).append(" / ").append(p.title).append(": refs ").append(v.ref1Name).append(", ").append(v.ref2Name)
+            .append(", result ").append(v.resultName).append(" (").append(vault.sizeOf(v, 3) > 44 ? "has audio" : "empty").append(")\n");
+      }
+    }
+  }
+
+  /**
    * File > Downloads: "No downloads yet" at first; a Sogni run is listed (failed: no key), and a
    * finished run's files are listed by program in Finished / failed. Rename, Copy to, Move to,
    * Clear and Delete (with its prompt file and prompt library entry) work on a file.

@@ -375,6 +375,18 @@ final class PyJav {
         }
         // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
         runArgs = JavaRun.withKeyFile(this.programText(), new java.util.ArrayList<String>(runArgs));
+        // Midi2Wav without a SoundFont: Pulsekit's kit (the active drum set) as one.
+        if (JavaRun.needsKit(name, runArgs)) {
+            try {
+                File kitDir = new File(PromptDb.dir(), "pyjav-in");
+                kitDir.mkdirs();
+                File kit = new File(kitDir, "Pulsekit-kit.sf2");
+                Files.write(kit.toPath(), AudioIo.encodeSf2(app.playback.mixVoices(), "Pulsekit"));
+                runArgs = JavaRun.withKit(runArgs, kit.getAbsolutePath());
+            } catch (Exception ex) {
+                app.setNow("Could not write Pulsekit's kit as a SoundFont: " + ex.getMessage());
+            }
+        }
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             MediaBrowser.loadLoop();
@@ -691,6 +703,12 @@ final class PyJav {
             if (up.length() > 0) kept = kept.length() > 0 ? kept + "\n" + up : up;
             String copy = this.copyToOriginal(r, argv);
             if (copy.length() > 0) kept = kept.length() > 0 ? kept + "\n" + copy : copy;
+        }
+        // Midi2Wav with --addtodb: the MIDI and the SoundFont as reference files, the WAV as result file
+        // (once, when Save this run into DB is ticked too).
+        if ("Midi2Wav.java".equals(name) && argv.contains("--addtodb") && !this.saveRun) {
+            String run = PromptKeep.keepRun(dir, r, argv, name);
+            if (run.length() > 0) kept = kept.length() > 0 ? kept + "\n" + run : run;
         }
         if (this.saveRun) {
             this.saveRun = false;

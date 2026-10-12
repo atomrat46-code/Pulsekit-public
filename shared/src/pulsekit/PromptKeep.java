@@ -35,6 +35,8 @@ final class PromptKeep {
         if ("JoinVideo.java".equals(program)) add(kept, keepJoined(dir, result, argv));
         if ("SogniVideo.java".equals(program)) add(kept, keepMerged(dir, result));
         if ("ImageUpscaler.java".equals(program)) add(kept, keepUpscaled(dir, result, argv));
+        // Midi2Wav with --addtodb: the MIDI and the SoundFont as reference files, the WAV as result file.
+        if ("Midi2Wav.java".equals(program) && argv != null && argv.contains("--addtodb")) add(kept, keepRun(dir, result, argv, program));
         return kept.toString();
     }
 
@@ -109,6 +111,7 @@ final class PromptKeep {
         if (musicToDb && "SogniMusic.java".equals(program)) return true;
         if ("JoinVideo.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
         if ("ImageUpscaler.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
+        if ("Midi2Wav.java".equals(program) && argv != null && argv.contains("--addtodb")) return true;
         return "SogniVideo.java".equals(program);
     }
 

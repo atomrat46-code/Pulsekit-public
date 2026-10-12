@@ -4442,6 +4442,63 @@ public class BehaviorTest {
   }
 
   /**
+   * Midi2Wav (PyJav's Java menu): Params has the drum MIDI and the SoundFont as file rows (also from
+   * the prompt library), the rate and Add to DB. Run without a SoundFont gives Pulsekit's kit (the
+   * active drum set, as an SF2); with --addtodb the MIDI, the SoundFont and the WAV go into the library.
+   */
+  @Test
+  public void s101_midi2wav() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "Midi2Wav.java");
+    TextView args = (TextView) get("pkPyArgs");
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    dir.mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    File midi = new File(dir, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    args.setText(midi.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String t : new String[] {"params-file:drums.mid", "params-db:drums.mid", "params-file:--sf2", "params-db:--sf2", "params-choose:--rate", "params-check:--addtodb"}) {
+      View v = dv.findViewWithTag(t);
+      out.append(t).append(": ").append(v == null ? "none" : v instanceof TextView ? ((TextView) v).getText() : "shown").append('\n');
+    }
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // Run: the program cannot be compiled here, but its arguments are made first.
+    call("pkRunPyJav");
+    idle();
+    @SuppressWarnings("unchecked")
+    java.util.List<String> argv = (java.util.List<String>) app.pyJav.pkLastArgv;
+    int at = argv.indexOf("--sf2");
+    File kit = at >= 0 ? new File(argv.get(at + 1)) : null;
+    out.append("run args: ").append(String.valueOf(argv).replace(dir.getAbsolutePath(), "<in>")).append('\n');
+    out.append("kit SoundFont: ").append(kit != null && kit.isFile() ? kit.getName() + ", " + AudioIo.parseSf2(Files.readAllBytes(kit.toPath())).length + " voices" : "none").append('\n');
+    // A run with --addtodb, as its result comes back.
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("kept.wav", AudioIo.encodeWav(new short[2205], 22050)));
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList(midi.getAbsolutePath(), "kept.wav", "--sf2", kit.getAbsolutePath(), "--addtodb"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("MIDI: groove.mid, 4 drum notes\nWrote kept.wav (8 KB)\nSucceeded: kept.wav", files, 0));
+    idle();
+    for (android.app.Dialog dd : ShadowDialog.getShownDialogs()) if (dd.isShowing()) dd.dismiss();
+    for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) if (line.startsWith("Prompt library")) out.append("log: ").append(line).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.Category c : vault.categories()) {
+      for (PromptVault.Prompt p : vault.prompts(c.id)) {
+        PromptVault.Version v = vault.finalVersion(p.id);
+        out.append("library ").append(c.name).append(" / ").append(p.title).append(": refs ").append(v.ref1Name).append(", ").append(v.ref2Name).append(", result ").append(v.resultName).append('\n');
+      }
+    }
+    write("s101_midi2wav", out.toString());
+  }
+
+  /**
    * File > Downloads: "No downloads yet" at first; a Sogni run's files (its picture, SogniChat's
    * answer) are listed by program in Finished / failed once its result is in; a long press offers
    * Preview, Clear, Rename, Delete, Move to and Copy to; Delete can take the prompt file and the

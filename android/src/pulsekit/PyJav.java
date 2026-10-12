@@ -610,6 +610,21 @@ final class PyJav {
         }
         // The key file from Drum Midi Settings for every program that takes one (ImageUpscaler's runs have an input file).
         argv = pulsekit.JavaRun.withKeyFile(this.pkProgramText(), new java.util.ArrayList<String>(argv));
+        // Midi2Wav without a SoundFont: Pulsekit's kit (the active drum set) as one.
+        if (pulsekit.JavaRun.needsKit(name, argv)) {
+            try {
+                java.io.File kit = new java.io.File(dir, "Pulsekit-kit.sf2");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(kit);
+                try {
+                    fos.write(pulsekit.AudioIo.encodeSf2(app.playback.mixVoices(), "Pulsekit"));
+                } finally {
+                    fos.close();
+                }
+                argv = pulsekit.JavaRun.withKit(argv, kit.getAbsolutePath());
+            } catch (Exception ex) {
+                app.setNow("Could not write Pulsekit's kit as a SoundFont: " + ex.getMessage());
+            }
+        }
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             pulsekit.MediaBrowser.load(app);

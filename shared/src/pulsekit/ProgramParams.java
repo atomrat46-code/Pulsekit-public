@@ -71,7 +71,7 @@ public final class ProgramParams {
     }
   }
 
-  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt|mp4)\\b");
+  private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt|mp4|sf2)\\b");
 
   /** The parameters in `text` (a program's source or readable strings), in the order the program lists them. */
   public static List<Param> parse(String text) {
@@ -100,6 +100,8 @@ public final class ProgramParams {
     boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
+    // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
+    boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -111,6 +113,7 @@ public final class ProgramParams {
       if (video) knownVideo(p);
       if (joinVideo) knownJoinVideo(p);
       if (upscaler) knownUpscaler(p);
+      if (midi2wav) knownMidi2Wav(p);
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);
@@ -409,6 +412,32 @@ public final class ProgramParams {
       p.label = "Add the picture to DB as a Reference file";
     } else if (p.token.equals("--delete_from_sogni")) {
       p.label = "Delete from Sogni after download (method 3)";
+    }
+  }
+
+  /** Midi2Wav's labels: the drum MIDI (also from the prompt library), the WAV, the SoundFont, the rate and the library. */
+  private static void knownMidi2Wav(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output WAV name";
+      p.hint = "optional; <drums>2wav.wav";
+    } else if (!p.flag && p.isFile()) {
+      p.label = "Drum MIDI file";
+      p.hint = "a .mid; its drum channel is played";
+      p.refs = true;
+    } else if (p.token.equals("--sf2")) {
+      p.label = "SoundFont (.sf2)";
+      p.hint = "empty: Pulsekit's kit (the active drum set)";
+      p.refs = true;
+    } else if (p.token.equals("--rate")) {
+      p.label = "Sample rate";
+      p.hint = "44100";
+      p.choices = new String[] {"22050 Hz", "44100 Hz (default)", "48000 Hz"};
+      p.choiceValues = new String[] {"22050", "44100", "48000"};
+    } else if (p.token.equals("--volume")) {
+      p.label = "Volume (percent)";
+      p.hint = "100; a mix that would clip is turned down to fit";
+    } else if (p.token.equals("--addtodb")) {
+      p.label = "Add the MIDI, the SoundFont and the WAV to DB";
     }
   }
 
