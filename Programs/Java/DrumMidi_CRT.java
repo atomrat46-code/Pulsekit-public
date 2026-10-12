@@ -84,6 +84,7 @@ public class DrumMidi_CRT{
      * (a kick's own body rises 0.6-0.9 times its kick band); a kick on a snare raises the kick band by
      * KICK_WITH_SNARE (a snare's thump alone reaches 0.6 in some kits).
      */
+    static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
     static final double KICK_JUMP = 0.35, SNARE_JUMP = 0.12, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
     /**
      * Snare wires: the noise band (2-6 kHz) still holds this much of its onset's rise 60-90 ms on
@@ -101,6 +102,17 @@ public class DrumMidi_CRT{
      */
     static final double GAP_LO = 400, GAP_HI = 1000, BODY_TONE = 0.9, HAT_WITH = 0.4;
     static final double WIRES = 0.08, WIRES_BAND = 0.23, WIRES_MAX = 0.6, WIRES_NOISE_JUMP = 0.5, MASKED_BODY = 0.25;
+    /**
+     * A ride washing under the band keeps the noise band at RINGING_NOISE or more before the
+     * onsets (0.33-0.39; hats and guitar leave it at 0.19-0.31), and makes a kick's noise ring like
+     * wires. There a snare also needs its wires to reach the hat band (6-14 kHz), which jumps
+     * MASKED_HAT or more (0.93-1.02); a kick with the ride on it reaches about 0.6.
+     */
+    static final double MASKED_HAT = 0.9, RINGING_NOISE = 0.32;
+    /** Snare wires jumping BRIGHT_WIRES_HAT in the hat band (1.37-1.44; kicks with a hat reach 0.94) need ring only BRIGHT_WIRES. */
+    static final double BRIGHT_WIRES_HAT = 1.2, BRIGHT_WIRES = 0.15;
+    /** Wires keep at most WIRES_LATE of their rise 150-230 ms on (0.00-0.13); a crash keeps 0.33-0.42. */
+    static final double WIRES_LATE = 0.25;
     static final int MIN_GAP_FRAMES = 5;
     static final double BASE_DELTA = 0.30;
 
@@ -353,18 +365,19 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
         }
         List<Integer> kickFrames = new ArrayList<Integer>();
+        boolean bass = bassLine(kickLevel);
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : snarePeaks) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
             int t = p.intValue();
             double jk = jump(kickLevel, t);
-            if (jk < KICK_JUMP) continue;
+            if (bass ? !bandKick(jk, jump(noiseLevel, t)) || jk < KICK_WITH_SNARE && maskedSnare(lv, t, sens, rideRings(rideEnergy, t)) : jk < KICK_JUMP) continue;
             if (snareAt[t] && jk < KICK_WITH_SNARE) continue;
             kickFrames.add(p);
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr);
+        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
         boolean[] busy = new boolean[kick.length];
@@ -1005,16 +1018,36 @@ public class DrumMidi_CRT{
     static boolean bodySnare(Levels lv, int t, double sens) {
         double jb = jump(lv.body, t);
         return jb >= SNARE_JUMP / sens && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
-                && (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH)
+                && (wiresLeft(lv.noise, t) >= WIRES_BAND || (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t))
                 && jump(lv.bodyRaw, t) >= BODY_TONE * jump(lv.gapRaw, t);
+    }
+
+    /** A band already sounds in the body band before the onset. */
+    static boolean masked(Levels lv, int t) {
+        return t >= 3 && lv.body[t - 3] >= MASKED_BODY;
+    }
+
+    /**
+     * A kick over a bass line: the bass keeps the kick band up, so the kick's own rise there can be
+     * small (KICK_JUMP_BAND), but its beater clicks in the 2-6 kHz band (KICK_CLICK_JUMP; a bass
+     * note under a hat rises 0.05-0.15 there, a lone ride up to 0.46, kicks 0.67 and more). A kick
+     * band jump of KICK_JUMP_STRONG needs no click (a kick without a beater sound).
+     */
+    static boolean bandKick(double kickJump, double noiseJump) {
+        return kickJump >= KICK_JUMP_STRONG || kickJump >= KICK_JUMP_BAND && noiseJump >= KICK_CLICK_JUMP;
     }
 
     /** A band covers the body: a noise onset whose rise rings like wires. */
     static boolean maskedSnare(Levels lv, int t, double sens, boolean rideRinging) {
         // A ride ringing on keeps the noise band up after a kick as wires would.
-        if (t < 3 || lv.body[t - 3] < MASKED_BODY || rideRinging) return false;
+        if (!masked(lv, t) || rideRinging) return false;
         double wires = wiresLeft(lv.noise, t);
-        return jump(lv.noise, t) >= WIRES_NOISE_JUMP / sens && wires >= WIRES_BAND && wires <= WIRES_MAX;
+        // A crash washes on after the wires would have died.
+        if (jump(lv.noise, t) < WIRES_NOISE_JUMP / sens || wires > WIRES_MAX || left(lv.noise, t, 13, 20) > WIRES_LATE) return false;
+        double hat = jump(lv.hat, t);
+        // Wires that reach far into the hat band need ring less.
+        if (hat >= BRIGHT_WIRES_HAT / sens) return wires >= BRIGHT_WIRES;
+        return wires >= WIRES_BAND && (lv.noise[t - 3] < RINGING_NOISE || hat >= MASKED_HAT / sens);
     }
 
     /** Band levels before HPSS, for telling the drums apart at an onset. */
@@ -1034,10 +1067,10 @@ public class DrumMidi_CRT{
     /**
      * Kicks found whose low pitch is TOM_OVER_KICK times the kick pitch become floor toms. The
      * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
-     * nearly as many floor toms). Not where a bass line plays: its notes would be read instead.
+     * nearly as many floor toms). Not called where a bass line plays: its notes would be read instead.
      */
     static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr) {
-        if (kickFrames.size() < 4 || bassLine(kickLevel)) return;
+        if (kickFrames.size() < 4) return;
         double[] p = new double[kickFrames.size()];
         for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
         double[] sorted = p.clone();
