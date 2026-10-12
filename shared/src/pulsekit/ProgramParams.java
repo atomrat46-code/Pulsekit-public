@@ -114,6 +114,9 @@ public final class ProgramParams {
       if (joinVideo) knownJoinVideo(p);
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
+      // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
+      if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
+      if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);

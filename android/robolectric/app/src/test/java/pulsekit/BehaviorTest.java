@@ -4442,6 +4442,42 @@ public class BehaviorTest {
   }
 
   /**
+   * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (no groove dialog); --test: to Midi2Wav with
+   * --test, so its test (DrumMidi, CompareHits, the report) follows.
+   */
+  @Test
+  public void s103_drumgen_to_wav() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "pyjav-in");
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 1;
+    byte[] groove = Engine.encodeMidi(cells, 120);
+    for (String flag : new String[] {"--towav", "--test", "(neither)"}) {
+      app.pyName = "MidiDrumGen.java";
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Rock", "--bars", "2"));
+      if (flag.startsWith("--")) app.pyJav.pkLastArgv.add(flag);
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("drum_track_full_db.mid", groove));
+      for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+      app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote drum_track_full_db.mid\nSucceeded: drum_track_full_db.mid", files, 0));
+      for (int i = 0; i < 20 && !"Midi2Wav.java".equals(get("pyName")); i++) idle();
+      if (!flag.startsWith("--")) app.pyJav.pkLastArgv = new java.util.ArrayList<String>();
+      boolean grooveDialog = false;
+      for (android.app.Dialog d : ShadowDialog.getShownDialogs()) {
+        if (d.isShowing() && d instanceof AlertDialog && d.getWindow().getDecorView().findViewWithTag("midi-offer:play") != null) grooveDialog = true;
+      }
+      @SuppressWarnings("unchecked")
+      java.util.List<String> argv = (java.util.List<String>) app.pyJav.pkLastArgv;
+      out.append(flag).append(": program ").append(get("pyName")).append(", Midi2Wav args ").append(String.valueOf(argv).replace(dir.getAbsolutePath(), "<in>"))
+          .append(", groove dialog ").append(grooveDialog).append('\n');
+      Midi2WavTest.stop();
+    }
+    write("s103_drumgen_to_wav", out.toString());
+  }
+
+  /**
    * Midi2Wav --test: after Midi2Wav's WAV, DrumMidi_CRT runs on it; after DrumMidi's MIDI (imported
    * as a file set), CompareHits runs on the WAV, that MIDI and the song, then with --truth on
    * DrumMidi's MIDI against the MIDI played. (Programs do not run here: each step's result is given

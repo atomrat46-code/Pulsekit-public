@@ -220,6 +220,11 @@ public final class CompareHits {
       if (sens != null) next.put("sens", Double.valueOf(sens.doubleValue() + 0.2));
       out.add(String.format(Locale.ROOT, "--sens should be greater: DrumMidi found %.0f%% of the kicks and %.0f%% of the snares played ", 100 * kr, 100 * sr)
           + (sens != null ? "(it was " + fmt(sens.doubleValue()) + "; try " + fmt(sens.doubleValue() + 0.2) + ")." : "(raise it by about 0.2, e.g. 0.4 -> 0.6)."));
+      if (kp < 0.85 || sp < 0.85) {
+        // Misses and extra hits together: other drums (toms in a fill, a crash's thump) are heard as kicks or snares.
+        out.add(String.format(Locale.ROOT, "DrumMidi also adds hits: %.0f%% of its kicks and %.0f%% of its snares were not played "
+            + "(other drums heard as them, such as toms in a fill); a higher --sens can add more of these, so compare again after.", 100 * (1 - kp), 100 * (1 - sp)));
+      }
     } else if (kp < 0.85 || sp < 0.85) {
       if (sens != null) next.put("sens", Double.valueOf(Math.max(0.1, sens.doubleValue() - 0.1)));
       out.add(String.format(Locale.ROOT, "--sens could be lower: %.0f%% of DrumMidi's kicks and %.0f%% of its snares were not played ", 100 * (1 - kp), 100 * (1 - sp))

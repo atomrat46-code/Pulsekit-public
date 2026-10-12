@@ -978,7 +978,9 @@ final class PyJav {
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         this.pkOffer("the video", ok, () -> VideoOffer.offer(app, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
-        this.pkOffer("the groove", ok && "MidiDrumGen.java".equals(app.pyName), () -> MidiOffer.offer(app, made));
+        // With --towav or --test it goes on to Midi2Wav (and its test) instead.
+        final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
+        this.pkOffer("the groove", ok && !toWav && "MidiDrumGen.java".equals(app.pyName), () -> MidiOffer.offer(app, made));
         // MediaBrowser: its folder in the Media browser.
         this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
             String browse = MediaDir.opened(madeLog);
@@ -1082,6 +1084,43 @@ final class PyJav {
         // Another program ran in between: the test is over.
         pulsekit.Midi2WavTest.stop();
         return false;
+    }
+
+    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). False when it made no MIDI. */
+    boolean pkGenToWav(pulsekit.JavaRun.Result result, java.util.List<String> genArgv) {
+        pulsekit.JavaRun.FileOut midi = null;
+        if (result != null && result.files != null) {
+            for (int i = 0; i < result.files.size() && midi == null; i++) {
+                pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                String low = f.name.toLowerCase();
+                if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
+            }
+        }
+        if (midi == null) return false;
+        try {
+            java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            java.io.File f = new java.io.File(dir, midi.name);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+            try {
+                fos.write(midi.bytes);
+            } finally {
+                fos.close();
+            }
+            final java.util.List<String> args = pulsekit.Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv,
+                app.programMenus.bundledSource("Midi2Wav.java"), pulsekit.PyJavParams.load(app, "Midi2Wav.java"));
+            this.pkAddLogLine("Next: Midi2Wav on " + midi.name + (args.contains(pulsekit.Midi2WavTest.FLAG) ? ", then its test" : ""));
+            app.handler.post(() -> {
+                this.pkPyInputPath = null;
+                app.programMenus.selectProgram("Java", "Midi2Wav.java");
+                this.pkForcedArgs = args;
+                this.pkRunPyJav();
+            });
+            return true;
+        } catch (Exception ex) {
+            this.pkAddLogLine("Could not hand " + midi.name + " to Midi2Wav: " + ex.getMessage());
+            return false;
+        }
     }
 
     void pkRunTestCompare(java.util.List<String> args) {

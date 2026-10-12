@@ -43,6 +43,31 @@ public final class Midi2WavTest {
     now = null;
   }
 
+  /** True for a MidiDrumGen run whose MIDI goes on to Midi2Wav (--towav), or to its test (--test). */
+  public static boolean fromGen(String program, List<String> argv) {
+    return "MidiDrumGen.java".equals(program) && argv != null && (argv.contains("--towav") || argv.contains(FLAG));
+  }
+
+  /**
+   * Midi2Wav's arguments for MidiDrumGen's MIDI: the MIDI, Midi2Wav's own saved Params (`saved`:
+   * the SoundFont, rate, volume, Add to DB) and --test exactly when MidiDrumGen had it.
+   */
+  public static List<String> genToWavArgs(String midiPath, List<String> genArgv, String midi2wavSource, String saved) {
+    String merged = ProgramParams.merge(ProgramParams.parse(midi2wavSource == null ? "" : midi2wavSource), "", saved);
+    List<String> out = new ArrayList<String>();
+    out.add(midiPath);
+    List<String> rest = JavaRun.split(merged == null ? "" : merged);
+    for (int i = 0; i < rest.size(); i++) {
+      String a = rest.get(i);
+      if (a.equals(FLAG)) continue;
+      // An input or output name saved with Midi2Wav's Params is not this run's.
+      if (!a.startsWith("--") && (i == 0 || !rest.get(i - 1).startsWith("--") || rest.get(i - 1).equals("--addtodb"))) continue;
+      out.add(a);
+    }
+    if (genArgv != null && genArgv.contains(FLAG)) out.add(FLAG);
+    return out;
+  }
+
   /** True for a Midi2Wav run with --test. */
   public static boolean wanted(String program, List<String> argv) {
     return "Midi2Wav.java".equals(program) && argv != null && argv.contains(FLAG);

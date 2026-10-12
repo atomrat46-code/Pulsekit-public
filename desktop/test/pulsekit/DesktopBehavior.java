@@ -3747,6 +3747,58 @@ public final class DesktopBehavior {
    * file the library has is linked. Save this run into DB: the switch is taken off and the run stored.
    */
   /**
+   * MidiDrumGen --towav: its MIDI goes on to Midi2Wav (a WAV with Pulsekit's kit); --test: on to
+   * Midi2Wav's test, ending with the report (DrumMidi on the WAV, CompareHits against the groove).
+   */
+  void s88_drumgen_to_wav() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    idle();
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) {
+      if (p.token.equals("--towav") || p.token.equals("--test")) out.append("param ").append(p.token).append(" \"").append(p.label).append("\"\n");
+    }
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    // --towav: MidiDrumGen, then Midi2Wav (its WAV offered: Close).
+    answers.add("Close");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --towav"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !"Midi2Wav.java".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded: "); i++) Thread.sleep(50);
+    Thread.sleep(800);
+    idle();
+    out.append("--towav: program now ").append((String) get("pyName")).append('\n');
+    for (String line : log.getText().split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    answers.clear();
+    // --test: MidiDrumGen, Midi2Wav, DrumMidi, CompareHits twice, the report.
+    final StringBuilder report = new StringBuilder();
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1500 && report.length() == 0; i++) Thread.sleep(100);
+    idle();
+    out.append("--test: program now ").append((String) get("pyName")).append('\n');
+    for (String line : report.toString().replace(home.getAbsolutePath(), "~").split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Midi2Wav test") || t.startsWith("==") || t.startsWith("Played:")) out.append("  ").append(t).append('\n');
+    }
+  }
+
+  /**
    * Midi2Wav --test: the WAV made goes to DrumMidi_CRT (its MIDI imported as a file set and a song),
    * then CompareHits compares the WAV, DrumMidi's MIDI and the song, and the MIDI played against
    * DrumMidi's; the report is shown and kept beside the WAV.

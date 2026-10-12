@@ -565,7 +565,9 @@ final class PyJav {
                     this.offerVideo(watch, savedVideos.size());
                 }
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
-                if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
+                // With --towav or --test it goes on to Midi2Wav (and its test) instead.
+                if (madeMidi != null && result.code == 0 && Midi2WavTest.fromGen(name, argv)) this.genToWav(madeMidi, argv);
+                else if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
@@ -714,6 +716,27 @@ final class PyJav {
         if (app.pyLog != null) {
             app.pyLog.append("\n" + line);
             this.runLog = app.pyLog.getText();
+        }
+    }
+
+    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). */
+    void genToWav(PythonRun.FileOut midi, java.util.List<String> genArgv) {
+        try {
+            File dir = new File(PromptDb.dir(), "pyjav-in");
+            dir.mkdirs();
+            File f = new File(dir, midi.name);
+            Files.write(f.toPath(), midi.bytes);
+            String source = ProgramFiles.bundledSource("Midi2Wav.java");
+            final java.util.List<String> args = Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv, source, this.loadParams("Midi2Wav.java"));
+            this.testNote("Next: Midi2Wav on " + midi.name + (args.contains(Midi2WavTest.FLAG) ? ", then its test" : ""));
+            SwingUtilities.invokeLater(() -> {
+                app.pyInputPath = null;
+                app.programMenus.selectListedProgram("Java", "Midi2Wav.java");
+                this.forcedArgs = args;
+                this.runPython();
+            });
+        } catch (Exception ex) {
+            this.testNote("Could not hand " + midi.name + " to Midi2Wav: " + ex.getMessage());
         }
     }
 
