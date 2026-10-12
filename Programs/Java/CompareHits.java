@@ -7,9 +7,11 @@
  *   java CompareHits <drums.mid> <song.mid> [--log <logfile>]
  *     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
  *
- *   java CompareHits <played.mid> <drums.mid> --truth [--log <logfile>]
+ *   java CompareHits <played.mid> <drums.mid> [song.mid] --truth [--log <logfile>]
  *     DrumMidi's MIDI (drums.mid) against the drums actually played (played.mid: the MIDI Midi2Wav
  *     made the WAV from), so every hit DrumMidi missed or added is known; the suggestions follow.
+ *     With song.mid (the song Pulsekit made from DrumMidi's MIDI) the song is checked against the
+ *     drums played too, and hits DrumMidi found but the song lost are put down to the import.
  *
  *   --log <logfile>  also writes the results to this text file. --log alone writes
  *                    CompareHits_test_results.txt. In PyJav on Android, a plain file name is saved
@@ -96,7 +98,7 @@ public final class CompareHits {
       files.add(a);
     }
     if (files.size() < 2) {
-      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>] | <played.mid> <drums.mid> --truth");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>] | <played.mid> <drums.mid> [song.mid] --truth");
       finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
@@ -107,7 +109,7 @@ public final class CompareHits {
         finish("Failed: --truth compares two MIDI files: the drums played, then DrumMidi's MIDI");
         return;
       }
-      runTruth(files.get(0), files.get(1));
+      runTruth(files.get(0), files.get(1), files.size() > 2 ? files.get(2) : null);
       return;
     }
     double[][] audio = null;
@@ -148,19 +150,57 @@ public final class CompareHits {
    * --truth: DrumMidi's MIDI against the drums actually played. Recall is what DrumMidi found of
    * each family, precision how many of its hits were played; the suggestions follow from them.
    */
-  static void runTruth(String playedPath, String drumsPath) throws Exception {
+  static void runTruth(String playedPath, String drumsPath, String songPath) throws Exception {
     double[][] played = midiHits(read(playedPath));
     byte[] drumsBytes = read(drumsPath);
     double[][] drums = midiHits(drumsBytes);
     java.util.LinkedHashMap<String, String> settings = drumMidiSettings(drumsBytes);
-    out("Played: " + name(playedPath) + "; DrumMidi's MIDI: " + name(drumsPath)
+    out("Played: " + name(playedPath) + "; DrumMidi's MIDI: " + name(drumsPath) + (songPath != null ? "; song: " + name(songPath) : "")
         + (settings.isEmpty() ? "" : " (DrumMidi settings: " + drumMidiArgsText(settings) + ")"));
     out("");
     Result r = compare("DrumMidi against the drums played", "Played", played, "DrumMidi", drums, false);
     out(text(r));
-    out(suggestionsText(truthSuggestions(r, settings)));
+    Result songVsPlayed = null;
+    if (songPath != null) {
+      songVsPlayed = compare("Song against the drums played", "Played", played, "Song", midiHits(read(songPath)), false);
+      out(text(songVsPlayed));
+    }
+    List<String> lines = truthSuggestions(r, settings);
+    if (songVsPlayed != null) {
+      // Before the "Next run:" line, which stays last.
+      int at = !lines.isEmpty() && lines.get(lines.size() - 1).startsWith("Next run:") ? lines.size() - 1 : lines.size();
+      lines.addAll(at, importSuggestions(r, songVsPlayed));
+    }
+    out(suggestionsText(lines));
     out(LEGEND);
-    finish("Succeeded: compared " + name(drumsPath) + " with the drums played");
+    finish("Succeeded: compared " + name(drumsPath) + (songPath != null ? " and " + name(songPath) : "") + " with the drums played");
+  }
+
+  /**
+   * The song against the drums played, beside DrumMidi's MIDI against them: hits DrumMidi found
+   * that the song does not keep were lost in Pulsekit's import (Merge hits, the patterns it made).
+   */
+  static List<String> importSuggestions(Result drums, Result song) {
+    List<String> out = new ArrayList<String>();
+    String[] names = {"kicks", "snares", "cymbal hits", "toms"};
+    StringBuilder lost = new StringBuilder();
+    StringBuilder kept = new StringBuilder();
+    for (int f = 0; f < 4; f++) {
+      Row d = row(drums, f);
+      Row s = row(song, f);
+      if (d == null || s == null || d.ref == 0) continue;
+      double dr = d.recall();
+      double sr = s.recall();
+      if (dr - sr > 0.1) lost.append(lost.length() > 0 ? ", " : "").append(String.format(Locale.ROOT, "%s %.0f%% (DrumMidi %.0f%%)", names[f], 100 * sr, 100 * dr));
+      if (s.test > 0 && s.precision() < d.precision() - 0.1) kept.append(kept.length() > 0 ? ", " : "").append(names[f]);
+    }
+    if (lost.length() > 0) {
+      out.add("Not DrumMidi: the song keeps fewer of the hits played than DrumMidi found: " + lost
+          + ". In Drum Midi Settings, lower \"Merge up to\" or turn off Merge hits, then import again.");
+    }
+    if (kept.length() > 0) out.add("The song adds " + kept + " that were not played (its patterns repeat bars that differ); DrumMidi's MIDI has fewer.");
+    if (lost.length() == 0 && kept.length() == 0) out.add("The song keeps what DrumMidi found: the import changed nothing that matters.");
+    return out;
   }
 
   /** Suggestions for DrumMidi's switches when the drums played are known. */

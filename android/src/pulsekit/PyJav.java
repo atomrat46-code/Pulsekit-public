@@ -1064,7 +1064,7 @@ final class PyJav {
             }
             if (t.stage == pulsekit.Midi2WavTest.COMPARE && "CompareHits.java".equals(program)) {
                 if (t.compareDone(log)) {
-                    this.pkAddLogLine("Test: CompareHits --truth: " + new java.io.File(t.drums).getName() + " against the drums played (" + new java.io.File(t.played).getName() + ")");
+                    this.pkAddLogLine("Test: CompareHits --truth: " + new java.io.File(t.drums).getName() + (t.song.length() > 0 ? " and the song" : "") + " against the drums played (" + new java.io.File(t.played).getName() + ")");
                     app.handler.post(() -> this.pkRunTestCompare(test.againstPlayedArgs()));
                 } else {
                     app.handler.post(() -> this.pkShowTestReport(test));

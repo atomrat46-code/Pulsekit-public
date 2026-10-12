@@ -9,8 +9,9 @@ import java.util.List;
  * Midi2Wav's test (--test): once Midi2Wav has made its WAV, PyJav runs DrumMidi_CRT on the WAV (its
  * drum hits become a MIDI, imported as a file set and a song, as Make drum MIDI does), then
  * CompareHits on the WAV, DrumMidi's MIDI and the song (the hits heard against the MIDI and the
- * song, with suggestions for DrumMidi's switches), and CompareHits once more on the MIDI Midi2Wav
- * played against DrumMidi's (what the transcription missed or added: the MIDI played is the truth).
+ * song, with suggestions for DrumMidi's switches), and CompareHits --truth on DrumMidi's MIDI and the
+ * song against the MIDI Midi2Wav played (the truth): what DrumMidi missed or added, and what the
+ * import then lost.
  * One test at a time; each step is a PyJav run, so its log shows as usual.
  */
 public final class Midi2WavTest {
@@ -111,6 +112,7 @@ public final class Midi2WavTest {
     List<String> out = new ArrayList<String>();
     out.add(this.played);
     out.add(this.drums);
+    if (this.song.length() > 0) out.add(this.song);
     out.add("--truth");
     return out;
   }
@@ -128,7 +130,8 @@ public final class Midi2WavTest {
 
   /** The second CompareHits run is over: the test is over. */
   public synchronized void againstPlayedDone(String log) {
-    this.report.append("== CompareHits --truth: DrumMidi's MIDI against the drums played (").append(new File(this.played).getName()).append(")\n").append(clean(log)).append('\n');
+    this.report.append("== CompareHits --truth: DrumMidi's MIDI").append(this.song.length() > 0 ? " and the song" : "").append(" against the drums played (")
+        .append(new File(this.played).getName()).append(")\n").append(clean(log)).append('\n');
     now = null;
   }
 

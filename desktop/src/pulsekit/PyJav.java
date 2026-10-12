@@ -689,7 +689,7 @@ final class PyJav {
             }
             if (t.stage == Midi2WavTest.COMPARE && "CompareHits.java".equals(name)) {
                 if (t.compareDone(log)) {
-                    this.testNote("Test: CompareHits --truth: " + new File(t.drums).getName() + " against the drums played (" + new File(t.played).getName() + ")");
+                    this.testNote("Test: CompareHits --truth: " + new File(t.drums).getName() + (t.song.length() > 0 ? " and the song" : "") + " against the drums played (" + new File(t.played).getName() + ")");
                     SwingUtilities.invokeLater(() -> this.runTestCompare(test.againstPlayedArgs()));
                 } else {
                     SwingUtilities.invokeLater(() -> this.showTestReport(test));
