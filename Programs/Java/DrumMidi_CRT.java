@@ -106,6 +106,8 @@ public class DrumMidi_CRT{
      */
     static final double KICK_SHARE = 0.15, KICK_SAME = 0.04, KICK_SHARE_SUB = 0.5;
     static final int KICK_SHARE_MIN = 8, KICK_SHARE_HITS = 64;
+    /** A tom's level under 70 Hz stays under TOM_LOW_END of its level at its pitch (0.09-0.45 seen). */
+    static final double TOM_LOW_END = 0.5;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
     static final double SHUFFLE_BEAT = 0.5;
     /**
@@ -482,7 +484,7 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag);
+        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare);
         pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
@@ -1327,7 +1329,7 @@ public class DrumMidi_CRT{
      * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
      * nearly as many floor toms). Not called where a bass line plays: its notes would be read instead.
      */
-    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag) {
+    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag, boolean[] snareAt, SnareBody loudSnare) {
         if (kickFrames.size() < 4) return;
         double[] p = new double[kickFrames.size()];
         for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
@@ -1357,11 +1359,20 @@ public class DrumMidi_CRT{
             // so does one at a pitch many of the song's kicks read.
             if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
             if (sharedPitch(p, p[i]) && lowEnd(mag, t, p[i], sr) >= KICK_SHARE_SUB) continue;
-            if (p.length >= RISE_KICKS && rise[i] >= TOM_RISE_PITCH * usualRise && rise[i] >= FLOOR_TOM_HZ && wiresLeft(noiseLevel, t) < TOM_WIRES) {
+            // Wires ringing at a kick are a snare struck with it; where no snare was found there and
+            // the low end is weak (TOM_LOW_END; a kick keeps it), the snare's wires buzz with a tom.
+            boolean wires = wiresLeft(noiseLevel, t) >= TOM_WIRES && (snareAt[t] || lowEnd(mag, t, p[i], sr) >= TOM_LOW_END);
+            // Ringing wires and the song's snare body at a kick: a snare struck with the kick that the
+            // snare search missed. The kick stays, and the snare is written too.
+            if (!wires && wiresLeft(noiseLevel, t) >= TOM_WIRES && loudSnare.ghost(mag, t)) {
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, 1.0));
+                continue;
+            }
+            if (p.length >= RISE_KICKS && rise[i] >= TOM_RISE_PITCH * usualRise && rise[i] >= FLOOR_TOM_HZ && !wires) {
                 floorTom(hits, t * (double) HOP / sr);
                 continue;
             }
-            if (p[i] < TOM_OVER_KICK * kickPitch || p[i] < FLOOR_TOM_HZ || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+            if (p[i] < TOM_OVER_KICK * kickPitch || p[i] < FLOOR_TOM_HZ || wires) continue;
             // The same pitch already sounded just before: a guitar's note held over the kick, not a tom's.
             // Then the pitch of what is new at the hit decides.
             if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
