@@ -84,7 +84,8 @@ public final class SplitWav {
     if (!folder.isDirectory()) throw new IllegalArgumentException("No such folder: " + dir);
     if (outdir != null) {
       File o = new File(outdir);
-      if (!o.isAbsolute()) o = new File(System.getProperty("user.dir", "."), outdir);
+      // In the app the run's work folder (pulsekit.work: Android keeps user.dir at "/", read-only).
+      if (!o.isAbsolute()) o = new File(workDir(), outdir);
       if (!o.isDirectory() && !o.mkdirs()) throw new IllegalArgumentException("Could not make the folder " + o.getPath());
       outDir = o;
     }
@@ -116,6 +117,12 @@ public final class SplitWav {
     String sum = ok + " of " + wavs.size() + " WAV files done" + (failed.isEmpty() ? "" : "; not done: " + String.join(", ", failed));
     System.out.println(ok > 0 ? "Succeeded: " + sum : "Failed: " + sum);
     return true;
+  }
+
+  /** Where a relative --outdir is: the app's work folder for the run (pulsekit.work), else user.dir. */
+  static String workDir() {
+    String w = System.getProperty("pulsekit.work");
+    return w != null && w.length() > 0 ? w : System.getProperty("user.dir", ".");
   }
 
   /** The folder's .wav files (its subfolders' too with --recursive), by name; outputs of an earlier run are left out. */
