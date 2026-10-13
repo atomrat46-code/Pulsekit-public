@@ -76,9 +76,10 @@ public class DrumMidi_CRT{
      */
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
-    static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3;
+    static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
+    static final int RISE_KICKS = 16;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
-    static final double SHUFFLE_BEAT = 0.6;
+    static final double SHUFFLE_BEAT = 0.5;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
@@ -1252,17 +1253,33 @@ public class DrumMidi_CRT{
             if (heldBefore(lowPitch, kickFrames.get(i).intValue(), p[i])) held++;
         }
         boolean heldSong = held >= 5 && held >= HELD_SONG * high;
+        // What is new at each kick: its pitch, and the song's usual one (the median).
+        double[] rise = new double[p.length];
+        for (int i = 0; i < p.length; i++) rise[i] = risePitch(mag, kickFrames.get(i).intValue(), sr);
+        double[] rs = rise.clone();
+        Arrays.sort(rs);
+        double usualRise = rs[rs.length / 2];
         for (int i = 0; i < p.length; i++) {
             int t = kickFrames.get(i).intValue();
+            // A tom whose body reads as low as the kick (some kits tune them so) rises well above the
+            // song's kicks in what is new at it (TOM_RISE_PITCH of their median; RISE_KICKS kicks at least).
+            if (p.length >= RISE_KICKS && rise[i] >= TOM_RISE_PITCH * usualRise && rise[i] >= FLOOR_TOM_HZ && wiresLeft(noiseLevel, t) < TOM_WIRES) {
+                floorTom(hits, t * (double) HOP / sr);
+                continue;
+            }
             if (p[i] < TOM_OVER_KICK * kickPitch || p[i] < FLOOR_TOM_HZ || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
             // The same pitch already sounded just before: a guitar's note held over the kick, not a tom's.
             // Then the pitch of what is new at the hit decides.
-            if ((heldSong || heldBefore(lowPitch, t, p[i])) && risePitch(mag, t, sr) < TOM_OVER_KICK * kickPitch) continue;
-            double time = t * (double) HOP / sr;
-            for (int h = 0; h < hits.size(); h++) {
-                Hit x = hits.get(h);
-                if (x.note == KICK_NOTE && x.time == time) hits.set(h, new Hit(time, FLOOR_TOM, x.strength));
-            }
+            if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
+            floorTom(hits, t * (double) HOP / sr);
+        }
+    }
+
+    /** The kick found at `time` becomes a floor tom. */
+    static void floorTom(List<Hit> hits, double time) {
+        for (int h = 0; h < hits.size(); h++) {
+            Hit x = hits.get(h);
+            if (x.note == KICK_NOTE && x.time == time) hits.set(h, new Hit(time, FLOOR_TOM, x.strength));
         }
     }
 
