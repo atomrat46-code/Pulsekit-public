@@ -257,6 +257,7 @@ final class PromptDb {
             if (c instanceof JButton && key.equals(((JButton) c).getClientProperty("video-key"))) {
                 JButton card = (JButton) c;
                 card.setIcon(icon);
+                lastSize = icon == null ? "" : MediaSize.aspect(icon.getIconWidth(), icon.getIconHeight());
                 card.setText(this.caption((PromptVault.StoredFile) card.getClientProperty("stored"), null));
             }
             if (c instanceof java.awt.Container) this.fillCards((java.awt.Container) c, key, icon);
@@ -397,8 +398,10 @@ final class PromptDb {
             card.setHorizontalTextPosition(SwingConstants.CENTER);
             card.setPreferredSize(new Dimension(CELL + 20, CELL + 60));
             byte[] bytes = vault == null ? null : vault.fileBytes(file.versionId, file.which);
+            lastSize = "";
             ImageIcon thumb = bytes == null ? null : thumb(name, bytes);
             if (thumb != null) card.setIcon(thumb);
+            card.putClientProperty("size", lastSize);
             // A video without a preview yet: its card is filled in when one is made (VLC).
             if (thumb == null && bytes != null && bytes.length > 0 && previewKind(name, bytes) == 3) {
                 card.putClientProperty("video-key", ThumbCache.key(bytes));
@@ -451,7 +454,9 @@ final class PromptDb {
 
     private String caption(PromptVault.StoredFile file, String mark) {
         String safe = (file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
-        String sub = (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
+        // A picture's resolution and aspect ratio ("1920×1080 · 16:9"), a video's aspect ratio (from its preview).
+        String dims = lastSize == null || lastSize.isEmpty() ? "" : lastSize + "<br>";
+        String sub = dims + (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + safe + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
@@ -462,18 +467,26 @@ final class PromptDb {
         return dot >= 0 ? name.substring(dot + 1).toUpperCase() : "FILE";
     }
 
-    /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. */
+    /** The size thumb() read last: "1920×1080 · 16:9" for a picture, "16:9" for a video's preview; "" when not known. */
+    static String lastSize = "";
+
+    /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. Its size: lastSize. */
     static ImageIcon thumb(String name, byte[] bytes) {
         if (bytes == null) return null;
         // A video shows the preview the browser made of its first frame (Make video previews), when there is one.
         if (previewKind(name, bytes) == 3) {
             byte[] made = ThumbCache.get(bytes);
-            return made == null ? null : thumb("preview.jpg", made);
+            ImageIcon icon = made == null ? null : thumb("preview.jpg", made);
+            String full = lastSize;
+            int dot = full.indexOf(" \u00b7 ");
+            lastSize = dot >= 0 ? full.substring(dot + 3) : "";
+            return icon;
         }
         if (!name.toLowerCase().matches(".+\\.(png|jpe?g|gif|bmp)")) return null;
         try {
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
             if (img == null) return null;
+            lastSize = MediaSize.label(img.getWidth(), img.getHeight());
             double s = Math.min(CELL / (double) img.getWidth(), CELL / (double) img.getHeight());
             int w = Math.max(1, (int) (img.getWidth() * s));
             int h = Math.max(1, (int) (img.getHeight() * s));
@@ -791,10 +804,37 @@ final class PromptDb {
             });
             menu.add(strip);
         }
+        if (file.name != null && file.name.toLowerCase().matches(".+\\.(png|jpe?g|webp|gif|bmp)")) {
+            // Upscale/Resize image: ImageUpscaler on PyJav with this picture as its input; Return comes back to Prompts.
+            JMenuItem upscale = new JMenuItem("Upscale/Resize image");
+            upscale.addActionListener(e -> this.upscale(file));
+            menu.add(upscale);
+        }
         menu.add(rename);
         menu.add(delete);
         this.lastFileMenu = menu;
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
+    }
+
+    /** Upscale/Resize image: the stored picture as a file in PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
+    void upscale(PromptVault.StoredFile file) {
+        try {
+            byte[] bytes = vault().fileBytes(file.versionId, file.which);
+            File dir = new File(dir(), "pyjav-in");
+            dir.mkdirs();
+            File in = new File(dir, PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+            Files.write(in.toPath(), bytes);
+            java.awt.Window open = javax.swing.SwingUtilities.getWindowAncestor(this.lastFileMenu == null ? null : this.lastFileMenu.getInvoker());
+            if (open instanceof JDialog) open.dispose();
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+            app.pyJav.setInputFile(in);
+            app.pyJav.setReturn("Return to Prompts", () -> app.showView("prompts"));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            app.setNow("ImageUpscaler: " + file.name);
+        } catch (Exception ex) {
+            app.setNow("Could not upscale " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+        }
     }
 
     /** The right-click menu shown last, for the tests. */

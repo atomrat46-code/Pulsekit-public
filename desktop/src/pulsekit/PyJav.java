@@ -1344,8 +1344,16 @@ final class PyJav {
     javax.swing.JComponent pyReturn;
 
     void setReturn(Runnable back) {
+        this.setReturn("Return to Media browser", back);
+    }
+
+    /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
+    void setReturn(String label, Runnable back) {
         this.returnTo = back;
-        if (this.pyReturn != null) this.pyReturn.setVisible(back != null);
+        if (this.pyReturn != null) {
+            this.pyReturn.setVisible(back != null);
+            if (label != null && this.pyReturn instanceof javax.swing.AbstractButton) ((javax.swing.AbstractButton) this.pyReturn).setText(label);
+        }
     }
 
     void doReturn() {

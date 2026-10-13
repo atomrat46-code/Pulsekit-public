@@ -500,8 +500,16 @@ final class PyJav {
     android.view.View pkReturnBtn;
 
     public void pkSetReturn(Runnable back) {
+        this.pkSetReturn("Return to Media browser", back);
+    }
+
+    /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
+    public void pkSetReturn(String label, Runnable back) {
         this.pkReturn = back;
-        if (this.pkReturnBtn != null) this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
+        if (this.pkReturnBtn != null) {
+            this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
+            if (label != null) this.pkReturnBtn.setText(label);
+        }
     }
 
     void pkDoReturn() {
