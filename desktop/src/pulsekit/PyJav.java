@@ -706,6 +706,23 @@ final class PyJav {
         }
     }
 
+    /** The first of the computer's usual VST3 and VST2 folders that exists (vst_render.py's plugin rows), else null. */
+    static File vstFolder() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String home = System.getProperty("user.home", "");
+        String[] dirs;
+        if (os.contains("win")) {
+            String pf = System.getenv("ProgramFiles") == null ? "C:\\Program Files" : System.getenv("ProgramFiles");
+            dirs = new String[] {pf + "\\Common Files\\VST3", pf + "\\Common Files\\VST2", pf + "\\VSTPlugins", pf + "\\Steinberg\\VSTPlugins"};
+        } else if (os.contains("mac")) {
+            dirs = new String[] {"/Library/Audio/Plug-Ins/VST3", "/Library/Audio/Plug-Ins/VST", home + "/Library/Audio/Plug-Ins/VST3"};
+        } else {
+            dirs = new String[] {home + "/.vst3", "/usr/lib/vst3", home + "/.vst", "/usr/lib/vst", "/usr/local/lib/vst3"};
+        }
+        for (String d : dirs) if (new File(d).isDirectory()) return new File(d);
+        return null;
+    }
+
     static void collectButtons(java.awt.Container c, List<JButton> out) {
         for (java.awt.Component k : c.getComponents()) {
             if (k instanceof JButton) out.add((JButton) k);
@@ -1478,10 +1495,20 @@ final class PyJav {
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 chosen.setName("params-chosen:" + p.token);
-                JButton pick = new JButton("any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
+                JButton pick = new JButton(p.plugin ? "Choose plugin" : "any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
+                // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
+                if (p.plugin) pick.addActionListener(e -> {
+                    File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : vstFolder();
+                    JFileChooser chooser = new JFileChooser(start);
+                    chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+                    chooser.setDialogTitle("VST plugin (.dll, .vst3)");
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    values[index] = chooser.getSelectedFile().getAbsolutePath();
+                    chosen.setText(chooser.getSelectedFile().getName());
+                });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
-                pick.addActionListener(e -> app.mediaBrowser.choose(f -> {
+                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> {
                     values[index] = f.getAbsolutePath();
                     chosen.setText(f.getName());
                 }, () -> {
