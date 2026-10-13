@@ -84,8 +84,9 @@ public class DrumMidi_CRT{
      * the song's loud snares' (ghosts 0.97-1.16, toms on sampled kits 0.59-0.89) and its spectrum
      * there matches theirs (GHOST_LIKE; toms 0.75-0.91). Only where GHOST_SNARES loud snares make the
      * song's snare (an 8-bar fill has a few, and a drum machine's toms are tuned to its snare).
+     * Hydrogen's GMRockKit toms match its snare (0.91-0.96), but that kit is not what songs use.
      */
-    static final double GHOST_PITCH_LO = 0.95, GHOST_PITCH_HI = 1.25, GHOST_LIKE = 0.95;
+    static final double GHOST_PITCH_LO = 0.95, GHOST_PITCH_HI = 1.25, GHOST_LIKE = 0.9;
     static final int GHOST_SNARES = 16;
     static final double GHOST_DELTA = 0.5;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
