@@ -24,11 +24,14 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--log [logfile]]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--log [logfile]]
  *
  * --log writes the input and output names, the settings and the hits found to a text file
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
  * event ("pulsekit-drummidi; ..."), so CompareHits can suggest changes to them.
+ *
+ * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
+ * then leaves them out of its comparison too.
  *
  * --sens sets kick and snare, and every other part that is not given its own value.
  * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
@@ -309,7 +312,7 @@ public class DrumMidi_CRT{
         args = rest.toArray(new String[0]);
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--log <logfile>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--log <logfile>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -322,6 +325,8 @@ public class DrumMidi_CRT{
         boolean hpss = true;
         // Kick, snare and toms only: hats, rides and crashes can be played in later on the pads.
         boolean cymbals = true;
+        // No toms: they are still told apart from kicks and snares, but not written.
+        boolean writeToms = true;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -333,6 +338,7 @@ public class DrumMidi_CRT{
             else if ("--quantize".equals(opt)) quant = Integer.parseInt(args[++i]);
             else if ("--no-hpss".equals(opt)) hpss = false;
             else if ("--no-cymbals".equals(opt)) cymbals = false;
+            else if ("--no-toms".equals(opt)) writeToms = false;
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -344,7 +350,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals"));
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms"));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -659,7 +665,7 @@ public class DrumMidi_CRT{
                 + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
                 + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
                 + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
-                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + "; tempo=" + num(bpm);
+                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + "; tempo=" + num(bpm);
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
@@ -672,6 +678,7 @@ public class DrumMidi_CRT{
                 tick = Math.max(0, Math.round(phaseTick + steps * gridTicks));
             }
             if (!seen.add(h.note + ":" + tick)) continue;
+            if (!writeToms && (h.note == FLOOR_TOM || h.note == MID_TOM || h.note == RACK_TOM)) continue;
             int vel = (int) Math.max(40, Math.min(127, 45 + 55 * h.strength));
             int hold = h.note == CRASH_NOTE ? 180 : (h.note == OPEN_HAT || h.note == RIDE_NOTE ? 120 : 24);
             events.add(new MidiEv(tick, shortMsg(0x90, h.note, vel)));
@@ -693,7 +700,7 @@ public class DrumMidi_CRT{
             return;
         }
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
-                written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors));
+                written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (writeToms ? "" : " (--no-toms: toms not written)"));
         note("MIDI Extracted to: " + written.getAbsolutePath());
         finish("Succeeded: " + written.getName());
     }

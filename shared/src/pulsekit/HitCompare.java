@@ -434,6 +434,19 @@ public final class HitCompare {
     return out;
   }
 
+  /** DrumMidi made the MIDI with --no-toms: its toms are left out of the comparison on both sides. */
+  public static boolean noToms(java.util.Map<String, String> settings) {
+    return settings != null && "off".equals(settings.get("toms"));
+  }
+
+  /** The hits without the toms (the Toms row is then left out), when `skip`. */
+  public static double[][] withoutToms(double[][] h, boolean skip) {
+    if (!skip || h == null || h.length <= TOM) return h;
+    double[][] out = h.clone();
+    out[TOM] = new double[0];
+    return out;
+  }
+
   /** "--sens 0.4 --hat 0.4 ..." as DrumMidi was run, or "its defaults". */
   public static String drumMidiArgsText(java.util.Map<String, String> settings) {
     String args = settings.get("args");
@@ -659,8 +672,10 @@ public final class HitCompare {
       if (settings.get("input") != null) sb.append(" (made from ").append(settings.get("input")).append(')');
       sb.append('\n');
     }
-    double[][] m = midiHits(midi);
-    double[][] s = song == null ? null : songHits(song.parts);
+    boolean noToms = noToms(settings);
+    if (noToms) sb.append("Toms left out (DrumMidi made the MIDI with --no-toms)\n");
+    double[][] m = withoutToms(midiHits(midi), noToms);
+    double[][] s = song == null ? null : withoutToms(songHits(song.parts), noToms);
     Result vsWav = null;
     Result songVsMidi = null;
     if (wav != null) {
@@ -692,8 +707,10 @@ public final class HitCompare {
   /** The page's report: song against MIDI, then MIDI and song against the WAV when there is one. */
   public static String report(byte[] midi, Engine.ImportedSong song, AudioIo.Pcm wav) {
     StringBuilder sb = new StringBuilder();
-    double[][] m = midiHits(midi);
-    double[][] s = song == null ? null : songHits(song.parts);
+    boolean noToms = noToms(drumMidiSettings(midi));
+    if (noToms) sb.append("Toms left out (DrumMidi made the MIDI with --no-toms)\n\n");
+    double[][] m = withoutToms(midiHits(midi), noToms);
+    double[][] s = song == null ? null : withoutToms(songHits(song.parts), noToms);
     Result songVsMidi = s == null ? null : compare("", "MIDI", m, "Song", s, false);
     Result vsWav = null;
     if (songVsMidi != null) sb.append(text(songVsMidi)).append('\n');

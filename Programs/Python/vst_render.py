@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -26,7 +26,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state
   --test          then runs DrumMidi_CRT on each WAV and compares its hits with the MIDI played, per
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
-                  and Java (--java).
+                  and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
   --scan          lists the plugins in the usual VST folders, then stops.
 
 The plugins' own delay (lookahead, oversampling) is taken off the start, so the hits land where
@@ -173,6 +173,7 @@ FAMILIES = (("Kick", (35, 36)), ("Snare", (37, 38, 39, 40)), ("Hats", (42, 44, 4
             ("Ride", (51, 53, 59)), ("Crash", (49, 52, 55, 57)), ("Toms", (41, 43, 45, 47, 48, 50)),
             ("Cymbals", (42, 44, 46, 49, 51, 52, 53, 55, 57, 59)))
 TOLERANCE = 0.03
+TOMS = (41, 43, 45, 47, 48, 50)
 
 
 def matched(truth, found, shift):
@@ -214,13 +215,13 @@ def score_line(rows):
     return "  ".join(parts)
 
 
-def drum_midi(java, jar, wav, mid):
-    """DrumMidi_CRT on the WAV; returns its notes, or an error text."""
+def drum_midi(java, jar, wav, mid, extra=()):
+    """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text."""
     import subprocess
     try:
         # DrumMidi_CRT writes into its working folder: run it in the WAV's.
         where = os.path.dirname(os.path.abspath(mid))
-        r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(wav), os.path.basename(mid)],
+        r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(wav), os.path.basename(mid)] + list(extra),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
     except Exception as e:
         return "DrumMidi_CRT did not run (%s)" % e
@@ -432,7 +433,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -545,13 +546,18 @@ def main(argv):
         total = {}
         for m, o in batch_done:
             dm = os.path.splitext(o)[0] + "-dm.mid"
-            found = drum_midi(opts["--java"], opts["--drummidi"], o, dm)
+            no_toms = "--no-toms" in switches
+            found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, ["--no-toms"] if no_toms else [])
             name = os.path.basename(o)
             if isinstance(found, str):
                 report.append("%s: %s" % (name, found))
                 continue
             length, played = midi_notes(m)
+            if no_toms:
+                played = [(t, n) for t, n in played if n not in TOMS]
             rows, shift = score(played, found, length + 0.05)
+            if no_toms:
+                rows = [r for r in rows if r[0] != "Toms"]
             for fam, t, f, ok in rows:
                 v = total.setdefault(fam, [0, 0, 0])
                 v[0] += t
