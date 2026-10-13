@@ -3,7 +3,7 @@
  * longer than two parts (--split_time) or larger than two (--split_lenght), into as many parts as
  * needed, each the given length or size (the last one what is left).
  *
- *   java SplitWav <input.wav> [--output_file1 <part1.wav>] [--output_file2 <part2.wav>] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N]
+ *   java SplitWav <input.wav> [--output_file1 <part1.wav>] [--output_file2 <part2.wav>] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N] [--dir FOLDER] [--recursive] [--outdir FOLDER]
  *
  * --output_file1  The first part, 00:00 up to the split. Default: <input>_split1.wav next to the input.
  * --output_file2  The second part, the split to the end (or to the next split). Default: <input>_split2.wav.
@@ -17,6 +17,10 @@
  *                 are found from the audio, or the tempo comes from --bpm. With --split_lenght the
  *                 split moves back to a bar line, so the first part stays within the size.
  * --bpm N         The tempo for --trim, instead of finding it.
+ * --dir FOLDER    Every WAV in the folder, each split as above (its parts named after it); the
+ *                 parts of an earlier run (_split1.wav...) are left out. --output_file1/2 are not used.
+ * --recursive     With --dir: its subfolders' WAVs too.
+ * --outdir FOLDER With --dir: the parts go there (made when missing), not beside each WAV.
  *
  * The parts are copied sample for sample, without fades, so put back together they are the
  * original. Works with 8, 16, 24 and 32-bit PCM and 32-bit float WAV, mono or stereo. Plain
@@ -45,10 +49,92 @@ public final class SplitWav {
 
   static void usage() {
     System.out.println("Usage: java SplitWav <input.wav> [--output_file1 <part1.wav>] [--output_file2 <part2.wav>] "
-        + "[--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N]");
+        + "[--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N] [--dir FOLDER] [--recursive] [--outdir FOLDER]");
   }
 
+  static final java.util.Set<String> OUTPUT_SWITCHES = new java.util.HashSet<String>(java.util.Arrays.asList("--output_file1", "--output_file2"));
+  static final java.util.Set<String> TAKES_VALUE = new java.util.HashSet<String>(java.util.Arrays.asList("--split_time", "--split_lenght", "--split_length", "--bpm"));
+
   static void run(String[] args) throws Exception {
+    if (!batch(args)) runOne(args);
+  }
+
+  /** --dir: the folder's WAV files, each processed as one input; --outdir: where the outputs go (default: beside each). */
+  static File outDir;
+
+  /** The arguments without the folder's switches, as given for one file. */
+  static boolean batch(String[] args) throws Exception {
+    String dir = null, outdir = null;
+    boolean recursive = false;
+    List<String> rest = new ArrayList<String>();
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i] == null ? "" : args[i].trim();
+      if ("--dir".equals(a)) dir = value(args, ++i, a);
+      else if ("--outdir".equals(a)) outdir = value(args, ++i, a);
+      else if ("--recursive".equals(a)) recursive = true;
+      else if (OUTPUT_SWITCHES.contains(a)) i++;
+      else if (a.startsWith("--")) {
+        rest.add(a);
+        if (TAKES_VALUE.contains(a) && i + 1 < args.length) rest.add(args[++i]);
+      }
+      // Positional files are left out: each WAV of the folder is the input.
+    }
+    if (dir == null) return false;
+    File folder = new File(dir);
+    if (!folder.isDirectory()) throw new IllegalArgumentException("No such folder: " + dir);
+    if (outdir != null) {
+      File o = new File(outdir);
+      if (!o.isAbsolute()) o = new File(System.getProperty("user.dir", "."), outdir);
+      if (!o.isDirectory() && !o.mkdirs()) throw new IllegalArgumentException("Could not make the folder " + o.getPath());
+      outDir = o;
+    }
+    List<File> wavs = new ArrayList<File>();
+    collect(folder, recursive, wavs);
+    if (wavs.isEmpty()) {
+      System.out.println("Failed: no WAV files in " + folder.getName() + (recursive ? " or its subfolders" : ""));
+      return true;
+    }
+    System.out.println("SplitWav: " + wavs.size() + " WAV file" + (wavs.size() == 1 ? "" : "s") + " in " + folder.getName() + (outDir != null ? ", to " + outDir.getPath() : ""));
+    int ok = 0;
+    List<String> failed = new ArrayList<String>();
+    for (File f : wavs) {
+      System.out.println("");
+      System.out.println("== " + f.getName());
+      List<String> one = new ArrayList<String>();
+      one.add(f.getPath());
+      one.addAll(rest);
+      try {
+        if (runOne(one.toArray(new String[0]))) ok++;
+        else failed.add(f.getName());
+      } catch (Throwable ex) {
+        String m = ex.getMessage();
+        System.out.println("Failed: " + f.getName() + ": " + (m == null || m.length() == 0 ? ex.toString() : m));
+        failed.add(f.getName());
+      }
+    }
+    System.out.println("");
+    String sum = ok + " of " + wavs.size() + " WAV files done" + (failed.isEmpty() ? "" : "; not done: " + String.join(", ", failed));
+    System.out.println(ok > 0 ? "Succeeded: " + sum : "Failed: " + sum);
+    return true;
+  }
+
+  /** The folder's .wav files (its subfolders' too with --recursive), by name; outputs of an earlier run are left out. */
+  static void collect(File folder, boolean recursive, List<File> out) {
+    File[] kids = folder.listFiles();
+    if (kids == null) return;
+    java.util.Arrays.sort(kids);
+    for (File k : kids) {
+      String low = k.getName().toLowerCase(Locale.ROOT);
+      if (k.isDirectory()) {
+        if (recursive && !k.getName().startsWith(".")) collect(k, true, out);
+      } else if ((low.endsWith(".wav") || low.endsWith(".wave")) && !low.matches("(?s).*_split\\d+(_\\d+)?\\.wave?") && !low.startsWith(".")) {
+        out.add(k);
+      }
+    }
+  }
+
+  /** One WAV; true when it was written. */
+  static boolean runOne(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
     String out1 = null;
     String out2 = null;
@@ -71,12 +157,12 @@ public final class SplitWav {
     if (files.isEmpty()) {
       usage();
       System.out.println("Failed: need an input WAV");
-      return;
+      return false;
     }
     if (splitTime < 0 && splitMb < 0) {
       usage();
       System.out.println("Failed: give --split_time or --split_lenght");
-      return;
+      return false;
     }
     File in = new File(files.get(0));
     if (!in.isFile()) throw new IllegalArgumentException("No such file: " + in.getName());
@@ -159,13 +245,14 @@ public final class SplitWav {
       a = b;
     }
     System.out.println("Succeeded: " + made);
+    return true;
   }
 
   static File named(File in, String suffix) {
     String name = in.getName();
     int dot = name.lastIndexOf('.');
     String stem = dot > 0 ? name.substring(0, dot) : name;
-    return new File(in.getAbsoluteFile().getParentFile(), stem + suffix);
+    return new File(outDir != null ? outDir : in.getAbsoluteFile().getParentFile(), stem + suffix);
   }
 
   static String value(String[] args, int i, String opt) {

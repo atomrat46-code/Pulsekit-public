@@ -4087,6 +4087,42 @@ public final class DesktopBehavior {
    * --workflow, the Running line, File > Downloads (Mark as ready, times), SogniMusic's test without
    * drums, one reference file row for one file, favourite categories, Hydrogen export, sizes.
    */
+  /** SplitWav and CutWav with --dir: every WAV of a folder at once (no input file), parts to --outdir. */
+  void s94_wav_folder() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File folder = new File(home, "takes");
+    new File(folder, "sub").mkdirs();
+    short[] pcm = new short[22050 * 3];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 22050));
+    byte[] wav = AudioIo.encodeWav(pcm, 22050);
+    Files.write(new File(folder, "one.wav").toPath(), wav);
+    Files.write(new File(folder, "two.wav").toPath(), wav);
+    Files.write(new File(folder, "sub/three.wav").toPath(), wav);
+    Files.write(new File(folder, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    File parts = new File(home, "parts");
+    for (String[] run : new String[][] {{"SplitWav.java", "--dir \"" + folder.getPath() + "\" --split_time 0:01"},
+        {"CutWav.java", "--dir \"" + folder.getPath() + "\" --recursive --outdir \"" + parts.getPath() + "\" --split_time 0:02"}}) {
+      call("showView", "py");
+      call("selectListedProgram", "Java", run[0]);
+      idle();
+      edt(() -> ((JTextField) get("pyExtra")).setText(run[1]));
+      edt(() -> call("runPython"));
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      for (int i = 0; i < 400 && !(log.getText().contains(" WAV files done") || log.getText().startsWith("Failed")); i++) Thread.sleep(50);
+      for (String line : log.getText().split("\n")) {
+        if (line.startsWith("SplitWav:") || line.startsWith("CutWav:") || line.startsWith("Succeeded: ") && line.contains("WAV files") || line.startsWith("Failed")) {
+          out.append(run[0]).append(": ").append(line.replace(home.getPath(), "~")).append('\n');
+        }
+      }
+    }
+    String[] made = folder.list();
+    java.util.Arrays.sort(made);
+    out.append("folder: ").append(String.join(" ", made)).append('\n');
+    String[] cut = parts.isDirectory() ? parts.list() : new String[0];
+    java.util.Arrays.sort(cut);
+    out.append("outdir: ").append(String.join(" ", cut)).append('\n');
+  }
+
   void s93_runs_and_exports() throws Exception {
     java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "a walk", "/tmp/a.png"));
     String timedOut = "Uploaded a.png\nWorkflow: wf_42\nStatus: processing\nTimed out (4500s).";

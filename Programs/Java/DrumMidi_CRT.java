@@ -75,9 +75,12 @@ public class DrumMidi_CRT{
      * song's kick pitch (and at least FLOOR_TOM_HZ), where no bass line plays, is a floor tom.
      */
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
+    /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
+    static final double PITCH_HELD = 0.04, HELD_SONG = 0.5;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
+    static final double OPEN_TOP = 0.3, OPEN_MID = 0.2, OPEN_SWELL = 1.0, OPEN_BAND = 0.3;
     /** At a kick or snare, a hat raises the hat band's level by HAT_OVER_DRUM (0.13 and more); the drum's own leak raises it about 0.06. */
     static final double HAT_OVER_DRUM = 0.1;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
@@ -85,6 +88,9 @@ public class DrumMidi_CRT{
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
     static final double SAME_CYMBAL = 0.035;
     static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.6;
+    static final double RIDE_STABLE_RINGING = 0.84, RIDE_RING = 0.45, RIDE_TOP_RING = 0.3;
+    static final int RIDE_ALONE = 2;
+    static final double RIDE_NEAR = 1.0;
     static final int RIDE_SEEN = 3;
     static final double PEDAL_BODY = 0.2, LOUD_BODY = 0.4, PEDAL_ALONE = 1.0, PEDAL_RUN = 0.7;
     /**
@@ -409,7 +415,7 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr);
+        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag);
         pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
@@ -511,6 +517,8 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
         }
         rideOrHats(hits, shape, fps, bass);
+        if (!bass) lonelyRides(hits);
+        if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
@@ -983,6 +991,62 @@ public class DrumMidi_CRT{
     }
 
     /**
+     * An open hat openHat misses: a short open hat (Pulsekit's, gone by 150 ms) or one under a
+     * kick, a snare or guitars. 8 frames (~90 ms) after its peak the 7-14 kHz band (before HPSS)
+     * keeps OPEN_TOP of its rise and the 3-7 kHz band OPEN_MID, and the hat band OPEN_BAND at
+     * frames 8-10; a closed hat has died by then. The hat band must not swell on after the peak
+     * (OPEN_SWELL at frame 4): a room or reverb rising after a closed hat does.
+     */
+    /**
+     * The closed hats left after the ride and hat passages are sorted (openRing): open where they
+     * ring, but not among rides (two within RIDE_NEAR seconds: a ride rings like an open hat), nor
+     * in the second after a crash (its wash rings on over the hats). Not where a bass line plays.
+     */
+    static void openRings(List<Hit> hits, CymbalShape sh, double[] energy, List<Integer> peaks, double sr) {
+        List<Double> rides = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == RIDE_NOTE) rides.add(Double.valueOf(h.time));
+        List<Double> crashes = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == CRASH_NOTE) crashes.add(Double.valueOf(h.time));
+        for (int i = 0; i < peaks.size(); i++) {
+            double time = peaks.get(i).intValue() * (double) HOP / sr;
+            int at = -1;
+            for (int h = 0; h < hits.size(); h++) if (hits.get(h).note == CLOSED_HAT && hits.get(h).time == time) at = h;
+            if (at < 0) continue;
+            int near = 0;
+            for (Double r : rides) if (Math.abs(r.doubleValue() - time) <= RIDE_NEAR) near++;
+            boolean washed = false;
+            for (Double c : crashes) if (time - c.doubleValue() >= -0.02 && time - c.doubleValue() <= RIDE_NEAR) washed = true;
+            if (near >= 2 || washed || !openRing(sh, energy, peaks, i)) continue;
+            Hit x = hits.get(at);
+            hits.set(at, new Hit(x.time, OPEN_HAT, x.strength));
+        }
+    }
+
+    static boolean openRing(CymbalShape sh, double[] energy, List<Integer> peaks, int index) {
+        int t = peaks.get(index).intValue(), n = energy.length;
+        int next = index + 1 < peaks.size() ? peaks.get(index + 1).intValue() : n;
+        if (next - t < 10 || t + 10 >= n) return false;
+        int b = t;
+        for (int k = t; k <= Math.min(sh.hi.length - 1, t + 2); k++) if (sh.hi[k] > sh.hi[b]) b = k;
+        int q = b + 8, pr = Math.max(0, t - 3);
+        if (q >= sh.hi.length) return false;
+        double hiRise = sh.hi[b] - sh.hi[pr], midRise = sh.ride[b] - sh.ride[pr];
+        if (hiRise < 1e-9 || midRise < 1e-9) return false;
+        if (sh.hi[q] - sh.hi[pr] < OPEN_TOP * hiRise || sh.ride[q] - sh.ride[pr] < OPEN_MID * midRise) return false;
+        double pre = Math.min(energy[Math.max(0, t - 3)], energy[Math.max(0, t - 2)]);
+        double peak = Math.max(energy[t], energy[Math.min(n - 1, t + 1)]) - pre;
+        if (peak < 1e-6) return false;
+        if (energy[t + 4] - pre > OPEN_SWELL * peak) return false;
+        double band = 0;
+        int c = 0;
+        for (int k = t + 8; k <= Math.min(next - 2, t + 10); k += 2) {
+            band += energy[k] - pre;
+            c++;
+        }
+        return c > 0 && band / c >= OPEN_BAND * peak;
+    }
+
+    /**
      * Open hats ring in the top band. A hat that is hit again within ~90 ms is closed,
      * because an open hat is left to sound. The ring is measured in the raw band level
      * (HPSS removes it) above the level just before the hit, so cymbal wash does not count.
@@ -1168,16 +1232,28 @@ public class DrumMidi_CRT{
      * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
      * nearly as many floor toms). Not called where a bass line plays: its notes would be read instead.
      */
-    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr) {
+    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag) {
         if (kickFrames.size() < 4) return;
         double[] p = new double[kickFrames.size()];
         for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
         double[] sorted = p.clone();
         Arrays.sort(sorted);
         double kickPitch = sorted[sorted.length / 4];
+        // A song where most kicks read high carry a note held from before (guitars over the drums,
+        // HELD_SONG of them, at least 5): there every kick's tom pitch is checked on what is new at it.
+        int high = 0, held = 0;
+        for (int i = 0; i < p.length; i++) {
+            if (p[i] < TOM_OVER_KICK * kickPitch) continue;
+            high++;
+            if (heldBefore(lowPitch, kickFrames.get(i).intValue(), p[i])) held++;
+        }
+        boolean heldSong = held >= 5 && held >= HELD_SONG * high;
         for (int i = 0; i < p.length; i++) {
             int t = kickFrames.get(i).intValue();
             if (p[i] < TOM_OVER_KICK * kickPitch || p[i] < FLOOR_TOM_HZ || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+            // The same pitch already sounded just before: a guitar's note held over the kick, not a tom's.
+            // Then the pitch of what is new at the hit decides.
+            if ((heldSong || heldBefore(lowPitch, t, p[i])) && risePitch(mag, t, sr) < TOM_OVER_KICK * kickPitch) continue;
             double time = t * (double) HOP / sr;
             for (int h = 0; h < hits.size(); h++) {
                 Hit x = hits.get(h);
@@ -1282,7 +1358,14 @@ public class DrumMidi_CRT{
                 break;
             }
             // Over a band, a guitar or keys hold the ride band's spectrum steady between hits too.
-            boolean stable = !bass && (next - h.time) * fps > 8 && b + 4 < sh.stab.length && sh.stab[b + 4] >= RIDE_STABLE;
+            // A little less steady counts too when the ride band still rings 6 frames on (RIDE_RING of the
+            // hit): a ride played on and on over guitars (no bass) keeps its wash; a closed hat has died.
+            boolean rings = b + 6 < sh.ride.length && sh.ride[b + 6] >= RIDE_RING * sh.ride[b];
+            // A guitar holds the band steady under closed hats too; their 7-14 kHz has died 6 frames on
+            // (a ride's still rings, RIDE_TOP_RING of the hit).
+            boolean topRings = b + 6 < sh.hi.length && sh.hi[b + 6] >= RIDE_TOP_RING * sh.hi[b];
+            boolean stable = !bass && topRings && (next - h.time) * fps > 8 && b + 4 < sh.stab.length
+                && (sh.stab[b + 4] >= RIDE_STABLE || rings && sh.stab[b + 4] >= RIDE_STABLE_RINGING);
             // Rises at the hit: what already sounds (a band, a ride's own wash) does not count.
             int pre = Math.max(0, t - 3);
             double dl = Math.max(0, sh.lo[b] - sh.lo[pre]), dr = Math.max(1e-9, sh.ride[b] - sh.ride[pre]), dh = Math.max(0, sh.hi[b] - sh.hi[pre]);
@@ -1302,6 +1385,31 @@ public class DrumMidi_CRT{
             // Over a band, guitar chords struck with the hats look low too: hats are not made rides.
             if (bass && note == RIDE_NOTE) continue;
             if (note != h.note) hits.set(hits.indexOf(h), new Hit(h.time, note, h.strength));
+        }
+    }
+
+    /**
+     * A ride found on a kick or a snare (within 60 ms) with fewer than RIDE_ALONE rides off the kicks
+     * and snares within RIDE_WINDOW seconds is the kick's click or the snare's rattle in the ride
+     * band (over guitars more so), not a ride: a ride played keeps on between the kicks and snares.
+     * Not where a bass line plays: there a ride is often heard only on the beat.
+     */
+    static void lonelyRides(List<Hit> hits) {
+        List<Double> beat = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == KICK_NOTE || h.note == SNARE_NOTE) beat.add(Double.valueOf(h.time));
+        List<Double> clean = new ArrayList<Double>();
+        List<Hit> onBeat = new ArrayList<Hit>();
+        for (Hit h : hits) {
+            if (h.note != RIDE_NOTE) continue;
+            boolean on = false;
+            for (Double b : beat) if (Math.abs(b.doubleValue() - h.time) < 0.06) on = true;
+            if (on) onBeat.add(h);
+            else clean.add(Double.valueOf(h.time));
+        }
+        for (Hit h : onBeat) {
+            int near = 0;
+            for (Double c : clean) if (Math.abs(c.doubleValue() - h.time) <= RIDE_WINDOW) near++;
+            if (near < RIDE_ALONE) hits.remove(h);
         }
     }
 
@@ -1369,6 +1477,33 @@ public class DrumMidi_CRT{
             out[t] = (best + off) * sr / FFT_SIZE;
         }
         return out;
+    }
+
+    /** Whether pitch `p` already sounded 3 and 2 frames before frame t (within PITCH_HELD). */
+    static boolean heldBefore(double[] lowPitch, int t, double p) {
+        if (t < 3) return false;
+        return Math.abs(lowPitch[t - 3] - p) <= PITCH_HELD * p && Math.abs(lowPitch[t - 2] - p) <= PITCH_HELD * p;
+    }
+
+    /**
+     * The loudest frequency (40-400 Hz) of what is new at frame t: the spectrum over it and the next
+     * three frames above the spectrum 3 frames before. A note held from before cancels out.
+     */
+    static double risePitch(float[][] mag, int t, double sr) {
+        int maxBin = mag[0].length - 1;
+        int lo = Math.max(1, bin(40, sr, maxBin)), hi = Math.min(maxBin - 1, bin(400, sr, maxBin));
+        float[] pre = mag[Math.max(0, t - 3)];
+        double[] r = new double[hi + 2];
+        for (int k = lo - 1; k <= hi + 1; k++) {
+            double v = 0;
+            for (int f = t; f <= Math.min(mag.length - 1, t + 3); f++) v += Math.max(0, mag[f][k] - pre[k]);
+            r[k] = v;
+        }
+        int best = lo;
+        for (int k = lo; k <= hi; k++) if (r[k] > r[best]) best = k;
+        double den = r[best - 1] - 2 * r[best] + r[best + 1];
+        double off = Math.abs(den) < 1e-12 ? 0 : Math.max(-0.5, Math.min(0.5, 0.5 * (r[best - 1] - r[best + 1]) / den));
+        return (best + off) * sr / FFT_SIZE;
     }
 
     /** How much of the onset's rise a band keeps 5-8 frames (60-90 ms) on. */

@@ -13,9 +13,9 @@ import java.util.Locale;
 
 /**
  * A folder picked with the system's picker (a content:// tree) given to a program that reads a
- * folder of MIDI files (Midi2HydroPattern's --dir): its .mid and .midi files, and its subfolders'
- * with --recursive, are copied into PyJav's work folder first, as the program cannot read the
- * picker's folder itself. The program's output goes to the work folder, which PyJav saves to
+ * folder (--dir): Midi2HydroPattern's MIDI files, SplitWav's and CutWav's WAV files. Its files of
+ * that kind, and its subfolders' with --recursive, are copied into PyJav's work folder first, as
+ * the program cannot read the picker's folder itself. The program's output goes to the work folder, which PyJav saves to
  * Download.
  */
 final class MidiFolder {
@@ -23,11 +23,19 @@ final class MidiFolder {
 
     /** Copies of the folder's MIDI files under dest (subfolders kept); how many. */
     static int copy(Context ctx, Uri tree, File dest, boolean recursive) {
-        String doc = DocumentsContract.getTreeDocumentId(tree);
-        return copy(ctx, tree, doc, dest, recursive, 0);
+        return copy(ctx, tree, dest, recursive, MIDI);
     }
 
-    private static int copy(Context ctx, Uri tree, String doc, File dest, boolean recursive, int depth) {
+    static final String[] MIDI = {".mid", ".midi"};
+    static final String[] WAV = {".wav", ".wave"};
+
+    /** Copies of the folder's files ending in one of `ends` under dest (subfolders kept); how many. */
+    static int copy(Context ctx, Uri tree, File dest, boolean recursive, String[] ends) {
+        String doc = DocumentsContract.getTreeDocumentId(tree);
+        return copy(ctx, tree, doc, dest, recursive, 0, ends);
+    }
+
+    private static int copy(Context ctx, Uri tree, String doc, File dest, boolean recursive, int depth, String[] ends) {
         int n = 0;
         List<String[]> kids = new ArrayList<String[]>();
         Cursor c = null;
@@ -44,11 +52,13 @@ final class MidiFolder {
         for (String[] k : kids) {
             String name = k[1] == null ? "" : k[1];
             if (DocumentsContract.Document.MIME_TYPE_DIR.equals(k[2])) {
-                if (recursive && depth < 8 && !name.startsWith(".")) n += copy(ctx, tree, k[0], new File(dest, safe(name)), true, depth + 1);
+                if (recursive && depth < 8 && !name.startsWith(".")) n += copy(ctx, tree, k[0], new File(dest, safe(name)), true, depth + 1, ends);
                 continue;
             }
             String low = name.toLowerCase(Locale.ROOT);
-            if (!low.endsWith(".mid") && !low.endsWith(".midi")) continue;
+            boolean wanted = false;
+            for (String e : ends) if (low.endsWith(e)) wanted = true;
+            if (!wanted) continue;
             try {
                 dest.mkdirs();
                 InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, k[0]));
@@ -80,7 +90,8 @@ final class MidiFolder {
      * cannot be written by the program).
      */
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
-        if (!"Midi2HydroPattern.java".equals(program) || argv == null) return argv;
+        boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program);
+        if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);
         boolean recursive = out.contains("--recursive");
         boolean staged = false;
@@ -88,10 +99,10 @@ final class MidiFolder {
             String a = out.get(i), v = out.get(i + 1);
             if (a.equals("--dir") && v.startsWith("content://")) {
                 Uri tree = Uri.parse(v);
-                File dest = new File(work, "midi-folder");
+                File dest = new File(work, wav ? "wav-folder" : "midi-folder");
                 deleteAll(dest);
-                int n = copy(ctx, tree, dest, recursive);
-                note.append(n).append(" MIDI file").append(n == 1 ? "" : "s").append(" from ").append(MediaDir.label(v));
+                int n = copy(ctx, tree, dest, recursive, wav ? WAV : MIDI);
+                note.append(n).append(wav ? " WAV file" : " MIDI file").append(n == 1 ? "" : "s").append(" from ").append(MediaDir.label(v));
                 out.set(i + 1, dest.getAbsolutePath());
                 staged = true;
             }
