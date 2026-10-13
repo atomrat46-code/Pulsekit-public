@@ -403,9 +403,16 @@ final class PyJav {
         slot = slot + 1;
         app.pyPane.addView(app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app)), slot);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Params", FG, BG, pulsekit.PyJavUi.params(app)), slot);
+        // Params and Run apart, and in different colours: a tap meant for Params no longer starts a run.
+        android.widget.TextView paramsBtn = app.action("Params", ELEV, FG, pulsekit.PyJavUi.params(app));
+        paramsBtn.setTag("pyjav-params");
+        app.pyPane.addView(paramsBtn, slot);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Run", FG, BG, pulsekit.PyJavUi.click(app)), slot);
+        android.widget.TextView runBtn = app.action("Run", FG, BG, pulsekit.PyJavUi.click(app));
+        runBtn.setTag("pyjav-run");
+        android.widget.LinearLayout.LayoutParams runAt = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        runAt.topMargin = app.dp(28);
+        app.pyPane.addView(runBtn, slot, runAt);
         slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());

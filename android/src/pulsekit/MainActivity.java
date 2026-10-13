@@ -806,6 +806,12 @@ public class MainActivity extends UiKit {
                 byArray = Engine.encodeKitJar(Engine.encodeMidi(this.cells, this.bpm(), this.steps, this.tsNum, this.tsDen), this.cells, this.bpm(), this.style);
             } else if (n == 17) {
                 byArray = Engine.encodeSongMidi(this.songEditor.songPartsForExport());
+            } else if (n == 22) {
+                String title = DbImport.displayName(this, uri).replaceAll("(?i)\\.h2pattern$", "");
+                byArray = HydrogenWrite.pattern(Engine.encodeMidi(this.cells, this.lens, this.bpm(), this.steps, this.tsNum, this.tsDen), title, "Pulsekit");
+            } else if (n == 23) {
+                String title = DbImport.displayName(this, uri).replaceAll("(?i)\\.h2song$", "");
+                byArray = HydrogenWrite.song(Engine.encodeSongMidi(this.songEditor.songPartsForExport()), title);
             } else if (n == 20) {
                 byArray = AudioIo.encodeWav(this.playback.songPcm(), 22050);
             } else if (n == 21) {

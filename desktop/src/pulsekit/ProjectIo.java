@@ -177,6 +177,11 @@ final class ProjectIo {
             app.action("Song WAV", ELEV, FG, () -> this.saveSongAudio("wav")),
             app.action("Song MP3", ELEV, FG, () -> this.saveSongAudio("mp3"))
         }));
+        // Hydrogen imports patterns, not MIDI: the beat as a pattern, the song as a song (GMRockKit).
+        jPanel2.add(this.exportSection("Hydrogen", new JComponent[] {
+            app.action("H2pattern", ELEV, FG, () -> this.saveHydrogen(false)),
+            app.action("H2song", ELEV, FG, () -> this.saveHydrogen(true))
+        }));
         jPanel2.add(this.exportSection("PyJav", new JComponent[] {
             app.action("Save", ELEV, FG, () -> this.savePy())
         }));
@@ -987,6 +992,25 @@ final class ProjectIo {
             ? Collections.singletonList(Engine.groove(this.exportName("mid").replace(".mid", ""), app.bpm(), app.cells, 1))
             : app.songEditor.activeSong();
         this.saveBytes(Engine.songFilename(parts, app.songEditor.songFileSet(parts)).replace(".sng", ".mid"), "Song MIDI", "mid", Engine.encodeSongMidi(parts));
+    }
+
+    /** Export > Hydrogen: the beat as an .h2pattern, or the song (the beat when there is none) as an .h2song. */
+    void saveHydrogen(boolean song) {
+        try {
+            if (song) {
+                List<Engine.Part> parts = app.songEditor.activeSong().isEmpty()
+                    ? Collections.singletonList(Engine.groove(this.exportName("mid").replace(".mid", ""), app.bpm(), app.cells, 1))
+                    : app.songEditor.activeSong();
+                String name = Engine.songFilename(parts, app.songEditor.songFileSet(parts)).replace(".sng", ".h2song");
+                this.saveBytes(name, "Hydrogen song", "h2song", HydrogenWrite.song(Engine.encodeSongMidi(parts), name.replace(".h2song", "")));
+            } else {
+                String name = this.exportName("h2pattern");
+                byte[] midi = Engine.encodeMidi(app.cells, app.lens, app.bpm(), app.steps, app.tsNum, app.tsDen);
+                this.saveBytes(name, "Hydrogen pattern", "h2pattern", HydrogenWrite.pattern(midi, name.replace(".h2pattern", ""), "Pulsekit"));
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(app, "Could not save the Hydrogen " + (song ? "song" : "pattern") + ": " + ex.getMessage());
+        }
     }
 
     void saveJar() {

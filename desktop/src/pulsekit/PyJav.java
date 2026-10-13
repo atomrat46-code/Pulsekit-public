@@ -133,6 +133,8 @@ final class PyJav {
         this.pyInputBtn.setVisible(false);
         controls.add(this.pyInputBtn);
         controls.add(app.action("Params", ELEV, FG, () -> this.openParams()));
+        // Params and Run apart: a click meant for Params no longer starts a run.
+        controls.add(javax.swing.Box.createHorizontalStrut(28));
         this.pyRun = app.action("Run", HIT, BG, () -> this.runPython());
         controls.add(this.pyRun);
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
