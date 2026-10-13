@@ -621,6 +621,31 @@ public final class JavaRun {
     }
   }
 
+  /**
+   * vst_render.py --test: DrumMidi_CRT.jar (written to `jar`) and this Java for it, unless the
+   * arguments give their own. Returns the arguments to run with.
+   */
+  public static List<String> withDrumMidi(String program, List<String> argv, File jar, byte[] jarBytes) {
+    if (!"vst_render.py".equals(program) || argv == null || !argv.contains("--test") || argv.contains("--drummidi") || jarBytes == null) return argv;
+    List<String> out = new ArrayList<String>(argv);
+    try {
+      jar.getParentFile().mkdirs();
+      writeFile(jar, jarBytes);
+    } catch (Exception ex) {
+      return argv;
+    }
+    out.add("--drummidi");
+    out.add(jar.getAbsolutePath());
+    if (!out.contains("--java")) {
+      File java = new File(new File(System.getProperty("java.home", ""), "bin"), File.separatorChar == '\\' ? "java.exe" : "java");
+      if (java.isFile()) {
+        out.add("--java");
+        out.add(java.getAbsolutePath());
+      }
+    }
+    return out;
+  }
+
   private static Result runPython(String name, String source, List<String> argv) {
     if (androidVm()) {
       try {

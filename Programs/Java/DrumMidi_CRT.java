@@ -83,6 +83,21 @@ public class DrumMidi_CRT{
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
     static final int RISE_KICKS = 16;
+    /**
+     * A kick whose third partial rings louder than its fundamental reads OVERTONE_LO-OVERTONE_HI times
+     * the song's kick pitch (3.06-3.18 seen) and keeps its low end (under 70 Hz, OVERTONE_SUB of the
+     * level at its pitch or more: 0.77-1.22); toms there read 1.3-2.2 times, or 3.39 with 0.32-0.55.
+     */
+    static final double OVERTONE_LO = 2.8, OVERTONE_HI = 3.2, OVERTONE_SUB = 0.6;
+    /**
+     * A kick sound repeats: a pitch read by KICK_SHARE of the song's kicks (KICK_SHARE_MIN at least),
+     * within KICK_SAME of each other, with its low end there (KICK_SHARE_SUB), is the kick's own (a kit
+     * heard through room mics reads 2.28 times its lower kicks). Toms in a song's fills share one pitch
+     * by 7 at most. Only over a song's worth of kicks and toms (KICK_SHARE_HITS): an 8-bar tom fill
+     * has more toms than kicks, at one pitch.
+     */
+    static final double KICK_SHARE = 0.15, KICK_SAME = 0.04, KICK_SHARE_SUB = 0.5;
+    static final int KICK_SHARE_MIN = 8, KICK_SHARE_HITS = 64;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
     static final double SHUFFLE_BEAT = 0.5;
     /**
@@ -123,6 +138,13 @@ public class DrumMidi_CRT{
      */
     static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
     static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.08, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    /**
+     * Wires ringing less than WIRES_BAND: a snare's body still rises WEAK_WIRES_OVER_KICK times the kick
+     * band's rise or more (95% of them 4.1 and more); a tom's low end raises the kick band too (84% under 3).
+     * Not where the hat band jumps BRIGHT_SNARE (a bright snare's noise, or a hat with it: 0.64-1.33;
+     * toms mostly up to 0.34).
+     */
+    static final double WEAK_WIRES_OVER_KICK = 3.0, BRIGHT_SNARE = 0.6;
     /** A ghost note whose wires ring on (WIRES_BAND) needs its body to rise only GHOST_JUMP (0.071-0.079 seen). */
     static final double GHOST_JUMP = 0.065;
     /**
@@ -1220,8 +1242,9 @@ public class DrumMidi_CRT{
     /** The body shows: it jumps, more than with a kick, as a tone, and the wires ring (or a hat hides them). */
     static boolean bodySnare(Levels lv, int t, double sens) {
         double jb = jump(lv.body, t);
-        return (jb >= SNARE_JUMP / sens || jb >= GHOST_JUMP / sens && wiresLeft(lv.noise, t) >= WIRES_BAND) && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
-                && (wiresLeft(lv.noise, t) >= WIRES_BAND || (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t))
+        double wires = wiresLeft(lv.noise, t), jk = jump(lv.kick, t);
+        return (jb >= SNARE_JUMP / sens || jb >= GHOST_JUMP / sens && wires >= WIRES_BAND) && jb >= SNARE_OVER_KICK * jk
+                && (wires >= WIRES_BAND || (wires >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t) && (jb >= WEAK_WIRES_OVER_KICK * jk || jump(lv.hat, t) >= BRIGHT_SNARE))
                 && jump(lv.bodyRaw, t) >= (lv.bass ? BODY_TONE_BAND : BODY_TONE) * jump(lv.gapRaw, t);
     }
 
@@ -1304,6 +1327,10 @@ public class DrumMidi_CRT{
             int t = kickFrames.get(i).intValue();
             // A tom whose body reads as low as the kick (some kits tune them so) rises well above the
             // song's kicks in what is new at it (TOM_RISE_PITCH of their median; RISE_KICKS kicks at least).
+            // A kick read at its third partial, in its pitch or in what is new at it, stays a kick;
+            // so does one at a pitch many of the song's kicks read.
+            if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
+            if (sharedPitch(p, p[i]) && lowEnd(mag, t, p[i], sr) >= KICK_SHARE_SUB) continue;
             if (p.length >= RISE_KICKS && rise[i] >= TOM_RISE_PITCH * usualRise && rise[i] >= FLOOR_TOM_HZ && wiresLeft(noiseLevel, t) < TOM_WIRES) {
                 floorTom(hits, t * (double) HOP / sr);
                 continue;
@@ -1314,6 +1341,30 @@ public class DrumMidi_CRT{
             if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
             floorTom(hits, t * (double) HOP / sr);
         }
+    }
+
+    /** Whether KICK_SHARE of the pitches (KICK_SHARE_MIN at least) are within KICK_SAME of `pitch`. */
+    static boolean sharedPitch(double[] pitches, double pitch) {
+        int near = 0;
+        for (double q : pitches) if (Math.abs(q - pitch) <= KICK_SAME * pitch) near++;
+        return pitches.length >= KICK_SHARE_HITS && near >= Math.max(KICK_SHARE_MIN, KICK_SHARE * pitches.length);
+    }
+
+    /** The level under 70 Hz at a hit, in units of the level at its pitch (a kick keeps it, a tom has little). */
+    static double lowEnd(float[][] mag, int t, double pitch, double sr) {
+        double sub = 0, at = 0;
+        for (int k = t; k <= Math.min(mag.length - 1, t + 3); k++) {
+            int maxBin = mag[k].length - 1;
+            for (int b = bin(30, sr, maxBin); b <= bin(70, sr, maxBin); b++) sub = Math.max(sub, mag[k][b]);
+            for (int b = bin(pitch * 0.85, sr, maxBin); b <= bin(pitch * 1.15, sr, maxBin); b++) at = Math.max(at, mag[k][b]);
+        }
+        return at > 1e-9 ? sub / at : 0;
+    }
+
+    /** A kick read at its third partial (OVERTONE_LO-OVERTONE_HI of the kick pitch) whose low end is still there. */
+    static boolean overtoneKick(float[][] mag, int t, double pitch, double kickPitch, double sr) {
+        if (pitch < OVERTONE_LO * kickPitch || pitch > OVERTONE_HI * kickPitch) return false;
+        return lowEnd(mag, t, pitch, sr) >= OVERTONE_SUB;
     }
 
     /** The kick found at `time` becomes a floor tom. */
