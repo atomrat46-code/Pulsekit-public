@@ -63,7 +63,8 @@ final class PromptKeep {
                 boolean file = a.indexOf('/') >= 0 && f.isFile();
                 String shown = file ? f.getName() : a;
                 args.append(' ').append(shown.indexOf(' ') >= 0 ? "\"" + shown + "\"" : shown);
-                if (file && inputs.size() < 2 && (made == null || !f.getName().equals(made.name)) && !a.contains("key")) inputs.add(f);
+                // A VST plugin (vst_render.py) is a program, not a reference file: kept by name only.
+                if (file && inputs.size() < 2 && (made == null || !f.getName().equals(made.name)) && !a.contains("key") && !a.toLowerCase().matches(".*\\.(dll|so|vst3|vst|component)$")) inputs.add(f);
             }
         }
         StringBuilder said = new StringBuilder();

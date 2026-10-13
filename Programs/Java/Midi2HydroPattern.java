@@ -111,7 +111,10 @@ public class Midi2HydroPattern {
         Kit k = Kit.of(kit);
         File out = outdir == null || outdir.length() == 0 ? null : new File(outdir);
         // A relative folder is under the working folder (in Pulsekit on the phone, the run's own).
-        if (out != null && !out.isAbsolute() && System.getProperty("user.dir") != null) out = new File(System.getProperty("user.dir"), outdir);
+        // In the app the run's work folder (pulsekit.work: Android keeps user.dir at "/", read-only).
+        String work = System.getProperty("pulsekit.work");
+        if (work == null || work.length() == 0) work = System.getProperty("user.dir");
+        if (out != null && !out.isAbsolute() && work != null) out = new File(work, outdir);
         if (out != null && !out.isDirectory() && !out.mkdirs()) throw new IOException("Cannot make the folder " + outdir);
 
         if (dir != null && dir.length() > 0) {

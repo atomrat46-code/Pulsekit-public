@@ -143,6 +143,17 @@ public final class PyJavParams {
           if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
         });
         row.addView(browse);
+        if (p.flag) {
+          // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.
+          android.widget.Button clear = new android.widget.Button(activity);
+          clear.setText("Clear");
+          clear.setTag("params-clear:" + p.token);
+          clear.setOnClickListener(v -> {
+            values[index] = "";
+            chosen.setText(MediaDir.label(values[index]));
+          });
+          row.addView(clear);
+        }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         box.addView(row);
         continue;

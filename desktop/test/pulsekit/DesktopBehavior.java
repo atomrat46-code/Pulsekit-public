@@ -4088,6 +4088,39 @@ public final class DesktopBehavior {
    * drums, one reference file row for one file, favourite categories, Hydrogen export, sizes.
    */
   /** SplitWav and CutWav with --dir: every WAV of a folder at once (no input file), parts to --outdir. */
+  /**
+   * vst_render.py (Python menu): Params name the MIDI, the plugin and effect (Choose plugin, the
+   * system's chooser in the VST folders), their settings files, the rate and bits to pick from, Edit
+   * and Scan. Without a plugin the run stops with a Failed line before DawDreamer is needed.
+   */
+  void s95_vst_render() throws Exception {
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    idle();
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.read("Python", "vst_render.py") == null ? "" : new String(ProgramFiles.read("Python", "vst_render.py"), StandardCharsets.UTF_8))) {
+      out.append(p.token).append(": ").append(p.label).append(p.plugin ? " [plugin]" : "").append(p.isFile() ? " [file " + p.ext + "]" : "")
+          .append(p.choices != null ? " " + String.join(" | ", p.choices) : "").append('\n');
+    }
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton plugin = (javax.swing.JButton) component(d, "params-file:--plugin");
+      javax.swing.JButton effect = (javax.swing.JButton) component(d, "params-file:--effect");
+      seen.append("plugin button: ").append(plugin == null ? "none" : plugin.getText()).append(", effect button: ").append(effect == null ? "none" : effect.getText()).append('\n');
+      seen.append("edit switch: ").append(component(d, "params-check:--edit") != null).append('\n');
+    };
+    answers.add("Cancel");
+    call("openParams");
+    out.append(seen);
+    File midi = new File(System.getProperty("user.home"), "song.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 110));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + midi.getPath() + "\""));
+    edt(() -> call("runPython"));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    for (int i = 0; i < 400 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
+  }
+
   void s94_wav_folder() throws Exception {
     File home = new File(System.getProperty("user.home"));
     File folder = new File(home, "takes");
@@ -4121,6 +4154,18 @@ public final class DesktopBehavior {
     String[] cut = parts.isDirectory() ? parts.list() : new String[0];
     java.util.Arrays.sort(cut);
     out.append("outdir: ").append(String.join(" ", cut)).append('\n');
+    // Params: Clear by the folder rows unsets them (one file is processed again).
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + folder.getPath() + "\" --outdir \"" + parts.getPath() + "\" song.wav"));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton clear = (javax.swing.JButton) component(d, "params-clear:--dir");
+      seen.append("clear button: ").append(clear == null ? "none" : clear.getText()).append('\n');
+      clear.doClick();
+      seen.append("--dir row: ").append(((javax.swing.JLabel) component(d, "params-chosen:--dir")).getText()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    out.append(seen).append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getPath(), "~")).append('\n');
   }
 
   void s93_runs_and_exports() throws Exception {

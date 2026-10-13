@@ -65,6 +65,11 @@ public final class ProgramParams {
      * the Media browser on it. On the phone the value is the folder's content:// address.
      */
     public boolean dir;
+    /**
+     * A VST2 or VST3 plugin (vst_render.py's --plugin and --effect): on the desktop the row's chooser
+     * starts in the computer's VST folders and also takes a .vst3 bundle folder.
+     */
+    public boolean plugin;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -104,6 +109,8 @@ public final class ProgramParams {
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
     boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
+    // vst_render.py: a MIDI (or WAV) played through a VST instrument (and an effect), as a WAV.
+    boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -117,6 +124,7 @@ public final class ProgramParams {
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
       if (midi2hydro) knownMidi2Hydro(p);
+      if (vstRender) knownVstRender(p);
       if (splitWav || cutWav) knownWavFolder(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
@@ -450,6 +458,56 @@ public final class ProgramParams {
       p.label = "Add the MIDI, the SoundFont and the WAV to DB";
     } else if (p.token.equals("--test")) {
       p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions)";
+    }
+  }
+
+  /** vst_render.py's labels: the MIDI, the plugins and their settings files, the render's format. */
+  private static void knownVstRender(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output WAV name";
+      p.hint = "optional; <song>-<plugin>.wav";
+    } else if (!p.flag && p.isFile()) {
+      p.label = "MIDI file";
+      p.hint = "a .mid; every channel is played";
+      p.refs = true;
+    } else if (p.token.equals("--plugin")) {
+      p.label = "Plugin (VST2 .dll / VST3 .vst3)";
+      p.ext = "any";
+      p.plugin = true;
+    } else if (p.token.equals("--state")) {
+      p.label = "Plugin settings (from Edit, .fxp, .vstpreset)";
+      p.hint = "empty: the settings last saved with Edit";
+      p.ext = "any";
+    } else if (p.token.equals("--wav")) {
+      p.label = "WAV to play through the plugin (an effect) instead of MIDI";
+    } else if (p.token.equals("--effect")) {
+      p.label = "Effect after the plugin (amp, reverb)";
+      p.ext = "any";
+      p.plugin = true;
+    } else if (p.token.equals("--effect_state")) {
+      p.label = "Effect settings";
+      p.hint = "empty: the settings last saved with Edit";
+      p.ext = "any";
+    } else if (p.token.equals("--rate")) {
+      p.label = "Sample rate";
+      p.hint = "44100";
+      p.choices = new String[] {"44100 Hz (default)", "48000 Hz"};
+      p.choiceValues = new String[] {"44100", "48000"};
+    } else if (p.token.equals("--tail")) {
+      p.label = "Tail (seconds after the last note)";
+      p.hint = "2";
+    } else if (p.token.equals("--volume")) {
+      p.label = "Volume (percent)";
+      p.hint = "100; a mix that would clip is turned down to fit";
+    } else if (p.token.equals("--bits")) {
+      p.label = "Bits";
+      p.hint = "16";
+      p.choices = new String[] {"16-bit (default)", "24-bit"};
+      p.choiceValues = new String[] {"16", "24"};
+    } else if (p.token.equals("--edit")) {
+      p.label = "Edit: open the plugin's window first (load a kit, close it: the settings are saved)";
+    } else if (p.token.equals("--scan")) {
+      p.label = "List the installed plugins (then stop)";
     }
   }
 
