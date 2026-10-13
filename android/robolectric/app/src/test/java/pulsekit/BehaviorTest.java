@@ -48,6 +48,8 @@ public class BehaviorTest {
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
     MidiImportSettings.reset();
+    // The Prompts page's full size preview is static too: each scenario starts on the page itself.
+    PromptSheet.closePreview();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();

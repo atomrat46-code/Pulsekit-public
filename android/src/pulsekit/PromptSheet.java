@@ -2258,6 +2258,15 @@ public final class PromptSheet {
   }
 
   private static Bitmap previewBitmap(byte[] bytes) {
+    try {
+      return decodePreview(bytes);
+    } catch (RuntimeException ex) {
+      // a damaged picture: "This image can't be previewed."
+      return null;
+    }
+  }
+
+  private static Bitmap decodePreview(byte[] bytes) {
     BitmapFactory.Options bounds = new BitmapFactory.Options();
     bounds.inJustDecodeBounds = true;
     BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
@@ -2299,6 +2308,14 @@ public final class PromptSheet {
       out.close();
     }
     return file;
+  }
+
+  /** The full size preview closed (as Back does), without showing the page again; for the tests' start. */
+  static void closePreview() {
+    releasePreview();
+    previewBack = 0;
+    previewBytes = new byte[0];
+    focusId = 0;
   }
 
   private static void releasePreview() {
