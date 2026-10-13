@@ -7,6 +7,8 @@ The same comparison as Pulsekit's File > Compare Hits page and Programs/Java/Com
   python compare_hits.py <drums.mid> <song.mid> [--log <logfile>]
     The song (Export > Song MIDI) against the source MIDI: what Pulsekit's import changed.
 
+  --no-toms  leaves toms out on both sides (no Toms row). A MIDI DrumMidi_CRT made with --no-toms
+             says so in its settings, and its toms are left out without the switch.
   --log <logfile>  also writes the results to this text file. --log alone writes
                    CompareHits_test_results.txt.
 
@@ -425,11 +427,23 @@ def finish(last):
     print(last)
 
 
+def without_toms(h):
+    """The hits with the toms taken out (--no-toms)."""
+    h = list(h)
+    h[TOM] = np.array([])
+    return h
+
+
 def main(args):
     files = []
+    no_toms = False
     i = 0
     while i < len(args):
         a = args[i].strip()
+        if a == "--no-toms":
+            no_toms = True
+            i += 1
+            continue
         if a == "--log":
             # --log alone writes CompareHits_test_results.txt.
             nxt = args[i + 1].strip() if i + 1 < len(args) else ""
@@ -441,7 +455,7 @@ def main(args):
             files.append(a)
         i += 1
     if len(files) < 2:
-        out("Usage: python compare_hits.py <input.wav> <drums.mid> [song.mid] [--log <logfile>]")
+        out("Usage: python compare_hits.py <input.wav> <drums.mid> [song.mid] [--no-toms] [--log <logfile>]")
         finish("Failed: need a WAV and a MIDI file, or two MIDI files")
         return
     is_wav = files[0].lower().endswith((".wav", ".wave"))
@@ -459,6 +473,11 @@ def main(args):
         out("DrumMidi settings: %s%s" % (settings.get("args") or "its defaults",
                                           " (made from %s)" % settings["input"] if settings.get("input") else ""))
     song = midi_hits(files[at + 1]) if len(files) > at + 1 else None
+    if no_toms or settings.get("toms") == "off":
+        # Toms left out on both sides: the Toms row goes.
+        out("Toms left out (--no-toms)")
+        midi = without_toms(midi)
+        song = without_toms(song) if song is not None else None
     out()
     vs_wav = song_vs_midi = None
     if audio is not None:

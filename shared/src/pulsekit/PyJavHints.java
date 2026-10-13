@@ -117,7 +117,8 @@ public final class PyJavHints {
         if (start < 0) start = i;
       } else if (start >= 0) {
         int len = i - start;
-        if (len >= 4 && len <= 180) {
+        // Long enough for a program's whole Usage line (DrumMidi_CRT's runs past 180 characters).
+        if (len >= 4 && len <= 600) {
           out.append(new String(data, start, len, StandardCharsets.US_ASCII)).append('\n');
         }
         start = -1;

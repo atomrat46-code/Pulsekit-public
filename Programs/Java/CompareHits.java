@@ -13,6 +13,9 @@
  *     With song.mid (the song Pulsekit made from DrumMidi's MIDI) the song is checked against the
  *     drums played too, and hits DrumMidi found but the song lost are put down to the import.
  *
+ *   --no-toms  leaves toms out on both sides (no Toms row). A MIDI DrumMidi_CRT made with --no-toms
+ *              says so in its settings, and its toms are left out without the switch.
+ *
  *   --log <logfile>  also writes the results to this text file. --log alone writes
  *                    CompareHits_test_results.txt. In PyJav on Android, a plain file name is saved
  *                    with the program's other output.
@@ -34,6 +37,8 @@ public final class CompareHits {
   /** Everything printed, for --log. */
   static final StringBuilder report = new StringBuilder();
   static String logPath;
+  /** --no-toms, or DrumMidi's MIDI made with it: toms are left out on both sides. */
+  static boolean noToms;
   static final String DEFAULT_LOG = "CompareHits_test_results.txt";
 
   /** The word after --log is its file name unless it is one of the WAV or MIDI inputs. */
@@ -88,6 +93,10 @@ public final class CompareHits {
         truth = true;
         continue;
       }
+      if ("--no-toms".equals(a)) {
+        noToms = true;
+        continue;
+      }
       if ("--log".equals(a)) {
         // --log alone writes CompareHits_test_results.txt.
         boolean named = i + 1 < args.length && args[i + 1] != null && args[i + 1].trim().length() > 0
@@ -98,7 +107,7 @@ public final class CompareHits {
       files.add(a);
     }
     if (files.size() < 2) {
-      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--log <logfile>] | <played.mid> <drums.mid> [song.mid] --truth");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--no-toms] [--log <logfile>] | <played.mid> <drums.mid> [song.mid] --truth");
       finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
@@ -122,13 +131,15 @@ public final class CompareHits {
     }
     int at = wav ? 1 : 0;
     byte[] midiBytes = read(files.get(at));
-    double[][] midi = midiHits(midiBytes);
     java.util.LinkedHashMap<String, String> settings = drumMidiSettings(midiBytes);
     if (!settings.isEmpty()) {
       out("DrumMidi settings: " + drumMidiArgsText(settings)
           + (settings.get("input") != null ? " (made from " + settings.get("input") + ")" : ""));
     }
-    double[][] song = files.size() > at + 1 ? midiHits(read(files.get(at + 1))) : null;
+    if ("off".equals(settings.get("toms"))) noToms = true;
+    if (noToms) out("Toms left out (--no-toms)");
+    double[][] midi = withoutToms(midiHits(midiBytes));
+    double[][] song = files.size() > at + 1 ? withoutToms(midiHits(read(files.get(at + 1)))) : null;
     out("");
     Result vsWav = null;
     Result songVsMidi = null;
@@ -151,18 +162,20 @@ public final class CompareHits {
    * each family, precision how many of its hits were played; the suggestions follow from them.
    */
   static void runTruth(String playedPath, String drumsPath, String songPath) throws Exception {
-    double[][] played = midiHits(read(playedPath));
     byte[] drumsBytes = read(drumsPath);
-    double[][] drums = midiHits(drumsBytes);
     java.util.LinkedHashMap<String, String> settings = drumMidiSettings(drumsBytes);
+    if ("off".equals(settings.get("toms"))) noToms = true;
+    double[][] played = withoutToms(midiHits(read(playedPath)));
+    double[][] drums = withoutToms(midiHits(drumsBytes));
     out("Played: " + name(playedPath) + "; DrumMidi's MIDI: " + name(drumsPath) + (songPath != null ? "; song: " + name(songPath) : "")
         + (settings.isEmpty() ? "" : " (DrumMidi settings: " + drumMidiArgsText(settings) + ")"));
+    if (noToms) out("Toms left out (--no-toms)");
     out("");
     Result r = compare("DrumMidi against the drums played", "Played", played, "DrumMidi", drums, false);
     out(text(r));
     Result songVsPlayed = null;
     if (songPath != null) {
-      songVsPlayed = compare("Song against the drums played", "Played", played, "Song", midiHits(read(songPath)), false);
+      songVsPlayed = compare("Song against the drums played", "Played", played, "Song", withoutToms(midiHits(read(songPath))), false);
       out(text(songVsPlayed));
     }
     List<String> lines = truthSuggestions(r, settings);
@@ -342,6 +355,14 @@ public final class CompareHits {
   /** Hit times in seconds, sorted, one array per family. */
   public static double[][] midiHits(byte[] midi) {
     return midiHits(midi, null);
+  }
+
+  /** The hits with the toms taken out when --no-toms is on (the Toms row is then left out). */
+  static double[][] withoutToms(double[][] h) {
+    if (!noToms || h == null || h.length <= TOM) return h;
+    double[][] out = h.clone();
+    out[TOM] = new double[0];
+    return out;
   }
 
   /** As above, also counting hat, ride and crash notes into `kinds` when it is given. */

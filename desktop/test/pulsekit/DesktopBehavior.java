@@ -4124,6 +4124,15 @@ public final class DesktopBehavior {
     java.util.List<String> args = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid", "--test"), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
     out.append("test args: ").append(String.join(" ", args).replace(System.getProperty("user.home"), "~").replace(System.getProperty("java.home"), "<java.home>")).append(", jar ").append(jar.length() > 10000).append('\n');
     out.append("without --test: ").append(JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid"), jar, new byte[1])).append('\n');
+    // --no-toms: DrumMidi's Params row, and a MIDI stamped toms=off leaves toms out of CompareHits.
+    for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Java", "DrumMidi_CRT.java"), StandardCharsets.UTF_8))) {
+      if (p.token.equals("--no-toms")) out.append("DrumMidi --no-toms: ").append(p.label).append(p.takesValue ? " (takes a value)" : " (switch)").append('\n');
+    }
+    java.util.Map<String, String> stamp = new java.util.HashMap<String, String>();
+    stamp.put("toms", "off");
+    double[][] hits = {{1.0}, {2.0}, {3.0}, {4.0}};
+    out.append("toms=off: ").append(HitCompare.noToms(stamp)).append(", toms left ").append(HitCompare.withoutToms(hits, HitCompare.noToms(stamp))[HitCompare.TOM].length)
+        .append(", kicks left ").append(HitCompare.withoutToms(hits, true)[HitCompare.KICK].length).append('\n');
   }
 
   void s94_wav_folder() throws Exception {
