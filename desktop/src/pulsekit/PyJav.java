@@ -133,6 +133,8 @@ final class PyJav {
         this.pyInputBtn.setVisible(false);
         controls.add(this.pyInputBtn);
         controls.add(app.action("Params", ELEV, FG, () -> this.openParams()));
+        // Params and Run apart: a click meant for Params no longer starts a run.
+        controls.add(javax.swing.Box.createHorizontalStrut(28));
         this.pyRun = app.action("Run", HIT, BG, () -> this.runPython());
         controls.add(this.pyRun);
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
@@ -403,16 +405,63 @@ final class PyJav {
         boolean saving = false;
         while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
         this.saveRun = saving;
+        final boolean savingRun = saving;
         final java.util.List<String> argv = runArgs;
-        if (app.pyLog != null) app.pyLog.setText("Running…");
+        // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
+        String drums = Midi2WavTest.drumsWarning(name, argv);
+        if (drums != null) {
+            Object[] options = {"Run anyway", "Cancel"};
+            int ans = JOptionPane.showOptionDialog(app, drums, "SogniMusic test", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+            if (ans != 0) {
+                app.setNow("Not run: SogniMusic's test needs drums");
+                return;
+            }
+        }
+        // A reconnect (the run timed out with its workflow still going on Sogni) carries on this run.
+        final boolean reconnect = this.reconnectDownload != 0 || this.reconnectNote != null;
+        if (!reconnect) this.reconnects = 0;
+        final String note = this.reconnectNote;
+        this.reconnectNote = null;
+        if (app.pyLog != null) app.pyLog.setText(note == null ? "Running…" : note + "\nRunning…");
         if (this.pyRun != null) this.pyRun.setEnabled(false);
         // The run is pending (PendingOps) until what it stores in the prompt library is stored.
         PromptDb.dir();
-        final String pending = PendingOps.guarded(name, false) ? PendingOps.add(name, PendingOps.files(argv)) : null;
+        final String pending = PendingOps.guarded(name, false) ? PendingOps.add(name, PendingOps.files(argv), saving || PendingOps.storesInDb(argv)) : null;
         // File > Downloads: the Sogni run is in progress until its result is in.
         SogniDownloads.init(PromptDb.dir());
-        final long download = pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
+        final long download = this.reconnectDownload != 0 ? this.reconnectDownload
+            : pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
+        this.reconnectDownload = 0;
+        // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
+        final JavaRun.Live live = new JavaRun.Live();
+        if (note != null) live.add(note + "\n");
+        final String head = note == null ? "" : note + "\n";
+        final javax.swing.Timer tick = new javax.swing.Timer(1000, null);
+        final String[] lastLine = new String[] {app.pyLog == null ? null : app.pyLog.getText()};
+        tick.addActionListener(ev -> {
+            // DrumMidi without a hit for a while: asked whether to abort.
+            String noHits = JavaRun.noHitsQuestion(name, live, System.currentTimeMillis());
+            if (noHits != null) {
+                live.askedAt = System.currentTimeMillis();
+                tick.stop();
+                Object[] options = {"Abort", "Keep waiting"};
+                int ans = JOptionPane.showOptionDialog(app, noHits, name, JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+                if (ans == 0) {
+                    live.abort();
+                    app.setNow("Aborting " + name + "\u2026");
+                    return;
+                }
+                live.askedAt = System.currentTimeMillis();
+                tick.start();
+            }
+            if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
+            String line = head + JavaRun.runningLine(live, System.currentTimeMillis());
+            app.pyLog.setText(line);
+            lastLine[0] = line;
+        });
+        tick.start();
         new Thread(() -> {
+            JavaRun.track(live);
             final boolean javaProg = !promptProg && isJavaName(name);
             java.util.List<String> runArgv = argv;
             if (promptProg) {
@@ -427,9 +476,24 @@ final class PyJav {
                     ? asPython(JavaRun.run(name, src, bytes, argv))
                     : PythonRun.run(src, name, argv);
             javax.swing.SwingUtilities.invokeLater(() -> {
+                tick.stop();
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
                 // The library work below runs on this same thread, before anything else can start.
                 PendingOps.done(pending);
+                // Timed out (or the network went away) while the workflow goes on on Sogni: joined again.
+                java.util.List<String> again = javaProg && this.reconnects < JavaRun.RECONNECTS ? JavaRun.reconnectArgs(name, src, result.log, argv) : null;
+                if (again != null) {
+                    this.reconnects++;
+                    if (savingRun) again.add(PromptKeep.SAVE_RUN);
+                    String why = reconnectWhy(result.log);
+                    this.reconnectNote = "Reconnecting to workflow " + JavaRun.workflowOf(again) + " (" + why + "; try " + this.reconnects + " of " + JavaRun.RECONNECTS + ")\u2026";
+                    if (download != 0) SogniDownloads.reconnecting(download, this.reconnectNote);
+                    this.reconnectDownload = download;
+                    this.forcedArgs = again;
+                    app.setNow(this.reconnectNote);
+                    this.runPython();
+                    return;
+                }
                 String shown = result.log == null || result.log.isEmpty() ? "(no output)" : result.log;
                 if (promptProg && this.promptOutputName.length() > 0) shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
@@ -657,6 +721,21 @@ final class PyJav {
      */
     /** The next run's arguments as they are (a step of Midi2Wav's test), or null. */
     java.util.List<String> forcedArgs;
+    /** A reconnect's File > Downloads run (it carries on that run), its note, and how many were made for this run. */
+    long reconnectDownload;
+    String reconnectNote;
+    int reconnects;
+
+    /** Why a run is joined again: "timed out after 1200 s", or its failure. */
+    static String reconnectWhy(String log) {
+        String why = "timed out";
+        for (String line : (log == null ? "" : log).split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Timed out (")) why = "timed out after " + t.substring(11).replace(").", "").replace(")", "");
+            else if (t.startsWith("Failed: ")) why = t.substring(8);
+        }
+        return why.length() > 100 ? why.substring(0, 100) + "\u2026" : why;
+    }
 
     /**
      * Midi2Wav's test (--test), one step a run: after Midi2Wav, DrumMidi_CRT on its WAV; after
@@ -1265,8 +1344,16 @@ final class PyJav {
     javax.swing.JComponent pyReturn;
 
     void setReturn(Runnable back) {
+        this.setReturn("Return to Media browser", back);
+    }
+
+    /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
+    void setReturn(String label, Runnable back) {
         this.returnTo = back;
-        if (this.pyReturn != null) this.pyReturn.setVisible(back != null);
+        if (this.pyReturn != null) {
+            this.pyReturn.setVisible(back != null);
+            if (label != null && this.pyReturn instanceof javax.swing.AbstractButton) ((javax.swing.AbstractButton) this.pyReturn).setText(label);
+        }
     }
 
     void doReturn() {
@@ -1296,12 +1383,14 @@ final class PyJav {
         }
     }
 
-    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    /** True when Run must not go on: a run stores in the prompt library and the answer to "Are you sure…" was No. */
     boolean mustWait(String program, boolean running) {
-        int n = PendingOps.count();
-        if (n == 0 || !PendingOps.guarded(program, running)) return false;
-        app.setNow(PendingOps.waitText(n));
-        if (app.pyLog != null) app.pyLog.setText(PendingOps.waitText(n));
+        // Params always open; Run asks first only while a run stores in the prompt library.
+        if (!running || !PendingOps.mustAsk(program)) return false;
+        String text = PendingOps.askText(PendingOps.storingCount());
+        int ans = JOptionPane.showConfirmDialog(app, text, "Run again?", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (ans == JOptionPane.YES_OPTION) return false;
+        app.setNow("Not run: the current task is not complete");
         return true;
     }
 

@@ -14,7 +14,7 @@ import java.util.List;
  * Browse prompts: the prompt library's main categories as tabs, the chosen one's subcategories
  * under it, and the prompts in the category picked; tapping a prompt hands its text (its final
  * version) to the field that asked (Params' Prompt, the Prompts page's Prompt). Opens on the
- * category picked last.
+ * category picked last. Favourite categories (★ Favourite on the one shown) are a row on top.
  */
 final class PromptBrowser {
     interface Picked {
@@ -62,6 +62,22 @@ final class PromptBrowser {
         }
         long chosen = vault.category(lastCategory) != null ? lastCategory : mains.get(0).id;
         long mainId = vault.mainOf(chosen);
+        CategoryFavourites.load(activity.getFilesDir());
+        List<PromptVault.Category> favs = CategoryFavourites.list(vault);
+        if (!favs.isEmpty()) {
+            body.addView(text(activity, "\u2605 Favourites", 12, "#8A8B86"));
+            HorizontalScrollView favScroll = new HorizontalScrollView(activity);
+            favScroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout favRow = new LinearLayout(activity);
+            favRow.setOrientation(LinearLayout.HORIZONTAL);
+            for (PromptVault.Category c : favs) {
+                TextView chip = chip(activity, vault, c, c.id == chosen, "prompt-browser-fav:", body, dialog, picked);
+                chip.setText(CategoryFavourites.label(vault, c));
+                favRow.addView(chip, chipLp(activity));
+            }
+            favScroll.addView(favRow);
+            body.addView(favScroll);
+        }
         // Main categories as tabs; the one shown is lit.
         HorizontalScrollView tabs = new HorizontalScrollView(activity);
         tabs.setHorizontalScrollBarEnabled(false);
@@ -86,6 +102,18 @@ final class PromptBrowser {
         TextView heading = text(activity, "PROMPTS IN " + (shown == null ? "" : shown.name.toUpperCase(java.util.Locale.ROOT)), 12, "#8A8B86");
         heading.setPadding(0, dp(activity, 10), 0, dp(activity, 4));
         body.addView(heading);
+        if (shown != null) {
+            final long id = shown.id;
+            boolean on = CategoryFavourites.is(id);
+            TextView star = text(activity, on ? "\u2605 Favourite" : "\u2606 Add to favourites", 14, on ? "#E8C35A" : "#ECEBE6");
+            star.setTag("prompt-browser-star");
+            star.setPadding(0, dp(activity, 2), 0, dp(activity, 8));
+            star.setOnClickListener(x -> {
+                CategoryFavourites.toggle(id);
+                fill(activity, vault, body, dialog, picked);
+            });
+            body.addView(star);
+        }
         List<PromptVault.Prompt> prompts = vault.prompts(chosen);
         if (prompts.isEmpty()) body.addView(text(activity, "No prompts here", 14, "#8A8B86"));
         for (final PromptVault.Prompt p : prompts) {

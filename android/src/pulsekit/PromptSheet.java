@@ -494,6 +494,7 @@ public final class PromptSheet {
     int cell = Math.max(dp(activity, 120), (width - gap) / 2);
     ImageView[] views = new ImageView[files.size()];
     TextView[] marks = new TextView[files.size()];
+    TextView[] subs = new TextView[files.size()];
     long[] ids = new long[files.size()];
     int[] slots = new int[files.size()];
     String[] names = new String[files.size()];
@@ -527,7 +528,7 @@ public final class PromptSheet {
       caption.setPadding(0, dp(activity, 6), 0, 0);
       caption.setMaxLines(2);
       card.addView(caption);
-      TextView sub = label(activity, (file.promptTitle == null ? "" : file.promptTitle) + " · " + sizeText(file.size), 11, "#8A8B86", false);
+      TextView sub = label(activity, file.shownTitle() + " · " + sizeText(file.size), 11, "#8A8B86", false);
       sub.setPadding(0, dp(activity, 2), 0, 0);
       sub.setMaxLines(1);
       card.addView(sub);
@@ -541,7 +542,17 @@ public final class PromptSheet {
       card.setOnLongClickListener(menu);
       frame.setOnLongClickListener(menu);
       thumb.setOnLongClickListener(menu);
-      View.OnClickListener play = v -> galleryPlay(activity, versionId, which, itemName, mark);
+      // One tap: a sound plays in place; anything else opens full size (Back comes to this thumbnail again).
+      View.OnClickListener play = v -> {
+        if (previewKindByName(itemName) == 4) {
+          galleryPlay(activity, versionId, which, itemName, mark);
+          return;
+        }
+        stopGallery();
+        focusId = versionId;
+        focusWhich = which;
+        openPreview(activity, itemName, vault.fileBytes(versionId, which), 3);
+      };
       card.setOnClickListener(play);
       frame.setOnClickListener(play);
       thumb.setOnClickListener(play);
@@ -560,18 +571,31 @@ public final class PromptSheet {
       }
       views[i] = thumb;
       marks[i] = mark;
+      subs[i] = sub;
       ids[i] = versionId;
       slots[i] = which;
       names[i] = name;
     }
-    loadRefThumbs(activity, token, views, marks, ids, slots, names, cell);
+    loadRefThumbs(activity, token, views, marks, subs, ids, slots, names, cell);
   }
 
-  private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, long[] ids, int[] slots, String[] names, int px) {
+  private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
     new Thread(() -> {
       for (int i = 0; i < views.length; i++) {
         if (token != refsToken) return;
         Bitmap bitmap = refThumb(activity, names[i], vault.fileBytes(ids[i], slots[i]), px);
+        // Its resolution and aspect ratio under the name: "1920×1080 · 16:9".
+        int[] size = LAST_SIZE.get();
+        String dims = size == null ? "" : MediaSize.label(size[0], size[1]);
+        TextView sub = subs[i];
+        if (dims.length() > 0 && sub != null) {
+          activity.runOnUiThread(() -> {
+            if (token != refsToken) return;
+            sub.setMaxLines(2);
+            sub.setText(dims + " \u00b7 " + sub.getText());
+            sub.setTag("refs-size:" + dims);
+          });
+        }
         if (token != refsToken) {
           if (bitmap != null) bitmap.recycle();
           return;
@@ -592,15 +616,38 @@ public final class PromptSheet {
     }).start();
   }
 
-  /** A thumbnail of a stored file (a picture, a video frame), or null; also for PyJav's Browse DB. */
+  /** The size of the picture or video refThumb read last on this thread ({width, height}; 0 when not known). */
+  static final ThreadLocal<int[]> LAST_SIZE = new ThreadLocal<int[]>();
+
+  /** A thumbnail of a stored file (a picture, a video frame), or null; also for PyJav's Browse DB. Its size: LAST_SIZE. */
   static Bitmap refThumb(Activity activity, String name, byte[] bytes, int px) {
+    LAST_SIZE.set(new int[] {0, 0});
     if (bytes == null || bytes.length == 0) return null;
     try {
       int kind = previewKind(name, bytes);
-      if (kind == 2) return sampleBitmap(bytes, px * 2);
+      if (kind == 2) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        LAST_SIZE.set(new int[] {Math.max(0, bounds.outWidth), Math.max(0, bounds.outHeight)});
+        return sampleBitmap(bytes, px * 2);
+      }
       if (kind == 3) return videoThumb(activity, name, bytes, px * 2);
     } catch (Exception ignored) {}
     return null;
+  }
+
+  /** A video's shown size (its rotation counted): {width, height}, or zeros. */
+  static int[] videoSize(MediaMetadataRetriever media) {
+    try {
+      int w = Integer.parseInt(String.valueOf(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)));
+      int h = Integer.parseInt(String.valueOf(media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)));
+      String rot = media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+      if ("90".equals(rot) || "270".equals(rot)) return new int[] {h, w};
+      return new int[] {w, h};
+    } catch (Exception ex) {
+      return new int[] {0, 0};
+    }
   }
 
   private static Bitmap sampleBitmap(byte[] bytes, int target) {
@@ -620,6 +667,7 @@ public final class PromptSheet {
     MediaMetadataRetriever media = new MediaMetadataRetriever();
     try {
       media.setDataSource(file.getAbsolutePath());
+      LAST_SIZE.set(videoSize(media));
       Bitmap frame = frameAt(media, 0);
       if (frame == null) return null;
       return scaleDown(frame, target);
@@ -1282,7 +1330,8 @@ public final class PromptSheet {
   }
 
   private static void thumbMenu(Activity activity, long versionId, int which, String name) {
-    fileMenu(activity, versionId, which, name, true);
+    // A tap opens it full size, so the long press menu has no "Open in full size".
+    fileMenu(activity, versionId, which, name, false);
   }
 
   private static void fileMenu(Activity activity, long versionId, int which, String name, boolean fullSize) {
@@ -1338,11 +1387,17 @@ public final class PromptSheet {
       items.add("Strip headers");
       runs.add(() -> stripHeaders(activity, versionId, which, name));
     }
+    // A picture: Upscale/Resize image (ImageUpscaler on PyJav, with it as the input; Return comes back here).
+    boolean picture = previewKindByName(name) == 2 && activity instanceof MainActivity;
+    if (picture) {
+      items.add("Upscale/Resize image");
+      runs.add(() -> upscaleStored(activity, versionId, which, name));
+    }
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    if (!fullSize && !extract && !strip) {
+    if (!fullSize && !extract && !strip && !picture) {
       itemMenu(activity, name, rename, delete);
       return;
     }
@@ -1350,6 +1405,37 @@ public final class PromptSheet {
         .setTitle(name)
         .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
         .show();
+  }
+
+  /** Upscale/Resize image: the stored picture copied into PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
+  private static void upscaleStored(Activity activity, long versionId, int which, String name) {
+    try {
+      MainActivity host = (MainActivity) activity;
+      byte[] bytes = vault.fileBytes(versionId, which);
+      if (bytes == null || bytes.length == 0) {
+        toast(activity, "No picture to upscale");
+        return;
+      }
+      File dir = new File(activity.getCacheDir(), "pyjav-in");
+      if (!dir.isDirectory()) dir.mkdirs();
+      File in = new File(dir, PromptVault.fileTitle(name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+      FileOutputStream out = new FileOutputStream(in);
+      try {
+        out.write(bytes);
+      } finally {
+        out.close();
+      }
+      focusId = versionId;
+      focusWhich = which;
+      host.openKitView("py");
+      host.programMenus.selectProgram("Java", "ImageUpscaler.java");
+      host.pyJav.pkUseInputPath(in.getAbsolutePath());
+      // Return: the Prompts page again (this thumbnail outlined).
+      host.pyJav.pkSetReturn("Return to Prompts", () -> host.openKitView("prompts"));
+      host.pyJav.pkOpenParams();
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
   }
 
   /** Where Sort by (the Ref files and Result files galleries) is kept. */
@@ -1533,7 +1619,7 @@ public final class PromptSheet {
     for (int i = 0; i < files.size(); i++) {
       PromptVault.StoredFile file = files.get(i);
       String from = file.which == 3 ? "Result file" : file.which == 2 ? "Reference file 2" : "Reference file 1";
-      TextView row = button(activity, file.name + "\n" + file.promptTitle + " · " + from + " · " + sizeText(file.size), "#131416", "#ECEBE6");
+      TextView row = button(activity, file.name + "\n" + file.shownTitle() + " · " + from + " · " + sizeText(file.size), "#131416", "#ECEBE6");
       row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
       row.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10));
       long versionId = file.versionId;
@@ -2172,6 +2258,15 @@ public final class PromptSheet {
   }
 
   private static Bitmap previewBitmap(byte[] bytes) {
+    try {
+      return decodePreview(bytes);
+    } catch (RuntimeException ex) {
+      // a damaged picture: "This image can't be previewed."
+      return null;
+    }
+  }
+
+  private static Bitmap decodePreview(byte[] bytes) {
     BitmapFactory.Options bounds = new BitmapFactory.Options();
     bounds.inJustDecodeBounds = true;
     BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
@@ -2194,7 +2289,18 @@ public final class PromptSheet {
       }
       if (clean.length() > 0) ext = clean;
     }
-    File file = new File(activity.getCacheDir(), "pulsekit-preview." + ext);
+    // A file of its own: a video thumbnail made in the background (the gallery behind, Downloads)
+    // spilled to the one shared name and deleted it while the full size video still played it,
+    // which stopped after a few seconds ("This video can't be previewed").
+    File dir = activity.getCacheDir();
+    File[] old = dir.listFiles();
+    long now = System.currentTimeMillis();
+    if (old != null) {
+      for (File f : old) {
+        if (f.getName().startsWith("pulsekit-preview") && now - f.lastModified() > 6 * 3600 * 1000L) f.delete();
+      }
+    }
+    File file = new File(dir, "pulsekit-preview-" + Long.toHexString(System.nanoTime()) + "." + ext);
     FileOutputStream out = new FileOutputStream(file);
     try {
       out.write(bytes);
@@ -2202,6 +2308,14 @@ public final class PromptSheet {
       out.close();
     }
     return file;
+  }
+
+  /** The full size preview closed (as Back does), without showing the page again; for the tests' start. */
+  static void closePreview() {
+    releasePreview();
+    previewBack = 0;
+    previewBytes = new byte[0];
+    focusId = 0;
   }
 
   private static void releasePreview() {

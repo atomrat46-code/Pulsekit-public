@@ -48,6 +48,8 @@ public class BehaviorTest {
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
     MidiImportSettings.reset();
+    // The Prompts page's full size preview is static too: each scenario starts on the page itself.
+    PromptSheet.closePreview();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
@@ -3336,22 +3338,31 @@ public class BehaviorTest {
 
   @Test
   public void s88_pending_db() throws Exception {
-    // A Sogni run whose prompt library work is not over: other Sogni programs wait, SogniChat may run.
+    // A Sogni run whose prompt library work is not over: another Sogni run asks first, only when
+    // that run stores in the library (--saveprompt); Params and SogniChat never wait.
     StringBuilder out = new StringBuilder();
     app.programMenus.selectProgram("Java", "SogniTextVideo.java");
     idle();
-    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
-    out.append("pending: ").append(PendingOps.count()).append('\n');
+    String plain = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
     File list = new File(app.getFilesDir(), "pending-db.txt");
     out.append("list file: ").append(list.isFile() ? new String(Files.readAllBytes(list.toPath()), StandardCharsets.UTF_8).trim().replaceAll("^\\d+", "N") : "none").append('\n');
-    app.pyJav.pkRunPyJav();
+    out.append("no --saveprompt: Run waits ").append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append(", Params wait ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    String storing = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"), PendingOps.storesInDb(java.util.Arrays.asList("--saveprompt")));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
+    out.append("--saveprompt: Run waits ").append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    android.app.AlertDialog ask = app.pyJav.pkAskRerun;
+    out.append("asked: ").append(ask != null && ask.isShowing()).append(", ")
+        .append(String.valueOf(org.robolectric.Shadows.shadowOf(ask).getMessage()).replace('\n', ' ')).append('\n');
+    ask.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
-    out.append("Run SogniTextVideo: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
-    out.append("SogniTextVideo Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
-    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append(", its Params wait: ")
-        .append(app.pyJav.pkMustWait("SogniChat.java", false)).append('\n');
+    out.append("answered No: ").append(app.now.getText()).append('\n');
+    out.append("Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append('\n');
     out.append("MidiDrumGen waits: ").append(app.pyJav.pkMustWait("MidiDrumGen.java", true)).append('\n');
-    PendingOps.done(entry);
+    PendingOps.done(storing);
+    PendingOps.done(plain);
     out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
         .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
     write("s88_pending_db", out.toString());
@@ -4491,6 +4502,41 @@ public class BehaviorTest {
         org.robolectric.RuntimeEnvironment.getApplication().getCacheDir(), new StringBuilder());
     if (!other.contains("content://x")) throw new AssertionError("another program's arguments changed");
     write("s107_midi2hydro_params", log.toString());
+  }
+
+  /** File > Downloads: a run in progress says how long and why, Mark as ready lets it go; Browse prompts' favourite categories. */
+  @Test
+  public void s108_downloads_ready_favourites() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    SogniDownloads.init(app.getFilesDir());
+    long id = SogniDownloads.started("SogniTextVideo.java", System.currentTimeMillis() - 65000);
+    DownloadsScreen.tab = "";
+    DownloadsScreen.show(app);
+    idle();
+    View dv = DownloadsScreen.last.getWindow().getDecorView();
+    out.append("tab: ").append(((TextView) dv.findViewWithTag("downloads-tab:" + SogniDownloads.PROGRESS)).getText()).append('\n');
+    out.append("run: ").append(((TextView) dv.findViewWithTag("downloads-run:" + id)).getText().toString().replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>").replaceAll("1 min \\d+ s", "1 min N s")).append('\n');
+    dv.findViewWithTag("downloads-ready:" + id).performClick();
+    idle();
+    dv = DownloadsScreen.last.getWindow().getDecorView();
+    out.append("after Mark as ready: ").append(SogniDownloads.run(id).state).append(", ").append(SogniDownloads.run(id).status)
+        .append(", tab ").append(((TextView) dv.findViewWithTag("downloads-tab:" + SogniDownloads.PROGRESS)).getText()).append('\n');
+    DownloadsScreen.last.dismiss();
+    // Browse prompts: Add to favourites on the category shown, then a row of favourites on top.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long walks = vault.addCategory("Walks");
+    vault.addVersion(vault.addPrompt(walks, "Morning"), "Morning", "", "A walk in the morning", "", "", null, "", null, "", null, "ai", "");
+    PromptBrowser.lastCategory = walks;
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    out.append("star: ").append(((TextView) bv.findViewWithTag("prompt-browser-star")).getText()).append(", favourites row ").append(bv.findViewWithTag("prompt-browser-fav:Walks") != null).append('\n');
+    bv.findViewWithTag("prompt-browser-star").performClick();
+    idle();
+    out.append("star: ").append(((TextView) bv.findViewWithTag("prompt-browser-star")).getText()).append(", favourites row ").append(bv.findViewWithTag("prompt-browser-fav:Walks") != null).append('\n');
+    PromptBrowser.last.dismiss();
+    write("s108_downloads_ready_favourites", out.toString());
   }
 
   /** Reaper: a project's drum items (looped, pooled, the muted bass left out) as MIDI, imported and given to a program. */

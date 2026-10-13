@@ -658,6 +658,13 @@ public class MainActivity extends UiKit {
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        // Reading other apps' files in Download (a WAV saved by the browser): the browser shown lists it again.
+        if (requestCode == MediaBrowser.MEDIA_PERMISSION) MediaBrowser.mediaAnswered(this);
+    }
+
     protected void onActivityResult(int n, int n2, Intent intent) {
         if (n == 25) {
             super.onActivityResult(n, n2, intent);
@@ -806,6 +813,12 @@ public class MainActivity extends UiKit {
                 byArray = Engine.encodeKitJar(Engine.encodeMidi(this.cells, this.bpm(), this.steps, this.tsNum, this.tsDen), this.cells, this.bpm(), this.style);
             } else if (n == 17) {
                 byArray = Engine.encodeSongMidi(this.songEditor.songPartsForExport());
+            } else if (n == 22) {
+                String title = DbImport.displayName(this, uri).replaceAll("(?i)\\.h2pattern$", "");
+                byArray = HydrogenWrite.pattern(Engine.encodeMidi(this.cells, this.lens, this.bpm(), this.steps, this.tsNum, this.tsDen), title, "Pulsekit");
+            } else if (n == 23) {
+                String title = DbImport.displayName(this, uri).replaceAll("(?i)\\.h2song$", "");
+                byArray = HydrogenWrite.song(Engine.encodeSongMidi(this.songEditor.songPartsForExport()), title);
             } else if (n == 20) {
                 byArray = AudioIo.encodeWav(this.playback.songPcm(), 22050);
             } else if (n == 21) {

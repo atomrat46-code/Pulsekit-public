@@ -269,7 +269,7 @@ final class RefBrowser {
             caption.setPadding(0, gap / 2, 0, 0);
             card.addView(caption);
             TextView sub = new TextView(activity);
-            sub.setText((file.promptTitle == null ? "" : file.promptTitle) + " · " + (file.size / 1024) + " KB");
+            sub.setText(file.shownTitle() + " · " + (file.size / 1024) + " KB");
             sub.setTextSize(11);
             sub.setMaxLines(1);
             card.addView(sub);

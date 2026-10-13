@@ -210,8 +210,22 @@ public final class PromptVault {
     public String name;
     public String promptTitle;
     public int size;
+    /** How many prompts (and imported files) use this same file: it is listed once, kept once. */
+    public int uses = 1;
+    String key;
+
+    /** The prompt's title, with how many more use the file: "Sunset +2". */
+    public String shownTitle() {
+      String t = promptTitle == null ? "" : promptTitle;
+      return uses > 1 ? t + " +" + (uses - 1) : t;
+    }
   }
 
+  /**
+   * The reference files, newest first. The same file (same name and contents) used by several
+   * prompts or versions is one row, under the newest prompt using it ("Sunset +2"): it is also
+   * kept once on disk (a large file is stored by its contents).
+   */
   public synchronized List<StoredFile> referenceFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which != 3) addLibrary(out, library.get(i));
@@ -220,7 +234,57 @@ public final class PromptVault {
       addStored(out, version, 1);
       addStored(out, version, 2);
     }
-    return out;
+    List<StoredFile> once = new ArrayList<StoredFile>();
+    java.util.Map<String, StoredFile> seen = new java.util.HashMap<String, StoredFile>();
+    java.util.Map<String, java.util.Set<String>> titles = new java.util.HashMap<String, java.util.Set<String>>();
+    for (int i = 0; i < out.size(); i++) {
+      StoredFile row = out.get(i);
+      String k = row.name.toLowerCase(java.util.Locale.ROOT) + "\u0000" + row.size + "\u0000" + contentKey(row);
+      StoredFile have = seen.get(k);
+      if (have == null) {
+        seen.put(k, row);
+        java.util.Set<String> t = new java.util.HashSet<String>();
+        t.add(row.promptTitle);
+        titles.put(k, t);
+        once.add(row);
+        continue;
+      }
+      if (titles.get(k).add(row.promptTitle)) have.uses++;
+    }
+    return once;
+  }
+
+  /** What a listed file holds: its kept file's name (named by its contents), or a digest of its bytes. */
+  private String contentKey(StoredFile row) {
+    if (row.key != null) return row.key;
+    String blob = null;
+    byte[] bytes = null;
+    Version version = version(row.versionId);
+    if (version != null) {
+      blob = row.which == 1 ? version.ref1Blob : row.which == 2 ? version.ref2Blob : version.resultBlob;
+      if (blob == null) bytes = row.which == 1 ? version.ref1 : row.which == 2 ? version.ref2 : version.result;
+    } else {
+      LibraryFile image = libraryFile(row.versionId);
+      if (image != null) {
+        blob = image.blob;
+        if (blob == null) bytes = image.bytes;
+      }
+    }
+    if (blob != null) {
+      // prompts-blob-<hash>.dat and its unencrypted twin hold the same contents.
+      row.key = blob.replaceAll("^.*-([0-9a-f]{24})\\.dat$", "$1");
+      return row.key;
+    }
+    try {
+      java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+      byte[] d = md.digest(bytes == null ? new byte[0] : bytes);
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
+      row.key = sb.toString();
+    } catch (Exception ex) {
+      row.key = String.valueOf(row.versionId) + ":" + row.which;
+    }
+    return row.key;
   }
 
   public synchronized List<StoredFile> resultFiles() {

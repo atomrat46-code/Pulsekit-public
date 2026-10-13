@@ -83,6 +83,19 @@ public final class Midi2WavTest {
     return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);
   }
 
+  /**
+   * SogniMusic's test without drums asked for (no --drums_only, and no drums in --instruments):
+   * what to warn about, or null. DrumMidi finds nothing to check in a track without drums.
+   */
+  public static String drumsWarning(String program, List<String> argv) {
+    if (!musicWanted(program, argv)) return null;
+    if (argv.contains("--drums_only")) return null;
+    int i = argv.indexOf("--instruments");
+    if (i >= 0 && i + 1 < argv.size() && argv.get(i + 1).toLowerCase(java.util.Locale.ROOT).matches("(?s).*(drum|kit|percussion).*")) return null;
+    return "SogniMusic's test makes drum MIDI from the track and checks it, but this run does not ask for drums.\n"
+        + "Tick --drums_only, or name drums in --instruments (for example \"drums, bass\").";
+  }
+
   /** True for a SogniMusic run whose track gets a WAV copy (all of them but --no_wav; --test needs it). */
   public static boolean musicToWav(String program, List<String> argv) {
     return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG));

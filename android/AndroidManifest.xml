@@ -5,6 +5,11 @@
     android:versionName="198.0">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="33" />
   <uses-permission android:name="android.permission.INTERNET" />
+  <!-- The Media browser's and Choose file's Download: the pictures, videos and sounds other apps saved there. -->
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+  <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+  <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+  <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
   <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
   <queries>

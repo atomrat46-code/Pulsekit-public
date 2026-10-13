@@ -257,6 +257,7 @@ final class PromptDb {
             if (c instanceof JButton && key.equals(((JButton) c).getClientProperty("video-key"))) {
                 JButton card = (JButton) c;
                 card.setIcon(icon);
+                lastSize = icon == null ? "" : MediaSize.aspect(icon.getIconWidth(), icon.getIconHeight());
                 card.setText(this.caption((PromptVault.StoredFile) card.getClientProperty("stored"), null));
             }
             if (c instanceof java.awt.Container) this.fillCards((java.awt.Container) c, key, icon);
@@ -397,8 +398,10 @@ final class PromptDb {
             card.setHorizontalTextPosition(SwingConstants.CENTER);
             card.setPreferredSize(new Dimension(CELL + 20, CELL + 60));
             byte[] bytes = vault == null ? null : vault.fileBytes(file.versionId, file.which);
+            lastSize = "";
             ImageIcon thumb = bytes == null ? null : thumb(name, bytes);
             if (thumb != null) card.setIcon(thumb);
+            card.putClientProperty("size", lastSize);
             // A video without a preview yet: its card is filled in when one is made (VLC).
             if (thumb == null && bytes != null && bytes.length > 0 && previewKind(name, bytes) == 3) {
                 card.putClientProperty("video-key", ThumbCache.key(bytes));
@@ -451,7 +454,9 @@ final class PromptDb {
 
     private String caption(PromptVault.StoredFile file, String mark) {
         String safe = (file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
-        String sub = (file.promptTitle == null ? "" : file.promptTitle.replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
+        // A picture's resolution and aspect ratio ("1920×1080 · 16:9"), a video's aspect ratio (from its preview).
+        String dims = lastSize == null || lastSize.isEmpty() ? "" : lastSize + "<br>";
+        String sub = dims + (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + safe + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
@@ -462,18 +467,26 @@ final class PromptDb {
         return dot >= 0 ? name.substring(dot + 1).toUpperCase() : "FILE";
     }
 
-    /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. */
+    /** The size thumb() read last: "1920×1080 · 16:9" for a picture, "16:9" for a video's preview; "" when not known. */
+    static String lastSize = "";
+
+    /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. Its size: lastSize. */
     static ImageIcon thumb(String name, byte[] bytes) {
         if (bytes == null) return null;
         // A video shows the preview the browser made of its first frame (Make video previews), when there is one.
         if (previewKind(name, bytes) == 3) {
             byte[] made = ThumbCache.get(bytes);
-            return made == null ? null : thumb("preview.jpg", made);
+            ImageIcon icon = made == null ? null : thumb("preview.jpg", made);
+            String full = lastSize;
+            int dot = full.indexOf(" \u00b7 ");
+            lastSize = dot >= 0 ? full.substring(dot + 3) : "";
+            return icon;
         }
         if (!name.toLowerCase().matches(".+\\.(png|jpe?g|gif|bmp)")) return null;
         try {
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
             if (img == null) return null;
+            lastSize = MediaSize.label(img.getWidth(), img.getHeight());
             double s = Math.min(CELL / (double) img.getWidth(), CELL / (double) img.getHeight());
             int w = Math.max(1, (int) (img.getWidth() * s));
             int h = Math.max(1, (int) (img.getHeight() * s));
@@ -791,10 +804,37 @@ final class PromptDb {
             });
             menu.add(strip);
         }
+        if (file.name != null && file.name.toLowerCase().matches(".+\\.(png|jpe?g|webp|gif|bmp)")) {
+            // Upscale/Resize image: ImageUpscaler on PyJav with this picture as its input; Return comes back to Prompts.
+            JMenuItem upscale = new JMenuItem("Upscale/Resize image");
+            upscale.addActionListener(e -> this.upscale(file));
+            menu.add(upscale);
+        }
         menu.add(rename);
         menu.add(delete);
         this.lastFileMenu = menu;
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
+    }
+
+    /** Upscale/Resize image: the stored picture as a file in PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
+    void upscale(PromptVault.StoredFile file) {
+        try {
+            byte[] bytes = vault().fileBytes(file.versionId, file.which);
+            File dir = new File(dir(), "pyjav-in");
+            dir.mkdirs();
+            File in = new File(dir, PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+            Files.write(in.toPath(), bytes);
+            java.awt.Window open = javax.swing.SwingUtilities.getWindowAncestor(this.lastFileMenu == null ? null : this.lastFileMenu.getInvoker());
+            if (open instanceof JDialog) open.dispose();
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+            app.pyJav.setInputFile(in);
+            app.pyJav.setReturn("Return to Prompts", () -> app.showView("prompts"));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            app.setNow("ImageUpscaler: " + file.name);
+        } catch (Exception ex) {
+            app.setNow("Could not upscale " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+        }
     }
 
     /** The right-click menu shown last, for the tests. */
@@ -1118,19 +1158,61 @@ final class PromptDb {
         final boolean[] dragging = new boolean[1];
         player.volume(startVolume);
         // Play, Pause and Stop each always shown (as on the phone); C saves the paused frame.
+        // Play while it plays pauses it; Pause while paused plays on.
         play.addActionListener(e -> {
-            if (!player.playing()) player.play();
+            if (player.playing()) player.pause();
+            else player.play();
         });
         JButton pause = new JButton("Pause");
         pause.setName("video-pause");
         pause.addActionListener(e -> {
             if (player.playing()) player.pause();
+            else player.play();
         });
         final JButton capture = new JButton("C");
         capture.setName("video-capture");
         capture.setToolTipText("Capture this frame into the SC folder beside the video");
         capture.setVisible(false);
-        capture.addActionListener(e -> this.captureFrame(name, video, player));
+        // C held: the frame captured, then ImageUpscaler with it as the input (Return: the Media browser there).
+        final boolean[] heldC = new boolean[1];
+        capture.addActionListener(e -> {
+            if (heldC[0]) {
+                heldC[0] = false;
+                return;
+            }
+            this.captureFrame(name, video, player);
+        });
+        capture.addMouseListener(new java.awt.event.MouseAdapter() {
+            javax.swing.Timer hold;
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
+                this.hold = new javax.swing.Timer(600, ev -> {
+                    heldC[0] = true;
+                    PromptDb.this.lastCapture = null;
+                    PromptDb.this.captureFrame(name, video, player);
+                    File shot = PromptDb.this.lastCapture;
+                    if (shot == null) return;
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
+                    if (w != null) w.dispose();
+                    if (app.mediaBrowser != null && app.mediaBrowser.last != null) app.mediaBrowser.last.dispose();
+                    app.showView("py");
+                    app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+                    app.pyJav.setInputFile(shot);
+                    final File folder = video.getAbsoluteFile().getParentFile();
+                    app.pyJav.setReturn(() -> app.mediaBrowser.open(folder));
+                    SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+                });
+                this.hold.setRepeats(false);
+                this.hold.start();
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (this.hold != null) this.hold.stop();
+            }
+        });
         stop.addActionListener(e -> {
             player.stop();
             position.setValue(0);
@@ -1227,11 +1309,34 @@ final class PromptDb {
         transport.add(looping);
         if (remember) {
             sound.setVisible(false);
+            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
             player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
+                javax.swing.Timer hold;
+                boolean held;
+
+                java.awt.Point at;
+
                 @Override
-                public void mouseClicked(java.awt.event.MouseEvent e) {
-                    sound.setVisible(!sound.isVisible());
-                    sound.getParent().revalidate();
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    this.held = false;
+                    this.at = e.getPoint();
+                    this.hold = new javax.swing.Timer(600, ev -> {
+                        this.held = true;
+                        if (player.playing()) player.pause();
+                        sound.setVisible(!sound.isVisible());
+                        sound.getParent().revalidate();
+                    });
+                    this.hold.setRepeats(false);
+                    this.hold.start();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    if (this.hold != null) this.hold.stop();
+                    // A drag (moving a zoomed video) is not a click.
+                    if (this.held || this.at == null || this.at.distance(e.getPoint()) > 6) return;
+                    if (player.playing()) player.pause();
+                    else player.play();
                 }
             });
         }

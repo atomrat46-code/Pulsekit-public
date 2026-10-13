@@ -178,6 +178,20 @@ public class DrumMidi_CRT{
     static String logPath;
     static final StringBuilder logText = new StringBuilder();
 
+    /**
+     * Stops when PyJav aborts the run (it interrupts the program's thread; outside the app the
+     * process is stopped). Checked between the steps and in the long loops.
+     */
+    static void checkStop() {
+        if (Thread.currentThread().isInterrupted()) throw new IllegalStateException("Aborted");
+    }
+
+    /** How far the analysis is ("Progress: 40%"), for PyJav's Running line; not kept in the log. */
+    static void progress(int pct) {
+        checkStop();
+        System.out.println("Progress: " + pct + "%");
+    }
+
     /** Prints a line and keeps it for the --log file. */
     static void note(String line) {
         System.out.println(line);
@@ -273,12 +287,14 @@ public class DrumMidi_CRT{
         double sr = audio.sampleRate;
         double fps = sr / HOP;
         note(String.format(java.util.Locale.ROOT, "Loaded %.1f s at %.0f Hz", audio.samples.length / sr, sr));
+        progress(5);
         if (audio.samples.length < FFT_SIZE * 4) {
             finish("Failed: audio is too short");
             return;
         }
 
         float[][] mag = spectrogram(audio.samples, sr);
+        progress(25);
         int maxBin = mag[0].length - 1;
         // Rises in the raw spectrum, before HPSS evens them out. A drum jumps; a bass note mostly does not.
         double[] tomRise = rise(mag, bin(FLOOR_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
@@ -302,6 +318,7 @@ public class DrumMidi_CRT{
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             applyHpss(mag);
+            progress(70);
         }
 
         double[] kick = flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
@@ -494,6 +511,12 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
         }
         rideOrHats(hits, shape, fps, bass);
+        progress(90);
+        note("Hits: " + hits.size());
+        if (hits.isEmpty()) {
+            finish("Failed: no drum hits found in " + inFile.getName() + " (a track without drums, or too quiet: try a lower --sens)");
+            return;
+        }
         hits.sort(Comparator.comparingDouble(new java.util.function.ToDoubleFunction<Hit>() {
             public double applyAsDouble(Hit h) { return h.time; }
         }));
@@ -864,6 +887,7 @@ public class DrumMidi_CRT{
         for (int i = 0; i < FFT_SIZE; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / FFT_SIZE);
         double[] re = new double[FFT_SIZE], im = new double[FFT_SIZE];
         for (int t = 0; t < nFrames; t++) {
+            if ((t & 1023) == 0) checkStop();
             int start = t * HOP - FFT_SIZE / 2;
             for (int j = 0; j < FFT_SIZE; j++) {
                 int idx = start + j;
@@ -909,6 +933,7 @@ public class DrumMidi_CRT{
         float[][] out = new float[T][F];
         float[] buf = new float[HPSS_KERNEL];
         for (int t = 0; t < T; t++) {
+            if ((t & 255) == 0) checkStop();
             for (int f = 0; f < F; f++) {
                 for (int i = -h; i <= h; i++) buf[i + h] = mag[t][clamp(f + i, 0, F - 1)];
                 Arrays.sort(buf);

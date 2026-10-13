@@ -119,6 +119,43 @@ public final class SogniDownloads {
     return r.id;
   }
 
+  /** The run timed out with its workflow still going on Sogni and is joined again: in progress, saying so. */
+  public static synchronized void reconnecting(long id, String note) {
+    Run r = run(id);
+    if (r == null) return;
+    r.state = PROGRESS;
+    r.status = note == null ? "" : note;
+    write();
+  }
+
+  /** Mark as ready: a pending or in-progress run the app lost track of is let go (finished, or failed with nothing saved). */
+  public static synchronized void markReady(long id) {
+    Run r = run(id);
+    if (r == null) return;
+    if (!PROGRESS.equals(r.state) && !PENDING.equals(r.state)) return;
+    if (r.status.length() == 0 || r.status.startsWith("Reconnecting") || r.status.startsWith("Running")) r.status = r.items.isEmpty() ? "Failed: marked as ready" : "Marked as ready";
+    r.state = r.status.startsWith("Succeeded") || (!r.status.startsWith("Failed") && !r.items.isEmpty()) ? FINISHED : FAILED;
+    r.ended = System.currentTimeMillis();
+    write();
+  }
+
+  /** "12 min 5 s" since the run started (for In progress and Pending). */
+  public static String elapsed(Run r, long now) {
+    long s = Math.max(0, (now - r.started) / 1000);
+    if (s < 60) return s + " s";
+    if (s < 3600) return (s / 60) + " min " + (s % 60) + " s";
+    return (s / 3600) + " h " + ((s / 60) % 60) + " min";
+  }
+
+  /** Why a run is where it is, for Pending and In progress: "queued", "reconnecting", "storing in the prompt library". */
+  public static String reason(Run r) {
+    String st = r.status == null ? "" : r.status;
+    if (PENDING.equals(r.state)) return st.startsWith("Failed") ? "failed, finishing up" : "storing in the prompt library";
+    if (st.startsWith("Reconnecting")) return "reconnecting";
+    if (st.startsWith("Queued")) return "queued";
+    return "running";
+  }
+
   /**
    * The run's result is in: its verdict, and the files it says it saved ("saved Download/x.png",
    * "Saved /home/me/Downloads/x.png" lines in `log`); `where` gives a file's content:// address
@@ -249,9 +286,15 @@ public final class SogniDownloads {
 
   /** "Finished · 10-12 14:22 · Succeeded: x.png". */
   public static String runLabel(Run r) {
+    return runLabel(r, System.currentTimeMillis());
+  }
+
+  /** In progress and Pending also say how long since Run and why: "In progress \u00b7 10-12 14:22 \u00b7 3 min 5 s, queued". */
+  public static String runLabel(Run r, long now) {
+    boolean going = PROGRESS.equals(r.state) || PENDING.equals(r.state);
     String state = PROGRESS.equals(r.state) ? "In progress" : PENDING.equals(r.state) ? "Pending" : FINISHED.equals(r.state) ? "Finished" : "Failed";
-    String s = r.status.length() > 80 ? r.status.substring(0, 80) + "…" : r.status;
-    return state + " · " + r.when() + (s.length() == 0 ? "" : " · " + s);
+    String s = r.status.length() > 80 ? r.status.substring(0, 80) + "\u2026" : r.status;
+    return state + " \u00b7 " + r.when() + (going ? " \u00b7 " + elapsed(r, now) + ", " + reason(r) : "") + (s.length() == 0 ? "" : " \u00b7 " + s);
   }
 
   /** The tab's title: "In progress (1)". */

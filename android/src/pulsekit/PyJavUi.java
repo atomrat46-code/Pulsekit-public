@@ -11,9 +11,29 @@ import android.widget.TextView;
 /** Click and result adapters for the PyJav tab. Compiled into the APK. */
 public final class PyJavUi implements JavaRun.Listener {
   private final MainActivity host;
+  /** The run this result is for: its pending entry, arguments, Save this run into DB and source (null: the tests' plain listener). */
+  private final String pending;
+  private final java.util.List<String> argv;
+  private final boolean saveRun;
+  private final String src;
+  private final boolean ownRun;
 
   private PyJavUi(MainActivity host) {
     this.host = host;
+    this.pending = null;
+    this.argv = null;
+    this.saveRun = false;
+    this.src = null;
+    this.ownRun = false;
+  }
+
+  private PyJavUi(MainActivity host, String pending, java.util.List<String> argv, boolean saveRun, String src) {
+    this.host = host;
+    this.pending = pending;
+    this.argv = argv;
+    this.saveRun = saveRun;
+    this.src = src;
+    this.ownRun = true;
   }
 
   public static View.OnClickListener mode(final MainActivity host, final String mode) {
@@ -260,12 +280,18 @@ public final class PyJavUi implements JavaRun.Listener {
     return new PyJavUi(host);
   }
 
+  /** The listener of one run: its result is shown with that run's own pending entry and arguments. */
+  public static JavaRun.Listener listener(MainActivity host, String pending, java.util.List<String> argv, boolean saveRun, String src) {
+    return new PyJavUi(host, pending, argv, saveRun, src);
+  }
+
   @Override
   public void onDone(final JavaRun.Result result) {
     host.runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        host.pyJav.pkShowPyResult(result);
+        if (ownRun) host.pyJav.pkShowPyResult(result, pending, argv, saveRun, src);
+        else host.pyJav.pkShowPyResult(result);
       }
     });
   }

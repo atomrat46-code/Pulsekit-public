@@ -51,6 +51,47 @@ final class DownloadsScreen {
         last = new AlertDialog.Builder(app).setTitle("Downloads").setView(scroll).setPositiveButton("Close", null).create();
         fill(app, col);
         last.show();
+        // Every second while it is shown: the tabs' counts and the runs' times; the list again when a run moved on.
+        final AlertDialog shown = last;
+        final String[] seen = new String[] {signature()};
+        col.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!shown.isShowing()) return;
+                String now = signature();
+                if (!now.equals(seen[0])) {
+                    seen[0] = now;
+                    fill(app, col);
+                } else {
+                    refreshTimes(col);
+                }
+                col.postDelayed(this, 1000);
+            }
+        }, 1000);
+    }
+
+    /** The runs and their states: when it changes, the list is made again. */
+    static String signature() {
+        StringBuilder sb = new StringBuilder();
+        for (String t : new String[] {SogniDownloads.PENDING, SogniDownloads.PROGRESS, SogniDownloads.FINISHED}) {
+            for (SogniDownloads.Run r : SogniDownloads.tab(t)) sb.append(r.id).append(r.state).append(r.status).append(r.items.size()).append(',');
+            sb.append('|');
+        }
+        return sb.toString();
+    }
+
+    /** The In progress and Pending runs' lines again (their time). */
+    private static void refreshTimes(android.view.ViewGroup g) {
+        for (int i = 0; i < g.getChildCount(); i++) {
+            android.view.View k = g.getChildAt(i);
+            Object tag = k.getTag();
+            if (k instanceof TextView && tag instanceof String && ((String) tag).startsWith("downloads-run:")) {
+                SogniDownloads.Run r = SogniDownloads.run(Long.parseLong(((String) tag).substring(14)));
+                if (r != null) ((TextView) k).setText(SogniDownloads.runLabel(r));
+            } else if (k instanceof android.view.ViewGroup) {
+                refreshTimes((android.view.ViewGroup) k);
+            }
+        }
     }
 
     private static void fill(final MainActivity app, final LinearLayout col) {
@@ -106,6 +147,18 @@ final class DownloadsScreen {
                 });
             }
             col.addView(line);
+            if (SogniDownloads.PROGRESS.equals(r.state) || SogniDownloads.PENDING.equals(r.state)) {
+                // Mark as ready: a run the app lost track of (it never says it is over) is let go.
+                TextView ready = app.pill("Mark as ready", false, v -> {
+                    SogniDownloads.markReady(r.id);
+                    fill(app, col);
+                });
+                ready.setTag("downloads-ready:" + r.id);
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-2, -2);
+                rp.leftMargin = app.dp(8);
+                rp.bottomMargin = app.dp(4);
+                col.addView(ready, rp);
+            }
             if (r.items.isEmpty() && SogniDownloads.FINISHED.equals(tab)) {
                 TextView none = app.text("No files", 13, false);
                 none.setPadding(app.dp(16), 0, 0, app.dp(4));
@@ -120,6 +173,8 @@ final class DownloadsScreen {
                 bg.setColor(Color.parseColor("#1B1D1F"));
                 row.setBackground(bg);
                 row.setOnClickListener(v -> preview(app, item));
+                // A finished picture or video: its thumbnail before the name, read in the background.
+                if (SogniDownloads.FINISHED.equals(r.state) && ("picture".equals(item.kind()) || "video".equals(item.kind()))) thumb(app, row, item);
                 if (SogniDownloads.FINISHED.equals(tab)) row.setOnLongClickListener(v -> {
                     menu(app, col, r, item);
                     return true;
@@ -129,6 +184,47 @@ final class DownloadsScreen {
                 col.addView(row, lp);
             }
         }
+    }
+
+    /** Thumbnails made this session, by where the file is. */
+    private static final java.util.Map<String, android.graphics.Bitmap> THUMBS = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
+
+    private static void thumb(final MainActivity app, final TextView row, final SogniDownloads.Item item) {
+        final int px = app.dp(56);
+        android.graphics.Bitmap have = THUMBS.get(item.where);
+        if (have != null) {
+            put(app, row, have, px);
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                android.graphics.Bitmap made = null;
+                try {
+                    byte[] data = bytes(app, item);
+                    if (data != null) made = PromptSheet.refThumb(app, item.name, data, px);
+                } catch (Throwable ex) {
+                    made = null;
+                }
+                if (made == null) return;
+                THUMBS.put(item.where, made);
+                final android.graphics.Bitmap shown = made;
+                app.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        put(app, row, shown, px);
+                    }
+                });
+            }
+        }, "pulsekit-download-thumb").start();
+    }
+
+    private static void put(MainActivity app, TextView row, android.graphics.Bitmap b, int px) {
+        android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(app.getResources(), b);
+        float sc = Math.min(px / (float) Math.max(1, b.getWidth()), px / (float) Math.max(1, b.getHeight()));
+        d.setBounds(0, 0, Math.max(1, Math.round(b.getWidth() * sc)), Math.max(1, Math.round(b.getHeight() * sc)));
+        row.setCompoundDrawables(d, null, null, null);
+        row.setCompoundDrawablePadding(app.dp(10));
     }
 
     /** The long press menu shown last, for the tests. */

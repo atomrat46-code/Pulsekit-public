@@ -403,9 +403,16 @@ final class PyJav {
         slot = slot + 1;
         app.pyPane.addView(app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app)), slot);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Params", FG, BG, pulsekit.PyJavUi.params(app)), slot);
+        // Params and Run apart, and in different colours: a tap meant for Params no longer starts a run.
+        android.widget.TextView paramsBtn = app.action("Params", ELEV, FG, pulsekit.PyJavUi.params(app));
+        paramsBtn.setTag("pyjav-params");
+        app.pyPane.addView(paramsBtn, slot);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Run", FG, BG, pulsekit.PyJavUi.click(app)), slot);
+        android.widget.TextView runBtn = app.action("Run", FG, BG, pulsekit.PyJavUi.click(app));
+        runBtn.setTag("pyjav-run");
+        android.widget.LinearLayout.LayoutParams runAt = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        runAt.topMargin = app.dp(28);
+        app.pyPane.addView(runBtn, slot, runAt);
         slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
@@ -493,8 +500,16 @@ final class PyJav {
     android.view.View pkReturnBtn;
 
     public void pkSetReturn(Runnable back) {
+        this.pkSetReturn("Return to Media browser", back);
+    }
+
+    /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
+    public void pkSetReturn(String label, Runnable back) {
         this.pkReturn = back;
-        if (this.pkReturnBtn != null) this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
+        if (this.pkReturnBtn != null) {
+            this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
+            if (label != null && this.pkReturnBtn instanceof android.widget.TextView) ((android.widget.TextView) this.pkReturnBtn).setText(label);
+        }
     }
 
     void pkDoReturn() {
@@ -551,14 +566,82 @@ final class PyJav {
     /** This run's entry in the pending database operations (PendingOps), until they are over. */
     String pkPending;
 
-    /** True (after saying so) when a Sogni program must wait for the database operations still pending. */
+    /** SogniMusic's test without drums: Run anyway was pressed (the next run goes on), and the question, for the tests. */
+    boolean pkDrumsWarned;
+    android.app.AlertDialog pkAskDrums;
+
+    /** Run was answered Yes ("run a new session while the current task is incomplete"): the next check passes. */
+    boolean pkRunConfirmed;
+    /** The question asked last, for the tests. */
+    android.app.AlertDialog pkAskRerun;
+
+    /**
+     * True when Run must not go on now: a run stores in the prompt library, so Run asks first
+     * ("Are you sure…"; Yes runs). Params always open, and a run that stores nothing does not wait.
+     */
     boolean pkMustWait(String program, boolean running) {
-        int n = pulsekit.PendingOps.count();
-        if (n == 0 || !pulsekit.PendingOps.guarded(program, running)) return false;
-        String text = pulsekit.PendingOps.waitText(n);
-        app.setNow(text);
-        android.widget.Toast.makeText(app, text, 0).show();
+        boolean confirmed = this.pkRunConfirmed;
+        this.pkRunConfirmed = false;
+        if (!running || !pulsekit.PendingOps.mustAsk(program)) return false;
+        if (confirmed) return false;
+        String text = pulsekit.PendingOps.askText(pulsekit.PendingOps.storingCount());
+        app.setNow("Asking: the current task is not complete");
+        this.pkAskRerun = new android.app.AlertDialog.Builder(app).setTitle("Run again?").setMessage(text)
+            .setPositiveButton("Yes", (d, w) -> {
+                this.pkRunConfirmed = true;
+                this.pkRunPyJav();
+            })
+            .setNegativeButton("No", (d, w) -> app.setNow("Not run: the current task is not complete")).show();
         return true;
+    }
+
+    /** A reconnect (the run timed out while its workflow goes on on Sogni): its File > Downloads run, its note, and how many so far. */
+    Long pkReconnectDownload;
+    String pkReconnectNote;
+    int pkReconnects;
+    /** The run shown on the "Running…" line (its time and news), and that line as set last. */
+    pulsekit.JavaRun.Live pkLive;
+    String pkLiveShown;
+    /** DrumMidi's "no hits yet, abort?" question shown last, for the tests. */
+    android.app.AlertDialog pkAskAbort;
+
+    /** Every second while the run goes: "Running… 2:05 · Status: processing", while the text below Run is still that line. */
+    void pkTickLive(final pulsekit.JavaRun.Live live, final String head) {
+        if (this.pkPyLog == null) return;
+        this.pkPyLog.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (pkLive != live || pkPyLog == null || live.done || live.aborted()) return;
+                // DrumMidi without a hit for a while: asked whether to abort.
+                String noHits = pulsekit.JavaRun.noHitsQuestion(app.pyName, live, System.currentTimeMillis());
+                if (noHits != null) {
+                    live.askedAt = System.currentTimeMillis();
+                    pkAskAbort = new android.app.AlertDialog.Builder(app).setTitle(app.pyName).setMessage(noHits)
+                        .setPositiveButton("Abort", (d, w) -> {
+                            live.abort();
+                            app.setNow("Aborting " + app.pyName + "\u2026");
+                        })
+                        .setNegativeButton("Keep waiting", (d, w) -> live.askedAt = System.currentTimeMillis()).show();
+                }
+                if (pkLiveShown != null && pkLiveShown.equals(pkPyLog.getText().toString())) {
+                    String line = head + pulsekit.JavaRun.runningLine(live, System.currentTimeMillis());
+                    pkPyLog.setText(line);
+                    pkLiveShown = line;
+                }
+                pkPyLog.postDelayed(this, 1000);
+            }
+        }, 1000);
+    }
+
+    /** Why a run is joined again: "timed out after 1200 s", or its failure. */
+    static String pkReconnectWhy(String log) {
+        String why = "timed out";
+        for (String line : (log == null ? "" : log).split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Timed out (")) why = "timed out after " + t.substring(11).replace(").", "").replace(")", "");
+            else if (t.startsWith("Failed: ")) why = t.substring(8);
+        }
+        return why.length() > 100 ? why.substring(0, 100) + "\u2026" : why;
     }
 
     public void pkRunPyJav() {
@@ -651,13 +734,74 @@ final class PyJav {
         if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
+        // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
+        String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
+        this.pkDrumsWarned = false;
+        if (drums != null) {
+            if (this.pkPyLog != null) this.pkPyLog.setText(drums);
+            app.setNow("SogniMusic's test needs drums");
+            this.pkAskDrums = new android.app.AlertDialog.Builder(app).setTitle("SogniMusic test").setMessage(drums)
+                .setPositiveButton("Run anyway", (d, w) -> {
+                    this.pkDrumsWarned = true;
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run: SogniMusic's test needs drums")).show();
+            return;
+        }
         this.pkLastArgv = argv;
-        this.pkDone(this.pkPending);
-        this.pkPending = pulsekit.PendingOps.guarded(name, false) ? pulsekit.PendingOps.add(name, pulsekit.PendingOps.files(argv)) : null;
-        // File > Downloads: the Sogni run is in progress until its result is in.
+        // Each run keeps its own pending entry and File > Downloads run (PyJavUi.Run): one started
+        // while another goes no longer takes over the other's (which then stayed In progress).
+        this.pkPending = pulsekit.PendingOps.guarded(name, false) ? pulsekit.PendingOps.add(name, pulsekit.PendingOps.files(argv), this.pkSaveRun || pulsekit.PendingOps.storesInDb(argv)) : null;
+        // File > Downloads: the Sogni run is in progress until its result is in (a reconnect carries on its run).
         pulsekit.SogniDownloads.init(app.getFilesDir());
-        if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
-        pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app));
+        Long reuse = this.pkReconnectDownload;
+        this.pkReconnectDownload = null;
+        String note = this.pkReconnectNote;
+        this.pkReconnectNote = null;
+        if (note == null) this.pkReconnects = 0;
+        if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
+        pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
+        if (note != null) live.add(note + "\n");
+        String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";
+        this.pkLive = live;
+        if (this.pkPyLog != null) {
+            this.pkPyLog.setText(head + "Running\u2026");
+            this.pkLiveShown = this.pkPyLog.getText().toString();
+        }
+        this.pkTickLive(live, head);
+    }
+
+    /** The run's own pending entry, arguments and Save this run into DB, before its result is shown (PyJavUi.Run). */
+    public void pkShowPyResult(pulsekit.JavaRun.Result result, String pending, java.util.List<String> argv, boolean saveRun, String src) {
+        this.pkPending = pending;
+        this.pkLastArgv = argv;
+        this.pkSaveRun = saveRun;
+        // Timed out (or the network went away) while the workflow goes on on Sogni: joined again.
+        String log = result == null ? null : result.log;
+        java.util.List<String> again = this.pkReconnects < pulsekit.JavaRun.RECONNECTS ? pulsekit.JavaRun.reconnectArgs(app.pyName, src, log, argv) : null;
+        if (again != null && result != null && result.files != null && !result.files.isEmpty()) {
+            boolean media = false;
+            for (int i = 0; i < result.files.size(); i++) if (((pulsekit.JavaRun.FileOut) result.files.get(i)).name.toLowerCase().matches(".*\\.(mp4|webm|mov|mp3|wav|png|jpe?g|webp)$")) media = true;
+            if (media) again = null;
+        }
+        if (again != null) {
+            this.pkReconnects++;
+            if (saveRun) again.add(pulsekit.PromptKeep.SAVE_RUN);
+            String note = "Reconnecting to workflow " + pulsekit.JavaRun.workflowOf(again) + " (" + pkReconnectWhy(log) + "; try " + this.pkReconnects + " of " + pulsekit.JavaRun.RECONNECTS + ")\u2026";
+            pulsekit.PendingOps.done(pending);
+            Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
+            if (download != null) pulsekit.SogniDownloads.reconnecting(download.longValue(), note);
+            this.pkReconnectDownload = download;
+            this.pkReconnectNote = note;
+            this.pkPending = null;
+            this.pkForcedArgs = again;
+            this.pkRunConfirmed = true;
+            this.pkDrumsWarned = true;
+            app.setNow(note);
+            this.pkRunPyJav();
+            return;
+        }
+        this.pkShowPyResult(result);
     }
 
     public void pkAcceptOutput(String answer) {
@@ -993,10 +1137,13 @@ final class PyJav {
             if (browse != null) MediaBrowser.open(app, browse);
         });
         } catch (Throwable ex) {
-            this.pkDone(this.pkPending);
-            this.pkPending = null;
             String m = ex.getMessage();
             status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
+            // File > Downloads says so too (it was left In progress before).
+            Long download = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
+            if (download != null) pulsekit.SogniDownloads.result(download.longValue(), status, log, ArtJava.SAVED);
+            this.pkDone(this.pkPending);
+            this.pkPending = null;
             if (this.pkPyHint != null) this.pkPyHint.setText(status);
             app.setNow(status);
             android.widget.Toast.makeText(app, status, 1).show();
