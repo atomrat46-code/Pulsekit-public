@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -21,7 +21,16 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state
                   close the window, and its settings are saved (to --state, else
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
+  --dir           renders every MIDI file in the folder (the plugin loads once): <midi>-<plugin>.wav
+                  beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
+  --test          then runs DrumMidi_CRT on each WAV and compares its hits with the MIDI played, per
+                  drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
+                  and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
+                  and Java (--java).
   --scan          lists the plugins in the usual VST folders, then stops.
+
+The plugins' own delay (lookahead, oversampling) is taken off the start, so the hits land where
+the MIDI has them.
 
 Carla (free) can be the plugin too: its Carla-Rack or Carla-Patchbay VST hosts other plugins
 (also LV2, SFZ and SoundFonts); set it up with --edit.
@@ -102,17 +111,17 @@ def var_len(d, p):
     return v, p
 
 
-def midi_length(path):
-    """The time of the MIDI file's last note-off (or event) in seconds, following tempo changes, and its note count."""
+def midi_notes(path):
+    """The MIDI file's length (its last event) in seconds and its notes as (seconds, note), following tempo changes."""
     d = open(path, "rb").read()
     if d[:4] != b"MThd":
-        fail("%s is not a MIDI file" % os.path.basename(path))
+        raise ValueError("%s is not a MIDI file" % os.path.basename(path))
     ppq = struct.unpack(">H", d[12:14])[0]
     if ppq & 0x8000:
-        fail("SMPTE-timed MIDI files are not supported")
+        raise ValueError("SMPTE-timed MIDI files are not supported")
     ppq = ppq or 480
     i = 8 + struct.unpack(">I", d[4:8])[0]
-    events, tempos, notes = [], [], 0
+    events, tempos, ons = [], [], []
     while i + 8 <= len(d):
         kind, size = d[i:i + 4], struct.unpack(">I", d[i + 4:i + 8])[0]
         p, end, tick, status = i + 8, min(len(d), i + 8 + size), 0, 0
@@ -140,20 +149,85 @@ def midi_length(path):
                 p += 1
             else:
                 if hi == 0x90 and p + 1 < len(d) and d[p + 1] > 0:
-                    notes += 1
+                    ons.append((tick, d[p]))
                 p += 2
             events.append(tick)
         i += 8 + size
-    last = max(events) if events else 0
     tempos.sort()
-    secs, at, us = 0.0, 0, 500000
-    for tick, t in tempos:
-        if tick >= last:
-            break
-        secs += (tick - at) * us / 1e6 / ppq
-        at, us = tick, t
-    secs += (last - at) * us / 1e6 / ppq
-    return secs, notes
+
+    def seconds(tick):
+        secs, at, us = 0.0, 0, 500000
+        for t, v in tempos:
+            if t >= tick:
+                break
+            secs += (t - at) * us / 1e6 / ppq
+            at, us = t, v
+        return secs + (tick - at) * us / 1e6 / ppq
+
+    last = max(events) if events else 0
+    return seconds(last), sorted((seconds(t), n) for t, n in ons)
+
+
+# Drum families for --test, as Pulsekit's CompareHits groups them (hats, rides and crashes also together).
+FAMILIES = (("Kick", (35, 36)), ("Snare", (37, 38, 39, 40)), ("Hats", (42, 44, 46)),
+            ("Ride", (51, 53, 59)), ("Crash", (49, 52, 55, 57)), ("Toms", (41, 43, 45, 47, 48, 50)),
+            ("Cymbals", (42, 44, 46, 49, 51, 52, 53, 55, 57, 59)))
+TOLERANCE = 0.03
+
+
+def matched(truth, found, shift):
+    """How many found hits are within TOLERANCE of a played hit (each played hit used once), with found shifted."""
+    import bisect
+    used, ok = set(), 0
+    for x in found:
+        x += shift
+        j = bisect.bisect_left(truth, x - TOLERANCE)
+        while j < len(truth) and truth[j] <= x + TOLERANCE:
+            if j not in used:
+                used.add(j)
+                ok += 1
+                break
+            j += 1
+    return ok
+
+
+def score(played, found, end):
+    """Per family (played, found, matched), after the best shift of DrumMidi's hits within 100 ms; and the shift."""
+    played = [(t, n) for t, n in played if t < end]
+    every_t = sorted(t for t, n in played)
+    every_f = sorted(t for t, n in found)
+    shift = max((matched(every_t, every_f, s / 1000.0), -abs(s), s / 1000.0) for s in range(-100, 101, 2))[2]
+    rows = []
+    for name, notes in FAMILIES:
+        t = sorted(x for x, n in played if n in notes)
+        f = sorted(x for x, n in found if n in notes)
+        rows.append((name, len(t), len(f), matched(t, f, shift)))
+    return rows, shift
+
+
+def score_line(rows):
+    parts = []
+    for name, played, found, ok in rows:
+        if played == 0 and found == 0:
+            continue
+        parts.append("%s %d/%d P%3.0f R%3.0f" % (name, ok, played, 100.0 * ok / max(1, found), 100.0 * ok / max(1, played)))
+    return "  ".join(parts)
+
+
+def drum_midi(java, jar, wav, mid):
+    """DrumMidi_CRT on the WAV; returns its notes, or an error text."""
+    import subprocess
+    try:
+        # DrumMidi_CRT writes into its working folder: run it in the WAV's.
+        where = os.path.dirname(os.path.abspath(mid))
+        r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(wav), os.path.basename(mid)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
+    except Exception as e:
+        return "DrumMidi_CRT did not run (%s)" % e
+    if r.returncode != 0 or not os.path.isfile(mid):
+        tail = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        return "DrumMidi_CRT failed (%s)" % tail[0]
+    return midi_notes(mid)[1]
 
 
 def read_wav(path, rate):
@@ -263,9 +337,90 @@ def load_plugin(engine, name, path):
         fail("could not load %s (%s). Is it a 64-bit VST2 or VST3 plugin for this computer?" % (os.path.basename(path), e))
 
 
+def collect(folder, recursive):
+    """The MIDI files in the folder (and its subfolders), not DrumMidi's own (*-dm.mid) from a --test."""
+    found = []
+    for root, dirs, names in os.walk(folder):
+        dirs.sort()
+        for n in sorted(names):
+            if n.lower().endswith((".mid", ".midi")) and not n.lower().endswith("-dm.mid"):
+                found.append(os.path.join(root, n))
+        if not recursive:
+            break
+    return found
+
+
+class Chain(object):
+    """The plugin (and the effect) loaded once, with their settings, for every file of a run."""
+
+    def __init__(self, daw, rate, opts, switches):
+        self.engine = daw.RenderEngine(rate, 512)
+        self.rate = rate
+        self.plugin = opts["--plugin"]
+        self.main = load_plugin(self.engine, "plugin", self.plugin)
+        print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
+        if "--edit" in switches:
+            edit(self.main, self.plugin, opts["--state"], "Plugin")
+        else:
+            print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
+        self.fx = None
+        effect = opts["--effect"]
+        if effect:
+            self.fx = load_plugin(self.engine, "effect", effect)
+            print("Effect: %s" % os.path.basename(os.path.normpath(effect)))
+            if "--edit" in switches:
+                edit(self.fx, effect, opts["--effect_state"], "Effect")
+            else:
+                print(apply_state(self.fx, effect, opts["--effect_state"], "Effect"))
+
+    def latency(self):
+        n = self.main.get_latency_samples()
+        if self.fx is not None:
+            n += self.fx.get_latency_samples()
+        return max(0, int(n))
+
+    def render(self, np, midi=None, wav=None, tail=2.0):
+        """The audio (2 x samples) of the MIDI or the WAV through the chain, its latency taken off; and its length."""
+        graph = []
+        if wav:
+            data, length = read_wav(wav, self.rate)
+            graph.append((self.engine.make_playback_processor("input", data), []))
+            graph.append((self.main, ["input"]))
+        else:
+            length = midi_notes(midi)[0]
+            if not self.main.load_midi(os.path.abspath(midi), clear_previous=True, beats=False, all_events=True):
+                raise ValueError("the plugin could not take %s" % os.path.basename(midi))
+            graph.append((self.main, []))
+        if self.fx is not None:
+            graph.append((self.fx, ["plugin"]))
+        if not self.engine.load_graph(graph):
+            raise ValueError("the plugins could not be connected")
+        late = self.latency()
+        self.engine.render(length + tail + late / float(self.rate))
+        audio = np.asarray(self.engine.get_audio(), dtype=np.float32)
+        if audio.ndim == 1:
+            audio = audio[None, :]
+        if audio.shape[0] == 1:
+            audio = np.vstack([audio, audio])
+        # The plugins' own delay (lookahead, oversampling): the hits land where the MIDI has them.
+        return audio[:2, late:], length, late
+
+
+def finish(np, audio, volume):
+    """The audio at the volume asked, turned down to fit where it would clip; and a note about it, or None."""
+    audio = audio * (volume / 100.0)
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak < 1e-6:
+        return audio, "the render is silent. Does the plugin need a kit or patch loaded (--edit), or is it an effect (--wav)?"
+    if peak > 1.0:
+        return audio / peak * 0.999, "turned down %.1f dB so it does not clip" % (20 * np.log10(peak / 0.999))
+    return audio, None
+
+
 def main(argv):
     opts = {"--plugin": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
-            "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16"}
+            "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
+            "--drummidi": None, "--java": "java"}
     switches = set()
     files = []
     i = 0
@@ -277,7 +432,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan"):
+        if a in ("--edit", "--scan", "--recursive", "--test"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -292,8 +447,26 @@ def main(argv):
     plugin = opts["--plugin"]
     if not plugin:
         fail("no plugin: give one with --plugin (--scan lists the installed ones)")
-    if not midi and not opts["--wav"]:
-        fail("no MIDI file to play (or a WAV with --wav)")
+    folder = opts["--dir"]
+    if folder:
+        if not os.path.isdir(folder):
+            fail("no folder %s" % folder)
+        if opts["--wav"]:
+            fail("--dir plays MIDI files; --wav is for one WAV")
+        batch = collect(folder, "--recursive" in switches)
+        if not batch:
+            fail("no MIDI files in %s" % folder)
+    elif not midi and not opts["--wav"]:
+        fail("no MIDI file to play (or a WAV with --wav, or a folder with --dir)")
+    else:
+        batch = None
+    test = "--test" in switches
+    if test:
+        if opts["--wav"]:
+            fail("--test checks a MIDI's render; --wav has no MIDI to check against")
+        jar = opts["--drummidi"]
+        if not jar or not os.path.isfile(jar):
+            fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     try:
         rate = int(opts["--rate"])
         tail = float(opts["--tail"])
@@ -314,65 +487,92 @@ def main(argv):
     except ImportError as e:
         fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
 
-    engine = daw.RenderEngine(rate, 512)
-    main_proc = load_plugin(engine, "plugin", plugin)
-    print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(plugin)), main_proc.get_num_input_channels(), main_proc.get_num_output_channels()))
-    if "--edit" in switches:
-        opts["--state"] = edit(main_proc, plugin, opts["--state"], "Plugin")
+    chain = Chain(daw, rate, opts, switches)
+    late = chain.latency()
+    if late:
+        print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
+    if batch is None:
+        source = opts["--wav"] or midi
+        if not os.path.isfile(source):
+            fail("no file at %s" % source)
+        if midi and not opts["--wav"]:
+            length, notes = midi_notes(midi)
+            if not notes:
+                fail("%s has no notes" % os.path.basename(midi))
+            print("MIDI: %s, %d notes, %.1f s" % (os.path.basename(midi), len(notes), length))
+        try:
+            audio, length, late = chain.render(np, midi=None if opts["--wav"] else midi, wav=opts["--wav"], tail=tail)
+        except ValueError as e:
+            fail(str(e))
+        if opts["--wav"]:
+            print("Input: %s, %.1f s" % (os.path.basename(source), length))
+        audio, note = finish(np, audio, volume)
+        if note:
+            print("Note: " + note)
+        if not out:
+            out = "%s-%s.wav" % (stem(source), stem(plugin))
+        if opts["--outdir"]:
+            if not os.path.isdir(opts["--outdir"]):
+                os.makedirs(opts["--outdir"])
+            out = os.path.join(opts["--outdir"], os.path.basename(out))
+        write_wav(out, audio, rate, bits)
+        print("Wrote %s: %.1f s, %d Hz, %d-bit stereo" % (out, audio.shape[1] / float(rate), rate, bits))
+        batch_done = [(midi, out)]
     else:
-        print(apply_state(main_proc, plugin, opts["--state"], "Plugin"))
-    graph = []
-    if opts["--wav"]:
-        if not os.path.isfile(opts["--wav"]):
-            fail("no WAV at %s" % opts["--wav"])
-        data, length = read_wav(opts["--wav"], rate)
-        play = engine.make_playback_processor("input", data)
-        graph.append((play, []))
-        graph.append((main_proc, ["input"]))
-        source = opts["--wav"]
-        print("Input: %s, %.1f s" % (os.path.basename(source), length))
+        print("vst_render: %d MIDI file%s in %s%s" % (len(batch), "" if len(batch) == 1 else "s", folder, " (and its subfolders)" if "--recursive" in switches else ""))
+        batch_done = []
+        for m in batch:
+            try:
+                audio, length, _ = chain.render(np, midi=m, tail=tail)
+            except Exception as e:
+                print("Failed %s: %s" % (os.path.relpath(m, folder), e))
+                continue
+            audio, note = finish(np, audio, volume)
+            where = opts["--outdir"] or os.path.dirname(m)
+            if opts["--outdir"]:
+                # Subfolders are kept under --outdir.
+                where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
+            if not os.path.isdir(where):
+                os.makedirs(where)
+            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(plugin)))
+            write_wav(o, audio, rate, bits)
+            print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
+            batch_done.append((m, o))
+    if test:
+        report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
+                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(plugin)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
+        total = {}
+        for m, o in batch_done:
+            dm = os.path.splitext(o)[0] + "-dm.mid"
+            found = drum_midi(opts["--java"], opts["--drummidi"], o, dm)
+            name = os.path.basename(o)
+            if isinstance(found, str):
+                report.append("%s: %s" % (name, found))
+                continue
+            length, played = midi_notes(m)
+            rows, shift = score(played, found, length + 0.05)
+            for fam, t, f, ok in rows:
+                v = total.setdefault(fam, [0, 0, 0])
+                v[0] += t
+                v[1] += f
+                v[2] += ok
+            report.append("%s (shift %+d ms): %s" % (name, round(shift * 1000), score_line(rows)))
+        if total:
+            report.append("")
+            report.append("All: " + score_line([(fam, total[fam][0], total[fam][1], total[fam][2]) for fam, notes in FAMILIES if fam in total]))
+        text = "\n".join(report)
+        print("")
+        print(text)
+        where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1])))
+        rep = os.path.join(where, "vst-test-%s.txt" % stem(plugin))
+        with open(rep, "w") as f:
+            f.write(text + "\n")
+        print("Wrote %s" % rep)
+    if batch is not None:
+        print("Succeeded: %d of %d MIDI files rendered" % (len(batch_done), len(batch)))
     else:
-        if not os.path.isfile(midi):
-            fail("no MIDI file at %s" % midi)
-        length, notes = midi_length(midi)
-        if notes == 0:
-            fail("%s has no notes" % os.path.basename(midi))
-        if not main_proc.load_midi(os.path.abspath(midi), clear_previous=True, beats=False, all_events=True):
-            fail("the plugin could not take %s" % os.path.basename(midi))
-        graph.append((main_proc, []))
-        source = midi
-        print("MIDI: %s, %d notes, %.1f s" % (os.path.basename(midi), notes, length))
-    last = "plugin"
-    effect = opts["--effect"]
-    if effect:
-        fx = load_plugin(engine, "effect", effect)
-        print("Effect: %s" % os.path.basename(os.path.normpath(effect)))
-        if "--edit" in switches:
-            edit(fx, effect, opts["--effect_state"], "Effect")
-        else:
-            print(apply_state(fx, effect, opts["--effect_state"], "Effect"))
-        graph.append((fx, [last]))
-    if not engine.load_graph(graph):
-        fail("the plugins could not be connected")
-    seconds = length + tail
-    engine.render(seconds)
-    audio = np.asarray(engine.get_audio(), dtype=np.float32)
-    if audio.ndim == 1:
-        audio = audio[None, :]
-    if audio.shape[0] == 1:
-        audio = np.vstack([audio, audio])
-    audio = audio[:2] * (volume / 100.0)
-    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
-    if peak < 1e-6:
-        print("Note: the render is silent. Does the plugin need a kit or patch loaded (--edit), or is it an effect (--wav)?")
-    elif peak > 1.0:
-        audio = audio / peak * 0.999
-        print("Note: turned down %.1f dB so it does not clip" % (20 * np.log10(peak / 0.999)))
-    if not out:
-        out = "%s-%s.wav" % (stem(source), stem(plugin))
-    write_wav(out, audio, rate, bits)
-    print("Wrote %s: %.1f s, %d Hz, %d-bit stereo" % (out, audio.shape[1] / float(rate), rate, bits))
-    print("Succeeded: %s" % out)
+        print("Succeeded: %s" % batch_done[0][1])
 
 
 if __name__ == "__main__":

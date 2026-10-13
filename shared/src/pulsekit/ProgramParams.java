@@ -508,6 +508,18 @@ public final class ProgramParams {
       p.label = "Edit: open the plugin's window first (load a kit, close it: the settings are saved)";
     } else if (p.token.equals("--scan")) {
       p.label = "List the installed plugins (then stop)";
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Render every MIDI in this folder (instead of one)";
+      p.hint = "empty: the MIDI file above";
+    } else if (p.token.equals("--recursive")) {
+      p.label = "Its subfolders too";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Folder for the WAVs";
+      p.hint = "empty: beside each MIDI";
+    } else if (p.token.equals("--test")) {
+      p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     }
   }
 

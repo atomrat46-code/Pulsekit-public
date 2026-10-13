@@ -4119,6 +4119,11 @@ public final class DesktopBehavior {
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     for (int i = 0; i < 400 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
     for (String line : log.getText().split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
+    // --test: Pulsekit's DrumMidi_CRT.jar and Java are handed on (not twice, not without --test).
+    File jar = new File(System.getProperty("user.home"), "tools/DrumMidi_CRT.jar");
+    java.util.List<String> args = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid", "--test"), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    out.append("test args: ").append(String.join(" ", args).replace(System.getProperty("user.home"), "~").replace(System.getProperty("java.home"), "<java.home>")).append(", jar ").append(jar.length() > 10000).append('\n');
+    out.append("without --test: ").append(JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid"), jar, new byte[1])).append('\n');
   }
 
   void s94_wav_folder() throws Exception {

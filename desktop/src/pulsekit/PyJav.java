@@ -401,6 +401,14 @@ final class PyJav {
             MediaBrowser.loadLoop();
             runArgs = MediaDir.withLastRoot(runArgs);
         }
+        // vst_render.py --test: Pulsekit's DrumMidi_CRT.jar and this Java for it.
+        if ("vst_render.py".equals(name) && runArgs.contains("--test")) {
+            try {
+                runArgs = JavaRun.withDrumMidi(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar"), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+            } catch (Exception ex) {
+                app.setNow("Could not hand DrumMidi_CRT.jar to the test: " + ex.getMessage());
+            }
+        }
         // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
         boolean saving = false;
         while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
