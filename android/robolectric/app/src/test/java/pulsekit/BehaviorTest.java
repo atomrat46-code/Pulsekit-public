@@ -1430,6 +1430,19 @@ public class BehaviorTest {
     d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("args: ").append(args.getText()).append('\n');
+    // A folder switch (--dir) has Clear: it unsets the folder.
+    args.setText("--dir /x/takes /x/song.wav");
+    call("pkOpenParams");
+    idle();
+    d = (AlertDialog) ShadowDialog.getLatestDialog();
+    dv = d.getWindow().getDecorView();
+    TextView clear = (TextView) dv.findViewWithTag("params-clear:--dir");
+    out.append("clear button: ").append(clear == null ? "none" : clear.getText()).append('\n');
+    clear.performClick();
+    out.append("--dir row: ").append(((TextView) dv.findViewWithTag("params-chosen:--dir")).getText()).append('\n');
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args after Clear: ").append(args.getText()).append('\n');
     write("s43_cutwav_params", out.toString());
   }
 

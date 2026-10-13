@@ -1461,6 +1461,16 @@ final class PyJav {
                 });
                 row.add(browse, BorderLayout.WEST);
                 row.add(chosen, BorderLayout.CENTER);
+                if (p.flag) {
+                    // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.
+                    JButton clear = new JButton("Clear");
+                    clear.setName("params-clear:" + p.token);
+                    clear.addActionListener(e -> {
+                        values[index] = "";
+                        chosen.setText(MediaDir.label(values[index]));
+                    });
+                    row.add(clear, BorderLayout.EAST);
+                }
                 form.add(row);
                 continue;
             }

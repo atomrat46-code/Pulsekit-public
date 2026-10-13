@@ -4121,6 +4121,18 @@ public final class DesktopBehavior {
     String[] cut = parts.isDirectory() ? parts.list() : new String[0];
     java.util.Arrays.sort(cut);
     out.append("outdir: ").append(String.join(" ", cut)).append('\n');
+    // Params: Clear by the folder rows unsets them (one file is processed again).
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + folder.getPath() + "\" --outdir \"" + parts.getPath() + "\" song.wav"));
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton clear = (javax.swing.JButton) component(d, "params-clear:--dir");
+      seen.append("clear button: ").append(clear == null ? "none" : clear.getText()).append('\n');
+      clear.doClick();
+      seen.append("--dir row: ").append(((javax.swing.JLabel) component(d, "params-chosen:--dir")).getText()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    out.append(seen).append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getPath(), "~")).append('\n');
   }
 
   void s93_runs_and_exports() throws Exception {
