@@ -87,6 +87,7 @@ public class DrumMidi_CRT{
      */
     static final double GHOST_PITCH_LO = 0.95, GHOST_PITCH_HI = 1.25, GHOST_LIKE = 0.95;
     static final int GHOST_SNARES = 16;
+    static final double GHOST_DELTA = 0.5;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
@@ -464,9 +465,15 @@ public class DrumMidi_CRT{
         }
         // Ghost notes too soft for their wires to show: the loud snares' body, played softly.
         SnareBody loudSnare = new SnareBody(mag, hits, sr);
+        // Softer still (under the peak threshold, or between the hits of a drag): picked again at
+        // GHOST_DELTA of it, they count only with the song's snare body.
+        boolean[] near = new boolean[snare.length];
+        for (Integer p : snarePeaks) mark(near, p.intValue(), 2);
+        for (Integer p : pickPeaks(snare, delta * GHOST_DELTA, 3)) if (!near[p.intValue()] && !notSnares.contains(p)) notSnares.add(p);
         for (Integer p : notSnares) {
             int t = p.intValue();
-            if (jump(bodyLevel, t) < GHOST_JUMP / sens || jump(kickLevel, t) >= KICK_JUMP || !loudSnare.ghost(mag, t)) continue;
+            if (near[t] || jump(bodyLevel, t) < GHOST_JUMP / sens || jump(kickLevel, t) >= KICK_JUMP || !loudSnare.ghost(mag, t)) continue;
+            mark(near, t, 2);
             snarePeaks.add(p);
             snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
