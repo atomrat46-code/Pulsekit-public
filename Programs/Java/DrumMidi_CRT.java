@@ -74,6 +74,11 @@ public class DrumMidi_CRT{
      * none, and no bass note is there to mistake. A kick whose low pitch is TOM_OVER_KICK times the
      * song's kick pitch (and at least FLOOR_TOM_HZ), where no bass line plays, is a floor tom.
      */
+    /**
+     * A "tom" whose snare body band jumps TOM_SNARE_BODY or more is a snare whose wires do not ring
+     * on (1.00-1.22; toms raise it 0.22-0.73).
+     */
+    static final double TOM_SNARE_BODY = 0.9;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
@@ -86,6 +91,12 @@ public class DrumMidi_CRT{
     static final double OPEN_TOP = 0.3, OPEN_MID = 0.2, OPEN_SWELL = 1.0, OPEN_BAND = 0.3;
     /** At a kick or snare, a hat raises the hat band's level by HAT_OVER_DRUM (0.13 and more); the drum's own leak raises it about 0.06. */
     static final double HAT_OVER_DRUM = 0.1;
+    /**
+     * A kick louder than the hat band whose hat level rises less than KICK_HAT_JUMP (its click
+     * leaking, 0.03-0.13), and a snare whose rise stays under SNARE_HAT_JUMP (its wires, 0.27-0.64;
+     * a hat struck with it 0.68 and more), are hats only where they keep the hats' time.
+     */
+    static final double KICK_HAT_JUMP = 0.15, SNARE_HAT_JUMP = 0.66, SNARE_LIKE = 0.65, SNARE_LIKE_BODY = 0.5;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
@@ -439,6 +450,8 @@ public class DrumMidi_CRT{
         boolean[] under = new boolean[nHats];
         // Taken for a ride or crash (their band rings on): a hat after all if neither is found there.
         boolean[] maybeCymbal = new boolean[nHats];
+        // Snare-like: a run of them keeping time among themselves are hats (a count-in, hats alone).
+        boolean[] snareLike = new boolean[nHats];
         for (int i = 0; i < nHats; i++) {
             int t = hatPeaks.get(i).intValue();
             if (isCrash(ride, top, rideEnergy, topEnergy, t) || ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) {
@@ -449,8 +462,21 @@ public class DrumMidi_CRT{
                 under[i] = jump(hatLevel, t) >= HAT_OVER_DRUM;
                 continue;
             }
+            double rise = jump(hatLevel, t);
+            if (kick[t] > hat[t] && rise < KICK_HAT_JUMP) {
+                under[i] = true;
+                continue;
+            }
+            if (rise < SNARE_HAT_JUMP && snare[t] >= hat[t] * SNARE_LIKE && snareBody[t] >= SNARE_LIKE_BODY && kick[t] < snare[t]) {
+                under[i] = true;
+                snareLike[i] = true;
+                continue;
+            }
             keep[i] = true;
         }
+        boolean[] kept = new boolean[nHats];
+        for (int i = 0; i < nHats; i++) kept[i] = keep[i] || snareLike[i];
+        for (int i = 0; i < nHats; i++) if (snareLike[i] && keepsTime(hatPeaks, kept, i)) keep[i] = true;
         for (boolean more = true; more; ) {
             more = false;
             for (int i = 0; i < nHats; i++) {
@@ -463,6 +489,8 @@ public class DrumMidi_CRT{
             if (!keep[i]) continue;
             int t = hatPeaks.get(i).intValue();
             boolean open = openHat(hatRaw, hatPeaks, i);
+            // A pedal hat's chick reaches the hat band: no closed hat on it.
+            if (!open && onPedal(hits, t * (double) HOP / sr)) continue;
             hits.add(new Hit(t * (double) HOP / sr, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
         List<Integer> ridePeaks = cymbals ? pickPeaks(ride, (BASE_DELTA * 0.9) / Math.max(0.05, rideSens), 5) : new ArrayList<Integer>();
@@ -493,6 +521,7 @@ public class DrumMidi_CRT{
             }
             if (found) continue;
             boolean open = openHat(hatRaw, hatPeaks, i);
+            if (!open && onPedal(hits, time)) continue;
             hits.add(new Hit(time, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
         }
         List<Integer> tomPeaks = pickPeaks(toms, BASE_DELTA / Math.max(0.05, tomSens), 4);
@@ -504,6 +533,10 @@ public class DrumMidi_CRT{
             // and its body is a tone without wires. Over a band, bass notes are told apart by the stick.
             if (jump(tomLevel, t) < TOM_JUMP / Math.max(0.05, tomSens) || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
             if (!quietBefore(tomLevel, t) && (near(attack, t) < TOM_ATTACK || near(tomRise, t) < TOM_RISE)) continue;
+            if (jump(bodyLevel, t) >= TOM_SNARE_BODY) {
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+                continue;
+            }
             double f = floor[t], m = mid[t], r = rack[t];
             int note;
             double strength;
@@ -1307,6 +1340,12 @@ public class DrumMidi_CRT{
      * HAT_TIME_MAX frames, equal within 40% (hat onsets land a few frames early or late: 16ths at
      * 100 BPM come out 11 and 15 frames apart).
      */
+    /** Whether a pedal hat was found within SAME_CYMBAL of the time. */
+    static boolean onPedal(List<Hit> hits, double time) {
+        for (Hit h : hits) if (h.note == PEDAL_HAT && Math.abs(h.time - time) <= SAME_CYMBAL) return true;
+        return false;
+    }
+
     static boolean keepsTime(List<Integer> peaks, boolean[] keep, int i) {
         int t = peaks.get(i).intValue();
         int[] before = new int[2], after = new int[2];
