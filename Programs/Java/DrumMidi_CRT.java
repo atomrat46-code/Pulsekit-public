@@ -83,6 +83,12 @@ public class DrumMidi_CRT{
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
     static final int RISE_KICKS = 16;
+    /**
+     * A kick whose third partial rings louder than its fundamental reads OVERTONE_LO-OVERTONE_HI times
+     * the song's kick pitch (3.06-3.18 seen) and keeps its low end (under 70 Hz, OVERTONE_SUB of the
+     * level at its pitch or more: 0.77-1.22); toms there read 1.3-2.2 times, or 3.39 with 0.32-0.55.
+     */
+    static final double OVERTONE_LO = 2.8, OVERTONE_HI = 3.2, OVERTONE_SUB = 0.6;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
     static final double SHUFFLE_BEAT = 0.5;
     /**
@@ -1304,6 +1310,8 @@ public class DrumMidi_CRT{
             int t = kickFrames.get(i).intValue();
             // A tom whose body reads as low as the kick (some kits tune them so) rises well above the
             // song's kicks in what is new at it (TOM_RISE_PITCH of their median; RISE_KICKS kicks at least).
+            // A kick read at its third partial, in its pitch or in what is new at it, stays a kick.
+            if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
             if (p.length >= RISE_KICKS && rise[i] >= TOM_RISE_PITCH * usualRise && rise[i] >= FLOOR_TOM_HZ && wiresLeft(noiseLevel, t) < TOM_WIRES) {
                 floorTom(hits, t * (double) HOP / sr);
                 continue;
@@ -1314,6 +1322,18 @@ public class DrumMidi_CRT{
             if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
             floorTom(hits, t * (double) HOP / sr);
         }
+    }
+
+    /** A kick read at its third partial (OVERTONE_LO-OVERTONE_HI of the kick pitch) whose low end is still there. */
+    static boolean overtoneKick(float[][] mag, int t, double pitch, double kickPitch, double sr) {
+        if (pitch < OVERTONE_LO * kickPitch || pitch > OVERTONE_HI * kickPitch) return false;
+        double sub = 0, at = 0;
+        for (int k = t; k <= Math.min(mag.length - 1, t + 3); k++) {
+            int maxBin = mag[k].length - 1;
+            for (int b = bin(30, sr, maxBin); b <= bin(70, sr, maxBin); b++) sub = Math.max(sub, mag[k][b]);
+            for (int b = bin(pitch * 0.85, sr, maxBin); b <= bin(pitch * 1.15, sr, maxBin); b++) at = Math.max(at, mag[k][b]);
+        }
+        return at > 1e-9 && sub >= OVERTONE_SUB * at;
     }
 
     /** The kick found at `time` becomes a floor tom. */
