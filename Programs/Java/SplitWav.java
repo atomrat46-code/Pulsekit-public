@@ -1,14 +1,17 @@
 /**
- * SplitWav: splits a WAV file in two at one point and writes both parts as WAV files.
+ * SplitWav: splits a WAV file into parts and writes them as WAV files: in two, or when the file is
+ * longer than two parts (--split_time) or larger than two (--split_lenght), into as many parts as
+ * needed, each the given length or size (the last one what is left).
  *
  *   java SplitWav <input.wav> [--output_file1 <part1.wav>] [--output_file2 <part2.wav>] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N]
  *
  * --output_file1  The first part, 00:00 up to the split. Default: <input>_split1.wav next to the input.
- * --output_file2  The second part, the split to the end. Default: <input>_split2.wav.
- * --split_time    Split at this time: mm:ss, or mm:ss.ms with milliseconds (02:45.250).
+ * --output_file2  The second part, the split to the end (or to the next split). Default: <input>_split2.wav.
+ *                 Parts 3, 4... are <input>_split3.wav... (with --output_file2 given: <its name>_3.wav...).
+ * --split_time    Split at this time: mm:ss, or mm:ss.ms with milliseconds (02:45.250); each part this long.
  *                 mm.ss works too (02.45 = 2 min 45 s), and a plain number is seconds.
  * --split_lenght  Split where the first part's file reaches this many MB (1 MB = 1,000,000 bytes),
- *                 e.g. 29.5, so it fits an upload limit. --split_length works too.
+ *                 e.g. 29.5, so it fits an upload limit; each part at most this size. --split_length works too.
  *                 With both, the earlier split wins.
  * --trim          Move the split to the nearest bar line (4 beats). The tempo and the first beat
  *                 are found from the audio, or the tempo comes from --bpm. With --split_lenght the
@@ -89,49 +92,73 @@ public final class SplitWav {
     System.out.println(String.format(Locale.ROOT, "Read %s: %s, %d Hz, %d ch, %d-bit%s, %.1f MB",
         in.getName(), clock(total), wav.sampleRate, wav.channels, wav.bits, wav.isFloat ? " float" : "", in.length() / 1e6));
 
-    long splitFrame = wav.frames;
-    String why = "";
-    if (splitTime >= 0) {
-      splitFrame = Math.min(splitFrame, Math.round(splitTime * wav.sampleRate));
-      why = "--split_time " + clock(splitTime);
-    }
     long sizeLimitFrames = Long.MAX_VALUE;
     if (splitMb >= 0) {
       long bytes = (long) Math.floor(splitMb * 1e6) - wav.headerSize();
       sizeLimitFrames = Math.max(0, bytes / wav.blockAlign);
-      if (sizeLimitFrames < splitFrame) {
-        splitFrame = sizeLimitFrames;
-        why = "--split_lenght " + number(splitMb) + " MB";
-      }
     }
+    long timeFrames = splitTime >= 0 ? Math.round(splitTime * wav.sampleRate) : Long.MAX_VALUE;
+    // Each part: the time given, or what fits the size, the shorter.
+    long partFrames = Math.min(timeFrames, sizeLimitFrames);
+    String why = partFrames == timeFrames ? "--split_time " + clock(splitTime) : "--split_lenght " + number(splitMb) + " MB";
+    if (partFrames <= 0) throw new IllegalArgumentException("The split at 00:00.000 leaves nothing for the first part");
+    Beat beat = null;
+    double barSec = 0;
     if (trim) {
-      Beat beat = bpm > 0 ? Beat.withTempo(wav, in, bpm) : Beat.find(wav, in);
-      double barSec = BEATS_PER_BAR * 60.0 / beat.bpm;
+      beat = bpm > 0 ? Beat.withTempo(wav, in, bpm) : Beat.find(wav, in);
+      barSec = BEATS_PER_BAR * 60.0 / beat.bpm;
       System.out.println(String.format(Locale.ROOT, "Tempo: %.2f BPM%s, first bar at %.3f s, bar %.3f s",
           beat.bpm, bpm > 0 ? " (--bpm)" : "", beat.firstBar, barSec));
-      double target = splitFrame / (double) wav.sampleRate;
-      double limit = Math.min(total, sizeLimitFrames == Long.MAX_VALUE ? total : sizeLimitFrames / (double) wav.sampleRate);
-      long k = Math.round((target - beat.firstBar) / barSec);
-      double cut = beat.firstBar + k * barSec;
-      // Never past the size limit or the end of the file; then the bar line before it.
-      while (cut > limit + 1e-6 && k > 0) cut = beat.firstBar + (--k) * barSec;
-      if (cut <= 0) throw new IllegalArgumentException("No whole bar fits before the split");
-      System.out.println(String.format(Locale.ROOT, "--trim: %s -> %s, after bar %d", clock(target), clock(cut), k));
-      splitFrame = Math.round(cut * wav.sampleRate);
-      why = why + ", on a bar line";
+      why = why + ", on bar lines";
     }
-    if (splitFrame <= 0 || splitFrame >= wav.frames) {
-      throw new IllegalArgumentException("The split at " + clock(splitFrame / (double) wav.sampleRate)
+    // The split points: one part after another until what is left fits in one.
+    List<Long> cuts = new ArrayList<Long>();
+    long from = 0;
+    while (wav.frames - from > partFrames) {
+      long at = from + partFrames;
+      if (trim) {
+        double target = at / (double) wav.sampleRate;
+        double limit = sizeLimitFrames == Long.MAX_VALUE ? total : Math.min(total, (from + sizeLimitFrames) / (double) wav.sampleRate);
+        double start = from / (double) wav.sampleRate;
+        long k = Math.round((target - beat.firstBar) / barSec);
+        double cut = beat.firstBar + k * barSec;
+        // Never past the size limit or the end of the file; then the bar line before it.
+        while (cut > limit + 1e-6 && cut > start) cut = beat.firstBar + (--k) * barSec;
+        if (cut <= start + 1e-6) throw new IllegalArgumentException("No whole bar fits in part " + (cuts.size() + 1) + " after " + clock(start));
+        System.out.println(String.format(Locale.ROOT, "--trim: %s -> %s, after bar %d", clock(target), clock(cut), k));
+        at = Math.round(cut * wav.sampleRate);
+      }
+      if (at <= from || at >= wav.frames) break;
+      cuts.add(Long.valueOf(at));
+      from = at;
+    }
+    if (cuts.isEmpty()) {
+      long at = Math.min(partFrames, wav.frames);
+      throw new IllegalArgumentException("The split at " + clock(at / (double) wav.sampleRate)
           + " leaves nothing for one part: the file is " + clock(total) + " long");
     }
-
-    wav.write(in, first, 0, splitFrame);
-    wav.write(in, second, splitFrame, wav.frames);
-    double at = splitFrame / (double) wav.sampleRate;
-    System.out.println(String.format(Locale.ROOT, "Split at %s (%s)", clock(at), why));
-    System.out.println(String.format(Locale.ROOT, "Wrote %s: 00:00-%s, %.2f MB", first.getName(), clock(at), first.length() / 1e6));
-    System.out.println(String.format(Locale.ROOT, "Wrote %s: %s-%s, %.2f MB", second.getName(), clock(at), clock(total), second.length() / 1e6));
-    System.out.println("Succeeded: " + first.getName() + ", " + second.getName());
+    // Part names: the first and second as given (or <input>_split1/2), then <input>_split3... or <output_file2>_3...
+    List<File> parts = new ArrayList<File>();
+    parts.add(first);
+    parts.add(second);
+    for (int n = 3; n <= cuts.size() + 1; n++) parts.add(out2 != null ? named(second, "_" + n + ".wav") : named(in, "_split" + n + ".wav"));
+    for (File f : parts) {
+      if (f.getAbsoluteFile().equals(in.getAbsoluteFile())) throw new IllegalArgumentException("An output would replace the input: " + in.getName());
+    }
+    if (cuts.size() > 1) System.out.println("The file is longer than two parts: " + (cuts.size() + 1) + " parts");
+    StringBuilder made = new StringBuilder();
+    long a = 0;
+    for (int i = 0; i <= cuts.size(); i++) {
+      long b = i < cuts.size() ? cuts.get(i).longValue() : wav.frames;
+      File f = parts.get(i);
+      wav.write(in, f, a, b);
+      if (i < cuts.size()) System.out.println(String.format(Locale.ROOT, "Split at %s (%s)", clock(b / (double) wav.sampleRate), why));
+      System.out.println(String.format(Locale.ROOT, "Wrote %s: %s-%s, %.2f MB", f.getName(), clock(a / (double) wav.sampleRate),
+          clock(b / (double) wav.sampleRate), f.length() / 1e6));
+      made.append(i == 0 ? "" : ", ").append(f.getName());
+      a = b;
+    }
+    System.out.println("Succeeded: " + made);
   }
 
   static File named(File in, String suffix) {

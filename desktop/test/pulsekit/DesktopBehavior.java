@@ -482,15 +482,15 @@ public final class DesktopBehavior {
     for (String line : log.getText().split("\n")) {
       if (line.startsWith("Split") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line).append('\n');
     }
-    File a = new File(home, "take two_split1.wav");
-    File b = new File(home, "take two_split2.wav");
-    if (a.isFile() && b.isFile()) {
-      AudioIo.Pcm pa = AudioIo.parseWav(Files.readAllBytes(a.toPath()));
-      AudioIo.Pcm pb = AudioIo.parseWav(Files.readAllBytes(b.toPath()));
-      out.append(String.format("parts: %.3f s + %.3f s%n", pa.samples.length / (double) pa.sr, pb.samples.length / (double) pb.sr));
-    } else {
-      out.append("parts: missing\n");
+    // Three seconds in parts of one: three parts (more than two parts' length gives as many as needed).
+    StringBuilder parts = new StringBuilder();
+    for (int n = 1; n <= 4; n++) {
+      File part = new File(home, "take two_split" + n + ".wav");
+      if (!part.isFile()) continue;
+      AudioIo.Pcm pp = AudioIo.parseWav(Files.readAllBytes(part.toPath()));
+      parts.append(parts.length() == 0 ? "" : " + ").append(String.format("%.3f s", pp.samples.length / (double) pp.sr));
     }
+    out.append("parts: ").append(parts.length() == 0 ? "missing" : parts.toString()).append('\n');
   }
 
   void s28_program_switch_clears_args() throws Exception {
