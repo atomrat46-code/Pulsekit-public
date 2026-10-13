@@ -214,11 +214,15 @@ public final class ArtJava {
       System.setProperty("user.dir", work.getAbsolutePath());
       t.start();
       long limit = LIMIT_MS.get() == null ? JavaRun.RUN_MS : LIMIT_MS.get().longValue();
-      t.join(limit);
+      long end = System.currentTimeMillis() + limit;
+      JavaRun.Live live = JavaRun.live();
+      // Waited in steps, so Abort (DrumMidi found no hits) stops the run at once.
+      while (t.isAlive() && System.currentTimeMillis() < end && !(live != null && live.aborted())) t.join(Math.min(500L, Math.max(1L, end - System.currentTimeMillis())));
       if (t.isAlive()) {
         t.interrupt();
-        code[0] = 124;
-        ps.println("Timed out (" + (limit / 1000) + "s).");
+        boolean stopped = live != null && live.aborted();
+        code[0] = stopped ? 130 : 124;
+        ps.println(stopped ? "Aborted." : "Timed out (" + (limit / 1000) + "s).");
       }
       ps.flush();
     } finally {

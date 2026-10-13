@@ -527,7 +527,7 @@ public final class PromptSheet {
       caption.setPadding(0, dp(activity, 6), 0, 0);
       caption.setMaxLines(2);
       card.addView(caption);
-      TextView sub = label(activity, (file.promptTitle == null ? "" : file.promptTitle) + " · " + sizeText(file.size), 11, "#8A8B86", false);
+      TextView sub = label(activity, file.shownTitle() + " · " + sizeText(file.size), 11, "#8A8B86", false);
       sub.setPadding(0, dp(activity, 2), 0, 0);
       sub.setMaxLines(1);
       card.addView(sub);
@@ -1533,7 +1533,7 @@ public final class PromptSheet {
     for (int i = 0; i < files.size(); i++) {
       PromptVault.StoredFile file = files.get(i);
       String from = file.which == 3 ? "Result file" : file.which == 2 ? "Reference file 2" : "Reference file 1";
-      TextView row = button(activity, file.name + "\n" + file.promptTitle + " · " + from + " · " + sizeText(file.size), "#131416", "#ECEBE6");
+      TextView row = button(activity, file.name + "\n" + file.shownTitle() + " · " + from + " · " + sizeText(file.size), "#131416", "#ECEBE6");
       row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
       row.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10));
       long versionId = file.versionId;

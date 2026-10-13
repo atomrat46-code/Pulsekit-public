@@ -61,6 +61,41 @@ public final class JavaRun {
     public String text() {
       return this.text.toString();
     }
+
+    private volatile boolean aborted;
+    /** The run is over (its result is in). */
+    public volatile boolean done;
+    /** When the "no hits yet" question was last asked (0: not yet). */
+    public long askedAt;
+
+    /** Abort: the program is stopped (its process, or its thread interrupted on the phone). */
+    public void abort() {
+      this.aborted = true;
+    }
+
+    public boolean aborted() {
+      return this.aborted;
+    }
+  }
+
+  /** How long DrumMidi may look without finding a hit before PyJav asks whether to abort, and again after. */
+  public static final long NO_HITS_MS = 90 * 1000L;
+
+  /**
+   * DrumMidi_CRT has run NO_HITS_MS (since it started, or since it was last asked) and found no
+   * drum hits yet: the question to ask ("…Abort the run?"), else null.
+   */
+  public static String noHitsQuestion(String program, Live live, long now) {
+    String low = program == null ? "" : program.toLowerCase(java.util.Locale.ROOT);
+    if (live == null || live.done || live.aborted() || !low.startsWith("drummidi")) return null;
+    long since = live.askedAt > 0 ? live.askedAt : live.started;
+    if (now - since < NO_HITS_MS) return null;
+    String log = live.text();
+    if (log.indexOf("\nHits: ") >= 0 || log.startsWith("Hits: ") || log.indexOf("Wrote ") >= 0 || log.indexOf("Succeeded") >= 0 || log.indexOf("Failed") >= 0) return null;
+    long s = (now - live.started) / 1000;
+    String news = news(log);
+    return "DrumMidi has found no drum hits in " + (s / 60) + " min " + (s % 60) + " s"
+        + (news == null ? "" : " (" + news + ")") + ".\nA long file takes a while; a file without drums finds none.\nAbort the run?";
   }
 
   private static final InheritableThreadLocal<Live> LIVE = new InheritableThreadLocal<Live>();
@@ -196,6 +231,7 @@ public final class JavaRun {
       public void run() {
         track(live);
         Result result = JavaRun.run(name, source, bytes, argv);
+        live.done = true;
         if (listener != null) listener.onDone(result);
       }
     }, "pulsekit-pyjav").start();
@@ -821,6 +857,7 @@ public final class JavaRun {
     long deadline = System.currentTimeMillis() + waitMs;
     Live live = live();
     while (System.currentTimeMillis() < deadline) {
+      if (live != null && live.aborted()) break;
       while (in.available() > 0) {
         int n = in.read(buf);
         if (n <= 0) break;
@@ -832,11 +869,21 @@ public final class JavaRun {
     }
     if (proc.isAlive()) {
       proc.destroyForcibly();
-      bos.write(("\nTimed out (" + (waitMs / 1000) + "s).").getBytes(StandardCharsets.UTF_8));
+      boolean stopped = live != null && live.aborted();
+      bos.write((stopped ? "\nAborted." : "\nTimed out (" + (waitMs / 1000) + "s).").getBytes(StandardCharsets.UTF_8));
     }
     int n;
-    while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
-    int code = proc.isAlive() ? 124 : proc.exitValue();
+    try {
+      while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+    } catch (java.io.IOException closed) {
+      // a stopped process's output is closed: what it printed is kept
+    }
+    try {
+      proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+    } catch (InterruptedException ignored) {
+      Thread.currentThread().interrupt();
+    }
+    int code = live != null && live.aborted() ? 130 : proc.isAlive() ? 124 : proc.exitValue();
     List<FileOut> files = new ArrayList<FileOut>();
     File[] kids = dir.listFiles();
     if (kids != null) {

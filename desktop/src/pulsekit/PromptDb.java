@@ -451,7 +451,7 @@ final class PromptDb {
 
     private String caption(PromptVault.StoredFile file, String mark) {
         String safe = (file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
-        String sub = (file.promptTitle == null ? "" : file.promptTitle.replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
+        String sub = (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + safe + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }

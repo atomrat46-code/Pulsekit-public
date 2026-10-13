@@ -551,6 +551,10 @@ final class PyJav {
     /** This run's entry in the pending database operations (PendingOps), until they are over. */
     String pkPending;
 
+    /** SogniMusic's test without drums: Run anyway was pressed (the next run goes on), and the question, for the tests. */
+    boolean pkDrumsWarned;
+    android.app.AlertDialog pkAskDrums;
+
     /** Run was answered Yes ("run a new session while the current task is incomplete"): the next check passes. */
     boolean pkRunConfirmed;
     /** The question asked last, for the tests. */
@@ -583,6 +587,8 @@ final class PyJav {
     /** The run shown on the "Running…" line (its time and news), and that line as set last. */
     pulsekit.JavaRun.Live pkLive;
     String pkLiveShown;
+    /** DrumMidi's "no hits yet, abort?" question shown last, for the tests. */
+    android.app.AlertDialog pkAskAbort;
 
     /** Every second while the run goes: "Running… 2:05 · Status: processing", while the text below Run is still that line. */
     void pkTickLive(final pulsekit.JavaRun.Live live, final String head) {
@@ -590,10 +596,23 @@ final class PyJav {
         this.pkPyLog.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (pkLive != live || pkPyLog == null || pkLiveShown == null || !pkLiveShown.equals(pkPyLog.getText().toString())) return;
-                String line = head + pulsekit.JavaRun.runningLine(live, System.currentTimeMillis());
-                pkPyLog.setText(line);
-                pkLiveShown = line;
+                if (pkLive != live || pkPyLog == null || live.done || live.aborted()) return;
+                // DrumMidi without a hit for a while: asked whether to abort.
+                String noHits = pulsekit.JavaRun.noHitsQuestion(app.pyName, live, System.currentTimeMillis());
+                if (noHits != null) {
+                    live.askedAt = System.currentTimeMillis();
+                    pkAskAbort = new android.app.AlertDialog.Builder(app).setTitle(app.pyName).setMessage(noHits)
+                        .setPositiveButton("Abort", (d, w) -> {
+                            live.abort();
+                            app.setNow("Aborting " + app.pyName + "\u2026");
+                        })
+                        .setNegativeButton("Keep waiting", (d, w) -> live.askedAt = System.currentTimeMillis()).show();
+                }
+                if (pkLiveShown != null && pkLiveShown.equals(pkPyLog.getText().toString())) {
+                    String line = head + pulsekit.JavaRun.runningLine(live, System.currentTimeMillis());
+                    pkPyLog.setText(line);
+                    pkLiveShown = line;
+                }
                 pkPyLog.postDelayed(this, 1000);
             }
         }, 1000);
@@ -700,6 +719,20 @@ final class PyJav {
         if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
         if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
         if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
+        // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
+        String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
+        this.pkDrumsWarned = false;
+        if (drums != null) {
+            if (this.pkPyLog != null) this.pkPyLog.setText(drums);
+            app.setNow("SogniMusic's test needs drums");
+            this.pkAskDrums = new android.app.AlertDialog.Builder(app).setTitle("SogniMusic test").setMessage(drums)
+                .setPositiveButton("Run anyway", (d, w) -> {
+                    this.pkDrumsWarned = true;
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run: SogniMusic's test needs drums")).show();
+            return;
+        }
         this.pkLastArgv = argv;
         // Each run keeps its own pending entry and File > Downloads run (PyJavUi.Run): one started
         // while another goes no longer takes over the other's (which then stayed In progress).
@@ -748,6 +781,7 @@ final class PyJav {
             this.pkPending = null;
             this.pkForcedArgs = again;
             this.pkRunConfirmed = true;
+            this.pkDrumsWarned = true;
             app.setNow(note);
             this.pkRunPyJav();
             return;

@@ -139,6 +139,7 @@ public final class SogniMusic {
     double maxCost = 0;
     boolean confirm = false;
     boolean drumsOnly = false;
+    boolean testing = false;
     String instruments = null;
     String genre = null;
     boolean savePrompt = false;
@@ -169,7 +170,8 @@ public final class SogniMusic {
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       // PyJav's, after the run (the WAV copy, the test): nothing for the program to do.
-      else if (a.equals("--no_wav") || a.equals("--test")) continue;
+      else if (a.equals("--test")) testing = true;
+      else if (a.equals("--no_wav")) continue;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -187,6 +189,10 @@ public final class SogniMusic {
     if (drumsOnly && lyrics != null && lyrics.trim().length() > 0) {
       say("Failed: --drums_only makes a track without vocals, so leave out --lyrics");
       return 2;
+    }
+    // --test makes drum MIDI from the track and checks it: a track without drums has nothing to find.
+    if (testing && !drumsOnly && !(instruments != null && instruments.toLowerCase().matches("(?s).*(drum|kit|percussion).*"))) {
+      say("Warning: --test checks the drums DrumMidi finds in the track; add --drums_only, or drums in --instruments (\"drums, bass\")");
     }
     boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
     if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {

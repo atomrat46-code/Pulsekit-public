@@ -405,6 +405,16 @@ final class PyJav {
         this.saveRun = saving;
         final boolean savingRun = saving;
         final java.util.List<String> argv = runArgs;
+        // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
+        String drums = Midi2WavTest.drumsWarning(name, argv);
+        if (drums != null) {
+            Object[] options = {"Run anyway", "Cancel"};
+            int ans = JOptionPane.showOptionDialog(app, drums, "SogniMusic test", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+            if (ans != 0) {
+                app.setNow("Not run: SogniMusic's test needs drums");
+                return;
+            }
+        }
         // A reconnect (the run timed out with its workflow still going on Sogni) carries on this run.
         final boolean reconnect = this.reconnectDownload != 0 || this.reconnectNote != null;
         if (!reconnect) this.reconnects = 0;
@@ -427,10 +437,22 @@ final class PyJav {
         final javax.swing.Timer tick = new javax.swing.Timer(1000, null);
         final String[] lastLine = new String[] {app.pyLog == null ? null : app.pyLog.getText()};
         tick.addActionListener(ev -> {
-            if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) {
+            // DrumMidi without a hit for a while: asked whether to abort.
+            String noHits = JavaRun.noHitsQuestion(name, live, System.currentTimeMillis());
+            if (noHits != null) {
+                live.askedAt = System.currentTimeMillis();
                 tick.stop();
-                return;
+                Object[] options = {"Abort", "Keep waiting"};
+                int ans = JOptionPane.showOptionDialog(app, noHits, name, JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+                if (ans == 0) {
+                    live.abort();
+                    app.setNow("Aborting " + name + "\u2026");
+                    return;
+                }
+                live.askedAt = System.currentTimeMillis();
+                tick.start();
             }
+            if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
             String line = head + JavaRun.runningLine(live, System.currentTimeMillis());
             app.pyLog.setText(line);
             lastLine[0] = line;
