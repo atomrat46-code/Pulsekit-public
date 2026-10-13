@@ -79,6 +79,14 @@ public class DrumMidi_CRT{
      * on (1.00-1.22; toms raise it 0.22-0.73).
      */
     static final double TOM_SNARE_BODY = 0.9;
+    /**
+     * A ghost note is the snare played softly: its body (120-450 Hz) peaks within GHOST_PITCH_LO-HI of
+     * the song's loud snares' (ghosts 0.97-1.16, toms on sampled kits 0.59-0.89) and its spectrum
+     * there matches theirs (GHOST_LIKE; toms 0.75-0.91). Only where GHOST_SNARES loud snares make the
+     * song's snare (an 8-bar fill has a few, and a drum machine's toms are tuned to its snare).
+     */
+    static final double GHOST_PITCH_LO = 0.95, GHOST_PITCH_HI = 1.25, GHOST_LIKE = 0.95;
+    static final int GHOST_SNARES = 16;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
@@ -441,9 +449,22 @@ public class DrumMidi_CRT{
         // A snare's body jumps more than the kick band. Kick plus hat looks like a snare otherwise.
         List<Integer> snarePeaks = new ArrayList<Integer>();
         List<Double> snareBodies = new ArrayList<Double>();
+        List<Integer> notSnares = new ArrayList<Integer>();
         for (Integer p : pickPeaks(snare, delta)) {
             int t = p.intValue();
-            if (!isSnare(lv, t, sens, rideRings(rideEnergy, t))) continue;
+            if (!isSnare(lv, t, sens, rideRings(rideEnergy, t))) {
+                notSnares.add(p);
+                continue;
+            }
+            snarePeaks.add(p);
+            snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
+            hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+        }
+        // Ghost notes too soft for their wires to show: the loud snares' body, played softly.
+        SnareBody loudSnare = new SnareBody(mag, hits, sr);
+        for (Integer p : notSnares) {
+            int t = p.intValue();
+            if (jump(bodyLevel, t) < GHOST_JUMP / sens || jump(kickLevel, t) >= KICK_JUMP || !loudSnare.ghost(mag, t)) continue;
             snarePeaks.add(p);
             snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
@@ -558,6 +579,11 @@ public class DrumMidi_CRT{
         for (int i = 0; i < tomPeaks.size(); i++) {
             int t = tomPeaks.get(i).intValue();
             if (busy[t]) continue;
+            // A ghost note (the song's snare, played softly) is written as a snare, toms or not.
+            if (jump(bodyLevel, t) >= GHOST_JUMP && loudSnare.ghost(mag, t)) {
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+                continue;
+            }
             // A tom is struck as hard as a snare and its low-mid jumps. Bass notes fail one or both.
             // Its band's level jumps (a hat's leak into it rises from near silence in log terms only),
             // and its body is a tone without wires. Over a band, bass notes are told apart by the stick.
@@ -1359,6 +1385,65 @@ public class DrumMidi_CRT{
             for (int b = bin(pitch * 0.85, sr, maxBin); b <= bin(pitch * 1.15, sr, maxBin); b++) at = Math.max(at, mag[k][b]);
         }
         return at > 1e-9 ? sub / at : 0;
+    }
+
+    /** The song's loud snares' body spectrum (120-450 Hz), to tell its ghost notes from toms. */
+    static final class SnareBody {
+        final int b0, b1;
+        final double[] spec;
+        final double peak;
+        final int count;
+
+        SnareBody(float[][] mag, List<Hit> hits, double sr) {
+            int maxBin = mag.length > 0 ? mag[0].length - 1 : 0;
+            b0 = bin(120, sr, maxBin);
+            b1 = bin(450, sr, maxBin);
+            spec = new double[b1 - b0 + 1];
+            List<Double> loud = new ArrayList<Double>();
+            for (Hit h : hits) if (h.note == SNARE_NOTE) loud.add(Double.valueOf(h.strength));
+            Collections.sort(loud);
+            double cut = loud.isEmpty() ? 0 : loud.get(loud.size() / 2).doubleValue();
+            int n = 0;
+            for (Hit h : hits) {
+                if (h.note != SNARE_NOTE || h.strength < cut) continue;
+                add(spec, mag, (int) Math.round(h.time * sr / HOP));
+                n++;
+            }
+            count = n;
+            peak = peakBin(spec);
+        }
+
+        void add(double[] v, float[][] mag, int t) {
+            for (int k = Math.max(0, t); k <= Math.min(mag.length - 1, t + 3); k++) for (int b = b0; b <= b1; b++) v[b - b0] += mag[k][b];
+        }
+
+        /** A snare's body pitch and spectrum at frame t: a ghost note. */
+        boolean ghost(float[][] mag, int t) {
+            if (count < GHOST_SNARES || peak <= 0) return false;
+            double[] v = new double[spec.length];
+            add(v, mag, t);
+            double ratio = peakBin(v) / peak;
+            if (ratio < GHOST_PITCH_LO || ratio > GHOST_PITCH_HI) return false;
+            double dot = 0, na = 0, nb = 0;
+            for (int i = 0; i < v.length; i++) {
+                dot += v[i] * spec[i];
+                na += v[i] * v[i];
+                nb += spec[i] * spec[i];
+            }
+            return na > 0 && nb > 0 && dot / Math.sqrt(na * nb) >= GHOST_LIKE;
+        }
+
+        /** Where v peaks, in bins from b0's frequency (b0 + index), between bins. */
+        double peakBin(double[] v) {
+            int best = 0;
+            for (int i = 1; i < v.length; i++) if (v[i] > v[best]) best = i;
+            double off = 0;
+            if (best > 0 && best < v.length - 1) {
+                double a = v[best - 1], b = v[best], c = v[best + 1], d = a - 2 * b + c;
+                if (d != 0) off = Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / d));
+            }
+            return v[best] > 0 ? b0 + best + off : 0;
+        }
     }
 
     /** A kick read at its third partial (OVERTONE_LO-OVERTONE_HI of the kick pitch) whose low end is still there. */
