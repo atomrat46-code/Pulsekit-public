@@ -181,6 +181,8 @@ final class MediaBrowser {
     static final String DOWNLOADS = "pulsekit:downloads";
     /** A Downloads file's id, as the entry's id. */
     static final String DL = "pulsekit-dl:";
+    /** Another app's picture, video or sound in Download: MEDIA + 0 audio / 1 image / 2 video + ":" + its id. */
+    static final String MEDIA = "pulsekit-media:";
 
     /**
      * Choose file: the Media browser, with tabs for the Recent MB folder (the folder the Media browser
@@ -220,6 +222,38 @@ final class MediaBrowser {
         return b;
     }
 
+    static final int MEDIA_PERMISSION = 79;
+
+    /** Whether Pulsekit may read the pictures, videos and sounds other apps saved (Download included). */
+    static boolean mediaAllowed(MainActivity app) {
+        if (android.os.Build.VERSION.SDK_INT < 23) return true;
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            return app.checkSelfPermission("android.permission.READ_MEDIA_AUDIO") == 0
+                && app.checkSelfPermission("android.permission.READ_MEDIA_IMAGES") == 0
+                && app.checkSelfPermission("android.permission.READ_MEDIA_VIDEO") == 0;
+        }
+        return app.checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") == 0;
+    }
+
+    /** Asks for that permission; the browser shown lists Download again when it is answered. */
+    static void askMedia(MainActivity app) {
+        if (android.os.Build.VERSION.SDK_INT < 23) return;
+        String[] want = android.os.Build.VERSION.SDK_INT >= 33
+            ? new String[] {"android.permission.READ_MEDIA_AUDIO", "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO"}
+            : new String[] {"android.permission.READ_EXTERNAL_STORAGE"};
+        app.requestPermissions(want, MEDIA_PERMISSION);
+    }
+
+    /** The permission was answered: the browser shown reads its folder again. */
+    static void mediaAnswered(MainActivity app) {
+        MediaBrowser b = last;
+        if (b != null && b.dialog != null && b.dialog.isShowing()) b.load(b.here());
+        if (!mediaAllowed(app)) app.setNow("Without the permission Download shows only the files Pulsekit saved");
+    }
+
+    /** Asked once a session when Download opens without the permission. */
+    private static boolean askedMedia;
+
     /** The files in Download (newest first); null when they cannot be listed. */
     List<MediaDir.Entry> downloads() {
         List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
@@ -239,7 +273,8 @@ final class MediaBrowser {
         Cursor c = null;
         try {
             c = this.app.getContentResolver().query(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                new String[] {android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME, android.provider.MediaStore.MediaColumns.SIZE},
+                new String[] {android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME, android.provider.MediaStore.MediaColumns.SIZE,
+                    android.provider.MediaStore.MediaColumns.DATE_ADDED},
                 null, null, android.provider.MediaStore.MediaColumns.DATE_ADDED + " DESC");
             if (c == null) return all;
             while (c.moveToNext()) {
@@ -247,12 +282,53 @@ final class MediaBrowser {
                 e.id = DL + c.getLong(0);
                 e.name = c.getString(1);
                 e.size = c.isNull(2) ? 0 : c.getLong(2);
+                e.date = c.isNull(3) ? 0 : c.getLong(3);
                 if (e.name != null) all.add(e);
             }
         } catch (Exception ex) {
             return null;
         } finally {
             if (c != null) c.close();
+        }
+        // Download lists only Pulsekit's own files there; with the media permission the pictures,
+        // videos and sounds other apps saved in Download are listed too (a WAV from the browser).
+        if (mediaAllowed(this.app)) {
+            java.util.Set<String> have = new java.util.HashSet<String>();
+            for (MediaDir.Entry e : all) have.add(e.name + "\u0000" + e.size);
+            Uri[] kinds = {android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI};
+            for (int k = 0; k < kinds.length; k++) {
+                Cursor m = null;
+                try {
+                    m = this.app.getContentResolver().query(kinds[k],
+                        new String[] {android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME, android.provider.MediaStore.MediaColumns.SIZE,
+                            android.provider.MediaStore.MediaColumns.DATE_ADDED},
+                        android.provider.MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?", new String[] {android.os.Environment.DIRECTORY_DOWNLOADS + "/%"}, null);
+                    if (m == null) continue;
+                    while (m.moveToNext()) {
+                        MediaDir.Entry e = new MediaDir.Entry();
+                        e.id = MEDIA + k + ":" + m.getLong(0);
+                        e.name = m.getString(1);
+                        e.size = m.isNull(2) ? 0 : m.getLong(2);
+                        e.date = m.isNull(3) ? 0 : m.getLong(3);
+                        if (e.name == null || !have.add(e.name + "\u0000" + e.size)) continue;
+                        all.add(e);
+                    }
+                } catch (Exception ignored) {
+                    // that kind cannot be listed
+                } finally {
+                    if (m != null) m.close();
+                }
+            }
+            java.util.Collections.sort(all, new java.util.Comparator<MediaDir.Entry>() {
+                @Override
+                public int compare(MediaDir.Entry a, MediaDir.Entry b) {
+                    return Long.compare(b.date, a.date);
+                }
+            });
+        } else if (!askedMedia) {
+            askedMedia = true;
+            this.main.post(() -> askMedia(this.app));
         }
         // Newest first, as Downloads gives them.
         List<MediaDir.Entry> out = new ArrayList<MediaDir.Entry>();
@@ -265,7 +341,7 @@ final class MediaBrowser {
 
     /** Whether the entry is a file on disk by its path (not in a granted folder, not in Downloads). */
     boolean onDisk(MediaDir.Entry e) {
-        return this.tree == null && !e.id.startsWith(DL);
+        return this.tree == null && !e.id.startsWith(DL) && !e.id.startsWith(MEDIA);
     }
 
     /** Upscale/resize image: ImageUpscaler on PyJav, with the picture (copied into PyJav's input folder) as its input; its Params open. */
@@ -719,6 +795,12 @@ final class MediaBrowser {
 
     /** A file's address for the players and decoders. */
     Uri uri(MediaDir.Entry e) {
+        if (e.id.startsWith(MEDIA)) {
+            String[] part = e.id.substring(MEDIA.length()).split(":");
+            Uri kind = "0".equals(part[0]) ? android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                : "1".equals(part[0]) ? android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI : android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+            return android.content.ContentUris.withAppendedId(kind, Long.parseLong(part[1]));
+        }
         if (e.id.startsWith(DL)) return android.content.ContentUris.withAppendedId(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, Long.parseLong(e.id.substring(DL.length())));
         return this.tree == null ? Uri.fromFile(new File(e.id)) : DocumentsContract.buildDocumentUriUsingTree(this.tree, e.id);
     }
@@ -761,6 +843,7 @@ final class MediaBrowser {
         // stop the app ("not responding"). The page it was last on comes back.
         final int mine = ++this.listing;
         this.entries = new ArrayList<MediaDir.Entry>();
+        this.allEntries = this.entries;
         this.loading = true;
         this.paint();
         PyJav.KEEPING.incrementAndGet();
@@ -776,13 +859,45 @@ final class MediaBrowser {
                 PyJav.KEEPING.decrementAndGet();
                 if (mine != this.listing) return;
                 this.loading = false;
-                this.entries = got == null ? new ArrayList<MediaDir.Entry>() : got;
+                this.allEntries = got == null ? new ArrayList<MediaDir.Entry>() : got;
+                this.entries = MediaDir.filtered(this.allEntries, MediaDir.filter);
                 int pages = Math.max(1, (this.entries.size() + PAGE - 1) / PAGE);
                 this.page = Math.max(0, Math.min(pages - 1, MediaDir.place(this.folderKey())));
                 if (got == null) this.app.setNow("Could not read " + this.label() + ": pick it again with Browse");
                 this.paint();
             });
         }, "pulsekit-media-list").start();
+    }
+
+    /** Everything in the folder; `entries` is what the type selector (A I V S T O) keeps of it. */
+    List<MediaDir.Entry> allEntries = new ArrayList<MediaDir.Entry>();
+
+    /** The type selectors: A all, I pictures, V videos, S sounds, T text, O other files. */
+    private void filters() {
+        LinearLayout row = this.app.row();
+        for (int i = 0; i < MediaDir.FILTERS.length; i++) {
+            final String f = MediaDir.FILTERS[i];
+            int n = f.equals("A") ? this.allEntries.size() : 0;
+            if (!f.equals("A")) for (MediaDir.Entry e : this.allEntries) if (!e.folder && f.equals(MediaDir.filterOf(e.name))) n++;
+            TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
+                MediaDir.filter = f;
+                this.entries = MediaDir.filtered(this.allEntries, f);
+                this.page = 0;
+                this.paint();
+            });
+            pill.setTag("media-filter:" + f);
+            pill.setContentDescription(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
+            if (n == 0 && !f.equals("A")) pill.setAlpha(0.45f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            row.addView(pill, lp);
+        }
+        TextView legend = this.app.text(MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)], 12, false);
+        legend.setTextColor(UiKit.MUTED);
+        legend.setTag("media-filter-name");
+        row.addView(legend);
+        row.setPadding(0, 0, 0, this.app.dp(6));
+        this.body.addView(row);
     }
 
     /** True while the folder is being read ("Reading the folder…"); bumped for each folder read, so an older read is dropped. */
@@ -906,6 +1021,13 @@ final class MediaBrowser {
         this.body.addView(loopRow);
         this.paintPlaylist();
         if (this.chooser != null) this.tabs();
+        if (!this.loading) this.filters();
+        // Download without the phone's permission to read other apps' files: only Pulsekit's own show.
+        if (DOWNLOADS.equals(here()) && !mediaAllowed(this.app)) {
+            TextView ask = this.app.pill("Show files other apps saved here", false, v -> askMedia(this.app));
+            ask.setTag("media-ask-permission");
+            this.body.addView(ask);
+        }
         LinearLayout tools = this.app.row();
         // Up stays at the folder Params gave too: it goes on above it where the phone allows.
         if (this.path.size() > 1 || this.canGoAbove()) {

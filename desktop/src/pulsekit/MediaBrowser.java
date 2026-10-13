@@ -183,7 +183,9 @@ final class MediaBrowser {
         if (this.chooser == null || "recent".equals(this.tab)) MediaDir.remember(root.getPath(), under);
         saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
-        final List<MediaDir.Entry> entries = list(dir, this.chooser != null);
+        final List<MediaDir.Entry> allEntries = list(dir, this.chooser != null);
+        // The type selector (A I V S T O): what of the folder is shown.
+        final List<MediaDir.Entry> entries = MediaDir.filtered(allEntries, MediaDir.filter);
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -234,14 +236,29 @@ final class MediaBrowser {
             }
         });
         loopRow.add(fav, 0);
-        if (this.chooser != null) {
-            JPanel north = new JPanel(new BorderLayout(0, 6));
-            north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
-            north.add(top, BorderLayout.CENTER);
-            body.add(north, BorderLayout.NORTH);
-        } else {
-            body.add(top, BorderLayout.NORTH);
+        // A all, I pictures, V videos, S sounds, T text, O other files.
+        JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        for (int i = 0; i < MediaDir.FILTERS.length; i++) {
+            final String f = MediaDir.FILTERS[i];
+            int n = 0;
+            for (MediaDir.Entry e : allEntries) if (!e.folder && (f.equals("A") || f.equals(MediaDir.filterOf(e.name)))) n++;
+            javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
+            b.setName("media-filter:" + f);
+            b.setToolTipText(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
+            b.setEnabled(n > 0 || f.equals("A") || f.equals(MediaDir.filter));
+            b.addActionListener(e -> {
+                MediaDir.filter = f;
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            filters.add(b);
         }
+        filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]));
+        JPanel north = new JPanel(new BorderLayout(0, 6));
+        if (this.chooser != null) north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
+        north.add(top, BorderLayout.CENTER);
+        north.add(filters, BorderLayout.SOUTH);
+        body.add(north, BorderLayout.NORTH);
         JPanel grid = new JPanel(new GridLayout(0, 4, 8, 8));
         if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
         final List<JButton> waiting = new ArrayList<JButton>();

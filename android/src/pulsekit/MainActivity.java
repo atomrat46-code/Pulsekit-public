@@ -658,6 +658,13 @@ public class MainActivity extends UiKit {
     /*
      * WARNING - Removed try catching itself - possible behaviour change.
      */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        // Reading other apps' files in Download (a WAV saved by the browser): the browser shown lists it again.
+        if (requestCode == MediaBrowser.MEDIA_PERMISSION) MediaBrowser.mediaAnswered(this);
+    }
+
     protected void onActivityResult(int n, int n2, Intent intent) {
         if (n == 25) {
             super.onActivityResult(n, n2, intent);

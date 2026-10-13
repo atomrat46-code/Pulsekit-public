@@ -24,6 +24,8 @@ public final class MediaDir {
     public boolean folder;
     public int kind;
     public long size;
+    /** When it was added (seconds), where known: Download lists the newest first. */
+    public long date;
   }
 
   private MediaDir() {}
@@ -64,6 +66,36 @@ public final class MediaDir {
     });
     return out;
   }
+
+  /**
+   * The browser's type selectors: A all, I pictures, V videos, S sounds (MIDI too), T text, O other
+   * files. Folders are always shown.
+   */
+  public static final String[] FILTERS = {"A", "I", "V", "S", "T", "O"};
+  public static final String[] FILTER_NAMES = {"all", "pictures", "videos", "sounds", "text", "other files"};
+
+  /** The selector a file comes under: "I", "V", "S", "T" or "O". */
+  public static String filterOf(String name) {
+    int k = kind(name);
+    if (k == PICTURE) return "I";
+    if (k == VIDEO) return "V";
+    if (k == SOUND) return "S";
+    String low = name == null ? "" : name.toLowerCase();
+    if (low.matches(".+\\.(txt|md|json|prompt|csv|xml|h2song|h2pattern|rpp|py|java|log|srt|lrc)")) return "T";
+    return "O";
+  }
+
+  /** The entries under selector `f` ("A" keeps them all; folders stay). */
+  public static List<Entry> filtered(List<Entry> all, String f) {
+    if (all == null) return new ArrayList<Entry>();
+    if (f == null || "A".equals(f)) return all;
+    List<Entry> out = new ArrayList<Entry>();
+    for (Entry e : all) if (e.folder || f.equals(filterOf(e.name))) out.add(e);
+    return out;
+  }
+
+  /** The selector the browser shows: kept for the session (Choose file opens on it again). */
+  public static String filter = "A";
 
   /** "12 pictures, 3 videos, 4 sounds" (and folders) for the browser's heading. */
   public static String summary(List<Entry> shown) {
