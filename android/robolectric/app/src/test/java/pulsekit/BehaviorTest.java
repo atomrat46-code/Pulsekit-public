@@ -4502,6 +4502,41 @@ public class BehaviorTest {
     write("s107_midi2hydro_params", log.toString());
   }
 
+  /** File > Downloads: a run in progress says how long and why, Mark as ready lets it go; Browse prompts' favourite categories. */
+  @Test
+  public void s108_downloads_ready_favourites() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    SogniDownloads.init(app.getFilesDir());
+    long id = SogniDownloads.started("SogniTextVideo.java", System.currentTimeMillis() - 65000);
+    DownloadsScreen.tab = "";
+    DownloadsScreen.show(app);
+    idle();
+    View dv = DownloadsScreen.last.getWindow().getDecorView();
+    out.append("tab: ").append(((TextView) dv.findViewWithTag("downloads-tab:" + SogniDownloads.PROGRESS)).getText()).append('\n');
+    out.append("run: ").append(((TextView) dv.findViewWithTag("downloads-run:" + id)).getText().toString().replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>").replaceAll("1 min \\d+ s", "1 min N s")).append('\n');
+    dv.findViewWithTag("downloads-ready:" + id).performClick();
+    idle();
+    dv = DownloadsScreen.last.getWindow().getDecorView();
+    out.append("after Mark as ready: ").append(SogniDownloads.run(id).state).append(", ").append(SogniDownloads.run(id).status)
+        .append(", tab ").append(((TextView) dv.findViewWithTag("downloads-tab:" + SogniDownloads.PROGRESS)).getText()).append('\n');
+    DownloadsScreen.last.dismiss();
+    // Browse prompts: Add to favourites on the category shown, then a row of favourites on top.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long walks = vault.addCategory("Walks");
+    vault.addVersion(vault.addPrompt(walks, "Morning"), "Morning", "", "A walk in the morning", "", "", null, "", null, "", null, "ai", "");
+    PromptBrowser.lastCategory = walks;
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    out.append("star: ").append(((TextView) bv.findViewWithTag("prompt-browser-star")).getText()).append(", favourites row ").append(bv.findViewWithTag("prompt-browser-fav:Walks") != null).append('\n');
+    bv.findViewWithTag("prompt-browser-star").performClick();
+    idle();
+    out.append("star: ").append(((TextView) bv.findViewWithTag("prompt-browser-star")).getText()).append(", favourites row ").append(bv.findViewWithTag("prompt-browser-fav:Walks") != null).append('\n');
+    PromptBrowser.last.dismiss();
+    write("s108_downloads_ready_favourites", out.toString());
+  }
+
   /** Reaper: a project's drum items (looped, pooled, the muted bass left out) as MIDI, imported and given to a program. */
   @Test
   public void s106_import_reaper() throws Exception {

@@ -285,6 +285,22 @@ final class MediaBrowser {
         });
     }
 
+    /** ImageUpscaler on PyJav with `in` (a frame C captured) as its input; Return opens this browser again here. */
+    void upscaleFile(File in, android.app.Dialog player) {
+        final Uri tree = this.tree;
+        final String base = this.base;
+        final String root = this.root;
+        final List<String> at = new ArrayList<String>(this.path);
+        final MainActivity host = this.app;
+        if (player != null && player.isShowing()) player.dismiss();
+        if (this.dialog != null) this.dialog.dismiss();
+        host.openKitView("py");
+        host.programMenus.selectProgram("Java", "ImageUpscaler.java");
+        host.pyJav.pkUseInputPath(in.getAbsolutePath());
+        host.pyJav.pkSetReturn(() -> reopen(host, tree, base, root, at));
+        host.pyJav.pkOpenParams();
+    }
+
     /** The Media browser again on the folders `at` (the first the folder picked), as Return from ImageUpscaler opens it. */
     static MediaBrowser reopen(MainActivity app, Uri tree, String base, String root, List<String> at) {
         MediaBrowser b = at.size() > 0 && DOWNLOADS.equals(at.get(0)) ? new MediaBrowser(app, null, DOWNLOADS) : make(app, base, false);
@@ -779,9 +795,78 @@ final class MediaBrowser {
     }
 
     void up() {
-        if (this.path.size() <= 1) return;
+        if (this.path.size() <= 1) {
+            this.above();
+            return;
+        }
         this.path.remove(this.path.size() - 1);
         this.load(here());
+    }
+
+    /** The folder above the one this browser started in: a folder by path, or a granted folder another grant holds. */
+    private Object[] aboveRoot() {
+        if (this.chooser != null || DOWNLOADS.equals(this.path.get(0))) return null;
+        if (this.tree == null) {
+            File parent = new File(this.path.get(0)).getParentFile();
+            return parent != null && parent.isDirectory() && parent.canRead() ? new Object[] {parent.getAbsolutePath()} : null;
+        }
+        // A granted folder: Android lets the app read above it only through a grant of a higher folder.
+        String doc = this.path.get(0);
+        int cut = Math.max(doc.lastIndexOf('/'), doc.indexOf(':'));
+        if (cut < 0 || cut == doc.length() - 1) return null;
+        String parentDoc = doc.lastIndexOf('/') > doc.indexOf(':') ? doc.substring(0, doc.lastIndexOf('/')) : doc.substring(0, doc.indexOf(':') + 1);
+        try {
+            for (android.content.UriPermission g : this.app.getContentResolver().getPersistedUriPermissions()) {
+                if (!g.isReadPermission()) continue;
+                Uri u = g.getUri();
+                String top;
+                try {
+                    top = DocumentsContract.getTreeDocumentId(u);
+                } catch (Exception ex) {
+                    continue;
+                }
+                if (!u.getAuthority().equals(this.tree.getAuthority())) continue;
+                boolean holds = parentDoc.equals(top) || parentDoc.startsWith(top.endsWith(":") || top.endsWith("/") ? top : top + "/");
+                if (holds) return new Object[] {u.toString(), top, parentDoc};
+            }
+        } catch (Exception ignored) {
+            // no grants to look at
+        }
+        return null;
+    }
+
+    private boolean canGoAbove() {
+        return this.path.size() <= 1 && this.aboveRoot() != null;
+    }
+
+    /** Up at the first folder: the browser again on the folder above it (the folder it came from shown under it). */
+    private void above() {
+        Object[] to = this.aboveRoot();
+        if (to == null) {
+            this.app.setNow("Android lets Pulsekit read only the folder picked: Params, Browse a higher folder to go further up");
+            return;
+        }
+        MediaBrowser b = make(this.app, (String) to[0], false);
+        if (b == null) return;
+        if (to.length == 3) {
+            // From the granted top down to the folder above.
+            String top = (String) to[1];
+            String parentDoc = (String) to[2];
+            if (!parentDoc.equals(top)) {
+                String rest = parentDoc.substring(top.length());
+                if (rest.startsWith("/")) rest = rest.substring(1);
+                String at = top;
+                for (String part : rest.split("/")) {
+                    if (part.length() == 0) continue;
+                    at = at.endsWith(":") || at.endsWith("/") ? at + part : at + "/" + part;
+                    b.path.add(at);
+                }
+            }
+        }
+        b.root = b.base;
+        if (this.dialog != null) this.dialog.dismiss();
+        last = b;
+        b.show();
     }
 
     void showPage(int p) {
@@ -822,7 +907,8 @@ final class MediaBrowser {
         this.paintPlaylist();
         if (this.chooser != null) this.tabs();
         LinearLayout tools = this.app.row();
-        if (this.path.size() > 1) {
+        // Up stays at the folder Params gave too: it goes on above it where the phone allows.
+        if (this.path.size() > 1 || this.canGoAbove()) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
@@ -860,6 +946,7 @@ final class MediaBrowser {
         final java.util.Set<String> listed = new java.util.HashSet<String>();
         for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) listed.add(it.id);
         final List<MediaDir.Entry> wanted = new ArrayList<MediaDir.Entry>();
+        final List<TextView> labels = new ArrayList<TextView>();
         for (int i = from; i < to; i++) {
             final MediaDir.Entry e = this.entries.get(i);
             if ((i - from) % 3 == 0) {
@@ -888,7 +975,7 @@ final class MediaBrowser {
             if (!e.folder && listed.contains(e.id)) this.badge(box, e);
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
             TextView name = this.app.text(e.name, 11, false);
-            name.setMaxLines(2);
+            name.setMaxLines(3);
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             name.setPadding(0, this.app.dp(3), 0, 0);
             card.addView(name);
@@ -907,10 +994,13 @@ final class MediaBrowser {
             row.addView(card, new LinearLayout.LayoutParams(0, -2, 1f));
             if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
                 Bitmap have = THUMBS.get(key(e));
-                if (have != null) image.setImageBitmap(have);
+                String size = SIZES.get(key(e));
+                if (size != null && size.length() > 0) name.setText(e.name + "\n" + size);
+                if (have != null && size != null) image.setImageBitmap(have);
                 else {
                     views.add(image);
                     wanted.add(e);
+                    labels.add(name);
                 }
             }
         }
@@ -931,22 +1021,50 @@ final class MediaBrowser {
             next.setTag("media-next");
             next.setEnabled(this.page < pages - 1);
             next.setAlpha(this.page < pages - 1 ? 1f : 0.4f);
+            // First and Last: the first and the last page at once.
+            TextView first = this.app.pill("First", false, v -> this.showPage(0));
+            first.setTag("media-first");
+            first.setEnabled(this.page > 0);
+            first.setAlpha(this.page > 0 ? 1f : 0.4f);
+            final int lastPage = pages - 1;
+            TextView lastBtn = this.app.pill("Last", false, v -> this.showPage(lastPage));
+            lastBtn.setTag("media-last");
+            lastBtn.setEnabled(this.page < pages - 1);
+            lastBtn.setAlpha(this.page < pages - 1 ? 1f : 0.4f);
+            LinearLayout.LayoutParams gapLp = new LinearLayout.LayoutParams(-2, -2);
+            gapLp.rightMargin = this.app.dp(4);
+            nav.addView(first, gapLp);
             nav.addView(prev);
             nav.addView(at, new LinearLayout.LayoutParams(0, -2, 1f));
-            nav.addView(next);
+            LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(-2, -2);
+            nextLp.rightMargin = this.app.dp(4);
+            nav.addView(next, nextLp);
+            nav.addView(lastBtn);
             this.body.addView(nav);
         }
         final int px = Math.max(64, cell);
         for (int k = 0; k < wanted.size(); k++) {
             final MediaDir.Entry e = wanted.get(k);
             final ImageView view = views.get(k);
+            final TextView label = labels.get(k);
             READER.execute(() -> {
                 if (mine != this.token) return;
-                final Bitmap b = this.thumb(e, px);
-                if (b == null) return;
-                THUMBS.put(key(e), b);
+                final Bitmap b = THUMBS.get(key(e)) != null ? THUMBS.get(key(e)) : this.thumb(e, px);
+                // Its resolution and aspect ratio under the name: "1920×1080 · 16:9".
+                String sized = SIZES.get(key(e));
+                if (sized == null) {
+                    sized = this.sizeOf(e);
+                    SIZES.put(key(e), sized);
+                }
+                final String size = sized;
+                if (b != null) THUMBS.put(key(e), b);
                 this.main.post(() -> {
-                    if (mine == this.token) view.setImageBitmap(b);
+                    if (mine != this.token) return;
+                    if (b != null) view.setImageBitmap(b);
+                    if (size.length() > 0) {
+                        label.setText(e.name + "\n" + size);
+                        label.setTag("media-size:" + size);
+                    }
                 });
             });
         }
@@ -1061,6 +1179,42 @@ final class MediaBrowser {
     }
 
     /** A picture's or a video's thumbnail about `px` across; null when there is none. */
+    /** Each picture's and video's "1920×1080 · 16:9" ("" when it could not be read), by file. */
+    private static final java.util.Map<String, String> SIZES = new java.util.concurrent.ConcurrentHashMap<String, String>();
+
+    /** A picture's or a video's resolution and aspect ratio, read without decoding it: "1920×1080 · 16:9", or "". */
+    String sizeOf(MediaDir.Entry e) {
+        try {
+            if (e.kind == MediaDir.PICTURE) {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
+                try {
+                    BitmapFactory.decodeStream(in, null, bounds);
+                } finally {
+                    if (in != null) in.close();
+                }
+                return MediaSize.label(bounds.outWidth, bounds.outHeight);
+            }
+            if (e.kind == MediaDir.VIDEO) {
+                MediaMetadataRetriever media = new MediaMetadataRetriever();
+                try {
+                    if (this.onDisk(e)) media.setDataSource(e.id);
+                    else media.setDataSource(this.app, this.uri(e));
+                    int[] wh = PromptSheet.videoSize(media);
+                    return MediaSize.label(wh[0], wh[1]);
+                } finally {
+                    try {
+                        media.release();
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {
+            // not known
+        }
+        return "";
+    }
+
     Bitmap thumb(MediaDir.Entry e, int px) {
         Uri u = this.uri(e);
         if (this.tree != null) {
@@ -1279,6 +1433,41 @@ final class MediaBrowser {
         /** The last frame C saved, for the tests. */
         String captured;
 
+        /** The position bar is being dragged: it is not moved by the video meanwhile. */
+        boolean dragging;
+        /** The player's dialog (C held: closed for ImageUpscaler). */
+        android.app.Dialog dialog;
+
+        boolean playing() {
+            try {
+                return media != null ? media.isPlaying() : view.isPlaying();
+            } catch (Exception ex) {
+                return false;
+            }
+        }
+
+        /** Pause, or (paused) play on: the Pause button, a tap on the video. */
+        void pauseOrResume() {
+            try {
+                if (playing()) view.pause();
+                else view.start();
+            } catch (RuntimeException ignored) {
+                // not ready
+            }
+            paintTransport();
+        }
+
+        /** To `ms`, showing that frame even while paused (the closest frame, not only a key frame). */
+        void seekFrame(int ms) {
+            try {
+                if (media != null && android.os.Build.VERSION.SDK_INT >= 26) media.seekTo(ms, MediaPlayer.SEEK_CLOSEST);
+                else view.seekTo(ms);
+            } catch (RuntimeException ignored) {
+                // not ready
+            }
+            showTime();
+        }
+
         /** C shows while paused; the position bar follows the video. */
         void paintTransport() {
             boolean on = false;
@@ -1292,7 +1481,7 @@ final class MediaBrowser {
                 // not ready, or closing
             }
             if (capture != null) capture.setVisibility(!on && media != null ? View.VISIBLE : View.GONE);
-            if (position != null && len > 0) position.setProgress((int) Math.min(1000, (long) at * 1000 / len));
+            if (position != null && len > 0 && !dragging) position.setProgress((int) Math.min(1000, (long) at * 1000 / len));
         }
 
         /** The player's window and the app's: kept on while it plays. */
@@ -1318,27 +1507,23 @@ final class MediaBrowser {
             screenOn(appWindow, on);
         }
 
-        /** Times the controls were brought back on top (a long press), for the tests. */
+        /** Times a long press brought Mute and the volume to the top, for the tests. */
         int raised;
 
-        /**
-         * The system's play / pause and position controls: for 3 seconds after a tap, or with `pinned`
-         * (a long press) put back on top of the player and kept until the next tap.
-         */
-        void showControls(MediaController controls, boolean pinned) {
+        /** A long press: the video pauses and Mute and the volume come to the top (another long press hides them). */
+        void hold() {
             try {
-                if (pinned) {
-                    // Taken down and shown again: a controller that ended up behind the player comes back in front.
-                    controls.hide();
-                    controls.show(0);
-                    raised++;
-                } else {
-                    controls.show(3000);
-                }
-            } catch (RuntimeException ex) {
-                // a controller not tied to its player yet: it shows on the next tap
-                if (pinned) raised++;
+                if (playing()) view.pause();
+            } catch (RuntimeException ignored) {
+                // not ready
             }
+            if (sound != null) {
+                boolean show = sound.getVisibility() != View.VISIBLE;
+                sound.setVisibility(show ? View.VISIBLE : View.GONE);
+                if (show) sound.bringToFront();
+                if (show) raised++;
+            }
+            paintTransport();
         }
 
         /** The time label: where it is / how long it is. */
@@ -1505,17 +1690,21 @@ final class MediaBrowser {
             p.paintTransport();
         });
         stopBtn.setTag("media-video-stop");
+        // Play while it plays pauses it; Pause while paused plays on.
         TextView playBtn = this.app.pill("\u25b6 Play", false, v -> {
-            p.view.start();
+            if (p.playing()) p.view.pause();
+            else p.view.start();
             p.paintTransport();
         });
         playBtn.setTag("media-video-play");
-        TextView pauseBtn = this.app.pill("\u275a\u275a Pause", false, v -> {
-            p.view.pause();
-            p.paintTransport();
-        });
+        TextView pauseBtn = this.app.pill("\u275a\u275a Pause", false, v -> p.pauseOrResume());
         pauseBtn.setTag("media-video-pause");
-        p.capture = this.app.pill("C", false, v -> this.capture(e, p));
+        p.capture = this.app.pill("C", false, v -> this.capture(e, p, false));
+        // C held: the frame captured, then ImageUpscaler with it as the input.
+        p.capture.setOnLongClickListener(v -> {
+            this.capture(e, p, true);
+            return true;
+        });
         p.capture.setTag("media-video-capture");
         p.capture.setContentDescription("Capture this frame into the SC folder");
         p.capture.setVisibility(View.GONE);
@@ -1532,18 +1721,23 @@ final class MediaBrowser {
             public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
                 if (!fromUser) return;
                 try {
-                    int len = p.view.getDuration();
-                    if (len > 0) p.view.seekTo((int) ((long) len * value / 1000));
+                    // Paused too: the frame there is shown.
+                    int len = p.media != null ? p.media.getDuration() : p.view.getDuration();
+                    if (len > 0) p.seekFrame((int) ((long) len * value / 1000));
                 } catch (RuntimeException ignored) {
                     // not ready
                 }
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStartTrackingTouch(SeekBar s) {
+                p.dragging = true;
+            }
 
             @Override
-            public void onStopTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {
+                p.dragging = false;
+            }
         });
         transport.addView(p.position, new LinearLayout.LayoutParams(0, -2, 1f));
         col.addView(transport);
@@ -1586,11 +1780,8 @@ final class MediaBrowser {
         col.addView(zoom);
         // The last video's zoom.
         p.zoomTo(MediaDir.zoom);
-        // The play / pause and position controls show over the picture on a tap.
-        final MediaController controls = new MediaController(this.app);
-        controls.setAnchorView(frame);
-        p.view.setMediaController(controls);
-        // Pinch to zoom; one finger moves a zoomed video, a tap shows the controls.
+        // No system controls over the picture: Stop, Play, Pause, C and the position are the row below,
+        // shown from the start. Pinch to zoom; one finger moves a zoomed video; a tap pauses or plays on.
         final ScaleGestureDetector pinch = new ScaleGestureDetector(this.app, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
             public boolean onScale(ScaleGestureDetector g) {
@@ -1599,12 +1790,12 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[3];
-        // Holding a finger on the video brings the play / pause and position controls back on top, until the next tap.
+        // Holding a finger on the video pauses it and brings Mute and the volume to the top.
         final int slop = android.view.ViewConfiguration.get(this.app).getScaledTouchSlop();
         final float[] start = new float[2];
         final Runnable hold = () -> {
             down[2] = 1;
-            p.showControls(controls, true);
+            p.hold();
         };
         final View.OnTouchListener touch = (v, ev) -> {
             pinch.onTouchEvent(ev);
@@ -1628,8 +1819,8 @@ final class MediaBrowser {
                 down[2] = 1;
             } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
                 this.main.removeCallbacks(hold);
-                // A tap shows Mute and the volume at the top (the next tap hides them); held, the position controls come on top.
-                if (act == MotionEvent.ACTION_UP && down[2] == 0) p.sound.setVisibility(p.sound.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                // A tap works as Pause: it pauses, or (paused) plays on.
+                if (act == MotionEvent.ACTION_UP && down[2] == 0) p.pauseOrResume();
             }
             return true;
         };
@@ -1642,11 +1833,7 @@ final class MediaBrowser {
             p.applyVolume();
             if (p.speed != 1) p.speedTo(p.speed);
             p.showTime();
-            try {
-                controls.show(3000);
-            } catch (RuntimeException ex) {
-                // a controller not tied to its player yet: it shows on the next tap
-            }
+            p.paintTransport();
         });
         p.view.setOnErrorListener((mp, what, extra) -> {
             this.app.setNow("This phone cannot play " + e.name);
@@ -1655,6 +1842,7 @@ final class MediaBrowser {
         p.view.setVideoURI(this.uri(e));
         p.window = d.getWindow();
         p.appWindow = this.app.getWindow();
+        p.dialog = d;
         d.setOnShowListener(x -> this.main.post(clock[0]));
         d.setOnDismissListener(x -> {
             this.main.removeCallbacks(clock[0]);
@@ -1676,7 +1864,7 @@ final class MediaBrowser {
      * C: the paused video's frame saved as a PNG in the SC folder under the video's folder (made
      * when it is not there): clip-0m12s345.png. Read and written off the main thread.
      */
-    void capture(final MediaDir.Entry e, final Video p) {
+    void capture(final MediaDir.Entry e, final Video p, final boolean upscale) {
         final long ms;
         try {
             ms = p.media != null ? p.media.getCurrentPosition() : p.view.getCurrentPosition();
@@ -1700,6 +1888,20 @@ final class MediaBrowser {
                 String name = MediaDir.frameName(e.name, ms);
                 said = "Saved the frame as " + saveInto(this.app, where, MediaDir.FRAMES_DIR, name, "image/png", png.toByteArray());
                 p.captured = name;
+                if (upscale) {
+                    // C held: the frame goes on to ImageUpscaler as its input.
+                    File dir = new File(this.app.getCacheDir(), "pyjav-in");
+                    if (!dir.isDirectory()) dir.mkdirs();
+                    final File in = new File(dir, name);
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(in);
+                    try {
+                        fos.write(png.toByteArray());
+                    } finally {
+                        fos.close();
+                    }
+                    ORIGIN.put(in.getAbsolutePath(), where);
+                    this.main.post(() -> this.upscaleFile(in, p.dialog));
+                }
             } catch (Throwable ex) {
                 said = "Could not capture the frame: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
             } finally {

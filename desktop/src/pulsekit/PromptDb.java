@@ -1158,19 +1158,61 @@ final class PromptDb {
         final boolean[] dragging = new boolean[1];
         player.volume(startVolume);
         // Play, Pause and Stop each always shown (as on the phone); C saves the paused frame.
+        // Play while it plays pauses it; Pause while paused plays on.
         play.addActionListener(e -> {
-            if (!player.playing()) player.play();
+            if (player.playing()) player.pause();
+            else player.play();
         });
         JButton pause = new JButton("Pause");
         pause.setName("video-pause");
         pause.addActionListener(e -> {
             if (player.playing()) player.pause();
+            else player.play();
         });
         final JButton capture = new JButton("C");
         capture.setName("video-capture");
         capture.setToolTipText("Capture this frame into the SC folder beside the video");
         capture.setVisible(false);
-        capture.addActionListener(e -> this.captureFrame(name, video, player));
+        // C held: the frame captured, then ImageUpscaler with it as the input (Return: the Media browser there).
+        final boolean[] heldC = new boolean[1];
+        capture.addActionListener(e -> {
+            if (heldC[0]) {
+                heldC[0] = false;
+                return;
+            }
+            this.captureFrame(name, video, player);
+        });
+        capture.addMouseListener(new java.awt.event.MouseAdapter() {
+            javax.swing.Timer hold;
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
+                this.hold = new javax.swing.Timer(600, ev -> {
+                    heldC[0] = true;
+                    PromptDb.this.lastCapture = null;
+                    PromptDb.this.captureFrame(name, video, player);
+                    File shot = PromptDb.this.lastCapture;
+                    if (shot == null) return;
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
+                    if (w != null) w.dispose();
+                    if (app.mediaBrowser != null && app.mediaBrowser.last != null) app.mediaBrowser.last.dispose();
+                    app.showView("py");
+                    app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+                    app.pyJav.setInputFile(shot);
+                    final File folder = video.getAbsoluteFile().getParentFile();
+                    app.pyJav.setReturn(() -> app.mediaBrowser.open(folder));
+                    SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+                });
+                this.hold.setRepeats(false);
+                this.hold.start();
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (this.hold != null) this.hold.stop();
+            }
+        });
         stop.addActionListener(e -> {
             player.stop();
             position.setValue(0);
@@ -1267,11 +1309,34 @@ final class PromptDb {
         transport.add(looping);
         if (remember) {
             sound.setVisible(false);
+            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
             player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
+                javax.swing.Timer hold;
+                boolean held;
+
+                java.awt.Point at;
+
                 @Override
-                public void mouseClicked(java.awt.event.MouseEvent e) {
-                    sound.setVisible(!sound.isVisible());
-                    sound.getParent().revalidate();
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    this.held = false;
+                    this.at = e.getPoint();
+                    this.hold = new javax.swing.Timer(600, ev -> {
+                        this.held = true;
+                        if (player.playing()) player.pause();
+                        sound.setVisible(!sound.isVisible());
+                        sound.getParent().revalidate();
+                    });
+                    this.hold.setRepeats(false);
+                    this.hold.start();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    if (this.hold != null) this.hold.stop();
+                    // A drag (moving a zoomed video) is not a click.
+                    if (this.held || this.at == null || this.at.distance(e.getPoint()) > 6) return;
+                    if (player.playing()) player.pause();
+                    else player.play();
                 }
             });
         }

@@ -508,7 +508,7 @@ final class PyJav {
         this.pkReturn = back;
         if (this.pkReturnBtn != null) {
             this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
-            if (label != null) this.pkReturnBtn.setText(label);
+            if (label != null && this.pkReturnBtn instanceof android.widget.TextView) ((android.widget.TextView) this.pkReturnBtn).setText(label);
         }
     }
 

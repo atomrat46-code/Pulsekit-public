@@ -4082,6 +4082,79 @@ public final class DesktopBehavior {
     snap("after Midi2HydroPattern");
   }
 
+  /**
+   * The Sogni run fixes and the rest of the October list: a timed-out run joined again with
+   * --workflow, the Running line, File > Downloads (Mark as ready, times), SogniMusic's test without
+   * drums, one reference file row for one file, favourite categories, Hydrogen export, sizes.
+   */
+  void s93_runs_and_exports() throws Exception {
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "a walk", "/tmp/a.png"));
+    String timedOut = "Uploaded a.png\nWorkflow: wf_42\nStatus: processing\nTimed out (4500s).";
+    out.append("reconnect: ").append(JavaRun.reconnectArgs("SogniVideo.java", "", timedOut, argv)).append('\n');
+    out.append("succeeded: ").append(JavaRun.reconnectArgs("SogniVideo.java", "", timedOut + "\nSucceeded: a.mp4", argv)).append('\n');
+    out.append("network: ").append(JavaRun.reconnectArgs("SogniTextVideo.java", "", "Workflow: wf_7\nFailed: Unable to resolve host \"api\"", argv)).append('\n');
+    out.append("refused: ").append(JavaRun.reconnectArgs("SogniVideo.java", "", "Workflow: wf_7\nFailed: blocked by the content filter", argv)).append('\n');
+    out.append("run limits: SogniVideo ").append(JavaRun.runMs("SogniVideo.java", "", null) / 60000).append(" min, MidiDrumGen ")
+        .append(JavaRun.runMs("MidiDrumGen.java", "", null) / 60000).append(" min\n");
+    JavaRun.Live live = new JavaRun.Live();
+    live.add("Workflow: wf_42\nStatus: queued\nQueued: position 3\n");
+    out.append("running: ").append(JavaRun.runningLine(live, live.started + 125000)).append('\n');
+    live.add("Status: processing\nProgress: 40%\n");
+    out.append("running: ").append(JavaRun.runningLine(live, live.started + 3725000)).append('\n');
+    live.add("Reconnecting: Sogni answered 503; again in 20 s\n");
+    out.append("running: ").append(JavaRun.runningLine(live, live.started + 3726000)).append('\n');
+    java.util.Map<String, Object> ev = new java.util.HashMap<String, Object>();
+    java.util.Map<String, Object> data = new java.util.HashMap<String, Object>();
+    data.put("progress", Double.valueOf(0.42));
+    ev.put("data", data);
+    out.append("progress notes: ").append(SogniApi.progressNote(ev, null)).append(" / ").append(SogniApi.progressNote(ev, "Progress: 40%")).append('\n');
+    JavaRun.Live dm = new JavaRun.Live();
+    dm.add("Loaded 240.0 s at 44100 Hz\nProgress: 25%\n");
+    out.append("DrumMidi at 30 s: ").append(JavaRun.noHitsQuestion("DrumMidi_CRT.java", dm, dm.started + 30000)).append('\n');
+    out.append("DrumMidi at 95 s: ").append(String.valueOf(JavaRun.noHitsQuestion("DrumMidi_CRT.java", dm, dm.started + 95000)).replace('\n', ' ')).append('\n');
+    dm.add("Hits: 120\n");
+    out.append("DrumMidi with hits: ").append(JavaRun.noHitsQuestion("DrumMidi_CRT.java", dm, dm.started + 95000)).append('\n');
+    // File > Downloads: a run in progress, its time and why; Mark as ready lets it go.
+    SogniDownloads.init(PromptDb.dir());
+    long id = SogniDownloads.started("SogniTextVideo.java", System.currentTimeMillis() - 185000);
+    out.append("in progress: ").append(SogniDownloads.runLabel(SogniDownloads.run(id)).replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "DATE")).append('\n');
+    SogniDownloads.reconnecting(id, "Reconnecting to workflow wf_42 (timed out after 1200 s; try 1 of 3)\u2026");
+    out.append("reconnecting: ").append(SogniDownloads.reason(SogniDownloads.run(id))).append(", tab ").append(SogniDownloads.tabLabel(SogniDownloads.PROGRESS)).append('\n');
+    SogniDownloads.markReady(id);
+    out.append("marked ready: ").append(SogniDownloads.run(id).state).append(" ").append(SogniDownloads.run(id).status).append(", tab ").append(SogniDownloads.tabLabel(SogniDownloads.PROGRESS)).append('\n');
+    // SogniMusic's test asks for drums.
+    out.append("music test without drums: ").append(Midi2WavTest.drumsWarning("SogniMusic.java", java.util.Arrays.asList("--genre", "funk", "--test")) != null)
+        .append(", with --drums_only ").append(Midi2WavTest.drumsWarning("SogniMusic.java", java.util.Arrays.asList("--drums_only", "--test")) != null)
+        .append(", with drums in --instruments ").append(Midi2WavTest.drumsWarning("SogniMusic.java", java.util.Arrays.asList("--instruments", "Drums, bass", "--test")) != null).append('\n');
+    // One reference file used by two prompts: one row.
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.addCategory("Walks");
+    byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
+    vault.addVersion(vault.addPrompt(cat, "Morning"), "Morning", "", "walk", "", "garden.png", png, "", null, "", null, "", "");
+    vault.addVersion(vault.addPrompt(cat, "Evening"), "Evening", "", "walk at dusk", "", "garden.png", png, "", null, "", null, "", "");
+    StringBuilder refs = new StringBuilder();
+    for (PromptVault.StoredFile f : vault.referenceFiles()) refs.append(f.name).append(" (").append(f.shownTitle()).append(") ");
+    out.append("reference files: ").append(refs.toString().trim()).append('\n');
+    // Favourite categories.
+    CategoryFavourites.load(PromptDb.dir());
+    CategoryFavourites.toggle(cat);
+    StringBuilder favs = new StringBuilder();
+    for (PromptVault.Category c : CategoryFavourites.list(vault)) favs.append(CategoryFavourites.label(vault, c)).append(' ');
+    out.append("favourites: ").append(favs.toString().trim()).append(", file ").append(new File(PromptDb.dir(), "favourite-categories.txt").isFile()).append('\n');
+    CategoryFavourites.toggle(cat);
+    out.append("after toggling again: ").append(CategoryFavourites.list(vault).size()).append('\n');
+    // Hydrogen export: the beat as a pattern and as a song, read back.
+    int[][] cells = new int[Engine.TRACK_ID.length][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 16; i += 8) cells[1][i] = 100;
+    byte[] midi = Engine.encodeMidi(cells, 120, 16, 4, 4);
+    byte[] pattern = HydrogenWrite.pattern(midi, "Groove", "Pulsekit");
+    byte[] song = HydrogenWrite.song(Engine.encodeSongMidi(java.util.Arrays.asList(Engine.groove("Groove", 120, cells, 4))), "Groove song");
+    out.append("h2pattern: ").append(Hydrogen.summary(Hydrogen.toMidi(pattern))).append('\n');
+    out.append("h2song: ").append(Hydrogen.summary(Hydrogen.toMidi(song))).append(", patterns ").append(new String(song, "UTF-8").split("<pattern>").length - 1).append('\n');
+    out.append("sizes: ").append(MediaSize.label(1920, 1080)).append(", ").append(MediaSize.label(1080, 1920)).append(", ").append(MediaSize.label(1998, 1080)).append('\n');
+  }
+
   void s86_midi2wav() throws Exception {
     File home = new File(System.getProperty("user.home"));
     int[][] cells = new int[12][16];

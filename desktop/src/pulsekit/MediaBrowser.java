@@ -210,12 +210,14 @@ final class MediaBrowser {
         loopRow.add(loop);
         loopRow.add(playlist);
         top.add(loopRow, BorderLayout.EAST);
-        if (!dir.equals(root) && dir.getParentFile() != null) {
+        // Up stays at the folder Params gave too: there it goes on to the folder above (which becomes the top).
+        final File above = dir.getParentFile();
+        if (above != null && (!dir.equals(root) || (this.chooser == null && above.isDirectory() && above.canRead()))) {
             JButton up = new JButton("Up");
             up.setName("media-up");
             up.addActionListener(e -> {
                 gone.set(true);
-                this.fill(dialog, root, dir.getParentFile());
+                this.fill(dialog, dir.equals(root) ? above : root, above);
             });
             top.add(up, BorderLayout.WEST);
         }
@@ -414,15 +416,26 @@ final class MediaBrowser {
                 int kind = MediaDir.kind(f.getName());
                 ImageIcon icon = null;
                 try {
-                    if (kind == MediaDir.PICTURE) icon = scaled(javax.imageio.ImageIO.read(f));
-                    else if (kind == MediaDir.VIDEO && vlc) {
-                        byte[] jpeg = VlcPlayer.firstFrame(f, 320);
-                        if (jpeg != null) icon = scaled(javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpeg)));
+                    if (kind == MediaDir.PICTURE) {
+                        java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
+                        if (img != null) this.sizes.put(f.getAbsolutePath(), MediaSize.label(img.getWidth(), img.getHeight()));
+                        icon = scaled(img);
+                    } else if (kind == MediaDir.VIDEO) {
+                        // Its size from the MP4's own headers (no VLC needed).
+                        long[] head = MediaDir.mp4Info(f);
+                        if (head != null) this.sizes.put(f.getAbsolutePath(), MediaSize.label((int) head[1], (int) head[2]));
+                        if (vlc) {
+                            byte[] jpeg = VlcPlayer.firstFrame(f, 320);
+                            if (jpeg != null) icon = scaled(javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpeg)));
+                        }
                     }
                 } catch (Throwable ex) {
                     icon = null;
                 }
-                if (icon == null) continue;
+                if (icon == null) {
+                    if (this.sizes.containsKey(f.getAbsolutePath())) SwingUtilities.invokeLater(() -> this.put(card, null));
+                    continue;
+                }
                 this.thumbs.put(key(f), icon);
                 final ImageIcon shownIcon = icon;
                 SwingUtilities.invokeLater(() -> this.put(card, shownIcon));
@@ -434,6 +447,9 @@ final class MediaBrowser {
         t.start();
     }
 
+    /** Each picture's and video's "1920×1080 · 16:9", by path, as its thumbnail was read. */
+    private final Map<String, String> sizes = new ConcurrentHashMap<String, String>();
+
     private void put(JButton card, ImageIcon icon) {
         File f = (File) card.getClientProperty("media-file");
         MediaDir.Entry e = new MediaDir.Entry();
@@ -441,8 +457,8 @@ final class MediaBrowser {
         e.id = f.getAbsolutePath();
         e.size = f.length();
         e.kind = MediaDir.kind(e.name);
-        card.setIcon(icon);
-        card.setText(caption(e, null));
+        if (icon != null) card.setIcon(icon);
+        card.setText(caption(e, card.getIcon() != null ? null : mark(e)));
     }
 
     /** Video previews by the browser (no VLC): one tab reads the first frames, and the folder is shown again with them. */
@@ -762,6 +778,9 @@ final class MediaBrowser {
             ? "<span style='background:#D9A441;color:#0A0B0C'>&nbsp;\u2630&nbsp;</span> " : "";
         String sub = e.folder ? "folder" : e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video · ▶" : "sound · ▶";
         if (!e.folder) sub += " · " + Math.max(1, e.size / 1024) + " KB";
+        // Its resolution and aspect ratio, once read: "1920×1080 · 16:9".
+        String size = e.folder ? null : this.sizes.get(e.id);
+        if (size != null && size.length() > 0) sub += "<br>" + size;
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + badge + esc(e.name) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
