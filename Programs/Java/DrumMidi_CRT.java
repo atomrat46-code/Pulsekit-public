@@ -138,6 +138,13 @@ public class DrumMidi_CRT{
      */
     static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
     static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.08, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    /**
+     * Wires ringing less than WIRES_BAND: a snare's body still rises WEAK_WIRES_OVER_KICK times the kick
+     * band's rise or more (95% of them 4.1 and more); a tom's low end raises the kick band too (84% under 3).
+     * Not where the hat band jumps BRIGHT_SNARE (a bright snare's noise, or a hat with it: 0.64-1.33;
+     * toms mostly up to 0.34).
+     */
+    static final double WEAK_WIRES_OVER_KICK = 3.0, BRIGHT_SNARE = 0.6;
     /** A ghost note whose wires ring on (WIRES_BAND) needs its body to rise only GHOST_JUMP (0.071-0.079 seen). */
     static final double GHOST_JUMP = 0.065;
     /**
@@ -1235,8 +1242,9 @@ public class DrumMidi_CRT{
     /** The body shows: it jumps, more than with a kick, as a tone, and the wires ring (or a hat hides them). */
     static boolean bodySnare(Levels lv, int t, double sens) {
         double jb = jump(lv.body, t);
-        return (jb >= SNARE_JUMP / sens || jb >= GHOST_JUMP / sens && wiresLeft(lv.noise, t) >= WIRES_BAND) && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
-                && (wiresLeft(lv.noise, t) >= WIRES_BAND || (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t))
+        double wires = wiresLeft(lv.noise, t), jk = jump(lv.kick, t);
+        return (jb >= SNARE_JUMP / sens || jb >= GHOST_JUMP / sens && wires >= WIRES_BAND) && jb >= SNARE_OVER_KICK * jk
+                && (wires >= WIRES_BAND || (wires >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t) && (jb >= WEAK_WIRES_OVER_KICK * jk || jump(lv.hat, t) >= BRIGHT_SNARE))
                 && jump(lv.bodyRaw, t) >= (lv.bass ? BODY_TONE_BAND : BODY_TONE) * jump(lv.gapRaw, t);
     }
 
