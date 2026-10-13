@@ -76,7 +76,9 @@ public class DrumMidi_CRT{
      */
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
-    static final double PITCH_HELD = 0.04, HELD_SONG = 0.5;
+    static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3;
+    /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
+    static final double SHUFFLE_BEAT = 0.6;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
@@ -315,6 +317,8 @@ public class DrumMidi_CRT{
         double[] gapRaw = bandMean(mag, bin(GAP_LO, sr, maxBin), bin(GAP_HI, sr, maxBin));
         double[] lowPitch = lowPitch(mag, sr, maxBin);
         CymbalShape shape = new CymbalShape(mag, sr, maxBin);
+        // Before HPSS, which takes a guitar's held notes away.
+        boolean guitar = guitarLine(mag, sr, maxBin);
         double[] hatLevel = hatRaw.clone();
         normalize(hatLevel);
         normalize(kickLevel);
@@ -516,7 +520,7 @@ public class DrumMidi_CRT{
             }
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
         }
-        rideOrHats(hits, shape, fps, bass);
+        rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
@@ -1262,6 +1266,17 @@ public class DrumMidi_CRT{
         }
     }
 
+    /**
+     * Guitars (or keys) play: the 300-1000 Hz band stays up between the hits, its lower quartile
+     * at GUITAR_FLOOR of its loud level (95th percentile); drums alone, a ride too, leave it far lower.
+     */
+    static boolean guitarLine(float[][] mag, double sr, int maxBin) {
+        double[] g = bandMean(mag, bin(300, sr, maxBin), bin(1000, sr, maxBin));
+        Arrays.sort(g);
+        double loud = g[(int) (g.length * 0.95)];
+        return loud > 1e-9 && g[g.length / 4] >= GUITAR_FLOOR * loud;
+    }
+
     /** Something keeps the kick band up half the time: a bass line (drums alone leave it quiet between hits). */
     static boolean bassLine(double[] kickLevel) {
         double[] s = kickLevel.clone();
@@ -1333,7 +1348,7 @@ public class DrumMidi_CRT{
      * already sounds does not count. Over a bass line the partials are not asked about, and hats
      * are not turned into a ride (chords struck with the hats rise low as a ride does).
      */
-    static void rideOrHats(List<Hit> hits, CymbalShape sh, double fps, boolean bass) {
+    static void rideOrHats(List<Hit> hits, CymbalShape sh, double fps, boolean bass, boolean guitar) {
         List<Hit> cym = new ArrayList<Hit>();
         List<Double> all = new ArrayList<Double>();
         for (Hit h : hits) {
@@ -1369,7 +1384,8 @@ public class DrumMidi_CRT{
             // Rises at the hit: what already sounds (a band, a ride's own wash) does not count.
             int pre = Math.max(0, t - 3);
             double dl = Math.max(0, sh.lo[b] - sh.lo[pre]), dr = Math.max(1e-9, sh.ride[b] - sh.ride[pre]), dh = Math.max(0, sh.hi[b] - sh.hi[pre]);
-            boolean low = dl >= RIDE_LOW * dr && dh <= RIDE_HIGH * dr;
+            // A guitar's chord struck with the hat rises low too (1-3 kHz): not a ride's sign there.
+            boolean low = !guitar && dl >= RIDE_LOW * dr && dh <= RIDE_HIGH * dr;
             like[i] = stable || low;
         }
         for (int i = 0; i < n; i++) {
@@ -1607,6 +1623,14 @@ public class DrumMidi_CRT{
             double oct = Math.log(bpm / 120.0) / Math.log(2);
             double score = ac[lag] * Math.exp(-0.5 * oct * oct / (0.8 * 0.8));
             if (score > best) { best = score; bestLag = lag; }
+        }
+        // A shuffle (triplet swing): the dotted beat (3 triplets) can repeat best, reading 2/3 of the
+        // tempo; where the beat (2/3 of that lag) repeats nearly as well (SHUFFLE_BEAT), it is the beat.
+        // In straight time that lag falls between the notes.
+        int beat = (int) Math.round(bestLag * 2.0 / 3.0);
+        if (beat >= minLag && beat - 1 >= 0 && 60 * fps / beat <= 180) {
+            double here = Math.max(ac[beat], Math.max(ac[beat - 1], ac[beat + 1]));
+            if (here >= SHUFFLE_BEAT * ac[bestLag]) bestLag = ac[beat - 1] > ac[beat] && ac[beat - 1] >= ac[beat + 1] ? beat - 1 : ac[beat + 1] > ac[beat] ? beat + 1 : beat;
         }
         double a = ac[bestLag - 1], b = ac[bestLag], c = ac[bestLag + 1];
         double denom = a - 2 * b + c;
