@@ -85,6 +85,12 @@ public class DrumMidi_CRT{
     static final int RISE_KICKS = 16;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
     static final double SHUFFLE_BEAT = 0.5;
+    /**
+     * Dotted figures (3 sixteenths) can repeat best, reading 4/3 of the tempo; where the beat
+     * (4/3 of that lag) repeats DOTTED_BEAT as well, it is the beat (0.90-1.02 seen; straight time
+     * up to 0.08, a shuffle 0.6).
+     */
+    static final double DOTTED_BEAT = 0.8;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
@@ -117,6 +123,8 @@ public class DrumMidi_CRT{
      */
     static final double KICK_JUMP_BAND = 0.15, KICK_CLICK_JUMP = 0.55, KICK_JUMP_STRONG = 0.6;
     static final double KICK_JUMP = 0.2, SNARE_JUMP = 0.08, SNARE_OVER_KICK = 1.25, KICK_WITH_SNARE = 0.85;
+    /** A ghost note whose wires ring on (WIRES_BAND) needs its body to rise only GHOST_JUMP (0.071-0.079 seen). */
+    static final double GHOST_JUMP = 0.065;
     /**
      * Snare wires: the noise band (2-6 kHz) still holds this much of its onset's rise 60-90 ms on
      * (wiresLeft). A snare whose body shows holds WIRES or more; a tom's stick noise dies to
@@ -1212,7 +1220,7 @@ public class DrumMidi_CRT{
     /** The body shows: it jumps, more than with a kick, as a tone, and the wires ring (or a hat hides them). */
     static boolean bodySnare(Levels lv, int t, double sens) {
         double jb = jump(lv.body, t);
-        return jb >= SNARE_JUMP / sens && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
+        return (jb >= SNARE_JUMP / sens || jb >= GHOST_JUMP / sens && wiresLeft(lv.noise, t) >= WIRES_BAND) && jb >= SNARE_OVER_KICK * jump(lv.kick, t)
                 && (wiresLeft(lv.noise, t) >= WIRES_BAND || (wiresLeft(lv.noise, t) >= WIRES || jump(lv.hat, t) >= HAT_WITH) && !masked(lv, t))
                 && jump(lv.bodyRaw, t) >= (lv.bass ? BODY_TONE_BAND : BODY_TONE) * jump(lv.gapRaw, t);
     }
@@ -1666,8 +1674,9 @@ public class DrumMidi_CRT{
         double[] x = new double[n];
         for (int i = 0; i < n; i++) x[i] = env[i] - mean;
 
-        double[] ac = new double[maxLag + 2];
-        for (int lag = minLag - 1; lag <= maxLag + 1; lag++) {
+        int acLen = Math.min(n, maxLag * 4 / 3 + 4);
+        double[] ac = new double[acLen];
+        for (int lag = minLag - 1; lag < acLen; lag++) {
             double s = 0;
             for (int i = 0; i + lag < n; i++) s += x[i] * x[i + lag];
             ac[lag] = s / (n - lag);
@@ -1687,11 +1696,24 @@ public class DrumMidi_CRT{
         if (beat >= minLag && beat - 1 >= 0 && 60 * fps / beat <= 180) {
             double here = Math.max(ac[beat], Math.max(ac[beat - 1], ac[beat + 1]));
             if (here >= SHUFFLE_BEAT * ac[bestLag]) bestLag = ac[beat - 1] > ac[beat] && ac[beat - 1] >= ac[beat + 1] ? beat - 1 : ac[beat + 1] > ac[beat] ? beat + 1 : beat;
+            else bestLag = dotted(ac, bestLag, maxLag);
+        } else {
+            bestLag = dotted(ac, bestLag, maxLag);
         }
         double a = ac[bestLag - 1], b = ac[bestLag], c = ac[bestLag + 1];
         double denom = a - 2 * b + c;
         double lagRef = bestLag + (denom != 0 ? clampD(0.5 * (a - c) / denom, -1, 1) : 0);
         return 60 * fps / lagRef;
+    }
+
+    /** The beat 4/3 of the lag, where it repeats DOTTED_BEAT as well as the lag (dotted figures). */
+    static int dotted(double[] ac, int bestLag, int maxLag) {
+        int slow = (int) Math.round(bestLag * 4.0 / 3.0);
+        if (slow > maxLag || slow + 1 >= ac.length || ac[bestLag] <= 0) return bestLag;
+        int at = slow;
+        if (ac[slow - 1] > ac[at]) at = slow - 1;
+        if (ac[slow + 1] > ac[at]) at = slow + 1;
+        return ac[at] >= DOTTED_BEAT * ac[bestLag] ? at : bestLag;
     }
 
     static double[] fitBeatGrid(double[] env, double fps, double lo, double hi) {
