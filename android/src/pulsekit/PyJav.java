@@ -718,7 +718,7 @@ final class PyJav {
         // A folder picked for Midi2HydroPattern (--dir): its MIDI files copied into the work folder.
         StringBuilder staged = new StringBuilder();
         argv = MidiFolder.forProgram(app, name, argv, dir, staged);
-        if (staged.length() > 0) app.setNow("Midi2HydroPattern \u00b7 " + staged);
+        if (staged.length() > 0) app.setNow(name.replace(".java", "") + " \u00b7 " + staged);
         // MediaBrowser without a folder: the one the Media browser opened last.
         if ("MediaBrowser.java".equals(name)) {
             pulsekit.MediaBrowser.load(app);

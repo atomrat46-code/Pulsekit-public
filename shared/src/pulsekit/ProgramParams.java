@@ -117,6 +117,7 @@ public final class ProgramParams {
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
       if (midi2hydro) knownMidi2Hydro(p);
+      if (splitWav || cutWav) knownWavFolder(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -481,6 +482,21 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Output folder";
       p.hint = "next to each MIDI file; on the phone: Download";
+    }
+  }
+
+  /** SplitWav's and CutWav's folder switches: every WAV in a folder at once. */
+  private static void knownWavFolder(Param p) {
+    if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Folder of WAV files (all of them at once)";
+      p.hint = "every .wav in it, each as the input; the input file above is not needed";
+    } else if (p.token.equals("--recursive")) {
+      p.label = "Its subfolders too";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Output folder";
+      p.hint = "next to each WAV; on the phone: Download";
     }
   }
 

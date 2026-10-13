@@ -1,7 +1,7 @@
 /**
  * CutWav: keeps the start of a WAV file and writes it as a new WAV.
  *
- *   java CutWav <input.wav> [output.wav] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N]
+ *   java CutWav <input.wav> [output.wav] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N] [--dir FOLDER] [--recursive] [--outdir FOLDER]
  *
  * output.wav   Default: <input>_cutted.wav next to the input.
  * --split_time Keep 00:00 up to this time: mm:ss, or mm:ss.ms with milliseconds (02:45.250).
@@ -14,6 +14,10 @@
  *              the cut moves back to a bar end, so the file stays within the size.
  *              --trim alone cuts after the last whole bar.
  * --bpm N      The tempo for --trim, instead of finding it.
+ * --dir FOLDER Every WAV in the folder, each cut as above to <its name>_cutted.wav; the outputs
+ *              of an earlier run (_cutted.wav) are left out. output.wav is not used.
+ * --recursive  With --dir: its subfolders' WAVs too.
+ * --outdir FOLDER  With --dir: the cut files go there (made when missing), not beside each WAV.
  *
  * The last 10 ms fade out, so the cut does not click. Works with 8, 16, 24 and 32-bit PCM and
  * 32-bit float WAV, mono or stereo. Plain Java 8, so PyJav can compile it on a phone.
@@ -41,10 +45,92 @@ public final class CutWav {
   }
 
   static void usage() {
-    System.out.println("Usage: java CutWav <input.wav> [output.wav] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N]");
+    System.out.println("Usage: java CutWav <input.wav> [output.wav] [--split_time mm:ss.ms] [--split_lenght MB] [--trim] [--bpm N] [--dir FOLDER] [--recursive] [--outdir FOLDER]");
   }
 
+  static final java.util.Set<String> OUTPUT_SWITCHES = new java.util.HashSet<String>(java.util.Arrays.asList(""));
+  static final java.util.Set<String> TAKES_VALUE = new java.util.HashSet<String>(java.util.Arrays.asList("--split_time", "--split_lenght", "--split_length", "--bpm"));
+
   static void run(String[] args) throws Exception {
+    if (!batch(args)) runOne(args);
+  }
+
+  /** --dir: the folder's WAV files, each processed as one input; --outdir: where the outputs go (default: beside each). */
+  static File outDir;
+
+  /** The arguments without the folder's switches, as given for one file. */
+  static boolean batch(String[] args) throws Exception {
+    String dir = null, outdir = null;
+    boolean recursive = false;
+    List<String> rest = new ArrayList<String>();
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i] == null ? "" : args[i].trim();
+      if ("--dir".equals(a)) dir = value(args, ++i, a);
+      else if ("--outdir".equals(a)) outdir = value(args, ++i, a);
+      else if ("--recursive".equals(a)) recursive = true;
+      else if (OUTPUT_SWITCHES.contains(a)) i++;
+      else if (a.startsWith("--")) {
+        rest.add(a);
+        if (TAKES_VALUE.contains(a) && i + 1 < args.length) rest.add(args[++i]);
+      }
+      // Positional files are left out: each WAV of the folder is the input.
+    }
+    if (dir == null) return false;
+    File folder = new File(dir);
+    if (!folder.isDirectory()) throw new IllegalArgumentException("No such folder: " + dir);
+    if (outdir != null) {
+      File o = new File(outdir);
+      if (!o.isAbsolute()) o = new File(System.getProperty("user.dir", "."), outdir);
+      if (!o.isDirectory() && !o.mkdirs()) throw new IllegalArgumentException("Could not make the folder " + o.getPath());
+      outDir = o;
+    }
+    List<File> wavs = new ArrayList<File>();
+    collect(folder, recursive, wavs);
+    if (wavs.isEmpty()) {
+      System.out.println("Failed: no WAV files in " + folder.getName() + (recursive ? " or its subfolders" : ""));
+      return true;
+    }
+    System.out.println("CutWav: " + wavs.size() + " WAV file" + (wavs.size() == 1 ? "" : "s") + " in " + folder.getName() + (outDir != null ? ", to " + outDir.getPath() : ""));
+    int ok = 0;
+    List<String> failed = new ArrayList<String>();
+    for (File f : wavs) {
+      System.out.println("");
+      System.out.println("== " + f.getName());
+      List<String> one = new ArrayList<String>();
+      one.add(f.getPath());
+      one.addAll(rest);
+      try {
+        if (runOne(one.toArray(new String[0]))) ok++;
+        else failed.add(f.getName());
+      } catch (Throwable ex) {
+        String m = ex.getMessage();
+        System.out.println("Failed: " + f.getName() + ": " + (m == null || m.length() == 0 ? ex.toString() : m));
+        failed.add(f.getName());
+      }
+    }
+    System.out.println("");
+    String sum = ok + " of " + wavs.size() + " WAV files done" + (failed.isEmpty() ? "" : "; not done: " + String.join(", ", failed));
+    System.out.println(ok > 0 ? "Succeeded: " + sum : "Failed: " + sum);
+    return true;
+  }
+
+  /** The folder's .wav files (its subfolders' too with --recursive), by name; outputs of an earlier run are left out. */
+  static void collect(File folder, boolean recursive, List<File> out) {
+    File[] kids = folder.listFiles();
+    if (kids == null) return;
+    java.util.Arrays.sort(kids);
+    for (File k : kids) {
+      String low = k.getName().toLowerCase(Locale.ROOT);
+      if (k.isDirectory()) {
+        if (recursive && !k.getName().startsWith(".")) collect(k, true, out);
+      } else if ((low.endsWith(".wav") || low.endsWith(".wave")) && !low.matches("(?s).*_cutted\\.wave?") && !low.startsWith(".")) {
+        out.add(k);
+      }
+    }
+  }
+
+  /** One WAV; true when it was written. */
+  static boolean runOne(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
     double splitTime = -1;
     double splitMb = -1;
@@ -63,12 +149,12 @@ public final class CutWav {
     if (files.isEmpty()) {
       usage();
       System.out.println("Failed: need an input WAV");
-      return;
+      return false;
     }
     if (splitTime < 0 && splitMb < 0 && !trim) {
       usage();
       System.out.println("Failed: give --split_time, --split_lenght or --trim");
-      return;
+      return false;
     }
     File in = new File(files.get(0));
     if (!in.isFile()) throw new IllegalArgumentException("No such file: " + in.getName());
@@ -119,6 +205,7 @@ public final class CutWav {
     System.out.println(String.format(Locale.ROOT, "Wrote %s: 00:00-%s (%s), %.2f MB, cut at %s",
         out.getName(), clock(kept), why, out.length() / 1e6, clock(kept)));
     System.out.println("Succeeded: " + out.getName());
+    return true;
   }
 
   static String value(String[] args, int i, String opt) {
@@ -165,7 +252,7 @@ public final class CutWav {
     String name = in.getName();
     int dot = name.lastIndexOf('.');
     String stem = dot > 0 ? name.substring(0, dot) : name;
-    File dir = in.getAbsoluteFile().getParentFile();
+    File dir = outDir != null ? outDir : in.getAbsoluteFile().getParentFile();
     return new File(dir, stem + "_cutted.wav");
   }
 
