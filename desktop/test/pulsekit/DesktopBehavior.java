@@ -3258,20 +3258,28 @@ public final class DesktopBehavior {
     out.append("editable field menu: ").append(editable).append('\n');
   }
 
-  /** A Sogni run whose prompt library work is not over: other Sogni programs (and Params) wait, SogniChat may run. */
+  /**
+   * A Sogni run whose prompt library work is not over: another Sogni run asks first ("Are you
+   * sure…"), only when that run stores in the library; Params and SogniChat never wait.
+   */
   void s71_pending_db() throws Exception {
     call("selectListedProgram", "Java", "SogniTextVideo.java");
     idle();
-    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
-    out.append("pending: ").append(PendingOps.count()).append('\n');
-    edt(() -> call("runPython"));
-    idle();
-    out.append("Run SogniTextVideo: ").append(((javax.swing.JTextArea) get("pyLog")).getText()).append('\n');
     PyJav pj = (PyJav) get("pyJav");
-    out.append("SogniTextVideo Params wait: ").append(pj.mustWait("SogniTextVideo.java", false)).append('\n');
-    out.append("SogniChat run waits: ").append(pj.mustWait("SogniChat.java", true)).append(", its Params wait: ").append(pj.mustWait("SogniChat.java", false)).append('\n');
+    String plain = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
+    out.append("no --saveprompt: Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append(", Params wait ").append(pj.mustWait("SogniTextVideo.java", false)).append('\n');
+    String storing = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"), PendingOps.storesInDb(java.util.Arrays.asList("--saveprompt")));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
+    answers.add("No");
+    out.append("--saveprompt, answered No: Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
+    answers.add("Yes");
+    out.append("answered Yes: Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
+    out.append("Params wait: ").append(pj.mustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(pj.mustWait("SogniChat.java", true)).append('\n');
     out.append("MidiDrumGen waits: ").append(pj.mustWait("MidiDrumGen.java", true)).append('\n');
-    PendingOps.done(entry);
+    PendingOps.done(storing);
+    PendingOps.done(plain);
     out.append("after done: pending ").append(PendingOps.count()).append(", Run waits ").append(pj.mustWait("SogniTextVideo.java", true)).append('\n');
   }
 

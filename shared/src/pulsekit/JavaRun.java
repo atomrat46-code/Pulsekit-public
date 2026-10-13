@@ -20,6 +20,137 @@ import java.util.zip.ZipInputStream;
 public final class JavaRun {
   /** How long a Java program may run: SogniMusic waits on Sogni's queue for up to 15 minutes. */
   public static final long RUN_MS = 20 * 60 * 1000L;
+  /** How long a Sogni program may run: a video waits on Sogni for up to 55 minutes, after its uploads. */
+  public static final long SOGNI_RUN_MS = 75 * 60 * 1000L;
+  /** How many times a run that timed out with its workflow still going on Sogni is joined again (--workflow). */
+  public static final int RECONNECTS = 3;
+
+  /** How long this program may run: longer for the Sogni programs (they carry SogniApi), else RUN_MS. */
+  public static long runMs(String name, String source, byte[] bytes) {
+    String low = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+    if (low.startsWith("sogni") || low.startsWith("imageupscaler")) return SOGNI_RUN_MS;
+    if (source != null && source.indexOf("--- SogniApi begin ---") >= 0) return SOGNI_RUN_MS;
+    if (bytes != null && indexOf(bytes, "SogniApi".getBytes(StandardCharsets.UTF_8)) >= 0) return SOGNI_RUN_MS;
+    return RUN_MS;
+  }
+
+  private static int indexOf(byte[] data, byte[] needle) {
+    outer:
+    for (int i = 0; i + needle.length <= data.length; i++) {
+      for (int j = 0; j < needle.length; j++) if (data[i + j] != needle[j]) continue outer;
+      return i;
+    }
+    return -1;
+  }
+
+  /**
+   * What a run has printed so far, and when it started: PyJav's "Running…" line shows the time
+   * and the latest news (queued, reconnecting, progress). Set for the thread that runs a program
+   * (and the threads it starts), so two runs at once each keep their own.
+   */
+  public static final class Live {
+    public final long started = System.currentTimeMillis();
+    private final StringBuffer text = new StringBuffer();
+
+    public void add(String s) {
+      if (s == null) return;
+      this.text.append(s);
+      if (this.text.length() > 200000) this.text.delete(0, this.text.length() - 100000);
+    }
+
+    public String text() {
+      return this.text.toString();
+    }
+  }
+
+  private static final InheritableThreadLocal<Live> LIVE = new InheritableThreadLocal<Live>();
+
+  /** The calling thread's run (and the threads it starts) prints into `live`. */
+  public static void track(Live live) {
+    LIVE.set(live);
+  }
+
+  /** The run the calling thread belongs to, or null. */
+  public static Live live() {
+    return LIVE.get();
+  }
+
+  /** "Running… 2:05" with the run's latest news: "Running… 2:05 · Queued: position 3". */
+  public static String runningLine(Live live, long now) {
+    long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
+    String time = s >= 3600 ? (s / 3600) + ":" + two((s / 60) % 60) + ":" + two(s % 60) : (s / 60) + ":" + two(s % 60);
+    String news = live == null ? null : news(live.text());
+    return "Running\u2026 " + time + (news == null ? "" : " \u00b7 " + news);
+  }
+
+  private static String two(long v) {
+    return v < 10 ? "0" + v : String.valueOf(v);
+  }
+
+  /** The latest line that says how the run is going: a status, queued, reconnecting, progress. Null when none. */
+  public static String news(String log) {
+    if (log == null || log.length() == 0) return null;
+    String[] lines = log.split("\n");
+    String status = null;
+    String progress = null;
+    for (int i = lines.length - 1; i >= 0 && i >= lines.length - 200; i--) {
+      String t = lines[i].trim();
+      if (t.length() == 0) continue;
+      if (progress == null && t.startsWith("Progress: ")) progress = t.substring(10);
+      if (status == null && (t.startsWith("Status: ") || t.startsWith("Queued") || t.startsWith("Reconnecting") || t.startsWith("Uploaded ")
+          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks"))) status = t;
+      if (status != null && progress != null) break;
+    }
+    if (status == null && progress == null) return null;
+    if (status == null) return progress;
+    if (progress == null || status.startsWith("Reconnecting") || status.startsWith("Queued")) return status;
+    return status + " " + progress;
+  }
+
+  /**
+   * A run that stopped waiting while its workflow still goes on Sogni (it timed out, or the
+   * network went away): its arguments for joining that workflow again (--workflow id, the other
+   * arguments as they were, so the prompt and its sheet stay the same), or null. Only for the
+   * programs that take --workflow, and never for a run that succeeded.
+   */
+  public static List<String> reconnectArgs(String program, String source, String log, List<String> argv) {
+    if (log == null || argv == null) return null;
+    String text = source == null ? "" : source;
+    String low = program == null ? "" : program.toLowerCase(java.util.Locale.ROOT);
+    boolean takes = text.indexOf("--workflow") >= 0 || low.matches("sogni(video|textvideo|music|padd|pedit)\\.(java|jar|class)");
+    if (!takes) return null;
+    String id = null;
+    boolean ok = false;
+    for (String line : log.split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Workflow: ")) id = t.substring(10).trim();
+      if (t.startsWith("Succeeded")) ok = true;
+    }
+    if (ok || id == null || id.length() == 0 || id.indexOf(' ') >= 0) return null;
+    boolean stopped = log.indexOf("Timed out") >= 0
+        || log.matches("(?s).*Failed:[^\n]*(?i:unable to resolve host|connection (reset|refused|abort)|software caused connection abort|network is unreachable|socket|timeout).*");
+    if (!stopped) return null;
+    List<String> out = new ArrayList<String>();
+    for (int i = 0; i < argv.size(); i++) {
+      String a = argv.get(i);
+      if ("--workflow".equals(a)) {
+        i++;
+        continue;
+      }
+      if (a != null && a.startsWith("--workflow ")) continue;
+      out.add(a);
+    }
+    out.add("--workflow");
+    out.add(id);
+    return out;
+  }
+
+  /** The workflow a reconnect joins: the value after --workflow. */
+  public static String workflowOf(List<String> argv) {
+    if (argv == null) return "";
+    for (int i = 0; i + 1 < argv.size(); i++) if ("--workflow".equals(argv.get(i))) return argv.get(i + 1);
+    return "";
+  }
 
   /** Files a program writes are kept up to 3 MB; audio (a Sogni track, a cut WAV) up to 50 MB. */
   public static long maxFileBytes(String name) {
@@ -57,14 +188,18 @@ public final class JavaRun {
 
   private JavaRun() {}
 
-  public static void start(final String name, final String source, final byte[] bytes, final List<String> argv, final Listener listener) {
+  /** Runs the program on its own thread; `listener` gets its result. Its live log, for the "Running…" line. */
+  public static Live start(final String name, final String source, final byte[] bytes, final List<String> argv, final Listener listener) {
+    final Live live = new Live();
     new Thread(new Runnable() {
       @Override
       public void run() {
+        track(live);
         Result result = JavaRun.run(name, source, bytes, argv);
         if (listener != null) listener.onDone(result);
       }
     }, "pulsekit-pyjav").start();
+    return live;
   }
 
   public static List<String> split(String line) {
@@ -582,7 +717,7 @@ public final class JavaRun {
         for (String a : argv) shown = shown + " " + a;
       }
       java.util.Map<String, Long> stamps = stamps(argv);
-      Result ran = withOutsideFiles(exec(dir, cmd, name, shown, RUN_MS), argv, dir, stamps);
+      Result ran = withOutsideFiles(exec(dir, cmd, name, shown, runMs(name, source, bytes)), argv, dir, stamps);
       if (low.endsWith(".java")) {
         List<FileOut> kept = new ArrayList<FileOut>();
         for (FileOut f : ran.files) {
@@ -684,11 +819,13 @@ public final class JavaRun {
     InputStream in = proc.getInputStream();
     byte[] buf = new byte[4096];
     long deadline = System.currentTimeMillis() + waitMs;
+    Live live = live();
     while (System.currentTimeMillis() < deadline) {
       while (in.available() > 0) {
         int n = in.read(buf);
         if (n <= 0) break;
         bos.write(buf, 0, n);
+        if (live != null) live.add(new String(buf, 0, n, StandardCharsets.UTF_8));
       }
       if (!proc.isAlive()) break;
       Thread.sleep(40);

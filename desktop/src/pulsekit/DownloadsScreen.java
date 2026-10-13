@@ -58,10 +58,51 @@ final class DownloadsScreen {
         south.add(close);
         content.add(south, BorderLayout.SOUTH);
         fill(app, body);
+        // Every second: the tabs' counts and the runs' times; the list again when a run moved on.
+        final String[] seen = new String[] {signature()};
+        final javax.swing.Timer tick = new javax.swing.Timer(1000, e -> {
+            String now = signature();
+            if (!now.equals(seen[0])) {
+                seen[0] = now;
+                fill(app, body);
+            } else {
+                refreshTimes(body);
+            }
+        });
+        tick.start();
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                tick.stop();
+            }
+        });
         dialog.setContentPane(content);
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         dialog.setVisible(true);
+        tick.stop();
+    }
+
+    /** The runs and their states: when it changes, the list is made again. */
+    static String signature() {
+        StringBuilder sb = new StringBuilder();
+        for (String t : new String[] {SogniDownloads.PENDING, SogniDownloads.PROGRESS, SogniDownloads.FINISHED}) {
+            for (SogniDownloads.Run r : SogniDownloads.tab(t)) sb.append(r.id).append(r.state).append(r.status).append(r.items.size()).append(',');
+            sb.append('|');
+        }
+        return sb.toString();
+    }
+
+    /** The In progress and Pending runs' lines again (their time). */
+    static void refreshTimes(java.awt.Container c) {
+        for (java.awt.Component k : c.getComponents()) {
+            if (k instanceof JLabel && k.getName() != null && k.getName().startsWith("downloads-run:")) {
+                SogniDownloads.Run r = SogniDownloads.run(Long.parseLong(k.getName().substring(14)));
+                if (r != null) ((JLabel) k).setText(SogniDownloads.runLabel(r));
+            } else if (k instanceof java.awt.Container) {
+                refreshTimes((java.awt.Container) k);
+            }
+        }
     }
 
     static void fill(final Pulsekit app, final JPanel body) {
@@ -105,6 +146,25 @@ final class DownloadsScreen {
             JLabel line = new JLabel(SogniDownloads.runLabel(r));
             line.setName("downloads-run:" + r.id);
             line.setAlignmentX(0.0f);
+            if (SogniDownloads.PROGRESS.equals(r.state) || SogniDownloads.PENDING.equals(r.state)) {
+                // Mark as ready: a run the app lost track of (it never says it is over) is let go.
+                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                row.setAlignmentX(0.0f);
+                row.add(line);
+                row.add(Box.createHorizontalStrut(8));
+                JButton ready = new JButton("Mark as ready");
+                ready.setName("downloads-ready:" + r.id);
+                ready.setToolTipText("Frees the run: it goes to Finished / failed (nothing is deleted)");
+                ready.addActionListener(e -> {
+                    SogniDownloads.markReady(r.id);
+                    fill(app, body);
+                });
+                row.add(ready);
+                row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+                body.add(row);
+                for (final SogniDownloads.Item item : r.items) body.add(itemButton(app, body, r, item));
+                continue;
+            }
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
                 line.setToolTipText("A right click takes it off the list");
                 line.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -117,28 +177,72 @@ final class DownloadsScreen {
                 });
             }
             body.add(line);
-            for (final SogniDownloads.Item item : r.items) {
-                final JButton b = new JButton("<html>" + esc(item.name) + "<br><small>" + esc(item.shown) + "</small></html>");
-                b.setName("downloads-item:" + item.name);
-                b.setHorizontalAlignment(JButton.LEFT);
-                b.setAlignmentX(0.0f);
-                b.setMaximumSize(new Dimension(Integer.MAX_VALUE, b.getPreferredSize().height));
-                b.addActionListener(e -> preview(app, item));
-                if (SogniDownloads.FINISHED.equals(tab)) {
-                    b.setToolTipText("A right click: Preview, Clear, Rename, Delete, Move to, Copy to");
-                    b.addMouseListener(new java.awt.event.MouseAdapter() {
-                        @Override
-                        public void mousePressed(java.awt.event.MouseEvent e) {
-                            if (SwingUtilities.isRightMouseButton(e)) menu(app, body, r, item).show(b, e.getX(), e.getY());
-                        }
-                    });
-                }
-                body.add(b);
-                body.add(Box.createVerticalStrut(3));
-            }
+            for (final SogniDownloads.Item item : r.items) body.add(itemButton(app, body, r, item));
         }
         body.revalidate();
         body.repaint();
+    }
+
+    /** A downloaded file: its name and where it is, with a preview thumbnail when it is a picture (or a video VLC can read). */
+    static java.awt.Component itemButton(final Pulsekit app, final JPanel body, final SogniDownloads.Run r, final SogniDownloads.Item item) {
+        final JButton b = new JButton("<html>" + esc(item.name) + "<br><small>" + esc(item.shown) + "</small></html>");
+        b.setName("downloads-item:" + item.name);
+        b.setHorizontalAlignment(JButton.LEFT);
+        b.setAlignmentX(0.0f);
+        b.addActionListener(e -> preview(app, item));
+        if (SogniDownloads.FINISHED.equals(r.state)) {
+            javax.swing.ImageIcon icon = thumb(item);
+            if (icon != null) {
+                b.setIcon(icon);
+                b.setIconTextGap(10);
+                b.putClientProperty("downloads-thumb", Boolean.TRUE);
+            }
+        }
+        b.setMaximumSize(new Dimension(Integer.MAX_VALUE, b.getPreferredSize().height));
+        if (SogniDownloads.FINISHED.equals(tab)) {
+            b.setToolTipText("A right click: Preview, Clear, Rename, Delete, Move to, Copy to");
+            b.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) menu(app, body, r, item).show(b, e.getX(), e.getY());
+                }
+            });
+        }
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.setAlignmentX(0.0f);
+        wrap.setBorder(BorderFactory.createEmptyBorder(0, 0, 3, 0));
+        wrap.add(b, BorderLayout.CENTER);
+        wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, b.getPreferredSize().height + 3));
+        return wrap;
+    }
+
+    /** Thumbnails made this session, by file and its time. */
+    private static final java.util.Map<String, javax.swing.ImageIcon> THUMBS = new java.util.concurrent.ConcurrentHashMap<String, javax.swing.ImageIcon>();
+    static final int THUMB = 64;
+
+    /** A finished file's thumbnail (THUMB px): a picture, or a video's first frame with VLC; null otherwise. */
+    static javax.swing.ImageIcon thumb(SogniDownloads.Item item) {
+        File f = new File(item.where);
+        if (!f.isFile()) return null;
+        String key = f.getAbsolutePath() + "@" + f.lastModified();
+        javax.swing.ImageIcon have = THUMBS.get(key);
+        if (have != null) return have;
+        try {
+            java.awt.image.BufferedImage img = null;
+            String kind = item.kind();
+            if ("picture".equals(kind)) img = javax.imageio.ImageIO.read(f);
+            else if ("video".equals(kind) && VlcPlayer.available()) {
+                byte[] jpeg = VlcPlayer.firstFrame(f, 160);
+                if (jpeg != null) img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpeg));
+            }
+            if (img == null) return null;
+            double sc = Math.min(THUMB / (double) img.getWidth(), THUMB / (double) img.getHeight());
+            javax.swing.ImageIcon icon = new javax.swing.ImageIcon(img.getScaledInstance(Math.max(1, (int) (img.getWidth() * sc)), Math.max(1, (int) (img.getHeight() * sc)), java.awt.Image.SCALE_SMOOTH));
+            THUMBS.put(key, icon);
+            return icon;
+        } catch (Throwable ex) {
+            return null;
+        }
     }
 
     static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…"};

@@ -249,7 +249,7 @@ public final class SogniTextVideo {
         id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, null, unlimited ? "subscription" : null);
       }
       say("Workflow: " + id);
-      Map<String, Object> wf = api.waitFor(id, 18 * 60 * 1000L, new SogniApi.Log() {
+      Map<String, Object> wf = api.waitFor(id, 55 * 60 * 1000L, new SogniApi.Log() {
         public void line(String s) {
           say(s);
         }
@@ -284,6 +284,9 @@ public final class SogniTextVideo {
       return 1;
     } catch (IOException ex) {
       say("Failed: " + ex.getMessage());
+      // Still going on Sogni: --workflow downloads it later, without starting (or paying for) a new run.
+      String m = String.valueOf(ex.getMessage());
+      if (m.startsWith("Timed out; the workflow ")) say("It may still finish on Sogni: run again with --workflow " + m.substring(24).split(" ")[0] + " to download it.");
       return 1;
     }
     return 0;
@@ -1146,22 +1149,33 @@ public final class SogniTextVideo {
       try {
         last = this.stream(id, end, log);
       } catch (IOException ex) {
-        if (log != null) log.line("Event stream stopped (" + ex.getMessage() + "); checking every 20 s");
+        if (log != null) log.line("Reconnecting: the event stream stopped (" + ex.getMessage() + "); checking every 20 s");
       }
+      String note = null;
       while (true) {
         Map<String, Object> wf;
         try {
           wf = this.workflow(id);
         } catch (ApiException ex) {
-          if (ex.status != 429) throw ex;
+          if (ex.status != 429 && ex.status < 500) throw ex;
+          if (System.currentTimeMillis() > end) throw ex;
           int wait = Math.max(ex.retryAfter, 20);
-          if (log != null) log.line("Sogni asks to wait " + wait + " s");
+          if (log != null) log.line(ex.status == 429 ? "Queued: Sogni asks to wait " + wait + " s" : "Reconnecting: Sogni answered " + ex.status + "; again in " + wait + " s");
           sleep(wait * 1000L);
+          continue;
+        } catch (IOException ex) {
+          // The network went away for a moment (the phone changed networks, slept): asked again.
+          if (System.currentTimeMillis() > end) throw ex;
+          if (log != null) log.line("Reconnecting: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + "; again in 20 s");
+          sleep(20000L);
           continue;
         }
         String status = str(wf.get("status"));
         if (status != null && !status.equals(last) && log != null) log.line("Status: " + status);
         last = status;
+        String now = progressNote(wf, note);
+        if (now != null && log != null) log.line(now);
+        if (now != null) note = now;
         if (isDone(status)) return wf;
         if (System.currentTimeMillis() > end) throw new IOException("Timed out; the workflow " + id + " is still " + status + " on Sogni");
         sleep(20000L);
@@ -1200,7 +1214,7 @@ public final class SogniTextVideo {
       try {
         this.runStream(id, end, log);
       } catch (IOException ex) {
-        if (log != null) log.line("Event stream stopped (" + ex.getMessage() + "); checking every 20 s");
+        if (log != null) log.line("Reconnecting: the event stream stopped (" + ex.getMessage() + "); checking every 20 s");
       }
       while (true) {
         Map<String, Object> run;
@@ -1383,6 +1397,7 @@ public final class SogniTextVideo {
       int code = c.getResponseCode();
       if (code / 100 != 2) throw failure(c, code);
       String last = null;
+      String note = null;
       java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
       try {
         StringBuilder data = new StringBuilder();
@@ -1395,8 +1410,9 @@ public final class SogniTextVideo {
           if (line.length() > 0) continue;
           if (data.length() == 0) continue;
           String status = null;
+          Object ev = null;
           try {
-            Object ev = parseJson(data.toString());
+            ev = parseJson(data.toString());
             if (ev instanceof Map) {
               Map<?, ?> m = (Map<?, ?>) ev;
               status = str(m.get("status"));
@@ -1411,6 +1427,9 @@ public final class SogniTextVideo {
             if (log != null) log.line("Status: " + status);
             last = status;
           }
+          String now = progressNote(ev, note);
+          if (now != null && log != null) log.line(now);
+          if (now != null) note = now;
           if (isDone(status)) break;
         }
       } finally {
@@ -1418,6 +1437,64 @@ public final class SogniTextVideo {
         c.disconnect();
       }
       return last;
+    }
+
+    /**
+     * "Progress: 40%" or "Queued: position 3" from a workflow event or record (its progress,
+     * percent or queue position, at most a few levels down), when it says more than `last` did:
+     * the percent moved by 5 or more (or reached 100), or the queue position changed. Else null.
+     */
+    public static String progressNote(Object record, String last) {
+      Double pct = findNumber(record, new String[] {"progressPercent", "percent", "percentage", "progress"}, 0);
+      if (pct != null) {
+        double v = pct.doubleValue();
+        if (v > 0 && v <= 1.0 && !String.valueOf(findRaw(record, "progress", 0)).matches("\\d+")) v = v * 100.0;
+        int p = (int) Math.round(Math.max(0, Math.min(100, v)));
+        String note = "Progress: " + p + "%";
+        int before = -100;
+        if (last != null && last.startsWith("Progress: ")) {
+          try {
+            before = Integer.parseInt(last.substring(10, last.length() - 1));
+          } catch (NumberFormatException ignored) {
+            before = -100;
+          }
+        }
+        if (p - before >= 5 || (p == 100 && before != 100)) return note;
+        return null;
+      }
+      Double pos = findNumber(record, new String[] {"queuePosition", "queue_position", "positionInQueue"}, 0);
+      if (pos != null) {
+        String note = "Queued: position " + pos.intValue();
+        return note.equals(last) ? null : note;
+      }
+      return null;
+    }
+
+    private static Double findNumber(Object record, String[] keys, int depth) {
+      if (!(record instanceof Map) || depth > 3) return null;
+      Map<?, ?> m = (Map<?, ?>) record;
+      for (String k : keys) {
+        Object v = m.get(k);
+        if (v instanceof Number) return Double.valueOf(((Number) v).doubleValue());
+        if (v instanceof String && ((String) v).trim().matches("\\d+(\\.\\d+)?%?")) return Double.valueOf(((String) v).trim().replace("%", ""));
+      }
+      for (Object v : m.values()) {
+        if (!(v instanceof Map)) continue;
+        Double d = findNumber(v, keys, depth + 1);
+        if (d != null) return d;
+      }
+      return null;
+    }
+
+    private static Object findRaw(Object record, String key, int depth) {
+      if (!(record instanceof Map) || depth > 3) return null;
+      Map<?, ?> m = (Map<?, ?>) record;
+      if (m.containsKey(key)) return m.get(key);
+      for (Object v : m.values()) {
+        Object d = findRaw(v, key, depth + 1);
+        if (d != null) return d;
+      }
+      return null;
     }
 
     public static boolean isDone(String status) {

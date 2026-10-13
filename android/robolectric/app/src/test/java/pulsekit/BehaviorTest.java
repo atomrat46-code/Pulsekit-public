@@ -3336,22 +3336,31 @@ public class BehaviorTest {
 
   @Test
   public void s88_pending_db() throws Exception {
-    // A Sogni run whose prompt library work is not over: other Sogni programs wait, SogniChat may run.
+    // A Sogni run whose prompt library work is not over: another Sogni run asks first, only when
+    // that run stores in the library (--saveprompt); Params and SogniChat never wait.
     StringBuilder out = new StringBuilder();
     app.programMenus.selectProgram("Java", "SogniTextVideo.java");
     idle();
-    String entry = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
-    out.append("pending: ").append(PendingOps.count()).append('\n');
+    String plain = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
     File list = new File(app.getFilesDir(), "pending-db.txt");
     out.append("list file: ").append(list.isFile() ? new String(Files.readAllBytes(list.toPath()), StandardCharsets.UTF_8).trim().replaceAll("^\\d+", "N") : "none").append('\n');
-    app.pyJav.pkRunPyJav();
+    out.append("no --saveprompt: Run waits ").append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append(", Params wait ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    String storing = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"), PendingOps.storesInDb(java.util.Arrays.asList("--saveprompt")));
+    out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
+    out.append("--saveprompt: Run waits ").append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    android.app.AlertDialog ask = app.pyJav.pkAskRerun;
+    out.append("asked: ").append(ask != null && ask.isShowing()).append(", ")
+        .append(String.valueOf(org.robolectric.Shadows.shadowOf(ask).getMessage()).replace('\n', ' ')).append('\n');
+    ask.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
-    out.append("Run SogniTextVideo: ").append(org.robolectric.shadows.ShadowToast.getTextOfLatestToast()).append('\n');
-    out.append("SogniTextVideo Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
-    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append(", its Params wait: ")
-        .append(app.pyJav.pkMustWait("SogniChat.java", false)).append('\n');
+    out.append("answered No: ").append(app.now.getText()).append('\n');
+    out.append("Params wait: ").append(app.pyJav.pkMustWait("SogniTextVideo.java", false)).append('\n');
+    out.append("SogniChat run waits: ").append(app.pyJav.pkMustWait("SogniChat.java", true)).append('\n');
     out.append("MidiDrumGen waits: ").append(app.pyJav.pkMustWait("MidiDrumGen.java", true)).append('\n');
-    PendingOps.done(entry);
+    PendingOps.done(storing);
+    PendingOps.done(plain);
     out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
         .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
     write("s88_pending_db", out.toString());

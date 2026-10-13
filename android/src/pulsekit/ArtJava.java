@@ -30,7 +30,70 @@ public final class ArtJava {
 
   private ArtJava() {}
 
+  /** How long the calling thread's program may run (JavaRun.runMs). */
+  private static final ThreadLocal<Long> LIMIT_MS = new ThreadLocal<Long>();
+  /** Where the program thread (and the threads it starts) prints: its own run's log. */
+  private static final InheritableThreadLocal<PrintStream> SINK = new InheritableThreadLocal<PrintStream>();
+  private static PrintStream plainOut;
+  private static PrintStream plainErr;
+
+  /**
+   * System.out and System.err, once, become streams that write to the printing thread's run (and
+   * to its live log, for the "Running…" line), else where they wrote before: two programs running
+   * at once (a Sogni video and a SogniChat) each keep their own output.
+   */
+  private static synchronized void route() {
+    if (plainOut != null) return;
+    plainOut = System.out;
+    plainErr = System.err;
+    try {
+      System.setOut(new PrintStream(new Router(false), true, "UTF-8"));
+      System.setErr(new PrintStream(new Router(true), true, "UTF-8"));
+    } catch (java.io.UnsupportedEncodingException ex) {
+      plainOut = null;
+    }
+  }
+
+  private static final class Router extends java.io.OutputStream {
+    private final boolean err;
+
+    Router(boolean err) {
+      this.err = err;
+    }
+
+    @Override
+    public void write(int b) {
+      this.write(new byte[] {(byte) b}, 0, 1);
+    }
+
+    @Override
+    public void write(byte[] b, int off, int len) {
+      PrintStream to = SINK.get();
+      if (to == null) {
+        PrintStream plain = this.err ? plainErr : plainOut;
+        if (plain != null) plain.write(b, off, len);
+        return;
+      }
+      to.write(b, off, len);
+      JavaRun.Live live = JavaRun.live();
+      if (live != null) {
+        try {
+          live.add(new String(b, off, len, "UTF-8"));
+        } catch (java.io.UnsupportedEncodingException ignored) {
+          // the log still has it
+        }
+      }
+    }
+
+    @Override
+    public void flush() {
+      PrintStream to = SINK.get();
+      if (to != null) to.flush();
+    }
+  }
+
   public static JavaRun.Result run(String name, String source, byte[] bytes, List<String> argv) {
+    LIMIT_MS.set(Long.valueOf(JavaRun.runMs(name, source, bytes)));
     String n = name == null || name.trim().isEmpty() ? "Main.java" : name.replaceAll("[\\\\/]", "_");
     String low = n.toLowerCase();
     File work = null;
@@ -115,9 +178,8 @@ public final class ArtJava {
     final int[] code = new int[] {0};
     final StringBuilder err = new StringBuilder();
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    PrintStream ps = new PrintStream(bos, true, "UTF-8");
-    PrintStream oldOut = System.out;
-    PrintStream oldErr = System.err;
+    final PrintStream ps = new PrintStream(bos, true, "UTF-8");
+    route();
     String oldDir = System.getProperty("user.dir");
     String shown = head;
     for (int i = 0; i < args.length; i++) shown = shown + " " + args[i];
@@ -133,6 +195,7 @@ public final class ArtJava {
       @Override
       public void run() {
         try {
+          SINK.set(ps);
           method.invoke(null, (Object) args);
         } catch (Throwable ex) {
           Throwable c = ex.getCause() == null ? ex : ex.getCause();
@@ -149,19 +212,16 @@ public final class ArtJava {
     boolean moved = chdir(work.getAbsolutePath());
     try {
       System.setProperty("user.dir", work.getAbsolutePath());
-      System.setOut(ps);
-      System.setErr(ps);
       t.start();
-      t.join(JavaRun.RUN_MS);
+      long limit = LIMIT_MS.get() == null ? JavaRun.RUN_MS : LIMIT_MS.get().longValue();
+      t.join(limit);
       if (t.isAlive()) {
         t.interrupt();
         code[0] = 124;
-        ps.println("Timed out (" + (JavaRun.RUN_MS / 1000) + "s).");
+        ps.println("Timed out (" + (limit / 1000) + "s).");
       }
       ps.flush();
     } finally {
-      System.setOut(oldOut);
-      System.setErr(oldErr);
       if (oldDir != null) System.setProperty("user.dir", oldDir);
       if (moved) chdir(oldCwd == null ? "/" : oldCwd);
     }
