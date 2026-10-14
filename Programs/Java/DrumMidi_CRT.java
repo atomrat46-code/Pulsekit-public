@@ -925,12 +925,57 @@ public class DrumMidi_CRT{
             try { bitC.getMethod("close").invoke(bs); } catch (Exception ignored) {}
         }
         if (frames < (int) (sr / 2)) throw new Exception("Could not decode that MP3");
-        double[] out = new double[frames];
-        System.arraycopy(mono, 0, out, 0, frames);
+        // Gapless (a LAME / Lavc tag, as Wav2Mp3 and LAME write it): the tag frame's silence, the
+        // encoder's delay and the decoder's 529 samples left out, so the hits are where the WAV had them.
+        int from = 0, to = frames;
+        int[] gap = mp3Gapless(d);
+        if (gap != null) {
+            int start = gap[0] + gap[1] + 529;
+            int length = frames - gap[0] - gap[1] - gap[2];
+            if (start < frames && length > 0) {
+                from = start;
+                to = Math.min(frames, start + length);
+            }
+        }
+        double[] out = new double[to - from];
+        System.arraycopy(mono, from, out, 0, to - from);
         Audio a = new Audio();
         a.samples = out;
         a.sampleRate = sr;
         return a;
+    }
+
+    /**
+     * The first frame's gapless numbers when it is an Info / Xing frame with a LAME (or Lavc) tag:
+     * {samples in that frame, encoder delay, padding}; null otherwise. (As Pulsekit's Mp3Decode.)
+     */
+    static int[] mp3Gapless(byte[] d) {
+        int at = 0;
+        if (d.length > 10 && d[0] == 'I' && d[1] == 'D' && d[2] == '3') {
+            at = 10 + ((d[6] & 0x7f) << 21 | (d[7] & 0x7f) << 14 | (d[8] & 0x7f) << 7 | (d[9] & 0x7f));
+            if ((d[5] & 0x10) != 0) at += 10;
+        }
+        for (int limit = Math.min(d.length - 4, at + 8192); at < limit; at++) {
+            if ((d[at] & 0xff) == 0xff && (d[at + 1] & 0xe0) == 0xe0) break;
+        }
+        if (at + 4 > d.length || (d[at] & 0xff) != 0xff) return null;
+        int version = (d[at + 1] >> 3) & 3;
+        int layer = (d[at + 1] >> 1) & 3;
+        if (layer != 1) return null;
+        boolean mono = ((d[at + 3] >> 6) & 3) == 3;
+        int side = version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17);
+        int x = at + 4 + side;
+        if (x + 8 > d.length) return null;
+        String id = new String(d, x, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
+        if (!id.equals("Info") && !id.equals("Xing")) return null;
+        int flags = (d[x + 7] & 0xff) | (d[x + 6] & 0xff) << 8;
+        int lame = x + 8 + ((flags & 1) != 0 ? 4 : 0) + ((flags & 2) != 0 ? 4 : 0) + ((flags & 4) != 0 ? 100 : 0) + ((flags & 8) != 0 ? 4 : 0);
+        if (lame + 24 > d.length) return null;
+        String enc = new String(d, lame, 4, java.nio.charset.StandardCharsets.ISO_8859_1);
+        if (!enc.equals("LAME") && !enc.equals("Lavc") && !enc.equals("Lavf")) return null;
+        int delay = (d[lame + 21] & 0xff) << 4 | (d[lame + 22] & 0xff) >> 4;
+        int padding = (d[lame + 22] & 0x0f) << 8 | (d[lame + 23] & 0xff);
+        return new int[] {version == 3 ? 1152 : 576, delay, padding};
     }
 
     static Audio readWav(byte[] b) throws Exception {
