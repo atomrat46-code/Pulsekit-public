@@ -3158,6 +3158,50 @@ public class BehaviorTest {
   }
 
   /**
+   * Upscale image from the Media browser that Choose file opened in SogniPedit's Params: those
+   * Params close, and SogniPedit's arguments (--prompt) do not go to ImageUpscaler.
+   */
+  @Test
+  public void s116_upscale_from_params_chooser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    app.programMenus.selectProgram("Java", "SogniPedit.java");
+    idle();
+    call("pkOpenParams");
+    idle();
+    AlertDialog pedit = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((android.widget.EditText) pedit.getWindow().getDecorView().findViewWithTag("params-field:--prompt")).setText("Same person");
+    File media = new File(app.getCacheDir(), "media-up3");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("a.png")) pic = e;
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("SogniPedit Params open: ").append(pedit.isShowing()).append('\n');
+    AlertDialog up = (AlertDialog) ShadowDialog.getLatestDialog();
+    up.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    // Even if its OK is pressed, SogniPedit's line stays out of ImageUpscaler's.
+    if (pedit.isShowing()) pedit.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((TextView) get("pkPyArgs")).getText().toString();
+    out.append("ImageUpscaler args: ").append(new File(args).getName()).append(", --prompt ").append(args.contains("--prompt")).append('\n');
+    if (pedit.isShowing() || args.contains("--prompt")) throw new AssertionError(out.toString());
+    write("s116_upscale_from_params_chooser", out.toString());
+  }
+
+  /**
    * ImageUpscaler from the Media browser after a prompt sheet was open: the sheet's reference
    * files, output name and report are not passed to it (they were added to every program's run).
    */

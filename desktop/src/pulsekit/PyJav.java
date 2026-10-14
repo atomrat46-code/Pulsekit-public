@@ -1795,6 +1795,12 @@ final class PyJav {
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
+        // Another program loaded meanwhile (ImageUpscaler from the Media browser Choose file opened):
+        // its argument line is not this program's (it was given SogniPedit's --prompt).
+        if (!program.equals(app.pyName)) {
+            app.setNow("Params of " + program + " saved");
+            return;
+        }
         String input = null;
         boolean newInput = false;
         for (int i = 0; i < ps.size(); i++) {

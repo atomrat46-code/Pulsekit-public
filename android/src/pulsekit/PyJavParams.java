@@ -367,7 +367,8 @@ public final class PyJavParams {
     }
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
-    new AlertDialog.Builder(activity)
+    shownFor = name;
+    shown = new AlertDialog.Builder(activity)
         .setTitle("Parameters · " + name)
         .setView(scroll)
         .setNegativeButton("Cancel", null)
@@ -394,13 +395,25 @@ public final class PyJavParams {
             }
             String line = ProgramParams.line(ps, values, newInput ? "" : extra);
             try {
-              if (activity instanceof MainActivity) ((MainActivity) activity).pyJav.pkSetPyLine(line, newInput ? input : null);
+              // Only into the program it was opened for: another loaded since (ImageUpscaler from the
+              // Media browser that Choose file opened) was given SogniPedit's --prompt.
+              if (activity instanceof MainActivity && name.equals(((MainActivity) activity).pyName)) ((MainActivity) activity).pyJav.pkSetPyLine(line, newInput ? input : null);
             } catch (Throwable ignored) {
               /* the switches are still saved for the next run */
             }
           }
         })
         .show();
+  }
+
+  /** The Params dialog shown last, and the program it is for. */
+  static AlertDialog shown;
+  static String shownFor;
+
+  /** Another program loaded: its Params (still open under the Media browser Choose file opened) close. */
+  static void closeOthers(String program) {
+    AlertDialog d = shown;
+    if (d != null && d.isShowing() && shownFor != null && !shownFor.equals(program)) d.dismiss();
   }
 
   /** The Preview shown last, for the tests. */
