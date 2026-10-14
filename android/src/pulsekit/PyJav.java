@@ -50,30 +50,63 @@ final class PyJav {
         app.pyPane.setOrientation(1);
         app.pyPane.setVisibility(8);
         app.pyPane.addView((View)app.text("PyJav", 18, true));
+        // The editor's caption: Code, or Prompt for a prompt sheet (pkShowPromptModes).
+        this.pkEditorCaption = app.text("Code", 13, true);
+        this.pkEditorCaption.setTag("pyjav-editor-caption");
+        this.pkEditorCaption.setPadding(0, app.dp(14), 0, app.dp(4));
         app.pyEditor = new EditText((Context)app);
         app.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
         app.pyEditor.setTypeface(Typeface.MONOSPACE);
         app.pyEditor.setTextColor(FG);
         app.pyEditor.setTextSize(2, 12.0f);
-        app.pyEditor.setBackground((Drawable)app.round(ELEV, 10));
+        // An outline sets the editor apart from the rows around it.
+        android.graphics.drawable.GradientDrawable frame = new android.graphics.drawable.GradientDrawable();
+        frame.setColor(ELEV);
+        frame.setCornerRadius(app.dp(10));
+        frame.setStroke(app.dp(1), MUTED);
+        app.pyEditor.setBackground((Drawable)frame);
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
         // A fixed height that scrolls inside, so a long program does not make the page long.
         app.pyEditor.setVerticalScrollBarEnabled(true);
+        // A drag in the editor scrolls it while it can go that way; at its top or end the page takes
+        // the drag, so the page above stays reachable with a finger.
+        final float[] lastY = new float[1];
         app.pyEditor.setOnTouchListener((v, ev) -> {
-            if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
-            if (ev.getActionMasked() == android.view.MotionEvent.ACTION_UP || ev.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+            int action = ev.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                lastY[0] = ev.getY();
+                v.getParent().requestDisallowInterceptTouchEvent(v.canScrollVertically(1) || v.canScrollVertically(-1));
+            } else if (action == android.view.MotionEvent.ACTION_MOVE) {
+                float dy = ev.getY() - lastY[0];
+                lastY[0] = ev.getY();
+                if (dy != 0) v.getParent().requestDisallowInterceptTouchEvent(v.canScrollVertically(dy > 0 ? -1 : 1));
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
                 v.getParent().requestDisallowInterceptTouchEvent(false);
             }
             return false;
         });
+        app.pyPane.addView((View)this.pkEditorCaption);
         app.pyPane.addView((View)app.pyEditor, new android.widget.LinearLayout.LayoutParams(-1, app.dp(360)));
+        // With the keyboard up the page is short: the editor is made lower so the rows above it
+        // stay on screen to tap and to drag the page by.
+        scroll.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int want = Math.min(app.dp(360), Math.max(app.dp(140), (b - t) - app.dp(120)));
+            android.view.ViewGroup.LayoutParams lp = app.pyEditor.getLayoutParams();
+            if (b - t > 0 && lp != null && lp.height != want) {
+                lp.height = want;
+                app.pyEditor.post(() -> app.pyEditor.setLayoutParams(lp));
+            }
+        });
         scroll.addView((View)app.pyPane, new android.widget.FrameLayout.LayoutParams(-1, -2));
         frameLayout.addView((View)scroll);
     }
 
     boolean pkPyWired;
+
+    /** "Code" above the editor ("Prompt" while a prompt sheet is loaded). */
+    android.widget.TextView pkEditorCaption;
 
     boolean pkPyRecentMute;
 
@@ -82,6 +115,9 @@ final class PyJav {
     String pkRunLog;
 
     android.widget.TextView pkPyHint;
+
+    /** The hint's full text (the shown one leaves out its "Extra args:" line). */
+    String pkHintFull = "";
 
     android.widget.EditText pkPyArgs;
 
@@ -232,6 +268,7 @@ final class PyJav {
         if (this.pkPromptModes == null) return;
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
         this.pkPromptModes.setVisibility(prompt ? 0 : 8);
+        if (this.pkEditorCaption != null) this.pkEditorCaption.setText(prompt ? "Prompt" : "Code");
     }
 
     public void pkLoadRefs(String full) {
@@ -274,7 +311,9 @@ final class PyJav {
 
     void pkApplyHint(String hint) {
         if (hint == null) hint = "";
-        if (this.pkPyInputPath == null && this.pkAudioInputPath != null && new java.io.File(this.pkAudioInputPath).isFile()) {
+        // The audio input carries over to a program that takes a sound (not to SogniPedit, which
+        // would name its picture after it).
+        if (this.pkPyInputPath == null && this.pkAudioInputPath != null && new java.io.File(this.pkAudioInputPath).isFile() && pulsekit.PyJavHints.takesAudio(app.pyName, hint)) {
             this.pkPyInputPath = this.pkAudioInputPath;
         }
         if (this.pkPyHint != null) this.pkPyHint.setText(hint);
@@ -344,10 +383,10 @@ final class PyJav {
     }
 
     /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
-    public void pkRunRecent(int index) {
+    /** Select program: the program and its parameters are loaded; Run starts it. */
+    public void pkLoadRecent(int index) {
         if (this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
         this.pkApplyRecent(index);
-        this.pkRunPyJav();
     }
 
     void pkWirePyJavCore() {
@@ -372,9 +411,33 @@ final class PyJav {
         slot = slot + 1;
         this.pkPyRecent.setOnItemSelectedListener(pulsekit.PyJavUi.recent(app));
         this.pkRefreshRecent(0);
-        this.pkPyHint = app.text("Possible extra args appear after you browse a file.", 12, false);
+        // The hint keeps its full text for filling in a program's args (pkHintText); it shows it
+        // without the "Extra args:" line, which the Arguments box below shows itself.
+        this.pkPyHint = new android.widget.TextView(app) {
+            @Override
+            public void setText(CharSequence text, android.widget.TextView.BufferType type) {
+                pkHintFull = text == null ? "" : text.toString();
+                super.setText(pulsekit.PyJavHints.shown(pkHintFull), type);
+            }
+        };
+        this.pkPyHint.setTextSize(2, 12.0f);
+        this.pkPyHint.setTypeface(Typeface.SANS_SERIF, 0);
+        this.pkPyHint.setIncludeFontPadding(false);
+        this.pkPyHint.setText("Possible extra args appear after you browse a file.");
         this.pkPyHint.setTextColor(FG);
         app.pyPane.addView(this.pkPyHint, slot);
+        slot = slot + 1;
+        // Arguments: a tap shows or hides the args box. Hidden at first, as Params sets the args.
+        final android.widget.TextView argsHead = app.text("Arguments \u25b8", 13, true);
+        argsHead.setTag("pyjav-args-head");
+        argsHead.setPadding(0, app.dp(10), 0, app.dp(10));
+        argsHead.setClickable(true);
+        argsHead.setOnClickListener(v -> {
+            boolean open = this.pkPyArgs.getVisibility() != 0;
+            this.pkPyArgs.setVisibility(open ? 0 : 8);
+            argsHead.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
+        });
+        app.pyPane.addView(argsHead, slot);
         slot = slot + 1;
         this.pkPyArgs = new android.widget.EditText(app);
         this.pkPyArgs.setHint("Extra args");
@@ -383,6 +446,7 @@ final class PyJav {
         this.pkPyArgs.setTextColor(FG);
         this.pkPyArgs.setHintTextColor(MUTED);
         this.pkPyArgs.setLayoutParams(new android.widget.LinearLayout.LayoutParams(-1, -2));
+        this.pkPyArgs.setVisibility(8);
         app.pyPane.addView(this.pkPyArgs, slot);
         slot = slot + 1;
         this.pkPyInput = app.action("Browse input", ELEV, FG, pulsekit.PyJavUi.browseInput(app));
@@ -419,6 +483,13 @@ final class PyJav {
         this.pkReturnBtn.setTag("pyjav-return");
         this.pkReturnBtn.setVisibility(this.pkReturn == null ? 8 : 0);
         app.pyPane.addView(this.pkReturnBtn, slot);
+        slot = slot + 1;
+        // The run's output, set apart under its own headline.
+        android.widget.TextView outHead = app.text("Output", 13, true);
+        outHead.setTag("pyjav-output-head");
+        android.widget.LinearLayout.LayoutParams outAt = new android.widget.LinearLayout.LayoutParams(-1, -2);
+        outAt.topMargin = app.dp(18);
+        app.pyPane.addView(outHead, slot, outAt);
         slot = slot + 1;
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
@@ -584,6 +655,14 @@ final class PyJav {
         this.pkRunConfirmed = false;
         if (!running || !pulsekit.PendingOps.mustAsk(program)) return false;
         if (confirmed) return false;
+        // Nothing is going any more (no run, no storing, no Save prompt open): what is listed was
+        // left behind by a run that is over, so it leaves the list and Run goes on.
+        if (RUNS.get() == 0 && KEEPING.get() == 0 && ASKING.get() == 0) {
+            pulsekit.PendingOps.clear();
+            for (Long download : DOWNLOAD_OF.values()) pulsekit.SogniDownloads.done(download.longValue());
+            DOWNLOAD_OF.clear();
+            return false;
+        }
         String text = pulsekit.PendingOps.askText(pulsekit.PendingOps.storingCount());
         app.setNow("Asking: the current task is not complete");
         this.pkAskRerun = new android.app.AlertDialog.Builder(app).setTitle("Run again?").setMessage(text)
@@ -602,6 +681,8 @@ final class PyJav {
     /** The run shown on the "Running…" line (its time and news), and that line as set last. */
     pulsekit.JavaRun.Live pkLive;
     String pkLiveShown;
+    /** The top line and the hint as the "Running…" tick set them last (left alone once something else is shown). */
+    String pkTopShown, pkHintShown;
     /** DrumMidi's "no hits yet, abort?" question shown last, for the tests. */
     android.app.AlertDialog pkAskAbort;
 
@@ -627,6 +708,16 @@ final class PyJav {
                     String line = head + pulsekit.JavaRun.runningLine(live, System.currentTimeMillis());
                     pkPyLog.setText(line);
                     pkLiveShown = line;
+                }
+                // The top line and the hint show the same time and news (while nothing else was put there).
+                String top = pulsekit.JavaRun.runningTop(app.pyName, live, System.currentTimeMillis());
+                if (app.now != null && pkTopShown != null && pkTopShown.equals(app.now.getText().toString())) {
+                    app.setNow(top);
+                    pkTopShown = top;
+                }
+                if (pkPyHint != null && pkHintShown != null && pkHintShown.equals(pkPyHint.getText().toString())) {
+                    pkPyHint.setText(top);
+                    pkHintShown = top;
                 }
                 pkPyLog.postDelayed(this, 1000);
             }
@@ -666,10 +757,14 @@ final class PyJav {
             return;
         }
         String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
-        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        String hint = this.pkPyHint != null ? this.pkHintFull : "";
         if (this.pkPyLog != null) this.pkPyLog.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\nRunning…" : "Running…");
-        if (this.pkPyHint != null) this.pkPyHint.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport : "Running…");
-        app.setNow("Running…");
+        boolean report = this.pkPromptReport != null && this.pkPromptReport.length() > 0;
+        String top = (app.pyName == null ? "script.py" : app.pyName) + ": Running\u2026";
+        if (this.pkPyHint != null) this.pkPyHint.setText(report ? this.pkPromptReport : top);
+        this.pkHintShown = report ? null : top;
+        app.setNow(top);
+        this.pkTopShown = top;
         String name = app.pyName == null ? "script.py" : app.pyName;
         String listed = app.programMenus.sourceToRun();
         String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
@@ -760,6 +855,7 @@ final class PyJav {
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
+        RUNS.incrementAndGet();
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         if (note != null) live.add(note + "\n");
         String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";
@@ -966,6 +1062,10 @@ final class PyJav {
     public void pkShowPyResult(pulsekit.JavaRun.Result result) {
         String status = "Import failed: no result";
         String log = "";
+        // The run's entry (PendingOps), for a failure below after the field is cleared; left alone
+        // once its storing has started (that work ends it).
+        final String runPending = this.pkPending;
+        boolean storingStarted = false;
         try {
         log = result == null || result.log == null || result.log.length() == 0 ? "(no output)" : result.log;
         if (this.pkPromptReport != null && this.pkPromptReport.length() > 0 && app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt") && log.indexOf("Category:") != 0) log = this.pkPromptReport + "\n" + log;
@@ -1056,6 +1156,7 @@ final class PyJav {
         if (pending != null && DOWNLOAD_OF.containsKey(pending)) pulsekit.SogniDownloads.result(DOWNLOAD_OF.get(pending).longValue(), status, log, ArtJava.SAVED);
         if (!any) this.pkDone(pending);
         if (any) {
+            storingStarted = true;
             log = log + "\nPrompt library: storing\u2026";
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
             this.pkRunLog = log;
@@ -1107,7 +1208,10 @@ final class PyJav {
                             // Only when the text below Run is still this run's (another run may have started).
                             if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
                             pkRunLog = done;
-                            if (!asking.isEmpty()) pkAskSheets(asking, 0, kept0, argv, pending);
+                            if (!asking.isEmpty()) {
+                                ASKING.incrementAndGet();
+                                pkAskSheets(asking, 0, kept0, argv, pending);
+                            }
                         }
                     });
                 }
@@ -1143,6 +1247,7 @@ final class PyJav {
             Long download = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
             if (download != null) pulsekit.SogniDownloads.result(download.longValue(), status, log, ArtJava.SAVED);
             this.pkDone(this.pkPending);
+            if (!storingStarted) this.pkDone(runPending);
             this.pkPending = null;
             if (this.pkPyHint != null) this.pkPyHint.setText(status);
             app.setNow(status);
@@ -1380,6 +1485,7 @@ final class PyJav {
     void pkAskSheets(final java.util.List<PromptSave.Pending> sheets, final int i, final pulsekit.JavaRun.Result result,
             final java.util.List<String> argv, final String pending) {
         if (i >= sheets.size()) {
+            ASKING.updateAndGet(n -> n > 0 ? n - 1 : 0);
             this.pkDone(pending);
             return;
         }
@@ -1440,6 +1546,9 @@ final class PyJav {
     volatile boolean pkKeeping;
     /** Runs whose results are still being stored, all PyJavs together (the tests wait for 0). */
     static final java.util.concurrent.atomic.AtomicInteger KEEPING = new java.util.concurrent.atomic.AtomicInteger();
+    /** Runs started and not yet over, and runs whose prompt sheets are being asked about (Save prompt). */
+    static final java.util.concurrent.atomic.AtomicInteger RUNS = new java.util.concurrent.atomic.AtomicInteger();
+    static final java.util.concurrent.atomic.AtomicInteger ASKING = new java.util.concurrent.atomic.AtomicInteger();
 
     /** True while the text below Run is a run's output, not a hint or a note. */
     boolean pkLogIsRun() {
@@ -1683,7 +1792,7 @@ final class PyJav {
     /** Makes path the PyJav input file and fills the program's args from its hint. */
     void pkUseInputPath(String path) {
         this.pkPyInputPath = path;
-        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        String hint = this.pkPyHint != null ? this.pkHintFull : "";
         java.io.File folder = new java.io.File(app.getCacheDir(), "pyjav-in");
         String note = pulsekit.PyJavHints.outputNotice("", hint, path, folder.getAbsolutePath());
         String next = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, path, folder.getAbsolutePath());

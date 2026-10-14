@@ -240,7 +240,8 @@ public final class SogniPedit {
       }
     }
     if (savePrompt && workflowId == null) {
-      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : picName(prompt, "");
+      // The prompt's title is the output's file name, not its folder.
+      String sheetName = out != null ? new File(out.trim()).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : picName(prompt, "");
       File sheet = savePrompt(sheetName, "Sogni Krea 2 Identity Edit", prompt.trim() + settingsLine(loras, strengths, pictureNames), pictureNames);
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }

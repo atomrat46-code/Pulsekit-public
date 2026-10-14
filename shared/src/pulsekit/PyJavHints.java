@@ -170,6 +170,19 @@ public final class PyJavHints {
   }
 
   /** First <input.wav>-style placeholder, or null. Output names are skipped. */
+  /**
+   * Whether the program's first input is a sound (<input.wav>, <song.mp3>): only then does the
+   * audio input from before (an imported WAV, a program's MP3) carry over to it. A picture or
+   * video program (SogniPedit) would otherwise be given the sound, and name its output after it.
+   */
+  public static boolean takesAudio(String program, String hint) {
+    String token = firstInput(hint);
+    // A Python script without a usage line (drum_midi.py) reads the input it is given.
+    if (token == null) return program != null && program.toLowerCase(java.util.Locale.ROOT).endsWith(".py");
+    String low = token.toLowerCase(java.util.Locale.ROOT);
+    return low.matches("<.*\\.(wav|wave|mp3|flac|ogg|m4a|aac)>") || low.contains("audio");
+  }
+
   public static String firstInput(String hint) {
     if (hint == null) return null;
     int i = 0;
@@ -292,6 +305,21 @@ public final class PyJavHints {
     if (dir.length() == 0) return file;
     if (dir.endsWith("/") || dir.endsWith("\\")) return dir + file;
     return dir + "/" + file;
+  }
+
+  /**
+   * The hint as shown above the Arguments box: its "Extra args: ..." line left out, as the box
+   * shows those args itself. (The full hint stays with the program for filling in its args.)
+   */
+  public static String shown(String hint) {
+    if (hint == null) return "";
+    StringBuilder sb = new StringBuilder();
+    for (String line : hint.split("\n", -1)) {
+      if (line.startsWith("Extra args:")) continue;
+      if (sb.length() > 0) sb.append('\n');
+      sb.append(line);
+    }
+    return sb.toString().replaceAll("\\s+$", "");
   }
 
   public static String outputNotice(String extra, String hint, String inputPath, String outDir) {

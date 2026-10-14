@@ -220,7 +220,8 @@ public final class SogniPadd {
     if (unlimited && maxCost > 0) say("Note: --max_cost is not used with the Unlimited Plan");
     String size = width > 0 ? (int) width + "x" + (int) height : aspect != null ? aspect : "1024 square (Sogni's default)";
     if (savePrompt && workflowId == null) {
-      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : paddName(prompt, "");
+      // The prompt's title is the output's file name, not its folder.
+      String sheetName = out != null ? new File(out.trim()).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : paddName(prompt, "");
       File sheet = savePrompt(sheetName, "Sogni Dark Beast Krea 2", prompt.trim() + "\n\nLoRAs: " + (loras.isEmpty() ? "none" : loraLine(loras, strengths))
           + ". Size: " + size + "." + (seed >= 0 ? " Seed: " + (long) seed + "." : ""));
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());

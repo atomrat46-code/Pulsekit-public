@@ -88,6 +88,15 @@ public final class PendingOps {
     if (LIST.remove(entry)) write();
   }
 
+  /** Every entry leaves the list (none of their runs is still going): how many there were. */
+  public static synchronized int clear() {
+    int n = LIST.size();
+    LIST.clear();
+    STORING.clear();
+    write();
+    return n;
+  }
+
   public static synchronized int count() {
     return LIST.size();
   }

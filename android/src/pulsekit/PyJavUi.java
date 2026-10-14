@@ -187,8 +187,8 @@ public final class PyJavUi implements JavaRun.Listener {
     tlp.bottomMargin = pad / 2;
     box.addView(toggle, tlp);
     box.addView(list);
-    // Each program once: a tap runs it (without parameters when such a run is remembered, else
-    // with its last ones); a long press lists its runs, a tap on one runs it with those.
+    // Each program once: a tap loads it (without parameters when such a run is remembered, else
+    // with its last ones); a long press lists its runs, a tap on one loads it with those. Run starts it.
     final java.util.List<PyJavRecent.Item> runs = new java.util.ArrayList<PyJavRecent.Item>();
     if (items != null) for (Object row : items) if (row instanceof PyJavRecent.Item) runs.add((PyJavRecent.Item) row);
     java.util.List<String> programs = PyJavRecent.programs(runs);
@@ -217,7 +217,7 @@ public final class PyJavUi implements JavaRun.Listener {
           public void onClick(View v) {
             list.setVisibility(View.GONE);
             toggle.setText("Select program \u25be");
-            host.pyJav.pkRunRecent(runs.indexOf(PyJavRecent.tapped(runs, name)) + 1);
+            host.pyJav.pkLoadRecent(runs.indexOf(PyJavRecent.tapped(runs, name)) + 1);
           }
         });
         button.setOnLongClickListener(new View.OnLongClickListener() {
@@ -231,7 +231,7 @@ public final class PyJavUi implements JavaRun.Listener {
                 .setItems(labels, (d, which) -> {
                   list.setVisibility(View.GONE);
                   toggle.setText("Select program \u25be");
-                  host.pyJav.pkRunRecent(runs.indexOf(mine.get(which)) + 1);
+                  host.pyJav.pkLoadRecent(runs.indexOf(mine.get(which)) + 1);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -290,6 +290,7 @@ public final class PyJavUi implements JavaRun.Listener {
     host.runOnUiThread(new Runnable() {
       @Override
       public void run() {
+        if (ownRun) PyJav.RUNS.updateAndGet(n -> n > 0 ? n - 1 : 0);
         if (ownRun) host.pyJav.pkShowPyResult(result, pending, argv, saveRun, src);
         else host.pyJav.pkShowPyResult(result);
       }

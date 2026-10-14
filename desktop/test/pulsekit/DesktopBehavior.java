@@ -464,6 +464,52 @@ public final class DesktopBehavior {
     out.append("cut file: ").append(back == null ? "none" : String.format("%.3f s", back.samples.length / (double) back.sr)).append('\n');
   }
 
+  /**
+   * Wav2Mp3: one WAV as an MP3 (the length and level back, through the app's decoder, gapless),
+   * then a folder of them at once (--dir, --outdir) at another bitrate, in mono.
+   */
+  void s98_wav2mp3_program() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take three.wav");
+    short[] pcm = new short[44100 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 44100));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 44100));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Wav2Mp3.java");
+    edt(() -> call("setInputFile", wav));
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Read") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    File mp3 = new File(home, "take three.mp3");
+    if (!mp3.isFile()) throw new AssertionError("no MP3: " + log.getText());
+    AudioIo.Pcm back = Mp3Decode.parse(Files.readAllBytes(mp3.toPath()));
+    double peak = 0;
+    for (float f : back.samples) peak = Math.max(peak, Math.abs(f));
+    out.append(String.format(java.util.Locale.ROOT, "MP3 decoded: %d samples at %d Hz (the WAV: %d), peak %.2f (the WAV: %.2f)%n", back.samples.length, back.sr, pcm.length, peak, 8000 / 32768.0));
+    if (back.samples.length != pcm.length || Math.abs(peak - 8000 / 32768.0) > 0.03) throw new AssertionError(out.toString());
+    // A folder at once: two WAVs, to another folder, 128 kbps mono.
+    File folder = new File(home, "takes");
+    folder.mkdirs();
+    Files.write(new File(folder, "a.wav").toPath(), AudioIo.encodeWav(pcm, 44100));
+    Files.write(new File(folder, "b.wav").toPath(), AudioIo.encodeWav(java.util.Arrays.copyOf(pcm, 22050), 22050));
+    File mp3s = new File(home, "mp3s");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir " + folder.getAbsolutePath() + " --outdir " + mp3s.getAbsolutePath() + " --bitrate 128 --mode mono"));
+    edt(() -> log.setText(""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Wav2Mp3:") || line.startsWith("Wrote") || line.startsWith("Resampled") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    String[] made = mp3s.list();
+    java.util.Arrays.sort(made);
+    out.append("in mp3s: ").append(String.join(", ", made)).append('\n');
+    if (made.length != 2) throw new AssertionError(out.toString());
+  }
+
   void s27_splitwav_program() throws Exception {
     File home = new File(System.getProperty("user.home"));
     File wav = new File(home, "take two.wav");
@@ -4451,6 +4497,10 @@ public final class DesktopBehavior {
           ((javax.swing.JTextArea) component(d, "save-prompt-description")).setText("First try");
         }
         ((JTextField) component(d, "save-prompt-name")).setText("Smile");
+        // The third run's version goes into the favourite prompts.
+        javax.swing.JCheckBox fav = (javax.swing.JCheckBox) component(d, "save-prompt-favourite");
+        seen.append("  Add to favourites box: ").append(fav != null).append('\n');
+        if (at == 2) fav.setSelected(true);
       };
       answers.add(run == 3 ? "Cancel" : "OK");
       String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
@@ -4477,6 +4527,26 @@ public final class DesktopBehavior {
             .append(", prompt ").append(sheet.body.split("\n")[0]).append('\n');
       }
     }
+    // Favourite prompts: the version saved with Add to favourites, on the Prompts page and in Browse prompts.
+    VersionFavourites.load(PromptDb.dir());
+    StringBuilder favs = new StringBuilder();
+    for (PromptVault.Version v : VersionFavourites.list(vault)) favs.append('[').append(VersionFavourites.label(vault, v)).append(']');
+    out.append("favourite prompts: ").append(favs).append('\n');
+    call("showView", "prompts");
+    idle();
+    out.append("Prompts page lists it: ").append(component(frame.getContentPane(), "prompts-favourite:Smile \u00b7 v2") != null).append('\n');
+    final String[] handed = new String[1];
+    final StringBuilder browse = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-favprompt:Smile \u00b7 v2");
+      browse.append("Browse prompts lists it: ").append(item != null).append('\n');
+      if (item != null) item.doClick();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> handed[0] = title + ": " + text.split("\n")[0]));
+    for (int i = 0; i < 50 && handed[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(browse).append("clicked: ").append(handed[0]).append('\n');
+    if (favs.indexOf("[Smile \u00b7 v2]") < 0 || handed[0] == null || !handed[0].contains("laughing")) throw new AssertionError(out.toString());
   }
 
   /**
@@ -4516,6 +4586,230 @@ public final class DesktopBehavior {
       Thread.sleep(300);
       idle();
       out.append(pick[0]).append(' ').append(pick[1]).append(": ").append((String) get("pyName")).append(", args [").append(((JTextField) get("pyExtra")).getText()).append("], ran ").append(!log.getText().equals("")).append('\n');
+    }
+  }
+
+  /**
+   * The Prompts editor's Save: the version shown keeps its number (no new one), with the edited
+   * text and its file. Then the favourite prompts' menu: Move down, Remove from favourites.
+   */
+  void s99_save_in_place_favourite_menu() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Portrait");
+    byte[] pic = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1};
+    long v1 = vault.addVersion(id, "Portrait", "", "Soft light", "", "face.png", pic, "", null, "", null, "ai", "");
+    long v2 = vault.addVersion(id, "Portrait", "", "Hard light", "", "", null, "", null, "", null, "ai", "");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    call("showView", "prompts");
+    edt(() -> {
+      page.openPrompt(id);
+      page.loadVersion(v1);
+    });
+    out.append("buttons: ").append(((javax.swing.JButton) component(frame, "prompt-save-here")).getText()).append(", ").append(((javax.swing.JButton) component(frame, "prompt-save")).getText()).append('\n');
+    edt(() -> {
+      page.promptBody.setText("Soft light, smiling");
+      ((javax.swing.JButton) component(frame, "prompt-save-here")).doClick();
+    });
+    vault = PromptDb.vault();
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    out.append("after Save: ").append(vault.versions(id).size()).append(" versions, v1 \"").append(vault.version(v1).body).append("\" with ").append(vault.version(v1).ref1Name)
+        .append(" (").append(vault.bytesOf(vault.version(v1), 1).length).append(" bytes), v2 \"").append(vault.version(v2).body).append("\"\n");
+    if (vault.versions(id).size() != 2 || !vault.version(v1).body.equals("Soft light, smiling") || vault.bytesOf(vault.version(v1), 1).length != pic.length) throw new AssertionError(out.toString());
+    VersionFavourites.load(PromptDb.dir());
+    VersionFavourites.add(v1);
+    VersionFavourites.add(v2);
+    final PromptVault vv = vault;
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder o = new StringBuilder();
+      for (PromptVault.Version v : VersionFavourites.list(vv)) o.append('[').append(VersionFavourites.label(vv, v)).append(']');
+      return o.toString();
+    };
+    edt(() -> {
+      page.promptId = 0;
+      page.rebuild();
+    });
+    out.append("favourites: ").append(order.get()).append('\n');
+    for (String[] step : new String[][] {{"v1", "Move down"}, {"v2", "Remove from favourites"}}) {
+      final StringBuilder items = new StringBuilder();
+      edt(() -> {
+        javax.swing.JButton more = (javax.swing.JButton) component(frame, "prompts-favourite-menu:Portrait \u00b7 " + step[0]);
+        more.doClick();
+        javax.swing.JMenuItem pick = null;
+        for (java.awt.Component c : FavouriteMenu.last.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals(step[1])) pick = (javax.swing.JMenuItem) c;
+        }
+        FavouriteMenu.last.setVisible(false);
+        pick.doClick();
+      });
+      out.append(step[0]).append(" menu ").append(items).append(" -> ").append(step[1]).append(": ").append(order.get()).append('\n');
+    }
+    if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+    // Change title renames the favourite's prompt.
+    FavouriteMenu.Ask was = FavouriteMenu.ask;
+    final String[] preset = {null};
+    FavouriteMenu.ask = (parent, given) -> {
+      preset[0] = given;
+      return "Portrait lit";
+    };
+    try {
+      edt(() -> {
+        ((javax.swing.JButton) component(frame, "prompts-favourite-menu:Portrait \u00b7 v1")).doClick();
+        javax.swing.JMenuItem pick = null;
+        for (java.awt.Component c : FavouriteMenu.last.getComponents()) {
+          if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals("Change title")) pick = (javax.swing.JMenuItem) c;
+        }
+        FavouriteMenu.last.setVisible(false);
+        pick.doClick();
+      });
+    } finally {
+      FavouriteMenu.ask = was;
+    }
+    out.append("Change title (was \"").append(preset[0]).append("\"): ").append(order.get()).append(", row ").append(component(frame, "prompts-favourite-menu:Portrait lit \u00b7 v1") != null).append('\n');
+    if (!order.get().equals("[Portrait lit \u00b7 v1]") || !"Portrait".equals(preset[0])) throw new AssertionError(out.toString());
+    // An audio input carries over to a program taking a sound, not to SogniPedit (its picture took the sound's name).
+    for (String program : new String[] {"SogniPedit.java", "CutWav.java", "Wav2Mp3.java"}) {
+      java.io.File f = new java.io.File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/" + program);
+      byte[] src = java.nio.file.Files.readAllBytes(f.toPath());
+      String hint = PyJavHints.status(program, new String(src, StandardCharsets.UTF_8), null);
+      out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
+      if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
+    }
+  }
+
+  /**
+   * The Result files gallery open while a file is added to the library: it opens again with it.
+   * A picture's Preview from the gallery has Previous / Next, which pass a text file between pictures.
+   */
+  void s97_gallery_refresh_prevnext() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptDb.vault().addLibraryFile("a.png", png.toByteArray(), "Imported", 3);
+    PromptDb.vault().addLibraryFile("note.txt", "text".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    PromptDb.vault().addLibraryFile("b.png", png.toByteArray(), "Imported", 3);
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    inspectNext = gallery -> {
+      seen.append("c.png listed: ").append(component(gallery, "gallery:c.png") != null).append('\n');
+      try {
+        PromptDb.vault().addLibraryFile("c.png", png.toByteArray(), "Imported", 3);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      inspectNext = again -> {
+        seen.append("opened again: c.png listed ").append(component(again, "gallery:c.png") != null).append('\n');
+        StringBuilder order = new StringBuilder();
+        for (PromptVault.StoredFile f : db.galleryList) order.append(f.name).append(' ');
+        seen.append("order: ").append(order.toString().trim()).append('\n');
+        PromptVault.StoredFile first = db.galleryList.get(0);
+        StringBuilder steps = new StringBuilder(first.name);
+        PromptVault.StoredFile at = first;
+        for (int i = 0; i < 3; i++) {
+          Object[] next = db.stepPicture(at, 1);
+          if (next == null) {
+            steps.append(" > (last)");
+            break;
+          }
+          at = (PromptVault.StoredFile) next[0];
+          steps.append(" > ").append(at.name);
+        }
+        Object[] prev = db.stepPicture(at, -1);
+        steps.append(" < ").append(prev == null ? "(first)" : ((PromptVault.StoredFile) prev[0]).name);
+        seen.append("next/previous: ").append(steps).append('\n');
+        // Preview from the gallery shows Previous and Next.
+        final PromptVault.StoredFile shown = first;
+        inspectNext = preview -> {
+          seen.append("preview ").append(preview.getTitle()).append(": Previous ").append(component(preview, "preview-prev") != null)
+              .append(", Next ").append(component(preview, "preview-next") != null).append('\n');
+          done[0] = true;
+        };
+        SwingUtilities.invokeLater(() -> db.preview(shown, (javax.swing.JButton) component(again, "gallery:" + shown.name)));
+      };
+      if (!db.refreshGallery(gallery, true)) seen.append("not opened again\n");
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("opened again: c.png listed true") < 0 || seen.indexOf("note.txt", seen.indexOf("next/previous")) >= 0 || seen.indexOf("Next true") < 0)
+      throw new AssertionError(seen.toString());
+  }
+
+  /**
+   * PyJav's headlines (Code or Prompt above the editor, Output), Params' Preview of a picked
+   * picture, and Upscale/Resize image in the Ref/Result files menu, also for a picture whose
+   * name has no picture extension.
+   */
+  void s96_headlines_preview_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File me = new File(home, "me");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    idle();
+    for (String t : new String[] {"pyjav-editor-caption", "pyjav-output-head"}) {
+      JLabel head = (JLabel) component(frame.getContentPane(), t);
+      if (head == null) throw new AssertionError("no " + t);
+      out.append(t).append(": ").append(head.getText()).append('\n');
+    }
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final StringBuilder seen = new StringBuilder();
+    final Object pyJav = get("pyJav");
+    inspectNext = d -> {
+      javax.swing.JButton preview = (javax.swing.JButton) component(d, "params-preview:--image");
+      javax.swing.JButton preview2 = (javax.swing.JButton) component(d, "params-preview:--image2");
+      if (preview == null || preview2 == null) throw new AssertionError("no Preview button");
+      seen.append("Preview --image enabled ").append(preview.isEnabled()).append(", --image2 (none picked) ").append(preview2.isEnabled()).append('\n');
+      seen.append("no Preview on --prompt: ").append(component(d, "params-preview:--prompt") == null).append('\n');
+      preview.doClick();
+      try {
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
+        seen.append("preview: ").append(shown == null ? "none" : shown.getTitle() + ", image " + (component(shown.getContentPane(), "params-preview-image") != null)).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      ((javax.swing.JButton) component(d, "params-clear:--image")).doClick();
+      seen.append("after Clear, Preview enabled ").append(preview.isEnabled()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    idle();
+    Thread.sleep(500);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("Preview --image enabled true, --image2 (none picked) false") < 0 || seen.indexOf("image true") < 0 || seen.indexOf("after Clear, Preview enabled false") < 0)
+      throw new AssertionError("Preview: " + seen);
+    PromptDb db = (PromptDb) get("promptDb");
+    byte[] png = java.nio.file.Files.readAllBytes(me.toPath());
+    PromptDb.vault().addLibraryFile("suit.png", png, "Imported", 1);
+    PromptDb.vault().addLibraryFile("picture", png, "Imported", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    for (String n : new String[] {"suit.png", "picture", "notes.txt"}) {
+      final boolean results = !"suit.png".equals(n);
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(results)) if (f.name.equals(n)) file = f;
+      if (file == null) throw new AssertionError("not stored: " + n);
+      final PromptVault.StoredFile at = file;
+      final StringBuilder items = new StringBuilder();
+      final boolean[] done = {false};
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        }
+        db.lastFileMenu.setVisible(false);
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(results));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(results ? " (result)" : " (reference)").append(" menu: ").append(items).append('\n');
+      boolean upscale = items.indexOf("[Upscale/Resize image]") >= 0;
+      if (upscale == "notes.txt".equals(n)) throw new AssertionError("Upscale item on " + n + ": " + items);
     }
   }
 

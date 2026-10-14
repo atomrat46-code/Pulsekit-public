@@ -631,7 +631,7 @@ public final class Pulsekit extends UiKit {
     }
 
     static String hintHtml(String status) {
-        String safe = status == null ? "" : status.replace("&", "&" + "amp;").replace("<", "&" + "lt;").replace(">", "&" + "gt;");
+        String safe = status == null ? "" : PyJavHints.shown(status).replace("&", "&" + "amp;").replace("<", "&" + "lt;").replace(">", "&" + "gt;");
         return "<html><body style='width:520px;color:#F4F1EA'>" + safe.replace("\n", "<br>") + "</body></html>";
     }
 
@@ -684,6 +684,7 @@ public final class Pulsekit extends UiKit {
         boolean groove = pattern || combo;
         boolean bl2 = "song".equals(string);
         boolean bl3 = "py".equals(string);
+        this.nowPlaying.setVisible(!bl3 && this.nowPlaying.getText() != null && this.nowPlaying.getText().trim().length() > 0);
         boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string) || "comparehits".equals(string);
         boolean prompts = "prompts".equals(string);
         // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
@@ -779,7 +780,8 @@ public final class Pulsekit extends UiKit {
     void setNow(String string) {
         boolean bl = string != null && !string.trim().isEmpty();
         this.nowPlaying.setText(bl ? string : " ");
-        this.nowPlaying.setVisible(bl);
+        // PyJav shows its status under the program buttons: the line at the top stays hidden there.
+        this.nowPlaying.setVisible(bl && !"py".equals(this.view));
     }
 
     void refreshTabs() {

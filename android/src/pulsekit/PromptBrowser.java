@@ -14,7 +14,8 @@ import java.util.List;
  * Browse prompts: the prompt library's main categories as tabs, the chosen one's subcategories
  * under it, and the prompts in the category picked; tapping a prompt hands its text (its final
  * version) to the field that asked (Params' Prompt, the Prompts page's Prompt). Opens on the
- * category picked last. Favourite categories (★ Favourite on the one shown) are a row on top.
+ * category picked last. Favourite prompts (Save prompt's "Add to favourites", the Prompts page's
+ * star) are listed on top, then favourite categories (★ Favourite on the one shown) as a row.
  */
 final class PromptBrowser {
     interface Picked {
@@ -62,6 +63,41 @@ final class PromptBrowser {
         }
         long chosen = vault.category(lastCategory) != null ? lastCategory : mains.get(0).id;
         long mainId = vault.mainOf(chosen);
+        // Favourite prompts (versions): a tap hands on that version's text; a long press removes it.
+        VersionFavourites.load(activity.getFilesDir());
+        List<PromptVault.Version> favPrompts = VersionFavourites.list(vault);
+        if (!favPrompts.isEmpty()) {
+            body.addView(text(activity, "\u2605 Favourite prompts", 12, "#8A8B86"));
+            for (final PromptVault.Version v : favPrompts) {
+                final String label = VersionFavourites.label(vault, v);
+                final String words = VersionFavourites.words(v);
+                final PromptVault.Prompt p = vault.prompt(v.promptId);
+                TextView item = text(activity, label, 14, "#E8C35A");
+                item.setTag("prompt-browser-favprompt:" + label);
+                item.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
+                android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+                bg.setCornerRadius(dp(activity, 8));
+                bg.setColor(Color.parseColor("#1B1D1F"));
+                item.setBackground(bg);
+                final Runnable use = () -> {
+                    if (words.length() == 0) {
+                        android.widget.Toast.makeText(activity, label + " has no prompt text", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (dialog[0] != null) dialog[0].dismiss();
+                    picked.picked(p == null ? label : p.title, words);
+                };
+                item.setOnClickListener(x -> use.run());
+                // A long press: use it, copy its text, move it, remove it from the favourites.
+                item.setOnLongClickListener(x -> {
+                    FavouriteMenu.show(activity, vault, v, "Use this prompt", use, () -> fill(activity, vault, body, dialog, picked));
+                    return true;
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+                lp.bottomMargin = dp(activity, 6);
+                body.addView(item, lp);
+            }
+        }
         CategoryFavourites.load(activity.getFilesDir());
         List<PromptVault.Category> favs = CategoryFavourites.list(vault);
         if (!favs.isEmpty()) {

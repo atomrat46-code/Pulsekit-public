@@ -289,7 +289,8 @@ public final class SogniVideo {
     }
     if (savePrompt && workflowId == null) {
       // After the checks, so the sheet holds the settings as sent (1440 for "2K").
-      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
+      // The prompt's title is the output's file name, not its folder.
+      String sheetName = out != null ? new File(out.trim()).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
       File sheet = savePrompt(sheetName, "Sogni " + SogniApi.videoModel(pictures.size(), resolution),
           prompt.trim() + settingsLine(duration, resolution, aspect, silent, pictureNames) + (loras.isEmpty() ? "" : " LoRAs: " + loraLine(loras, strengths) + "."), pictureNames);
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());

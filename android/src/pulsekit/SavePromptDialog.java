@@ -103,6 +103,11 @@ final class SavePromptDialog {
         col.addView(label(app, "Description (optional)", 12, "#8A8B86"));
         col.addView(description);
         col.addView(version);
+        // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
+        final android.widget.CheckBox favourite = new android.widget.CheckBox(app);
+        favourite.setText("Add to favourites");
+        favourite.setTag("save-prompt-favourite");
+        col.addView(favourite);
         TextWatcher watch = new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -153,6 +158,7 @@ final class SavePromptDialog {
             c.sub = sub.getText().toString().trim();
             c.name = name.getText().toString().trim();
             c.description = description.getText().toString().trim();
+            c.favourite = favourite.isChecked();
             answered[0] = true;
             dialog.dismiss();
             done.done(c);

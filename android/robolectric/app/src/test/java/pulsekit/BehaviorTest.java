@@ -3356,6 +3356,8 @@ public class BehaviorTest {
     StringBuilder out = new StringBuilder();
     app.programMenus.selectProgram("Java", "SogniTextVideo.java");
     idle();
+    // The listed runs are going (their entries are not left behind by a run that is over).
+    PyJav.RUNS.incrementAndGet();
     String plain = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
     out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
     File list = new File(app.getFilesDir(), "pending-db.txt");
@@ -3378,6 +3380,11 @@ public class BehaviorTest {
     PendingOps.done(plain);
     out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
         .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    // An entry a finished run left behind (nothing runs, stores or asks now): Run goes on, the list empties.
+    PyJav.RUNS.set(0);
+    PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"), true);
+    out.append("left behind: storing ").append(PendingOps.storingCount()).append(", Run waits ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append(", pending after ").append(PendingOps.count()).append('\n');
     write("s88_pending_db", out.toString());
   }
 
@@ -4986,6 +4993,10 @@ public class BehaviorTest {
             ((TextView) dv.findViewWithTag("save-prompt-description")).setText("First try");
           }
           ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Smile");
+          // The third run's version goes into the favourite prompts.
+          android.widget.CheckBox fav = (android.widget.CheckBox) dv.findViewWithTag("save-prompt-favourite");
+          out.append("  Add to favourites box: ").append(fav != null).append('\n');
+          if (run == 2) fav.setChecked(true);
           out.append("  after edits: ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
           d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
         }
@@ -5011,6 +5022,20 @@ public class BehaviorTest {
       out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
           .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description).append('\n');
     }
+    // Favourite prompts: the version saved with Add to favourites, in Browse prompts; a tap hands on its text.
+    VersionFavourites.load(app.getFilesDir());
+    StringBuilder favs = new StringBuilder();
+    for (PromptVault.Version v : VersionFavourites.list(vault)) favs.append('[').append(VersionFavourites.label(vault, v)).append(']');
+    out.append("favourite prompts: ").append(favs).append('\n');
+    final String[] handed = new String[1];
+    PromptBrowser.show(app, (title, text) -> handed[0] = title + ": " + text.split("\n")[0]);
+    idle();
+    View fav = PromptBrowser.last.getWindow().getDecorView().findViewWithTag("prompt-browser-favprompt:Smile \u00b7 v2");
+    out.append("Browse prompts lists it: ").append(fav != null).append('\n');
+    if (fav != null) fav.performClick();
+    idle();
+    out.append("tapped: ").append(handed[0]).append('\n');
+    if (favs.indexOf("[Smile \u00b7 v2]") < 0 || handed[0] == null || !handed[0].contains("laughing")) throw new AssertionError(out.toString());
     write("s98_save_prompt", out.toString());
   }
 
@@ -5042,11 +5067,11 @@ public class BehaviorTest {
     StringBuilder labels = new StringBuilder();
     for (int i = 0; i < runs.getAdapter().getCount(); i++) labels.append('[').append(runs.getAdapter().getItem(i)).append(']');
     out.append("CompareHits runs: ").append(PyJavUi.lastRuns.isShowing()).append(' ').append(labels).append('\n');
-    // Tap a run: runs with its parameters.
+    // Tap a run: loads it with its parameters (Run starts it).
     runs.performItemClick(runs.getChildAt(2), 2, 2);
     idle();
     out.append("run picked: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
-    // Tap the name: the run without parameters.
+    // Tap the name: loads the run without parameters.
     box = root().findViewWithTag("pk-recent");
     box.findViewWithTag("pk-recent-item:CompareHits.java").performClick();
     idle();
@@ -5083,6 +5108,320 @@ public class BehaviorTest {
     idle();
     out.append("args: ").append(args.getText()).append('\n');
     write("s96_params_clear_file", out.toString());
+  }
+
+  /**
+   * PyJav's headlines (Code or Prompt above the editor, Arguments, Output), Params' Preview of a
+   * picked picture, and Upscale/Resize image in the Ref/Result files long-press menu, also for a
+   * picture whose name has no picture extension.
+   */
+  @Test
+  public void s109_headlines_preview_upscale() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    for (String t : new String[] {"pyjav-editor-caption", "pyjav-args-head", "pyjav-output-head"}) {
+      TextView head = (TextView) root().findViewWithTag(t);
+      if (head == null) throw new AssertionError("no " + t);
+      out.append(t).append(": ").append(head.getText()).append('\n');
+    }
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(640, 480, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File picture = new File(app.getCacheDir(), "me");
+    Files.write(picture.toPath(), png.toByteArray());
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.Button preview = (android.widget.Button) dv.findViewWithTag("params-preview:--image");
+    android.widget.Button preview2 = (android.widget.Button) dv.findViewWithTag("params-preview:--image2");
+    if (preview == null || preview2 == null) throw new AssertionError("no Preview button");
+    out.append("Preview --image enabled ").append(preview.isEnabled()).append(", --image2 (none picked) ").append(preview2.isEnabled()).append('\n');
+    if (!preview.isEnabled() || preview2.isEnabled()) throw new AssertionError("Preview state");
+    out.append("no Preview on --prompt: ").append(dv.findViewWithTag("params-preview:--prompt") == null).append('\n');
+    preview.performClick();
+    idle();
+    AlertDialog shown = PyJavParams.lastParamsPreview;
+    if (shown == null || !shown.isShowing()) throw new AssertionError("no preview dialog");
+    out.append("preview: ").append(org.robolectric.Shadows.shadowOf(shown).getTitle()).append(", image ")
+        .append(shown.getWindow().getDecorView().findViewWithTag("params-preview-image") != null).append('\n');
+    shown.dismiss();
+    ((android.widget.Button) dv.findViewWithTag("params-clear:--image")).performClick();
+    idle();
+    out.append("after Clear, Preview enabled ").append(preview.isEnabled()).append('\n');
+    if (preview.isEnabled()) throw new AssertionError("Preview still enabled");
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    DbImport.store(app, "suit.png", png.toByteArray(), false);
+    DbImport.store(app, "picture", png.toByteArray(), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    for (String n : new String[] {"suit.png", "picture", "notes.txt"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : all) if (f.name.equals(n)) at = f;
+      if (at == null) throw new AssertionError("not stored: " + n);
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
+      out.append(n).append(at.which == 3 ? " (result)" : " (reference)").append(" menu: ").append(items).append('\n');
+      boolean upscale = items.indexOf("[Upscale/Resize image]") >= 0;
+      if (upscale == "notes.txt".equals(n)) throw new AssertionError("Upscale item on " + n + ": " + items);
+      menu.dismiss();
+      idle();
+    }
+    write("s109_headlines_preview_upscale", out.toString());
+  }
+
+  /**
+   * The Result files gallery shown while a file is added to the library: it is made again with it.
+   * In full size, the arrows show the next or previous picture (a text file between them is passed).
+   */
+  @Test
+  public void s110_gallery_refresh_swipe() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "a.png", png.toByteArray(), true);
+    DbImport.store(app, "note.txt", "text".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "b.png", png.toByteArray(), true);
+    call("show", "prompts");
+    idle();
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Field resultsOpen = sheet.getDeclaredField("resultsOpen");
+    java.lang.reflect.Field hostF = sheet.getDeclaredField("host");
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    java.lang.reflect.Field vaultF = sheet.getDeclaredField("vault");
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {resultsOpen, hostF, rebuild, vaultF}) o.setAccessible(true);
+    // The page's library opened before the test's key store was in place: the test's one is used.
+    vaultF.set(null, PromptVault.open(app.getFilesDir()));
+    resultsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    View host = (View) hostF.get(null);
+    out.append("gallery shown ").append(host.isShown()).append(", a.png listed ").append(findText(host, "a.png") != null).append(", c.png listed ").append(findText(host, "c.png") != null).append('\n');
+    DbImport.store(app, "c.png", png.toByteArray(), true);
+    ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    idle();
+    host = (View) hostF.get(null);
+    out.append("after c.png was stored: listed ").append(findText(host, "c.png") != null).append('\n');
+    if (findText(host, "c.png") == null) throw new AssertionError("gallery not made again: " + out);
+    // Full size from the gallery, then swipes (stepPicture) through the pictures in its order.
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field name = sheet.getDeclaredField("previewName");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {focusId, focusWhich, name, back, open}) o.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> order = FileSort.sorted(vault.resultFiles(), FileSort.current);
+    StringBuilder listed = new StringBuilder();
+    for (PromptVault.StoredFile f : order) listed.append(f.name).append(' ');
+    out.append("order: ").append(listed.toString().trim()).append('\n');
+    PromptVault.StoredFile first = null;
+    for (PromptVault.StoredFile f : order) if (first == null && f.name.endsWith(".png")) first = f;
+    focusId.set(null, first.versionId);
+    focusWhich.set(null, first.which);
+    open.invoke(null, app, first.name, vault.fileBytes(first.versionId, first.which), 3);
+    idle();
+    host = (View) hostF.get(null);
+    out.append("full size ").append(name.get(null)).append(", arrows ").append(host.findViewWithTag("preview-prev") != null)
+        .append(' ').append(host.findViewWithTag("preview-next") != null).append('\n');
+    StringBuilder seen = new StringBuilder(String.valueOf(name.get(null)));
+    for (int i = 0; i < 3; i++) {
+      ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
+      idle();
+      seen.append(" > ").append(name.get(null));
+    }
+    ((View) hostF.get(null)).findViewWithTag("preview-prev").performClick();
+    idle();
+    seen.append(" < ").append(name.get(null));
+    out.append("arrows: ").append(seen).append('\n');
+    // The page stays scrolled where it was over an arrow.
+    android.widget.ScrollView page = (android.widget.ScrollView) ((android.view.ViewGroup) hostF.get(null)).getChildAt(0);
+    page.scrollTo(0, 40);
+    int before = page.getScrollY();
+    ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
+    idle();
+    page = (android.widget.ScrollView) ((android.view.ViewGroup) hostF.get(null)).getChildAt(0);
+    out.append("page scrolled to ").append(before).append(", kept: ").append(page.getScrollY() == before).append('\n');
+    if (page.getScrollY() != before) throw new AssertionError("scroll " + before + " -> " + page.getScrollY());
+    if (seen.indexOf("note.txt") >= 0) throw new AssertionError("a text file was shown: " + seen);
+    back.set(null, 0);
+    resultsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    write("s110_gallery_refresh_swipe", out.toString());
+  }
+
+  /**
+   * Wav2Mp3 in PyJav's Java menu: Params has the WAV (also from the library), the bitrate and
+   * stereo mode as choices, the ID3 tags, and the folder rows; picking choices fills the args.
+   */
+  @Test
+  public void s111_wav2mp3_params() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    out.append("Java menu has it: ").append(java.util.Arrays.asList(app.programMenus.list("Java")).contains("Wav2Mp3.java")).append('\n');
+    pickFromMenu("Java \u25be", "Wav2Mp3.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace("\n", " | ")).append('\n');
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("input: ").append(dv.findViewWithTag("params-file:input.wav") != null).append(", Browse DB ").append(dv.findViewWithTag("params-db:input.wav") != null).append('\n');
+    out.append("folder rows: ").append(dv.findViewWithTag("params-dir:--dir") != null).append(' ').append(dv.findViewWithTag("params-dir:--outdir") != null).append('\n');
+    for (String t : new String[] {"--bitrate", "--mode"}) {
+      dv.findViewWithTag("params-choose:" + t).performClick();
+      idle();
+      AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+      out.append(t).append(": ").append(listItems(list)).append('\n');
+      org.robolectric.Shadows.shadowOf(list).clickOnItem(t.equals("--bitrate") ? itemIndex(list, "320 kbps (best)") : itemIndex(list, "mono (a stereo WAV is mixed down)"));
+      idle();
+    }
+    for (String t : new String[] {"--title", "--artist", "--album"}) {
+      android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
+    }
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--title")).setText("Take three");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    String a = args.getText().toString();
+    if (!a.contains("--bitrate 320") || !a.contains("--mode mono") || !a.contains("Take three")) throw new AssertionError(out.toString());
+    write("s111_wav2mp3_params", out.toString());
+  }
+
+  /**
+   * The key file from Drum Midi Settings for a program that takes --key_file (ImageUpscaler):
+   * added when none is given, and also in place of a given one that is gone, empty or holds no
+   * key (a key file once picked in Params, its copy since cleared); a given one with a key stays.
+   */
+  @Test
+  public void s112_key_file_settings() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getFilesDir(), "keytest");
+    ApiKeys.init(dir);
+    ApiKeys.store("SOGNI_API_KEY=abcd1234".getBytes(StandardCharsets.UTF_8));
+    File mine = new File(dir, "mine.txt");
+    Files.write(mine.toPath(), "SOGNI_API_KEY=zzzz9999\n".getBytes(StandardCharsets.UTF_8));
+    File none = new File(dir, "none.txt");
+    Files.write(none.toPath(), "hello\n".getBytes(StandardCharsets.UTF_8));
+    String src = app.programMenus.bundledSource("ImageUpscaler.java");
+    String[][] cases = {{"pic.png", "--method", "3"}, {"pic.png", "--key_file", "/gone/credentials.txt", "--method", "3"}, {"pic.png", "--method", "3", "--key_file"},
+        {"pic.png", "--key_file", none.getPath()}, {"pic.png", "--key_file", mine.getPath()}};
+    for (String[] c : cases) {
+      java.util.List<String> got = JavaRun.withKeyFile(src, new java.util.ArrayList<String>(java.util.Arrays.asList(c)));
+      out.append(String.join(" ", c).replace(dir.getPath(), "<dir>")).append(" -> ").append(String.join(" ", got).replace(dir.getPath(), "<dir>")).append('\n');
+      String key = got.get(got.indexOf("--key_file") + 1);
+      if (SogniApi.keyIn(new File(key)) == null) throw new AssertionError("no key for " + String.join(" ", c));
+    }
+    ApiKeys.clear();
+    write("s112_key_file_settings", out.toString());
+  }
+
+  /**
+   * The Prompts editor's Save: the version shown keeps its number (no new one), with the edited
+   * text and its file. Then the favourite prompts' menu: Move down, Copy prompt text, Remove.
+   */
+  @Test
+  public void s113_save_in_place_favourite_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Portrait");
+    byte[] pic = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1};
+    long v1 = vault.addVersion(id, "Portrait", "", "Soft light", "", "face.png", pic, "", null, "", null, "ai", "");
+    long v2 = vault.addVersion(id, "Portrait", "", "Hard light", "", "", null, "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    idle();
+    out.append("buttons: ").append(((TextView) pane.findViewWithTag("prompt-save-here")).getText()).append(", ").append(((TextView) pane.findViewWithTag("prompt-save")).getText()).append('\n');
+    ((android.widget.EditText) pane.findViewWithTag("prompt-body")).setText("Soft light, smiling");
+    pane.findViewWithTag("prompt-save-here").performClick();
+    idle();
+    vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.Version> rows = vault.versions(id);
+    out.append("after Save: ").append(rows.size()).append(" versions, v1 \"").append(vault.version(v1).body).append("\" with ").append(vault.version(v1).ref1Name)
+        .append(" (").append(vault.bytesOf(vault.version(v1), 1).length).append(" bytes), v2 \"").append(vault.version(v2).body).append("\"\n");
+    if (rows.size() != 2 || !vault.version(v1).body.equals("Soft light, smiling") || vault.bytesOf(vault.version(v1), 1).length != pic.length) throw new AssertionError(out.toString());
+    // Favourites: v1 then v2; the menu moves v1 down, copies, then removes v2.
+    VersionFavourites.load(app.getFilesDir());
+    VersionFavourites.add(v1);
+    VersionFavourites.add(v2);
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    rebuild.setAccessible(true);
+    pid.set(null, 0L);
+    rebuild.invoke(null, app);
+    idle();
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder o = new StringBuilder();
+      PromptVault vv;
+      try {
+        vv = PromptVault.open(app.getFilesDir());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      for (PromptVault.Version v : VersionFavourites.list(vv)) o.append('[').append(VersionFavourites.label(vv, v)).append(']');
+      return o.toString();
+    };
+    out.append("favourites: ").append(order.get()).append('\n');
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
+    idle();
+    AlertDialog menu = FavouriteMenu.last;
+    out.append("menu: ").append(listItems(menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, "Move down"));
+    idle();
+    out.append("after Move down: ").append(order.get()).append('\n');
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Copy prompt text"));
+    idle();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    out.append("copied: ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    pane.findViewWithTag("prompts-favourite:Portrait \u00b7 v2").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Remove from favourites"));
+    idle();
+    out.append("after Remove: ").append(order.get()).append(", row gone ").append(pane.findViewWithTag("prompts-favourite:Portrait \u00b7 v2") == null).append('\n');
+    if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+    // Change title renames the favourite's prompt.
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Change title"));
+    idle();
+    android.widget.EditText field = (android.widget.EditText) FavouriteMenu.lastTitle.getWindow().getDecorView().findViewWithTag("favourite-title");
+    out.append("Change title (was \"").append(field.getText()).append("\")");
+    field.setText("Portrait lit");
+    FavouriteMenu.lastTitle.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append(": ").append(order.get()).append(", row ").append(pane.findViewWithTag("prompts-favourite-menu:Portrait lit \u00b7 v1") != null).append('\n');
+    if (!order.get().equals("[Portrait lit \u00b7 v1]")) throw new AssertionError(out.toString());
+    write("s113_save_in_place_favourite_menu", out.toString());
   }
 
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */

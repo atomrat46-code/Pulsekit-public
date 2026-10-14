@@ -110,6 +110,11 @@ public final class JavaRun {
     return LIVE.get();
   }
 
+  /** The page's top line while a run goes: "SogniVideo.java: Running… 2:05 · Queued: position 3". */
+  public static String runningTop(String program, Live live, long now) {
+    return (program == null || program.length() == 0 ? "script.py" : program) + ": " + runningLine(live, now);
+  }
+
   /** "Running… 2:05" with the run's latest news: "Running… 2:05 · Queued: position 3". */
   public static String runningLine(Live live, long now) {
     long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
@@ -293,14 +298,9 @@ public final class JavaRun {
       argv.add("--timesig");
       argv.add(tsNum + "/" + tsDen);
     }
-    String key = ApiKeys.path();
-    if (key != null && src.contains("--key_file") && !given.contains("--key_file")) {
-      // The key file from File > Drum Midi Settings.
-      argv.add("--key_file");
-      argv.add(key);
-    }
     argv.addAll(given);
-    return argv;
+    // The key file from File > Drum Midi Settings (also in place of a given one that holds no key).
+    return withKeyFile(src, argv);
   }
 
   /**
@@ -341,7 +341,18 @@ public final class JavaRun {
 
   public static List<String> withKeyFile(String source, List<String> argv) {
     String key = ApiKeys.path();
-    if (argv == null || key == null || source == null || !source.contains("--key_file") || argv.contains("--key_file")) return argv;
+    if (argv == null || key == null || source == null || !source.contains("--key_file")) return argv;
+    int at = argv.indexOf("--key_file");
+    if (at >= 0) {
+      // A key file given that holds a key stays. One that is empty, gone (a picked copy since
+      // cleared away) or without a key gives way to the settings' one: the program cannot see
+      // Pulsekit's settings itself, so it would find no key at all.
+      String given = at + 1 < argv.size() ? argv.get(at + 1) : "";
+      boolean value = given != null && !given.startsWith("--");
+      if (value && given.trim().length() > 0 && SogniApi.keyIn(new java.io.File(given.trim())) != null) return argv;
+      argv.remove(at);
+      if (value && at < argv.size()) argv.remove(at);
+    }
     argv.add("--key_file");
     argv.add(key);
     return argv;

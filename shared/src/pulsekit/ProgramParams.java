@@ -91,6 +91,8 @@ public final class ProgramParams {
     boolean splitWav = has(out, "--output_file1") && has(out, "--output_file2");
     // CutWav: one WAV cut at a time or size (--split_time).
     boolean cutWav = has(out, "--split_time");
+    // Wav2Mp3: a WAV (or a folder of them) as MP3, at a bitrate and stereo mode, with tags.
+    boolean wav2mp3 = has(out, "--bitrate") && has(out, "--mode") && has(out, "--album");
     // CompareHits: a WAV and two MIDI files (the source and the song).
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
@@ -113,8 +115,8 @@ public final class ProgramParams {
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     for (Param p : out) {
       known(p, drumMidi, chat);
-      // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
-      if ((drumMidi || compareHits || splitWav || cutWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
+      if ((drumMidi || compareHits || splitWav || cutWav || wav2mp3) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       // DrumMidi's and CompareHits' audio input can be a MIDI from the library too, played with the kit to a WAV.
       if ((drumMidi || compareHits) && !p.flag && p.isFile() && isAudio(p)) p.midiAsAudio = true;
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
@@ -125,7 +127,8 @@ public final class ProgramParams {
       if (midi2wav) knownMidi2Wav(p);
       if (midi2hydro) knownMidi2Hydro(p);
       if (vstRender) knownVstRender(p);
-      if (splitWav || cutWav) knownWavFolder(p);
+      if (splitWav || cutWav || wav2mp3) knownWavFolder(p);
+      if (wav2mp3) knownWav2Mp3(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -557,7 +560,37 @@ public final class ProgramParams {
     }
   }
 
-  /** SplitWav's and CutWav's folder switches: every WAV in a folder at once. */
+  /** Wav2Mp3's labels: the output, the bitrate and stereo mode as choices, and the ID3 tags. */
+  private static void knownWav2Mp3(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output MP3 name";
+      p.hint = "optional; <input>.mp3";
+    } else if (!p.flag && p.isFile()) {
+      p.label = "WAV to turn into MP3";
+      p.hint = "8, 16, 24 or 32-bit, or float; mono or stereo";
+    } else if (p.token.equals("--bitrate")) {
+      p.label = "Bitrate";
+      p.hint = "192 kbps (default)";
+      p.choices = new String[] {"32 kbps", "64 kbps", "96 kbps", "128 kbps", "160 kbps", "192 kbps (default)", "224 kbps", "256 kbps", "320 kbps (best)"};
+      p.choiceValues = new String[] {"32", "64", "96", "128", "160", "192", "224", "256", "320"};
+    } else if (p.token.equals("--mode")) {
+      p.label = "Stereo mode";
+      p.hint = "joint (default)";
+      p.choices = new String[] {"joint stereo (default: mid/side where it helps)", "stereo (left and right apart)", "mono (a stereo WAV is mixed down)"};
+      p.choiceValues = new String[] {"joint", "stereo", "mono"};
+    } else if (p.token.equals("--title")) {
+      p.label = "Title (ID3 tag)";
+      p.hint = "optional";
+    } else if (p.token.equals("--artist")) {
+      p.label = "Artist (ID3 tag)";
+      p.hint = "optional";
+    } else if (p.token.equals("--album")) {
+      p.label = "Album (ID3 tag)";
+      p.hint = "optional";
+    }
+  }
+
+  /** SplitWav's, CutWav's and Wav2Mp3's folder switches: every WAV in a folder at once. */
   private static void knownWavFolder(Param p) {
     if (p.token.equals("--dir")) {
       p.dir = true;
@@ -802,6 +835,38 @@ public final class ProgramParams {
   /** A .wav or .mp3 parameter. */
   public static boolean isAudio(Param p) {
     return p.ext != null && "audio".equals(kind(p.ext));
+  }
+
+  /**
+   * A file row that can hold a picture (a reference image, the picture to upscale): it has a
+   * Preview button, which works while the file picked is a picture.
+   */
+  public static boolean previewsPicture(Param p) {
+    if (p == null || !p.isFile() || p.output || p.dir || p.join || p.newChat || p.plugin || p.midiAsAudio) return false;
+    if (isAudio(p) || "mid".equals(p.ext) || "mp4".equals(p.ext)) return false;
+    return p.refs || p.ext != null && p.ext.toLowerCase().matches("png|jpe?g|webp|gif|bmp|image");
+  }
+
+  /** A picked file that is a picture: by its name, or (without a picture's extension) by its first bytes. */
+  public static boolean isPicture(String path) {
+    if (path == null || path.length() == 0) return false;
+    if (path.toLowerCase().matches(".+\\.(png|jpe?g|webp|gif|bmp)")) return true;
+    byte[] b = new byte[12];
+    int n = 0;
+    try (java.io.InputStream in = new java.io.FileInputStream(path)) {
+      while (n < b.length) {
+        int r = in.read(b, n, b.length - n);
+        if (r < 0) break;
+        n += r;
+      }
+    } catch (Exception ex) {
+      return false;
+    }
+    if (n >= 8 && (b[0] & 0xff) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') return true;
+    if (n >= 3 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8) return true;
+    if (n >= 6 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F') return true;
+    if (n >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') return true;
+    return n >= 2 && b[0] == 'B' && b[1] == 'M';
   }
 
   private static boolean has(List<Param> ps, String token) {

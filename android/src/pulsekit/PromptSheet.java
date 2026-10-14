@@ -241,6 +241,27 @@ public final class PromptSheet {
     }
   }
 
+  /** Save: the open version's fields and files replaced, under the same version (a prompt without one gets its first). */
+  public static void saveInPlace(Activity activity) {
+    if (vault == null || promptId == 0) {
+      toast(activity, "Open a prompt first");
+      return;
+    }
+    PromptVault.Version shown = loadedVersionId == 0 ? null : vault.version(loadedVersionId);
+    if (shown == null || shown.promptId != promptId) {
+      save(activity);
+      return;
+    }
+    try {
+      vault.updateVersion(loadedVersionId, text(title), text(description), text(prompt), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
+      java.util.List<PromptVault.Version> rows = vault.versions(promptId);
+      toast(activity, "Saved v" + (rows.size() - rows.indexOf(vault.version(loadedVersionId))));
+      rebuild(activity);
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
+  }
+
   public static void writeExport(Activity activity, Uri uri) {
     if (uri == null || exportBytes == null) return;
     try {
@@ -296,7 +317,11 @@ public final class PromptSheet {
     host.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
     final View focus = focusCard;
     focusCard = null;
-    if (focus != null) {
+    final int kept = keepScroll;
+    keepScroll = -1;
+    if (kept >= 0) {
+      scroll.post(() -> scroll.scrollTo(0, kept));
+    } else if (focus != null) {
       scroll.post(() -> {
         View row = (View) focus.getParent();
         scroll.scrollTo(0, Math.max(0, (row == null ? 0 : row.getTop()) + focus.getTop() - dp(activity, 12)));
@@ -381,6 +406,44 @@ public final class PromptSheet {
       toast(activity, "Pick the .prompt sheet and its reference and result files together");
     });
     col.addView(imp, buttonLp(activity));
+    // Favourite prompts: a tap opens the prompt at that version.
+    VersionFavourites.load(activity.getFilesDir());
+    List<PromptVault.Version> favs = VersionFavourites.list(vault);
+    if (!favs.isEmpty()) {
+      col.addView(caption(activity, "FAVOURITE PROMPTS"));
+      for (PromptVault.Version v : favs) {
+        String label = VersionFavourites.label(vault, v);
+        TextView row = button(activity, "\u2605 " + label, "#131416", "#E8C35A");
+        row.setTag("prompts-favourite:" + label);
+        row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10));
+        long pid = v.promptId;
+        long vid = v.id;
+        Runnable open = () -> {
+          promptId = pid;
+          loadVersion(activity, vid);
+        };
+        row.setOnClickListener(x -> open.run());
+        // A long press or Menu: open, copy its text, move it, remove it from the favourites.
+        Runnable menu = () -> FavouriteMenu.show(activity, vault, v, "Open", open, () -> rebuild(activity));
+        row.setOnLongClickListener(x -> {
+          menu.run();
+          return true;
+        });
+        LinearLayout line = new LinearLayout(activity);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.addView(row, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        TextView more = button(activity, "Menu", "#1B1D1F", "#ECEBE6");
+        more.setTag("prompts-favourite-menu:" + label);
+        more.setOnClickListener(x -> menu.run());
+        LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(activity, 72), LinearLayout.LayoutParams.MATCH_PARENT);
+        moreLp.leftMargin = dp(activity, 8);
+        line.addView(more, moreLp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(activity, 8);
+        col.addView(line, lp);
+      }
+    }
     col.addView(caption(activity, "CATEGORIES"));
     col.addView(categoryBlock(activity, false));
     TextView addCat = button(activity, "New category", "#1B1D1F", "#ECEBE6");
@@ -577,6 +640,38 @@ public final class PromptSheet {
       names[i] = name;
     }
     loadRefThumbs(activity, token, views, marks, subs, ids, slots, names, cell);
+    watchGallery(activity, token);
+  }
+
+  /** The library's change count (PromptVault.changes) the gallery shown was built at. */
+  private static long galleryChanges;
+  /** A scroll position to keep over the next rebuild (the gallery made again), or -1. */
+  private static int keepScroll = -1;
+  /** The full-size picture's sideways scroller, and its place to keep for the next picture (-1: none). */
+  private static android.widget.HorizontalScrollView previewPan;
+  private static int keepPanX = -1;
+
+  /**
+   * While this gallery is shown: something added to (or changed in) the library, a run's result
+   * say, makes it again, at the same place in the list.
+   */
+  private static void watchGallery(Activity activity, int token) {
+    galleryChanges = PromptVault.changes;
+    final View at = host;
+    if (at == null) return;
+    at.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        if (token != refsToken || host != at || !(refsOpen || resultsOpen) || previewBack != 0) return;
+        if (PromptVault.changes != galleryChanges && at.isShown()) {
+          View scroll = host.getChildCount() > 0 ? host.getChildAt(0) : null;
+          keepScroll = scroll == null ? -1 : scroll.getScrollY();
+          rebuild(activity);
+          return;
+        }
+        at.postDelayed(this, 1500);
+      }
+    }, 1500);
   }
 
   private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
@@ -811,7 +906,13 @@ public final class PromptSheet {
       if (result != null) result.setText("No file selected");
     }
     resultTextBtn.setText(resultText.length() > 0 ? "Result text · saved" : "Result text");
-    TextView save = button(activity, "Save as new version", "#ECEBE6", "#0A0B0C");
+    // Save: the version shown, in place; Save as new version: the next version.
+    TextView keep = button(activity, "Save", "#ECEBE6", "#0A0B0C");
+    keep.setTag("prompt-save-here");
+    keep.setOnClickListener(v -> saveInPlace(activity));
+    col.addView(keep, buttonLp(activity));
+    TextView save = button(activity, "Save as new version", "#1B1D1F", "#ECEBE6");
+    save.setTag("prompt-save");
     save.setOnClickListener(v -> save(activity));
     col.addView(save, buttonLp(activity));
     TextView export = button(activity, "Export .prompt", "#1B1D1F", "#ECEBE6");
@@ -837,6 +938,19 @@ public final class PromptSheet {
       long id = row.id;
       info.setOnClickListener(v -> loadVersion(activity, id));
       line.addView(info);
+      // ★ Favourite: the version is one of the favourite prompts (Browse prompts, the list above the categories).
+      VersionFavourites.load(activity.getFilesDir());
+      boolean fav = VersionFavourites.is(id);
+      TextView star = button(activity, fav ? "\u2605 Favourite" : "\u2606 Add to favourites", "#1B1D1F", fav ? "#E8C35A" : "#ECEBE6");
+      star.setTag("version-favourite:" + (rows.size() - i));
+      star.setOnClickListener(v -> {
+        boolean now = VersionFavourites.toggle(id);
+        toast(activity, now ? "Added to favourites" : "Removed from favourites");
+        rebuild(activity);
+      });
+      LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(activity, 36));
+      sp.topMargin = dp(activity, 8);
+      line.addView(star, sp);
       if (!row.finalVersion) {
         TextView mark = button(activity, "Mark final", "#ECEBE6", "#0A0B0C");
         mark.setOnClickListener(v -> {
@@ -1388,7 +1502,8 @@ public final class PromptSheet {
       runs.add(() -> stripHeaders(activity, versionId, which, name));
     }
     // A picture: Upscale/Resize image (ImageUpscaler on PyJav, with it as the input; Return comes back here).
-    boolean picture = previewKindByName(name) == 2 && activity instanceof MainActivity;
+    // (Known by its name or, without a picture's extension, by its bytes.)
+    boolean picture = activity instanceof MainActivity && previewKind(name, vault.fileBytes(versionId, which)) == 2;
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
@@ -1709,6 +1824,7 @@ public final class PromptSheet {
     previewBody = null;
     previewImage = null;
     previewBox = null;
+    previewPan = null;
     if (kind == 1) {
       TextView body = label(activity, previewText(previewBytes), 14, "#ECEBE6", false);
       body.setTextSize(14f * previewZoom);
@@ -1733,8 +1849,23 @@ public final class PromptSheet {
         box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
         box.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -1));
         previewBox = box;
+        android.widget.HorizontalScrollView pan = scroller(activity, box);
+        previewPan = pan;
+        final int panX = keepPanX;
+        keepPanX = -1;
+        if (panX >= 0) pan.post(() -> pan.scrollTo(panX, 0));
         attachPinch(activity, box);
-        col.addView(scroller(activity, box));
+        if (previewBack == 3) {
+          // From the Ref files / Result files gallery: small arrows at the picture's left and right
+          // edges show the previous and next picture (they stay put while it is zoomed or panned).
+          android.widget.FrameLayout over = new android.widget.FrameLayout(activity);
+          over.addView(pan, new android.widget.FrameLayout.LayoutParams(-1, -2));
+          over.addView(arrow(activity, "\u25c0", "preview-prev", -1), arrowLp(activity, Gravity.START | Gravity.CENTER_VERTICAL));
+          over.addView(arrow(activity, "\u25b6", "preview-next", 1), arrowLp(activity, Gravity.END | Gravity.CENTER_VERTICAL));
+          col.addView(over, new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT));
+        } else {
+          col.addView(pan);
+        }
       }
     } else if (kind == 3) {
       showVideo(activity, col);
@@ -1803,6 +1934,55 @@ public final class PromptSheet {
     return pan;
   }
 
+  /** A small round arrow over the picture: the previous (-1) or next (1) picture of the gallery. */
+  private static TextView arrow(Activity activity, String text, String tag, int step) {
+    TextView b = new TextView(activity);
+    b.setText(text);
+    b.setTag(tag);
+    b.setTextSize(13);
+    b.setTextColor(Color.parseColor("#ECEBE6"));
+    b.setGravity(Gravity.CENTER);
+    android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+    bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+    bg.setColor(Color.parseColor("#990A0B0C"));
+    b.setBackground(bg);
+    b.setOnClickListener(v -> stepPicture(activity, step));
+    return b;
+  }
+
+  private static android.widget.FrameLayout.LayoutParams arrowLp(Activity activity, int gravity) {
+    android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(dp(activity, 32), dp(activity, 32), gravity);
+    lp.leftMargin = dp(activity, 6);
+    lp.rightMargin = dp(activity, 6);
+    return lp;
+  }
+
+  /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
+  static void stepPicture(Activity activity, int step) {
+    if (vault == null) return;
+    boolean results = resultsOpen && !refsOpen;
+    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
+    int at = -1;
+    for (int i = 0; i < files.size(); i++) {
+      if (files.get(i).versionId == focusId && files.get(i).which == focusWhich) at = i;
+    }
+    if (at < 0) return;
+    for (int i = at + step; i >= 0 && i < files.size(); i += step) {
+      PromptVault.StoredFile f = files.get(i);
+      byte[] bytes = vault.fileBytes(f.versionId, f.which);
+      if (previewKind(f.name, bytes) != 2) continue;
+      focusId = f.versionId;
+      focusWhich = f.which;
+      // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
+      View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
+      keepScroll = scroll == null ? -1 : scroll.getScrollY();
+      keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
+      openPreview(activity, f.name, bytes, 3);
+      return;
+    }
+    toast(activity, step > 0 ? "The last picture" : "The first picture");
+  }
+
   private static void attachPinch(Activity activity, View target) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
@@ -1810,14 +1990,15 @@ public final class PromptSheet {
         return true;
       }
     });
-    target.setOnTouchListener((v, event) -> {
+    View.OnTouchListener touch = (v, event) -> {
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
       }
       pinch.onTouchEvent(event);
       return event.getPointerCount() > 1;
-    });
+    };
+    target.setOnTouchListener(touch);
   }
 
   private static void showVideo(Activity activity, LinearLayout col) {

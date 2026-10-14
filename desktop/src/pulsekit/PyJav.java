@@ -70,6 +70,8 @@ final class PyJav {
 
     JPanel pyPromptModes;
 
+    JLabel pyEditorCaption;
+
     String promptDescription = "";
 
     String promptCategory = "";
@@ -93,7 +95,7 @@ final class PyJav {
         north.setLayout(new BoxLayout(north, 1));
         north.add(jLabel);
         north.add(Box.createVerticalStrut(8));
-        // Recent: each program once; a click runs it, a right click lists its runs.
+        // Recent: each program once; a click loads it, a right click lists its runs (Run starts it).
         this.pyRecent = new JButton("Select program \u25be");
         this.pyRecent.setName("pyjav-recent");
         this.pyRecent.setBackground(ELEV);
@@ -142,10 +144,24 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
-        JLabel extraLab = new JLabel("Extra args");
+        // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
+        final JButton extraLab = new JButton("Arguments \u25b8");
+        extraLab.setName("pyjav-args-head");
         extraLab.setForeground(MUTED);
+        extraLab.setContentAreaFilled(false);
+        extraLab.setBorderPainted(false);
+        extraLab.setFocusPainted(false);
+        extraLab.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        extraLab.addActionListener(e -> {
+            boolean open = !this.pyExtra.isVisible();
+            this.pyExtra.setVisible(open);
+            extraLab.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
+            controls.revalidate();
+            controls.repaint();
+        });
         controls.add(extraLab);
         this.pyExtra = new JTextField(22);
+        this.pyExtra.setVisible(false);
         this.pyExtra.setBackground(ELEV);
         this.pyExtra.setForeground(FG);
         this.pyExtra.setCaretColor(FG);
@@ -176,9 +192,28 @@ final class PyJav {
         JScrollPane logScroll = new JScrollPane(app.pyLog);
         logScroll.setBorder(BorderFactory.createLineBorder(BORDER));
         logScroll.setPreferredSize(new Dimension(100, 120));
+        // The editor and the output each under a headline (Code or Prompt, Output), with room between.
+        this.pyEditorCaption = new JLabel("Code");
+        this.pyEditorCaption.setForeground(FG);
+        this.pyEditorCaption.setFont(this.pyEditorCaption.getFont().deriveFont(Font.BOLD));
+        this.pyEditorCaption.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 0));
+        this.pyEditorCaption.setName("pyjav-editor-caption");
+        JPanel editorBox = new JPanel(new BorderLayout());
+        editorBox.setOpaque(false);
+        editorBox.add((Component)this.pyEditorCaption, "North");
+        editorBox.add((Component)scroll, "Center");
+        JLabel outputHead = new JLabel("Output");
+        outputHead.setForeground(FG);
+        outputHead.setFont(outputHead.getFont().deriveFont(Font.BOLD));
+        outputHead.setBorder(BorderFactory.createEmptyBorder(14, 2, 4, 0));
+        outputHead.setName("pyjav-output-head");
+        JPanel outputBox = new JPanel(new BorderLayout());
+        outputBox.setOpaque(false);
+        outputBox.add((Component)outputHead, "North");
+        outputBox.add((Component)logScroll, "Center");
         jPanel.add((Component)north, "North");
-        jPanel.add((Component)scroll, "Center");
-        jPanel.add((Component)logScroll, "South");
+        jPanel.add((Component)editorBox, "Center");
+        jPanel.add((Component)outputBox, "South");
         return jPanel;
     }
 
@@ -221,6 +256,7 @@ final class PyJav {
     void showPromptModes() {
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
         if (this.pyPromptModes != null) this.pyPromptModes.setVisible(prompt);
+        if (this.pyEditorCaption != null) this.pyEditorCaption.setText(prompt ? "Prompt" : "Code");
     }
 
     void selectPromptRun(String mode) {
@@ -446,6 +482,8 @@ final class PyJav {
         final String head = note == null ? "" : note + "\n";
         final javax.swing.Timer tick = new javax.swing.Timer(1000, null);
         final String[] lastLine = new String[] {app.pyLog == null ? null : app.pyLog.getText()};
+        app.setNow(name + ": Running\u2026");
+        final String[] lastTop = new String[] {name + ": Running\u2026"};
         tick.addActionListener(ev -> {
             // DrumMidi without a hit for a while: asked whether to abort.
             String noHits = JavaRun.noHitsQuestion(name, live, System.currentTimeMillis());
@@ -461,6 +499,11 @@ final class PyJav {
                 }
                 live.askedAt = System.currentTimeMillis();
                 tick.start();
+            }
+            // The top line shows the same time and news (while nothing else was put there).
+            if (lastTop[0] != null && lastTop[0].equals(app.nowPlaying.getText())) {
+                lastTop[0] = JavaRun.runningTop(name, live, System.currentTimeMillis());
+                app.setNow(lastTop[0]);
             }
             if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
             String line = head + JavaRun.runningLine(live, System.currentTimeMillis());
@@ -612,6 +655,8 @@ final class PyJav {
                     if (t.startsWith("Succeeded") || t.startsWith("Failed")) verdict = t;
                 }
                 if (download != 0) SogniDownloads.result(download, verdict, status.toString(), null);
+                // The top line's "Running…" ends with the run: its verdict, as the log under Run ends.
+                if (lastTop[0] != null && lastTop[0].equals(app.nowPlaying.getText())) app.setNow(verdict.length() > 0 ? name + ": " + verdict : name + ": done");
                 this.lastSheetVersion = 0;
                 String kept = this.keepInLibrary(name, result, argv);
                 if (kept.length() > 0 && app.pyLog != null) {
@@ -1211,7 +1256,7 @@ final class PyJav {
             final javax.swing.JMenuItem item = new javax.swing.JMenuItem(name);
             item.setName("pyjav-recent:" + name);
             item.setToolTipText("A right click lists its recent parameters");
-            item.addActionListener(e -> this.runRecent(PyJavRecent.tapped(this.pyRecentItems, name)));
+            item.addActionListener(e -> this.loadRecent(PyJavRecent.tapped(this.pyRecentItems, name)));
             item.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
@@ -1225,7 +1270,7 @@ final class PyJav {
         return menu;
     }
 
-    /** A program's runs (the last first); a click runs it with those parameters. */
+    /** A program's runs (the last first); a click loads it with those parameters. */
     javax.swing.JPopupMenu runsMenu(String name) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("pyjav-recent-runs");
@@ -1234,17 +1279,17 @@ final class PyJav {
             final PyJavRecent.Item run = runs.get(i);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));
             item.setName("pyjav-recent-run:" + i);
-            item.addActionListener(e -> this.runRecent(run));
+            item.addActionListener(e -> this.loadRecent(run));
             menu.add(item);
         }
         return menu;
     }
 
     /** Recent: the run picked is loaded and run. */
-    void runRecent(PyJavRecent.Item item) {
+    /** Select program: the program and its parameters are loaded; Run starts it. */
+    void loadRecent(PyJavRecent.Item item) {
         if (item == null) return;
         this.applyPyRecent(item);
-        this.runPython();
     }
 
     void applyPyRecent(PyJavRecent.Item item) {
@@ -1265,7 +1310,9 @@ final class PyJav {
 
     void showPyHint(String status) {
         this.pyHintPlain = status == null ? "" : status;
-        if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile()) {
+        // The audio input carries over to a program that takes a sound (not to SogniPedit, which
+        // would name its picture after it).
+        if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
             app.pyInputPath = this.audioInputPath;
         }
         // The hint shows above; the output box is only for what a run writes.
@@ -1582,6 +1629,15 @@ final class PyJav {
                     });
                     row.add(fromSet, BorderLayout.EAST);
                 }
+                if (ProgramParams.previewsPicture(p)) {
+                    // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
+                    final JButton preview = new JButton("Preview");
+                    preview.setName("params-preview:" + p.token);
+                    preview.setEnabled(ProgramParams.isPicture(values[i]));
+                    chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
+                    preview.addActionListener(e -> this.previewPicture(values[index]));
+                    row.add(preview, BorderLayout.EAST);
+                }
                 if (p.join) {
                     // SogniVideo's Join with this video: the file buttons work only when it is ticked;
                     // unticked leaves the video out. PyJav unticks it after every run.
@@ -1755,6 +1811,38 @@ final class PyJav {
     }
 
     /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */
+    /** The Preview shown last, for the tests. */
+    javax.swing.JDialog lastParamsPreview;
+
+    /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
+    void previewPicture(String path) {
+        java.awt.image.BufferedImage image = null;
+        try {
+            image = javax.imageio.ImageIO.read(new File(path));
+        } catch (Exception ignored) {
+        }
+        JOptionPane pane;
+        if (image == null) {
+            pane = new JOptionPane("The picture could not be read (Java shows PNG, JPEG, GIF and BMP).", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            int max = 320;
+            double scale = Math.min(1.0, Math.min(max / (double) image.getWidth(), max / (double) image.getHeight()));
+            int w = Math.max(1, (int) Math.round(image.getWidth() * scale));
+            int h = Math.max(1, (int) Math.round(image.getHeight() * scale));
+            JLabel thumb = new JLabel(new javax.swing.ImageIcon(image.getScaledInstance(w, h, java.awt.Image.SCALE_SMOOTH)));
+            thumb.setName("params-preview-image");
+            JLabel size = new JLabel(image.getWidth() + " \u00d7 " + image.getHeight());
+            JPanel box = new JPanel(new BorderLayout(0, 6));
+            box.add(thumb, BorderLayout.CENTER);
+            box.add(size, BorderLayout.SOUTH);
+            pane = new JOptionPane(box, JOptionPane.PLAIN_MESSAGE);
+        }
+        javax.swing.JDialog dialog = pane.createDialog(app, new File(path).getName());
+        dialog.setModal(false);
+        this.lastParamsPreview = dialog;
+        dialog.setVisible(true);
+    }
+
     /** Clear: a file picked by mistake leaves the row (a second reference image, say). */
     private JButton clearButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {
         JButton clear = new JButton("Clear");

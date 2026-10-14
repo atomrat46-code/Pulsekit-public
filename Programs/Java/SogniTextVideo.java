@@ -216,7 +216,8 @@ public final class SogniTextVideo {
     String model = SogniApi.videoModel(0, resolution);
     String sizeText = (resolution == 1440 ? "2K" : resolution + "p") + (resolution == 768 ? "" : " (two-stage)");
     if (savePrompt && workflowId == null) {
-      String sheetName = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
+      // The prompt's title is the output's file name, not its folder.
+      String sheetName = out != null ? new File(out.trim()).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
       StringBuilder settings = new StringBuilder();
       settings.append("Duration: ").append(SogniApi.number(duration)).append(" s. Resolution: ").append(sizeText).append(". ");
       if (aspect != null) settings.append("Shape: ").append(aspect).append(". ");
