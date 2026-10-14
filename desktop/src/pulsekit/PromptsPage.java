@@ -199,6 +199,10 @@ final class PromptsPage {
         JButton results = app.action("Result files", ELEV, FG);
         results.setName("prompts-result-files");
         results.addActionListener(e -> app.promptDb.gallery(true));
+        // Prompt files: the sheets runs saved with --saveprompt, kept in the library instead of on disk.
+        JButton promptFiles = app.action("Prompt files", ELEV, FG);
+        promptFiles.setName("prompts-prompt-files");
+        promptFiles.addActionListener(e -> app.promptDb.gallery(2));
         // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files.
         JButton imp = app.action("Import", ELEV, FG);
         imp.setName("prompts-import");
@@ -206,6 +210,8 @@ final class PromptsPage {
         library.add(refs);
         library.add(Box.createHorizontalStrut(8));
         library.add(results);
+        library.add(Box.createHorizontalStrut(8));
+        library.add(promptFiles);
         library.add(Box.createHorizontalStrut(8));
         library.add(imp);
         this.col.add(Box.createVerticalStrut(12));

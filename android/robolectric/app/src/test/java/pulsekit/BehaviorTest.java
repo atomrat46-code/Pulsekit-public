@@ -5424,6 +5424,65 @@ public class BehaviorTest {
     write("s113_save_in_place_favourite_menu", out.toString());
   }
 
+  /**
+   * --saveprompt: the run's sheet is kept in the library under Prompt files, not saved in Download.
+   * Prompts page: Prompt files lists it and opens its text. Media browser: under T with a star
+   * (not under A), its text on a tap.
+   */
+  @Test
+  public void s114_prompt_files_in_db() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String sheet = "PKPROMPT1\nsogni-pedit-smile\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, smiling\n\nResult file: sogni-pedit-smile.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-smile.png", files, 0);
+    PromptSave.load(app.getFilesDir());
+    java.util.List<PromptSave.Pending> pending = PromptSave.sheets(r);
+    String line = app.pyJav.pkWriteSheet(PromptSave.storeAsIs(app.getFilesDir(), pending.get(0), r, new java.util.ArrayList<String>()), null);
+    for (String l : line.split("\n")) out.append("log: ").append(l.replace(PromptSave.today(), "<today>")).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    out.append("prompt files: ").append(vault.promptFiles().size()).append(", in Ref files ").append(vault.referenceFiles().size()).append('\n');
+    if (vault.promptFiles().size() != 1 || line.contains("saved ")) throw new AssertionError(out.toString());
+    // Prompts page: Prompt files.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    out.append("gallery: ").append(findText(pane, "PROMPT FILES") != null).append(", card ").append(findText(pane, "sogni-pedit-smile.prompt") != null).append('\n');
+    View card = findText(pane, "sogni-pedit-smile.prompt");
+    ((View) card.getParent()).performClick();
+    idle();
+    out.append("preview shows the prompt: ").append(texts(pane).contains("Same person, smiling")).append('\n');
+    if (!texts(pane).contains("Same person, smiling")) throw new AssertionError(out.toString());
+    // Media browser: T lists it with a star, A does not.
+    File media = new File(app.getCacheDir(), "media-prompts");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    out.append("A: card ").append(bv.findViewWithTag("media-card:sogni-pedit-smile.prompt") != null).append(", T ").append(bv.findViewWithTag("media-filter:T").getContentDescription()).append('\n');
+    bv.findViewWithTag("media-filter:T").performClick();
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    View starred = bv.findViewWithTag("media-card:sogni-pedit-smile.prompt");
+    out.append("T: card ").append(starred != null).append(", shows ").append(findText(bv, "\u2605 sogni-pedit-smile.prompt") != null).append('\n');
+    starred.performClick();
+    idle();
+    TextView text = (TextView) MediaBrowser.lastPromptFile.getWindow().getDecorView().findViewWithTag("media-prompt-text");
+    out.append("opened: ").append(MediaBrowser.lastPromptFile.isShowing()).append(", shows the prompt ").append(text.getText().toString().contains("Same person, smiling")).append('\n');
+    MediaDir.filter = "A";
+    if (out.indexOf("A: card false") < 0 || out.indexOf("shows true") < 0 || out.indexOf("shows the prompt true") < 0) throw new AssertionError(out.toString());
+    write("s114_prompt_files_in_db", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {

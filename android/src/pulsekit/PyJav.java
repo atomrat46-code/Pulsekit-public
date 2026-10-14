@@ -1454,11 +1454,13 @@ final class PyJav {
         pkTestReport = new android.app.AlertDialog.Builder(app).setTitle(t.expect != null ? "SogniMusic test" : "Midi2Wav test").setView(scroll).setPositiveButton("Close", null).show();
     }
 
-    /** Writes a saved sheet to disk (Download, or the program files folder); its log lines. */
+    /** A saved sheet: kept in the DB's Prompt files, or written to disk (Download) when that failed; its log lines. */
     String pkWriteSheet(PromptSave.Saved saved, String pending) {
-        if (saved.bytes == null) return saved.note;
-        String at = ArtJava.publish(app, saved.fileName, saved.bytes);
-        String lines = saved.note + (at == null ? "\nCould not save " + saved.fileName : "\nsaved " + at);
+        String lines = saved.note;
+        if (saved.bytes != null) {
+            String at = ArtJava.publish(app, saved.fileName, saved.bytes);
+            lines = lines + (at == null ? "\nCould not save " + saved.fileName : "\nsaved " + at);
+        }
         // File > Downloads: the run's sheet and its prompt library version, for Delete.
         Long download = pending == null ? null : DOWNLOAD_OF.get(pending);
         if (download != null) {

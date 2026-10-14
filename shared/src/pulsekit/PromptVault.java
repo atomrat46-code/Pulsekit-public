@@ -232,7 +232,7 @@ public final class PromptVault {
    */
   public synchronized List<StoredFile> referenceFiles() {
     List<StoredFile> out = new ArrayList<StoredFile>();
-    for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which != 3) addLibrary(out, library.get(i));
+    for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == 1 || library.get(i).which == 2) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) {
       Version version = versions.get(i);
       addStored(out, version, 1);
@@ -297,6 +297,46 @@ public final class PromptVault {
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == 3) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) addStored(out, versions.get(i), 3);
     return out;
+  }
+
+  /** The kind of a prompt file kept in the library (a run's --saveprompt sheet): Prompt files on the Prompts page. */
+  public static final int PROMPT_FILE = 4;
+
+  /** The prompt files (the sheets runs saved with --saveprompt), newest first; `promptTitle` is the prompt and its version ("Smile v2"). */
+  public synchronized List<StoredFile> promptFiles() {
+    List<StoredFile> out = new ArrayList<StoredFile>();
+    for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == PROMPT_FILE) addLibrary(out, library.get(i));
+    return out;
+  }
+
+  /**
+   * A prompt sheet kept in the library instead of on disk, under Prompt files. `note` is its
+   * prompt and version ("Smile v2"); a sheet of the same name and note is replaced.
+   */
+  public synchronized long addPromptFile(String name, byte[] bytes, String note) throws Exception {
+    if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That prompt file is empty");
+    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
+    String clean = fileTitle(name);
+    if (clean.length() == 0) clean = "prompt.prompt";
+    String label = note == null ? "" : note.replace('\n', ' ').replace('\r', ' ').trim();
+    for (int i = 0; i < library.size(); i++) {
+      LibraryFile have = library.get(i);
+      if (have.which == PROMPT_FILE && clean.equalsIgnoreCase(have.name) && label.equals(have.note)) {
+        have.bytes = copy(bytes);
+        have.blob = null;
+        save();
+        return have.id;
+      }
+    }
+    LibraryFile file = new LibraryFile();
+    file.id = nextId++;
+    file.name = clean;
+    file.bytes = copy(bytes);
+    file.note = label;
+    file.which = PROMPT_FILE;
+    library.add(file);
+    save();
+    return file.id;
   }
 
   public synchronized byte[] fileBytes(long versionId, int which) {
@@ -415,7 +455,7 @@ public final class PromptVault {
     String title = image.note == null || image.note.length() == 0 ? "Frame" : image.note;
     StoredFile row = new StoredFile();
     row.versionId = image.id;
-    row.which = image.which == 2 || image.which == 3 ? image.which : 1;
+    row.which = image.which == 2 || image.which == 3 || image.which == PROMPT_FILE ? image.which : 1;
     row.name = name;
     row.promptTitle = title;
     row.size = image.size();

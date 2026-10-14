@@ -482,6 +482,10 @@ final class MediaBrowser {
 
     /** The file copied into PyJav's input folder off the main thread; then the browser closes and `picked` gets it. */
     void chosen(final MediaDir.Entry e, final RefBrowser.Picked picked) {
+        if (e.dbId != 0) {
+            this.chosenPromptFile(e, picked);
+            return;
+        }
         this.app.setNow("Reading " + e.name + "\u2026");
         new Thread(() -> {
             File out = null;
@@ -854,6 +858,14 @@ final class MediaBrowser {
             } catch (Throwable ex) {
                 read = null;
             }
+            // The library's prompt files (Prompt files), under T with a star.
+            if (read != null) {
+                try {
+                    read = MediaDir.withPromptFiles(read, PromptVault.open(this.app.getFilesDir()));
+                } catch (Throwable ex) {
+                    // No library: the folder only.
+                }
+            }
             final List<MediaDir.Entry> got = read;
             this.main.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
@@ -877,8 +889,7 @@ final class MediaBrowser {
         LinearLayout row = this.app.row();
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
-            int n = f.equals("A") ? this.allEntries.size() : 0;
-            if (!f.equals("A")) for (MediaDir.Entry e : this.allEntries) if (!e.folder && f.equals(MediaDir.filterOf(e.name))) n++;
+            int n = MediaDir.count(this.allEntries, f);
             TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
                 MediaDir.filter = f;
                 this.entries = MediaDir.filtered(this.allEntries, f);
@@ -1083,7 +1094,7 @@ final class MediaBrowser {
             box.setBackgroundColor(UiKit.ELEV);
             ImageView image = new ImageView(this.app);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            TextView mark = this.app.text(e.folder ? "FOLDER" : ext(e.name), 13, true);
+            TextView mark = this.app.text(e.folder ? "FOLDER" : (e.dbId != 0 ? MediaDir.STAR : "") + ext(e.name), 13, true);
             mark.setTextColor(UiKit.MUTED);
             mark.setGravity(Gravity.CENTER);
             box.addView(mark, new FrameLayout.LayoutParams(-1, -1));
@@ -1096,7 +1107,7 @@ final class MediaBrowser {
             }
             if (!e.folder && listed.contains(e.id)) this.badge(box, e);
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
-            TextView name = this.app.text(e.name, 11, false);
+            TextView name = this.app.text(MediaDir.shownName(e), 11, false);
             name.setMaxLines(3);
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             name.setPadding(0, this.app.dp(3), 0, 0);
@@ -1107,7 +1118,7 @@ final class MediaBrowser {
                 else this.openEntry(e);
             });
             // A long press on a file: Add to DB (reference or result file), Add to default playlist.
-            if (!e.folder) {
+            if (!e.folder && e.dbId == 0) {
                 card.setOnLongClickListener(v -> {
                     this.menu(e);
                     return true;
@@ -1415,9 +1426,49 @@ final class MediaBrowser {
 
     /** As above; a picture's Previous / Next go through the pictures in `among` (the folder, or the playlist). */
     void openEntry(MediaDir.Entry e, List<MediaDir.Entry> among) {
-        if (e.kind == MediaDir.PICTURE) this.picture(e, among);
+        if (e.dbId != 0) this.promptFile(e);
+        else if (e.kind == MediaDir.PICTURE) this.picture(e, among);
         else if (e.kind == MediaDir.VIDEO) this.video(e);
         else if (e.kind == MediaDir.SOUND) this.sound(e);
+    }
+
+    /** The text of a library prompt file (a tap on a ★ card). */
+    static AlertDialog lastPromptFile;
+
+    void promptFile(MediaDir.Entry e) {
+        String text;
+        try {
+            text = new String(PromptVault.open(this.app.getFilesDir()).fileBytes(e.dbId, PromptVault.PROMPT_FILE), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            this.app.setNow("Could not read " + e.name);
+            return;
+        }
+        lastOpened = "prompt " + e.name;
+        TextView body = this.app.text(text, 13, false);
+        body.setTag("media-prompt-text");
+        body.setTextIsSelectable(true);
+        body.setPadding(this.app.dp(16), this.app.dp(8), this.app.dp(16), this.app.dp(8));
+        ScrollView scroll = new ScrollView(this.app);
+        scroll.addView(body);
+        lastPromptFile = new AlertDialog.Builder(this.app).setTitle(MediaDir.shownName(e)).setView(scroll).setPositiveButton("Close", null).show();
+    }
+
+    /** Choose file on a library prompt file: written into PyJav's input folder, then handed on. */
+    void chosenPromptFile(final MediaDir.Entry e, final RefBrowser.Picked picked) {
+        File got;
+        try {
+            byte[] bytes = PromptVault.open(this.app.getFilesDir()).fileBytes(e.dbId, PromptVault.PROMPT_FILE);
+            File dir = new File(this.app.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            got = new File(dir, e.name.replace('/', '_'));
+            java.nio.file.Files.write(got.toPath(), bytes);
+        } catch (Exception ex) {
+            this.app.setNow("Could not read " + e.name);
+            return;
+        }
+        if (this.dialog != null) this.dialog.dismiss();
+        this.app.setNow("Chose " + e.name);
+        picked.picked(e.name, got);
     }
 
     private Dialog fullScreen() {

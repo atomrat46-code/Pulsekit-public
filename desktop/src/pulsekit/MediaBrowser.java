@@ -183,7 +183,14 @@ final class MediaBrowser {
         if (this.chooser == null || "recent".equals(this.tab)) MediaDir.remember(root.getPath(), under);
         saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
-        final List<MediaDir.Entry> allEntries = list(dir, this.chooser != null);
+        List<MediaDir.Entry> read = list(dir, this.chooser != null);
+        // The library's prompt files (Prompt files), under T with a star.
+        try {
+            read = MediaDir.withPromptFiles(read, PromptDb.vault());
+        } catch (Exception ex) {
+            // No library: the folder only.
+        }
+        final List<MediaDir.Entry> allEntries = read;
         // The type selector (A I V S T O): what of the folder is shown.
         final List<MediaDir.Entry> entries = MediaDir.filtered(allEntries, MediaDir.filter);
         this.listed.clear();
@@ -240,8 +247,7 @@ final class MediaBrowser {
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
-            int n = 0;
-            for (MediaDir.Entry e : allEntries) if (!e.folder && (f.equals("A") || f.equals(MediaDir.filterOf(e.name)))) n++;
+            int n = MediaDir.count(allEntries, f);
             javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
             b.setName("media-filter:" + f);
             b.setToolTipText(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
@@ -280,12 +286,23 @@ final class MediaBrowser {
                     this.fill(dialog, root, f);
                 });
             } else {
-                card.setToolTipText(entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
+                card.setToolTipText(entry.dbId != 0 ? "Shows its text (kept in the DB)" : entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
                 // A right click, or holding the button down, opens its menu (a long press, as on the phone).
                 final boolean[] held = new boolean[1];
                 card.addActionListener(e -> {
                     if (held[0]) held[0] = false;
-                    else if (this.chooser != null) {
+                    else if (entry.dbId != 0) {
+                        // A library prompt file: Choose file gets a copy; else its text shows.
+                        File copy = this.promptFile(entry);
+                        if (copy == null) return;
+                        if (this.chooser != null) {
+                            java.util.function.Consumer<File> picked = this.chooser;
+                            dialog.dispose();
+                            picked.accept(copy);
+                        } else {
+                            this.openPromptFile(entry);
+                        }
+                    } else if (this.chooser != null) {
                         // Choose file: this file fills the row.
                         java.util.function.Consumer<File> picked = this.chooser;
                         dialog.dispose();
@@ -297,6 +314,7 @@ final class MediaBrowser {
 
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (entry.dbId != 0) return;
                         if (e.isPopupTrigger()) {
                             MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
                             return;
@@ -315,7 +333,7 @@ final class MediaBrowser {
                     @Override
                     public void mouseReleased(java.awt.event.MouseEvent e) {
                         if (this.hold != null) this.hold.stop();
-                        if (e.isPopupTrigger()) MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
+                        if (entry.dbId == 0 && e.isPopupTrigger()) MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
                     }
 
                     @Override
@@ -730,6 +748,31 @@ final class MediaBrowser {
         }
     }
 
+    /** A library prompt file copied into the temp folder (for Choose file), or null when it cannot be read. */
+    File promptFile(MediaDir.Entry entry) {
+        try {
+            byte[] bytes = PromptDb.vault().fileBytes(entry.dbId, PromptVault.PROMPT_FILE);
+            File dir = new File(new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-library"), "prompt-" + entry.dbId);
+            dir.mkdirs();
+            File out = new File(dir, entry.name.replace('/', '_').replace('\\', '_'));
+            Files.write(out.toPath(), bytes);
+            out.deleteOnExit();
+            return out;
+        } catch (Exception ex) {
+            app.setNow("Could not read " + entry.name);
+            return null;
+        }
+    }
+
+    /** A library prompt file's text, in Preview. */
+    void openPromptFile(MediaDir.Entry entry) {
+        try {
+            app.promptDb.preview(entry.name, PromptDb.vault().fileBytes(entry.dbId, PromptVault.PROMPT_FILE));
+        } catch (Exception ex) {
+            app.setNow("Could not open " + entry.name);
+        }
+    }
+
     /** A card's click: a picture full size, a video or a sound played. */
     void openEntry(MediaDir.Entry entry, File f) {
         try {
@@ -783,6 +826,7 @@ final class MediaBrowser {
     /** A folder's or a file's type mark (FOLDER, MP4, WAV), where there is no thumbnail. */
     static String mark(MediaDir.Entry e) {
         if (e.folder) return "FOLDER";
+        if (e.dbId != 0) return MediaDir.STAR + "PROMPT";
         int dot = e.name.lastIndexOf('.');
         return dot >= 0 ? e.name.substring(dot + 1).toUpperCase() : "FILE";
     }
@@ -793,13 +837,13 @@ final class MediaBrowser {
     private String caption(MediaDir.Entry e, String mark) {
         String badge = !e.folder && this.listed.contains(e.id)
             ? "<span style='background:#D9A441;color:#0A0B0C'>&nbsp;\u2630&nbsp;</span> " : "";
-        String sub = e.folder ? "folder" : e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video · ▶" : "sound · ▶";
+        String sub = e.folder ? "folder" : e.dbId != 0 ? "prompt file · DB" : e.kind == MediaDir.PICTURE ? "picture" : e.kind == MediaDir.VIDEO ? "video · ▶" : e.kind == MediaDir.SOUND ? "sound · ▶" : "file";
         if (!e.folder) sub += " · " + Math.max(1, e.size / 1024) + " KB";
         // Its resolution and aspect ratio, once read: "1920×1080 · 16:9".
         String size = e.folder ? null : this.sizes.get(e.id);
         if (size != null && size.length() > 0) sub += "<br>" + size;
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
-            + "<div style='width:" + CELL + "px'>" + badge + esc(e.name) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
+            + "<div style='width:" + CELL + "px'>" + badge + esc(MediaDir.shownName(e)) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
 
     private static String esc(String s) {

@@ -4680,6 +4680,75 @@ public final class DesktopBehavior {
   }
 
   /**
+   * --saveprompt: the run's sheet is kept in the library under Prompt files, not written to disk.
+   * Prompts page: Prompt files lists it and its text shows. Media browser: under T with a star
+   * (not under A), its text on a click, and Choose file gets a copy.
+   */
+  void s100_prompt_files_in_db() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String sheet = "PKPROMPT1\nsogni-pedit-smile\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, smiling\n\nResult file: sogni-pedit-smile.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-smile.png", files, 0);
+    String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+    for (String line : kept.split("\n")) out.append("log: ").append(line.replace(PromptSave.today(), "<today>").replace(home.getAbsolutePath(), "~")).append('\n');
+    PromptVault vault = PromptDb.vault();
+    java.util.List<PromptVault.StoredFile> pf = vault.promptFiles();
+    out.append("prompt files: ").append(pf.size());
+    for (PromptVault.StoredFile f : pf) out.append(" [").append(f.name).append(" \u00b7 ").append(f.promptTitle).append(']');
+    out.append(", in Ref files ").append(vault.referenceFiles().size()).append(", in Result files ").append(vault.resultFiles().size()).append('\n');
+    boolean onDisk = false;
+    for (File d : new File[] {new File(home, "Downloads"), new File(home, ".pulsekit")}) {
+      File[] in = d.listFiles();
+      if (in != null) for (File f : in) if (f.getName().endsWith(".prompt")) onDisk = true;
+    }
+    out.append("sheet on disk: ").append(onDisk).append('\n');
+    if (pf.size() != 1 || onDisk || !kept.contains("Prompt files")) throw new AssertionError(out.toString());
+    // Prompts page: Prompt files.
+    call("showView", "prompts");
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      seen.append("gallery: ").append(d.getTitle()).append(", card ").append(component(d, "gallery:sogni-pedit-smile.prompt") != null).append('\n');
+      inspectNext = preview -> seen.append("preview: ").append(preview.getTitle()).append(", shows the prompt ")
+          .append(texts(preview.getContentPane()).toString().contains("Same person, smiling")).append('\n');
+      final AbstractButton card = (AbstractButton) component(d, "gallery:sogni-pedit-smile.prompt");
+      SwingUtilities.invokeLater(card::doClick);
+    };
+    SwingUtilities.invokeLater(() -> ((AbstractButton) component(frame, "prompts-prompt-files")).doClick());
+    for (int i = 0; i < 100 && seen.indexOf("preview") < 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("shows the prompt true") < 0) throw new AssertionError(out.toString());
+    // Media browser: T lists it with a star, A does not.
+    File media = new File(home, "media-prompts");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.saveLoop();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final StringBuilder browsed = new StringBuilder();
+    final File[] picked = new File[1];
+    MediaDir.filter = "A";
+    inspectNext = d -> {
+      AbstractButton t = (AbstractButton) component(d, "media-filter:T");
+      browsed.append("A: card ").append(component(d, "media-card:sogni-pedit-smile.prompt") != null).append(", T ").append(t.getToolTipText()).append('\n');
+      t.doClick();
+      AbstractButton card = (AbstractButton) component(d, "media-card:sogni-pedit-smile.prompt");
+      browsed.append("T: card ").append(card != null).append(", shows ").append(card == null ? "" : card.getText().contains("\u2605 sogni-pedit-smile.prompt")).append('\n');
+      SwingUtilities.invokeLater(card::doClick);
+    };
+    SwingUtilities.invokeLater(() -> mb.choose(f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(browsed);
+    out.append("chosen: ").append(picked[0] == null ? "none" : picked[0].getName() + ", " + new String(Files.readAllBytes(picked[0].toPath()), StandardCharsets.UTF_8).contains("Same person, smiling")).append('\n');
+    MediaDir.filter = "A";
+    if (picked[0] == null || browsed.indexOf("A: card false") < 0 || browsed.indexOf("shows true") < 0) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Result files gallery open while a file is added to the library: it opens again with it.
    * A picture's Preview from the gallery has Previous / Next, which pass a text file between pictures.
    */

@@ -11,8 +11,8 @@ import java.util.List;
  * stored nor written to disk again. Otherwise the app asks where it goes (main category and
  * subcategory, browsed or new, the ones used recently offered), its name (the one chosen last for
  * a sheet of that name offered) and description; it is
- * stored as the next version of the prompt of that name there, and the sheet written to disk gets
- * that version number and the date.
+ * stored as the next version of the prompt of that name there, and the sheet, with that version
+ * number and the date, is kept in the library under Prompt files (on disk only when that fails).
  */
 public final class PromptSave {
   private PromptSave() {}
@@ -33,7 +33,7 @@ public final class PromptSave {
     public PromptRun.Sheet sheet;
   }
 
-  /** What a save did: a line for the log, and the sheet to write to disk (null: none). */
+  /** What a save did: a line for the log, and the sheet to write to disk (null: none, it is in the DB's Prompt files). */
   public static final class Saved {
     public String note = "";
     public String fileName;
@@ -310,6 +310,14 @@ public final class PromptSave {
       }
       out.bytes = rewrite(new String(pending.file.bytes, StandardCharsets.UTF_8), name, c, version, date).getBytes(StandardCharsets.UTF_8);
       out.fileName = fileName(pending.file.name, sheet, name);
+      // The sheet is kept in the library (Prompt files), not written to disk; to disk only when that fails.
+      try {
+        vault.addPromptFile(out.fileName, out.bytes, name + " v" + version);
+        out.note = out.note + "\nPrompt file: " + out.fileName + " kept in the DB (Prompt files)";
+        out.bytes = null;
+      } catch (Exception ex) {
+        out.note = out.note + "\nPrompt file: not kept in the DB (" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + "), saved to disk";
+      }
     } catch (Exception ex) {
       out.note = "Prompt library: could not store " + pending.file.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
       out.fileName = pending.file.name;

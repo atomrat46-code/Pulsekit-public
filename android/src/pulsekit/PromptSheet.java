@@ -56,6 +56,8 @@ public final class PromptSheet {
   private static boolean refsOpen;
   /** The Result files gallery (the same view as Ref files, over the result files). */
   private static boolean resultsOpen;
+  /** The Prompt files gallery: the sheets runs saved with --saveprompt, kept in the library. */
+  private static boolean promptFilesOpen;
   private static boolean resultTextOpen;
   private static int refsToken;
   private static float previewZoom = 1f;
@@ -302,7 +304,7 @@ public final class PromptSheet {
       col.addView(label(activity, "The encrypted database could not be opened.", 14, "#ECEBE6", false));
     } else if (previewBack != 0) {
       buildPreview(activity, col);
-    } else if (refsOpen || resultsOpen) {
+    } else if (refsOpen || resultsOpen || promptFilesOpen) {
       buildRefGallery(activity, col);
     } else if (dbFor == 1 || dbFor == 2 || dbFor == 3) {
       buildDb(activity, col);
@@ -394,6 +396,13 @@ public final class PromptSheet {
       rebuild(activity);
     });
     col.addView(results, buttonLp(activity));
+    TextView promptFiles = button(activity, "Prompt files", "#1B1D1F", "#ECEBE6");
+    promptFiles.setTag("prompts-prompt-files");
+    promptFiles.setOnClickListener(v -> {
+      promptFilesOpen = true;
+      rebuild(activity);
+    });
+    col.addView(promptFiles, buttonLp(activity));
     // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files, picked together.
     TextView imp = button(activity, "Import", "#1B1D1F", "#ECEBE6");
     imp.setTag("prompts-import");
@@ -510,12 +519,12 @@ public final class PromptSheet {
     back.setOnClickListener(v -> {
       refsOpen = false;
       resultsOpen = false;
+      promptFilesOpen = false;
       rebuild(activity);
     });
     col.addView(back, buttonLp(activity));
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
-    boolean results = resultsOpen && !refsOpen;
-    col.addView(caption(activity, results ? "RESULT FILES" : "REFERENCE FILES"));
+    col.addView(caption(activity, promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES"));
     // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
     FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
     LinearLayout sortRow = new LinearLayout(activity);
@@ -547,7 +556,7 @@ public final class PromptSheet {
     LinearLayout.LayoutParams rowLpSort = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     rowLpSort.bottomMargin = dp(activity, 8);
     col.addView(sortRow, rowLpSort);
-    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
+    List<PromptVault.StoredFile> files = FileSort.sorted(galleryFiles(), FileSort.current);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;
@@ -643,6 +652,12 @@ public final class PromptSheet {
     watchGallery(activity, token);
   }
 
+  /** The files of the gallery open: Prompt files, Result files or Ref files. */
+  private static List<PromptVault.StoredFile> galleryFiles() {
+    if (promptFilesOpen) return vault.promptFiles();
+    return resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
+  }
+
   /** The library's change count (PromptVault.changes) the gallery shown was built at. */
   private static long galleryChanges;
   /** A scroll position to keep over the next rebuild (the gallery made again), or -1. */
@@ -662,7 +677,7 @@ public final class PromptSheet {
     at.postDelayed(new Runnable() {
       @Override
       public void run() {
-        if (token != refsToken || host != at || !(refsOpen || resultsOpen) || previewBack != 0) return;
+        if (token != refsToken || host != at || !(refsOpen || resultsOpen || promptFilesOpen) || previewBack != 0) return;
         if (PromptVault.changes != galleryChanges && at.isShown()) {
           View scroll = host.getChildCount() > 0 ? host.getChildAt(0) : null;
           keepScroll = scroll == null ? -1 : scroll.getScrollY();
@@ -1394,7 +1409,7 @@ public final class PromptSheet {
       toast(activity, "No file selected");
       return;
     }
-    String kind = which == 3 ? "result file" : "reference file";
+    String kind = which == PromptVault.PROMPT_FILE ? "prompt file" : which == 3 ? "result file" : "reference file";
     itemMenu(activity, name, () -> ask(activity, "Rename " + kind, "Name", name, next -> {
       try {
         String clean = loadedVersionId != 0 ? vault.renameFile(loadedVersionId, which, next) : PromptVault.fileTitle(next);
@@ -1960,8 +1975,7 @@ public final class PromptSheet {
   /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
   static void stepPicture(Activity activity, int step) {
     if (vault == null) return;
-    boolean results = resultsOpen && !refsOpen;
-    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
+    List<PromptVault.StoredFile> files = FileSort.sorted(galleryFiles(), FileSort.current);
     int at = -1;
     for (int i = 0; i < files.size(); i++) {
       if (files.get(i).versionId == focusId && files.get(i).which == focusWhich) at = i;
