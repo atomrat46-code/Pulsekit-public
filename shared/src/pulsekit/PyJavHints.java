@@ -294,6 +294,21 @@ public final class PyJavHints {
     return dir + "/" + file;
   }
 
+  /**
+   * The hint as shown above the Arguments box: its "Extra args: ..." line left out, as the box
+   * shows those args itself. (The full hint stays with the program for filling in its args.)
+   */
+  public static String shown(String hint) {
+    if (hint == null) return "";
+    StringBuilder sb = new StringBuilder();
+    for (String line : hint.split("\n", -1)) {
+      if (line.startsWith("Extra args:")) continue;
+      if (sb.length() > 0) sb.append('\n');
+      sb.append(line);
+    }
+    return sb.toString().replaceAll("\\s+$", "");
+  }
+
   public static String outputNotice(String extra, String hint, String inputPath, String outDir) {
     String filled = fillArgs(extra, hint, firstInput(hint), inputPath, outDir);
     String out = outputFile(inputPath, (hint == null ? "" : hint) + "\n" + (extra == null ? "" : extra), outDir);

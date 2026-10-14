@@ -631,7 +631,7 @@ public final class Pulsekit extends UiKit {
     }
 
     static String hintHtml(String status) {
-        String safe = status == null ? "" : status.replace("&", "&" + "amp;").replace("<", "&" + "lt;").replace(">", "&" + "gt;");
+        String safe = status == null ? "" : PyJavHints.shown(status).replace("&", "&" + "amp;").replace("<", "&" + "lt;").replace(">", "&" + "gt;");
         return "<html><body style='width:520px;color:#F4F1EA'>" + safe.replace("\n", "<br>") + "</body></html>";
     }
 

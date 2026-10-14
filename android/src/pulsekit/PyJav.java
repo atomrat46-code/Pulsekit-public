@@ -116,6 +116,9 @@ final class PyJav {
 
     android.widget.TextView pkPyHint;
 
+    /** The hint's full text (the shown one leaves out its "Extra args:" line). */
+    String pkHintFull = "";
+
     android.widget.EditText pkPyArgs;
 
     android.widget.TextView pkPyInput;
@@ -406,7 +409,19 @@ final class PyJav {
         slot = slot + 1;
         this.pkPyRecent.setOnItemSelectedListener(pulsekit.PyJavUi.recent(app));
         this.pkRefreshRecent(0);
-        this.pkPyHint = app.text("Possible extra args appear after you browse a file.", 12, false);
+        // The hint keeps its full text for filling in a program's args (pkHintText); it shows it
+        // without the "Extra args:" line, which the Arguments box below shows itself.
+        this.pkPyHint = new android.widget.TextView(app) {
+            @Override
+            public void setText(CharSequence text, android.widget.TextView.BufferType type) {
+                pkHintFull = text == null ? "" : text.toString();
+                super.setText(pulsekit.PyJavHints.shown(pkHintFull), type);
+            }
+        };
+        this.pkPyHint.setTextSize(2, 12.0f);
+        this.pkPyHint.setTypeface(Typeface.SANS_SERIF, 0);
+        this.pkPyHint.setIncludeFontPadding(false);
+        this.pkPyHint.setText("Possible extra args appear after you browse a file.");
         this.pkPyHint.setTextColor(FG);
         app.pyPane.addView(this.pkPyHint, slot);
         slot = slot + 1;
@@ -724,7 +739,7 @@ final class PyJav {
             return;
         }
         String extra = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "";
-        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        String hint = this.pkPyHint != null ? this.pkHintFull : "";
         if (this.pkPyLog != null) this.pkPyLog.setText(this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\nRunning…" : "Running…");
         boolean report = this.pkPromptReport != null && this.pkPromptReport.length() > 0;
         String top = (app.pyName == null ? "script.py" : app.pyName) + ": Running\u2026";
@@ -1745,7 +1760,7 @@ final class PyJav {
     /** Makes path the PyJav input file and fills the program's args from its hint. */
     void pkUseInputPath(String path) {
         this.pkPyInputPath = path;
-        String hint = this.pkPyHint != null ? this.pkPyHint.getText().toString() : "";
+        String hint = this.pkPyHint != null ? this.pkHintFull : "";
         java.io.File folder = new java.io.File(app.getCacheDir(), "pyjav-in");
         String note = pulsekit.PyJavHints.outputNotice("", hint, path, folder.getAbsolutePath());
         String next = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, path, folder.getAbsolutePath());
