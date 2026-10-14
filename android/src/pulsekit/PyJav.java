@@ -653,6 +653,14 @@ final class PyJav {
         this.pkRunConfirmed = false;
         if (!running || !pulsekit.PendingOps.mustAsk(program)) return false;
         if (confirmed) return false;
+        // Nothing is going any more (no run, no storing, no Save prompt open): what is listed was
+        // left behind by a run that is over, so it leaves the list and Run goes on.
+        if (RUNS.get() == 0 && KEEPING.get() == 0 && ASKING.get() == 0) {
+            pulsekit.PendingOps.clear();
+            for (Long download : DOWNLOAD_OF.values()) pulsekit.SogniDownloads.done(download.longValue());
+            DOWNLOAD_OF.clear();
+            return false;
+        }
         String text = pulsekit.PendingOps.askText(pulsekit.PendingOps.storingCount());
         app.setNow("Asking: the current task is not complete");
         this.pkAskRerun = new android.app.AlertDialog.Builder(app).setTitle("Run again?").setMessage(text)
@@ -845,6 +853,7 @@ final class PyJav {
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
+        RUNS.incrementAndGet();
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         if (note != null) live.add(note + "\n");
         String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";
@@ -1051,6 +1060,10 @@ final class PyJav {
     public void pkShowPyResult(pulsekit.JavaRun.Result result) {
         String status = "Import failed: no result";
         String log = "";
+        // The run's entry (PendingOps), for a failure below after the field is cleared; left alone
+        // once its storing has started (that work ends it).
+        final String runPending = this.pkPending;
+        boolean storingStarted = false;
         try {
         log = result == null || result.log == null || result.log.length() == 0 ? "(no output)" : result.log;
         if (this.pkPromptReport != null && this.pkPromptReport.length() > 0 && app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt") && log.indexOf("Category:") != 0) log = this.pkPromptReport + "\n" + log;
@@ -1141,6 +1154,7 @@ final class PyJav {
         if (pending != null && DOWNLOAD_OF.containsKey(pending)) pulsekit.SogniDownloads.result(DOWNLOAD_OF.get(pending).longValue(), status, log, ArtJava.SAVED);
         if (!any) this.pkDone(pending);
         if (any) {
+            storingStarted = true;
             log = log + "\nPrompt library: storing\u2026";
             if (this.pkPyLog != null) this.pkPyLog.setText(log);
             this.pkRunLog = log;
@@ -1192,7 +1206,10 @@ final class PyJav {
                             // Only when the text below Run is still this run's (another run may have started).
                             if (pkPyLog != null && pkRunLog != null && pkRunLog.equals(pkPyLog.getText().toString())) pkPyLog.setText(done);
                             pkRunLog = done;
-                            if (!asking.isEmpty()) pkAskSheets(asking, 0, kept0, argv, pending);
+                            if (!asking.isEmpty()) {
+                                ASKING.incrementAndGet();
+                                pkAskSheets(asking, 0, kept0, argv, pending);
+                            }
                         }
                     });
                 }
@@ -1228,6 +1245,7 @@ final class PyJav {
             Long download = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
             if (download != null) pulsekit.SogniDownloads.result(download.longValue(), status, log, ArtJava.SAVED);
             this.pkDone(this.pkPending);
+            if (!storingStarted) this.pkDone(runPending);
             this.pkPending = null;
             if (this.pkPyHint != null) this.pkPyHint.setText(status);
             app.setNow(status);
@@ -1465,6 +1483,7 @@ final class PyJav {
     void pkAskSheets(final java.util.List<PromptSave.Pending> sheets, final int i, final pulsekit.JavaRun.Result result,
             final java.util.List<String> argv, final String pending) {
         if (i >= sheets.size()) {
+            ASKING.updateAndGet(n -> n > 0 ? n - 1 : 0);
             this.pkDone(pending);
             return;
         }
@@ -1525,6 +1544,9 @@ final class PyJav {
     volatile boolean pkKeeping;
     /** Runs whose results are still being stored, all PyJavs together (the tests wait for 0). */
     static final java.util.concurrent.atomic.AtomicInteger KEEPING = new java.util.concurrent.atomic.AtomicInteger();
+    /** Runs started and not yet over, and runs whose prompt sheets are being asked about (Save prompt). */
+    static final java.util.concurrent.atomic.AtomicInteger RUNS = new java.util.concurrent.atomic.AtomicInteger();
+    static final java.util.concurrent.atomic.AtomicInteger ASKING = new java.util.concurrent.atomic.AtomicInteger();
 
     /** True while the text below Run is a run's output, not a hint or a note. */
     boolean pkLogIsRun() {

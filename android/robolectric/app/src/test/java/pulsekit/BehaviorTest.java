@@ -3356,6 +3356,8 @@ public class BehaviorTest {
     StringBuilder out = new StringBuilder();
     app.programMenus.selectProgram("Java", "SogniTextVideo.java");
     idle();
+    // The listed runs are going (their entries are not left behind by a run that is over).
+    PyJav.RUNS.incrementAndGet();
     String plain = PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"));
     out.append("pending: ").append(PendingOps.count()).append(", storing ").append(PendingOps.storingCount()).append('\n');
     File list = new File(app.getFilesDir(), "pending-db.txt");
@@ -3378,6 +3380,11 @@ public class BehaviorTest {
     PendingOps.done(plain);
     out.append("after done: pending ").append(PendingOps.count()).append(", list file ").append(list.isFile()).append(", Run waits ")
         .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append('\n');
+    // An entry a finished run left behind (nothing runs, stores or asks now): Run goes on, the list empties.
+    PyJav.RUNS.set(0);
+    PendingOps.add("SogniVideo.java", java.util.Arrays.asList("/tmp/ref1-a.png"), true);
+    out.append("left behind: storing ").append(PendingOps.storingCount()).append(", Run waits ")
+        .append(app.pyJav.pkMustWait("SogniTextVideo.java", true)).append(", pending after ").append(PendingOps.count()).append('\n');
     write("s88_pending_db", out.toString());
   }
 
