@@ -3157,6 +3157,46 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /**
+   * ImageUpscaler from the Media browser after a prompt sheet was open: the sheet's reference
+   * files, output name and report are not passed to it (they were added to every program's run).
+   */
+  @Test
+  public void s115_upscaler_after_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    String sheet = "PKPROMPT1\nsmile\nface.png\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: face.png\nReference file 2: \nType: ai\n---\nSame person, smiling\n";
+    app.pyJav.pkOpenPromptText("smile.prompt", sheet);
+    idle();
+    app.pyJav.pkLoadRefs(sheet);
+    File face = new File(app.getCacheDir(), "face.png");
+    Files.write(face.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1});
+    app.pyJav.pkRef1Path = face.getAbsolutePath();
+    app.pyJav.pkPromptReport = "Category: image";
+    out.append("prompt open: ").append(app.pyName).append(", reference ").append(new File(app.pyJav.pkRef1Path).getName()).append('\n');
+    File media = new File(app.getCacheDir(), "media-up2");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("a.png")) pic = e;
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("upscaler: ").append(app.pyName).append(", args ").append(new File(((TextView) get("pkPyArgs")).getText().toString()).getName())
+        .append(", reference ").append(app.pyJav.pkRef1Path).append(", report ").append(app.pyJav.pkPromptReport).append(", invented output ").append(app.pyJav.pkOutputInvented).append('\n');
+    if (app.pyJav.pkRef1Path != null || app.pyJav.pkPromptReport != null || app.pyJav.pkOutputInvented) throw new AssertionError(out.toString());
+    write("s115_upscaler_after_prompt", out.toString());
+  }
+
   @Test
   public void s92_menu_upscale() throws Exception {
     // Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params.
@@ -5459,6 +5499,12 @@ public class BehaviorTest {
     idle();
     out.append("preview shows the prompt: ").append(texts(pane).contains("Same person, smiling")).append('\n');
     if (!texts(pane).contains("Same person, smiling")) throw new AssertionError(out.toString());
+    // The Prompts page as the other tests find it: the preview and the gallery closed.
+    for (String f : new String[] {"promptFilesOpen", "previewBack"}) {
+      java.lang.reflect.Field field = PromptSheet.class.getDeclaredField(f);
+      field.setAccessible(true);
+      field.set(null, f.equals("previewBack") ? (Object) 0 : (Object) false);
+    }
     // Media browser: T lists it with a star, A does not.
     File media = new File(app.getCacheDir(), "media-prompts");
     media.mkdirs();

@@ -265,8 +265,16 @@ final class PyJav {
     }
 
     void pkShowPromptModes() {
-        if (this.pkPromptModes == null) return;
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
+        // Another program: the prompt sheet's report, reference files and invented output name go.
+        if (!prompt) {
+            this.pkPromptReport = null;
+            this.pkRef1Path = null;
+            this.pkRef2Path = null;
+            this.pkOutputInvented = false;
+            this.pkPromptDescription = "";
+        }
+        if (this.pkPromptModes == null) return;
         this.pkPromptModes.setVisibility(prompt ? 0 : 8);
         if (this.pkEditorCaption != null) this.pkEditorCaption.setText(prompt ? "Prompt" : "Code");
     }
@@ -822,13 +830,15 @@ final class PyJav {
         // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
         this.pkSaveRun = false;
         while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
+        // A prompt sheet's run: its mode, reference files and output name (as on the desktop, only for a
+        // .prompt: ImageUpscaler opened after one was given the sheet's files too).
         if (name.toLowerCase().endsWith(".prompt")) {
             argv.add("--pk-run");
             argv.add(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
+            if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
+            if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
+            if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         }
-        if (this.pkRef1Path != null && this.pkRef1Path.length() > 0 && !argv.contains(this.pkRef1Path)) argv.add(this.pkRef1Path);
-        if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
-        if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
         this.pkDrumsWarned = false;
