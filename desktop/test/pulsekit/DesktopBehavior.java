@@ -4520,6 +4520,65 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The Result files gallery open while a file is added to the library: it opens again with it.
+   * A picture's Preview from the gallery has Previous / Next, which pass a text file between pictures.
+   */
+  void s97_gallery_refresh_prevnext() throws Exception {
+    PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(30, 20, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptDb.vault().addLibraryFile("a.png", png.toByteArray(), "Imported", 3);
+    PromptDb.vault().addLibraryFile("note.txt", "text".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    PromptDb.vault().addLibraryFile("b.png", png.toByteArray(), "Imported", 3);
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    inspectNext = gallery -> {
+      seen.append("c.png listed: ").append(component(gallery, "gallery:c.png") != null).append('\n');
+      try {
+        PromptDb.vault().addLibraryFile("c.png", png.toByteArray(), "Imported", 3);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      inspectNext = again -> {
+        seen.append("opened again: c.png listed ").append(component(again, "gallery:c.png") != null).append('\n');
+        StringBuilder order = new StringBuilder();
+        for (PromptVault.StoredFile f : db.galleryList) order.append(f.name).append(' ');
+        seen.append("order: ").append(order.toString().trim()).append('\n');
+        PromptVault.StoredFile first = db.galleryList.get(0);
+        StringBuilder steps = new StringBuilder(first.name);
+        PromptVault.StoredFile at = first;
+        for (int i = 0; i < 3; i++) {
+          Object[] next = db.stepPicture(at, 1);
+          if (next == null) {
+            steps.append(" > (last)");
+            break;
+          }
+          at = (PromptVault.StoredFile) next[0];
+          steps.append(" > ").append(at.name);
+        }
+        Object[] prev = db.stepPicture(at, -1);
+        steps.append(" < ").append(prev == null ? "(first)" : ((PromptVault.StoredFile) prev[0]).name);
+        seen.append("next/previous: ").append(steps).append('\n');
+        // Preview from the gallery shows Previous and Next.
+        final PromptVault.StoredFile shown = first;
+        inspectNext = preview -> {
+          seen.append("preview ").append(preview.getTitle()).append(": Previous ").append(component(preview, "preview-prev") != null)
+              .append(", Next ").append(component(preview, "preview-next") != null).append('\n');
+          done[0] = true;
+        };
+        SwingUtilities.invokeLater(() -> db.preview(shown, (javax.swing.JButton) component(again, "gallery:" + shown.name)));
+      };
+      if (!db.refreshGallery(gallery, true)) seen.append("not opened again\n");
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("opened again: c.png listed true") < 0 || seen.indexOf("note.txt", seen.indexOf("next/previous")) >= 0 || seen.indexOf("Next true") < 0)
+      throw new AssertionError(seen.toString());
+  }
+
+  /**
    * PyJav's headlines (Code or Prompt above the editor, Output), Params' Preview of a picked
    * picture, and Upscale/Resize image in the Ref/Result files menu, also for a picture whose
    * name has no picture extension.

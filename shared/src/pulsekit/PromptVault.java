@@ -93,6 +93,9 @@ public final class PromptVault {
    * The library in `dir` when it is already in memory and up to date, else null: open() would have
    * to read and decrypt the file, slow for a large library (videos kept in it). Never waits.
    */
+  /** Counts the library's saves (and reloads from disk): a gallery shown with an older count is out of date. */
+  public static volatile long changes;
+
   public static PromptVault ready(File dir) {
     PromptVault v = shared;
     File at = fileIn(dir);
@@ -156,6 +159,7 @@ public final class PromptVault {
 
   /** Reads the file again into this same library (it changed on disk). */
   private synchronized void reload() throws Exception {
+    changes++;
     lastBlob = null;
     lastBlobBytes = null;
     categories.clear();
@@ -927,6 +931,7 @@ public final class PromptVault {
     if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace the prompt database");
     if (!tmp.renameTo(file)) throw new IllegalStateException("Could not store the prompt database");
     stamp = file.lastModified();
+    changes++;
     // Kept files no version or library file uses any more (deleted, replaced) go too.
     File[] kids = file.getParentFile() == null ? null : file.getParentFile().listFiles();
     if (kids != null) {

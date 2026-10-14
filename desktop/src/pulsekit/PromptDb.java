@@ -600,14 +600,36 @@ final class PromptDb {
             }), "gallery:");
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());
+        // Something added to (or changed in) the library while the gallery is open (a run's result):
+        // the gallery opens again with it (not while a preview is open over it).
+        this.galleryList = list;
+        this.galleryBuilt = PromptVault.changes;
+        final javax.swing.Timer watch = new javax.swing.Timer(1500, null);
+        watch.addActionListener(e -> {
+            if (this.refreshGallery(dialog, results)) watch.stop();
+        });
+        watch.start();
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosed(java.awt.event.WindowEvent e) {
+                watch.stop();
                 PromptDb.this.stop();
             }
         });
         this.lastGallery = dialog;
         this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(results)), grid, close);
+    }
+
+    /** The library's change count (PromptVault.changes) the gallery shown last was built at. */
+    long galleryBuilt;
+
+    /** The gallery shown, out of date (the library changed): opened again. True when it was. */
+    boolean refreshGallery(JDialog dialog, boolean results) {
+        if (!dialog.isShowing() || this.lastPreview != null && this.lastPreview.isShowing()) return false;
+        if (PromptVault.changes == this.galleryBuilt) return false;
+        dialog.dispose();
+        SwingUtilities.invokeLater(() -> this.gallery(results));
+        return true;
     }
 
     /** Sort by as last chosen (~/.pulsekit/file-sort.txt), or null. */
@@ -667,7 +689,13 @@ final class PromptDb {
         }
         if (pcm == null) {
             // A picture or text shows in Preview (with zoom), a video in the player; the rest opens.
-            this.preview(file.name, bytes);
+            // A picture can go on to the gallery's next or previous one.
+            this.previewing = file;
+            try {
+                this.preview(file.name, bytes);
+            } finally {
+                this.previewing = null;
+            }
             return;
         }
         byte[] raw = new byte[pcm.length * 2];
@@ -1498,6 +1526,32 @@ final class PromptDb {
     /** The dialog shown last by Preview, for the tests. */
     JDialog lastPreview;
 
+    /** The files of the gallery shown last, in its order, and the one opened in Preview from it. */
+    List<PromptVault.StoredFile> galleryList;
+    PromptVault.StoredFile previewing;
+
+    /** The picture `step` places on in the gallery (1 next, -1 previous) from `from`, with its bytes; null at the ends. */
+    Object[] stepPicture(PromptVault.StoredFile from, int step) {
+        List<PromptVault.StoredFile> list = this.galleryList;
+        if (from == null || list == null) return null;
+        int at = -1;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).versionId == from.versionId && list.get(i).which == from.which) at = i;
+        }
+        if (at < 0) return null;
+        for (int i = at + step; i >= 0 && i < list.size(); i += step) {
+            PromptVault.StoredFile f = list.get(i);
+            byte[] bytes;
+            try {
+                bytes = vault().fileBytes(f.versionId, f.which);
+            } catch (Exception ex) {
+                continue;
+            }
+            if (previewKind(f.name, bytes) == 2) return new Object[] {f, bytes};
+        }
+        return null;
+    }
+
     private void zoomPreview(String name, byte[] bytes, int kind) {
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
         // A picture opens at the zoom the last one had.
@@ -1567,6 +1621,43 @@ final class PromptDb {
         top.add(percent);
         top.add(in);
         top.add(reset);
+        // From the gallery: Previous / Next (and the arrow keys) show its other pictures.
+        final PromptVault.StoredFile from = kind == 2 ? this.previewing : null;
+        if (from != null) {
+            java.util.function.IntConsumer go = step -> {
+                Object[] next = this.stepPicture(from, step);
+                if (next == null) {
+                    app.setNow(step > 0 ? "The last picture" : "The first picture");
+                    return;
+                }
+                dialog.dispose();
+                SwingUtilities.invokeLater(() -> {
+                    this.previewing = (PromptVault.StoredFile) next[0];
+                    try {
+                        this.zoomPreview(((PromptVault.StoredFile) next[0]).name, (byte[]) next[1], 2);
+                    } finally {
+                        this.previewing = null;
+                    }
+                });
+            };
+            JButton prev = new JButton("\u25c0 Previous");
+            prev.setName("preview-prev");
+            prev.addActionListener(e -> go.accept(-1));
+            JButton next = new JButton("Next \u25b6");
+            next.setName("preview-next");
+            next.addActionListener(e -> go.accept(1));
+            top.add(prev);
+            top.add(next);
+            javax.swing.JRootPane root = dialog.getRootPane();
+            root.getInputMap(javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW).put(javax.swing.KeyStroke.getKeyStroke("LEFT"), "preview-prev");
+            root.getInputMap(javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW).put(javax.swing.KeyStroke.getKeyStroke("RIGHT"), "preview-next");
+            root.getActionMap().put("preview-prev", new javax.swing.AbstractAction() {
+                public void actionPerformed(java.awt.event.ActionEvent e) { go.accept(-1); }
+            });
+            root.getActionMap().put("preview-next", new javax.swing.AbstractAction() {
+                public void actionPerformed(java.awt.event.ActionEvent e) { go.accept(1); }
+            });
+        }
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         body.add(top, BorderLayout.NORTH);

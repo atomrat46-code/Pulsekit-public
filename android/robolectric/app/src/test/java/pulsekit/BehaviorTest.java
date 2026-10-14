@@ -5167,6 +5167,79 @@ public class BehaviorTest {
     write("s109_headlines_preview_upscale", out.toString());
   }
 
+  /**
+   * The Result files gallery shown while a file is added to the library: it is made again with it.
+   * In full size, a swipe shows the next or previous picture (a text file between them is passed).
+   */
+  @Test
+  public void s110_gallery_refresh_swipe() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(30, 20, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "a.png", png.toByteArray(), true);
+    DbImport.store(app, "note.txt", "text".getBytes(StandardCharsets.UTF_8), true);
+    DbImport.store(app, "b.png", png.toByteArray(), true);
+    call("show", "prompts");
+    idle();
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Field resultsOpen = sheet.getDeclaredField("resultsOpen");
+    java.lang.reflect.Field hostF = sheet.getDeclaredField("host");
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    java.lang.reflect.Field vaultF = sheet.getDeclaredField("vault");
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {resultsOpen, hostF, rebuild, vaultF}) o.setAccessible(true);
+    // The page's library opened before the test's key store was in place: the test's one is used.
+    vaultF.set(null, PromptVault.open(app.getFilesDir()));
+    resultsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    View host = (View) hostF.get(null);
+    out.append("gallery shown ").append(host.isShown()).append(", a.png listed ").append(findText(host, "a.png") != null).append(", c.png listed ").append(findText(host, "c.png") != null).append('\n');
+    DbImport.store(app, "c.png", png.toByteArray(), true);
+    ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    idle();
+    host = (View) hostF.get(null);
+    out.append("after c.png was stored: listed ").append(findText(host, "c.png") != null).append('\n');
+    if (findText(host, "c.png") == null) throw new AssertionError("gallery not made again: " + out);
+    // Full size from the gallery, then swipes (stepPicture) through the pictures in its order.
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field name = sheet.getDeclaredField("previewName");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {focusId, focusWhich, name, back, open}) o.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> order = FileSort.sorted(vault.resultFiles(), FileSort.current);
+    StringBuilder listed = new StringBuilder();
+    for (PromptVault.StoredFile f : order) listed.append(f.name).append(' ');
+    out.append("order: ").append(listed.toString().trim()).append('\n');
+    PromptVault.StoredFile first = null;
+    for (PromptVault.StoredFile f : order) if (first == null && f.name.endsWith(".png")) first = f;
+    focusId.set(null, first.versionId);
+    focusWhich.set(null, first.which);
+    open.invoke(null, app, first.name, vault.fileBytes(first.versionId, first.which), 3);
+    idle();
+    host = (View) hostF.get(null);
+    out.append("full size ").append(name.get(null)).append(", swipe hint ").append(host.findViewWithTag("preview-swipe-hint") != null).append('\n');
+    StringBuilder seen = new StringBuilder(String.valueOf(name.get(null)));
+    for (int i = 0; i < 3; i++) {
+      PromptSheet.stepPicture(app, 1);
+      idle();
+      seen.append(" > ").append(name.get(null));
+    }
+    PromptSheet.stepPicture(app, -1);
+    idle();
+    seen.append(" < ").append(name.get(null));
+    out.append("swipes: ").append(seen).append('\n');
+    if (seen.indexOf("note.txt") >= 0) throw new AssertionError("a text file was shown: " + seen);
+    back.set(null, 0);
+    resultsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    write("s110_gallery_refresh_swipe", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {

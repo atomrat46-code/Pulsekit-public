@@ -296,7 +296,11 @@ public final class PromptSheet {
     host.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
     final View focus = focusCard;
     focusCard = null;
-    if (focus != null) {
+    final int kept = keepScroll;
+    keepScroll = -1;
+    if (kept >= 0) {
+      scroll.post(() -> scroll.scrollTo(0, kept));
+    } else if (focus != null) {
       scroll.post(() -> {
         View row = (View) focus.getParent();
         scroll.scrollTo(0, Math.max(0, (row == null ? 0 : row.getTop()) + focus.getTop() - dp(activity, 12)));
@@ -577,6 +581,35 @@ public final class PromptSheet {
       names[i] = name;
     }
     loadRefThumbs(activity, token, views, marks, subs, ids, slots, names, cell);
+    watchGallery(activity, token);
+  }
+
+  /** The library's change count (PromptVault.changes) the gallery shown was built at. */
+  private static long galleryChanges;
+  /** A scroll position to keep over the next rebuild (the gallery made again), or -1. */
+  private static int keepScroll = -1;
+
+  /**
+   * While this gallery is shown: something added to (or changed in) the library, a run's result
+   * say, makes it again, at the same place in the list.
+   */
+  private static void watchGallery(Activity activity, int token) {
+    galleryChanges = PromptVault.changes;
+    final View at = host;
+    if (at == null) return;
+    at.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        if (token != refsToken || host != at || !(refsOpen || resultsOpen) || previewBack != 0) return;
+        if (PromptVault.changes != galleryChanges && at.isShown()) {
+          View scroll = host.getChildCount() > 0 ? host.getChildAt(0) : null;
+          keepScroll = scroll == null ? -1 : scroll.getScrollY();
+          rebuild(activity);
+          return;
+        }
+        at.postDelayed(this, 1500);
+      }
+    }, 1500);
   }
 
   private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
@@ -1734,8 +1767,17 @@ public final class PromptSheet {
         box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
         box.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -1));
         previewBox = box;
-        attachPinch(activity, box);
-        col.addView(scroller(activity, box));
+        android.widget.HorizontalScrollView pan = scroller(activity, box);
+        View.OnTouchListener pinch = attachPinch(activity, box);
+        if (previewBack == 3) {
+          // From the Ref files / Result files gallery: a swipe shows the next or previous picture.
+          attachSwipe(activity, box, pan, pinch);
+          TextView hint = label(activity, "Swipe left or right for the next or previous picture", 12, "#8A8B86", false);
+          hint.setTag("preview-swipe-hint");
+          hint.setPadding(0, dp(activity, 4), 0, 0);
+          col.addView(hint);
+        }
+        col.addView(pan);
       }
     } else if (kind == 3) {
       showVideo(activity, col);
@@ -1804,21 +1846,76 @@ public final class PromptSheet {
     return pan;
   }
 
-  private static void attachPinch(Activity activity, View target) {
+  /**
+   * A swipe on the picture (one finger, mostly sideways): left shows the next picture of the
+   * gallery, right the previous one. A picture zoomed wider than the screen pans instead.
+   */
+  private static void attachSwipe(Activity activity, View target, android.widget.HorizontalScrollView pan, final View.OnTouchListener pinch) {
+    final float[] down = new float[2];
+    final boolean[] multi = new boolean[1];
+    target.setOnTouchListener((v, event) -> {
+      if (pinch != null) pinch.onTouch(v, event);
+      int action = event.getActionMasked();
+      if (event.getPointerCount() > 1) multi[0] = true;
+      if (action == android.view.MotionEvent.ACTION_DOWN) {
+        down[0] = event.getRawX();
+        down[1] = event.getRawY();
+        multi[0] = false;
+        return true;
+      }
+      if (action == android.view.MotionEvent.ACTION_UP && !multi[0]) {
+        float dx = event.getRawX() - down[0];
+        float dy = event.getRawY() - down[1];
+        if (Math.abs(dx) > dp(activity, 64) && Math.abs(dx) > 1.5f * Math.abs(dy)) {
+          if (dx < 0 && !pan.canScrollHorizontally(1)) stepPicture(activity, 1);
+          else if (dx > 0 && !pan.canScrollHorizontally(-1)) stepPicture(activity, -1);
+        }
+        return true;
+      }
+      return true;
+    });
+  }
+
+  /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
+  static void stepPicture(Activity activity, int step) {
+    if (vault == null) return;
+    boolean results = resultsOpen && !refsOpen;
+    List<PromptVault.StoredFile> files = FileSort.sorted(results ? vault.resultFiles() : vault.referenceFiles(), FileSort.current);
+    int at = -1;
+    for (int i = 0; i < files.size(); i++) {
+      if (files.get(i).versionId == focusId && files.get(i).which == focusWhich) at = i;
+    }
+    if (at < 0) return;
+    for (int i = at + step; i >= 0 && i < files.size(); i += step) {
+      PromptVault.StoredFile f = files.get(i);
+      byte[] bytes = vault.fileBytes(f.versionId, f.which);
+      if (previewKind(f.name, bytes) != 2) continue;
+      focusId = f.versionId;
+      focusWhich = f.which;
+      openPreview(activity, f.name, bytes, 3);
+      return;
+    }
+    toast(activity, step > 0 ? "The last picture" : "The first picture");
+  }
+
+  /** Pinch to zoom on the view; its touch listener is returned (a swipe goes with it). */
+  private static View.OnTouchListener attachPinch(Activity activity, View target) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
         setZoom(activity, previewZoom * detector.getScaleFactor());
         return true;
       }
     });
-    target.setOnTouchListener((v, event) -> {
+    View.OnTouchListener touch = (v, event) -> {
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
       }
       pinch.onTouchEvent(event);
       return event.getPointerCount() > 1;
-    });
+    };
+    target.setOnTouchListener(touch);
+    return touch;
   }
 
   private static void showVideo(Activity activity, LinearLayout col) {
