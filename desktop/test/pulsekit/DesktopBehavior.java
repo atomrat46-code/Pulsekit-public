@@ -4680,6 +4680,55 @@ public final class DesktopBehavior {
   }
 
   /**
+   * MidiDrumGen --count: a batch of grooves in random styles, into a folder named plainly (it goes in
+   * the program files folder, not the run's temporary one), with batch.txt; the app's style is not
+   * passed to it. Then CompareHits --batch on the folder sums DrumMidi's results per style (here
+   * the grooves themselves stand for DrumMidi's MIDI: every hit found).
+   */
+  void s101_drumgen_batch() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("MidiDrumGen batch") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("$ java"))
+        out.append("run: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--seed \\d+", "--seed N")).append('\n');
+    }
+    java.io.File dir = null;
+    for (String d : new String[] {"Downloads", ".pulsekit"}) if (new File(new File(home, d), "gen3").isDirectory()) dir = new File(new File(home, d), "gen3");
+    out.append("folder: ").append(dir == null ? "none" : home.toPath().relativize(dir.toPath())).append('\n');
+    if (dir == null) throw new AssertionError(out.toString());
+    String[] names = dir.list();
+    java.util.Arrays.sort(names);
+    out.append("files: ").append(java.util.Arrays.toString(names)).append('\n');
+    String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    int grooves = 0;
+    for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;
+    if (grooves != 3 || list.contains("\thouse\t")) throw new AssertionError(out.toString());
+    // vst_render.py --dir --test leaves <groove>-<plugin>-dm.mid beside each render.
+    for (String n : names) {
+      if (n.endsWith(".mid")) Files.copy(new File(dir, n).toPath(), new File(dir, n.replace(".mid", "-Kit-dm.mid")).toPath());
+    }
+    call("selectListedProgram", "Java", "CompareHits.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--batch gen3"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("CompareHits --batch") || line.startsWith("== ") || line.startsWith("All:") || line.startsWith("Succeeded") || line.startsWith("Failed"))
+        out.append("summary: ").append(line).append('\n');
+    }
+    out.append("batch-summary.txt: ").append(new File(dir, "batch-summary.txt").isFile()).append('\n');
+    if (!log.getText().contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
+  }
+
+  /**
    * --saveprompt: the run's sheet is kept in the library under Prompt files, not written to disk.
    * Prompts page: Prompt files lists it and its text shows. Media browser: under T with a star
    * (not under A), its text on a click, and Choose file gets a copy.

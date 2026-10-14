@@ -76,4 +76,43 @@ public final class ProgramFolder {
       return "the chosen folder";
     }
   }
+
+  /**
+   * A batch's folders made whole on the desktop, where a program runs in a temporary folder that
+   * goes when it ends: MidiDrumGen's --outdir (with --count and no --outdir, midi-batch-<seed> with
+   * a --seed added), vst_render.py's --dir and --outdir, and CompareHits' --batch, when given as a
+   * plain name, are under `base` (the program files folder).
+   */
+  public static java.util.List<String> batchFolders(String program, java.util.List<String> argv, File base) {
+    if (argv == null || base == null || program == null) return argv;
+    java.util.List<String> out = new java.util.ArrayList<String>(argv);
+    String[] keys = "MidiDrumGen.java".equals(program) ? new String[] {"--outdir"}
+        : "vst_render.py".equals(program) ? new String[] {"--dir", "--outdir"}
+        : "CompareHits.java".equals(program) ? new String[] {"--batch"} : new String[0];
+    if (keys.length == 0) return argv;
+    for (int i = 0; i + 1 < out.size(); i++) {
+      String a = out.get(i) == null ? "" : out.get(i).trim();
+      for (String k : keys) {
+        if (!k.equals(a)) continue;
+        String v = out.get(i + 1) == null ? "" : out.get(i + 1).trim();
+        if (v.length() > 0 && !v.startsWith("-") && !new File(v).isAbsolute()) out.set(i + 1, new File(base, v).getAbsolutePath());
+      }
+    }
+    if ("MidiDrumGen.java".equals(program) && out.contains("--count") && !out.contains("--outdir")) {
+      String seed = null;
+      int at = out.indexOf("--seed");
+      if (at >= 0 && at + 1 < out.size()) seed = out.get(at + 1).trim();
+      if (seed == null || !seed.matches("\\d+")) {
+        seed = String.valueOf(System.currentTimeMillis() % 1000000L);
+        if (at >= 0 && at + 1 < out.size()) out.set(at + 1, seed);
+        else {
+          out.add("--seed");
+          out.add(seed);
+        }
+      }
+      out.add("--outdir");
+      out.add(new File(base, "midi-batch-" + seed).getAbsolutePath());
+    }
+    return out;
+  }
 }

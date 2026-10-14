@@ -132,6 +132,13 @@ public final class ProgramParams {
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
+      if (drumGen) knownDrumGenBatch(p);
+      // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
+      if (compareHits && p.token.equals("--batch")) {
+        p.dir = true;
+        p.label = "Batch folder: sum vst_render's DrumMidi results per style (instead of the files above)";
+        p.hint = "the folder MidiDrumGen --count made; empty: the files above";
+      }
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);
@@ -465,6 +472,24 @@ public final class ProgramParams {
   }
 
   /** vst_render.py's labels: the MIDI, the plugins and their settings files, the render's format. */
+  /** MidiDrumGen's batch: --count grooves in random styles, into --outdir, made again with --seed. */
+  private static void knownDrumGenBatch(Param p) {
+    if (p.token.equals("--count")) {
+      p.label = "Batch: how many grooves (each a random style and settings)";
+      p.hint = "empty: one groove, as set above";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Batch folder";
+      p.hint = "empty: midi-batch-<seed> in the program files folder";
+    } else if (p.token.equals("--seed")) {
+      p.label = "Batch seed (the same seed makes the same batch)";
+      p.hint = "empty: a new one each run";
+    } else if (p.token.equals("--styles")) {
+      p.label = "Batch styles (comma list)";
+      p.hint = "empty: every style; e.g. rock,funk,metal";
+    }
+  }
+
   private static void knownVstRender(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output WAV name";

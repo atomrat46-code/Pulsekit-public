@@ -271,6 +271,11 @@ public final class JavaRun {
     List<String> argv = new ArrayList<String>();
     String src = source == null ? "" : source;
     List<String> given = split(extra);
+    // MidiDrumGen's batch (--count) picks a style and its settings for each groove: not the app's.
+    if (given.contains("--count")) {
+      argv.addAll(given);
+      return withKeyFile(src, argv);
+    }
     if (src.contains("--bpm") && !given.contains("--bpm")) {
       argv.add("--bpm");
       argv.add(Integer.toString(bpm));
