@@ -425,9 +425,16 @@ final class PyJav {
         this.pkPyHint.setTextColor(FG);
         app.pyPane.addView(this.pkPyHint, slot);
         slot = slot + 1;
-        android.widget.TextView argsHead = app.text("Arguments", 13, true);
+        // Arguments: a tap shows or hides the args box. Hidden at first, as Params sets the args.
+        final android.widget.TextView argsHead = app.text("Arguments \u25b8", 13, true);
         argsHead.setTag("pyjav-args-head");
-        argsHead.setPadding(0, app.dp(10), 0, app.dp(2));
+        argsHead.setPadding(0, app.dp(10), 0, app.dp(10));
+        argsHead.setClickable(true);
+        argsHead.setOnClickListener(v -> {
+            boolean open = this.pkPyArgs.getVisibility() != 0;
+            this.pkPyArgs.setVisibility(open ? 0 : 8);
+            argsHead.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
+        });
         app.pyPane.addView(argsHead, slot);
         slot = slot + 1;
         this.pkPyArgs = new android.widget.EditText(app);
@@ -437,6 +444,7 @@ final class PyJav {
         this.pkPyArgs.setTextColor(FG);
         this.pkPyArgs.setHintTextColor(MUTED);
         this.pkPyArgs.setLayoutParams(new android.widget.LinearLayout.LayoutParams(-1, -2));
+        this.pkPyArgs.setVisibility(8);
         app.pyPane.addView(this.pkPyArgs, slot);
         slot = slot + 1;
         this.pkPyInput = app.action("Browse input", ELEV, FG, pulsekit.PyJavUi.browseInput(app));

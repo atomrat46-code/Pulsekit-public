@@ -144,10 +144,24 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
-        JLabel extraLab = new JLabel("Extra args");
+        // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
+        final JButton extraLab = new JButton("Arguments \u25b8");
+        extraLab.setName("pyjav-args-head");
         extraLab.setForeground(MUTED);
+        extraLab.setContentAreaFilled(false);
+        extraLab.setBorderPainted(false);
+        extraLab.setFocusPainted(false);
+        extraLab.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        extraLab.addActionListener(e -> {
+            boolean open = !this.pyExtra.isVisible();
+            this.pyExtra.setVisible(open);
+            extraLab.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
+            controls.revalidate();
+            controls.repaint();
+        });
         controls.add(extraLab);
         this.pyExtra = new JTextField(22);
+        this.pyExtra.setVisible(false);
         this.pyExtra.setBackground(ELEV);
         this.pyExtra.setForeground(FG);
         this.pyExtra.setCaretColor(FG);
