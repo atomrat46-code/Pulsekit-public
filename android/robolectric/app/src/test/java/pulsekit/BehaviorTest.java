@@ -5409,6 +5409,18 @@ public class BehaviorTest {
     idle();
     out.append("after Remove: ").append(order.get()).append(", row gone ").append(pane.findViewWithTag("prompts-favourite:Portrait \u00b7 v2") == null).append('\n');
     if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+    // Change title renames the favourite's prompt.
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Change title"));
+    idle();
+    android.widget.EditText field = (android.widget.EditText) FavouriteMenu.lastTitle.getWindow().getDecorView().findViewWithTag("favourite-title");
+    out.append("Change title (was \"").append(field.getText()).append("\")");
+    field.setText("Portrait lit");
+    FavouriteMenu.lastTitle.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append(": ").append(order.get()).append(", row ").append(pane.findViewWithTag("prompts-favourite-menu:Portrait lit \u00b7 v1") != null).append('\n');
+    if (!order.get().equals("[Portrait lit \u00b7 v1]")) throw new AssertionError(out.toString());
     write("s113_save_in_place_favourite_menu", out.toString());
   }
 

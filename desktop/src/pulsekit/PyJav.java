@@ -1310,7 +1310,9 @@ final class PyJav {
 
     void showPyHint(String status) {
         this.pyHintPlain = status == null ? "" : status;
-        if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile()) {
+        // The audio input carries over to a program that takes a sound (not to SogniPedit, which
+        // would name its picture after it).
+        if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
             app.pyInputPath = this.audioInputPath;
         }
         // The hint shows above; the output box is only for what a run writes.

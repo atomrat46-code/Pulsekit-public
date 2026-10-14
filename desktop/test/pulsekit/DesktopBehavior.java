@@ -4647,6 +4647,37 @@ public final class DesktopBehavior {
       out.append(step[0]).append(" menu ").append(items).append(" -> ").append(step[1]).append(": ").append(order.get()).append('\n');
     }
     if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+    // Change title renames the favourite's prompt.
+    FavouriteMenu.Ask was = FavouriteMenu.ask;
+    final String[] preset = {null};
+    FavouriteMenu.ask = (parent, given) -> {
+      preset[0] = given;
+      return "Portrait lit";
+    };
+    try {
+      edt(() -> {
+        ((javax.swing.JButton) component(frame, "prompts-favourite-menu:Portrait \u00b7 v1")).doClick();
+        javax.swing.JMenuItem pick = null;
+        for (java.awt.Component c : FavouriteMenu.last.getComponents()) {
+          if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals("Change title")) pick = (javax.swing.JMenuItem) c;
+        }
+        FavouriteMenu.last.setVisible(false);
+        pick.doClick();
+      });
+    } finally {
+      FavouriteMenu.ask = was;
+    }
+    out.append("Change title (was \"").append(preset[0]).append("\"): ").append(order.get()).append(", row ").append(component(frame, "prompts-favourite-menu:Portrait lit \u00b7 v1") != null).append('\n');
+    if (!order.get().equals("[Portrait lit \u00b7 v1]") || !"Portrait".equals(preset[0])) throw new AssertionError(out.toString());
+    // An audio input carries over to a program taking a sound, not to SogniPedit (its picture took the sound's name).
+    for (String program : new String[] {"SogniPedit.java", "CutWav.java", "Wav2Mp3.java"}) {
+      java.io.File f = new java.io.File("../Programs/Java/" + program);
+      if (!f.isFile()) f = new java.io.File("Programs/Java/" + program);
+      byte[] src = java.nio.file.Files.readAllBytes(f.toPath());
+      String hint = PyJavHints.status(program, new String(src, StandardCharsets.UTF_8), null);
+      out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
+      if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
+    }
   }
 
   /**

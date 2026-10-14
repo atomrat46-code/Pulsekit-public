@@ -170,6 +170,19 @@ public final class PyJavHints {
   }
 
   /** First <input.wav>-style placeholder, or null. Output names are skipped. */
+  /**
+   * Whether the program's first input is a sound (<input.wav>, <song.mp3>): only then does the
+   * audio input from before (an imported WAV, a program's MP3) carry over to it. A picture or
+   * video program (SogniPedit) would otherwise be given the sound, and name its output after it.
+   */
+  public static boolean takesAudio(String program, String hint) {
+    String token = firstInput(hint);
+    // A Python script without a usage line (drum_midi.py) reads the input it is given.
+    if (token == null) return program != null && program.toLowerCase(java.util.Locale.ROOT).endsWith(".py");
+    String low = token.toLowerCase(java.util.Locale.ROOT);
+    return low.matches("<.*\\.(wav|wave|mp3|flac|ogg|m4a|aac)>") || low.contains("audio");
+  }
+
   public static String firstInput(String hint) {
     if (hint == null) return null;
     int i = 0;

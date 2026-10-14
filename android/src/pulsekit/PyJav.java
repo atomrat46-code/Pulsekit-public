@@ -311,7 +311,9 @@ final class PyJav {
 
     void pkApplyHint(String hint) {
         if (hint == null) hint = "";
-        if (this.pkPyInputPath == null && this.pkAudioInputPath != null && new java.io.File(this.pkAudioInputPath).isFile()) {
+        // The audio input carries over to a program that takes a sound (not to SogniPedit, which
+        // would name its picture after it).
+        if (this.pkPyInputPath == null && this.pkAudioInputPath != null && new java.io.File(this.pkAudioInputPath).isFile() && pulsekit.PyJavHints.takesAudio(app.pyName, hint)) {
             this.pkPyInputPath = this.pkAudioInputPath;
         }
         if (this.pkPyHint != null) this.pkPyHint.setText(hint);
