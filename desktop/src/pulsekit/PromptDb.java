@@ -804,7 +804,8 @@ final class PromptDb {
             });
             menu.add(strip);
         }
-        if (file.name != null && file.name.toLowerCase().matches(".+\\.(png|jpe?g|webp|gif|bmp)")) {
+        // A picture, known by its name or, without a picture's extension, by its bytes.
+        if (previewKind(file.name, this.bytesOf(file)) == 2) {
             // Upscale/Resize image: ImageUpscaler on PyJav with this picture as its input; Return comes back to Prompts.
             JMenuItem upscale = new JMenuItem("Upscale/Resize image");
             upscale.addActionListener(e -> this.upscale(file));
@@ -814,6 +815,15 @@ final class PromptDb {
         menu.add(delete);
         this.lastFileMenu = menu;
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
+    }
+
+    /** A stored file's bytes; none when the library cannot be read. */
+    private byte[] bytesOf(PromptVault.StoredFile file) {
+        try {
+            return vault().fileBytes(file.versionId, file.which);
+        } catch (Exception ex) {
+            return new byte[0];
+        }
     }
 
     /** Upscale/Resize image: the stored picture as a file in PyJav's input folder, ImageUpscaler with it as its input, its Params open. */

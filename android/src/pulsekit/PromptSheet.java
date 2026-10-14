@@ -1388,7 +1388,8 @@ public final class PromptSheet {
       runs.add(() -> stripHeaders(activity, versionId, which, name));
     }
     // A picture: Upscale/Resize image (ImageUpscaler on PyJav, with it as the input; Return comes back here).
-    boolean picture = previewKindByName(name) == 2 && activity instanceof MainActivity;
+    // (Known by its name or, without a picture's extension, by its bytes.)
+    boolean picture = activity instanceof MainActivity && previewKind(name, vault.fileBytes(versionId, which)) == 2;
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));

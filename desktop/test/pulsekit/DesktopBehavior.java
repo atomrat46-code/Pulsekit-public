@@ -4519,6 +4519,81 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * PyJav's headlines (Code or Prompt above the editor, Output), Params' Preview of a picked
+   * picture, and Upscale/Resize image in the Ref/Result files menu, also for a picture whose
+   * name has no picture extension.
+   */
+  void s96_headlines_preview_upscale() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File me = new File(home, "me");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    idle();
+    for (String t : new String[] {"pyjav-editor-caption", "pyjav-output-head"}) {
+      JLabel head = (JLabel) component(frame.getContentPane(), t);
+      if (head == null) throw new AssertionError("no " + t);
+      out.append(t).append(": ").append(head.getText()).append('\n');
+    }
+    edt(() -> ((JTextField) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final StringBuilder seen = new StringBuilder();
+    final Object pyJav = get("pyJav");
+    inspectNext = d -> {
+      javax.swing.JButton preview = (javax.swing.JButton) component(d, "params-preview:--image");
+      javax.swing.JButton preview2 = (javax.swing.JButton) component(d, "params-preview:--image2");
+      if (preview == null || preview2 == null) throw new AssertionError("no Preview button");
+      seen.append("Preview --image enabled ").append(preview.isEnabled()).append(", --image2 (none picked) ").append(preview2.isEnabled()).append('\n');
+      seen.append("no Preview on --prompt: ").append(component(d, "params-preview:--prompt") == null).append('\n');
+      preview.doClick();
+      try {
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastPreview").get(pyJav);
+        seen.append("preview: ").append(shown == null ? "none" : shown.getTitle() + ", image " + (component(shown.getContentPane(), "params-preview-image") != null)).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      ((javax.swing.JButton) component(d, "params-clear:--image")).doClick();
+      seen.append("after Clear, Preview enabled ").append(preview.isEnabled()).append('\n');
+    };
+    answers.add("OK");
+    call("openParams");
+    idle();
+    Thread.sleep(500);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("Preview --image enabled true, --image2 (none picked) false") < 0 || seen.indexOf("image true") < 0 || seen.indexOf("after Clear, Preview enabled false") < 0)
+      throw new AssertionError("Preview: " + seen);
+    PromptDb db = (PromptDb) get("promptDb");
+    byte[] png = java.nio.file.Files.readAllBytes(me.toPath());
+    PromptDb.vault().addLibraryFile("suit.png", png, "Imported", 1);
+    PromptDb.vault().addLibraryFile("picture", png, "Imported", 3);
+    PromptDb.vault().addLibraryFile("notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    for (String n : new String[] {"suit.png", "picture", "notes.txt"}) {
+      final boolean results = !"suit.png".equals(n);
+      PromptVault.StoredFile file = null;
+      for (PromptVault.StoredFile f : PromptDb.stored(results)) if (f.name.equals(n)) file = f;
+      if (file == null) throw new AssertionError("not stored: " + n);
+      final PromptVault.StoredFile at = file;
+      final StringBuilder items = new StringBuilder();
+      final boolean[] done = {false};
+      inspectNext = gallery -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:" + n);
+        db.menu(at, card, () -> {});
+        for (java.awt.Component c : db.lastFileMenu.getComponents()) {
+          if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        }
+        db.lastFileMenu.setVisible(false);
+        done[0] = true;
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(results));
+      for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+      idle();
+      out.append(n).append(results ? " (result)" : " (reference)").append(" menu: ").append(items).append('\n');
+      boolean upscale = items.indexOf("[Upscale/Resize image]") >= 0;
+      if (upscale == "notes.txt".equals(n)) throw new AssertionError("Upscale item on " + n + ": " + items);
+    }
+  }
+
   /** Params file rows have Clear: SogniPedit's second reference picked by mistake leaves the run, the first stays. */
   void s81_params_clear_file() throws Exception {
     File home = new File(System.getProperty("user.home"));

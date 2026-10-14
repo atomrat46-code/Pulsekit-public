@@ -240,6 +240,25 @@ public final class PyJavParams {
           box.addView(join);
         }
         box.addView(row);
+        if (ProgramParams.previewsPicture(p)) {
+          // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
+          final android.widget.Button preview = new android.widget.Button(activity);
+          preview.setText("Preview");
+          preview.setTag("params-preview:" + p.token);
+          final Runnable paintPreview = () -> {
+            boolean on = ProgramParams.isPicture(values[index]);
+            preview.setEnabled(on);
+            preview.setAlpha(on ? 1f : 0.4f);
+          };
+          paintPreview.run();
+          chosen.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+            public void onTextChanged(CharSequence t, int a, int b, int c) {}
+            public void afterTextChanged(android.text.Editable e) { paintPreview.run(); }
+          });
+          preview.setOnClickListener(v -> previewPicture(activity, values[index]));
+          box.addView(preview, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         if ("mid".equals(p.ext) && activity instanceof MainActivity) {
           // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
           android.widget.Button fromSet = new android.widget.Button(activity);
@@ -382,6 +401,37 @@ public final class PyJavParams {
           }
         })
         .show();
+  }
+
+  /** The Preview shown last, for the tests. */
+  static AlertDialog lastPreview;
+
+  /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
+  static void previewPicture(Activity activity, String path) {
+    android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+    bounds.inJustDecodeBounds = true;
+    android.graphics.BitmapFactory.decodeFile(path, bounds);
+    int target = dp(activity, 280);
+    int sample = 1;
+    while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) sample *= 2;
+    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+    opts.inSampleSize = sample;
+    android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(path, opts);
+    AlertDialog.Builder dialog = new AlertDialog.Builder(activity).setTitle(fileLabel(path)).setPositiveButton("Close", null);
+    if (bitmap == null) {
+      dialog.setMessage("The picture could not be read.");
+    } else {
+      android.widget.ImageView image = new android.widget.ImageView(activity);
+      image.setTag("params-preview-image");
+      image.setAdjustViewBounds(true);
+      image.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+      image.setMaxHeight(target);
+      image.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), 0);
+      image.setImageBitmap(bitmap);
+      dialog.setMessage(bounds.outWidth + " \u00d7 " + bounds.outHeight);
+      dialog.setView(image);
+    }
+    lastPreview = dialog.show();
   }
 
   static String fileLabel(String path) {

@@ -5042,11 +5042,11 @@ public class BehaviorTest {
     StringBuilder labels = new StringBuilder();
     for (int i = 0; i < runs.getAdapter().getCount(); i++) labels.append('[').append(runs.getAdapter().getItem(i)).append(']');
     out.append("CompareHits runs: ").append(PyJavUi.lastRuns.isShowing()).append(' ').append(labels).append('\n');
-    // Tap a run: runs with its parameters.
+    // Tap a run: loads it with its parameters (Run starts it).
     runs.performItemClick(runs.getChildAt(2), 2, 2);
     idle();
     out.append("run picked: ").append(get("pyName")).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
-    // Tap the name: the run without parameters.
+    // Tap the name: loads the run without parameters.
     box = root().findViewWithTag("pk-recent");
     box.findViewWithTag("pk-recent-item:CompareHits.java").performClick();
     idle();
@@ -5083,6 +5083,81 @@ public class BehaviorTest {
     idle();
     out.append("args: ").append(args.getText()).append('\n');
     write("s96_params_clear_file", out.toString());
+  }
+
+  /**
+   * PyJav's headlines (Code or Prompt above the editor, Arguments, Output), Params' Preview of a
+   * picked picture, and Upscale/Resize image in the Ref/Result files long-press menu, also for a
+   * picture whose name has no picture extension.
+   */
+  @Test
+  public void s109_headlines_preview_upscale() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    for (String t : new String[] {"pyjav-editor-caption", "pyjav-args-head", "pyjav-output-head"}) {
+      TextView head = (TextView) root().findViewWithTag(t);
+      if (head == null) throw new AssertionError("no " + t);
+      out.append(t).append(": ").append(head.getText()).append('\n');
+    }
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(640, 480, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File picture = new File(app.getCacheDir(), "me");
+    Files.write(picture.toPath(), png.toByteArray());
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.Button preview = (android.widget.Button) dv.findViewWithTag("params-preview:--image");
+    android.widget.Button preview2 = (android.widget.Button) dv.findViewWithTag("params-preview:--image2");
+    if (preview == null || preview2 == null) throw new AssertionError("no Preview button");
+    out.append("Preview --image enabled ").append(preview.isEnabled()).append(", --image2 (none picked) ").append(preview2.isEnabled()).append('\n');
+    if (!preview.isEnabled() || preview2.isEnabled()) throw new AssertionError("Preview state");
+    out.append("no Preview on --prompt: ").append(dv.findViewWithTag("params-preview:--prompt") == null).append('\n');
+    preview.performClick();
+    idle();
+    AlertDialog shown = PyJavParams.lastPreview;
+    if (shown == null || !shown.isShowing()) throw new AssertionError("no preview dialog");
+    out.append("preview: ").append(org.robolectric.Shadows.shadowOf(shown).getTitle()).append(", image ")
+        .append(shown.getWindow().getDecorView().findViewWithTag("params-preview-image") != null).append('\n');
+    shown.dismiss();
+    ((android.widget.Button) dv.findViewWithTag("params-clear:--image")).performClick();
+    idle();
+    out.append("after Clear, Preview enabled ").append(preview.isEnabled()).append('\n');
+    if (preview.isEnabled()) throw new AssertionError("Preview still enabled");
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    DbImport.store(app, "suit.png", png.toByteArray(), false);
+    DbImport.store(app, "picture", png.toByteArray(), true);
+    DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    for (String n : new String[] {"suit.png", "picture", "notes.txt"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : all) if (f.name.equals(n)) at = f;
+      if (at == null) throw new AssertionError("not stored: " + n);
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
+      out.append(n).append(at.which == 3 ? " (result)" : " (reference)").append(" menu: ").append(items).append('\n');
+      boolean upscale = items.indexOf("[Upscale/Resize image]") >= 0;
+      if (upscale == "notes.txt".equals(n)) throw new AssertionError("Upscale item on " + n + ": " + items);
+      menu.dismiss();
+      idle();
+    }
+    write("s109_headlines_preview_upscale", out.toString());
   }
 
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */

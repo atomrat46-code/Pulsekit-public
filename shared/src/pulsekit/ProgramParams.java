@@ -804,6 +804,38 @@ public final class ProgramParams {
     return p.ext != null && "audio".equals(kind(p.ext));
   }
 
+  /**
+   * A file row that can hold a picture (a reference image, the picture to upscale): it has a
+   * Preview button, which works while the file picked is a picture.
+   */
+  public static boolean previewsPicture(Param p) {
+    if (p == null || !p.isFile() || p.output || p.dir || p.join || p.newChat || p.plugin || p.midiAsAudio) return false;
+    if (isAudio(p) || "mid".equals(p.ext) || "mp4".equals(p.ext)) return false;
+    return p.refs || p.ext != null && p.ext.toLowerCase().matches("png|jpe?g|webp|gif|bmp|image");
+  }
+
+  /** A picked file that is a picture: by its name, or (without a picture's extension) by its first bytes. */
+  public static boolean isPicture(String path) {
+    if (path == null || path.length() == 0) return false;
+    if (path.toLowerCase().matches(".+\\.(png|jpe?g|webp|gif|bmp)")) return true;
+    byte[] b = new byte[12];
+    int n = 0;
+    try (java.io.InputStream in = new java.io.FileInputStream(path)) {
+      while (n < b.length) {
+        int r = in.read(b, n, b.length - n);
+        if (r < 0) break;
+        n += r;
+      }
+    } catch (Exception ex) {
+      return false;
+    }
+    if (n >= 8 && (b[0] & 0xff) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') return true;
+    if (n >= 3 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8) return true;
+    if (n >= 6 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F') return true;
+    if (n >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') return true;
+    return n >= 2 && b[0] == 'B' && b[1] == 'M';
+  }
+
   private static boolean has(List<Param> ps, String token) {
     for (Param p : ps) if (p.token.equals(token)) return true;
     return false;

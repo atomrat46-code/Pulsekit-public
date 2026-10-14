@@ -110,6 +110,11 @@ public final class JavaRun {
     return LIVE.get();
   }
 
+  /** The page's top line while a run goes: "SogniVideo.java: Running… 2:05 · Queued: position 3". */
+  public static String runningTop(String program, Live live, long now) {
+    return (program == null || program.length() == 0 ? "script.py" : program) + ": " + runningLine(live, now);
+  }
+
   /** "Running… 2:05" with the run's latest news: "Running… 2:05 · Queued: position 3". */
   public static String runningLine(Live live, long now) {
     long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
