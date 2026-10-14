@@ -385,6 +385,28 @@ public final class PromptSheet {
       toast(activity, "Pick the .prompt sheet and its reference and result files together");
     });
     col.addView(imp, buttonLp(activity));
+    // Favourite prompts: a tap opens the prompt at that version.
+    VersionFavourites.load(activity.getFilesDir());
+    List<PromptVault.Version> favs = VersionFavourites.list(vault);
+    if (!favs.isEmpty()) {
+      col.addView(caption(activity, "FAVOURITE PROMPTS"));
+      for (PromptVault.Version v : favs) {
+        String label = VersionFavourites.label(vault, v);
+        TextView row = button(activity, "\u2605 " + label, "#131416", "#E8C35A");
+        row.setTag("prompts-favourite:" + label);
+        row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10));
+        long pid = v.promptId;
+        long vid = v.id;
+        row.setOnClickListener(x -> {
+          promptId = pid;
+          loadVersion(activity, vid);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(activity, 8);
+        col.addView(row, lp);
+      }
+    }
     col.addView(caption(activity, "CATEGORIES"));
     col.addView(categoryBlock(activity, false));
     TextView addCat = button(activity, "New category", "#1B1D1F", "#ECEBE6");
@@ -873,6 +895,19 @@ public final class PromptSheet {
       long id = row.id;
       info.setOnClickListener(v -> loadVersion(activity, id));
       line.addView(info);
+      // ★ Favourite: the version is one of the favourite prompts (Browse prompts, the list above the categories).
+      VersionFavourites.load(activity.getFilesDir());
+      boolean fav = VersionFavourites.is(id);
+      TextView star = button(activity, fav ? "\u2605 Favourite" : "\u2606 Add to favourites", "#1B1D1F", fav ? "#E8C35A" : "#ECEBE6");
+      star.setTag("version-favourite:" + (rows.size() - i));
+      star.setOnClickListener(v -> {
+        boolean now = VersionFavourites.toggle(id);
+        toast(activity, now ? "Added to favourites" : "Removed from favourites");
+        rebuild(activity);
+      });
+      LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(activity, 36));
+      sp.topMargin = dp(activity, 8);
+      line.addView(star, sp);
       if (!row.finalVersion) {
         TextView mark = button(activity, "Mark final", "#ECEBE6", "#0A0B0C");
         mark.setOnClickListener(v -> {

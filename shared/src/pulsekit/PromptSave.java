@@ -23,6 +23,8 @@ public final class PromptSave {
     public String sub = "";
     public String name = "";
     public String description = "";
+    /** Add to favourites: the stored version goes into the favourite prompts (VersionFavourites). */
+    public boolean favourite;
   }
 
   /** A sheet to save: its file, as the run wrote it, and the sheet read from it. */
@@ -300,6 +302,11 @@ public final class PromptSave {
           List<PromptVault.Version> rows = vault.versions(p.id);
           if (!rows.isEmpty()) out.versionId = rows.get(0).id;
         }
+      }
+      if (c.favourite && out.versionId != 0) {
+        VersionFavourites.load(dir);
+        VersionFavourites.add(out.versionId);
+        out.note = out.note + ", added to favourites";
       }
       out.bytes = rewrite(new String(pending.file.bytes, StandardCharsets.UTF_8), name, c, version, date).getBytes(StandardCharsets.UTF_8);
       out.fileName = fileName(pending.file.name, sheet, name);

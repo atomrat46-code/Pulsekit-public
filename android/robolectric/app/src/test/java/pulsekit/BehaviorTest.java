@@ -4993,6 +4993,10 @@ public class BehaviorTest {
             ((TextView) dv.findViewWithTag("save-prompt-description")).setText("First try");
           }
           ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Smile");
+          // The third run's version goes into the favourite prompts.
+          android.widget.CheckBox fav = (android.widget.CheckBox) dv.findViewWithTag("save-prompt-favourite");
+          out.append("  Add to favourites box: ").append(fav != null).append('\n');
+          if (run == 2) fav.setChecked(true);
           out.append("  after edits: ").append(((TextView) dv.findViewWithTag("save-prompt-version")).getText().toString().replace(today, "<today>")).append('\n');
           d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
         }
@@ -5018,6 +5022,20 @@ public class BehaviorTest {
       out.append("disk ").append(f.getName()).append(": ").append(sheet.name).append(", ").append(sheet.category).append(" \u203a ").append(sheet.subcategory)
           .append(", version ").append(sheet.version).append(", date ").append(sheet.date.replace(today, "<today>")).append(", description ").append(sheet.description).append('\n');
     }
+    // Favourite prompts: the version saved with Add to favourites, in Browse prompts; a tap hands on its text.
+    VersionFavourites.load(app.getFilesDir());
+    StringBuilder favs = new StringBuilder();
+    for (PromptVault.Version v : VersionFavourites.list(vault)) favs.append('[').append(VersionFavourites.label(vault, v)).append(']');
+    out.append("favourite prompts: ").append(favs).append('\n');
+    final String[] handed = new String[1];
+    PromptBrowser.show(app, (title, text) -> handed[0] = title + ": " + text.split("\n")[0]);
+    idle();
+    View fav = PromptBrowser.last.getWindow().getDecorView().findViewWithTag("prompt-browser-favprompt:Smile \u00b7 v2");
+    out.append("Browse prompts lists it: ").append(fav != null).append('\n');
+    if (fav != null) fav.performClick();
+    idle();
+    out.append("tapped: ").append(handed[0]).append('\n');
+    if (favs.indexOf("[Smile \u00b7 v2]") < 0 || handed[0] == null || !handed[0].contains("laughing")) throw new AssertionError(out.toString());
     write("s98_save_prompt", out.toString());
   }
 

@@ -68,6 +68,41 @@ final class PromptBrowser {
         } else {
             long chosen = vault.category(lastCategory) != null ? lastCategory : mains.get(0).id;
             long mainId = vault.mainOf(chosen);
+            // Favourite prompts (versions): a click hands on that version's text; Remove takes it off.
+            VersionFavourites.load(PromptDb.dir());
+            List<PromptVault.Version> favPrompts = VersionFavourites.list(vault);
+            if (!favPrompts.isEmpty()) {
+                JLabel favHead = new JLabel("\u2605 Favourite prompts");
+                favHead.setAlignmentX(0.0f);
+                body.add(favHead);
+                for (final PromptVault.Version v : favPrompts) {
+                    final String label = VersionFavourites.label(vault, v);
+                    final String words = VersionFavourites.words(v);
+                    final PromptVault.Prompt p = vault.prompt(v.promptId);
+                    JPanel line = new JPanel(new BorderLayout(6, 0));
+                    line.setAlignmentX(0.0f);
+                    JButton item = new JButton("\u2605 " + label);
+                    item.setName("prompt-browser-favprompt:" + label);
+                    item.setHorizontalAlignment(JButton.LEFT);
+                    item.setEnabled(words.length() > 0);
+                    item.addActionListener(e -> {
+                        dialog.dispose();
+                        picked.picked(p == null ? label : p.title, words);
+                    });
+                    JButton remove = new JButton("Remove");
+                    remove.setName("prompt-browser-favprompt-remove:" + label);
+                    remove.setToolTipText("Take it off the favourite prompts");
+                    remove.addActionListener(e -> {
+                        VersionFavourites.toggle(v.id);
+                        fill(vault, body, dialog, picked);
+                    });
+                    line.add(item, BorderLayout.CENTER);
+                    line.add(remove, BorderLayout.EAST);
+                    line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
+                    body.add(line);
+                    body.add(Box.createVerticalStrut(4));
+                }
+            }
             CategoryFavourites.load(PromptDb.dir());
             List<PromptVault.Category> favs = CategoryFavourites.list(vault);
             if (!favs.isEmpty()) {

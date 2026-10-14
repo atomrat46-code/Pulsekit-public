@@ -210,6 +210,28 @@ final class PromptsPage {
         library.add(imp);
         this.col.add(Box.createVerticalStrut(12));
         this.col.add(library);
+        // Favourite prompts: a click opens the prompt at that version.
+        VersionFavourites.load(PromptDb.dir());
+        List<PromptVault.Version> favs = VersionFavourites.list(this.vault);
+        if (!favs.isEmpty()) {
+            this.col.add(this.caption("FAVOURITE PROMPTS"));
+            for (PromptVault.Version v : favs) {
+                String label = VersionFavourites.label(this.vault, v);
+                JButton fav = app.action("\u2605 " + label, SURFACE, new java.awt.Color(0xE8C35A));
+                fav.setName("prompts-favourite:" + label);
+                fav.setHorizontalAlignment(JButton.LEFT);
+                fav.setAlignmentX(0.0f);
+                fav.setMaximumSize(new Dimension(Integer.MAX_VALUE, fav.getPreferredSize().height));
+                final long pid = v.promptId;
+                final long vid = v.id;
+                fav.addActionListener(e -> {
+                    this.promptId = pid;
+                    this.loadVersion(vid);
+                });
+                this.col.add(fav);
+                this.col.add(Box.createVerticalStrut(6));
+            }
+        }
         this.col.add(this.caption("CATEGORIES"));
         this.categoryBlock(false);
         JPanel catButtons = this.row();
@@ -620,6 +642,20 @@ final class PromptsPage {
             final long id = row.id;
             info.addActionListener(e -> this.loadVersion(id));
             line.add(info, BorderLayout.CENTER);
+            // ★ Favourite: the version is one of the favourite prompts (Browse prompts, the list above the categories).
+            JPanel ends = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+            ends.setOpaque(false);
+            VersionFavourites.load(PromptDb.dir());
+            boolean fav = VersionFavourites.is(id);
+            JButton star = app.action(fav ? "\u2605 Favourite" : "\u2606 Add to favourites", SURFACE, fav ? new java.awt.Color(0xE8C35A) : FG);
+            star.setName("version-favourite:v" + (rows.size() - i));
+            star.addActionListener(e -> {
+                boolean now = VersionFavourites.toggle(id);
+                app.setNow(now ? "Added to favourites" : "Removed from favourites");
+                this.rebuild();
+            });
+            ends.add(star);
+            line.add(ends, BorderLayout.EAST);
             if (!row.finalVersion) {
                 JButton mark = app.action("Mark final", FG, BG);
                 mark.setName("version-final:v" + (rows.size() - i));
@@ -632,7 +668,7 @@ final class PromptsPage {
                         this.say(ex);
                     }
                 });
-                line.add(mark, BorderLayout.EAST);
+                ends.add(mark);
             }
             this.col.add(line);
             this.col.add(Box.createVerticalStrut(8));

@@ -4451,6 +4451,10 @@ public final class DesktopBehavior {
           ((javax.swing.JTextArea) component(d, "save-prompt-description")).setText("First try");
         }
         ((JTextField) component(d, "save-prompt-name")).setText("Smile");
+        // The third run's version goes into the favourite prompts.
+        javax.swing.JCheckBox fav = (javax.swing.JCheckBox) component(d, "save-prompt-favourite");
+        seen.append("  Add to favourites box: ").append(fav != null).append('\n');
+        if (at == 2) fav.setSelected(true);
       };
       answers.add(run == 3 ? "Cancel" : "OK");
       String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
@@ -4477,6 +4481,26 @@ public final class DesktopBehavior {
             .append(", prompt ").append(sheet.body.split("\n")[0]).append('\n');
       }
     }
+    // Favourite prompts: the version saved with Add to favourites, on the Prompts page and in Browse prompts.
+    VersionFavourites.load(PromptDb.dir());
+    StringBuilder favs = new StringBuilder();
+    for (PromptVault.Version v : VersionFavourites.list(vault)) favs.append('[').append(VersionFavourites.label(vault, v)).append(']');
+    out.append("favourite prompts: ").append(favs).append('\n');
+    call("showView", "prompts");
+    idle();
+    out.append("Prompts page lists it: ").append(component(frame.getContentPane(), "prompts-favourite:Smile \u00b7 v2") != null).append('\n');
+    final String[] handed = new String[1];
+    final StringBuilder browse = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-favprompt:Smile \u00b7 v2");
+      browse.append("Browse prompts lists it: ").append(item != null).append('\n');
+      if (item != null) item.doClick();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> handed[0] = title + ": " + text.split("\n")[0]));
+    for (int i = 0; i < 50 && handed[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(browse).append("clicked: ").append(handed[0]).append('\n');
+    if (favs.indexOf("[Smile \u00b7 v2]") < 0 || handed[0] == null || !handed[0].contains("laughing")) throw new AssertionError(out.toString());
   }
 
   /**

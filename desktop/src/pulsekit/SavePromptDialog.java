@@ -108,6 +108,10 @@ final class SavePromptDialog {
         add(form, g, row++, "Name", name);
         add(form, g, row++, "Description (optional)", new JScrollPane(description));
         add(form, g, row++, "", version);
+        // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
+        javax.swing.JCheckBox favourite = new javax.swing.JCheckBox("Add to favourites");
+        favourite.setName("save-prompt-favourite");
+        add(form, g, row++, "", favourite);
         JLabel hint = new JLabel("A new category or subcategory name is made on OK.");
         add(form, g, row, "", hint);
         JPanel box = new JPanel(new BorderLayout());
@@ -120,6 +124,7 @@ final class SavePromptDialog {
         c.sub = text(sub);
         c.name = name.getText().trim().length() == 0 ? first.name : name.getText().trim();
         c.description = description.getText().trim();
+        c.favourite = favourite.isSelected();
         return c;
     }
 
