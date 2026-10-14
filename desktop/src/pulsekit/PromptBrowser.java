@@ -30,7 +30,11 @@ final class PromptBrowser {
 
     private PromptBrowser() {}
 
+    /** The app the browser shown last belongs to (its status line, for the favourites' menu). */
+    private static Pulsekit app;
+
     static void show(Pulsekit app, Picked picked) {
+        PromptBrowser.app = app;
         final PromptVault vault;
         try {
             vault = PromptDb.vault();
@@ -85,19 +89,19 @@ final class PromptBrowser {
                     item.setName("prompt-browser-favprompt:" + label);
                     item.setHorizontalAlignment(JButton.LEFT);
                     item.setEnabled(words.length() > 0);
-                    item.addActionListener(e -> {
+                    final Runnable use = () -> {
                         dialog.dispose();
                         picked.picked(p == null ? label : p.title, words);
-                    });
-                    JButton remove = new JButton("Remove");
-                    remove.setName("prompt-browser-favprompt-remove:" + label);
-                    remove.setToolTipText("Take it off the favourite prompts");
-                    remove.addActionListener(e -> {
-                        VersionFavourites.toggle(v.id);
-                        fill(vault, body, dialog, picked);
-                    });
+                    };
+                    item.addActionListener(e -> use.run());
+                    // A right click or Menu: use it, copy its text, move it, remove it from the favourites.
+                    final java.util.function.Supplier<javax.swing.JPopupMenu> menu = () -> FavouriteMenu.build(app, vault, v, "Use this prompt", use, () -> fill(vault, body, dialog, picked));
+                    FavouriteMenu.attach(item, menu);
+                    final JButton more = new JButton("Menu \u25be");
+                    more.setName("prompt-browser-favprompt-menu:" + label);
+                    more.addActionListener(e -> menu.get().show(more, 0, more.getHeight()));
                     line.add(item, BorderLayout.CENTER);
-                    line.add(remove, BorderLayout.EAST);
+                    line.add(more, BorderLayout.EAST);
                     line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
                     body.add(line);
                     body.add(Box.createVerticalStrut(4));

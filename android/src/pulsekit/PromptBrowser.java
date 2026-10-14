@@ -79,21 +79,18 @@ final class PromptBrowser {
                 bg.setCornerRadius(dp(activity, 8));
                 bg.setColor(Color.parseColor("#1B1D1F"));
                 item.setBackground(bg);
-                item.setOnClickListener(x -> {
+                final Runnable use = () -> {
                     if (words.length() == 0) {
                         android.widget.Toast.makeText(activity, label + " has no prompt text", android.widget.Toast.LENGTH_SHORT).show();
                         return;
                     }
                     if (dialog[0] != null) dialog[0].dismiss();
                     picked.picked(p == null ? label : p.title, words);
-                });
+                };
+                item.setOnClickListener(x -> use.run());
+                // A long press: use it, copy its text, move it, remove it from the favourites.
                 item.setOnLongClickListener(x -> {
-                    new AlertDialog.Builder(activity).setTitle(label).setMessage("Remove from favourites?")
-                        .setPositiveButton("Remove", (d, w) -> {
-                            VersionFavourites.toggle(v.id);
-                            fill(activity, vault, body, dialog, picked);
-                        })
-                        .setNegativeButton("Cancel", null).show();
+                    FavouriteMenu.show(activity, vault, v, "Use this prompt", use, () -> fill(activity, vault, body, dialog, picked));
                     return true;
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);

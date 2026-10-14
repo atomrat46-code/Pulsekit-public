@@ -60,6 +60,17 @@ public final class VersionFavourites {
     return now;
   }
 
+  /** Moves the version `step` places up (-1) or down (1) in the list; false at an end. */
+  public static synchronized boolean move(long id, int step) {
+    int at = IDS.indexOf(Long.valueOf(id));
+    int to = at + step;
+    if (at < 0 || to < 0 || to >= IDS.size()) return false;
+    Long v = IDS.remove(at);
+    IDS.add(to, v);
+    write();
+    return true;
+  }
+
   /** The favourites that are still in the library, in the order they were added. */
   public static synchronized List<PromptVault.Version> list(PromptVault vault) {
     List<PromptVault.Version> out = new ArrayList<PromptVault.Version>();

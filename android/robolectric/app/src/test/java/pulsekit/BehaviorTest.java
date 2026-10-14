@@ -5337,6 +5337,81 @@ public class BehaviorTest {
     write("s112_key_file_settings", out.toString());
   }
 
+  /**
+   * The Prompts editor's Save: the version shown keeps its number (no new one), with the edited
+   * text and its file. Then the favourite prompts' menu: Move down, Copy prompt text, Remove.
+   */
+  @Test
+  public void s113_save_in_place_favourite_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Portrait");
+    byte[] pic = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1};
+    long v1 = vault.addVersion(id, "Portrait", "", "Soft light", "", "face.png", pic, "", null, "", null, "ai", "");
+    long v2 = vault.addVersion(id, "Portrait", "", "Hard light", "", "", null, "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    idle();
+    out.append("buttons: ").append(((TextView) pane.findViewWithTag("prompt-save-here")).getText()).append(", ").append(((TextView) pane.findViewWithTag("prompt-save")).getText()).append('\n');
+    ((android.widget.EditText) pane.findViewWithTag("prompt-body")).setText("Soft light, smiling");
+    pane.findViewWithTag("prompt-save-here").performClick();
+    idle();
+    vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.Version> rows = vault.versions(id);
+    out.append("after Save: ").append(rows.size()).append(" versions, v1 \"").append(vault.version(v1).body).append("\" with ").append(vault.version(v1).ref1Name)
+        .append(" (").append(vault.bytesOf(vault.version(v1), 1).length).append(" bytes), v2 \"").append(vault.version(v2).body).append("\"\n");
+    if (rows.size() != 2 || !vault.version(v1).body.equals("Soft light, smiling") || vault.bytesOf(vault.version(v1), 1).length != pic.length) throw new AssertionError(out.toString());
+    // Favourites: v1 then v2; the menu moves v1 down, copies, then removes v2.
+    VersionFavourites.load(app.getFilesDir());
+    VersionFavourites.add(v1);
+    VersionFavourites.add(v2);
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    rebuild.setAccessible(true);
+    pid.set(null, 0L);
+    rebuild.invoke(null, app);
+    idle();
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder o = new StringBuilder();
+      PromptVault vv;
+      try {
+        vv = PromptVault.open(app.getFilesDir());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      for (PromptVault.Version v : VersionFavourites.list(vv)) o.append('[').append(VersionFavourites.label(vv, v)).append(']');
+      return o.toString();
+    };
+    out.append("favourites: ").append(order.get()).append('\n');
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
+    idle();
+    AlertDialog menu = FavouriteMenu.last;
+    out.append("menu: ").append(listItems(menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, "Move down"));
+    idle();
+    out.append("after Move down: ").append(order.get()).append('\n');
+    pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Copy prompt text"));
+    idle();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    out.append("copied: ").append(clips.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    pane.findViewWithTag("prompts-favourite:Portrait \u00b7 v2").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FavouriteMenu.last).clickOnItem(itemIndex(FavouriteMenu.last, "Remove from favourites"));
+    idle();
+    out.append("after Remove: ").append(order.get()).append(", row gone ").append(pane.findViewWithTag("prompts-favourite:Portrait \u00b7 v2") == null).append('\n');
+    if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+    write("s113_save_in_place_favourite_menu", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {

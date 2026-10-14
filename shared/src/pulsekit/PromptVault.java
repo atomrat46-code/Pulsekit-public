@@ -615,6 +615,53 @@ public final class PromptVault {
     return version.id;
   }
 
+  /**
+   * Save: the version's text, model, type and files replaced with these, in place (its number,
+   * date and Final mark stay). A file the same as the one stored (name and bytes) is kept as it is.
+   */
+  public synchronized void updateVersion(long versionId, String title, String description, String body, String model, String ref1Name, byte[] ref1, String ref2Name, byte[] ref2, String resultName, byte[] result, String codeType, String resultText) throws Exception {
+    Version version = version(versionId);
+    if (version == null) throw new IllegalArgumentException("That version is gone");
+    Prompt prompt = prompt(version.promptId);
+    if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
+    String clean = clean(title);
+    if (clean.length() == 0) throw new IllegalArgumentException("Name the prompt");
+    if (ref1 != null && ref1.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 1 is too large (max 16 MB)");
+    if (ref2 != null && ref2.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 2 is too large (max 16 MB)");
+    if (result != null && result.length > MAX_BYTES) throw new IllegalArgumentException("Result file is too large (max 16 MB)");
+    prompt.title = clean;
+    version.description = description == null ? "" : description;
+    version.body = body == null ? "" : body;
+    version.model = model == null ? "" : model.replace('\n', ' ').replace('\r', ' ').trim();
+    version.codeType = PromptRun.normalizeType(codeType);
+    version.resultText = resultText == null ? "" : resultText;
+    setFile(version, 1, ref1Name, ref1);
+    setFile(version, 2, ref2Name, ref2);
+    setFile(version, 3, resultName, result);
+    save();
+  }
+
+  private void setFile(Version version, int which, String name, byte[] bytes) {
+    String clean = name == null ? "" : name;
+    String now = which == 1 ? version.ref1Name : which == 2 ? version.ref2Name : version.resultName;
+    byte[] given = bytes == null ? new byte[0] : bytes;
+    if (clean.equals(now) && java.util.Arrays.equals(given, bytesOf(version, which))) return;
+    byte[] stored = copy(given);
+    if (which == 1) {
+      version.ref1Name = clean;
+      version.ref1 = stored;
+      version.ref1Blob = null;
+    } else if (which == 2) {
+      version.ref2Name = clean;
+      version.ref2 = stored;
+      version.ref2Blob = null;
+    } else {
+      version.resultName = clean;
+      version.result = stored;
+      version.resultBlob = null;
+    }
+  }
+
   public synchronized void putCodeType(long versionId, String codeType) throws Exception {
     Version version = version(versionId);
     if (version == null) return;

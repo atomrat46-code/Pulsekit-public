@@ -4590,6 +4590,66 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The Prompts editor's Save: the version shown keeps its number (no new one), with the edited
+   * text and its file. Then the favourite prompts' menu: Move down, Remove from favourites.
+   */
+  void s99_save_in_place_favourite_menu() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Portrait");
+    byte[] pic = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1};
+    long v1 = vault.addVersion(id, "Portrait", "", "Soft light", "", "face.png", pic, "", null, "", null, "ai", "");
+    long v2 = vault.addVersion(id, "Portrait", "", "Hard light", "", "", null, "", null, "", null, "ai", "");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    call("showView", "prompts");
+    edt(() -> {
+      page.openPrompt(id);
+      page.loadVersion(v1);
+    });
+    out.append("buttons: ").append(((javax.swing.JButton) component(frame, "prompt-save-here")).getText()).append(", ").append(((javax.swing.JButton) component(frame, "prompt-save")).getText()).append('\n');
+    edt(() -> {
+      page.promptBody.setText("Soft light, smiling");
+      ((javax.swing.JButton) component(frame, "prompt-save-here")).doClick();
+    });
+    vault = PromptDb.vault();
+    out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    out.append("after Save: ").append(vault.versions(id).size()).append(" versions, v1 \"").append(vault.version(v1).body).append("\" with ").append(vault.version(v1).ref1Name)
+        .append(" (").append(vault.bytesOf(vault.version(v1), 1).length).append(" bytes), v2 \"").append(vault.version(v2).body).append("\"\n");
+    if (vault.versions(id).size() != 2 || !vault.version(v1).body.equals("Soft light, smiling") || vault.bytesOf(vault.version(v1), 1).length != pic.length) throw new AssertionError(out.toString());
+    VersionFavourites.load(PromptDb.dir());
+    VersionFavourites.add(v1);
+    VersionFavourites.add(v2);
+    final PromptVault vv = vault;
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder o = new StringBuilder();
+      for (PromptVault.Version v : VersionFavourites.list(vv)) o.append('[').append(VersionFavourites.label(vv, v)).append(']');
+      return o.toString();
+    };
+    edt(() -> {
+      page.promptId = 0;
+      page.rebuild();
+    });
+    out.append("favourites: ").append(order.get()).append('\n');
+    for (String[] step : new String[][] {{"v1", "Move down"}, {"v2", "Remove from favourites"}}) {
+      final StringBuilder items = new StringBuilder();
+      edt(() -> {
+        javax.swing.JButton more = (javax.swing.JButton) component(frame, "prompts-favourite-menu:Portrait \u00b7 " + step[0]);
+        more.doClick();
+        javax.swing.JMenuItem pick = null;
+        for (java.awt.Component c : FavouriteMenu.last.getComponents()) {
+          if (!(c instanceof javax.swing.JMenuItem)) continue;
+          items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          if (((javax.swing.JMenuItem) c).getText().equals(step[1])) pick = (javax.swing.JMenuItem) c;
+        }
+        FavouriteMenu.last.setVisible(false);
+        pick.doClick();
+      });
+      out.append(step[0]).append(" menu ").append(items).append(" -> ").append(step[1]).append(": ").append(order.get()).append('\n');
+    }
+    if (!order.get().equals("[Portrait \u00b7 v1]")) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Result files gallery open while a file is added to the library: it opens again with it.
    * A picture's Preview from the gallery has Previous / Next, which pass a text file between pictures.
    */
