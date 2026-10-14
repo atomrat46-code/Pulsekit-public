@@ -581,6 +581,10 @@ public class MainActivity extends UiKit {
         this.padsPane.setVisibility(bl3 ? 0 : 8);
         this.songPane.setVisibility(bl ? 0 : 8);
         this.pyPane.setVisibility(bl2 ? 0 : 8);
+        if (this.now != null) {
+            CharSequence shown = this.now.getText();
+            this.now.setVisibility(!bl2 && shown != null && shown.toString().trim().length() > 0 ? 0 : 8);
+        }
         this.importPane.setVisibility(bl7 ? 0 : 8);
         this.exportPane.setVisibility(bl8 ? 0 : 8);
         this.chrome.setVisibility(bl2 || bl7 || bl8 || bl && "play".equals(this.songMode) ? 8 : 0);
@@ -886,7 +890,8 @@ public class MainActivity extends UiKit {
         }
         boolean bl = string != null && !string.trim().isEmpty();
         this.now.setText((CharSequence)(bl ? string : " "));
-        this.now.setVisibility(bl ? 0 : 8);
+        // PyJav shows its status under the program buttons: the line at the top stays hidden there.
+        this.now.setVisibility(bl && !"py".equals(this.view) ? 0 : 8);
     }
 
     static interface IntFn {
