@@ -5309,6 +5309,34 @@ public class BehaviorTest {
     write("s111_wav2mp3_params", out.toString());
   }
 
+  /**
+   * The key file from Drum Midi Settings for a program that takes --key_file (ImageUpscaler):
+   * added when none is given, and also in place of a given one that is gone, empty or holds no
+   * key (a key file once picked in Params, its copy since cleared); a given one with a key stays.
+   */
+  @Test
+  public void s112_key_file_settings() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getFilesDir(), "keytest");
+    ApiKeys.init(dir);
+    ApiKeys.store("SOGNI_API_KEY=abcd1234".getBytes(StandardCharsets.UTF_8));
+    File mine = new File(dir, "mine.txt");
+    Files.write(mine.toPath(), "SOGNI_API_KEY=zzzz9999\n".getBytes(StandardCharsets.UTF_8));
+    File none = new File(dir, "none.txt");
+    Files.write(none.toPath(), "hello\n".getBytes(StandardCharsets.UTF_8));
+    String src = app.programMenus.bundledSource("ImageUpscaler.java");
+    String[][] cases = {{"pic.png", "--method", "3"}, {"pic.png", "--key_file", "/gone/credentials.txt", "--method", "3"}, {"pic.png", "--method", "3", "--key_file"},
+        {"pic.png", "--key_file", none.getPath()}, {"pic.png", "--key_file", mine.getPath()}};
+    for (String[] c : cases) {
+      java.util.List<String> got = JavaRun.withKeyFile(src, new java.util.ArrayList<String>(java.util.Arrays.asList(c)));
+      out.append(String.join(" ", c).replace(dir.getPath(), "<dir>")).append(" -> ").append(String.join(" ", got).replace(dir.getPath(), "<dir>")).append('\n');
+      String key = got.get(got.indexOf("--key_file") + 1);
+      if (SogniApi.keyIn(new File(key)) == null) throw new AssertionError("no key for " + String.join(" ", c));
+    }
+    ApiKeys.clear();
+    write("s112_key_file_settings", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {
