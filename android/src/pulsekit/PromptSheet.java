@@ -1768,16 +1768,18 @@ public final class PromptSheet {
         box.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -1));
         previewBox = box;
         android.widget.HorizontalScrollView pan = scroller(activity, box);
-        View.OnTouchListener pinch = attachPinch(activity, box);
+        attachPinch(activity, box);
         if (previewBack == 3) {
-          // From the Ref files / Result files gallery: a swipe shows the next or previous picture.
-          attachSwipe(activity, box, pan, pinch);
-          TextView hint = label(activity, "Swipe left or right for the next or previous picture", 12, "#8A8B86", false);
-          hint.setTag("preview-swipe-hint");
-          hint.setPadding(0, dp(activity, 4), 0, 0);
-          col.addView(hint);
+          // From the Ref files / Result files gallery: small arrows at the picture's left and right
+          // edges show the previous and next picture (they stay put while it is zoomed or panned).
+          android.widget.FrameLayout over = new android.widget.FrameLayout(activity);
+          over.addView(pan, new android.widget.FrameLayout.LayoutParams(-1, -2));
+          over.addView(arrow(activity, "\u25c0", "preview-prev", -1), arrowLp(activity, Gravity.START | Gravity.CENTER_VERTICAL));
+          over.addView(arrow(activity, "\u25b6", "preview-next", 1), arrowLp(activity, Gravity.END | Gravity.CENTER_VERTICAL));
+          col.addView(over, new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT));
+        } else {
+          col.addView(pan);
         }
-        col.addView(pan);
       }
     } else if (kind == 3) {
       showVideo(activity, col);
@@ -1846,34 +1848,27 @@ public final class PromptSheet {
     return pan;
   }
 
-  /**
-   * A swipe on the picture (one finger, mostly sideways): left shows the next picture of the
-   * gallery, right the previous one. A picture zoomed wider than the screen pans instead.
-   */
-  private static void attachSwipe(Activity activity, View target, android.widget.HorizontalScrollView pan, final View.OnTouchListener pinch) {
-    final float[] down = new float[2];
-    final boolean[] multi = new boolean[1];
-    target.setOnTouchListener((v, event) -> {
-      if (pinch != null) pinch.onTouch(v, event);
-      int action = event.getActionMasked();
-      if (event.getPointerCount() > 1) multi[0] = true;
-      if (action == android.view.MotionEvent.ACTION_DOWN) {
-        down[0] = event.getRawX();
-        down[1] = event.getRawY();
-        multi[0] = false;
-        return true;
-      }
-      if (action == android.view.MotionEvent.ACTION_UP && !multi[0]) {
-        float dx = event.getRawX() - down[0];
-        float dy = event.getRawY() - down[1];
-        if (Math.abs(dx) > dp(activity, 64) && Math.abs(dx) > 1.5f * Math.abs(dy)) {
-          if (dx < 0 && !pan.canScrollHorizontally(1)) stepPicture(activity, 1);
-          else if (dx > 0 && !pan.canScrollHorizontally(-1)) stepPicture(activity, -1);
-        }
-        return true;
-      }
-      return true;
-    });
+  /** A small round arrow over the picture: the previous (-1) or next (1) picture of the gallery. */
+  private static TextView arrow(Activity activity, String text, String tag, int step) {
+    TextView b = new TextView(activity);
+    b.setText(text);
+    b.setTag(tag);
+    b.setTextSize(13);
+    b.setTextColor(Color.parseColor("#ECEBE6"));
+    b.setGravity(Gravity.CENTER);
+    android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+    bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+    bg.setColor(Color.parseColor("#990A0B0C"));
+    b.setBackground(bg);
+    b.setOnClickListener(v -> stepPicture(activity, step));
+    return b;
+  }
+
+  private static android.widget.FrameLayout.LayoutParams arrowLp(Activity activity, int gravity) {
+    android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(dp(activity, 32), dp(activity, 32), gravity);
+    lp.leftMargin = dp(activity, 6);
+    lp.rightMargin = dp(activity, 6);
+    return lp;
   }
 
   /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
@@ -1898,8 +1893,7 @@ public final class PromptSheet {
     toast(activity, step > 0 ? "The last picture" : "The first picture");
   }
 
-  /** Pinch to zoom on the view; its touch listener is returned (a swipe goes with it). */
-  private static View.OnTouchListener attachPinch(Activity activity, View target) {
+  private static void attachPinch(Activity activity, View target) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
         setZoom(activity, previewZoom * detector.getScaleFactor());
@@ -1915,7 +1909,6 @@ public final class PromptSheet {
       return event.getPointerCount() > 1;
     };
     target.setOnTouchListener(touch);
-    return touch;
   }
 
   private static void showVideo(Activity activity, LinearLayout col) {

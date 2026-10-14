@@ -5169,7 +5169,7 @@ public class BehaviorTest {
 
   /**
    * The Result files gallery shown while a file is added to the library: it is made again with it.
-   * In full size, a swipe shows the next or previous picture (a text file between them is passed).
+   * In full size, the arrows show the next or previous picture (a text file between them is passed).
    */
   @Test
   public void s110_gallery_refresh_swipe() throws Exception {
@@ -5221,17 +5221,18 @@ public class BehaviorTest {
     open.invoke(null, app, first.name, vault.fileBytes(first.versionId, first.which), 3);
     idle();
     host = (View) hostF.get(null);
-    out.append("full size ").append(name.get(null)).append(", swipe hint ").append(host.findViewWithTag("preview-swipe-hint") != null).append('\n');
+    out.append("full size ").append(name.get(null)).append(", arrows ").append(host.findViewWithTag("preview-prev") != null)
+        .append(' ').append(host.findViewWithTag("preview-next") != null).append('\n');
     StringBuilder seen = new StringBuilder(String.valueOf(name.get(null)));
     for (int i = 0; i < 3; i++) {
-      PromptSheet.stepPicture(app, 1);
+      ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
       idle();
       seen.append(" > ").append(name.get(null));
     }
-    PromptSheet.stepPicture(app, -1);
+    ((View) hostF.get(null)).findViewWithTag("preview-prev").performClick();
     idle();
     seen.append(" < ").append(name.get(null));
-    out.append("swipes: ").append(seen).append('\n');
+    out.append("arrows: ").append(seen).append('\n');
     if (seen.indexOf("note.txt") >= 0) throw new AssertionError("a text file was shown: " + seen);
     back.set(null, 0);
     resultsOpen.set(null, false);
