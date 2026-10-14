@@ -588,6 +588,9 @@ public final class PromptSheet {
   private static long galleryChanges;
   /** A scroll position to keep over the next rebuild (the gallery made again), or -1. */
   private static int keepScroll = -1;
+  /** The full-size picture's sideways scroller, and its place to keep for the next picture (-1: none). */
+  private static android.widget.HorizontalScrollView previewPan;
+  private static int keepPanX = -1;
 
   /**
    * While this gallery is shown: something added to (or changed in) the library, a run's result
@@ -1743,6 +1746,7 @@ public final class PromptSheet {
     previewBody = null;
     previewImage = null;
     previewBox = null;
+    previewPan = null;
     if (kind == 1) {
       TextView body = label(activity, previewText(previewBytes), 14, "#ECEBE6", false);
       body.setTextSize(14f * previewZoom);
@@ -1768,6 +1772,10 @@ public final class PromptSheet {
         box.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -1));
         previewBox = box;
         android.widget.HorizontalScrollView pan = scroller(activity, box);
+        previewPan = pan;
+        final int panX = keepPanX;
+        keepPanX = -1;
+        if (panX >= 0) pan.post(() -> pan.scrollTo(panX, 0));
         attachPinch(activity, box);
         if (previewBack == 3) {
           // From the Ref files / Result files gallery: small arrows at the picture's left and right
@@ -1887,6 +1895,10 @@ public final class PromptSheet {
       if (previewKind(f.name, bytes) != 2) continue;
       focusId = f.versionId;
       focusWhich = f.which;
+      // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
+      View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
+      keepScroll = scroll == null ? -1 : scroll.getScrollY();
+      keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
       openPreview(activity, f.name, bytes, 3);
       return;
     }

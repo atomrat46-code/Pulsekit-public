@@ -5233,6 +5233,15 @@ public class BehaviorTest {
     idle();
     seen.append(" < ").append(name.get(null));
     out.append("arrows: ").append(seen).append('\n');
+    // The page stays scrolled where it was over an arrow.
+    android.widget.ScrollView page = (android.widget.ScrollView) ((android.view.ViewGroup) hostF.get(null)).getChildAt(0);
+    page.scrollTo(0, 40);
+    int before = page.getScrollY();
+    ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
+    idle();
+    page = (android.widget.ScrollView) ((android.view.ViewGroup) hostF.get(null)).getChildAt(0);
+    out.append("page scrolled to ").append(before).append(", kept: ").append(page.getScrollY() == before).append('\n');
+    if (page.getScrollY() != before) throw new AssertionError("scroll " + before + " -> " + page.getScrollY());
     if (seen.indexOf("note.txt") >= 0) throw new AssertionError("a text file was shown: " + seen);
     back.set(null, 0);
     resultsOpen.set(null, false);
