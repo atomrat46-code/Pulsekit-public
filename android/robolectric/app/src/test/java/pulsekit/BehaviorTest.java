@@ -3158,6 +3158,33 @@ public class BehaviorTest {
   }
 
   /**
+   * MidiDrumGen --count: a batch run is not given the app's style, bars, swing and time signature
+   * (one groove still is); a batch's plain folder names are made whole; Params label the switches.
+   */
+  @Test
+  public void s117_drumgen_batch_args() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("MidiDrumGen.java");
+    out.append("one: ").append(JavaRun.argvFor(src, 120, "funk", 8, 12, "--intensity 5", 3, 4)).append('\n');
+    java.util.List<String> batch = JavaRun.argvFor(src, 120, "funk", 8, 12, "--count 20 --styles rock,metal", 3, 4);
+    out.append("batch: ").append(batch).append('\n');
+    if (batch.contains("--style") || batch.contains("--timesig") || !JavaRun.argvFor(src, 120, "funk", 8, 12, "", 3, 4).contains("--style")) throw new AssertionError(out.toString());
+    File base = new File("/data/programs");
+    out.append("folders: ").append(ProgramFolder.batchFolders("MidiDrumGen.java", java.util.Arrays.asList("--count", "3", "--seed", "5"), base)).append('\n');
+    out.append("  ").append(ProgramFolder.batchFolders("vst_render.py", java.util.Arrays.asList("--dir", "gen3", "--test"), base)).append('\n');
+    out.append("  ").append(ProgramFolder.batchFolders("CompareHits.java", java.util.Arrays.asList("--batch", "/abs/gen3"), base)).append('\n');
+    if (!ProgramFolder.batchFolders("MidiDrumGen.java", java.util.Arrays.asList("--count", "3", "--seed", "5"), base).contains("/data/programs/midi-batch-5")) throw new AssertionError(out.toString());
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      if (java.util.Arrays.asList("--count", "--outdir", "--seed", "--styles").contains(p.token)) out.append("param ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("CompareHits.java"))) {
+      if (p.token.equals("--batch")) out.append("CompareHits ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    if (out.indexOf("param --count") < 0 || out.indexOf("CompareHits --batch") < 0) throw new AssertionError(out.toString());
+    write("s117_drumgen_batch_args", out.toString());
+  }
+
+  /**
    * Upscale image from the Media browser that Choose file opened in SogniPedit's Params: those
    * Params close, and SogniPedit's arguments (--prompt) do not go to ImageUpscaler.
    */
