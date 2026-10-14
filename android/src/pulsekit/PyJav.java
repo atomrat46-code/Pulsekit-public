@@ -70,15 +70,35 @@ final class PyJav {
         app.pyEditor.setMinLines(8);
         // A fixed height that scrolls inside, so a long program does not make the page long.
         app.pyEditor.setVerticalScrollBarEnabled(true);
+        // A drag in the editor scrolls it while it can go that way; at its top or end the page takes
+        // the drag, so the page above stays reachable with a finger.
+        final float[] lastY = new float[1];
         app.pyEditor.setOnTouchListener((v, ev) -> {
-            if (v.canScrollVertically(1) || v.canScrollVertically(-1)) v.getParent().requestDisallowInterceptTouchEvent(true);
-            if (ev.getActionMasked() == android.view.MotionEvent.ACTION_UP || ev.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+            int action = ev.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                lastY[0] = ev.getY();
+                v.getParent().requestDisallowInterceptTouchEvent(v.canScrollVertically(1) || v.canScrollVertically(-1));
+            } else if (action == android.view.MotionEvent.ACTION_MOVE) {
+                float dy = ev.getY() - lastY[0];
+                lastY[0] = ev.getY();
+                if (dy != 0) v.getParent().requestDisallowInterceptTouchEvent(v.canScrollVertically(dy > 0 ? -1 : 1));
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
                 v.getParent().requestDisallowInterceptTouchEvent(false);
             }
             return false;
         });
         app.pyPane.addView((View)this.pkEditorCaption);
         app.pyPane.addView((View)app.pyEditor, new android.widget.LinearLayout.LayoutParams(-1, app.dp(360)));
+        // With the keyboard up the page is short: the editor is made lower so the rows above it
+        // stay on screen to tap and to drag the page by.
+        scroll.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int want = Math.min(app.dp(360), Math.max(app.dp(140), (b - t) - app.dp(120)));
+            android.view.ViewGroup.LayoutParams lp = app.pyEditor.getLayoutParams();
+            if (b - t > 0 && lp != null && lp.height != want) {
+                lp.height = want;
+                app.pyEditor.post(() -> app.pyEditor.setLayoutParams(lp));
+            }
+        });
         scroll.addView((View)app.pyPane, new android.widget.FrameLayout.LayoutParams(-1, -2));
         frameLayout.addView((View)scroll);
     }
