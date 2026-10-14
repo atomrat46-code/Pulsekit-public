@@ -5121,7 +5121,7 @@ public class BehaviorTest {
     out.append("no Preview on --prompt: ").append(dv.findViewWithTag("params-preview:--prompt") == null).append('\n');
     preview.performClick();
     idle();
-    AlertDialog shown = PyJavParams.lastPreview;
+    AlertDialog shown = PyJavParams.lastParamsPreview;
     if (shown == null || !shown.isShowing()) throw new AssertionError("no preview dialog");
     out.append("preview: ").append(org.robolectric.Shadows.shadowOf(shown).getTitle()).append(", image ")
         .append(shown.getWindow().getDecorView().findViewWithTag("params-preview-image") != null).append('\n');

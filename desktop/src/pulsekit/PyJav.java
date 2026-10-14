@@ -1796,7 +1796,7 @@ final class PyJav {
 
     /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */
     /** The Preview shown last, for the tests. */
-    javax.swing.JDialog lastPreview;
+    javax.swing.JDialog lastParamsPreview;
 
     /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
     void previewPicture(String path) {
@@ -1823,7 +1823,7 @@ final class PyJav {
         }
         javax.swing.JDialog dialog = pane.createDialog(app, new File(path).getName());
         dialog.setModal(false);
-        this.lastPreview = dialog;
+        this.lastParamsPreview = dialog;
         dialog.setVisible(true);
     }
 

@@ -4547,7 +4547,7 @@ public final class DesktopBehavior {
       seen.append("no Preview on --prompt: ").append(component(d, "params-preview:--prompt") == null).append('\n');
       preview.doClick();
       try {
-        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastPreview").get(pyJav);
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
         seen.append("preview: ").append(shown == null ? "none" : shown.getTitle() + ", image " + (component(shown.getContentPane(), "params-preview-image") != null)).append('\n');
       } catch (Exception ex) {
         throw new RuntimeException(ex);

@@ -404,7 +404,7 @@ public final class PyJavParams {
   }
 
   /** The Preview shown last, for the tests. */
-  static AlertDialog lastPreview;
+  static AlertDialog lastParamsPreview;
 
   /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
   static void previewPicture(Activity activity, String path) {
@@ -431,7 +431,7 @@ public final class PyJavParams {
       dialog.setMessage(bounds.outWidth + " \u00d7 " + bounds.outHeight);
       dialog.setView(image);
     }
-    lastPreview = dialog.show();
+    lastParamsPreview = dialog.show();
   }
 
   static String fileLabel(String path) {
