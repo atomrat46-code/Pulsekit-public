@@ -5445,6 +5445,9 @@ public class BehaviorTest {
     PromptVault vault = PromptVault.open(app.getFilesDir());
     out.append("prompt files: ").append(vault.promptFiles().size()).append(", in Ref files ").append(vault.referenceFiles().size()).append('\n');
     if (vault.promptFiles().size() != 1 || line.contains("saved ")) throw new AssertionError(out.toString());
+    // Saved to disk (when the DB cannot keep it), a sheet keeps its .prompt ending: not text/plain, which Download gave a .txt.
+    out.append("type on disk: ").append(ArtJava.mimeOf("sogni-pedit-smile.prompt")).append('\n');
+    if (!"application/octet-stream".equals(ArtJava.mimeOf("sogni-pedit-smile.prompt"))) throw new AssertionError(out.toString());
     // Prompts page: Prompt files.
     android.widget.LinearLayout pane = PromptSheet.create(app);
     idle();
