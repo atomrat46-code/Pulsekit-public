@@ -22,6 +22,14 @@ import java.util.*;
  * category Music): the command that makes it again with the settings it used, and the MIDI as its
  * result file. On the phone PyJav keeps it in the prompt library.
  *
+ * --count N: a batch of N grooves in one run, each in a random style (or one of --styles, a comma
+ * list) with random settings in that style's range: tempo, bars, swing, intensity, hats, humanize,
+ * fills, crashes, half time and now and then a 3/4 or 6/8. A setting given (--bars 8, --timesig 4/4,
+ * --no-fills...) holds for every file. They go into --outdir (default midi-batch-<seed>) as
+ * gen-001-funk-104bpm.mid..., with batch.txt listing each file's settings. --seed N makes the same
+ * batch again (default: from the clock, printed). vst_render.py --dir <folder> --test renders and
+ * scores them; CompareHits --batch <folder> then sums its results per style.
+ *
  * --towav: PyJav then plays the MIDI into a WAV with Midi2Wav (Pulsekit's kit).
  * --test: PyJav then runs Midi2Wav's test on it: the WAV, DrumMidi_CRT on the WAV, and CompareHits
  * on the results against this MIDI (the drums played), ending with a report.
@@ -29,7 +37,8 @@ import java.util.*;
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test]";
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] "
+            + "[--count N] [--outdir <folder>] [--seed N] [--styles rock,funk,...]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
@@ -463,11 +472,13 @@ public class MidiDrumGen {
             }
         }
 
-        public void write(String path) {
+        public boolean write(String path) {
             try {
                 MidiSystem.write(sequence, 1, new File(path));
+                return true;
             } catch (Exception e) {
                 e.printStackTrace();
+                return false;
             }
         }
     }
@@ -921,26 +932,37 @@ public class MidiDrumGen {
         boolean fills = true, crashes = true, halfTime = true;
         boolean anyTempo = false;
         boolean savePrompt = false;
-        String tempoNote = null;
         int tsNum = 4, tsDen = 4;
         boolean tsGiven = false;
         String output = "drum_track_full_db.mid";
+        int count = 0;
+        String outdir = null;
+        Long seed = null;
+        String styles = null;
+        boolean styleGiven = false, tempoGiven = false, swingGiven = false, intensityGiven = false, hatsGiven = false, humanizeGiven = false;
+        boolean fillsGiven = false, crashesGiven = false, halfTimeGiven = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--style": style = args[++i].toLowerCase().replace(" ", "_").replace("-", "_"); break;
-                case "--tempo": case "--bpm": tempo = (int) Math.round(Double.parseDouble(args[++i])); break;
+                case "--style": style = args[++i].toLowerCase().replace(" ", "_").replace("-", "_"); styleGiven = true; break;
+                case "--tempo": tempo = (int) Math.round(Double.parseDouble(args[++i])); tempoGiven = true; break;
+                // PyJav passes the app's tempo as --bpm: a batch picks its own unless --tempo is given.
+                case "--bpm": tempo = (int) Math.round(Double.parseDouble(args[++i])); break;
                 case "--bars": bars = Integer.parseInt(args[++i]); break;
-                case "--swing": swing = Double.parseDouble(args[++i]); break;
-                case "--intensity": intensity = Integer.parseInt(args[++i]); break;
-                case "--hats": hats = args[++i]; break;
-                case "--humanize": humanize = Integer.parseInt(args[++i]); break;
-                case "--fills": fills = true; break;
-                case "--no-fills": fills = false; break;
-                case "--crashes": crashes = true; break;
-                case "--no-crashes": crashes = false; break;
-                case "--half-time": halfTime = true; break;
-                case "--no-half-time": halfTime = false; break;
+                case "--swing": swing = Double.parseDouble(args[++i]); swingGiven = true; break;
+                case "--intensity": intensity = Integer.parseInt(args[++i]); intensityGiven = true; break;
+                case "--hats": hats = args[++i]; hatsGiven = !hats.equals("auto"); break;
+                case "--humanize": humanize = Integer.parseInt(args[++i]); humanizeGiven = true; break;
+                case "--fills": fills = true; fillsGiven = true; break;
+                case "--no-fills": fills = false; fillsGiven = true; break;
+                case "--crashes": crashes = true; crashesGiven = true; break;
+                case "--no-crashes": crashes = false; crashesGiven = true; break;
+                case "--half-time": halfTime = true; halfTimeGiven = true; break;
+                case "--no-half-time": halfTime = false; halfTimeGiven = true; break;
+                case "--count": count = Integer.parseInt(args[++i].trim()); break;
+                case "--outdir": outdir = args[++i]; break;
+                case "--seed": seed = Long.parseLong(args[++i].trim()); break;
+                case "--styles": styles = args[++i]; break;
                 case "--any-tempo": anyTempo = true; break;
                 case "--saveprompt": savePrompt = true; break;
                 // PyJav's, after the run (Midi2Wav, its test): nothing for the program to do.
@@ -966,6 +988,137 @@ public class MidiDrumGen {
             }
         }
 
+        if (count > 0) {
+            batch(count, outdir, seed, styles, styleGiven ? style : null, tempoGiven ? tempo : null, bars, swingGiven ? swing : null,
+                    intensityGiven ? intensity : null, hatsGiven ? hats : null, humanizeGiven ? Integer.valueOf(humanize) : null,
+                    fillsGiven ? Boolean.valueOf(fills) : null, crashesGiven ? Boolean.valueOf(crashes) : null,
+                    halfTimeGiven ? Boolean.valueOf(halfTime) : null, anyTempo, tsGiven ? new int[] {tsNum, tsDen} : null);
+            return;
+        }
+        generate(style, tempo, bars, swing, intensity, hats, humanize, fills, crashes, halfTime, anyTempo, savePrompt, tsNum, tsDen, tsGiven, output, true);
+    }
+
+    /** The hat patterns a batch picks from (besides the style's own). */
+    static final String[] HATS = {"8ths", "16ths", "offbeat"};
+
+    /**
+     * --count: `count` grooves, each in a random style (from `styles`, a comma list, else all) with
+     * random settings in its range; a setting given (not null) holds for all. They go into `outdir`
+     * with batch.txt listing each one's settings. In PyJav on the phone (its work folder is the only
+     * place kept) they go into the work folder, named <folder>-gen-001-....
+     */
+    static void batch(int count, String outdir, Long seedGiven, String styles, String style, Integer tempo, Integer bars, Double swing,
+            Integer intensity, String hats, Integer humanize, Boolean fills, Boolean crashes, Boolean halfTime, boolean anyTempo, int[] ts) {
+        if (count > 1000) {
+            System.out.println("Failed: --count is at most 1000");
+            return;
+        }
+        long seed = seedGiven != null ? seedGiven.longValue() : System.currentTimeMillis() % 1000000L;
+        Random rnd = new Random(seed);
+        List<String> pool = new ArrayList<String>();
+        if (style != null) pool.add(style);
+        else if (styles != null && styles.trim().length() > 0) {
+            for (String one : styles.split(",")) {
+                String id = one.trim().toLowerCase().replace(" ", "_").replace("-", "_");
+                if (id.length() == 0) continue;
+                if (!DEFAULTS.containsKey(id)) {
+                    System.out.println("Failed: unknown style " + one.trim() + " in --styles");
+                    return;
+                }
+                if (!pool.contains(id)) pool.add(id);
+            }
+        } else {
+            for (String id : STYLES) if (DEFAULTS.containsKey(id)) pool.add(id);
+        }
+        if (pool.isEmpty()) {
+            System.out.println("Failed: no styles to pick from");
+            return;
+        }
+        String folderName = outdir == null || outdir.trim().length() == 0 ? "midi-batch-" + seed : outdir.trim();
+        File dir;
+        String prefix = "";
+        if (work != null && work.length() > 0 && !new File(folderName).isAbsolute()) {
+            dir = new File(work);
+            prefix = new File(folderName).getName() + "-";
+        } else {
+            dir = new File(folderName);
+        }
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            System.out.println("Failed: could not make the folder " + dir.getPath());
+            return;
+        }
+        System.out.println(String.format(Locale.US, "MidiDrumGen batch: %d grooves, seed %d, %s, into %s", count, seed,
+                style != null ? "style " + style : pool.size() + " style" + (pool.size() == 1 ? "" : "s"), dir.getPath()));
+        StringBuilder list = new StringBuilder();
+        list.append("# MidiDrumGen batch: ").append(count).append(" grooves, seed ").append(seed).append('\n');
+        list.append("# Again: MidiDrumGen --count ").append(count).append(" --seed ").append(seed)
+                .append(styles != null && style == null ? " --styles " + styles.trim().replace(" ", "") : "").append('\n');
+        list.append("file\tstyle\tbase\ttempo\ttimesig\tbars\tswing\tintensity\thats\thumanize\tfills\tcrashes\thalftime\n");
+        int made = 0;
+        for (int i = 1; i <= count; i++) {
+            String id = pool.get(rnd.nextInt(pool.size()));
+            DefaultArgs d = DEFAULTS.get(id);
+            int lo = d.minTempo > 0 && d.maxTempo >= d.minTempo ? d.minTempo : Math.max(40, (int) Math.round(d.tempo * 0.9));
+            int hi = d.minTempo > 0 && d.maxTempo >= d.minTempo ? d.maxTempo : Math.min(300, (int) Math.round(d.tempo * 1.1));
+            int fTempo = tempo != null ? tempo.intValue() : lo + rnd.nextInt(hi - lo + 1);
+            int[] barChoices = {4, 8, 8, 16};
+            int fBars = bars != null ? bars.intValue() : barChoices[rnd.nextInt(barChoices.length)];
+            // The style's own swing, a little more or less; a straight style now and then swung a little.
+            double fSwing = swing != null ? (swing > 1 ? swing / 100.0 : swing)
+                    : d.swing > 0 ? clampDouble(d.swing + (rnd.nextDouble() - 0.5) * 0.1, 0.0, 0.5) : (rnd.nextInt(5) == 0 ? 0.05 + rnd.nextDouble() * 0.1 : 0.0);
+            int fIntensity = intensity != null ? intensity.intValue() : clamp(d.intensity - 2 + rnd.nextInt(5), 1, 10);
+            String fHats = hats != null ? hats : rnd.nextInt(5) < 3 ? d.hats : HATS[rnd.nextInt(HATS.length)];
+            int fHumanize = humanize != null ? humanize.intValue() : 2 + rnd.nextInt(7);
+            boolean fFills = fills != null ? fills.booleanValue() : rnd.nextInt(7) != 0;
+            boolean fCrashes = crashes != null ? crashes.booleanValue() : rnd.nextInt(7) != 0;
+            boolean fHalf = halfTime != null ? halfTime.booleanValue() : rnd.nextBoolean();
+            int tsNum = d.tsNum, tsDen = d.tsDen;
+            if (ts != null) {
+                tsNum = ts[0];
+                tsDen = ts[1];
+            } else if (tsNum == 4 && tsDen == 4 && rnd.nextInt(10) == 0) {
+                // Now and then a 4/4 style in 3/4 or 6/8.
+                if (rnd.nextBoolean()) tsNum = 3;
+                else {
+                    tsNum = 6;
+                    tsDen = 8;
+                }
+            }
+            String name = String.format(Locale.US, "%sgen-%03d-%s-%dbpm%s.mid", prefix, i, id, fTempo, tsNum == 4 && tsDen == 4 ? "" : "-" + tsNum + "-" + tsDen);
+            String wrote = generate(id, fTempo, fBars, fSwing, fIntensity, fHats, fHumanize, fFills, fCrashes, fHalf, anyTempo || tempo == null,
+                    false, tsNum, tsDen, true, new File(dir, name).getPath(), false);
+            if (wrote == null) {
+                System.out.println("Could not write " + name);
+                continue;
+            }
+            made++;
+            list.append(String.format(Locale.US, "%s\t%s\t%s\t%d\t%d/%d\t%d\t%.2f\t%d\t%s\t%d\t%s\t%s\t%s\n", name, id, resolveStyle(id), fTempo, tsNum, tsDen,
+                    fBars, fSwing, fIntensity, fHats.equals("auto") ? d.hats : fHats, fHumanize, fFills ? "on" : "off", fCrashes ? "on" : "off", fHalf ? "on" : "off"));
+        }
+        File listFile = new File(dir, prefix + "batch.txt");
+        try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(listFile);
+            try {
+                fos.write(list.toString().getBytes(StandardCharsets.UTF_8));
+            } finally {
+                fos.close();
+            }
+            System.out.println("Wrote " + listFile.getName() + " (each groove's settings)");
+        } catch (java.io.IOException ex) {
+            System.out.println("Could not write " + listFile.getName());
+        }
+        System.out.println("Next: vst_render.py --dir \"" + dir.getPath() + "\" --plugin <plugin> --test, then CompareHits --batch \"" + dir.getPath() + "\"");
+        System.out.println(made == count ? "Succeeded: " + made + " grooves" : "Failed: " + made + " of " + count + " grooves written");
+    }
+
+    /**
+     * One groove into `output` (in PyJav's work folder when it is a bare name and `inWork`); returns
+     * its "Wrote ..." line, or null when it could not be written.
+     */
+    static String generate(String style, Integer tempo, Integer bars, Double swing, Integer intensity, String hats, int humanize,
+            boolean fills, boolean crashes, boolean halfTime, boolean anyTempo, boolean savePrompt, int tsNum, int tsDen, boolean tsGiven,
+            String output, boolean inWork) {
+        String tempoNote = null;
         DefaultArgs d = DEFAULTS.getOrDefault(style, DEFAULTS.get("hard_rock"));
         int fTempo = clamp(tempo != null ? tempo : d.tempo, 40, 300);
         // A tempo given (--tempo, or PyJav's --bpm) stays in the style's range from the style database,
@@ -994,8 +1147,8 @@ public class MidiDrumGen {
         DrumWriter w = new DrumWriter(fTempo, fHumanize, tsNum, tsDen);
         arrange(w, style, fBars, fSwing, fIntensity, fHats, crashes, fills, halfTime, tsNum, tsDen);
         // In PyJav (pulsekit.work set) a bare name goes in its work folder, so the MIDI is imported.
-        if (work != null && work.length() > 0 && !new File(output).isAbsolute()) output = new File(work, output).getPath();
-        w.write(output);
+        if (inWork && work != null && work.length() > 0 && !new File(output).isAbsolute()) output = new File(work, output).getPath();
+        if (!w.write(output)) return null;
 
         String wrote = String.format(Locale.US, "Wrote %s (style=%s base=%s tempo=%d timesig=%d/%d bars=%d swing=%.2f intensity=%d hats=%s)",
                 new File(output).getName(), style, resolveStyle(style), fTempo, tsNum, tsDen, fBars, fSwing, fIntensity, fHats);
@@ -1011,6 +1164,7 @@ public class MidiDrumGen {
             File sheet = savePrompt(output, command + "\n\n" + settings, new File(output).getName(), tempoNote);
             System.out.println(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
         }
+        return wrote;
     }
 
     /**
