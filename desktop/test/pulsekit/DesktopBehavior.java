@@ -4671,8 +4671,7 @@ public final class DesktopBehavior {
     if (!order.get().equals("[Portrait lit \u00b7 v1]") || !"Portrait".equals(preset[0])) throw new AssertionError(out.toString());
     // An audio input carries over to a program taking a sound, not to SogniPedit (its picture took the sound's name).
     for (String program : new String[] {"SogniPedit.java", "CutWav.java", "Wav2Mp3.java"}) {
-      java.io.File f = new java.io.File("../Programs/Java/" + program);
-      if (!f.isFile()) f = new java.io.File("Programs/Java/" + program);
+      java.io.File f = new java.io.File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/" + program);
       byte[] src = java.nio.file.Files.readAllBytes(f.toPath());
       String hint = PyJavHints.status(program, new String(src, StandardCharsets.UTF_8), null);
       out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
