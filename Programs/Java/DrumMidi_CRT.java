@@ -91,6 +91,18 @@ public class DrumMidi_CRT{
      */
     static final double GHOST_PITCH_LO = 0.95, GHOST_PITCH_HI = 1.25, GHOST_LIKE = 0.9;
     static final int GHOST_SNARES = 16;
+    /**
+     * The softest ghost notes (a body rise under GHOST_JUMP on the song's scale): picked at
+     * SOFT_GHOST_DELTA of the peak threshold, they need the kick band to stay under SOFT_GHOST_KICK,
+     * their body to reach SOFT_GHOST_LEVEL of the loud snares' and to rise SOFT_GHOST_RISE times
+     * over 3 frames, and the loud snares' pitch and spectrum (SOFT_GHOST_LIKE). Only for a dry snare:
+     * where the loud snares still ring SOFT_GHOST_RING of their body RING_FRAMES (~175 ms) on (a
+     * room, a plate, a sampled kit's snare buzzing with the other drums: 0.13-1.3; dry kits
+     * 0.00-0.09), their ring matches the snare too.
+     */
+    static final double SOFT_GHOST_DELTA = 0.07, SOFT_GHOST_KICK = 0.1,
+        SOFT_GHOST_LEVEL = 0.05, SOFT_GHOST_LIKE = 0.85, SOFT_GHOST_RISE = 2.0, SOFT_GHOST_RING = 0.1;
+    static final int RING_FRAMES = 15;
     static final double GHOST_DELTA = 0.5;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
@@ -111,6 +123,8 @@ public class DrumMidi_CRT{
      */
     static final double KICK_SHARE = 0.15, KICK_SAME = 0.04, KICK_SHARE_SUB = 0.5;
     static final int KICK_SHARE_MIN = 8, KICK_SHARE_HITS = 64;
+    /** A pitch KICK_MOST of the song's kicks read is the kick's whatever its low end (toms share one pitch by 7 at most). */
+    static final double KICK_MOST = 0.4, KICK_MOST_SUB = 0.26;
     /** A tom's level under 70 Hz stays under TOM_LOW_END of its level at its pitch (0.09-0.45 seen). */
     static final double TOM_LOW_END = 0.5;
     /** A shuffle's beat repeats at least this share as well as its dotted beat (estimateBpm). */
@@ -484,6 +498,23 @@ public class DrumMidi_CRT{
             snarePeaks.add(p);
             snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
             hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+        }
+        // Softest ghost notes: their body hardly rises on the song's scale, but it rises, at the
+        // loud snares' pitch and with their spectrum, to SOFT_GHOST_LEVEL of their body or more.
+        double loudBody = loudSnare.rawBody(lv.bodyRaw, hits, sr);
+        double ring = loudSnare.ring(lv.bodyRaw, hits, sr);
+        if (loudBody > 0 && ring < SOFT_GHOST_RING) {
+            for (Integer p : pickPeaks(snare, delta * SOFT_GHOST_DELTA, 3)) {
+                int t = p.intValue();
+                if (near[t] || t < 3 || jump(kickLevel, t) >= SOFT_GHOST_KICK) continue;
+                double peakRaw = Math.max(lv.bodyRaw[t], lv.bodyRaw[Math.min(lv.bodyRaw.length - 1, t + 2)]);
+                if (peakRaw < SOFT_GHOST_LEVEL * loudBody || peakRaw < SOFT_GHOST_RISE * lv.bodyRaw[t - 3]) continue;
+                if (!loudSnare.ghost(mag, t, SOFT_GHOST_LIKE)) continue;
+                mark(near, t, 2);
+                snarePeaks.add(p);
+                snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+            }
         }
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
@@ -1419,6 +1450,10 @@ public class DrumMidi_CRT{
             // so does one at a pitch many of the song's kicks read.
             if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
             if (sharedPitch(p, p[i]) && lowEnd(mag, t, p[i], sr) >= KICK_SHARE_SUB) continue;
+            // A pitch most of the song's kicks read is the kick's with less of a low end than
+            // KICK_SHARE_SUB asks (a kick processed so its second partial rings over the
+            // fundamental: 0.28-0.47 there), but more than toms have (KICK_MOST_SUB; 0.06-0.24).
+            if (sharedPitch(p, p[i], KICK_MOST) && lowEnd(mag, t, p[i], sr) >= KICK_MOST_SUB) continue;
             // Wires ringing at a kick are a snare struck with it; where no snare was found there and
             // the low end is weak (TOM_LOW_END; a kick keeps it), the snare's wires buzz with a tom.
             boolean wires = wiresLeft(noiseLevel, t) >= TOM_WIRES && (snareAt[t] || lowEnd(mag, t, p[i], sr) >= TOM_LOW_END);
@@ -1442,9 +1477,13 @@ public class DrumMidi_CRT{
 
     /** Whether KICK_SHARE of the pitches (KICK_SHARE_MIN at least) are within KICK_SAME of `pitch`. */
     static boolean sharedPitch(double[] pitches, double pitch) {
+        return sharedPitch(pitches, pitch, KICK_SHARE);
+    }
+
+    static boolean sharedPitch(double[] pitches, double pitch, double share) {
         int near = 0;
         for (double q : pitches) if (Math.abs(q - pitch) <= KICK_SAME * pitch) near++;
-        return pitches.length >= KICK_SHARE_HITS && near >= Math.max(KICK_SHARE_MIN, KICK_SHARE * pitches.length);
+        return pitches.length >= KICK_SHARE_HITS && near >= Math.max(KICK_SHARE_MIN, share * pitches.length);
     }
 
     /** The level under 70 Hz at a hit, in units of the level at its pitch (a kick keeps it, a tom has little). */
@@ -1488,8 +1527,45 @@ public class DrumMidi_CRT{
             for (int k = Math.max(0, t); k <= Math.min(mag.length - 1, t + 3); k++) for (int b = b0; b <= b1; b++) v[b - b0] += mag[k][b];
         }
 
+        /** The loud snares' body level (median of its peaks at them, unnormalized); 0 with too few. */
+        double rawBody(double[] bodyRaw, List<Hit> hits, double sr) {
+            if (count < GHOST_SNARES) return 0;
+            List<Double> v = new ArrayList<Double>();
+            for (Hit h : hits) {
+                if (h.note != SNARE_NOTE) continue;
+                int t = (int) Math.round(h.time * sr / HOP);
+                if (t < 0 || t >= bodyRaw.length) continue;
+                v.add(Double.valueOf(Math.max(bodyRaw[t], bodyRaw[Math.min(bodyRaw.length - 1, t + 2)])));
+            }
+            if (v.isEmpty()) return 0;
+            Collections.sort(v);
+            return v.get(v.size() / 2).doubleValue();
+        }
+
+        /**
+         * How long the loud snares ring (a room or a reverb): the median of their body level
+         * RING_FRAMES after the peak over the peak. A dry kit's snare has died by then.
+         */
+        double ring(double[] bodyRaw, List<Hit> hits, double sr) {
+            List<Double> v = new ArrayList<Double>();
+            for (Hit h : hits) {
+                if (h.note != SNARE_NOTE) continue;
+                int t = (int) Math.round(h.time * sr / HOP);
+                if (t < 0 || t + RING_FRAMES >= bodyRaw.length) continue;
+                double pk = Math.max(bodyRaw[t], bodyRaw[t + 2]);
+                if (pk > 0) v.add(Double.valueOf(bodyRaw[t + RING_FRAMES] / pk));
+            }
+            if (v.isEmpty()) return 1;
+            Collections.sort(v);
+            return v.get(v.size() / 2).doubleValue();
+        }
+
         /** A snare's body pitch and spectrum at frame t: a ghost note. */
         boolean ghost(float[][] mag, int t) {
+            return ghost(mag, t, GHOST_LIKE);
+        }
+
+        boolean ghost(float[][] mag, int t, double like) {
             if (count < GHOST_SNARES || peak <= 0) return false;
             double[] v = new double[spec.length];
             add(v, mag, t);
@@ -1501,7 +1577,7 @@ public class DrumMidi_CRT{
                 na += v[i] * v[i];
                 nb += spec[i] * spec[i];
             }
-            return na > 0 && nb > 0 && dot / Math.sqrt(na * nb) >= GHOST_LIKE;
+            return na > 0 && nb > 0 && dot / Math.sqrt(na * nb) >= like;
         }
 
         /** Where v peaks, in bins from b0's frequency (b0 + index), between bins. */
