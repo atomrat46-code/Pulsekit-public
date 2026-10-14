@@ -3157,6 +3157,43 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /** A prompt's reference picture shows as a small thumbnail beside its name; a slot without one shows none. */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s118_slot_thumbnails() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(0xff3366cc);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    android.widget.ImageView t1 = null;
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(30);
+      idle();
+      t1 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:1");
+      if (t1 != null && t1.getVisibility() == View.VISIBLE) break;
+    }
+    android.widget.ImageView t2 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:2");
+    out.append("reference 1 thumbnail: ").append(t1 != null && t1.getVisibility() == View.VISIBLE && t1.getDrawable() != null)
+        .append(", reference 2 (none): ").append(t2 != null && t2.getVisibility() == View.VISIBLE).append('\n');
+    if (t1 == null || t1.getVisibility() != View.VISIBLE || t2.getVisibility() == View.VISIBLE) throw new AssertionError(out.toString());
+    pid.set(null, 0L);
+    write("s118_slot_thumbnails", out.toString());
+  }
+
   /**
    * MidiDrumGen --count: a batch run is not given the app's style, bars, swing and time signature
    * (one groove still is); a batch's plain folder names are made whole; Params label the switches.
@@ -5501,6 +5538,13 @@ public class BehaviorTest {
       return o.toString();
     };
     out.append("favourites: ").append(order.get()).append('\n');
+    // Collapsed like Select program: its row opens the list.
+    TextView favToggle = (TextView) pane.findViewWithTag("prompts-favourites-toggle");
+    out.append("toggle: ").append(favToggle.getText()).append(", list shown ").append(pane.findViewWithTag("prompts-favourites-list").getVisibility() == View.VISIBLE).append('\n');
+    favToggle.performClick();
+    idle();
+    out.append("opened: ").append(favToggle.getText()).append(", list shown ").append(pane.findViewWithTag("prompts-favourites-list").getVisibility() == View.VISIBLE).append('\n');
+    if (pane.findViewWithTag("prompts-favourites-list").getVisibility() != View.VISIBLE) throw new AssertionError(out.toString());
     pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
     idle();
     AlertDialog menu = FavouriteMenu.last;

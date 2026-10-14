@@ -4630,6 +4630,11 @@ public final class DesktopBehavior {
       page.rebuild();
     });
     out.append("favourites: ").append(order.get()).append('\n');
+    // Collapsed like Select program: its row opens the list.
+    final javax.swing.JButton favToggle = (javax.swing.JButton) component(frame, "prompts-favourites-toggle");
+    out.append("toggle: ").append(favToggle.getText()).append(", list shown ").append(component(frame, "prompts-favourite-menu:Portrait \u00b7 v1").isShowing()).append('\n');
+    edt(favToggle::doClick);
+    out.append("opened: ").append(favToggle.getText()).append(", list shown ").append(component(frame, "prompts-favourite-menu:Portrait \u00b7 v1").isShowing()).append('\n');
     for (String[] step : new String[][] {{"v1", "Move down"}, {"v2", "Remove from favourites"}}) {
       final StringBuilder items = new StringBuilder();
       edt(() -> {
@@ -4677,6 +4682,28 @@ public final class DesktopBehavior {
       out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
       if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
     }
+  }
+
+  /** A prompt's reference picture shows as a small thumbnail on its name; a slot without one shows none. */
+  void s102_slot_thumbnails() throws Exception {
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    call("showView", "prompts");
+    edt(() -> {
+      page.openPrompt(id);
+      page.loadVersion(v1);
+    });
+    for (int i = 0; i < 100 && page.promptRef1.getIcon() == null; i++) Thread.sleep(30);
+    idle();
+    out.append("reference 1 thumbnail: ").append(page.promptRef1.getIcon() == null ? "none" : page.promptRef1.getIcon().getIconWidth() + "x" + page.promptRef1.getIcon().getIconHeight())
+        .append(", reference 2 (none): ").append(page.promptRef2.getIcon() != null).append('\n');
+    if (page.promptRef1.getIcon() == null || page.promptRef2.getIcon() != null) throw new AssertionError(out.toString());
   }
 
   /**
