@@ -464,6 +464,52 @@ public final class DesktopBehavior {
     out.append("cut file: ").append(back == null ? "none" : String.format("%.3f s", back.samples.length / (double) back.sr)).append('\n');
   }
 
+  /**
+   * Wav2Mp3: one WAV as an MP3 (the length and level back, through the app's decoder, gapless),
+   * then a folder of them at once (--dir, --outdir) at another bitrate, in mono.
+   */
+  void s98_wav2mp3_program() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take three.wav");
+    short[] pcm = new short[44100 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 44100));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 44100));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Wav2Mp3.java");
+    edt(() -> call("setInputFile", wav));
+    out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Read") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    File mp3 = new File(home, "take three.mp3");
+    if (!mp3.isFile()) throw new AssertionError("no MP3: " + log.getText());
+    AudioIo.Pcm back = Mp3Decode.parse(Files.readAllBytes(mp3.toPath()));
+    double peak = 0;
+    for (float f : back.samples) peak = Math.max(peak, Math.abs(f));
+    out.append(String.format(java.util.Locale.ROOT, "MP3 decoded: %d samples at %d Hz (the WAV: %d), peak %.2f (the WAV: %.2f)%n", back.samples.length, back.sr, pcm.length, peak, 8000 / 32768.0));
+    if (back.samples.length != pcm.length || Math.abs(peak - 8000 / 32768.0) > 0.03) throw new AssertionError(out.toString());
+    // A folder at once: two WAVs, to another folder, 128 kbps mono.
+    File folder = new File(home, "takes");
+    folder.mkdirs();
+    Files.write(new File(folder, "a.wav").toPath(), AudioIo.encodeWav(pcm, 44100));
+    Files.write(new File(folder, "b.wav").toPath(), AudioIo.encodeWav(java.util.Arrays.copyOf(pcm, 22050), 22050));
+    File mp3s = new File(home, "mp3s");
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir " + folder.getAbsolutePath() + " --outdir " + mp3s.getAbsolutePath() + " --bitrate 128 --mode mono"));
+    edt(() -> log.setText(""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("Wav2Mp3:") || line.startsWith("Wrote") || line.startsWith("Resampled") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    String[] made = mp3s.list();
+    java.util.Arrays.sort(made);
+    out.append("in mp3s: ").append(String.join(", ", made)).append('\n');
+    if (made.length != 2) throw new AssertionError(out.toString());
+  }
+
   void s27_splitwav_program() throws Exception {
     File home = new File(System.getProperty("user.home"));
     File wav = new File(home, "take two.wav");

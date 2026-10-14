@@ -91,6 +91,8 @@ public final class ProgramParams {
     boolean splitWav = has(out, "--output_file1") && has(out, "--output_file2");
     // CutWav: one WAV cut at a time or size (--split_time).
     boolean cutWav = has(out, "--split_time");
+    // Wav2Mp3: a WAV (or a folder of them) as MP3, at a bitrate and stereo mode, with tags.
+    boolean wav2mp3 = has(out, "--bitrate") && has(out, "--mode") && has(out, "--album");
     // CompareHits: a WAV and two MIDI files (the source and the song).
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
@@ -113,8 +115,8 @@ public final class ProgramParams {
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     for (Param p : out) {
       known(p, drumMidi, chat);
-      // DrumMidi's, CompareHits', SplitWav's and CutWav's audio input can also come from the prompt library (Browse DB, sound files only).
-      if ((drumMidi || compareHits || splitWav || cutWav) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
+      // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
+      if ((drumMidi || compareHits || splitWav || cutWav || wav2mp3) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       // DrumMidi's and CompareHits' audio input can be a MIDI from the library too, played with the kit to a WAV.
       if ((drumMidi || compareHits) && !p.flag && p.isFile() && isAudio(p)) p.midiAsAudio = true;
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
@@ -125,7 +127,8 @@ public final class ProgramParams {
       if (midi2wav) knownMidi2Wav(p);
       if (midi2hydro) knownMidi2Hydro(p);
       if (vstRender) knownVstRender(p);
-      if (splitWav || cutWav) knownWavFolder(p);
+      if (splitWav || cutWav || wav2mp3) knownWavFolder(p);
+      if (wav2mp3) knownWav2Mp3(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -557,7 +560,37 @@ public final class ProgramParams {
     }
   }
 
-  /** SplitWav's and CutWav's folder switches: every WAV in a folder at once. */
+  /** Wav2Mp3's labels: the output, the bitrate and stereo mode as choices, and the ID3 tags. */
+  private static void knownWav2Mp3(Param p) {
+    if (!p.flag && p.output) {
+      p.label = "Output MP3 name";
+      p.hint = "optional; <input>.mp3";
+    } else if (!p.flag && p.isFile()) {
+      p.label = "WAV to turn into MP3";
+      p.hint = "8, 16, 24 or 32-bit, or float; mono or stereo";
+    } else if (p.token.equals("--bitrate")) {
+      p.label = "Bitrate";
+      p.hint = "192 kbps (default)";
+      p.choices = new String[] {"32 kbps", "64 kbps", "96 kbps", "128 kbps", "160 kbps", "192 kbps (default)", "224 kbps", "256 kbps", "320 kbps (best)"};
+      p.choiceValues = new String[] {"32", "64", "96", "128", "160", "192", "224", "256", "320"};
+    } else if (p.token.equals("--mode")) {
+      p.label = "Stereo mode";
+      p.hint = "joint (default)";
+      p.choices = new String[] {"joint stereo (default: mid/side where it helps)", "stereo (left and right apart)", "mono (a stereo WAV is mixed down)"};
+      p.choiceValues = new String[] {"joint", "stereo", "mono"};
+    } else if (p.token.equals("--title")) {
+      p.label = "Title (ID3 tag)";
+      p.hint = "optional";
+    } else if (p.token.equals("--artist")) {
+      p.label = "Artist (ID3 tag)";
+      p.hint = "optional";
+    } else if (p.token.equals("--album")) {
+      p.label = "Album (ID3 tag)";
+      p.hint = "optional";
+    }
+  }
+
+  /** SplitWav's, CutWav's and Wav2Mp3's folder switches: every WAV in a folder at once. */
   private static void knownWavFolder(Param p) {
     if (p.token.equals("--dir")) {
       p.dir = true;

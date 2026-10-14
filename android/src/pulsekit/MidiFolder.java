@@ -13,7 +13,7 @@ import java.util.Locale;
 
 /**
  * A folder picked with the system's picker (a content:// tree) given to a program that reads a
- * folder (--dir): Midi2HydroPattern's MIDI files, SplitWav's and CutWav's WAV files. Its files of
+ * folder (--dir): Midi2HydroPattern's MIDI files, SplitWav's, CutWav's and Wav2Mp3's WAV files. Its files of
  * that kind, and its subfolders' with --recursive, are copied into PyJav's work folder first, as
  * the program cannot read the picker's folder itself. The program's output goes to the work folder, which PyJav saves to
  * Download.
@@ -90,7 +90,7 @@ final class MidiFolder {
      * cannot be written by the program).
      */
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
-        boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program);
+        boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program) || "Wav2Mp3.java".equals(program);
         if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);
         boolean recursive = out.contains("--recursive");

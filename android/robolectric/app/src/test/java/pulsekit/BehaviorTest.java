@@ -5268,6 +5268,47 @@ public class BehaviorTest {
     write("s110_gallery_refresh_swipe", out.toString());
   }
 
+  /**
+   * Wav2Mp3 in PyJav's Java menu: Params has the WAV (also from the library), the bitrate and
+   * stereo mode as choices, the ID3 tags, and the folder rows; picking choices fills the args.
+   */
+  @Test
+  public void s111_wav2mp3_params() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    out.append("Java menu has it: ").append(java.util.Arrays.asList(app.programMenus.list("Java")).contains("Wav2Mp3.java")).append('\n');
+    pickFromMenu("Java \u25be", "Wav2Mp3.java");
+    out.append("hint: ").append(((TextView) get("pkPyHint")).getText().toString().replace("\n", " | ")).append('\n');
+    TextView args = (TextView) get("pkPyArgs");
+    args.setText("");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    out.append("input: ").append(dv.findViewWithTag("params-file:input.wav") != null).append(", Browse DB ").append(dv.findViewWithTag("params-db:input.wav") != null).append('\n');
+    out.append("folder rows: ").append(dv.findViewWithTag("params-dir:--dir") != null).append(' ').append(dv.findViewWithTag("params-dir:--outdir") != null).append('\n');
+    for (String t : new String[] {"--bitrate", "--mode"}) {
+      dv.findViewWithTag("params-choose:" + t).performClick();
+      idle();
+      AlertDialog list = (AlertDialog) ShadowDialog.getLatestDialog();
+      out.append(t).append(": ").append(listItems(list)).append('\n');
+      org.robolectric.Shadows.shadowOf(list).clickOnItem(t.equals("--bitrate") ? itemIndex(list, "320 kbps (best)") : itemIndex(list, "mono (a stereo WAV is mixed down)"));
+      idle();
+    }
+    for (String t : new String[] {"--title", "--artist", "--album"}) {
+      android.widget.EditText f = (android.widget.EditText) dv.findViewWithTag("params-field:" + t);
+      out.append(t).append(": ").append(f == null ? "none" : f.getHint()).append('\n');
+    }
+    ((android.widget.EditText) dv.findViewWithTag("params-field:--title")).setText("Take three");
+    d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("args: ").append(args.getText()).append('\n');
+    String a = args.getText().toString();
+    if (!a.contains("--bitrate 320") || !a.contains("--mode mono") || !a.contains("Take three")) throw new AssertionError(out.toString());
+    write("s111_wav2mp3_params", out.toString());
+  }
+
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */
   @Test
   public void s63_new_chat() throws Exception {
