@@ -343,19 +343,29 @@ public final class Pulsekit extends UiKit {
         jPanel.add((Component)jPanel2, "North");
         JPanel jPanel6 = new JPanel(new BorderLayout(0, 8));
         jPanel6.setOpaque(false);
-        JPanel jPanel7 = new JPanel(new GridLayout(2, 4, 6, 4));
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (the row under the main tabs).
+        JPanel jPanel7 = new JPanel(new GridLayout(1, 6, 6, 4));
         jPanel7.setOpaque(false);
-        this.addTab(jPanel7, "pattern", "Pattern");
-        this.addTab(jPanel7, "combo", "Fillern");
-        this.addTab(jPanel7, "fills", "Fills");
+        this.addTab(jPanel7, DRUM_TRACKS, "Drum Tracks");
         this.addTab(jPanel7, "pads", "Pads");
         this.addTab(jPanel7, "song", "Song");
         this.addTab(jPanel7, "py", "PyJav");
         this.addTab(jPanel7, "prompts", "Prompts");
         this.addFileTab(jPanel7);
+        this.drumSubtabs = new JPanel(new GridLayout(1, 3, 6, 4));
+        this.drumSubtabs.setOpaque(false);
+        this.drumSubtabs.setName("drum-subtabs");
+        this.drumSubtabs.setBorder(BorderFactory.createEmptyBorder(4, 40, 0, 40));
+        this.addTab(this.drumSubtabs, "pattern", "Pattern");
+        this.addTab(this.drumSubtabs, "combo", "Fillern");
+        this.addTab(this.drumSubtabs, "fills", "Fills");
+        JPanel tabRows = new JPanel(new BorderLayout());
+        tabRows.setOpaque(false);
+        tabRows.add((Component)jPanel7, "North");
+        tabRows.add((Component)this.drumSubtabs, "South");
         JPanel jPanel8 = new JPanel(new BorderLayout());
         jPanel8.setOpaque(false);
-        jPanel8.add((Component)jPanel7, "North");
+        jPanel8.add((Component)tabRows, "North");
         this.nowPlaying.setForeground(HIT);
         this.nowPlaying.setFont(new Font("SansSerif", 1, 13));
         this.nowPlaying.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
@@ -549,12 +559,22 @@ public final class Pulsekit extends UiKit {
         return jPanel;
     }
 
+    /** The Drum Tracks tab (Pattern, Fillern and Fills under it), its subtab row, and the subtab shown last. */
+    static final String DRUM_TRACKS = "drums";
+    JPanel drumSubtabs;
+    String lastDrumView = "pattern";
+
+    static boolean drumView(String view) {
+        return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
     void addTab(JPanel jPanel, String string, String string2) {
         JButton jButton = new JButton(string2);
         this.flatten(jButton);
         jButton.setFont(new Font("SansSerif", 1, 13));
         jButton.putClientProperty("tab", string);
-        jButton.addActionListener(actionEvent -> this.showView(string));
+        jButton.setName("tab:" + string);
+        jButton.addActionListener(actionEvent -> this.showView(DRUM_TRACKS.equals(string) ? this.lastDrumView : string));
         jPanel.add(jButton);
         this.tabs.add(jButton);
     }
@@ -676,7 +696,11 @@ public final class Pulsekit extends UiKit {
 
 
     void showView(String string) {
+        if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
         this.view = string;
+        // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
+        if (drumView(string)) this.lastDrumView = string;
+        if (this.drumSubtabs != null) this.drumSubtabs.setVisible(drumView(string));
         if (("pattern".equals(string) || "combo".equals(string)) && !string.equals(this.importedFor)) this.styleLibrary.refreshLearnedChips();
         boolean bl = "fills".equals(string);
         boolean combo = "combo".equals(string);
@@ -790,6 +814,7 @@ public final class Pulsekit extends UiKit {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
+                || (DRUM_TRACKS.equals(tab) && drumView(this.view))
                 || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);

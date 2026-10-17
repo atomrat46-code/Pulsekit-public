@@ -397,18 +397,24 @@ public class MainActivity extends UiKit {
         linearLayout2.addView((View)linearLayout3);
         LinearLayout linearLayout8 = this.col();
         linearLayout8.setPadding(0, this.dp(8), 0, this.dp(2));
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (the row under the main tabs).
         LinearLayout linearLayout9 = this.row();
-        this.addTab(linearLayout9, "pattern", "Pattern");
-        this.addTab(linearLayout9, "combo", "Fillern");
-        this.addTab(linearLayout9, "fills", "Fills");
+        this.addTab(linearLayout9, DRUM_TRACKS, "Drum Tracks");
         this.addTab(linearLayout9, "pads", "Pads");
+        this.addTab(linearLayout9, "song", "Song");
         LinearLayout linearLayout10 = this.row();
         linearLayout10.setPadding(0, this.dp(4), 0, 0);
-        this.addTab(linearLayout10, "song", "Song");
         this.addTab(linearLayout10, "py", "PyJav");
         this.addFileTab(linearLayout10);
+        this.drumSubtabs = this.row();
+        this.drumSubtabs.setPadding(this.dp(16), this.dp(4), this.dp(16), 0);
+        this.drumSubtabs.setTag("drum-subtabs");
+        this.addTab(this.drumSubtabs, "pattern", "Pattern");
+        this.addTab(this.drumSubtabs, "combo", "Fillern");
+        this.addTab(this.drumSubtabs, "fills", "Fills");
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
+        linearLayout8.addView((View)this.drumSubtabs);
         linearLayout2.addView((View)linearLayout8);
         this.now = this.text(" ", 11, true);
         this.now.setTextColor(HIT);
@@ -532,11 +538,20 @@ public class MainActivity extends UiKit {
         return rangeBar;
     }
 
+    /** The Drum Tracks tab (Pattern, Fillern and Fills under it), its subtab row, and the subtab shown last. */
+    static final String DRUM_TRACKS = "drums";
+    LinearLayout drumSubtabs;
+    String lastDrumView = "pattern";
+
+    static boolean drumView(String view) {
+        return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
     void addTab(LinearLayout linearLayout, String string, String string2) {
         TextView textView = this.text(string2, 13, true);
         textView.setGravity(17);
         textView.setTag((Object)string);
-        textView.setOnClickListener(view -> this.show(string));
+        textView.setOnClickListener(view -> this.show(DRUM_TRACKS.equals(string) ? this.lastDrumView : string));
         textView.setPadding(0, this.dp(8), 0, this.dp(8));
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
         layoutParams.setMargins(this.dp(2), 0, this.dp(2), 0);
@@ -564,7 +579,11 @@ public class MainActivity extends UiKit {
 
     void show(String string) {
         this.gridEditor.hideLenMenu();
+        if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
         this.view = string;
+        // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
+        if (drumView(string)) this.lastDrumView = string;
+        if (this.drumSubtabs != null) this.drumSubtabs.setVisibility(drumView(string) ? 0 : 8);
         boolean bl = "song".equals(string);
         boolean bl2 = "py".equals(string);
         boolean bl3 = "pads".equals(string);
@@ -1114,6 +1133,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
+                    || (DRUM_TRACKS.equals(tag) && drumView(this.view))
                     || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);

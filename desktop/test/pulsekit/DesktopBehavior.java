@@ -4685,6 +4685,29 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Drum Tracks: one main tab, with Pattern, Fillern and Fills as its subtabs under the main tabs
+   * (shown with them only); the tab opens the subtab used last.
+   */
+  void s113_drum_tracks_tab() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    final Container root = frame.getContentPane();
+    java.util.function.Supplier<String> state = () -> "view " + ((Pulsekit) frame).view + ", subtabs " + (component(root, "drum-subtabs").isVisible() ? "shown" : "hidden")
+        + ", Drum Tracks lit " + ((javax.swing.JButton) component(root, "tab:drums")).getForeground().equals(((javax.swing.JButton) component(root, "tab:" + ((Pulsekit) frame).view)).getForeground());
+    edt(() -> ((javax.swing.JButton) component(root, "tab:drums")).doClick());
+    edt(() -> seen.append("Drum Tracks: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:fills")).doClick());
+    edt(() -> seen.append("Fills: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:song")).doClick());
+    edt(() -> seen.append("Song: view ").append(((Pulsekit) frame).view).append(", subtabs ").append(component(root, "drum-subtabs").isVisible() ? "shown" : "hidden").append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:drums")).doClick());
+    edt(() -> seen.append("Drum Tracks again: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:pattern")).doClick());
+    out.append(seen);
+    if (!seen.toString().contains("Fills: view fills, subtabs shown, Drum Tracks lit true") || !seen.toString().contains("Song: view song, subtabs hidden")
+        || !seen.toString().contains("Drum Tracks again: view fills, subtabs shown")) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Favourite files and category tabs in the galleries: tabs for the main categories the files'
    * prompts are in, a favourite file starred and in the ★ Favourite files list.
    */

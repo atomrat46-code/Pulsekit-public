@@ -3160,6 +3160,37 @@ public class BehaviorTest {
   }
 
   /**
+   * Drum Tracks: one main tab, with Pattern, Fillern and Fills as its subtabs in a row under the
+   * main tabs (shown with them only); the tab opens the subtab used last.
+   */
+  @Test
+  public void s131_drum_tracks_tab() throws Exception {
+    StringBuilder out = new StringBuilder();
+    View top = app.findViewById(android.R.id.content);
+    View subtabs = top.findViewWithTag("drum-subtabs");
+    java.util.function.Supplier<String> state = () -> "view " + app.view + ", subtabs " + (subtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden")
+        + ", Drum Tracks lit " + (((TextView) top.findViewWithTag("drums")).getCurrentTextColor() == ((TextView) top.findViewWithTag(String.valueOf(app.view))).getCurrentTextColor());
+    out.append("main tabs: Drum Tracks ").append(top.findViewWithTag("drums") != null).append(", subtabs ").append(((android.view.ViewGroup) subtabs).getChildCount()).append('\n');
+    top.findViewWithTag("drums").performClick();
+    idle();
+    out.append("Drum Tracks: ").append(state.get()).append('\n');
+    top.findViewWithTag("fills").performClick();
+    idle();
+    out.append("Fills: ").append(state.get()).append('\n');
+    top.findViewWithTag("song").performClick();
+    idle();
+    out.append("Song: view ").append(app.view).append(", subtabs ").append(subtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    top.findViewWithTag("drums").performClick();
+    idle();
+    out.append("Drum Tracks again: ").append(state.get()).append('\n');
+    top.findViewWithTag("pattern").performClick();
+    idle();
+    if (!out.toString().contains("Fills: view fills, subtabs shown, Drum Tracks lit true") || !out.toString().contains("Song: view song, subtabs hidden")
+        || !out.toString().contains("Drum Tracks again: view fills, subtabs shown")) throw new AssertionError(out.toString());
+    write("s131_drum_tracks_tab", out.toString());
+  }
+
+  /**
    * Favourite files and category tabs in the Prompts page's galleries: tabs for the main categories
    * the files' prompts are in; Add to favourite files in a card's long press; the card starred; the
    * ★ Favourite files list opening it; Remove from favourite files.
