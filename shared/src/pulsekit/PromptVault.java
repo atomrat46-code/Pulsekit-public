@@ -37,6 +37,8 @@ public final class PromptVault {
     public long categoryId;
     public String title;
     public long created;
+    /** Its tags, ";" between (Tag 1–3 in Save prompt): "beach;night". */
+    public String tags = "";
   }
 
   public static final class Version {
@@ -197,6 +199,11 @@ public final class PromptVault {
     if (category.parentId == 0) return category.id;
     Category parent = category(category.parentId);
     return parent == null ? category.id : parent.id;
+  }
+
+  /** Every prompt, in every category. */
+  public synchronized List<Prompt> allPrompts() {
+    return new ArrayList<Prompt>(prompts);
   }
 
   public synchronized List<Prompt> prompts(long categoryId) {
@@ -810,6 +817,39 @@ public final class PromptVault {
     save();
   }
 
+  /** A prompt's tags (Tag 1–3 in Save prompt), in order. */
+  public synchronized List<String> tags(long promptId) {
+    Prompt prompt = prompt(promptId);
+    List<String> out = new ArrayList<String>();
+    if (prompt == null || prompt.tags == null) return out;
+    for (String t : prompt.tags.split(";")) if (t.trim().length() > 0) out.add(t.trim());
+    return out;
+  }
+
+  /** The prompt's tags, in place of those it had; they also join the tag list the Media browser uses. */
+  public synchronized void setTags(long promptId, List<String> tags) throws Exception {
+    Prompt prompt = prompt(promptId);
+    if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
+    StringBuilder sb = new StringBuilder();
+    List<String> seen = new ArrayList<String>();
+    for (String typed : tags) {
+      String t = MediaTags.cleanTag(typed);
+      if (t.length() == 0 || seen.contains(t.toLowerCase(java.util.Locale.ROOT))) continue;
+      seen.add(t.toLowerCase(java.util.Locale.ROOT));
+      sb.append(sb.length() == 0 ? "" : ";").append(t);
+    }
+    if (sb.toString().equals(prompt.tags)) return;
+    prompt.tags = sb.toString();
+    save();
+  }
+
+  /** Every tag the library's prompts have, by name. */
+  public synchronized List<String> allTags() {
+    java.util.TreeSet<String> out = new java.util.TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+    for (Prompt p : prompts) if (p.tags != null) for (String t : p.tags.split(";")) if (t.trim().length() > 0) out.add(t.trim());
+    return new ArrayList<String>(out);
+  }
+
   public synchronized void renamePrompt(long id, String title) throws Exception {
     Prompt prompt = prompt(id);
     if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
@@ -957,7 +997,7 @@ public final class PromptVault {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
-    out.writeInt(7);
+    out.writeInt(8);
     blobsUsed.clear();
     out.writeInt(categories.size());
     for (int i = 0; i < categories.size(); i++) {
@@ -973,6 +1013,7 @@ public final class PromptVault {
       out.writeLong(prompt.categoryId);
       writeUtf(out, prompt.title);
       out.writeLong(prompt.created);
+      writeUtf(out, prompt.tags);
     }
     out.writeInt(versions.size());
     for (int i = 0; i < versions.size(); i++) {
@@ -1065,7 +1106,7 @@ public final class PromptVault {
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
-    if (version < 1 || version > 7) throw new IllegalStateException("Prompt database is from a newer app");
+    if (version < 1 || version > 8) throw new IllegalStateException("Prompt database is from a newer app");
     fileVersion = version;
     int ncat = data.readInt();
     for (int i = 0; i < ncat; i++) {
@@ -1082,6 +1123,7 @@ public final class PromptVault {
       prompt.categoryId = data.readLong();
       prompt.title = readUtf(data);
       prompt.created = data.readLong();
+      prompt.tags = version >= 8 ? readUtf(data) : "";
       prompts.add(prompt);
     }
     int nv = data.readInt();

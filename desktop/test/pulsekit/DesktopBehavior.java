@@ -4685,6 +4685,77 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one added new), kept with the prompt
+   * and offered again on its next save; Browse prompts' search by #tag, text and category.
+   */
+  void s110_prompt_tags_search() throws Exception {
+    PromptSave.setAsk(true);
+    MediaTags.reset();
+    MediaTags.load(PromptDb.dir());
+    MediaTags.addTag("night");
+    PromptVault vault = PromptDb.vault();
+    vault.addCategory("Video");
+    String[] bodies = {"Camera drifts over the night garden", "Camera drifts slowly over the night garden"};
+    for (int run = 0; run < 2; run++) {
+      String sheet = "PKPROMPT1\nsogni-video-garden\n\n\n\n\nCategory: video\nModel: Sogni H3\nReference file 1: \nReference file 2: \nType: ai\n---\n" + bodies[run] + "\n\nResult file: garden.mp4\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-garden.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("garden.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'}));
+      final JavaRun.Result r = new JavaRun.Result("Succeeded: garden.mp4", files, 0);
+      final int at = run;
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        javax.swing.JComboBox<?> t1 = (javax.swing.JComboBox<?>) component(d, "save-prompt-tag1");
+        javax.swing.JComboBox<?> t2 = (javax.swing.JComboBox<?>) component(d, "save-prompt-tag2");
+        seen.append("run ").append(at + 1).append(": Tag 1 ").append(t1.getSelectedItem()).append(", Tag 2 ").append(t2.getSelectedItem()).append(", Add new tag ")
+            .append(component(d, "save-prompt-tag-new1") != null).append('\n');
+        if (at == 0) {
+          // Added new (as Add new tag does), then picked; Tag 2 from the list.
+          String t = PromptSave.newTag(PromptDb.dir(), "garden");
+          ((javax.swing.JComboBox<String>) t1).addItem(t);
+          t1.setSelectedItem(t);
+          t2.setSelectedItem("night");
+          ((JTextField) component(d, "save-prompt-name")).setText("Garden walk");
+        }
+      };
+      answers.add(run == 1 ? "Cancel" : "OK");
+      String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+      idle();
+      out.append(seen);
+      for (String line : kept.split("\n")) if (line.contains("tags ")) out.append("  log: ").append(line.replaceAll("\\d{4}-\\d\\d-\\d\\d", "<today>")).append('\n');
+      answers.clear();
+      inspectNext = null;
+    }
+    vault = PromptDb.vault();
+    PromptVault.Prompt garden = null;
+    for (PromptVault.Prompt p : vault.allPrompts()) if ("Garden walk".equals(p.title)) garden = p;
+    out.append("library: Garden walk tags ").append(garden == null ? "none" : vault.tags(garden.id)).append('\n');
+    final StringBuilder browse = new StringBuilder();
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      JTextField search = (JTextField) component(d, "prompt-browser-search");
+      for (String q : new String[] {"#night", "drifts", "video garden", "#beach", "zzz"}) {
+        search.setText(q);
+        JLabel found = (JLabel) component(d, "prompt-browser-found");
+        javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-item:Garden walk");
+        browse.append("search ").append(q).append(": ").append(found == null ? "none" : found.getText()).append(item == null ? "" : " | " + item.getText().replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim()).append('\n');
+      }
+      search.setText("");
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 50 && browse.length() == 0; i++) Thread.sleep(100);
+    idle();
+    inspectNext = null;
+    out.append(browse);
+    PromptSearch.query = "";
+    MediaTags.reset();
+    if (garden == null || !vault.tags(garden.id).equals(java.util.Arrays.asList("garden", "night")) || !out.toString().contains("run 2: Tag 1 garden, Tag 2 night")
+        || !browse.toString().contains("search #night: 1 prompt found | Garden walk Video \u00b7 #garden #night") || !browse.toString().contains("search zzz: 0 prompts found"))
+      throw new AssertionError(out.toString());
+  }
+
+  /**
    * Media browser tags and categories: Tags… and Category… in a file's menu, the line on its card,
    * the Tagged filter, Rename keeping them; file cards drag onto folder cards (moved there).
    */

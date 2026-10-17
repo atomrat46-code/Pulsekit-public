@@ -3160,6 +3160,95 @@ public class BehaviorTest {
   }
 
   /**
+   * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one with Add new tag), kept with the
+   * prompt and offered again on its next save; Browse prompts' search finds prompts by #tag, text
+   * and category, listing each with its place and tags.
+   */
+  @Test
+  public void s128_prompt_tags_search() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptSave.setAsk(true);
+    MediaTags.reset();
+    MediaTags.load(app.getFilesDir());
+    MediaTags.addTag("night");
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addCategory("Video");
+    call("show", "py");
+    idle();
+    app.pyName = "SogniVideo.java";
+    String[] bodies = {"Camera drifts over the night garden", "Camera drifts slowly over the night garden"};
+    for (int run = 0; run < 2; run++) {
+      String sheet = "PKPROMPT1\nsogni-video-garden\n\n\n\n\nCategory: video\nModel: Sogni H3\nReference file 1: \nReference file 2: \nType: ai\n---\n" + bodies[run] + "\n\nResult file: garden.mp4\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-garden.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("garden.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'}));
+      app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", bodies[run], "--saveprompt");
+      SavePromptDialog.last = null;
+      app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote garden.mp4\nSucceeded: garden.mp4", files, 0));
+      for (int i = 0; i < 100 && SavePromptDialog.last == null; i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      AlertDialog d = SavePromptDialog.last;
+      View dv = d.getWindow().getDecorView();
+      out.append("run ").append(run + 1).append(": Tag 1 ").append(((TextView) dv.findViewWithTag("save-prompt-tag1")).getText())
+          .append(", Tag 2 ").append(((TextView) dv.findViewWithTag("save-prompt-tag2")).getText()).append(", Tag 3 ").append(((TextView) dv.findViewWithTag("save-prompt-tag3")).getText()).append('\n');
+      if (run == 1) {
+        if (!((TextView) dv.findViewWithTag("save-prompt-tag1")).getText().toString().equals("garden")) throw new AssertionError(out.toString());
+        d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idle();
+        break;
+      }
+      // Tag 1: Add new tag (a popup with its own button); Tag 2: one from the list.
+      dv.findViewWithTag("save-prompt-tag-new1").performClick();
+      idle();
+      ((TextView) SavePromptDialog.lastTagAsk.getWindow().getDecorView().findViewWithTag("save-prompt-new-tag-field")).setText("garden");
+      SavePromptDialog.lastTagAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      dv.findViewWithTag("save-prompt-tag2").performClick();
+      idle();
+      String list = listItems(SavePromptDialog.lastTagAsk);
+      out.append("  Tag 2's list: ").append(list).append('\n');
+      org.robolectric.Shadows.shadowOf(SavePromptDialog.lastTagAsk).clickOnItem(java.util.Arrays.asList(list.split(" \\| ")).indexOf("night"));
+      idle();
+      ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Garden walk");
+      out.append("  then: Tag 1 ").append(((TextView) dv.findViewWithTag("save-prompt-tag1")).getText()).append(", Tag 2 ").append(((TextView) dv.findViewWithTag("save-prompt-tag2")).getText()).append('\n');
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      for (int i = 0; i < 100 && !String.valueOf(app.pyJav.pkRunLog).contains("tags"); i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.contains("tags ")) out.append("  log: ").append(line.replaceAll("\\d{4}-\\d\\d-\\d\\d", "<today>")).append('\n');
+    }
+    vault = PromptVault.open(app.getFilesDir());
+    PromptVault.Prompt garden = null;
+    for (PromptVault.Prompt p : vault.allPrompts()) if ("Garden walk".equals(p.title)) garden = p;
+    out.append("library: Garden walk tags ").append(garden == null ? "none" : vault.tags(garden.id)).append(", tag list has garden ").append(MediaTags.known().contains("garden")).append('\n');
+    if (garden == null || !vault.tags(garden.id).equals(java.util.Arrays.asList("garden", "night"))) throw new AssertionError(out.toString());
+    // Browse prompts' search.
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    for (String q : new String[] {"#night", "drifts", "video garden", "#beach", "zzz"}) {
+      ((TextView) bv.findViewWithTag("prompt-browser-search")).setText(q);
+      idle();
+      TextView found = (TextView) bv.findViewWithTag("prompt-browser-found");
+      TextView item = (TextView) bv.findViewWithTag("prompt-browser-item:Garden walk");
+      out.append("search ").append(q).append(": ").append(found == null ? "none" : found.getText()).append(item == null ? "" : " | " + item.getText().toString().split("\n")[1]).append('\n');
+    }
+    ((TextView) bv.findViewWithTag("prompt-browser-search")).setText("");
+    idle();
+    PromptBrowser.last.dismiss();
+    PromptSearch.query = "";
+    MediaTags.reset();
+    if (!out.toString().contains("search #night: 1 prompt found | Video \u00b7 #garden #night") || !out.toString().contains("search zzz: 0 prompts found") || !out.toString().contains("search #beach: 0 prompts found"))
+      throw new AssertionError(out.toString());
+    write("s128_prompt_tags_search", out.toString());
+  }
+
+  /**
    * Media browser tags and categories: Tags… (a new tag, then ticked), Category… (the prompt
    * library's), the line under the card, the Tagged filter, Rename keeping them, and a file dropped
    * on a folder card moved into it (its tags with it).

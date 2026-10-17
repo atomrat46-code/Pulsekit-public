@@ -19,6 +19,7 @@ import javax.swing.JToggleButton;
  * under it, and the prompts in the category picked; clicking a prompt hands its text (its final
  * version) to the field that asked (Params' Prompt, the Prompts page's Prompt). Opens on the
  * category picked last. Favourite categories (★ Favourite on the one shown) are a row on top.
+ * Search (on top) finds prompts by name, category, tag (#night), description or text instead.
  */
 final class PromptBrowser {
     interface Picked {
@@ -52,6 +53,36 @@ final class PromptBrowser {
         scroll.getVerticalScrollBar().setUnitIncrement(24);
         JPanel content = new JPanel(new BorderLayout(0, 8));
         content.add(scroll, BorderLayout.CENTER);
+        // Search: names, categories, tags (#night), descriptions and texts; empty shows the categories.
+        final javax.swing.JTextField search = new javax.swing.JTextField(PromptSearch.query, 30);
+        search.setName("prompt-browser-search");
+        search.setToolTipText("Name, category, #tag, description or text");
+        search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void changed() {
+                PromptSearch.query = search.getText();
+                fill(vault, body, dialog, picked);
+            }
+
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                changed();
+            }
+        });
+        JPanel north = new JPanel(new BorderLayout(6, 0));
+        north.setBorder(BorderFactory.createEmptyBorder(8, 10, 0, 10));
+        north.add(new JLabel("Search:"), BorderLayout.WEST);
+        north.add(search, BorderLayout.CENTER);
+        content.add(north, BorderLayout.NORTH);
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dialog.dispose());
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
@@ -67,7 +98,15 @@ final class PromptBrowser {
     private static void fill(final PromptVault vault, final JPanel body, final JDialog dialog, final Picked picked) {
         body.removeAll();
         List<PromptVault.Category> mains = vault.mains();
-        if (mains.isEmpty()) {
+        if (PromptSearch.query.trim().length() > 0) {
+            // The search's prompts: each with its place and tags.
+            List<PromptVault.Prompt> hits = PromptSearch.find(vault, PromptSearch.query);
+            JLabel found = new JLabel(hits.size() == 1 ? "1 prompt found" : hits.size() + " prompts found");
+            found.setName("prompt-browser-found");
+            found.setAlignmentX(0.0f);
+            body.add(found);
+            items(vault, body, dialog, picked, hits, true);
+        } else if (mains.isEmpty()) {
             body.add(new JLabel("No categories yet"));
         } else {
             long chosen = vault.category(lastCategory) != null ? lastCategory : mains.get(0).id;
@@ -162,27 +201,35 @@ final class PromptBrowser {
                 none.setAlignmentX(0.0f);
                 body.add(none);
             }
-            for (final PromptVault.Prompt p : prompts) {
-                PromptVault.Version v = vault.finalVersion(p.id);
-                final String words = v == null ? "" : PromptRun.withoutDescription(v.description, v.body == null ? "" : v.body).trim();
-                String first = words.replace('\n', ' ');
-                if (first.length() > 70) first = first.substring(0, 70) + "…";
-                JButton item = new JButton("<html><b>" + esc(p.title == null ? "Prompt" : p.title) + "</b>" + (first.length() > 0 ? "<br>" + esc(first) : "") + "</html>");
-                item.setName("prompt-browser-item:" + p.title);
-                item.setHorizontalAlignment(JButton.LEFT);
-                item.setAlignmentX(0.0f);
-                item.setMaximumSize(new Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
-                item.setEnabled(words.length() > 0);
-                item.addActionListener(e -> {
-                    dialog.dispose();
-                    picked.picked(p.title, words);
-                });
-                body.add(item);
-                body.add(Box.createVerticalStrut(4));
-            }
+            items(vault, body, dialog, picked, prompts, false);
         }
         body.revalidate();
         body.repaint();
+    }
+
+    /** The prompts as buttons: name, (in search results) its place, its tags, its first words. */
+    private static void items(final PromptVault vault, final JPanel body, final JDialog dialog, final Picked picked, List<PromptVault.Prompt> prompts, boolean place) {
+        for (final PromptVault.Prompt p : prompts) {
+            final String words = PromptSearch.words(vault, p);
+            String first = words.replace('\n', ' ');
+            if (first.length() > 70) first = first.substring(0, 70) + "…";
+            String about = place ? PromptSearch.where(vault, p) : "";
+            String tags = PromptSearch.tagLine(vault, p);
+            if (tags.length() > 0) about = about.length() == 0 ? tags : about + " \u00b7 " + tags;
+            JButton item = new JButton("<html><b>" + esc(p.title == null ? "Prompt" : p.title) + "</b>" + (about.length() > 0 ? "<br><span style='color:#D9A441'>" + esc(about) + "</span>" : "")
+                + (first.length() > 0 ? "<br>" + esc(first) : "") + "</html>");
+            item.setName("prompt-browser-item:" + p.title);
+            item.setHorizontalAlignment(JButton.LEFT);
+            item.setAlignmentX(0.0f);
+            item.setMaximumSize(new Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
+            item.setEnabled(words.length() > 0);
+            item.addActionListener(e -> {
+                dialog.dispose();
+                picked.picked(p.title, words);
+            });
+            body.add(item);
+            body.add(Box.createVerticalStrut(4));
+        }
     }
 
     private static JPanel row(final PromptVault vault, List<PromptVault.Category> cats, long on, String tag, final JPanel body, final JDialog dialog, final Picked picked) {

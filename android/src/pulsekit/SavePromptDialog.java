@@ -15,8 +15,8 @@ import java.util.List;
 /**
  * Save prompt, after a run whose prompt sheet (--saveprompt) changed: the main category and the
  * subcategory (typed, browsed, or one of the places used recently; a new name is made on OK), the
- * prompt's name and description, and the version it is saved as (the prompt's versions there + 1)
- * with today's date. Cancel saves nothing.
+ * prompt's name and description, Tag 1–3 (from the tag list, or Add new tag), and the version it
+ * is saved as (the prompt's versions there + 1) with today's date. Cancel saves nothing.
  */
 final class SavePromptDialog {
     interface Done {
@@ -24,8 +24,9 @@ final class SavePromptDialog {
         void done(PromptSave.Choice choice);
     }
 
-    /** The dialog shown last, for the tests. */
+    /** The dialog shown last, and the tag list or New tag dialog shown last, for the tests. */
     static AlertDialog last;
+    static AlertDialog lastTagAsk;
 
     private SavePromptDialog() {}
 
@@ -102,6 +103,53 @@ final class SavePromptDialog {
         col.addView(name);
         col.addView(label(app, "Description (optional)", 12, "#8A8B86"));
         col.addView(description);
+        // Tag 1–3: each from the tag list (the prompts' and the Media browser's), or Add new tag.
+        final List<String> tagList = PromptSave.tagChoices(vault, app.getFilesDir());
+        final String[] tags = new String[3];
+        for (int i = 0; i < 3; i++) {
+            final int n = i;
+            tags[n] = i < first.tags.size() ? first.tags.get(i) : "";
+            col.addView(label(app, "Tag " + (n + 1), 12, "#8A8B86"));
+            LinearLayout row = new LinearLayout(app);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            final Button choose = new Button(app);
+            choose.setAllCaps(false);
+            choose.setText(tags[n].length() == 0 ? "(none)" : tags[n]);
+            choose.setTag("save-prompt-tag" + (n + 1));
+            choose.setOnClickListener(v -> {
+                final CharSequence[] names = new CharSequence[tagList.size() + 1];
+                names[0] = "(none)";
+                for (int k = 0; k < tagList.size(); k++) names[k + 1] = tagList.get(k);
+                lastTagAsk = new AlertDialog.Builder(app).setTitle("Tag " + (n + 1)).setItems(names, (d, which) -> {
+                    tags[n] = which == 0 ? "" : tagList.get(which - 1);
+                    choose.setText(names[which]);
+                }).setNegativeButton("Cancel", null).show();
+            });
+            Button add = new Button(app);
+            add.setAllCaps(false);
+            add.setText("Add new tag");
+            add.setTag("save-prompt-tag-new" + (n + 1));
+            add.setOnClickListener(v -> {
+                final EditText typed = new EditText(app);
+                typed.setSingleLine(true);
+                typed.setTag("save-prompt-new-tag-field");
+                lastTagAsk = new AlertDialog.Builder(app).setTitle("New tag").setView(typed).setPositiveButton("Add new tag", (d, w) -> {
+                    String t = PromptSave.newTag(app.getFilesDir(), typed.getText().toString());
+                    if (t.length() == 0) return;
+                    boolean have = false;
+                    for (String k : tagList) have |= k.equalsIgnoreCase(t);
+                    if (!have) {
+                        tagList.add(t);
+                        java.util.Collections.sort(tagList, String.CASE_INSENSITIVE_ORDER);
+                    }
+                    tags[n] = t;
+                    choose.setText(t);
+                }).setNegativeButton("Cancel", null).show();
+            });
+            row.addView(choose, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(add);
+            col.addView(row);
+        }
         col.addView(version);
         // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
         final android.widget.CheckBox favourite = new android.widget.CheckBox(app);
@@ -159,6 +207,7 @@ final class SavePromptDialog {
             c.name = name.getText().toString().trim();
             c.description = description.getText().toString().trim();
             c.favourite = favourite.isChecked();
+            for (String t : tags) if (t.length() > 0) c.tags.add(t);
             answered[0] = true;
             dialog.dismiss();
             done.done(c);

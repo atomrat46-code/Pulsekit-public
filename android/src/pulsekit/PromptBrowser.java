@@ -16,6 +16,7 @@ import java.util.List;
  * version) to the field that asked (Params' Prompt, the Prompts page's Prompt). Opens on the
  * category picked last. Favourite prompts (Save prompt's "Add to favourites", the Prompts page's
  * star) are listed on top, then favourite categories (★ Favourite on the one shown) as a row.
+ * Search (on top) finds prompts by name, category, tag (#night), description or text instead.
  */
 final class PromptBrowser {
     interface Picked {
@@ -44,9 +45,35 @@ final class PromptBrowser {
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(body);
         final AlertDialog[] dialog = new AlertDialog[1];
+        // Search: names, categories, tags (#night), descriptions and texts; empty shows the categories.
+        LinearLayout whole = new LinearLayout(activity);
+        whole.setOrientation(LinearLayout.VERTICAL);
+        final android.widget.EditText search = new android.widget.EditText(activity);
+        search.setSingleLine(true);
+        search.setHint("Search: name, category, #tag, text");
+        search.setTag("prompt-browser-search");
+        search.setText(PromptSearch.query);
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+            @Override
+            public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+            @Override
+            public void afterTextChanged(android.text.Editable t) {
+                PromptSearch.query = t.toString();
+                fill(activity, vault, body, dialog, picked);
+            }
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.leftMargin = pad;
+        slp.rightMargin = pad;
+        whole.addView(search, slp);
+        whole.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
             .setTitle("Browse prompts")
-            .setView(scroll)
+            .setView(whole)
             .setNegativeButton("Cancel", null)
             .create();
         last = dialog[0];
@@ -56,6 +83,10 @@ final class PromptBrowser {
 
     private static void fill(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked) {
         body.removeAllViews();
+        if (PromptSearch.query.trim().length() > 0) {
+            found(activity, vault, body, dialog, picked);
+            return;
+        }
         List<PromptVault.Category> mains = vault.mains();
         if (mains.isEmpty()) {
             body.addView(text(activity, "No categories yet", 14, "#8A8B86"));
@@ -152,12 +183,30 @@ final class PromptBrowser {
         }
         List<PromptVault.Prompt> prompts = vault.prompts(chosen);
         if (prompts.isEmpty()) body.addView(text(activity, "No prompts here", 14, "#8A8B86"));
+        items(activity, vault, body, dialog, picked, prompts, false);
+    }
+
+    /** The search's prompts: each with its place and tags. */
+    private static void found(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked) {
+        List<PromptVault.Prompt> hits = PromptSearch.find(vault, PromptSearch.query);
+        TextView head = text(activity, hits.size() == 1 ? "1 prompt found" : hits.size() + " prompts found", 12, "#8A8B86");
+        head.setTag("prompt-browser-found");
+        head.setPadding(0, dp(activity, 6), 0, dp(activity, 4));
+        body.addView(head);
+        items(activity, vault, body, dialog, picked, hits, true);
+    }
+
+    private static void items(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked,
+            List<PromptVault.Prompt> prompts, boolean place) {
         for (final PromptVault.Prompt p : prompts) {
-            final PromptVault.Version v = vault.finalVersion(p.id);
-            final String words = v == null ? "" : PromptRun.withoutDescription(v.description, v.body == null ? "" : v.body).trim();
+            final String words = PromptSearch.words(vault, p);
             String first = words.replace('\n', ' ');
             if (first.length() > 70) first = first.substring(0, 70) + "…";
-            TextView item = text(activity, (p.title == null ? "Prompt" : p.title) + (first.length() > 0 ? "\n" + first : ""), 14, "#ECEBE6");
+            // Its place (in search results) and tags under the name.
+            String about = (place ? PromptSearch.where(vault, p) : "");
+            String tags = PromptSearch.tagLine(vault, p);
+            if (tags.length() > 0) about = about.length() == 0 ? tags : about + " \u00b7 " + tags;
+            TextView item = text(activity, (p.title == null ? "Prompt" : p.title) + (about.length() > 0 ? "\n" + about : "") + (first.length() > 0 ? "\n" + first : ""), 14, "#ECEBE6");
             item.setTag("prompt-browser-item:" + p.title);
             item.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();

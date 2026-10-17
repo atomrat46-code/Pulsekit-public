@@ -18,8 +18,9 @@ import javax.swing.JTextField;
 /**
  * Save prompt, after a run whose prompt sheet (--saveprompt) changed: the main category and the
  * subcategory (picked from the library's, typed new, or one of the places used recently; a new
- * name is made on OK), the prompt's name and description, and the version it is saved as (the
- * prompt's versions there + 1) with today's date. Cancel saves nothing.
+ * name is made on OK), the prompt's name and description, Tag 1–3 (from the tag list, or Add new
+ * tag), and the version it is saved as (the prompt's versions there + 1) with today's date. Cancel
+ * saves nothing.
  */
 final class SavePromptDialog {
     private SavePromptDialog() {}
@@ -107,6 +108,38 @@ final class SavePromptDialog {
         add(form, g, row++, "Subcategory (optional)", sub);
         add(form, g, row++, "Name", name);
         add(form, g, row++, "Description (optional)", new JScrollPane(description));
+        // Tag 1–3: each from the tag list (the prompts' and the Media browser's), or Add new tag.
+        final List<String> tagList = PromptSave.tagChoices(vault, PromptDb.dir());
+        final java.util.List<JComboBox<String>> tagBoxes = new java.util.ArrayList<JComboBox<String>>();
+        for (int i = 0; i < 3; i++) {
+            final JComboBox<String> box = new JComboBox<String>();
+            box.setName("save-prompt-tag" + (i + 1));
+            box.addItem("(none)");
+            for (String t : tagList) box.addItem(t);
+            if (i < first.tags.size()) box.setSelectedItem(first.tags.get(i));
+            tagBoxes.add(box);
+        }
+        for (int i = 0; i < 3; i++) {
+            final JComboBox<String> box = tagBoxes.get(i);
+            JButton add = new JButton("Add new tag");
+            add.setName("save-prompt-tag-new" + (i + 1));
+            add.addActionListener(e -> {
+                Object typed = JOptionPane.showInputDialog(box, "New tag", "Add new tag", JOptionPane.PLAIN_MESSAGE, null, null, "");
+                String t = typed == null ? "" : PromptSave.newTag(PromptDb.dir(), typed.toString());
+                if (t.length() == 0) return;
+                // Offered in all three, and picked in this one.
+                for (JComboBox<String> b : tagBoxes) {
+                    boolean have = false;
+                    for (int k = 0; k < b.getItemCount(); k++) have |= b.getItemAt(k).equalsIgnoreCase(t);
+                    if (!have) b.addItem(t);
+                }
+                box.setSelectedItem(t);
+            });
+            JPanel tagRow = new JPanel(new BorderLayout(6, 0));
+            tagRow.add(box, BorderLayout.CENTER);
+            tagRow.add(add, BorderLayout.EAST);
+            add(form, g, row++, "Tag " + (i + 1), tagRow);
+        }
         add(form, g, row++, "", version);
         // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
         javax.swing.JCheckBox favourite = new javax.swing.JCheckBox("Add to favourites");
@@ -125,6 +158,10 @@ final class SavePromptDialog {
         c.name = name.getText().trim().length() == 0 ? first.name : name.getText().trim();
         c.description = description.getText().trim();
         c.favourite = favourite.isSelected();
+        for (JComboBox<String> b : tagBoxes) {
+            Object t = b.getSelectedItem();
+            if (t != null && !"(none)".equals(t.toString())) c.tags.add(t.toString());
+        }
         return c;
     }
 

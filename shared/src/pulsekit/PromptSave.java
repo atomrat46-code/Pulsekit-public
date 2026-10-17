@@ -25,6 +25,8 @@ public final class PromptSave {
     public String description = "";
     /** Add to favourites: the stored version goes into the favourite prompts (VersionFavourites). */
     public boolean favourite;
+    /** Tag 1–3 (the prompt's tags; empty ones left out). */
+    public List<String> tags = new ArrayList<String>();
   }
 
   /** A sheet to save: its file, as the run wrote it, and the sheet read from it. */
@@ -186,7 +188,29 @@ public final class PromptSave {
       }
     }
     c.description = sheet.description == null ? "" : sheet.description.trim();
+    // The prompt's tags so far, when it is in the library already.
+    if (vault != null) {
+      long cat = find(vault, c.main, c.sub);
+      if (cat != 0) for (PromptVault.Prompt p : vault.prompts(cat)) if (p.title != null && p.title.trim().equalsIgnoreCase(c.name)) c.tags = vault.tags(p.id);
+    }
     return c;
+  }
+
+  /** The tags Tag 1–3 offer: the library's prompts' and the Media browser's, by name. */
+  public static List<String> tagChoices(PromptVault vault, File dir) {
+    java.util.TreeSet<String> all = new java.util.TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+    if (vault != null) all.addAll(vault.allTags());
+    if (dir != null) {
+      MediaTags.load(dir);
+      all.addAll(MediaTags.known());
+    }
+    return new ArrayList<String>(all);
+  }
+
+  /** Add new tag: kept in the tag list (the Media browser's too); the tag as kept, "" when it is not one. */
+  public static String newTag(File dir, String typed) {
+    if (dir != null) MediaTags.load(dir);
+    return MediaTags.addTag(typed);
   }
 
   /**
@@ -322,6 +346,13 @@ public final class PromptSave {
         if (p.title != null && p.title.trim().equalsIgnoreCase(name)) {
           List<PromptVault.Version> rows = vault.versions(p.id);
           if (!rows.isEmpty()) out.versionId = rows.get(0).id;
+          // Tag 1–3: the prompt's tags.
+          if (c.tags != null && !c.tags.isEmpty()) {
+            vault.setTags(p.id, c.tags);
+            StringBuilder tags = new StringBuilder();
+            for (String t : vault.tags(p.id)) tags.append(tags.length() == 0 ? "" : ", ").append(t);
+            out.note = out.note + ", tags " + tags;
+          }
         }
       }
       if (c.favourite && out.versionId != 0) {
