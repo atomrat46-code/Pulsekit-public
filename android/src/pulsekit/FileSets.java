@@ -46,6 +46,42 @@ final class FileSets {
     void wireFileSetListActions() {
         this.wireFileSetListActionsCore();
         this.pkRebindFileSetClicks();
+        this.stackFileSetRows();
+    }
+
+    /**
+     * Import screen: each file set's name on a line of its own and its buttons (Make song, Change
+     * style, Export, Delete) on the next, wrapping, so a long name is never squeezed to a sliver.
+     */
+    void stackFileSetRows() {
+        if (app.importedFileList == null) return;
+        for (int i = 0; i < app.importedFileList.getChildCount(); i++) {
+            android.view.View child = app.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            if (row.getOrientation() != android.widget.LinearLayout.HORIZONTAL) continue;
+            android.widget.TextView packHead = null;
+            java.util.ArrayList<android.view.View> buttons = new java.util.ArrayList<android.view.View>();
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View v = row.getChildAt(j);
+                java.lang.CharSequence cs = v instanceof android.widget.TextView ? ((android.widget.TextView) v).getText() : null;
+                java.lang.String s = cs == null ? "" : cs.toString();
+                if (s.startsWith("\u25be ") || s.startsWith("\u25b8 ")) packHead = (android.widget.TextView) v;
+                else buttons.add(v);
+            }
+            if (packHead == null || buttons.isEmpty()) continue;
+            row.setOrientation(android.widget.LinearLayout.VERTICAL);
+            android.widget.LinearLayout.LayoutParams lp = app.wrap();
+            lp.setMargins(app.dp(3), app.dp(4), app.dp(3), app.dp(2));
+            packHead.setLayoutParams(lp);
+            pulsekit.FlowLayout bar = new pulsekit.FlowLayout(app, 0, 0);
+            bar.setTag("fileset-actions");
+            for (android.view.View b : buttons) {
+                row.removeView(b);
+                bar.addView(b);
+            }
+            row.addView(bar, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        }
     }
 
 

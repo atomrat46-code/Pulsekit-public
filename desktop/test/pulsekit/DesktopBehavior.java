@@ -4768,6 +4768,42 @@ public final class DesktopBehavior {
     if (bars.bars.get(0)[0][2] == 0 || bars.bars.get(0)[0][0] != 0 || bars.bars.get(0)[2][12] != 0 || again == null) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Import screen, Open in MIDI editor: an imported MIDI keeps its MIDI with its file set and opens
+   * in the MIDI editor after the Make a song question; Back there shows the Pattern view with the
+   * file set open. Unticked, no editor. The setting is kept.
+   */
+  void s117_import_opens_midi_editor() throws Exception {
+    call("showView", "import");
+    final javax.swing.JCheckBox[] box = {null};
+    edt(() -> box[0] = (javax.swing.JCheckBox) component(frame, "import-midi-editor"));
+    out.append("checkbox: ").append(box[0].getText()).append(", ticked ").append(box[0].isSelected()).append('\n');
+    edt(() -> box[0].doClick());
+    out.append("kept: ").append(new String(Files.readAllBytes(((ProjectIo) get("projectIo")).importSettingsFile().toPath()), StandardCharsets.UTF_8).contains("midiEditor=1")).append('\n');
+    answers.add("No");
+    answers.add("(keep)");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Night Drive.mid");
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) Thread.sleep(50);
+    idle();
+    final MidiEditScreen ed = MidiEditScreen.now;
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("editor open: ").append(ed != null && ed.dialog.isShowing()).append(", file set ").append(ed == null ? "" : ed.key).append('\n');
+      seen.append("MIDI kept with the set: ").append(Engine.fileSetMidiName("Night Drive")).append('\n');
+      ((javax.swing.JButton) component(ed.dialog.getContentPane(), "midiedit-back")).doClick();
+      seen.append("Back: view ").append(((Pulsekit) frame).view).append(", file set open ").append(((Pulsekit) frame).openPacks.get("f:Night Drive")).append('\n');
+    });
+    out.append(seen);
+    String afterBack = seen.toString().contains("Back: view pattern") ? "pattern" : "";
+    call("showView", "import");
+    edt(() -> box[0].doClick());
+    answers.add("No");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Day Drive.mid");
+    idle();
+    out.append("unticked: editor ").append(MidiEditScreen.now != null).append(", MIDI kept ").append(Engine.fileSetMidiName("Day Drive").length() > 0).append('\n');
+    if (ed == null || !"pattern".equals(afterBack) || MidiEditScreen.now != null) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

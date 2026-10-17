@@ -3116,6 +3116,10 @@ public final class Engine {
     clearStagedMidi();  // used once: a later import must not get this file as its source
   }
 
+  public static boolean hasStagedMidi() {
+    return stagedMidi != null && stagedMidi.length >= 14;
+  }
+
   public static void clearStagedMidi() {
     stagedMidi = null;
     stagedMidiName = "";

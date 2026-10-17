@@ -3262,6 +3262,60 @@ public class BehaviorTest {
   }
 
   /**
+   * Import screen, Open in MIDI editor: an imported MIDI keeps its MIDI with its file set and opens
+   * in the MIDI editor; Back there shows the Pattern view with the file set open. Unticked, the file
+   * set is made as before. The imported files list has each set's buttons under its name.
+   */
+  @Test
+  public void s135_import_opens_midi_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    byte[] midi = Engine.encodeSongMidi(parts);
+    call("show", "import");
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) root().findViewWithTag("import-midi-editor");
+    out.append("checkbox: ").append(box.getText()).append(", ticked ").append(box.isChecked()).append('\n');
+    box.setChecked(true);
+    out.append("kept: ").append(app.getSharedPreferences("pulsekit-export", 0).getAll().containsKey(ProjectIo.IMPORT_MIDI_EDITOR) || ImportDb.midiEditor).append('\n');
+    call("ingest", midi, "Night Drive.mid", null);
+    idle();
+    MidiEditScreen ed = MidiEditScreen.now;
+    out.append("editor open: ").append(ed != null && ed.dialog.isShowing()).append(", file set ").append(ed == null ? "" : ed.key)
+        .append(", ").append(ed == null ? "" : ((TextView) ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-status")).getText()).append('\n');
+    out.append("MIDI kept with the set: ").append(Engine.fileSetMidiName("Night Drive")).append('\n');
+    ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-back").performClick();
+    idle();
+    Object afterBack = get("view");
+    out.append("Back: view ").append(afterBack).append(", file set open ").append(((ImportLibrary) get("importLibrary")).openPacks.get("f:Night Drive")).append('\n');
+    // Make a song? was asked under the editor: it is there after Back.
+    for (android.app.Dialog q : ShadowDialog.getShownDialogs()) {
+      if (!(q instanceof AlertDialog) || !q.isShowing()) continue;
+      out.append("then the question: ").append(((TextView) q.findViewById(android.R.id.message)).getText().toString().contains("Imported")).append('\n');
+      ((AlertDialog) q).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    // Unticked: no editor.
+    call("show", "import");
+    idle();
+    ((android.widget.CheckBox) root().findViewWithTag("import-midi-editor")).setChecked(false);
+    call("ingest", midi, "Day Drive.mid", null);
+    idle();
+    out.append("unticked: editor ").append(MidiEditScreen.now != null).append(", MIDI kept ").append(Engine.fileSetMidiName("Day Drive").length() > 0).append('\n');
+    for (android.app.Dialog q : ShadowDialog.getShownDialogs()) if (q instanceof AlertDialog && q.isShowing()) ((AlertDialog) q).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("show", "import");
+    idle();
+    View bar = root().findViewWithTag("fileset-actions");
+    out.append("buttons under the name: ").append(bar != null).append(bar == null ? "" : ", " + texts((ViewGroup) bar)).append('\n');
+    ImportDb.midiEditor = false;
+    if (ed == null || !"pattern".equals(afterBack) || MidiEditScreen.now != null || bar == null) throw new AssertionError(out.toString());
+    write("s135_import_opens_midi_editor", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.

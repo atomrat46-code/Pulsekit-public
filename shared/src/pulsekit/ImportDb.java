@@ -12,6 +12,13 @@ public final class ImportDb {
   /** The setting: kept by each app (preferences on the phone, a file in ~/.pulsekit on the desktop). */
   public static volatile boolean on;
 
+  /**
+   * Import screen: "Open in MIDI editor". When on, a MIDI imported from the Import screen keeps its
+   * MIDI with its file set (source.mid) and opens in the MIDI editor; Back or Save there goes on to
+   * the Pattern view of its file set. Kept as `on` is.
+   */
+  public static volatile boolean midiEditor;
+
   private static final int MAX_BYTES = 16 * 1024 * 1024;
 
   private ImportDb() {}

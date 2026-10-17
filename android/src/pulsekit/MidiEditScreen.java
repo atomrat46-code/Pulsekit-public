@@ -37,12 +37,20 @@ public final class MidiEditScreen {
   int playhead = -1;
   /** Edits since the playback was made: Play makes it again from where it was. */
   boolean stale;
+  /** Opened by an import (Open in MIDI editor): Back and Save go on to the file set's patterns. */
+  boolean fromImport;
 
   static String playKey(String key) {
     return "edit:" + key;
   }
 
   /** Opens the editor on the file set's source MIDI; `label` is the set's row (or its source). */
+  /** After an import with "Open in MIDI editor": Back and Save then show the Pattern view of its file set. */
+  public static void openFromImport(MainActivity app, String label) {
+    open(app, label);
+    if (now != null) now.fromImport = true;
+  }
+
   public static void open(MainActivity app, String label) {
     String key = Engine.fileSetMidiKeyForLabel(label == null ? "" : label);
     Engine.FileSetAudio au = Engine.fileSetAudioOf(key);
@@ -208,11 +216,22 @@ public final class MidiEditScreen {
       this.app.setNow("Saved · " + this.name);
     } else this.app.setNow("No changes to save");
     this.close();
+    this.toPatterns();
   }
 
   void back() {
-    if (this.dialog.isShowing() || now == this) this.app.setNow(this.edit.changed ? "Back · changes not saved" : "Back");
+    this.app.setNow(this.edit.changed ? "Back · changes not saved" : "Back");
     this.close();
+    this.toPatterns();
+  }
+
+  /** After an import: the Pattern view, its file set open there. */
+  void toPatterns() {
+    if (!this.fromImport) return;
+    this.fromImport = false;
+    this.app.importLibrary.openPacks.put("f:" + this.key, true);
+    this.app.show("pattern");
+    this.app.importLibrary.rebuildImported();
   }
 
   void close() {

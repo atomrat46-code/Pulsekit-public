@@ -798,6 +798,9 @@ final class ImportLibrary {
         app.fileSets.wireFileSetListActions();
     }
 
+    /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
+    boolean openEditor;
+
     boolean tryPackMidiFileSet(java.lang.String filename, pulsekit.Engine.MidiBars bars, boolean force) {
         if (bars == null || bars.bars == null || bars.bars.isEmpty()) return false;
         java.util.List segs = pulsekit.Engine.segmentMidiBars(bars.bars);
@@ -834,6 +837,8 @@ final class ImportLibrary {
                     .setNegativeButton((java.lang.CharSequence) "Not now", null)
                     .show();
             }
+            // Over the question: the MIDI editor, on the MIDI just imported.
+            if (this.openEditor && set.sourceMidi != null) pulsekit.MidiEditScreen.openFromImport(app, set.name);
             return true;
         } catch (java.lang.Exception ex) {
             java.lang.String m = ex.getMessage();

@@ -366,8 +366,13 @@ final class ImportLibrary {
                 JOptionPane.QUESTION_MESSAGE);
             if (ans == JOptionPane.YES_OPTION) app.songEditor.addImportedSong(stem, parts);
         }
+        // After the question: the MIDI editor, on the MIDI just imported.
+        if (this.openEditor && madeSet.sourceMidi != null) MidiEditScreen.openFromImport(app, madeSet.name);
         return true;
     }
+
+    /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
+    boolean openEditor;
 
     String selectedFileSource() {
         for (Engine.Learned x : app.learned) {

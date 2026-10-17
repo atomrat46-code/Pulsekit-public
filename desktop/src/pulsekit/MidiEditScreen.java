@@ -52,9 +52,17 @@ final class MidiEditScreen {
     int playhead = -1;
     /** Edits since the playback was made: Play makes it again from where it was. */
     boolean stale;
+    /** Opened by an import (Open in MIDI editor): Back and Save go on to the file set's patterns. */
+    boolean fromImport;
 
     static String playKey(String key) {
         return "edit:" + key;
+    }
+
+    /** After an import with "Open in MIDI editor": Back and Save then show the Pattern view of its file set. */
+    static void openFromImport(Pulsekit app, String label) {
+        open(app, label);
+        if (now != null) now.fromImport = true;
     }
 
     /** Opens the editor on the file set's source MIDI; `label` is the set's row (or its source). */
@@ -241,11 +249,22 @@ final class MidiEditScreen {
             this.app.setNow("Saved · " + this.name);
         } else this.app.setNow("No changes to save");
         this.close();
+        this.toPatterns();
     }
 
     void back() {
         this.app.setNow(this.edit.changed ? "Back · changes not saved" : "Back");
         this.close();
+        this.toPatterns();
+    }
+
+    /** After an import: the Pattern view, its file set open there. */
+    void toPatterns() {
+        if (!this.fromImport) return;
+        this.fromImport = false;
+        this.app.openPacks.put("f:" + this.key, true);
+        this.app.showView("pattern");
+        this.app.styleLibrary.refreshLearnedChips();
     }
 
     void close() {
