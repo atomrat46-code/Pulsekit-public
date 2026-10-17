@@ -4684,6 +4684,18 @@ public final class DesktopBehavior {
     }
   }
 
+  /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
+  void s115_last_tab_kept() throws Exception {
+    edt(() -> call("showView", "fills"));
+    out.append("kept: ").append(new String(Files.readAllBytes(Pulsekit.lastTabFile().toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+    final Pulsekit[] again = new Pulsekit[1];
+    SwingUtilities.invokeAndWait(() -> again[0] = new Pulsekit());
+    out.append("started again on: ").append(again[0].view).append(", subtabs ").append(again[0].drumSubtabs.isVisible() ? "shown" : "hidden").append('\n');
+    SwingUtilities.invokeAndWait(() -> again[0].dispose());
+    edt(() -> call("showView", "pattern"));
+    if (!"fills".equals(again[0].view)) throw new AssertionError(out.toString());
+  }
+
   /**
    * The shared VST batch folder: SogniMusic --batchdir puts DrumMidi's MIDI of its track in it (a
    * batch.txt row, base SogniMusic); MidiDrumGen --count --outdir the same folder adds its grooves

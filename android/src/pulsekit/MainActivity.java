@@ -287,6 +287,9 @@ public class MainActivity extends UiKit {
         this.gridEditor.applyGridWidth();
         this.refreshTabs();
         this.songEditor.refreshSong();
+        // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
+        String lastTab = this.getSharedPreferences(UI_PREFS, 0).getString("tab", null);
+        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.show(lastTab);
 
         ArtJava.pinWorkDir(this);
         this.handler.postDelayed(this.dbWatch, 400);
@@ -577,10 +580,15 @@ public class MainActivity extends UiKit {
         return "pattern".equals(this.view) || "combo".equals(this.view);
     }
 
+    /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "py");
+    static final String UI_PREFS = "pulsekit-ui";
+
     void show(String string) {
         this.gridEditor.hideLenMenu();
         if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
         this.view = string;
+        if (REMEMBERED_TABS.contains(string)) this.getSharedPreferences(UI_PREFS, 0).edit().putString("tab", string).apply();
         // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
         if (drumView(string)) this.lastDrumView = string;
         if (this.drumSubtabs != null) this.drumSubtabs.setVisibility(drumView(string) ? 0 : 8);

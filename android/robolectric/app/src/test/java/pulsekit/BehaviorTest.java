@@ -3159,6 +3159,27 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /** The tab Pulsekit was on is kept, and Pulsekit opens on it again (a main tab or a Drum Tracks subtab). */
+  @Test
+  public void s133_last_tab_kept() throws Exception {
+    StringBuilder out = new StringBuilder();
+    app.show("fills");
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences(MainActivity.UI_PREFS, 0).getString("tab", null)).append('\n');
+    MainActivity again = org.robolectric.Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("started again on: ").append(again.view).append(", subtabs ").append(again.drumSubtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    app.show("song");
+    idle();
+    MainActivity third = org.robolectric.Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("after Song: ").append(third.view).append('\n');
+    app.show("pattern");
+    idle();
+    if (!"fills".equals(again.view) || !"song".equals(third.view)) throw new AssertionError(out.toString());
+    write("s133_last_tab_kept", out.toString());
+  }
+
   /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test

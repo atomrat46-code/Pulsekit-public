@@ -232,6 +232,9 @@ public final class Pulsekit extends UiKit {
         this.persistence.restoreSessionFiles();
         this.styleChosen = false;
         this.styleLibrary.refreshStyles();
+        // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
+        String lastTab = readLastTab();
+        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.showView(lastTab);
         this.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -695,8 +698,33 @@ public final class Pulsekit extends UiKit {
     JPanel transportBar;
 
 
+    /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "py", "prompts");
+
+    static java.io.File lastTabFile() {
+        return new java.io.File(PromptDb.dir(), "last-tab.txt");
+    }
+
+    static String readLastTab() {
+        try {
+            java.io.File f = lastTabFile();
+            return f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim() : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     void showView(String string) {
         if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
+        // Kept for the next start when it changes.
+        if (REMEMBERED_TABS.contains(string) && !string.equals(this.view)) {
+            try {
+                lastTabFile().getParentFile().mkdirs();
+                java.nio.file.Files.write(lastTabFile().toPath(), (string + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
+                // this run only
+            }
+        }
         this.view = string;
         // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
         if (drumView(string)) this.lastDrumView = string;
