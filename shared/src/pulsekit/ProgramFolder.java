@@ -88,7 +88,8 @@ public final class ProgramFolder {
     java.util.List<String> out = new java.util.ArrayList<String>(argv);
     String[] keys = "MidiDrumGen.java".equals(program) ? new String[] {"--outdir"}
         : "vst_render.py".equals(program) ? new String[] {"--dir", "--outdir"}
-        : "CompareHits.java".equals(program) ? new String[] {"--batch"} : new String[0];
+        : "CompareHits.java".equals(program) ? new String[] {"--batch"}
+        : "VideoFrames.java".equals(program) ? new String[] {"--dir", "--outdir"} : new String[0];
     if (keys.length == 0) return argv;
     for (int i = 0; i + 1 < out.size(); i++) {
       String a = out.get(i) == null ? "" : out.get(i).trim();

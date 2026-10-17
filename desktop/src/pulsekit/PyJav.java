@@ -689,8 +689,15 @@ final class PyJav {
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
                 if (!testing && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
+                File frame = result.code == 0 && "VideoFrames.java".equals(name) && argv.contains("--upscale") ? this.firstFrame(savedPictures, argv, result.log) : null;
+                if (frame != null) {
+                    app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+                    this.setInputFile(frame);
+                    this.openParams();
+                }
                 // Pictures it made (SogniChat's tool results) are shown.
-                if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
+                else if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
                 if (!savedVideos.isEmpty() && result.code == 0) {
                     // A joined clip (SogniVideo's Join with this video) is the one to watch.
@@ -899,6 +906,21 @@ final class PyJav {
             app.pyLog.append("\n" + line);
             this.runLog = app.pyLog.getText();
         }
+    }
+
+    /** VideoFrames' first picture: the first saved, else the first "Wrote" one in its --outdir; null when none. */
+    File firstFrame(java.util.List<File> saved, java.util.List<String> argv, String log) {
+        for (File f : saved) if (f.getName().toLowerCase().endsWith(".png")) return f;
+        int at = argv.indexOf("--outdir");
+        if (at < 0 || at + 1 >= argv.size() || log == null) return null;
+        for (String line : log.split("\n")) {
+            String t = line.trim();
+            if (!t.startsWith("Wrote ")) continue;
+            String n = t.substring(6).replaceAll(" \\(\\d+x\\d+\\)$", "").trim();
+            File f = new File(argv.get(at + 1), n);
+            if (f.isFile()) return f;
+        }
+        return null;
     }
 
     /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). */
@@ -1288,13 +1310,6 @@ final class PyJav {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("pyjav-recent-runs");
         java.util.List<PyJavRecent.Item> runs = PyJavRecent.runsOf(this.pyRecentItems, name);
-        // The star: bright when the program is starred; a click stars it or takes the star off.
-        final boolean starred = ProgramStars.is(name);
-        javax.swing.JMenuItem star = new javax.swing.JMenuItem(starred ? "\u2605 Starred" : "\u2606 Star " + name);
-        star.setName("pyjav-recent-star");
-        star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
-        menu.add(star);
-        menu.addSeparator();
         for (int i = 0; i < runs.size(); i++) {
             final PyJavRecent.Item run = runs.get(i);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));
@@ -1302,6 +1317,13 @@ final class PyJav {
             item.addActionListener(e -> this.loadRecent(run));
             menu.add(item);
         }
+        // The star, last: bright when the program is starred; a click stars it or takes the star off.
+        final boolean starred = ProgramStars.is(name);
+        javax.swing.JMenuItem star = new javax.swing.JMenuItem(starred ? "\u2605 Starred" : "\u2606 Star " + name);
+        star.setName("pyjav-recent-star");
+        star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
+        menu.addSeparator();
+        menu.add(star);
         return menu;
     }
 

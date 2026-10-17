@@ -258,6 +258,22 @@ public final class JavaRun {
   }
 
   /**
+   * Pulsekit's own JAR (or classes folder) after the program's folder on its class path, so a
+   * program can use the app's helpers by name (VideoFrames reads frames with VLC through it); its
+   * own classes, in the default package, never meet the app's (in pulsekit). "" when not known.
+   */
+  static String appClassPath() {
+    try {
+      java.security.CodeSource cs = JavaRun.class.getProtectionDomain().getCodeSource();
+      if (cs == null || cs.getLocation() == null) return "";
+      File self = new File(cs.getLocation().toURI());
+      return self.exists() ? File.pathSeparator + self.getAbsolutePath() : "";
+    } catch (Exception ex) {
+      return "";
+    }
+  }
+
+  /**
    * One argument as split reads it back: as it is when it has no space or quote; in double quotes;
    * in single quotes when it has a double quote in it (a prompt with speech: She says "Hello");
    * with both kinds, in double quotes with \" for each double quote.
@@ -767,7 +783,7 @@ public final class JavaRun {
         String cls = declared != null ? declared : name.substring(0, name.length() - 5);
         cmd.add("java");
         cmd.add("-cp");
-        cmd.add(dir.getAbsolutePath());
+        cmd.add(dir.getAbsolutePath() + appClassPath());
         cmd.add(cls);
         shown = "$ java " + cls;
       } else if (low.endsWith(".jar")) {
@@ -800,7 +816,7 @@ public final class JavaRun {
         String cls = name.substring(0, name.length() - 6);
         cmd.add("java");
         cmd.add("-cp");
-        cmd.add(dir.getAbsolutePath());
+        cmd.add(dir.getAbsolutePath() + appClassPath());
         cmd.add(cls);
         shown = "$ java " + cls;
       }

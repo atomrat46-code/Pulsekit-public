@@ -113,6 +113,8 @@ public final class ProgramParams {
     boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
     // vst_render.py: a MIDI (or WAV) played through a VST instrument (and an effect), as a WAV.
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
+    // VideoFrames: pictures from a video (first, last, at times, every N seconds).
+    boolean videoFrames = has(out, "--first") && has(out, "--last") && has(out, "--every");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -133,6 +135,7 @@ public final class ProgramParams {
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
       if (drumGen) knownDrumGenBatch(p);
+      if (videoFrames) knownVideoFrames(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -472,6 +475,35 @@ public final class ProgramParams {
   }
 
   /** vst_render.py's labels: the MIDI, the plugins and their settings files, the render's format. */
+  /** VideoFrames: the video (also from the library's video files), which frames, a folder of videos, where they go. */
+  private static void knownVideoFrames(Param p) {
+    if (!p.flag && p.isFile()) {
+      p.label = "Video";
+      p.hint = "an MP4, WebM or MOV";
+      p.refs = true;
+    } else if (p.token.equals("--first")) p.label = "First frame";
+    else if (p.token.equals("--last")) p.label = "Last frame";
+    else if (p.token.equals("--at")) {
+      p.label = "Frames at these times";
+      p.hint = "0:12.345, 1:05 or seconds (12.5); a comma between";
+    } else if (p.token.equals("--every")) {
+      p.label = "A frame every N seconds";
+      p.hint = "empty: none";
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Every video in this folder (instead of one)";
+      p.hint = "empty: the video above";
+    } else if (p.token.equals("--recursive")) p.label = "Its subfolders too";
+    else if (p.token.equals("--max")) {
+      p.label = "Largest side (pixels)";
+      p.hint = "empty: the video's own size";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Folder for the pictures";
+      p.hint = "empty: with PyJav's other output";
+    } else if (p.token.equals("--upscale")) p.label = "Then upscale the first picture (ImageUpscaler, its Params open)";
+  }
+
   /** MidiDrumGen's batch: --count grooves in random styles, into --outdir, made again with --seed. */
   private static void knownDrumGenBatch(Param p) {
     if (p.token.equals("--count")) {

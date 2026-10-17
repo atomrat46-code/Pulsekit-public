@@ -1244,8 +1244,10 @@ final class PyJav {
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
         this.pkOffer("the sound", ok && !testing, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
+        // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
+        final boolean upscaling = ok && "VideoFrames.java".equals(program) && argv != null && argv.contains("--upscale") && this.pkFrameToUpscaler(made);
         // Pictures it made (SogniChat's tool results) are shown.
-        this.pkOffer("the pictures", ok, () -> PictureOffer.offer(app, made));
+        this.pkOffer("the pictures", ok && !upscaling, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         this.pkOffer("the video", ok, () -> VideoOffer.offer(app, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
@@ -1386,6 +1388,30 @@ final class PyJav {
         }
         // Another program ran in between: the test is over.
         pulsekit.Midi2WavTest.stop();
+        return false;
+    }
+
+    /** VideoFrames --upscale: ImageUpscaler with the first picture the run made as its input, its Params open; false when it made none. */
+    boolean pkFrameToUpscaler(pulsekit.JavaRun.Result made) {
+        if (made == null || made.files == null) return false;
+        for (Object o : made.files) {
+            pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) o;
+            if (f.name == null || !f.name.toLowerCase().endsWith(".png") || f.bytes == null) continue;
+            try {
+                java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                final java.io.File in = new java.io.File(dir, f.name);
+                java.nio.file.Files.write(in.toPath(), f.bytes);
+                app.runOnUiThread(() -> {
+                    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+                    this.pkUseInputPath(in.getAbsolutePath());
+                    this.pkOpenParams();
+                });
+                return true;
+            } catch (Exception ex) {
+                return false;
+            }
+        }
         return false;
     }
 

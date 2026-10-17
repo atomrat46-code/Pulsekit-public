@@ -3158,6 +3158,32 @@ public class BehaviorTest {
   }
 
   /**
+   * VideoFrames: its Params (the video, from the library's videos too; first, last, times, every N
+   * seconds, a folder); --upscale hands the first picture to ImageUpscaler with its Params open.
+   */
+  @Test
+  public void s122_video_frames() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("VideoFrames.java");
+    out.append("in the Java menu: ").append(src != null).append('\n');
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      out.append("param ").append(p.token).append(": ").append(p.label).append(p.isFile() ? " (file" + (p.refs ? ", Browse DB" : "") + ")" : "").append(p.dir ? " (folder)" : "").append('\n');
+    }
+    call("show", "py");
+    idle();
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("clip-first.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3}));
+    boolean handed = app.pyJav.pkFrameToUpscaler(new JavaRun.Result("Wrote clip-first.png\nSucceeded: 1 frame from 1 video", files, 0));
+    for (int i = 0; i < 50 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("--upscale: ").append(handed).append(", then ").append(app.pyName).append(", input ").append(app.pyJav.pkPyInputPath == null ? "none" : new File(app.pyJav.pkPyInputPath).getName()).append('\n');
+    if (!handed || !"ImageUpscaler.java".equals(app.pyName) || !String.valueOf(app.pyJav.pkPyInputPath).endsWith("clip-first.png")) throw new AssertionError(out.toString());
+    write("s122_video_frames", out.toString());
+  }
+
+  /**
    * Notes batch: Downloads' Sort by, Clear all, Create again and Add to favourites; the favourites'
    * Sort by; the galleries' new sorts and A I V S T; a prompt file's preview, menu and Edit;
    * starred programs; Browse DB opening on the file picked last; the download progress line.
@@ -5823,8 +5849,20 @@ public class BehaviorTest {
     View card = findText(pane, "sogni-pedit-smile.prompt");
     ((View) card.getParent()).performClick();
     idle();
-    out.append("preview shows the prompt: ").append(texts(pane).contains("Same person, smiling")).append('\n');
-    if (!texts(pane).contains("Same person, smiling")) throw new AssertionError(out.toString());
+    // A tap opens the prompt file's text (with its prompt's files and Edit).
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog shown = (AlertDialog) pv.get(null);
+    TextView body = shown == null ? null : (TextView) shown.getWindow().getDecorView().findViewWithTag("prompt-file-text");
+    boolean has = body != null && body.getText().toString().contains("Same person, smiling");
+    out.append("preview shows the prompt: ").append(has).append(", Edit ").append(shown != null && shown.getButton(DialogInterface.BUTTON_POSITIVE) != null && shown.getButton(DialogInterface.BUTTON_POSITIVE).getVisibility() == View.VISIBLE).append('\n');
+    if (shown != null) shown.dismiss();
+    if (!has) {
+      java.lang.reflect.Field f = PromptSheet.class.getDeclaredField("promptFilesOpen");
+      f.setAccessible(true);
+      f.set(null, false);
+      throw new AssertionError(out.toString());
+    }
     // The Prompts page as the other tests find it: the preview and the gallery closed.
     for (String f : new String[] {"promptFilesOpen", "previewBack"}) {
       java.lang.reflect.Field field = PromptSheet.class.getDeclaredField(f);

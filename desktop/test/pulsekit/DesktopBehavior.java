@@ -4567,7 +4567,7 @@ public final class DesktopBehavior {
     out.append("menu: ").append(rows).append('\n');
     javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
     StringBuilder labels = new StringBuilder();
-    for (Component c : runs.getComponents()) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    for (Component c : runs.getComponents()) if (c instanceof javax.swing.JMenuItem) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
     out.append("CompareHits runs: ").append(labels).append('\n');
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     String[][] picks = {{"run", "2"}, {"name", "CompareHits.java"}, {"name", "ImageUpscaler.java"}};
@@ -4682,6 +4682,34 @@ public final class DesktopBehavior {
       out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
       if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
     }
+  }
+
+  /**
+   * VideoFrames (PyJav's Java menu): the first and last frame and one at a time, read with VLC through
+   * Pulsekit's own JAR; --upscale then opens ImageUpscaler with the first picture as its input.
+   */
+  void s104_video_frames() throws Exception {
+    File clip = new File(System.getProperty("pulsekit.test.dir"), "clip-a.mp4");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "VideoFrames.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + clip.getAbsolutePath() + "\" --first --last --at 0:01.5 --upscale"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    // The pictures, kept in the program files folder (~/Downloads, or ~/.pulsekit without one).
+    File home = new File(System.getProperty("user.home"));
+    java.util.List<String> pics = new java.util.ArrayList<String>();
+    for (String d : new String[] {"Downloads", ".pulsekit"}) {
+      String[] in = new File(home, d).list();
+      if (in != null) for (String n : in) if (n.startsWith("clip-a-") && n.endsWith(".png")) pics.add(n);
+    }
+    java.util.Collections.sort(pics);
+    out.append("pictures: ").append(pics).append('\n');
+    out.append("then: ").append(get("pyName")).append(", input ").append(get("pyInputPath") == null ? "none" : new File(String.valueOf(get("pyInputPath"))).getName()).append('\n');
+    if (!"ImageUpscaler.java".equals(get("pyName")) || get("pyInputPath") == null || !String.valueOf(get("pyInputPath")).contains("clip-a-first")
+        || !pics.contains("clip-a-last.png") || !pics.contains("clip-a-0m01s500.png")) throw new AssertionError(out.toString());
   }
 
   /**
