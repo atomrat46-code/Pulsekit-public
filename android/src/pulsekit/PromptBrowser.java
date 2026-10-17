@@ -153,15 +153,19 @@ final class PromptBrowser {
         for (PromptVault.Category c : mains) tabRow.addView(chip(activity, vault, c, c.id == mainId, "prompt-browser-tab:", body, dialog, picked), chipLp(activity));
         tabs.addView(tabRow);
         body.addView(tabs);
-        PromptVault.Category main = vault.category(mainId);
-        List<PromptVault.Category> subs = vault.children(mainId);
-        if (!subs.isEmpty()) {
-            body.addView(text(activity, "Subcategories of " + main.name, 12, "#8A8B86"));
+        // Subcategories nest: a row for each level down to the category chosen (and its own under it).
+        List<PromptVault.Category> path = vault.pathTo(chosen);
+        for (int k = 0; k < path.size(); k++) {
+            PromptVault.Category at = path.get(k);
+            List<PromptVault.Category> subs = vault.children(at.id);
+            if (subs.isEmpty()) continue;
+            long on = k + 1 < path.size() ? path.get(k + 1).id : -1;
+            body.addView(text(activity, "Subcategories of " + at.name, 12, "#8A8B86"));
             HorizontalScrollView subScroll = new HorizontalScrollView(activity);
             subScroll.setHorizontalScrollBarEnabled(false);
             LinearLayout subRow = new LinearLayout(activity);
             subRow.setOrientation(LinearLayout.HORIZONTAL);
-            for (PromptVault.Category c : subs) subRow.addView(chip(activity, vault, c, c.id == chosen, "prompt-browser-sub:", body, dialog, picked), chipLp(activity));
+            for (PromptVault.Category c : subs) subRow.addView(chip(activity, vault, c, c.id == on, "prompt-browser-sub:", body, dialog, picked), chipLp(activity));
             subScroll.addView(subRow);
             body.addView(subScroll);
         }

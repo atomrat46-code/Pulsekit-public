@@ -54,7 +54,8 @@ final class SavePromptDialog {
             sub.removeAllItems();
             sub.addItem("");
             long mainId = vault == null ? 0 : PromptSave.find(vault, text(main), "");
-            if (mainId != 0) for (PromptVault.Category c : vault.children(mainId)) sub.addItem(c.name);
+            // Subcategories nest: each as its place under the main one ("Clips / Night").
+            for (String p : PromptSave.subPaths(vault, mainId)) sub.addItem(p);
             sub.setSelectedItem(keep);
         };
         fillSubs.run();
@@ -105,7 +106,7 @@ final class SavePromptDialog {
             add(form, g, row++, "Recent", places);
         }
         add(form, g, row++, "Main category", main);
-        add(form, g, row++, "Subcategory (optional)", sub);
+        add(form, g, row++, "Subcategory (optional; Clips / Night nests)", sub);
         add(form, g, row++, "Name", name);
         add(form, g, row++, "Description (optional)", new JScrollPane(description));
         // Tag 1–3: each from the tag list (the prompts' and the Media browser's), or Add new tag.

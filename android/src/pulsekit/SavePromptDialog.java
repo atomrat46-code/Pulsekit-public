@@ -83,20 +83,21 @@ final class SavePromptDialog {
                 sub.setText("");
             }).setNegativeButton("Cancel", null).show();
         }));
-        col.addView(label(app, "Subcategory (optional)", 12, "#8A8B86"));
+        col.addView(label(app, "Subcategory (optional; \"Clips / Night\" for one inside another)", 12, "#8A8B86"));
         col.addView(withBrowse(app, sub, "save-prompt-sub-browse", () -> {
             if (vault == null) return;
             long mainId = PromptSave.find(vault, main.getText().toString(), "");
-            final List<PromptVault.Category> kids = mainId == 0 ? new java.util.ArrayList<PromptVault.Category>() : vault.children(mainId);
+            // Subcategories nest: each as its place under the main one ("Clips / Night").
+            final List<String> kids = PromptSave.subPaths(vault, mainId);
             if (kids.isEmpty()) {
                 app.setNow("No subcategories in " + main.getText().toString().trim() + ": type a name, it is made on OK");
                 return;
             }
             CharSequence[] names = new CharSequence[kids.size() + 1];
             names[0] = "(none)";
-            for (int i = 0; i < kids.size(); i++) names[i + 1] = kids.get(i).name;
+            for (int i = 0; i < kids.size(); i++) names[i + 1] = kids.get(i);
             new AlertDialog.Builder(app).setTitle("Subcategory of " + main.getText().toString().trim()).setItems(names, (d, which) -> {
-                sub.setText(which == 0 ? "" : kids.get(which - 1).name);
+                sub.setText(which == 0 ? "" : kids.get(which - 1));
             }).setNegativeButton("Cancel", null).show();
         }));
         col.addView(label(app, "Name", 12, "#8A8B86"));

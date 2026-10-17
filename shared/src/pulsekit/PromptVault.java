@@ -193,12 +193,52 @@ public final class PromptVault {
     return out;
   }
 
+  /** The main category above `id` (subcategories nest: up through each parent). */
   public synchronized long mainOf(long id) {
     Category category = category(id);
     if (category == null) return 0;
-    if (category.parentId == 0) return category.id;
-    Category parent = category(category.parentId);
-    return parent == null ? category.id : parent.id;
+    for (int depth = 0; category.parentId != 0 && depth < 32; depth++) {
+      Category parent = category(category.parentId);
+      if (parent == null) break;
+      category = parent;
+    }
+    return category.id;
+  }
+
+  /** Subcategories nest this many levels under a main category at most. */
+  public static final int MAX_DEPTH = 5;
+
+  /** The categories from the main one down to `id` (empty when it is gone). */
+  public synchronized List<Category> pathTo(long id) {
+    List<Category> out = new ArrayList<Category>();
+    Category c = category(id);
+    for (int depth = 0; c != null && depth < 32; depth++) {
+      out.add(0, c);
+      c = c.parentId == 0 ? null : category(c.parentId);
+    }
+    return out;
+  }
+
+  /** How deep `id` is: 0 for a main category, 1 for its subcategories... */
+  public synchronized int depth(long id) {
+    return Math.max(0, pathTo(id).size() - 1);
+  }
+
+  /** Every category under `id`, each before its own subcategories. */
+  public synchronized List<Category> descendants(long id) {
+    List<Category> out = new ArrayList<Category>();
+    for (Category c : children(id)) {
+      out.add(c);
+      if (c.id != id) out.addAll(descendants(c.id));
+    }
+    return out;
+  }
+
+  /** "Video / Clips / Night": the category's place from its main category. */
+  public synchronized String pathName(long id) {
+    StringBuilder sb = new StringBuilder();
+    for (Category c : pathTo(id)) sb.append(sb.length() == 0 ? "" : " / ").append(c.name);
+    return sb.toString();
   }
 
   /** Every prompt, in every category. */
@@ -542,9 +582,11 @@ public final class PromptVault {
     return category.id;
   }
 
+  /** A subcategory of `parentId` (a main category or a subcategory: they nest MAX_DEPTH deep). */
   public synchronized long addSubcategory(long parentId, String name) throws Exception {
-    long main = mainOf(parentId);
-    if (main == 0) throw new IllegalArgumentException("Pick a category");
+    if (category(parentId) == null) throw new IllegalArgumentException("Pick a category");
+    if (depth(parentId) >= MAX_DEPTH) throw new IllegalArgumentException("Subcategories go " + MAX_DEPTH + " levels deep at most");
+    long main = parentId;
     String clean = clean(name);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the subcategory");
     List<Category> kids = children(main);
@@ -797,10 +839,8 @@ public final class PromptVault {
     if (category.parentId == 0 && mains().size() <= 1) throw new IllegalArgumentException("Keep at least one category");
     List<Long> drop = new ArrayList<Long>();
     drop.add(Long.valueOf(id));
-    if (category.parentId == 0) {
-      List<Category> kids = children(id);
-      for (int i = 0; i < kids.size(); i++) drop.add(Long.valueOf(kids.get(i).id));
-    }
+    // Its subcategories, and theirs, go with it.
+    for (Category kid : descendants(id)) drop.add(Long.valueOf(kid.id));
     for (int i = categories.size() - 1; i >= 0; i--) {
       if (drop.contains(Long.valueOf(categories.get(i).id))) categories.remove(i);
     }

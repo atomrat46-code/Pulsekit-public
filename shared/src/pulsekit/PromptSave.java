@@ -300,23 +300,50 @@ public final class PromptSave {
     return 1;
   }
 
-  /** The category for main / sub, 0 when it is not there. */
+  /** The category for main / sub ("Clips / Night": a subcategory of a subcategory), 0 when it is not there. */
   static long find(PromptVault vault, String main, String sub) {
-    long mainId = 0;
-    for (PromptVault.Category c : vault.mains()) if (c.name != null && c.name.trim().equalsIgnoreCase(one(main))) mainId = c.id;
-    if (mainId == 0 || one(sub).length() == 0) return mainId;
-    for (PromptVault.Category c : vault.children(mainId)) if (c.name != null && c.name.trim().equalsIgnoreCase(one(sub))) return c.id;
-    return 0;
+    long at = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name != null && c.name.trim().equalsIgnoreCase(one(main))) at = c.id;
+    if (at == 0 || one(sub).length() == 0) return at;
+    for (String part : subParts(sub)) {
+      long next = 0;
+      for (PromptVault.Category c : vault.children(at)) if (c.name != null && c.name.trim().equalsIgnoreCase(part)) next = c.id;
+      if (next == 0) return 0;
+      at = next;
+    }
+    return at;
   }
 
-  /** The category for main / sub, made when it is not there. */
+  /** The subcategories under `mainId`, each as its place from there ("Clips", "Clips / Night"), as Save prompt offers them. */
+  public static List<String> subPaths(PromptVault vault, long mainId) {
+    List<String> out = new ArrayList<String>();
+    if (vault == null || mainId == 0) return out;
+    String main = vault.pathName(mainId);
+    for (PromptVault.Category c : vault.descendants(mainId)) {
+      String p = vault.pathName(c.id);
+      out.add(p.startsWith(main + " / ") ? p.substring(main.length() + 3) : c.name);
+    }
+    return out;
+  }
+
+  /** The subcategory names in "Clips / Night" (a "›" between works too). */
+  static List<String> subParts(String sub) {
+    List<String> out = new ArrayList<String>();
+    for (String p : one(sub).split("\\s*[/\u203a]\\s*")) if (p.trim().length() > 0) out.add(p.trim());
+    return out;
+  }
+
+  /** The category for main / sub, made (each level of it) when it is not there. */
   static long place(PromptVault vault, String main, String sub) throws Exception {
     String m = one(main).length() == 0 ? "General" : one(main);
-    long mainId = find(vault, m, "");
-    if (mainId == 0) mainId = vault.addCategory(m);
-    if (one(sub).length() == 0) return mainId;
-    long subId = find(vault, m, sub);
-    return subId != 0 ? subId : vault.addSubcategory(mainId, one(sub));
+    long at = find(vault, m, "");
+    if (at == 0) at = vault.addCategory(m);
+    for (String part : subParts(sub)) {
+      long next = 0;
+      for (PromptVault.Category c : vault.children(at)) if (c.name != null && c.name.trim().equalsIgnoreCase(part)) next = c.id;
+      at = next != 0 ? next : vault.addSubcategory(at, part);
+    }
+    return at;
   }
 
   /** "2026-10-12". */

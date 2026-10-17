@@ -82,6 +82,19 @@ public final class VersionFavourites {
   }
 
   /** The favourites' Sort by: the order kept (Move up / down), newest version first, by main category, by name. */
+  /** The favourite prompts kept in category `id` or a category under it (a category's Favourites). */
+  public static List<PromptVault.Version> inCategory(PromptVault vault, long id) {
+    java.util.Set<Long> under = new java.util.HashSet<Long>();
+    under.add(id);
+    for (PromptVault.Category c : vault.descendants(id)) under.add(c.id);
+    List<PromptVault.Version> out = new java.util.ArrayList<PromptVault.Version>();
+    for (PromptVault.Version v : list(vault)) {
+      PromptVault.Prompt p = vault.prompt(v.promptId);
+      if (p != null && under.contains(p.categoryId)) out.add(v);
+    }
+    return out;
+  }
+
   public static final String[] SORTS = {"My order", "Newest", "Category", "Name"};
   public static String sort = SORTS[0];
 

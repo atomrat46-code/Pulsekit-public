@@ -1373,12 +1373,56 @@ public final class PromptSheet {
       TextView under = label(activity, "Subcategories of " + main.name, 12, "#8A8B86", false);
       under.setTag("subcategories-of");
       box.addView(under);
-      box.addView(chipRow(activity, subs, selected, false));
+      // A tree: + opens a subcategory's own subcategories, − closes them; the chosen one's are open.
+      for (PromptVault.Category c : vault.pathTo(selected)) OPEN.add(c.id);
+      tree(activity, box, mainId, selected, 0);
     }
     return box;
   }
 
-  /** The main category a new subcategory goes under: the open prompt's, else the one chosen. */
+  /** The subcategories shown open in the tree (their own subcategories listed under them). */
+  static final java.util.Set<Long> OPEN = new java.util.HashSet<Long>();
+
+  /** `parent`'s subcategories, one a line, indented by depth, each with + or − when it has its own. */
+  private static void tree(final Activity activity, LinearLayout box, long parent, long selected, int depth) {
+    for (PromptVault.Category c : vault.children(parent)) {
+      final long id = c.id;
+      final String name = c.name == null ? "" : c.name;
+      boolean kids = !vault.children(id).isEmpty();
+      final boolean open = kids && OPEN.contains(id);
+      LinearLayout line = new LinearLayout(activity);
+      line.setOrientation(LinearLayout.HORIZONTAL);
+      line.setGravity(Gravity.CENTER_VERTICAL);
+      line.setPadding(dp(activity, 18 * depth), 0, 0, dp(activity, 6));
+      TextView toggle = label(activity, kids ? (open ? "\u2212" : "+") : "", 18, "#ECEBE6", true);
+      toggle.setGravity(Gravity.CENTER);
+      toggle.setTag("category-toggle:" + name);
+      if (kids) toggle.setOnClickListener(v -> {
+        if (open) OPEN.remove(id);
+        else OPEN.add(id);
+        rebuild(activity);
+      });
+      line.addView(toggle, new LinearLayout.LayoutParams(dp(activity, 30), dp(activity, 36)));
+      boolean on = id == selected;
+      TextView chip = button(activity, name, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      chip.setPadding(dp(activity, 12), 0, dp(activity, 12), 0);
+      chip.setOnClickListener(v -> {
+        categoryId = id;
+        promptId = 0;
+        dbFor = 0;
+        rebuild(activity);
+      });
+      chip.setOnLongClickListener(v -> {
+        categoryMenu(activity, id, name, true);
+        return true;
+      });
+      line.addView(chip, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 36)));
+      box.addView(line);
+      if (open) tree(activity, box, id, selected, depth + 1);
+    }
+  }
+
+  /** The category a new subcategory goes under (subcategories nest): the open prompt's, else the one chosen. */
   private static String subcategoryParent() {
     if (vault == null) return "";
     long selected = categoryId;
@@ -1386,8 +1430,8 @@ public final class PromptSheet {
       PromptVault.Prompt item = vault.prompt(promptId);
       if (item != null) selected = item.categoryId;
     }
-    PromptVault.Category main = vault.category(vault.mainOf(selected));
-    return main == null || main.name == null ? "" : main.name;
+    PromptVault.Category at = vault.category(selected);
+    return at == null || at.name == null ? "" : at.name;
   }
 
   private static FlowLayout chipRow(Activity activity, List<PromptVault.Category> categories, long selectedId, boolean mainRow) {
@@ -1419,9 +1463,35 @@ public final class PromptSheet {
     return row;
   }
 
+  /** The category's Favourites list shown last, for the tests. */
+  static AlertDialog lastFavourites;
+
+  /** A category's Favourites: the favourite prompts in it and under it; a tap opens that version. */
+  private static void categoryFavourites(final Activity activity, long id, String name) {
+    VersionFavourites.load(activity.getFilesDir());
+    final List<PromptVault.Version> favs = VersionFavourites.inCategory(vault, id);
+    AlertDialog.Builder b = new AlertDialog.Builder(activity).setTitle("\u2605 Favourites in " + name);
+    if (favs.isEmpty()) b.setMessage("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save prompt");
+    else {
+      CharSequence[] labels = new CharSequence[favs.size()];
+      for (int i = 0; i < favs.size(); i++) labels[i] = VersionFavourites.label(vault, favs.get(i));
+      b.setItems(labels, (d, which) -> {
+        PromptVault.Version v = favs.get(which);
+        PromptVault.Prompt p = vault.prompt(v.promptId);
+        if (p == null) return;
+        categoryId = p.categoryId;
+        promptId = p.id;
+        loadedVersionId = v.id;
+        dbFor = 0;
+        rebuild(activity);
+      });
+    }
+    lastFavourites = b.setNegativeButton("Close", null).show();
+  }
+
   private static void categoryMenu(Activity activity, long id, String name, boolean sub) {
     String kind = sub ? "subcategory" : "category";
-    itemMenu(activity, name.length() == 0 ? kind : name, () -> ask(activity, "Rename " + kind, "Name", name, next -> {
+    itemMenu(activity, name.length() == 0 ? kind : name, () -> categoryFavourites(activity, id, name), () -> ask(activity, "Rename " + kind, "Name", name, next -> {
       try {
         vault.renameCategory(id, next);
         rebuild(activity);
@@ -1827,10 +1897,18 @@ public final class PromptSheet {
   }
 
   private static void itemMenu(Activity activity, String title, Runnable rename, Runnable delete) {
+    itemMenu(activity, title, null, rename, delete);
+  }
+
+  /** Rename and Delete; a category's menu has Favourites first. */
+  private static void itemMenu(Activity activity, String title, final Runnable favourites, Runnable rename, Runnable delete) {
+    CharSequence[] items = favourites == null ? new CharSequence[] {"Rename", "Delete"} : new CharSequence[] {"\u2605 Favourites", "Rename", "Delete"};
+    final int skip = favourites == null ? 0 : 1;
     new AlertDialog.Builder(activity)
         .setTitle(title)
-        .setItems(new CharSequence[] {"Rename", "Delete"}, (dialog, which) -> {
-          if (which == 0) rename.run();
+        .setItems(items, (dialog, which) -> {
+          if (which < skip) favourites.run();
+          else if (which == skip) rename.run();
           else delete.run();
         })
         .show();

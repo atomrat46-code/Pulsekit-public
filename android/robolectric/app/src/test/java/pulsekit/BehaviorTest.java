@@ -3160,6 +3160,96 @@ public class BehaviorTest {
   }
 
   /**
+   * Nested subcategories: a subcategory of a subcategory (5 levels at most), the Prompts page's
+   * +/− tree, Add subcategory under the one chosen, a category's ★ Favourites, deleting a branch;
+   * Save prompt's "Clips / Night"; Browse prompts' rows for each level.
+   */
+  @Test
+  public void s129_category_tree() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long video = vault.addCategory("Video");
+    long clips = vault.addSubcategory(video, "Clips");
+    long night = vault.addSubcategory(clips, "Night");
+    out.append("Night: ").append(vault.pathName(night)).append(", main ").append(vault.category(vault.mainOf(night)).name).append(", depth ").append(vault.depth(night)).append('\n');
+    long deep = night;
+    for (int k = 3; k <= 5; k++) deep = vault.addSubcategory(deep, "L" + k);
+    String limit;
+    try {
+      vault.addSubcategory(deep, "L6");
+      limit = "made";
+    } catch (Exception ex) {
+      limit = ex.getMessage();
+    }
+    out.append("level 6: ").append(limit).append('\n');
+    long walk = vault.addPrompt(night, "Night walk");
+    long v1 = vault.addVersion(walk, "Night walk", "", "A walk under the moon", "", "", null, "", null, "", null, "ai", "");
+    VersionFavourites.load(app.getFilesDir());
+    VersionFavourites.add(v1);
+    out.append("Save prompt finds Clips / Night: ").append(PromptSave.find(vault, "Video", "Clips / Night") == night).append(", offers ").append(PromptSave.subPaths(vault, video)).append('\n');
+    long day = PromptSave.place(vault, "Video", "Clips / Day");
+    out.append("Clips / Day made under ").append(vault.category(vault.category(day).parentId).name).append('\n');
+    // The Prompts page's tree.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Video").performClick();
+    idle();
+    TextView toggle = (TextView) pane.findViewWithTag("category-toggle:Clips");
+    out.append("tree: Clips ").append(toggle == null ? "no toggle" : "[" + toggle.getText() + "]").append(", Night shown ").append(findText(pane, "Night") != null).append('\n');
+    toggle.performClick();
+    idle();
+    out.append("+ on Clips: Night shown ").append(findText(pane, "Night") != null).append(", Day shown ").append(findText(pane, "Day") != null).append(", Clips [")
+        .append(((TextView) pane.findViewWithTag("category-toggle:Clips")).getText()).append("]\n");
+    findText(pane, "Night").performClick();
+    idle();
+    out.append("Night chosen: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    pane.findViewWithTag("add-subcategory").performClick();
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    findEdit(ask.getWindow().getDecorView()).setText("Moon");
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    long moon = 0;
+    for (PromptVault.Category c : vault.categories()) if ("Moon".equals(c.name)) moon = c.id;
+    out.append("Moon: ").append(moon == 0 ? "not made" : vault.pathName(moon)).append(", shown ").append(findText(pane, "Moon") != null).append('\n');
+    // A category's ★ Favourites: the favourite prompts in it and under it.
+    findText(pane, "Clips").performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("Clips menu: ").append(listItems(menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    out.append("Clips favourites: ").append(listItems(PromptSheet.lastFavourites)).append('\n');
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFavourites).clickOnItem(0);
+    idle();
+    out.append("opened: ").append(findText(pane, "Night walk") != null || findEdit(pane) != null && String.valueOf(findEdit(pane).getText()).contains("Night walk")).append('\n');
+    // Browse prompts: a row for each level down to Night.
+    PromptBrowser.lastCategory = night;
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    StringBuilder rows = new StringBuilder();
+    java.util.List<View> all = new java.util.ArrayList<View>();
+    collect(PromptBrowser.last.getWindow().getDecorView(), all);
+    for (View v : all) if (v instanceof TextView && ((TextView) v).getText().toString().startsWith("Subcategories of ")) rows.append('[').append(((TextView) v).getText()).append(']');
+    out.append("Browse prompts rows: ").append(rows).append('\n');
+    PromptBrowser.last.dismiss();
+    // Deleting Clips takes Night, Moon, the levels under Night and their prompts with it.
+    vault.deleteCategory(clips);
+    out.append("after deleting Clips: ").append(vault.categories().size()).append(" categories left, Night walk ").append(vault.prompt(walk) == null ? "gone" : "kept").append('\n');
+    if (!limit.contains("5 levels") || PromptSave.find(vault, "Video", "") != video || moon == 0 || vault.category(night) != null || !rows.toString().contains("[Subcategories of Clips][Subcategories of Night]")
+        || !out.toString().contains("Clips favourites: Night walk") || !out.toString().contains("+ on Clips: Night shown true"))
+      throw new AssertionError(out.toString());
+    write("s129_category_tree", out.toString());
+  }
+
+  private static void collect(View v, java.util.List<View> into) {
+    into.add(v);
+    if (v instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) collect(((ViewGroup) v).getChildAt(i), into);
+  }
+
+  /**
    * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one with Add new tag), kept with the
    * prompt and offered again on its next save; Browse prompts' search finds prompts by #tag, text
    * and category, listing each with its place and tags.

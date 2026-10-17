@@ -4685,6 +4685,68 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Nested subcategories: a subcategory of a subcategory, the Prompts page's +/− tree, a category's
+   * ★ Favourites item, Save prompt's "Clips / Night", Browse prompts' rows for each level.
+   */
+  void s111_category_tree() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long video = vault.addCategory("Video");
+    long clips = vault.addSubcategory(video, "Clips");
+    long night = vault.addSubcategory(clips, "Night");
+    long walk = vault.addPrompt(night, "Night walk");
+    long v1 = vault.addVersion(walk, "Night walk", "", "A walk under the moon", "", "", null, "", null, "", null, "ai", "");
+    VersionFavourites.load(PromptDb.dir());
+    VersionFavourites.add(v1);
+    out.append("Night: ").append(vault.pathName(night)).append(", Save prompt finds Clips / Night ").append(PromptSave.find(vault, "Video", "Clips / Night") == night)
+        .append(", offers ").append(PromptSave.subPaths(vault, video)).append('\n');
+    call("showView", "prompts");
+    idle();
+    edt(() -> ((javax.swing.AbstractButton) component(frame.getContentPane(), "category:Video")).doClick());
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      javax.swing.AbstractButton toggle = (javax.swing.AbstractButton) component(frame.getContentPane(), "category-toggle:Clips");
+      seen.append("tree: Clips [").append(toggle.getText()).append("], Night shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      toggle.doClick();
+    });
+    idle();
+    edt(() -> {
+      seen.append("+ on Clips: Night shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      ((javax.swing.AbstractButton) component(frame.getContentPane(), "category:Night")).doClick();
+    });
+    idle();
+    edt(() -> {
+      seen.append("Night chosen, Night still shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      javax.swing.AbstractButton more = (javax.swing.AbstractButton) component(frame.getContentPane(), "category-menu:Clips");
+      seen.append("Clips menu has Favourites ").append(more != null).append('\n');
+    });
+    final StringBuilder browse = new StringBuilder();
+    PromptBrowser.lastCategory = night;
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.ArrayDeque<Component> todo = new java.util.ArrayDeque<Component>();
+      todo.add(d);
+      while (!todo.isEmpty()) {
+        Component c = todo.poll();
+        if (c instanceof JLabel && ((JLabel) c).getText() != null && ((JLabel) c).getText().startsWith("Subcategories of ")) browse.append('[').append(((JLabel) c).getText()).append(']');
+        if (c instanceof Container) for (Component k : ((Container) c).getComponents()) todo.add(k);
+      }
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 50 && browse.length() == 0; i++) Thread.sleep(100);
+    inspectNext = null;
+    out.append(seen).append("Browse prompts rows: ").append(browse).append('\n');
+    out.append("Clips favourites: ").append(VersionFavourites.inCategory(vault, clips).size()).append('\n');
+    vault.deleteCategory(clips);
+    out.append("after deleting Clips: Night ").append(vault.category(night) == null ? "gone" : "kept").append(", Night walk ").append(vault.prompt(walk) == null ? "gone" : "kept").append('\n');
+    if (!seen.toString().contains("+ on Clips: Night shown true") || !browse.toString().contains("[Subcategories of Video][Subcategories of Clips]") || vault.category(night) != null
+        || VersionFavourites.inCategory(vault, video).size() != 0)
+      throw new AssertionError(out.toString());
+  }
+
+  /**
    * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one added new), kept with the prompt
    * and offered again on its next save; Browse prompts' search by #tag, text and category.
    */

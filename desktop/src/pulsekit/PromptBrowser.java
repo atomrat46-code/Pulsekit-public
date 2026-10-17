@@ -166,13 +166,16 @@ final class PromptBrowser {
                 body.add(favRow);
             }
             body.add(row(vault, mains, mainId, "prompt-browser-tab:", body, dialog, picked));
-            PromptVault.Category main = vault.category(mainId);
-            List<PromptVault.Category> subs = vault.children(mainId);
-            if (!subs.isEmpty()) {
-                JLabel under = new JLabel("Subcategories of " + main.name);
+            // Subcategories nest: a row for each level down to the category chosen (and its own under it).
+            List<PromptVault.Category> path = vault.pathTo(chosen);
+            for (int k = 0; k < path.size(); k++) {
+                PromptVault.Category at = path.get(k);
+                List<PromptVault.Category> subs = vault.children(at.id);
+                if (subs.isEmpty()) continue;
+                JLabel under = new JLabel("Subcategories of " + at.name);
                 under.setAlignmentX(0.0f);
                 body.add(under);
-                body.add(row(vault, subs, chosen, "prompt-browser-sub:", body, dialog, picked));
+                body.add(row(vault, subs, k + 1 < path.size() ? path.get(k + 1).id : -1, "prompt-browser-sub:", body, dialog, picked));
             }
             PromptVault.Category shown = vault.category(chosen);
             JLabel heading = new JLabel("PROMPTS IN " + (shown == null ? "" : shown.name.toUpperCase(java.util.Locale.ROOT)));
