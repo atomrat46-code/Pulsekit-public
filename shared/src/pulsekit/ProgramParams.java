@@ -595,6 +595,14 @@ public final class ProgramParams {
       p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
       p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
       p.ext = "any";
+    } else if (p.token.equals("--drumgizmo")) {
+      p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";
+      p.hint = "free kits at drumgizmo.org; the plugin above stays empty";
+      p.ext = "any";
+    } else if (p.token.equals("--midimap")) {
+      p.label = "DrumGizmo MIDI map (.xml)";
+      p.hint = "empty: the kit folder's Midimap*.xml";
+      p.ext = "any";
     } else if (p.token.equals("--state")) {
       p.label = "Plugin settings (from Edit, .fxp, .vstpreset)";
       p.hint = "empty: the settings last saved with Edit";

@@ -19,7 +19,7 @@ public final class Midi2WavTest {
   /** SogniMusic's and MidiDrumGen's --vst: their drum MIDI played through a VST by vst_render.py (on a computer). */
   public static final String VST = "--vst";
   /** vst_render.py's settings kept from its saved Params for such a render (the plugins, their settings, the format). */
-  static final List<String> VST_KEPT = Arrays.asList("--plugin", "--carla", "--state", "--effect", "--effect_state", "--rate", "--tail", "--volume", "--bits");
+  static final List<String> VST_KEPT = Arrays.asList("--plugin", "--carla", "--drumgizmo", "--midimap", "--state", "--effect", "--effect_state", "--rate", "--tail", "--volume", "--bits");
   /** Waiting for DrumMidi_CRT's run, for the first CompareHits run, for the second. */
   public static final int DRUM_MIDI = 1;
   public static final int COMPARE = 2;
@@ -82,7 +82,7 @@ public final class Midi2WavTest {
   /**
    * vst_render.py's arguments for a MIDI: the MIDI, then the plugins, their settings and the format
    * from vst_render's saved Params (`saved`), and --test (with --no-toms when saved) when `test`.
-   * Null when no plugin (or Carla project) was saved: pick one in vst_render.py's Params first.
+   * Null when no plugin (or Carla project, or DrumGizmo kit) was saved: pick one in vst_render.py's Params first.
    */
   public static List<String> vstArgs(String midiPath, String vstSource, String saved, boolean test) {
     String merged = ProgramParams.merge(ProgramParams.parse(vstSource == null ? "" : vstSource), "", saved);
@@ -95,8 +95,8 @@ public final class Midi2WavTest {
       if (VST_KEPT.contains(a) && i + 1 < rest.size() && !rest.get(i + 1).startsWith("--")) {
         String v = rest.get(++i);
         if (v.trim().length() == 0) continue;
-        // A Carla project plays without --plugin: vst_render finds Carla-Rack.
-        if (a.equals("--plugin") || a.equals("--carla")) plugin = true;
+        // A Carla project or a DrumGizmo kit plays without --plugin.
+        if (a.equals("--plugin") || a.equals("--carla") || a.equals("--drumgizmo")) plugin = true;
         out.add(a);
         out.add(v);
       } else if (a.equals("--no-toms") && test) {

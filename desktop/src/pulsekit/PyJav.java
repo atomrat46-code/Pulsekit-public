@@ -1012,7 +1012,7 @@ final class PyJav {
     void toVst(String midiPath, boolean test) {
         final java.util.List<String> args = Midi2WavTest.vstArgs(midiPath, ProgramFiles.bundledSource("vst_render.py"), this.loadParams("vst_render.py"), test);
         if (args == null) {
-            this.testNote("No VST render: pick the plugin (and Edit its kit), or a Carla project, in vst_render.py's Params and save them; --vst uses those");
+            this.testNote("No VST render: pick the plugin (and Edit its kit), a Carla project or a DrumGizmo kit, in vst_render.py's Params and save them; --vst uses those");
             return;
         }
         this.testNote("Next: vst_render.py on " + new File(midiPath).getName() + (test ? ", then its test" : ""));

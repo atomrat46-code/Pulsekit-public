@@ -5260,7 +5260,12 @@ public final class DesktopBehavior {
     java.util.List<String> carla = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), false);
     out.append("Carla project args: ").append(String.valueOf(carla).replace(home.getAbsolutePath(), "~")).append('\n');
     if (carla == null || !carla.contains("--carla") || carla.contains("--plugin")) throw new AssertionError(out.toString());
-    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--carla")) out.append("--carla row: ").append(p.label).append('\n');
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--carla") || p.token.equals("--drumgizmo") || p.token.equals("--midimap")) out.append(p.token).append(" row: ").append(p.label).append('\n');
+    // A DrumGizmo kit alone (DrumGizmo's own program plays it) too.
+    edt(() -> pj.saveParams("vst_render.py", "--drumgizmo \"" + new File(home, "DRSKit/DRSKit_full.xml").getAbsolutePath() + "\" --rate 48000"));
+    java.util.List<String> gizmo = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), false);
+    out.append("DrumGizmo kit args: ").append(String.valueOf(gizmo).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (gizmo == null || !gizmo.contains("--drumgizmo") || gizmo.contains("--plugin")) throw new AssertionError(out.toString());
     edt(() -> pj.saveParams("vst_render.py", vstSaved));
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     edt(() -> log.setText(""));
