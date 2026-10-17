@@ -3158,6 +3158,51 @@ public class BehaviorTest {
   }
 
   /**
+   * A video picked for a picture row of Params: its first frame goes there and its last frame to the
+   * next picture row still empty; a video no frame can be read from (as here) stays as picked.
+   */
+  @Test
+  public void s123_video_in_picture_slot() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("SogniVideo.java"));
+    int image = -1, end = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if ("--image".equals(ps.get(i).token)) image = i;
+      if ("--end_image".equals(ps.get(i).token)) end = i;
+    }
+    String[] values = new String[ps.size()];
+    out.append("isVideo clip.mp4 ").append(ProgramParams.isVideo("/x/clip.mp4")).append(", beach.png ").append(ProgramParams.isVideo("/x/beach.png")).append('\n');
+    int[][] both = ProgramParams.framesFor(ps, values, image, "/x/clip.mp4");
+    out.append("--image gets: ");
+    for (int[] f : both) out.append(ps.get(f[0]).token).append(f[1] < 0 ? " (last) " : " (first) ");
+    out.append('\n');
+    values[end] = "/x/end.png";
+    out.append("with --end_image set: ").append(ProgramParams.framesFor(ps, values, image, "/x/clip.mp4").length).append(" frame\n");
+    out.append("a picture: ").append(ProgramParams.framesFor(ps, values, image, "/x/beach.png").length).append(" frames\n");
+    if (both.length != 2 || both[0][0] != image || both[0][1] != 0 || both[1][0] != end || both[1][1] != -1) throw new AssertionError(out.toString());
+    // assign, with Robolectric's decoder giving no frame: the video stays, with a note.
+    values[end] = null;
+    PyJavParams.shownParams = ps;
+    PyJavParams.shownValues = values;
+    PyJavParams.shownLabels = new TextView[ps.size()];
+    PyJavParams.lastFramesNote = null;
+    TextView label = new TextView(app);
+    File clip = new File(app.getCacheDir(), "clip.mp4");
+    java.nio.file.Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'});
+    PyJavParams.assign(app, values, image, label, clip.getAbsolutePath(), null);
+    for (int i = 0; i < 100 && PyJavParams.lastFramesNote == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("no frame: ").append(PyJavParams.lastFramesNote).append(", --image ").append(new File(String.valueOf(values[image])).getName()).append(", label ").append(label.getText()).append('\n');
+    PyJavParams.shownParams = null;
+    PyJavParams.shownValues = null;
+    PyJavParams.shownLabels = null;
+    if (!"none".equals(PyJavParams.lastFramesNote) || !String.valueOf(values[image]).endsWith("clip.mp4") || values[end] != null) throw new AssertionError(out.toString());
+    write("s123_video_in_picture_slot", out.toString());
+  }
+
+  /**
    * VideoFrames: its Params (the video, from the library's videos too; first, last, times, every N
    * seconds, a folder); --upscale hands the first picture to ImageUpscaler with its Params open.
    */

@@ -152,10 +152,7 @@ final class RefBrowser {
 
     /** For a Params file row: the pick fills it. `only`: SOUNDS or MIDIS lists only that kind (an audio or MIDI input). */
     static void browse(final Activity activity, final String[] values, final int index, final TextView label, String only) {
-        browse(activity, only, (name, file) -> {
-            values[index] = file.getAbsolutePath();
-            label.setText(name + " \u00b7 from DB");
-        });
+        browse(activity, only, (name, file) -> PyJavParams.assign(activity, values, index, label, file.getAbsolutePath(), " \u00b7 from DB"));
     }
 
     /** Reference files first, as before; result files when there are no reference files. */

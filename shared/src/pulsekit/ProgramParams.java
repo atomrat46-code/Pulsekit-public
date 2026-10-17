@@ -904,6 +904,40 @@ public final class ProgramParams {
     return p.refs || p.ext != null && p.ext.toLowerCase().matches("png|jpe?g|webp|gif|bmp|image");
   }
 
+  /** A picked file that is a video (by its name, or an MP4's "ftyp" box). */
+  public static boolean isVideo(String path) {
+    if (path == null || path.length() == 0) return false;
+    if (path.toLowerCase().matches(".+\\.(mp4|m4v|webm|mkv|3gp|mov)")) return true;
+    byte[] b = new byte[12];
+    int n = 0;
+    try (java.io.InputStream in = new java.io.FileInputStream(path)) {
+      while (n < b.length) {
+        int r = in.read(b, n, b.length - n);
+        if (r < 0) break;
+        n += r;
+      }
+    } catch (Exception ex) {
+      return false;
+    }
+    return n >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p';
+  }
+
+  /**
+   * A video picked for a picture row: the rows it fills, as {row, which frame} (0 the first frame, -1
+   * the last): this row with the first frame, and the program's next picture row that is still
+   * empty (SogniVideo's end picture, SogniPedit's second picture) with the last. Empty when the row
+   * is not a picture row or the file is no video.
+   */
+  public static int[][] framesFor(List<Param> ps, String[] values, int index, String path) {
+    if (ps == null || index < 0 || index >= ps.size() || !previewsPicture(ps.get(index)) || !isVideo(path)) return new int[0][];
+    int other = -1;
+    for (int k = 1; k < ps.size() && other < 0; k++) {
+      int i = (index + k) % ps.size();
+      if (previewsPicture(ps.get(i)) && (values[i] == null || values[i].trim().length() == 0)) other = i;
+    }
+    return other < 0 ? new int[][] {{index, 0}} : new int[][] {{index, 0}, {other, -1}};
+  }
+
   /** A picked file that is a picture: by its name, or (without a picture's extension) by its first bytes. */
   public static boolean isPicture(String path) {
     if (path == null || path.length() == 0) return false;

@@ -4685,6 +4685,36 @@ public final class DesktopBehavior {
   }
 
   /**
+   * A video picked for a picture row of Params (SogniVideo's --image): its first frame goes there and
+   * its last frame to --end_image, still empty; read with VLC.
+   */
+  void s105_video_in_picture_slot() throws Exception {
+    File clip = new File(System.getProperty("pulsekit.test.dir"), "clip-a.mp4");
+    File src = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/SogniVideo.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(new String(java.nio.file.Files.readAllBytes(src.toPath()), StandardCharsets.UTF_8));
+    int image = -1, end = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if ("--image".equals(ps.get(i).token)) image = i;
+      if ("--end_image".equals(ps.get(i).token)) end = i;
+    }
+    final String[] values = new String[ps.size()];
+    final javax.swing.JLabel[] labels = new javax.swing.JLabel[ps.size()];
+    labels[image] = new javax.swing.JLabel();
+    labels[end] = new javax.swing.JLabel();
+    final PyJav pj = (PyJav) get("pyJav");
+    pj.lastFramesNote = null;
+    final int row = image;
+    edt(() -> pj.assignFile(ps, values, row, labels, clip.getAbsolutePath(), null));
+    for (int i = 0; i < 600 && pj.lastFramesNote == null; i++) Thread.sleep(50);
+    Thread.sleep(200);
+    out.append("frames: ").append(pj.lastFramesNote).append('\n');
+    out.append("--image ").append(values[image] == null ? "none" : new File(values[image]).getName()).append(" (").append(labels[image].getText()).append(")\n");
+    out.append("--end_image ").append(values[end] == null ? "none" : new File(values[end]).getName()).append(" (").append(labels[end].getText()).append(")\n");
+    if (!"first and last frame".equals(pj.lastFramesNote) || !String.valueOf(values[image]).endsWith("clip-a-first.png") || !String.valueOf(values[end]).endsWith("clip-a-last.png")
+        || !new File(values[end]).isFile()) throw new AssertionError(out.toString());
+  }
+
+  /**
    * VideoFrames (PyJav's Java menu): the first and last frame and one at a time, read with VLC through
    * Pulsekit's own JAR; --upscale then opens ImageUpscaler with the first picture as its input.
    */

@@ -1534,6 +1534,8 @@ final class PyJav {
             break;
         }
         final String[] before = values.clone();
+        // The file rows' labels: a video picked for a picture row fills it (and an empty second picture row) with its frames.
+        final JLabel[] fileLabels = new JLabel[ps.size()];
         final JTextField[] fields = new JTextField[ps.size()];
         // A prompt or system text: a wrapping area of a few lines that scrolls.
         final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
@@ -1597,6 +1599,7 @@ final class PyJav {
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 chosen.setName("params-chosen:" + p.token);
+                fileLabels[i] = chosen;
                 JButton pick = new JButton(p.plugin ? "Choose plugin" : "any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
@@ -1610,16 +1613,12 @@ final class PyJav {
                     chosen.setText(chooser.getSelectedFile().getName());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
-                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> {
-                    values[index] = f.getAbsolutePath();
-                    chosen.setText(f.getName());
-                }, () -> {
+                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
-                    values[index] = chooser.getSelectedFile().getAbsolutePath();
-                    chosen.setText(chooser.getSelectedFile().getName());
+                    this.assignFile(ps, values, index, fileLabels, chooser.getSelectedFile().getAbsolutePath(), null);
                 }));
                 if (p.newChat) {
                     // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
@@ -1648,8 +1647,7 @@ final class PyJav {
                         if (midiAsAudio) {
                             app.promptDb.useAsAudio(picked, file, values, index, chosen);
                         } else {
-                            values[index] = file.getAbsolutePath();
-                            chosen.setText(picked + " \u00b7 from DB");
+                            this.assignFile(ps, values, index, fileLabels, file.getAbsolutePath(), picked + " \u00b7 from DB");
                         }
                     }));
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
@@ -1861,6 +1859,57 @@ final class PyJav {
         if (newInput && input != null && input.length() > 0 && new File(input).isFile()) this.setInputFile(new File(input));
         if (this.pyExtra != null) this.pyExtra.setText(line);
         app.setNow("Params saved");
+    }
+
+    /** What the last video picked for a picture row gave (for the tests). */
+    String lastFramesNote;
+
+    /**
+     * A file picked for Params row `index`: its path, shown (`shown`: "x.png · from DB"); a video
+     * for a picture row gives its first frame instead, and its last frame to the next picture row
+     * still empty (read with VLC off the Swing thread; a video it cannot read stays as it is).
+     */
+    void assignFile(java.util.List<ProgramParams.Param> ps, String[] values, int index, JLabel[] labels, String path, String shown) {
+        final int[][] frames = ProgramParams.framesFor(ps, values, index, path);
+        if (frames.length == 0) {
+            values[index] = path;
+            if (labels[index] != null) labels[index].setText(shown != null ? shown : new File(path).getName());
+            return;
+        }
+        final String video = new File(path).getName();
+        if (labels[index] != null) labels[index].setText("Reading the frames of " + video + "\u2026");
+        new Thread(() -> {
+            final String[] made = new String[frames.length];
+            for (int k = 0; k < frames.length; k++) {
+                byte[] png = VideoFrames.frame(path, frames[k][1], 0);
+                if (png == null) continue;
+                try {
+                    File dir = new File(PromptDb.dir(), "pyjav-in");
+                    dir.mkdirs();
+                    File out = new File(dir, video.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + (frames[k][1] < 0 ? "-last.png" : "-first.png"));
+                    Files.write(out.toPath(), png);
+                    made[k] = out.getAbsolutePath();
+                } catch (Exception ex) {
+                    made[k] = null;
+                }
+            }
+            SwingUtilities.invokeLater(() -> {
+                if (made[0] == null) {
+                    // No frame from it (no VLC): the video itself, as picked.
+                    values[index] = path;
+                    if (labels[index] != null) labels[index].setText(video + " (no frame could be read)");
+                    this.lastFramesNote = "none";
+                    return;
+                }
+                for (int k = 0; k < frames.length; k++) {
+                    if (made[k] == null) continue;
+                    int row = frames[k][0];
+                    values[row] = made[k];
+                    if (labels[row] != null) labels[row].setText(new File(made[k]).getName() + " \u00b7 " + (frames[k][1] < 0 ? "last" : "first") + " frame of " + video);
+                }
+                this.lastFramesNote = frames.length > 1 && made[1] != null ? "first and last frame" : "first frame";
+            });
+        }, "pulsekit-params-frames").start();
     }
 
     /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */
