@@ -93,7 +93,8 @@ public final class ProgramFolder {
         : "CompareHits.java".equals(program) ? new String[] {"--batch"}
         : "VideoFrames.java".equals(program) ? new String[] {"--dir", "--outdir"}
         : "MidiBatch.java".equals(program) ? new String[] {"--dir", "--list", "--outdir"}
-        : "Midi2Wav.java".equals(program) ? new String[] {"--dir", "--kits"} : new String[0];
+        : "Midi2Wav.java".equals(program) ? new String[] {"--dir", "--kits"}
+        : "SogniMusic.java".equals(program) ? new String[] {"--batchdir"} : new String[0];
     if (keys.length == 0) return argv;
     for (int i = 0; i + 1 < out.size(); i++) {
       String a = out.get(i) == null ? "" : out.get(i).trim();

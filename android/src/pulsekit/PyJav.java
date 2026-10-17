@@ -1316,7 +1316,8 @@ final class PyJav {
             }
             String path = mp3 == null ? null : AudioOffer.useAsInput(app, mp3Name, mp3);
             if (path == null) return false;
-            final boolean test = pulsekit.Midi2WavTest.musicWanted(program, argv);
+            // --test, or --batchdir (DrumMidi's MIDI of the track into the shared batch folder): DrumMidi follows.
+            final boolean test = pulsekit.Midi2WavTest.musicSteps(program, argv, false);
             final java.util.List<String> musicArgv = argv;
             if (argv.contains(pulsekit.Midi2WavTest.VST)) this.pkAddLogLine(VST_HERE);
             this.pkAddLogLine("Making a WAV of " + mp3Name + "…");
@@ -1333,7 +1334,8 @@ final class PyJav {
                 }
                 if (test) this.pkStartMusicTest(musicArgv, wav);
             });
-            return test;
+            // The track is offered as usual unless the test takes the run.
+            return pulsekit.Midi2WavTest.musicWanted(program, argv);
         }
         // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
         if (pulsekit.Midi2WavTest.batchWanted(program, argv)) {
@@ -1403,6 +1405,9 @@ final class PyJav {
                     this.pkAddLogLine("Test stopped: DrumMidi_CRT made no MIDI");
                     return true;
                 }
+                if (t.batchNote.length() > 0) this.pkAddLogLine(t.batchNote);
+                // --batchdir without --test: putting the MIDI in the batch folder was all.
+                if (!t.testing) return true;
                 this.pkAddLogLine("Test: CompareHits on " + new java.io.File(t.wav).getName() + ", " + new java.io.File(t.drums).getName()
                     + (t.song.length() > 0 ? ", " + new java.io.File(t.song).getName() : " (no song was made)"));
                 app.handler.post(() -> this.pkRunTestCompare(test.compareArgs()));
@@ -1509,7 +1514,8 @@ final class PyJav {
             return;
         }
         this.pkAddLogLine("Test: " + t.expect.drumMidiWhy(t.drumSaved));
-        this.pkAddLogLine("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+        this.pkAddLogLine((t.testing ? "Test: " : "Batch folder: ") + "DrumMidi_CRT on " + wav.getName() + ", then "
+            + (t.testing ? "CompareHits" : "its MIDI into " + new java.io.File(t.batchDir).getName()));
         final java.util.List<String> drumArgs = t.drumMidiArgs();
         app.handler.post(() -> {
             this.pkPyInputPath = null;

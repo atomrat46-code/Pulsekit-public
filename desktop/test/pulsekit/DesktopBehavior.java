@@ -4685,6 +4685,42 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The shared VST batch folder: SogniMusic --batchdir puts DrumMidi's MIDI of its track in it (a
+   * batch.txt row, base SogniMusic); MidiDrumGen --count --outdir the same folder adds its grooves
+   * after it, numbered on; one vst_render --dir run then has them all.
+   */
+  void s114_shared_batch_folder() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "shared-batch");
+    final PyJav pj = (PyJav) get("pyJav");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    java.util.List<String> argv = java.util.Arrays.asList("--genre", "Neo Soul", "--bpm", "92", "--drums_only", "--batchdir", dir.getAbsolutePath());
+    File wav = new File(home, "track.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[22050], 22050));
+    Midi2WavTest.startMusic(argv, wav, "");
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    final PythonRun.FileOut drums = new PythonRun.FileOut("track.mid", Engine.encodeMidi(cells, 92));
+    edt(() -> log.setText(""));
+    edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
+    idle();
+    out.append("after DrumMidi: ").append(new File(dir, "sogni-neo_soul-92bpm.mid").isFile()).append(", test over ").append(Midi2WavTest.current() == null).append('\n');
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
+    // MidiDrumGen into the same folder: its grooves follow, numbered on.
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--count 2 --outdir \"" + dir.getAbsolutePath() + "\" --seed 4"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    StringBuilder files = new StringBuilder();
+    for (String line : list.split("\n")) if (!line.startsWith("#") && !line.startsWith("file\t") && line.trim().length() > 0) files.append('[').append(line.split("\t")[0]).append(" ").append(line.split("\t")[2]).append(']');
+    out.append("batch.txt: ").append(files).append('\n');
+    if (!files.toString().startsWith("[sogni-neo_soul-92bpm.mid SogniMusic][gen-002-") || !files.toString().contains("[gen-003-")) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
    * Drum Tracks: one main tab, with Pattern, Fillern and Fills as its subtabs under the main tabs
    * (shown with them only); the tab opens the subtab used last.
    */

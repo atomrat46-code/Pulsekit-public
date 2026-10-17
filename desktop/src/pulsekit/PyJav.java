@@ -856,14 +856,16 @@ final class PyJav {
             }
             final java.util.List<String> drumArgs = t.drumMidiArgs();
             this.testNote("Test: " + t.expect.drumMidiWhy(t.drumSaved));
-            this.testNote((t.testing ? "Test: " : "VST: ") + "DrumMidi_CRT on " + wav.getName() + ", then " + (t.testing ? "CompareHits" : "vst_render.py"));
+            this.testNote((t.testing ? "Test: " : t.vst ? "VST: " : "Batch folder: ") + "DrumMidi_CRT on " + wav.getName() + ", then "
+                + (t.testing ? "CompareHits" : t.vst ? "vst_render.py" : "its MIDI into " + new File(t.batchDir).getName()));
             SwingUtilities.invokeLater(() -> {
                 app.pyInputPath = null;
                 app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
                 this.forcedArgs = drumArgs;
                 this.runPython();
             });
-            return true;
+            // The track is offered as usual unless the test (or the VST render) takes the run.
+            return t.testing || t.vst;
         }
         // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
         if (Midi2WavTest.batchWanted(name, argv)) {
@@ -918,9 +920,10 @@ final class PyJav {
                     this.testNote("Test stopped: DrumMidi_CRT made no MIDI");
                     return true;
                 }
-                // SogniMusic's --vst without --test: DrumMidi's MIDI goes straight on to vst_render.py.
+                if (t.batchNote.length() > 0) this.testNote(t.batchNote);
+                // SogniMusic's --vst (or --batchdir) without --test: DrumMidi's MIDI goes straight on to vst_render.py, or that was all.
                 if (!t.testing) {
-                    SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
+                    if (t.vst) SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
                     return true;
                 }
                 this.testNote("Test: CompareHits on " + new File(t.wav).getName() + ", " + new File(t.drums).getName() + (t.song.length() > 0 ? ", " + new File(t.song).getName() : " (no song was made)"));

@@ -44,6 +44,9 @@ public final class Midi2WavTest {
   /** SogniMusic's run: its --test (DrumMidi, CompareHits, the report) and its --vst (DrumMidi's MIDI to vst_render.py). */
   public boolean testing = true;
   public boolean vst;
+  /** SogniMusic's --batchdir: the batch folder DrumMidi's MIDI of the track goes into, with its batch.txt row; what was said. */
+  public String batchDir;
+  public String batchNote = "";
   /** Midi2Wav --dir's folder (its batch test), and its --recursive. */
   public String batch = "";
   public boolean recursive;
@@ -131,8 +134,12 @@ public final class Midi2WavTest {
 
   /** True for a SogniMusic run whose track goes on to DrumMidi: its --test, or (on a computer) its --vst. */
   public static boolean musicSteps(String program, List<String> argv, boolean vstHere) {
-    return musicWanted(program, argv) || vstHere && "SogniMusic.java".equals(program) && argv != null && argv.contains(VST);
+    return musicWanted(program, argv) || "SogniMusic.java".equals(program) && valueOf(argv, BATCH_DIR) != null
+        || vstHere && "SogniMusic.java".equals(program) && argv != null && argv.contains(VST);
   }
+
+  /** SogniMusic's --batchdir: the folder its drum MIDI joins (a MidiDrumGen or MidiBatch folder, for one VST render of both). */
+  public static final String BATCH_DIR = "--batchdir";
 
   /**
    * SogniMusic's test without drums asked for (no --drums_only, and no drums in --instruments):
@@ -149,7 +156,7 @@ public final class Midi2WavTest {
 
   /** True for a SogniMusic run whose track gets a WAV copy (all of them but --no_wav; --test needs it). */
   public static boolean musicToWav(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG) || argv.contains(VST));
+    return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG) || argv.contains(VST) || argv.contains(BATCH_DIR));
   }
 
   /**
@@ -166,6 +173,7 @@ public final class Midi2WavTest {
     t.drumSaved = savedDrumMidi == null ? "" : savedDrumMidi;
     t.testing = argv != null && argv.contains(FLAG);
     t.vst = argv != null && argv.contains(VST);
+    t.batchDir = valueOf(argv, BATCH_DIR);
     t.stage = DRUM_MIDI;
     now = t;
     return t;
@@ -337,6 +345,25 @@ public final class Midi2WavTest {
       this.song = sm.getAbsolutePath();
     }
     if (this.expect != null) this.checks = this.expect.checks(drumsMidi, wavSeconds(new File(this.wav)));
+    // --batchdir: the MIDI joins the shared batch folder, with its row in batch.txt.
+    if (this.batchDir != null && this.expect != null) {
+      java.util.Map<String, String> cols = new java.util.HashMap<String, String>();
+      String genre = this.expect.genre.trim().length() == 0 ? "sogni" : this.expect.genre.trim();
+      String bpm = this.expect.bpm > 0 ? Long.toString(Math.round(this.expect.bpm)) : "";
+      cols.put("style", genre);
+      cols.put("base", "SogniMusic");
+      cols.put("tempo", bpm);
+      cols.put("timesig", this.expect.timesig.trim().length() == 0 ? "4/4" : this.expect.timesig.trim());
+      cols.put("parts", new File(this.wav).getName());
+      String name = "sogni-" + genre.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "_") + (bpm.length() > 0 ? "-" + bpm + "bpm" : "") + ".mid";
+      try {
+        File batch = new File(this.batchDir);
+        String added = BatchFolder.add(batch, name, drumsMidi, cols);
+        this.batchNote = "Batch folder: " + added + " added to " + batch.getName() + " (" + BatchFolder.listed(batch) + (BatchFolder.listed(batch) == 1 ? " file" : " files") + " in its batch.txt)";
+      } catch (java.io.IOException ex) {
+        this.batchNote = "Batch folder: could not add the drum MIDI to " + this.batchDir + " (" + ex.getMessage() + ")";
+      }
+    }
     this.stage = COMPARE;
     // SogniMusic's --vst without --test: DrumMidi's MIDI is all it wanted.
     if (!this.testing) now = null;

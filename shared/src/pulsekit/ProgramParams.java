@@ -334,6 +334,11 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
+    if (p.flag && p.takesValue && p.token.equals("--batchdir")) {
+      p.dir = true;
+      p.label = "Batch folder: DrumMidi's MIDI of the track joins it (a MidiDrumGen or MidiBatch folder)";
+      p.hint = "empty: none; then vst_render.py --dir renders them all";
+    }
     if (p.flag && p.token.equals("--test") && p.label.equals("Test")) p.label = "Test: DrumMidi on the WAV, then CompareHits (what was asked for, checks, suggestions)";
     if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
