@@ -144,6 +144,11 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
+        // Stop batch: BatchRun's runs end after the one in progress.
+        this.pyBatchStop = app.action("Stop batch", ELEV, FG, () -> this.stopBatch());
+        this.pyBatchStop.setName("pyjav-batch-stop");
+        this.pyBatchStop.setVisible(BatchQueue.current() != null);
+        controls.add(this.pyBatchStop);
         // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
         final JButton extraLab = new JButton("Arguments \u25b8");
         extraLab.setName("pyjav-args-head");
@@ -373,7 +378,10 @@ final class PyJav {
         final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
-        if (this.mustWait(name, true)) return;
+        // A batch's next run goes on without asking (the run before may still be storing).
+        boolean batchStep = this.batchStep;
+        this.batchStep = false;
+        if (!batchStep && this.mustWait(name, true)) return;
         final byte[] bytes = app.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
         final String runSrc = promptProg ? PromptRun.withoutDescription(this.promptDescription, src) : src;
@@ -479,6 +487,8 @@ final class PyJav {
         final long download = this.reconnectDownload != 0 ? this.reconnectDownload
             : pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
         this.reconnectDownload = 0;
+        // Create again (File > Downloads): the arguments this run had.
+        if (download != 0) SogniDownloads.args(download, filled);
         // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
         final JavaRun.Live live = new JavaRun.Live();
         if (note != null) live.add(note + "\n");
@@ -672,6 +682,9 @@ final class PyJav {
                     SogniDownloads.done(download);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
+                // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
+                final BatchQueue batch = BatchQueue.current();
+                final boolean inBatch = batch != null && batch.takes(name) && !batch.joining;
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
                 // SogniMusic's track is also kept as a WAV (unless --no_wav), beside the MP3.
@@ -686,11 +699,18 @@ final class PyJav {
                 }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
-                if (!testing && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                if (!testing && !inBatch && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
+                File frame = result.code == 0 && "VideoFrames.java".equals(name) && argv.contains("--upscale") ? this.firstFrame(savedPictures, argv, result.log) : null;
+                if (frame != null) {
+                    app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+                    this.setInputFile(frame);
+                    this.openParams();
+                }
                 // Pictures it made (SogniChat's tool results) are shown.
-                if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
+                else if (!inBatch && !savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
-                if (!savedVideos.isEmpty() && result.code == 0) {
+                if (!inBatch && !savedVideos.isEmpty() && result.code == 0) {
                     // A joined clip (SogniVideo's Join with this video) is the one to watch.
                     File watch = savedVideos.get(0);
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
@@ -703,6 +723,16 @@ final class PyJav {
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
+                // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
+                if (batch != null && batch.takes(name)) {
+                    java.util.List<String> paths = new java.util.ArrayList<String>();
+                    for (File f : savedVideos) paths.add(f.getAbsolutePath());
+                    for (File f : savedPictures) paths.add(f.getAbsolutePath());
+                    batch.done(verdict, paths);
+                    this.batchNext(batch);
+                } else if (BatchQueue.start(name, argv, verdict, result.log) != null) {
+                    this.batchNext(BatchQueue.current());
+                }
             });
         }, "pulsekit-pyjav").start();
     }
@@ -817,7 +847,7 @@ final class PyJav {
      */
     boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
         Midi2WavTest t = Midi2WavTest.current();
-        if (Midi2WavTest.musicWanted(name, argv)) {
+        if (Midi2WavTest.musicSteps(name, argv, true)) {
             if (!verdict.startsWith("Succeeded")) return false;
             t = Midi2WavTest.startMusic(argv, wav != null && wav.getName().toLowerCase().endsWith(".wav") ? wav : null, this.loadParams("DrumMidi_CRT.jar"));
             if (t == null) {
@@ -826,7 +856,21 @@ final class PyJav {
             }
             final java.util.List<String> drumArgs = t.drumMidiArgs();
             this.testNote("Test: " + t.expect.drumMidiWhy(t.drumSaved));
-            this.testNote("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+            this.testNote((t.testing ? "Test: " : "VST: ") + "DrumMidi_CRT on " + wav.getName() + ", then " + (t.testing ? "CompareHits" : "vst_render.py"));
+            SwingUtilities.invokeLater(() -> {
+                app.pyInputPath = null;
+                app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+                this.forcedArgs = drumArgs;
+                this.runPython();
+            });
+            return true;
+        }
+        // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
+        if (Midi2WavTest.batchWanted(name, argv)) {
+            t = Midi2WavTest.startBatch(verdict, argv);
+            if (t == null) return false;
+            final java.util.List<String> drumArgs = t.batchDrumArgs();
+            this.testNote("Test: DrumMidi_CRT on every WAV in " + new File(t.batch).getName() + ", then CompareHits --batch");
             SwingUtilities.invokeLater(() -> {
                 app.pyInputPath = null;
                 app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
@@ -849,6 +893,20 @@ final class PyJav {
         if (t == null) return false;
         final Midi2WavTest test = t;
         try {
+            if (t.stage == Midi2WavTest.BATCH_DRUMS && "DrumMidi_CRT.jar".equals(name)) {
+                if (!t.batchDrumsDone(verdict)) {
+                    this.testNote("Test stopped: DrumMidi_CRT made no MIDI (" + (verdict.length() == 0 ? "no result" : verdict) + ")");
+                    return true;
+                }
+                this.testNote("Test: CompareHits --batch " + new File(t.batch).getName());
+                SwingUtilities.invokeLater(() -> this.runTestCompare(test.batchCompareArgs()));
+                return true;
+            }
+            if (t.stage == Midi2WavTest.BATCH_COMPARE && "CompareHits.java".equals(name)) {
+                t.batchCompareDone(log);
+                SwingUtilities.invokeLater(() -> this.showTestReport(test));
+                return true;
+            }
             if (t.stage == Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(name)) {
                 byte[] drums = madeMidi != null ? madeMidi.bytes : null;
                 String drumsName = madeMidi != null ? madeMidi.name : null;
@@ -858,6 +916,11 @@ final class PyJav {
                 }
                 if (!t.drumMidiDone(drums, drumsName, app.learned, app.importedSongs)) {
                     this.testNote("Test stopped: DrumMidi_CRT made no MIDI");
+                    return true;
+                }
+                // SogniMusic's --vst without --test: DrumMidi's MIDI goes straight on to vst_render.py.
+                if (!t.testing) {
+                    SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
                     return true;
                 }
                 this.testNote("Test: CompareHits on " + new File(t.wav).getName() + ", " + new File(t.drums).getName() + (t.song.length() > 0 ? ", " + new File(t.song).getName() : " (no song was made)"));
@@ -899,13 +962,32 @@ final class PyJav {
         }
     }
 
-    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). */
+    /** VideoFrames' first picture: the first saved, else the first "Wrote" one in its --outdir; null when none. */
+    File firstFrame(java.util.List<File> saved, java.util.List<String> argv, String log) {
+        for (File f : saved) if (f.getName().toLowerCase().endsWith(".png")) return f;
+        int at = argv.indexOf("--outdir");
+        if (at < 0 || at + 1 >= argv.size() || log == null) return null;
+        for (String line : log.split("\n")) {
+            String t = line.trim();
+            if (!t.startsWith("Wrote ")) continue;
+            String n = t.substring(6).replaceAll(" \\(\\d+x\\d+\\)$", "").trim();
+            File f = new File(argv.get(at + 1), n);
+            if (f.isFile()) return f;
+        }
+        return null;
+    }
+
+    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested); with --vst by vst_render.py. */
     void genToWav(PythonRun.FileOut midi, java.util.List<String> genArgv) {
         try {
             File dir = new File(PromptDb.dir(), "pyjav-in");
             dir.mkdirs();
             File f = new File(dir, midi.name);
             Files.write(f.toPath(), midi.bytes);
+            if (Midi2WavTest.genToVst("MidiDrumGen.java", genArgv)) {
+                this.toVst(f.getAbsolutePath(), genArgv.contains(Midi2WavTest.FLAG));
+                return;
+            }
             String source = ProgramFiles.bundledSource("Midi2Wav.java");
             final java.util.List<String> args = Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv, source, this.loadParams("Midi2Wav.java"));
             this.testNote("Next: Midi2Wav on " + midi.name + (args.contains(Midi2WavTest.FLAG) ? ", then its test" : ""));
@@ -918,6 +1000,83 @@ final class PyJav {
         } catch (Exception ex) {
             this.testNote("Could not hand " + midi.name + " to Midi2Wav: " + ex.getMessage());
         }
+    }
+
+    /**
+     * --vst (SogniMusic, MidiDrumGen): the MIDI played through a VST by vst_render.py, with the
+     * plugin and settings saved in its Params, and its own --test when `test`.
+     */
+    void toVst(String midiPath, boolean test) {
+        final java.util.List<String> args = Midi2WavTest.vstArgs(midiPath, ProgramFiles.bundledSource("vst_render.py"), this.loadParams("vst_render.py"), test);
+        if (args == null) {
+            this.testNote("No VST render: pick the plugin (and Edit its kit) in vst_render.py's Params and save them; --vst uses those");
+            return;
+        }
+        this.testNote("Next: vst_render.py on " + new File(midiPath).getName() + (test ? ", then its test" : ""));
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Python", "vst_render.py");
+            this.forcedArgs = args;
+            this.runPython();
+        });
+    }
+
+    /** Set for the batch's own runs: Run goes on without asking. */
+    boolean batchStep;
+    javax.swing.JComponent pyBatchStop;
+
+    /**
+     * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
+     * Each run is the program's own, with the arguments BatchRun planned.
+     */
+    void batchNext(BatchQueue q) {
+        if (q == null) return;
+        if (this.pyBatchStop != null) this.pyBatchStop.setVisible(true);
+        final String program;
+        java.util.List<String> args;
+        if (q.hasNext()) {
+            program = q.program;
+            args = q.nextArgs();
+            this.testNote(q.progress());
+        } else if (q.joinNext()) {
+            program = "JoinVideo.java";
+            try {
+                args = q.joinArgs(new File(PromptDb.dir(), "pyjav-in"));
+            } catch (Exception ex) {
+                this.testNote("Batch: could not list the clips for JoinVideo (" + ex.getMessage() + ")");
+                this.batchOver(q);
+                return;
+            }
+            this.testNote("Batch: JoinVideo on the " + q.clips().size() + " clips, in order");
+        } else {
+            this.batchOver(q);
+            return;
+        }
+        final java.util.List<String> run = args;
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Java", program);
+            this.forcedArgs = run;
+            this.batchStep = true;
+            this.runPython();
+        });
+    }
+
+    void batchOver(BatchQueue q) {
+        BatchQueue.stop();
+        if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
+        this.testNote(q.summary());
+    }
+
+    /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
+    void stopBatch() {
+        BatchQueue q = BatchQueue.current();
+        if (q == null) {
+            if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
+            return;
+        }
+        q.stopping = true;
+        this.testNote("Batch: stopping after the run in progress");
     }
 
     void runTestCompare(java.util.List<String> args) {
@@ -945,6 +1104,8 @@ final class PyJav {
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         area.setCaretPosition(0);
         JOptionPane.showMessageDialog(app, new JScrollPane(area), t.expect != null ? "SogniMusic test" : "Midi2Wav test", JOptionPane.PLAIN_MESSAGE);
+        // SogniMusic's --vst: DrumMidi's MIDI of the track then plays through the VST (and vst_render's own test).
+        if (t.vst && t.drums.length() > 0) this.toVst(t.drums, true);
     }
 
     /** The prompt library version the last run's sheet was stored as (File > Downloads: Delete with it). */
@@ -952,9 +1113,11 @@ final class PyJav {
 
     String saveSheets(File dir, JavaRun.Result r, java.util.List<String> argv) {
         java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(r);
-        if (sheets.isEmpty()) return "";
+        // A failed run's sheet is neither asked about nor saved: the log says so.
+        String failed = PromptSave.failedNotes(r);
+        if (sheets.isEmpty()) return failed;
         PromptSave.load(dir);
-        StringBuilder out = new StringBuilder();
+        StringBuilder out = new StringBuilder(failed);
         PromptVault vault = null;
         try {
             vault = PromptVault.open(dir);
@@ -1260,8 +1423,9 @@ final class PyJav {
             none.setEnabled(false);
             menu.add(none);
         }
+        ProgramStars.load(PromptDb.dir());
         for (final String name : programs) {
-            final javax.swing.JMenuItem item = new javax.swing.JMenuItem(name);
+            final javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramStars.label(name));
             item.setName("pyjav-recent:" + name);
             item.setToolTipText("A right click lists its recent parameters");
             item.addActionListener(e -> this.loadRecent(PyJavRecent.tapped(this.pyRecentItems, name)));
@@ -1290,6 +1454,13 @@ final class PyJav {
             item.addActionListener(e -> this.loadRecent(run));
             menu.add(item);
         }
+        // The star, last: bright when the program is starred; a click stars it or takes the star off.
+        final boolean starred = ProgramStars.is(name);
+        javax.swing.JMenuItem star = new javax.swing.JMenuItem(starred ? "\u2605 Starred" : "\u2606 Star " + name);
+        star.setName("pyjav-recent-star");
+        star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
+        menu.addSeparator();
+        menu.add(star);
         return menu;
     }
 
@@ -1318,6 +1489,8 @@ final class PyJav {
 
     void showPyHint(String status) {
         this.pyHintPlain = status == null ? "" : status;
+        // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
+        if (this.returnTo != null && !String.valueOf(app.pyName).equals(this.returnFor)) this.setReturn(null);
         // The audio input carries over to a program that takes a sound (not to SogniPedit, which
         // would name its picture after it).
         if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
@@ -1422,6 +1595,7 @@ final class PyJav {
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable returnTo;
     javax.swing.JComponent pyReturn;
+    String returnFor;
 
     void setReturn(Runnable back) {
         this.setReturn("Return to Media browser", back);
@@ -1430,6 +1604,8 @@ final class PyJav {
     /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
     void setReturn(String label, Runnable back) {
         this.returnTo = back;
+        // It belongs to the program loaded now: another one loaded (from Recent, a script) drops it.
+        this.returnFor = back == null ? null : app.pyName;
         if (this.pyReturn != null) {
             this.pyReturn.setVisible(back != null);
             if (label != null && this.pyReturn instanceof javax.swing.AbstractButton) ((javax.swing.AbstractButton) this.pyReturn).setText(label);
@@ -1495,6 +1671,8 @@ final class PyJav {
             break;
         }
         final String[] before = values.clone();
+        // The file rows' labels: a video picked for a picture row fills it (and an empty second picture row) with its frames.
+        final JLabel[] fileLabels = new JLabel[ps.size()];
         final JTextField[] fields = new JTextField[ps.size()];
         // A prompt or system text: a wrapping area of a few lines that scrolls.
         final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
@@ -1558,6 +1736,7 @@ final class PyJav {
                 JPanel row = new JPanel(new BorderLayout(6, 0));
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 chosen.setName("params-chosen:" + p.token);
+                fileLabels[i] = chosen;
                 JButton pick = new JButton(p.plugin ? "Choose plugin" : "any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
@@ -1571,16 +1750,12 @@ final class PyJav {
                     chosen.setText(chooser.getSelectedFile().getName());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
-                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> {
-                    values[index] = f.getAbsolutePath();
-                    chosen.setText(f.getName());
-                }, () -> {
+                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
-                    values[index] = chooser.getSelectedFile().getAbsolutePath();
-                    chosen.setText(chooser.getSelectedFile().getName());
+                    this.assignFile(ps, values, index, fileLabels, chooser.getSelectedFile().getAbsolutePath(), null);
                 }));
                 if (p.newChat) {
                     // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
@@ -1609,8 +1784,7 @@ final class PyJav {
                         if (midiAsAudio) {
                             app.promptDb.useAsAudio(picked, file, values, index, chosen);
                         } else {
-                            values[index] = file.getAbsolutePath();
-                            chosen.setText(picked + " \u00b7 from DB");
+                            this.assignFile(ps, values, index, fileLabels, file.getAbsolutePath(), picked + " \u00b7 from DB");
                         }
                     }));
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
@@ -1822,6 +1996,57 @@ final class PyJav {
         if (newInput && input != null && input.length() > 0 && new File(input).isFile()) this.setInputFile(new File(input));
         if (this.pyExtra != null) this.pyExtra.setText(line);
         app.setNow("Params saved");
+    }
+
+    /** What the last video picked for a picture row gave (for the tests). */
+    String lastFramesNote;
+
+    /**
+     * A file picked for Params row `index`: its path, shown (`shown`: "x.png · from DB"); a video
+     * for a picture row gives its first frame instead, and its last frame to the next picture row
+     * still empty (read with VLC off the Swing thread; a video it cannot read stays as it is).
+     */
+    void assignFile(java.util.List<ProgramParams.Param> ps, String[] values, int index, JLabel[] labels, String path, String shown) {
+        final int[][] frames = ProgramParams.framesFor(ps, values, index, path);
+        if (frames.length == 0) {
+            values[index] = path;
+            if (labels[index] != null) labels[index].setText(shown != null ? shown : new File(path).getName());
+            return;
+        }
+        final String video = new File(path).getName();
+        if (labels[index] != null) labels[index].setText("Reading the frames of " + video + "\u2026");
+        new Thread(() -> {
+            final String[] made = new String[frames.length];
+            for (int k = 0; k < frames.length; k++) {
+                byte[] png = VideoFrames.frame(path, frames[k][1], 0);
+                if (png == null) continue;
+                try {
+                    File dir = new File(PromptDb.dir(), "pyjav-in");
+                    dir.mkdirs();
+                    File out = new File(dir, video.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + (frames[k][1] < 0 ? "-last.png" : "-first.png"));
+                    Files.write(out.toPath(), png);
+                    made[k] = out.getAbsolutePath();
+                } catch (Exception ex) {
+                    made[k] = null;
+                }
+            }
+            SwingUtilities.invokeLater(() -> {
+                if (made[0] == null) {
+                    // No frame from it (no VLC): the video itself, as picked.
+                    values[index] = path;
+                    if (labels[index] != null) labels[index].setText(video + " (no frame could be read)");
+                    this.lastFramesNote = "none";
+                    return;
+                }
+                for (int k = 0; k < frames.length; k++) {
+                    if (made[k] == null) continue;
+                    int row = frames[k][0];
+                    values[row] = made[k];
+                    if (labels[row] != null) labels[row].setText(new File(made[k]).getName() + " \u00b7 " + (frames[k][1] < 0 ? "last" : "first") + " frame of " + video);
+                }
+                this.lastFramesNote = frames.length > 1 && made[1] != null ? "first and last frame" : "first frame";
+            });
+        }, "pulsekit-params-frames").start();
     }
 
     /** A file set's source MIDI, copied into ~/.pulsekit/pyjav-in for a program; null when none is picked. */

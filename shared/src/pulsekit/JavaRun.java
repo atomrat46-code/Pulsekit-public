@@ -138,7 +138,7 @@ public final class JavaRun {
       if (t.length() == 0) continue;
       if (progress == null && t.startsWith("Progress: ")) progress = t.substring(10);
       if (status == null && (t.startsWith("Status: ") || t.startsWith("Queued") || t.startsWith("Reconnecting") || t.startsWith("Uploaded ")
-          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks"))) status = t;
+          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks") || t.startsWith("Downloading: "))) status = t;
       if (status != null && progress != null) break;
     }
     if (status == null && progress == null) return null;
@@ -246,14 +246,45 @@ public final class JavaRun {
   public static List<String> split(String line) {
     List<String> out = new ArrayList<String>();
     if (line == null || line.trim().isEmpty()) return out;
-    Matcher m = Pattern.compile("\"([^\"]*)\"|'([^']*)'|(\\S+)").matcher(line.trim());
+    // "..." (with \" for a quote inside, as quoteArg writes it), '...', or a word.
+    Matcher m = Pattern.compile("\"((?:\\\\\"|[^\"])*)\"|'([^']*)'|(\\S+)").matcher(line.trim());
     while (m.find()) {
-      String a = m.group(1);
+      String a = m.group(1) != null ? m.group(1).replace("\\\"", "\"") : null;
       if (a == null) a = m.group(2);
       if (a == null) a = m.group(3);
       if (a != null && !a.isEmpty()) out.add(a);
     }
     return out;
+  }
+
+  /**
+   * Pulsekit's own JAR (or classes folder) after the program's folder on its class path, so a
+   * program can use the app's helpers by name (VideoFrames reads frames with VLC through it); its
+   * own classes, in the default package, never meet the app's (in pulsekit). "" when not known.
+   */
+  static String appClassPath() {
+    try {
+      java.security.CodeSource cs = JavaRun.class.getProtectionDomain().getCodeSource();
+      if (cs == null || cs.getLocation() == null) return "";
+      File self = new File(cs.getLocation().toURI());
+      return self.exists() ? File.pathSeparator + self.getAbsolutePath() : "";
+    } catch (Exception ex) {
+      return "";
+    }
+  }
+
+  /**
+   * One argument as split reads it back: as it is when it has no space or quote; in double quotes;
+   * in single quotes when it has a double quote in it (a prompt with speech: She says "Hello");
+   * with both kinds, in double quotes with \" for each double quote.
+   */
+  public static String quoteArg(String v) {
+    if (v == null) return "";
+    boolean dq = v.indexOf('"') >= 0, sq = v.indexOf('\'') >= 0;
+    if (!dq && !(sq && v.startsWith("'")) && v.indexOf(' ') < 0 && v.indexOf('\t') < 0 && v.length() > 0) return v;
+    if (!dq) return "\"" + v + "\"";
+    if (!sq) return "'" + v + "'";
+    return "\"" + v.replace("\"", "\\\"") + "\"";
   }
 
   /**
@@ -314,13 +345,13 @@ public final class JavaRun {
    * not build. `argv` itself, changed.
    */
   /**
-   * Midi2Wav without a SoundFont (--sf2): true, and Pulsekit's own kit (the active drum set, as
-   * Export SF2 writes it) is given with withKit.
+   * Midi2Wav without a SoundFont (--sf2) or a folder of them (--kits): true, and Pulsekit's own
+   * kit (the active drum set, as Export SF2 writes it) is given with withKit.
    */
   public static boolean needsKit(String program, List<String> argv) {
     if (!"Midi2Wav.java".equals(program) || argv == null) return false;
     for (int i = 0; i < argv.size(); i++) {
-      if (!"--sf2".equals(argv.get(i))) continue;
+      if (!"--sf2".equals(argv.get(i)) && !"--kits".equals(argv.get(i))) continue;
       String v = i + 1 < argv.size() ? argv.get(i + 1) : null;
       if (v != null && v.trim().length() > 0 && !v.startsWith("--")) return false;
     }
@@ -752,7 +783,7 @@ public final class JavaRun {
         String cls = declared != null ? declared : name.substring(0, name.length() - 5);
         cmd.add("java");
         cmd.add("-cp");
-        cmd.add(dir.getAbsolutePath());
+        cmd.add(dir.getAbsolutePath() + appClassPath());
         cmd.add(cls);
         shown = "$ java " + cls;
       } else if (low.endsWith(".jar")) {
@@ -785,7 +816,7 @@ public final class JavaRun {
         String cls = name.substring(0, name.length() - 6);
         cmd.add("java");
         cmd.add("-cp");
-        cmd.add(dir.getAbsolutePath());
+        cmd.add(dir.getAbsolutePath() + appClassPath());
         cmd.add(cls);
         shown = "$ java " + cls;
       }

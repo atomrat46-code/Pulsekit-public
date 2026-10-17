@@ -1857,7 +1857,7 @@ public final class SogniVideo {
       int code = c.getResponseCode();
       if (code / 100 != 2) throw failure(c, code);
       try {
-        return readAll(c.getInputStream());
+        return readCounting(c.getInputStream(), c.getContentLengthLong());
       } finally {
         c.disconnect();
       }
@@ -2009,6 +2009,36 @@ public final class SogniVideo {
         return URLEncoder.encode(s, "UTF-8").replace("+", "%20");
       } catch (java.io.UnsupportedEncodingException e) {
         return s;
+      }
+    }
+
+    /**
+     * The download, saying how far it is: "Downloading: 40% (12.3 of 30.1 MB)" at each tenth when
+     * its size is known, else every 5 MB.
+     */
+    static byte[] readCounting(InputStream in, long total) throws IOException {
+      try {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(total > 0 && total < Integer.MAX_VALUE ? (int) total : 65536);
+        byte[] buf = new byte[65536];
+        long got = 0, said = 0;
+        int n;
+        while ((n = in.read(buf)) > 0) {
+          out.write(buf, 0, n);
+          got += n;
+          if (total > 0) {
+            long tenth = got * 10 / total;
+            if (tenth > said && tenth < 10) {
+              said = tenth;
+              System.out.println(String.format(java.util.Locale.ROOT, "Downloading: %d%% (%.1f of %.1f MB)", tenth * 10, got / 1048576.0, total / 1048576.0));
+            }
+          } else if (got / (5L << 20) > said) {
+            said = got / (5L << 20);
+            System.out.println(String.format(java.util.Locale.ROOT, "Downloading: %.1f MB", got / 1048576.0));
+          }
+        }
+        return out.toByteArray();
+      } finally {
+        in.close();
       }
     }
 

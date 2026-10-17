@@ -62,7 +62,7 @@ final class PromptKeep {
                 File f = new File(a);
                 boolean file = a.indexOf('/') >= 0 && f.isFile();
                 String shown = file ? f.getName() : a;
-                args.append(' ').append(shown.indexOf(' ') >= 0 ? "\"" + shown + "\"" : shown);
+                args.append(' ').append(JavaRun.quoteArg(shown));
                 // A VST plugin (vst_render.py) is a program, not a reference file: kept by name only.
                 if (file && inputs.size() < 2 && (made == null || !f.getName().equals(made.name)) && !a.contains("key") && !a.toLowerCase().matches(".*\\.(dll|so|vst3|vst|component)$")) inputs.add(f);
             }
@@ -124,6 +124,11 @@ final class PromptKeep {
             if (f.name == null || !f.name.toLowerCase().endsWith(".prompt") || f.bytes == null) continue;
             PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, java.nio.charset.StandardCharsets.UTF_8));
             if (sheet == null || sheet.name.trim().length() == 0) continue;
+            // A failed run's sheet (no result file) is not stored.
+            if (PromptSave.failed(result, sheet)) {
+                note.append(note.length() > 0 ? "\n" : "").append("Prompt library: ").append(sheet.name.trim()).append(" not saved (the run made no result file)");
+                continue;
+            }
             try {
                 note.append(note.length() > 0 ? "\n" : "").append(store(PromptVault.open(dir), sheet, result, argv));
             } catch (Exception ex) {
@@ -298,7 +303,7 @@ final class PromptKeep {
             for (String a : argv) {
                 // Paths by their names; arguments with spaces in quotes, as typed.
                 String shown = a != null && a.indexOf('/') >= 0 ? new File(a).getName() : a == null ? "" : a;
-                args.append(' ').append(shown.indexOf(' ') >= 0 ? "\"" + shown + "\"" : shown);
+                args.append(' ').append(JavaRun.quoteArg(shown));
             }
         }
         String wrote = "";

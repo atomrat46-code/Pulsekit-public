@@ -173,9 +173,20 @@ final class PromptDb {
                 app.setNow("Could not read " + file.name + " from the library");
                 return;
             }
+            lastPicked = file.name;
             dialog.dispose();
             picked.picked(file.name, copy);
         }, null, "refs-pick:", true);
+        // The file picked last: outlined, and scrolled to.
+        for (java.awt.Component c : grid.getComponents()) {
+            if (lastPicked != null && c instanceof JButton && ("refs-pick:" + lastPicked).equals(c.getName())) {
+                final JButton was = (JButton) c;
+                was.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xE0B04A), 2));
+                was.putClientProperty("refs-last", Boolean.TRUE);
+                SwingUtilities.invokeLater(() -> was.scrollRectToVisible(new java.awt.Rectangle(0, 0, was.getWidth(), was.getHeight())));
+                break;
+            }
+        }
         this.stopOnClose(dialog);
         this.lastBrowse = dialog;
         JButton cancel = new JButton("Cancel");
@@ -409,6 +420,8 @@ final class PromptDb {
             byte[] bytes = vault == null ? null : vault.fileBytes(file.versionId, file.which);
             lastSize = "";
             ImageIcon thumb = bytes == null ? null : thumb(name, bytes);
+            // A prompt file: small thumbnails of its prompt's reference and result files.
+            if (thumb == null && vault != null && file.which == PromptVault.PROMPT_FILE) thumb = slotStrip(vault, vault.versionOf(file), CELL / 3);
             if (thumb != null) card.setIcon(thumb);
             card.putClientProperty("size", lastSize);
             // A video without a preview yet: its card is filled in when one is made (VLC).
@@ -462,10 +475,18 @@ final class PromptDb {
     }
 
     private String caption(PromptVault.StoredFile file, String mark) {
-        String safe = (file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
+        // A favourite file (★ Favourite files) is starred.
+        FileFavourites.load(dir());
+        String safe = FileFavourites.shown(file, file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
         // A picture's resolution and aspect ratio ("1920×1080 · 16:9"), a video's aspect ratio (from its preview).
         String dims = lastSize == null || lastSize.isEmpty() ? "" : lastSize + "<br>";
         String sub = dims + (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
+        // Its category and type (and by type or date, its date).
+        try {
+            sub = sub + "<br>" + FileSort.info(vault(), file, FileSort.current).replace("&", "&amp;").replace("<", "&lt;");
+        } catch (Exception ex) {
+            // no library: no line
+        }
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + safe + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
@@ -478,6 +499,97 @@ final class PromptDb {
 
     /** The size thumb() read last: "1920×1080 · 16:9" for a picture, "16:9" for a video's preview; "" when not known. */
     static String lastSize = "";
+
+    /** Up to three small thumbnails side by side (reference 1, reference 2, result of version `v`), or null when none is a picture. */
+    static ImageIcon slotStrip(PromptVault vault, PromptVault.Version v, int px) {
+        if (v == null) return null;
+        java.util.List<java.awt.Image> parts = new java.util.ArrayList<java.awt.Image>();
+        for (int which = 1; which <= 3; which++) {
+            String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
+            if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0) continue;
+            ImageIcon one = thumb(n, vault.fileBytes(v.id, which));
+            if (one == null) continue;
+            int w = one.getIconWidth(), h = one.getIconHeight();
+            double sc = Math.min(px / (double) Math.max(1, w), px / (double) Math.max(1, h));
+            parts.add(one.getImage().getScaledInstance(Math.max(1, (int) (w * sc)), Math.max(1, (int) (h * sc)), Image.SCALE_SMOOTH));
+        }
+        if (parts.isEmpty()) return null;
+        java.awt.image.BufferedImage strip = new java.awt.image.BufferedImage(parts.size() * (px + 4), px, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = strip.createGraphics();
+        for (int i = 0; i < parts.size(); i++) g.drawImage(parts.get(i), i * (px + 4), 0, null);
+        g.dispose();
+        return new ImageIcon(strip);
+    }
+
+    /** The prompt file preview shown last, for the tests. */
+    JDialog lastPromptFilePreview;
+
+    /** A prompt file's text, its prompt's reference and result files (a click: full size) and Edit (no zoom). */
+    void promptFilePreview(PromptVault.StoredFile file) {
+        PromptVault vault;
+        try {
+            vault = vault();
+        } catch (Exception ex) {
+            app.setNow("Could not open the prompt library");
+            return;
+        }
+        final PromptVault.Version owner = vault.versionOf(file);
+        final JDialog d = new JDialog(app, file.name, false);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JPanel thumbs = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        if (owner != null) {
+            for (int which = 1; which <= 3; which++) {
+                final String n = which == 1 ? owner.ref1Name : which == 2 ? owner.ref2Name : owner.resultName;
+                if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0) continue;
+                final byte[] b = vault.fileBytes(owner.id, which);
+                ImageIcon icon = thumb(n, b);
+                JButton t = new JButton((which == 3 ? "Result" : "Ref " + which) + ": " + n, icon);
+                t.setName("prompt-file-preview-thumb:" + which);
+                t.setVerticalTextPosition(SwingConstants.BOTTOM);
+                t.setHorizontalTextPosition(SwingConstants.CENTER);
+                t.addActionListener(e -> this.preview(n, b));
+                thumbs.add(t);
+            }
+        }
+        if (thumbs.getComponentCount() > 0) body.add(thumbs, BorderLayout.NORTH);
+        javax.swing.JTextArea text = new javax.swing.JTextArea(new String(vault.fileBytes(file.versionId, file.which), java.nio.charset.StandardCharsets.UTF_8));
+        text.setName("prompt-file-text");
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        JScrollPane scroll = new JScrollPane(text);
+        scroll.setPreferredSize(new Dimension(560, 360));
+        body.add(scroll, BorderLayout.CENTER);
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        if (owner != null) {
+            JButton edit = new JButton("Edit");
+            edit.setName("prompt-file-edit");
+            edit.addActionListener(e -> {
+                d.dispose();
+                this.editVersion(owner);
+            });
+            bottom.add(edit);
+        }
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> d.dispose());
+        bottom.add(close);
+        body.add(bottom, BorderLayout.SOUTH);
+        d.setContentPane(body);
+        d.pack();
+        d.setLocationRelativeTo(app);
+        this.lastPromptFilePreview = d;
+        d.setVisible(true);
+    }
+
+    /** Edit: the prompt the file belongs to, open on the Prompts page at that version (every field). */
+    void editVersion(PromptVault.Version v) {
+        if (this.lastGallery != null) this.lastGallery.dispose();
+        app.showView("prompts");
+        PromptsPage page = app.promptsPage;
+        page.openPrompt(v.promptId);
+        page.loadVersion(v.id);
+    }
 
     /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. Its size: lastSize. */
     static ImageIcon thumb(String name, byte[] bytes) {
@@ -604,10 +716,73 @@ final class PromptDb {
         JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         sortRow.add(new JLabel("Sort by"));
         sortRow.add(sort);
-        JPanel top = new JPanel(new GridLayout(kinds == null ? 1 : 2, 1, 0, 6));
+        // A I V S T: all files, or only pictures, videos, sound files or text files.
+        sortRow.add(javax.swing.Box.createHorizontalStrut(12));
+        for (final String letter : DbFilter.LETTERS) {
+            javax.swing.JToggleButton b = new javax.swing.JToggleButton(letter, letter.equals(galleryFilter));
+            b.setName("gallery-filter:" + letter);
+            b.setToolTipText(DbFilter.label(letter));
+            b.addActionListener(e -> {
+                galleryFilter = letter;
+                dialog.dispose();
+                this.gallery(kind);
+            });
+            sortRow.add(b);
+        }
+        PromptVault lib = null;
+        try {
+            lib = vault();
+        } catch (Exception ex) {
+            // by category then sorts by name
+        }
+        List<PromptVault.StoredFile> every = kind == 2 ? promptFiles() : stored(results);
+        List<PromptVault.StoredFile> kept = new ArrayList<PromptVault.StoredFile>();
+        for (PromptVault.StoredFile f : every) if (DbFilter.fits(f.name, galleryFilter)) kept.add(f);
+        // Category tabs: All, the main categories the files' prompts are in, No category.
+        final PromptVault tabsLib = lib;
+        List<long[]> tabs = FileFavourites.tabs(lib, kept);
+        boolean tabThere = false;
+        for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
+        if (!tabThere) galleryCategory = FileFavourites.ALL;
+        JPanel catRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        if (tabs.size() > 2) {
+            for (long[] t : tabs) {
+                final long tab = t[0];
+                String tabName = FileFavourites.tabName(tabsLib, tab);
+                javax.swing.JToggleButton b = new javax.swing.JToggleButton(tabName, tab == galleryCategory);
+                b.setName("gallery-cat:" + tabName);
+                b.addActionListener(e -> {
+                    galleryCategory = tab;
+                    dialog.dispose();
+                    this.gallery(kind);
+                });
+                catRow.add(b);
+            }
+        }
+        // ★ Favourite files: this gallery's favourites in a list; picking one opens it.
+        FileFavourites.load(dir());
+        final List<PromptVault.StoredFile> favFiles = FileFavourites.among(every);
+        if (!favFiles.isEmpty()) {
+            String[] labels = new String[favFiles.size() + 1];
+            labels[0] = "\u2605 Favourite files (" + favFiles.size() + ")";
+            for (int i = 0; i < favFiles.size(); i++) labels[i + 1] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
+            final javax.swing.JComboBox<String> favs = new javax.swing.JComboBox<String>(labels);
+            favs.setName("gallery-favs");
+            favs.addActionListener(e -> {
+                int i = favs.getSelectedIndex();
+                if (i <= 0) return;
+                favs.setSelectedIndex(0);
+                this.preview(favFiles.get(i - 1), new JButton());
+            });
+            catRow.add(javax.swing.Box.createHorizontalStrut(12));
+            catRow.add(favs);
+        }
+        boolean third = catRow.getComponentCount() > 0;
+        JPanel top = new JPanel(new GridLayout((kinds == null ? 1 : 2) + (third ? 1 : 0), 1, 0, 6));
         if (kinds != null) top.add(kinds);
         top.add(sortRow);
-        List<PromptVault.StoredFile> list = FileSort.sorted(kind == 2 ? promptFiles() : stored(results), FileSort.current);
+        if (third) top.add(catRow);
+        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, galleryCategory), FileSort.current, lib);
         JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
@@ -634,6 +809,13 @@ final class PromptDb {
         this.lastGallery = dialog;
         this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(kind)), grid, close);
     }
+
+    /** The name of the file Browse DB picked last: it opens scrolled to it, outlined. */
+    static String lastPicked;
+
+    /** The galleries' A I V S T choice (all files at first), and category tab (FileFavourites.ALL at first). */
+    static String galleryFilter = "A";
+    static long galleryCategory = FileFavourites.ALL;
 
     /** The library's change count (PromptVault.changes) the gallery shown last was built at. */
     long galleryBuilt;
@@ -671,6 +853,12 @@ final class PromptDb {
 
     /** A card's click: a sound (WAV, MP3) or a MIDI (with the kit) plays in place, again stops; anything else opens. */
     void preview(PromptVault.StoredFile file, JButton card) {
+        // A prompt file: its text, its prompt's files and Edit.
+        if (file.which == PromptVault.PROMPT_FILE) {
+            this.stop();
+            this.promptFilePreview(file);
+            return;
+        }
         if (card == this.playingCard) {
             this.stop();
             return;
@@ -809,6 +997,45 @@ final class PromptDb {
             if (ans != 0) return;
             if (this.delete(file)) changed.run();
         });
+        // A prompt file: Add to favourites (its prompt version) and Edit.
+        PromptVault.Version owner = null;
+        try {
+            owner = file.which == PromptVault.PROMPT_FILE ? vault().versionOf(file) : null;
+        } catch (Exception ex) {
+            owner = null;
+        }
+        if (owner != null) {
+            final PromptVault.Version v = owner;
+            VersionFavourites.load(dir());
+            final boolean fav = VersionFavourites.is(v.id);
+            JMenuItem star = new JMenuItem(fav ? "Remove from favourites" : "Add to favourites");
+            star.setName("prompt-file-favourite");
+            star.addActionListener(e -> {
+                VersionFavourites.toggle(v.id);
+                try {
+                    app.setNow((fav ? "Removed " : "Added ") + VersionFavourites.label(vault(), v) + (fav ? " from favourites" : " to favourites"));
+                } catch (Exception ex) {
+                    // said nothing
+                }
+                changed.run();
+            });
+            JMenuItem edit = new JMenuItem("Edit");
+            edit.setName("prompt-file-edit");
+            edit.addActionListener(e -> this.editVersion(v));
+            menu.add(star);
+            menu.add(edit);
+        }
+        // The file itself among the favourite files (★ Favourite files above the gallery).
+        FileFavourites.load(dir());
+        final boolean favFile = FileFavourites.is(file);
+        JMenuItem favItem = new JMenuItem(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
+        favItem.setName("gallery-favourite-file");
+        favItem.addActionListener(e -> {
+            FileFavourites.toggle(file);
+            app.setNow(file.name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
+            changed.run();
+        });
+        menu.add(favItem);
         menu.add(open);
         menu.add(save);
         boolean extractable = false;

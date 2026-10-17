@@ -267,6 +267,8 @@ final class VlcPlayer {
     // Held here so the garbage collector keeps them while VLC calls them.
     private final Setup setup;
     private final Cleanup cleanup;
+    /** The largest side of the frames VLC hands over (the player's 1280; a frame read for VideoFrames, more). */
+    private final int maxSide;
     private final Lock lock;
     private final Unlock unlock;
     private final Display display;
@@ -278,17 +280,24 @@ final class VlcPlayer {
 
     /** With `silent`, VLC leaves the sound out (a preview made in the background). */
     VlcPlayer(File video, boolean silent) {
+        this(video, silent, MAX_SIDE);
+    }
+
+    /** As above, its frames at most `maxSide` pixels across, with VLC's `options` (":start-time=12.3"). */
+    VlcPlayer(File video, boolean silent, int maxSide, String... options) {
         if (!available()) throw new IllegalStateException(why());
+        this.maxSide = Math.max(16, maxSide);
         Pointer media = lib.libvlc_media_new_path(instance, video.getAbsolutePath());
         if (media == null) throw new IllegalStateException("VLC could not open " + video.getName());
         if (silent) lib.libvlc_media_add_option(media, ":no-audio");
+        for (String o : options) lib.libvlc_media_add_option(media, o);
         this.player = lib.libvlc_media_player_new_from_media(media);
         lib.libvlc_media_release(media);
         if (this.player == null) throw new IllegalStateException("VLC could not play " + video.getName());
         this.setup = (opaque, chroma, w, h, pitches, lines) -> {
             int vw = Math.max(1, w.getInt(0));
             int vh = Math.max(1, h.getInt(0));
-            double s = Math.min(1.0, MAX_SIDE / (double) Math.max(vw, vh));
+            double s = Math.min(1.0, this.maxSide / (double) Math.max(vw, vh));
             vw = Math.max(2, (int) (vw * s) & ~1);
             vh = Math.max(2, (int) (vh * s) & ~1);
             // RV32: 4 bytes a pixel, B G R X in memory, read as one int: 0xXXRRGGBB.
@@ -344,7 +353,7 @@ final class VlcPlayer {
         if (lib.libvlc_video_get_size(this.player, 0, w, h) != 0 || w.getValue() <= 0 || h.getValue() <= 0) return;
         this.videoW = w.getValue();
         this.videoH = h.getValue();
-        double s = Math.min(1.0, MAX_SIDE / (double) Math.max(w.getValue(), h.getValue()));
+        double s = Math.min(1.0, this.maxSide / (double) Math.max(w.getValue(), h.getValue()));
         this.screen.visibleW = Math.max(1, (int) Math.round(w.getValue() * s));
         this.screen.visibleH = Math.max(1, (int) Math.round(h.getValue() * s));
     }

@@ -80,7 +80,9 @@ public final class ProgramFolder {
   /**
    * A batch's folders made whole on the desktop, where a program runs in a temporary folder that
    * goes when it ends: MidiDrumGen's --outdir (with --count and no --outdir, midi-batch-<seed> with
-   * a --seed added), vst_render.py's --dir and --outdir, and CompareHits' --batch, when given as a
+   * a --seed added), MidiBatch's --dir, --list and --outdir (midi-mix-<seed> when not given),
+   * Midi2Wav's --dir and --kits,
+   * vst_render.py's --dir and --outdir, and CompareHits' --batch, when given as a
    * plain name, are under `base` (the program files folder).
    */
   public static java.util.List<String> batchFolders(String program, java.util.List<String> argv, File base) {
@@ -88,7 +90,10 @@ public final class ProgramFolder {
     java.util.List<String> out = new java.util.ArrayList<String>(argv);
     String[] keys = "MidiDrumGen.java".equals(program) ? new String[] {"--outdir"}
         : "vst_render.py".equals(program) ? new String[] {"--dir", "--outdir"}
-        : "CompareHits.java".equals(program) ? new String[] {"--batch"} : new String[0];
+        : "CompareHits.java".equals(program) ? new String[] {"--batch"}
+        : "VideoFrames.java".equals(program) ? new String[] {"--dir", "--outdir"}
+        : "MidiBatch.java".equals(program) ? new String[] {"--dir", "--list", "--outdir"}
+        : "Midi2Wav.java".equals(program) ? new String[] {"--dir", "--kits"} : new String[0];
     if (keys.length == 0) return argv;
     for (int i = 0; i + 1 < out.size(); i++) {
       String a = out.get(i) == null ? "" : out.get(i).trim();
@@ -98,7 +103,8 @@ public final class ProgramFolder {
         if (v.length() > 0 && !v.startsWith("-") && !new File(v).isAbsolute()) out.set(i + 1, new File(base, v).getAbsolutePath());
       }
     }
-    if ("MidiDrumGen.java".equals(program) && out.contains("--count") && !out.contains("--outdir")) {
+    boolean mix = "MidiBatch.java".equals(program);
+    if ((mix || "MidiDrumGen.java".equals(program) && out.contains("--count")) && !out.contains("--outdir")) {
       String seed = null;
       int at = out.indexOf("--seed");
       if (at >= 0 && at + 1 < out.size()) seed = out.get(at + 1).trim();
@@ -111,7 +117,7 @@ public final class ProgramFolder {
         }
       }
       out.add("--outdir");
-      out.add(new File(base, "midi-batch-" + seed).getAbsolutePath());
+      out.add(new File(base, (mix ? "midi-mix-" : "midi-batch-") + seed).getAbsolutePath());
     }
     return out;
   }

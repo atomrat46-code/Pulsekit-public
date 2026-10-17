@@ -33,11 +33,13 @@ import java.util.*;
  * --towav: PyJav then plays the MIDI into a WAV with Midi2Wav (Pulsekit's kit).
  * --test: PyJav then runs Midi2Wav's test on it: the WAV, DrumMidi_CRT on the WAV, and CompareHits
  * on the results against this MIDI (the drums played), ending with a report.
+ * --vst (Pulsekit on a computer): the MIDI is played through a VST instrument by vst_render.py
+ * instead (the plugin and settings saved in its Params), with its own --test when --test is given.
  */
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] "
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] [--vst] "
             + "[--count N] [--outdir <folder>] [--seed N] [--styles rock,funk,...]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
@@ -966,7 +968,7 @@ public class MidiDrumGen {
                 case "--any-tempo": anyTempo = true; break;
                 case "--saveprompt": savePrompt = true; break;
                 // PyJav's, after the run (Midi2Wav, its test): nothing for the program to do.
-                case "--towav": case "--test": break;
+                case "--towav": case "--test": case "--vst": break;
                 case "--timesig": {
                     int[] ts = timesig(args[++i]);
                     if (ts == null) {

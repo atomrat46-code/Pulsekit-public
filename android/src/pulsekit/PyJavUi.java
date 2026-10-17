@@ -201,8 +201,10 @@ public final class PyJavUi implements JavaRun.Listener {
       list.addView(empty);
     } else {
       for (final String name : programs) {
-        TextView button = new TextView(host);
-        button.setText(name);
+        final TextView button = new TextView(host);
+        // A starred program shows "★ " (its runs' list stars it, or takes the star off).
+        pulsekit.ProgramStars.load(host.getFilesDir());
+        button.setText(pulsekit.ProgramStars.label(name));
         button.setTag("pk-recent-item:" + name);
         button.setTextColor(0xFFECEBE6);
         button.setTextSize(15);
@@ -226,12 +228,19 @@ public final class PyJavUi implements JavaRun.Listener {
             final java.util.List<PyJavRecent.Item> mine = PyJavRecent.runsOf(runs, name);
             CharSequence[] labels = new CharSequence[mine.size()];
             for (int i = 0; i < mine.size(); i++) labels[i] = PyJavRecent.argsLabel(mine.get(i));
+            final boolean starred = pulsekit.ProgramStars.is(name);
             lastRuns = new android.app.AlertDialog.Builder(host)
-                .setTitle(name)
+                .setTitle(pulsekit.ProgramStars.label(name))
                 .setItems(labels, (d, which) -> {
                   list.setVisibility(View.GONE);
                   toggle.setText("Select program \u25be");
                   host.pyJav.pkLoadRecent(runs.indexOf(mine.get(which)) + 1);
+                })
+                // The star: bright when the program is starred; a tap stars it or takes the star off.
+                .setNeutralButton(starred ? "\u2605 Starred" : "\u2606 Star", (d, w) -> {
+                  boolean now = pulsekit.ProgramStars.toggle(name);
+                  button.setText(pulsekit.ProgramStars.label(name));
+                  host.setNow(name + (now ? " is starred" : " is no longer starred"));
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

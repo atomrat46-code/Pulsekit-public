@@ -118,6 +118,36 @@ final class DownloadsScreen {
         tabScroll.addView(tabs);
         col.addView(tabScroll);
         List<SogniDownloads.Run> runs = SogniDownloads.tab(tab);
+        if (SogniDownloads.FINISHED.equals(tab) && !runs.isEmpty()) {
+            // Sort by (newest first at first), and Clear all: the list, not the files.
+            LinearLayout sorts = app.row();
+            sorts.addView(app.text("Sort by", 13, false));
+            for (final String how : SogniDownloads.SORTS) {
+                TextView pill = app.pill(how, how.equals(SogniDownloads.sort), v -> {
+                    SogniDownloads.sort = how;
+                    fill(app, col);
+                });
+                pill.setTag("downloads-sort:" + how);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                lp.leftMargin = app.dp(6);
+                sorts.addView(pill, lp);
+            }
+            android.widget.HorizontalScrollView sortScroll = new android.widget.HorizontalScrollView(app);
+            sortScroll.addView(sorts);
+            sortScroll.setPadding(0, app.dp(8), 0, 0);
+            col.addView(sortScroll);
+            TextView clearAll = app.pill("Clear all", false, v -> lastClearAll = new AlertDialog.Builder(app).setTitle("Clear all")
+                .setMessage("Take every finished download off this list? The files stay where they are.")
+                .setPositiveButton("Clear all", (d, w) -> {
+                    app.setNow(SogniDownloads.clearFinished() + " off the list (the files stay)");
+                    fill(app, col);
+                })
+                .setNegativeButton("Cancel", null).show());
+            clearAll.setTag("downloads-clear-all");
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+            clp.topMargin = app.dp(6);
+            col.addView(clearAll, clp);
+        }
         if (runs.isEmpty()) {
             TextView none = app.text(SogniDownloads.PROGRESS.equals(tab) ? "No run in progress" : SogniDownloads.PENDING.equals(tab) ? "Nothing pending" : "No finished downloads", 14, false);
             none.setTag("downloads-empty");
@@ -126,8 +156,9 @@ final class DownloadsScreen {
             return;
         }
         String program = null;
+        boolean headings = SogniDownloads.byProgram(tab);
         for (final SogniDownloads.Run r : runs) {
-            if (!r.programName().equals(program)) {
+            if (headings && !r.programName().equals(program)) {
                 program = r.programName();
                 TextView head = app.text(program, 15, true);
                 head.setTypeface(Typeface.DEFAULT_BOLD);
@@ -135,7 +166,8 @@ final class DownloadsScreen {
                 head.setPadding(0, app.dp(14), 0, app.dp(4));
                 col.addView(head);
             }
-            TextView line = app.text(SogniDownloads.runLabel(r), 12, false);
+            // Without program headings (Sort by newest, oldest, type) each run says its program.
+            TextView line = app.text((headings ? "" : r.programName() + " \u00b7 ") + SogniDownloads.runLabel(r), 12, false);
             line.setTextColor(Color.parseColor("#8A8B86"));
             line.setTag("downloads-run:" + r.id);
             line.setPadding(app.dp(8), app.dp(4), 0, app.dp(2));
@@ -230,11 +262,16 @@ final class DownloadsScreen {
     /** The long press menu shown last, for the tests. */
     static AlertDialog lastMenu;
 
-    static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…"};
+    static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…", "Create again", "Add to favourites"};
+
+    /** Clear all's question, shown last (for the tests). */
+    static AlertDialog lastClearAll;
 
     private static void menu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r, final SogniDownloads.Item item) {
         lastMenu = new AlertDialog.Builder(app).setTitle(item.name).setItems(MENU, (d, which) -> {
-            if (which == 0) preview(app, item);
+            if (which == 6) createAgain(app, r);
+            else if (which == 7) app.setNow(favourite(app, r));
+            else if (which == 0) preview(app, item);
             else if (which == 1) {
                 SogniDownloads.clear(r.id, item);
                 app.setNow(item.name + " is off the list (the file stays)");
@@ -243,6 +280,35 @@ final class DownloadsScreen {
             else if (which == 3) delete(app, col, r, item);
             else places(app, col, r, item, which == 4);
         }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** Create again: the program that made the download on PyJav, with the arguments it ran with, its Params open. */
+    static void createAgain(MainActivity app, SogniDownloads.Run r) {
+        String kind = r.program.toLowerCase(java.util.Locale.ROOT).endsWith(".py") ? "Python" : "Java";
+        app.openKitView("py");
+        app.programMenus.selectProgram(kind, r.program);
+        if (!r.program.equals(app.pyName)) {
+            app.setNow("Could not open " + r.program);
+            return;
+        }
+        if (r.args.length() > 0 && app.pyJav.pkPyArgs != null) app.pyJav.pkPyArgs.setText(r.args);
+        app.setNow(r.args.length() > 0 ? r.programName() + " with the arguments it ran with" : r.programName() + " (this download kept no arguments)");
+        app.pyJav.pkOpenParams();
+    }
+
+    /** Add to favourites: the prompt library version the run stored (its result file with it) among the favourite prompts. */
+    static String favourite(MainActivity app, SogniDownloads.Run r) {
+        try {
+            PromptVault vault = PromptVault.open(app.getFilesDir());
+            PromptVault.Version v = r.versionId == 0 ? null : vault.version(r.versionId);
+            if (v == null) return "Not in the prompt library: a run with Save the prompt into DB is (its result file with it)";
+            VersionFavourites.load(app.getFilesDir());
+            if (VersionFavourites.is(v.id)) return VersionFavourites.label(vault, v) + " is a favourite already";
+            VersionFavourites.add(v.id);
+            return "Added " + VersionFavourites.label(vault, v) + " to favourites";
+        } catch (Exception ex) {
+            return "Could not open the prompt library";
+        }
     }
 
     /** The file's bytes; null after saying why not. */

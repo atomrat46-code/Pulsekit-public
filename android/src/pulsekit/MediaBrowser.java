@@ -164,7 +164,19 @@ final class MediaBrowser {
 
     /** Whether `under` is a folder that can still be opened in this browser. */
     boolean there(String under) {
-        return this.tree != null ? this.list(under) != null : new File(under).isDirectory() && under.startsWith(this.base + File.separator);
+        if (this.tree == null) return new File(under).isDirectory() && under.startsWith(this.base + File.separator);
+        // The folder itself is asked about, not listed: listing a folder of thousands of files on the
+        // main thread here stopped the app (Choose file on a large Recent MB folder).
+        Cursor c = null;
+        try {
+            c = this.app.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(this.tree, under),
+                new String[] {DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            return c != null && c.moveToFirst() && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0));
+        } catch (Exception ex) {
+            return false;
+        } finally {
+            if (c != null) c.close();
+        }
     }
 
     /** The folder this browser was made on, as Params gives it (Add to favourites keeps it). */
@@ -426,6 +438,11 @@ final class MediaBrowser {
         }
         if (tree == null || tree.length() == 0) {
             File folder = sub == null ? new File(dir) : new File(dir, sub);
+            // Any case: an "sc" folder already there is the SC folder.
+            if (sub != null && !folder.isDirectory()) {
+                File[] kids = new File(dir).listFiles();
+                if (kids != null) for (File k : kids) if (k.isDirectory() && k.getName().equalsIgnoreCase(sub)) folder = k;
+            }
             if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
             String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
             String ext = name.substring(stem.length());
@@ -450,7 +467,9 @@ final class MediaBrowser {
                 if (c != null) {
                     try {
                         while (c.moveToNext()) {
-                            if (sub.equals(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) found = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
+                            // Any case: an "sc" folder already there is the SC folder (an exact match made "SC (1)"
+                            // ... "SC (32)", one per capture, until the phone made no more).
+                            if (found == null && sub.equalsIgnoreCase(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) found = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
                         }
                     } finally {
                         c.close();
@@ -822,6 +841,7 @@ final class MediaBrowser {
         this.body = this.app.col();
         ScrollView scroll = new ScrollView(this.app);
         scroll.addView(this.body);
+        this.scroll = scroll;
         col.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         this.dialog = new AlertDialog.Builder(this.app)
             .setTitle("Media browser")
@@ -837,7 +857,7 @@ final class MediaBrowser {
     }
 
     /** Opens folder `at` (already on the path) at its first page. */
-    private void load(String at) {
+    void load(String at) {
         // Remembered: this folder, for the next time the Media browser opens on the same one.
         if (this.root != null) {
             MediaDir.remember(this.root, this.path.subList(1, this.path.size()));
@@ -872,9 +892,14 @@ final class MediaBrowser {
                 if (mine != this.listing) return;
                 this.loading = false;
                 this.allEntries = got == null ? new ArrayList<MediaDir.Entry>() : got;
-                this.entries = MediaDir.filtered(this.allEntries, MediaDir.filter);
+                this.entries = this.shownEntries();
                 int pages = Math.max(1, (this.entries.size() + PAGE - 1) / PAGE);
                 this.page = Math.max(0, Math.min(pages - 1, MediaDir.place(this.folderKey())));
+                // Up from a folder: the page with its card.
+                this.focusId = CAME_FROM.get(this.folderKey());
+                for (int i = 0; this.focusId != null && i < this.entries.size(); i++) {
+                    if (this.focusId.equals(this.entries.get(i).id)) this.page = i / PAGE;
+                }
                 if (got == null) this.app.setNow("Could not read " + this.label() + ": pick it again with Browse");
                 this.paint();
             });
@@ -892,7 +917,7 @@ final class MediaBrowser {
             int n = MediaDir.count(this.allEntries, f);
             TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
                 MediaDir.filter = f;
-                this.entries = MediaDir.filtered(this.allEntries, f);
+                this.entries = this.shownEntries();
                 this.page = 0;
                 this.paint();
             });
@@ -907,8 +932,159 @@ final class MediaBrowser {
         legend.setTextColor(UiKit.MUTED);
         legend.setTag("media-filter-name");
         row.addView(legend);
+        // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
+        TextView tagged = this.app.pill(MediaTags.filter.length() == 0 ? "Tagged \u25be" : MediaTags.filter + " \u25be", MediaTags.filter.length() > 0, v -> this.tagFilter());
+        tagged.setTag("media-tag-filter");
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
+        tlp.leftMargin = this.app.dp(8);
+        row.addView(tagged, tlp);
         row.setPadding(0, 0, 0, this.app.dp(6));
         this.body.addView(row);
+    }
+
+    /** The folder's files the type selector and the tag filter keep. */
+    List<MediaDir.Entry> shownEntries() {
+        MediaTags.load(this.app.getFilesDir());
+        return MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter);
+    }
+
+    /** The tag filter's choices for this folder: All files, each tag and category its files have. */
+    void tagFilter() {
+        MediaTags.load(this.app.getFilesDir());
+        final List<String[]> choices = MediaTags.choices(this.allEntries);
+        String[] names = new String[choices.size()];
+        for (int i = 0; i < names.length; i++) names[i] = choices.get(i)[0];
+        lastAsk = new AlertDialog.Builder(this.app).setTitle("Show the files tagged")
+            .setItems(names, (d, which) -> {
+                MediaTags.filter = choices.get(which)[1];
+                this.entries = this.shownEntries();
+                this.page = 0;
+                this.paint();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one. */
+    void tags(final MediaDir.Entry e) {
+        MediaTags.load(this.app.getFilesDir());
+        final String key = MediaTags.key(e);
+        final List<String> known = MediaTags.known();
+        final List<String> has = MediaTags.tags(key);
+        final String[] names = known.toArray(new String[0]);
+        final boolean[] on = new boolean[names.length];
+        for (int i = 0; i < names.length; i++) on[i] = has.contains(names[i]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle("Tags for " + e.name);
+        if (names.length > 0) b.setMultiChoiceItems(names, on, (d, which, checked) -> on[which] = checked);
+        else b.setMessage("No tags yet: add one with New tag.");
+        lastAsk = b.setPositiveButton("Save", (d, w) -> {
+                List<String> chosen = new ArrayList<String>();
+                for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
+                this.tagged(e, key, chosen);
+            })
+            .setNeutralButton("New tag\u2026", (d, w) -> {
+                final android.widget.EditText field = new android.widget.EditText(this.app);
+                field.setSingleLine(true);
+                field.setHint("beach, night (a comma between)");
+                field.setTag("media-new-tag-field");
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("New tag").setView(field)
+                    .setPositiveButton("Add new tag", (d2, w2) -> {
+                        List<String> chosen = new ArrayList<String>();
+                        for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
+                        for (String t : field.getText().toString().split(",")) chosen.add(t);
+                        this.tagged(e, key, chosen);
+                        // The list again, the new tag ticked.
+                        this.tags(e);
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    private void tagged(MediaDir.Entry e, String key, List<String> chosen) {
+        MediaTags.setTags(key, chosen);
+        String line = MediaTags.line(key);
+        this.app.setNow(line.length() == 0 ? e.name + ": no tags" : e.name + ": " + line);
+        this.entries = this.shownEntries();
+        this.paint();
+    }
+
+    /** Category…: one of the prompt library's categories for the file, or none (read off the main thread). */
+    void category(final MediaDir.Entry e) {
+        MediaTags.load(this.app.getFilesDir());
+        final String key = MediaTags.key(e);
+        new Thread(() -> {
+            final List<String> names = new ArrayList<String>();
+            names.add("(none)");
+            try {
+                names.addAll(MediaTags.categoryNames(PromptVault.open(this.app.getFilesDir())));
+            } catch (Throwable ex) {
+                // no library: none only
+            }
+            this.main.post(() -> {
+                int now = Math.max(0, names.indexOf(MediaTags.category(key)));
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("Category for " + e.name)
+                    .setSingleChoiceItems(names.toArray(new String[0]), now, (d, which) -> {
+                        String picked = names.get(which);
+                        MediaTags.setCategory(key, which == 0 ? "" : picked);
+                        this.app.setNow(e.name + (which == 0 ? ": no category" : " is in " + picked));
+                        d.dismiss();
+                        this.entries = this.shownEntries();
+                        this.paint();
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            });
+        }, "pulsekit-media-categories").start();
+    }
+
+    /** The file being dragged onto a folder card (press, hold and move), or null. */
+    static MediaDir.Entry dragging;
+
+    /** False: a long press only opens the menu (the tests, where a drag never ends). */
+    static boolean drags = true;
+
+    /** Starts dragging a file card; false when the phone does not drag (its menu shows instead). */
+    boolean startDrag(View card, MediaDir.Entry e) {
+        if (!drags) return false;
+        try {
+            dragging = e;
+            boolean started = card.startDragAndDrop(android.content.ClipData.newPlainText("media", e.name), new View.DragShadowBuilder(card), e, 0);
+            if (!started) dragging = null;
+            return started;
+        } catch (Throwable ex) {
+            dragging = null;
+            return false;
+        }
+    }
+
+    /** A folder card (or Up) a file can be dropped on: moved into `folderId` (an id as `path` holds). */
+    void dropTarget(final View target, final String folderId) {
+        target.setOnDragListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_STARTED:
+                    return ev.getLocalState() instanceof MediaDir.Entry;
+                case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                    v.setAlpha(0.6f);
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_EXITED:
+                case android.view.DragEvent.ACTION_DRAG_ENDED:
+                    v.setAlpha(1f);
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    v.setAlpha(1f);
+                    MediaDir.Entry moved = (MediaDir.Entry) ev.getLocalState();
+                    dragging = null;
+                    this.main.post(() -> this.done(this.dropped(moved, folderId)));
+                    return true;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    /** A file dropped on a folder: moved into it. The status line. */
+    String dropped(MediaDir.Entry e, String folderId) {
+        if (e == null || e.folder || folderId == null) return "Not moved";
+        return this.copyTo(e, folderId, true);
     }
 
     /** True while the folder is being read ("Reading the folder…"); bumped for each folder read, so an older read is dropped. */
@@ -916,9 +1092,17 @@ final class MediaBrowser {
     private int listing;
 
     void openFolder(MediaDir.Entry e) {
+        // Back (Up) comes to this folder's card again: its page, scrolled to and outlined.
+        CAME_FROM.put(this.folderKey(), e.id);
         this.path.add(e.id);
         this.load(e.id);
     }
+
+    /** The folder opened last from each folder (by folderKey): Up shows its card again. */
+    static final java.util.Map<String, String> CAME_FROM = new java.util.HashMap<String, String>();
+    /** The card to show again (a folder Up came from), or null. */
+    String focusId;
+    ScrollView scroll;
 
     void up() {
         if (this.path.size() <= 1) {
@@ -1044,6 +1228,7 @@ final class MediaBrowser {
         if (this.path.size() > 1 || this.canGoAbove()) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
+            if (this.path.size() > 1 && this.changeable()) this.dropTarget(up, this.path.get(this.path.size() - 2));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.rightMargin = this.app.dp(6);
             tools.addView(up, lp);
@@ -1080,6 +1265,8 @@ final class MediaBrowser {
         for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) listed.add(it.id);
         final List<MediaDir.Entry> wanted = new ArrayList<MediaDir.Entry>();
         final List<TextView> labels = new ArrayList<TextView>();
+        final List<ImageView> folderViews = new ArrayList<ImageView>();
+        final List<MediaDir.Entry> folderEntries = new ArrayList<MediaDir.Entry>();
         for (int i = from; i < to; i++) {
             final MediaDir.Entry e = this.entries.get(i);
             if ((i - from) % 3 == 0) {
@@ -1112,17 +1299,61 @@ final class MediaBrowser {
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             name.setPadding(0, this.app.dp(3), 0, 0);
             card.addView(name);
+            // Its tags and category.
+            String tagLine = e.folder || e.dbId != 0 ? "" : MediaTags.line(MediaTags.key(e));
+            if (tagLine.length() > 0) {
+                TextView tags = this.app.text(tagLine, 10, false);
+                tags.setTextColor(0xFFD9A441);
+                tags.setMaxLines(2);
+                tags.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                tags.setTag("media-tags:" + e.name);
+                card.addView(tags);
+            }
             card.setOnClickListener(v -> {
                 if (e.folder) this.openFolder(e);
                 else if (this.chooser != null) this.chosen(e);
                 else this.openEntry(e);
             });
-            // A long press on a file: Add to DB (reference or result file), Add to default playlist.
+            // A long press on a file: Add to DB (reference or result file), Add to default playlist,
+            // Rename, Copy / Move to folder, Delete; on a folder: Rename, Delete.
+            // Held and moved onto a folder card (or Up), a file is moved there; let go on itself, its menu shows.
             if (!e.folder && e.dbId == 0) {
                 card.setOnLongClickListener(v -> {
-                    this.menu(e);
+                    if (!this.changeable() || !this.startDrag(v, e)) this.menu(e);
                     return true;
                 });
+                card.setOnDragListener((v, ev) -> {
+                    if (ev.getAction() == android.view.DragEvent.ACTION_DRAG_STARTED) return ev.getLocalState() == e;
+                    // Let go anywhere but on a folder (on the card itself, most often): its menu.
+                    if (ev.getAction() == android.view.DragEvent.ACTION_DROP && ev.getLocalState() == e) {
+                        dragging = null;
+                        this.main.post(() -> this.menu(e));
+                    } else if (ev.getAction() == android.view.DragEvent.ACTION_DRAG_ENDED && !ev.getResult() && dragging == e) {
+                        dragging = null;
+                        this.main.post(() -> this.menu(e));
+                    }
+                    return true;
+                });
+            } else if (e.folder && this.changeable()) {
+                card.setOnLongClickListener(v -> {
+                    this.folderMenu(e);
+                    return true;
+                });
+                this.dropTarget(card, e.id);
+            }
+            if (e.id.equals(this.focusId)) {
+                // The folder Up came from: outlined, and scrolled to.
+                card.setBackgroundColor(0xFF2A2D31);
+                card.setTag(R_FOCUS, "media-focus");
+                final View focusRow = row;
+                this.main.post(() -> {
+                    if (this.scroll != null) this.scroll.scrollTo(0, Math.max(0, focusRow.getTop() - this.app.dp(8)));
+                });
+            }
+            if (e.folder) {
+                // A folder shows the first picture in it.
+                folderViews.add(image);
+                folderEntries.add(e);
             }
             row.addView(card, new LinearLayout.LayoutParams(0, -2, 1f));
             if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
@@ -1176,6 +1407,24 @@ final class MediaBrowser {
             this.body.addView(nav);
         }
         final int px = Math.max(64, cell);
+        for (int k = 0; k < folderEntries.size(); k++) {
+            final MediaDir.Entry f = folderEntries.get(k);
+            final ImageView view = folderViews.get(k);
+            READER.execute(() -> {
+                if (mine != this.token) return;
+                String fk = "folder|" + key(f);
+                Bitmap b = THUMBS.get(fk);
+                if (b == null) {
+                    MediaDir.Entry pic = this.firstPicture(f);
+                    b = pic == null ? null : this.thumb(pic, px);
+                    if (b != null) THUMBS.put(fk, b);
+                }
+                final Bitmap shown = b;
+                if (shown != null) this.main.post(() -> {
+                    if (mine == this.token) view.setImageBitmap(shown);
+                });
+            });
+        }
         for (int k = 0; k < wanted.size(); k++) {
             final MediaDir.Entry e = wanted.get(k);
             final ImageView view = views.get(k);
@@ -1212,14 +1461,230 @@ final class MediaBrowser {
 
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
+        // A file already in the playlist: its third item takes it out.
+        final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable());
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
-            // A file already in the playlist: its third item takes it out.
-            .setItems(MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind),
-                (d, which) -> this.pick(e, which))
+            .setItems(items, (d, which) -> {
+                if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
+                else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
+                else this.pick(e, which);
+            })
             .setNegativeButton("Cancel", null)
             .show();
     }
+
+    /** A folder's long-press menu: Rename, Delete. */
+    void folderMenu(final MediaDir.Entry e) {
+        lastMenu = new AlertDialog.Builder(this.app)
+            .setTitle(e.name)
+            .setItems(MediaDir.FOLDER_MENU, (d, which) -> this.fileAction(e, MediaDir.FOLDER_MENU[which]))
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** Whether files here can be renamed, moved and deleted: a folder by path or a granted one (not Download, not Choose file). */
+    boolean changeable() {
+        return this.chooser == null && !DOWNLOADS.equals(this.path.get(0));
+    }
+
+    /** The dialog Rename, Delete or the folder list showed last, for the tests. */
+    static AlertDialog lastAsk;
+
+    /** Rename, Copy to folder, Move to folder or Delete, asked about first. */
+    void fileAction(final MediaDir.Entry e, String action) {
+        if (MediaDir.RENAME.equals(action)) {
+            final android.widget.EditText field = new android.widget.EditText(this.app);
+            field.setSingleLine(true);
+            field.setText(e.name);
+            field.setTag("media-rename-field");
+            int dot = e.folder ? -1 : e.name.lastIndexOf('.');
+            field.setSelection(0, dot > 0 ? dot : e.name.length());
+            lastAsk = new AlertDialog.Builder(this.app).setTitle("Rename " + e.name).setView(field)
+                .setPositiveButton("Rename", (d, w) -> {
+                    String typed = field.getText().toString();
+                    String said = this.rename(e, typed);
+                    // Its tags and category go with the new name.
+                    if (said.startsWith("Renamed") && !e.folder) MediaTags.renamed(MediaTags.key(e), MediaTags.key(MediaDir.keepEnding(e.name, typed), e.size));
+                    this.done(said);
+                })
+                .setNegativeButton("Cancel", null).show();
+        } else if (MediaDir.DELETE.equals(action)) {
+            lastAsk = new AlertDialog.Builder(this.app).setTitle(e.folder ? "Delete folder" : "Delete file")
+                .setMessage(e.folder ? "Delete " + e.name + " and everything in it?" : "Delete " + e.name + "?")
+                .setPositiveButton("Delete", (d, w) -> {
+                    String said = this.delete(e);
+                    if (said.startsWith("Deleted") && !e.folder) MediaTags.deleted(MediaTags.key(e));
+                    this.done(said);
+                })
+                .setNegativeButton("Cancel", null).show();
+        } else {
+            final boolean move = MediaDir.MOVE_TO.equals(action);
+            // The folders here, and the one above (when there is one).
+            final List<String> ids = new ArrayList<String>();
+            final List<String> names = new ArrayList<String>();
+            if (this.path.size() > 1) {
+                ids.add(this.path.get(this.path.size() - 2));
+                names.add("\u2191 Up one folder");
+            }
+            for (MediaDir.Entry f : this.allEntries) {
+                if (f.folder && !f.id.equals(e.id)) {
+                    ids.add(f.id);
+                    names.add(f.name);
+                }
+            }
+            names.add("New folder\u2026");
+            lastAsk = new AlertDialog.Builder(this.app).setTitle((move ? "Move " : "Copy ") + e.name + " to")
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    if (which < ids.size()) {
+                        this.done(this.copyTo(e, ids.get(which), move));
+                        return;
+                    }
+                    final android.widget.EditText field = new android.widget.EditText(this.app);
+                    field.setSingleLine(true);
+                    field.setTag("media-newfolder-field");
+                    lastAsk = new AlertDialog.Builder(this.app).setTitle("New folder").setView(field)
+                        .setPositiveButton(move ? "Move" : "Copy", (d2, w2) -> {
+                            String made = this.makeFolder(field.getText().toString());
+                            this.done(made == null ? "Could not make the folder" : this.copyTo(e, made, move));
+                        })
+                        .setNegativeButton("Cancel", null).show();
+                })
+                .setNegativeButton("Cancel", null).show();
+        }
+    }
+
+    /** After a change: the status line, and the folder read again. */
+    private void done(String said) {
+        this.app.setNow(said);
+        android.widget.Toast.makeText(this.app, said, android.widget.Toast.LENGTH_SHORT).show();
+        this.load(here());
+    }
+
+    String rename(MediaDir.Entry e, String typed) {
+        String name = e.folder ? MediaDir.cleanName(typed) : MediaDir.keepEnding(e.name, typed);
+        if (name == null) return "Not a name: " + typed;
+        if (name.equals(e.name)) return "Not renamed";
+        try {
+            if (this.tree == null) {
+                File f = new File(e.id);
+                File to = new File(f.getParentFile(), name);
+                if (to.exists()) return name + " is there already";
+                return f.renameTo(to) ? "Renamed " + e.name + " to " + name : "Could not rename " + e.name;
+            }
+            Uri done = DocumentsContract.renameDocument(this.app.getContentResolver(), this.uri(e), name);
+            return done != null ? "Renamed " + e.name + " to " + name : "Could not rename " + e.name;
+        } catch (Exception ex) {
+            return "Could not rename " + e.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+    }
+
+    String delete(MediaDir.Entry e) {
+        try {
+            if (this.tree == null) return MediaDir.deleteAll(new File(e.id)) ? "Deleted " + e.name : "Could not delete all of " + e.name;
+            return DocumentsContract.deleteDocument(this.app.getContentResolver(), this.uri(e)) ? "Deleted " + e.name : "Could not delete " + e.name;
+        } catch (Exception ex) {
+            return "Could not delete " + e.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+    }
+
+    /** A folder made here; its id (a path, or a document id), or null. */
+    String makeFolder(String typed) {
+        String name = MediaDir.cleanName(typed);
+        if (name == null) return null;
+        try {
+            if (this.tree == null) {
+                File f = new File(here(), name);
+                return f.isDirectory() || f.mkdirs() ? f.getAbsolutePath() : null;
+            }
+            Uri made = DocumentsContract.createDocument(this.app.getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(this.tree, here()),
+                DocumentsContract.Document.MIME_TYPE_DIR, name);
+            return made == null ? null : DocumentsContract.getDocumentId(made);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** The file (or folder) copied, or moved, into the folder `to` (an id as `path` holds). */
+    String copyTo(MediaDir.Entry e, String to, boolean move) {
+        String verb = move ? "Moved " : "Copied ";
+        try {
+            if (this.tree == null) {
+                File done = move ? MediaDir.moveInto(new File(e.id), new File(to)) : MediaDir.copyInto(new File(e.id), new File(to));
+                return verb + e.name + " to " + done.getParentFile().getName();
+            }
+            android.content.ContentResolver cr = this.app.getContentResolver();
+            Uri src = this.uri(e);
+            Uri target = DocumentsContract.buildDocumentUriUsingTree(this.tree, to);
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(this.tree, here());
+            try {
+                Uri done = move ? DocumentsContract.moveDocument(cr, src, parent, target) : DocumentsContract.copyDocument(cr, src, target);
+                if (done != null) return verb + e.name;
+            } catch (Exception unsupported) {
+                // The folder's app has no copy or move of its own: the bytes, then (moving) the original goes.
+            }
+            if (e.folder) return "This folder's app copies or moves only files, not folders";
+            Uri out = DocumentsContract.createDocument(cr, target, cr.getType(src) == null ? "application/octet-stream" : cr.getType(src), e.name);
+            if (out == null) return "Could not " + (move ? "move " : "copy ") + e.name;
+            InputStream in = cr.openInputStream(src);
+            java.io.OutputStream os = cr.openOutputStream(out);
+            try {
+                byte[] buf = new byte[65536];
+                for (int n; (n = in.read(buf)) > 0; ) os.write(buf, 0, n);
+            } finally {
+                in.close();
+                os.close();
+            }
+            if (move) DocumentsContract.deleteDocument(cr, src);
+            return verb + e.name;
+        } catch (Exception ex) {
+            return "Could not " + (move ? "move " : "copy ") + e.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+    }
+
+    /** The first picture in folder `f` (by name), or null: the folder's thumbnail. */
+    MediaDir.Entry firstPicture(MediaDir.Entry f) {
+        String best = null, bestId = null;
+        if (this.tree == null) {
+            File[] kids = new File(f.id).listFiles();
+            if (kids == null) return null;
+            for (File k : kids) {
+                if (!k.isFile() || k.getName().startsWith(".") || MediaDir.kind(k.getName()) != MediaDir.PICTURE) continue;
+                if (best == null || k.getName().compareToIgnoreCase(best) < 0) {
+                    best = k.getName();
+                    bestId = k.getAbsolutePath();
+                }
+            }
+        } else {
+            Cursor c = null;
+            try {
+                c = this.app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(this.tree, f.id),
+                    new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+                while (c != null && c.moveToNext()) {
+                    String n = c.getString(1);
+                    if (n == null || n.startsWith(".") || MediaDir.kind(n) != MediaDir.PICTURE) continue;
+                    if (best == null || n.compareToIgnoreCase(best) < 0) {
+                        best = n;
+                        bestId = c.getString(0);
+                    }
+                }
+            } catch (Exception ex) {
+                return null;
+            } finally {
+                if (c != null) c.close();
+            }
+        }
+        if (best == null) return null;
+        MediaDir.Entry pic = new MediaDir.Entry();
+        pic.name = best;
+        pic.id = bestId;
+        pic.kind = MediaDir.PICTURE;
+        return pic;
+    }
+
+    /** The tag the card Up came from carries (for the tests). */
+    static final int R_FOCUS = 0x7f0b1002;
 
     /** A menu item picked: adding to the prompt library reads and stores the file off the main thread (a large one takes a while). */
     void pick(final MediaDir.Entry e, final int which) {
@@ -1551,6 +2016,17 @@ final class MediaBrowser {
         bar.addView(new View(this.app), new LinearLayout.LayoutParams(0, 1, 1f));
         bar.addView(close);
         frame.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        // Small arrows at the picture's left and right edges: the previous and the next picture.
+        for (int edge = 0; edge < 2; edge++) {
+            final boolean back = edge == 0;
+            TextView arrow = this.app.text(back ? "\u2039" : "\u203a", 30, true);
+            arrow.setTag(back ? "media-full-left" : "media-full-right");
+            arrow.setGravity(Gravity.CENTER);
+            arrow.setBackgroundColor(0x66000000);
+            arrow.setOnClickListener(v -> (back ? prev : next).performClick());
+            FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(this.app.dp(40), this.app.dp(64), Gravity.CENTER_VERTICAL | (back ? Gravity.START : Gravity.END));
+            frame.addView(arrow, alp);
+        }
         // Pinch to zoom (1x to 6x); one finger moves a zoomed picture.
         final ScaleGestureDetector pinch = new ScaleGestureDetector(this.app, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override

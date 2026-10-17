@@ -191,8 +191,9 @@ final class MediaBrowser {
             // No library: the folder only.
         }
         final List<MediaDir.Entry> allEntries = read;
-        // The type selector (A I V S T O): what of the folder is shown.
-        final List<MediaDir.Entry> entries = MediaDir.filtered(allEntries, MediaDir.filter);
+        // The type selector (A I V S T O), then the tag filter: what of the folder is shown.
+        MediaTags.load(PromptDb.dir());
+        final List<MediaDir.Entry> entries = MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter);
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -224,8 +225,11 @@ final class MediaBrowser {
         if (above != null && (!dir.equals(root) || (this.chooser == null && above.isDirectory() && above.canRead()))) {
             JButton up = new JButton("Up");
             up.setName("media-up");
+            if (this.chooser == null) this.dropTarget(up, above, dialog, root, dir);
             up.addActionListener(e -> {
                 gone.set(true);
+                // The folder left shows again, outlined and scrolled to.
+                this.focus = dir;
                 this.fill(dialog, dir.equals(root) ? above : root, above);
             });
             top.add(up, BorderLayout.WEST);
@@ -260,6 +264,30 @@ final class MediaBrowser {
             filters.add(b);
         }
         filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]));
+        // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
+        final List<String[]> tagChoices = MediaTags.choices(allEntries);
+        boolean known = false;
+        for (String[] c : tagChoices) known |= c[1].equals(MediaTags.filter);
+        if (!known) tagChoices.add(new String[] {MediaTags.filter + " (0)", MediaTags.filter});
+        String[] tagNames = new String[tagChoices.size()];
+        int at = 0;
+        for (int i = 0; i < tagNames.length; i++) {
+            tagNames[i] = tagChoices.get(i)[0];
+            if (tagChoices.get(i)[1].equals(MediaTags.filter)) at = i;
+        }
+        final javax.swing.JComboBox<String> tagged = new javax.swing.JComboBox<String>(tagNames);
+        tagged.setName("media-tag-filter");
+        tagged.setSelectedIndex(at);
+        tagged.setToolTipText("Only the files with this tag or category");
+        tagged.addActionListener(e -> {
+            int i = tagged.getSelectedIndex();
+            if (i < 0 || tagChoices.get(i)[1].equals(MediaTags.filter)) return;
+            MediaTags.filter = tagChoices.get(i)[1];
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        });
+        filters.add(new JLabel("   Tagged:"));
+        filters.add(tagged);
         JPanel north = new JPanel(new BorderLayout(0, 6));
         if (this.chooser != null) north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
         north.add(top, BorderLayout.CENTER);
@@ -269,6 +297,7 @@ final class MediaBrowser {
         if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
         final List<JButton> waiting = new ArrayList<JButton>();
         final List<File> videos = new ArrayList<File>();
+        JButton focusCard = null;
         for (final MediaDir.Entry entry : entries) {
             final File f = new File(entry.id);
             JButton card = new JButton();
@@ -285,6 +314,32 @@ final class MediaBrowser {
                     gone.set(true);
                     this.fill(dialog, root, f);
                 });
+                // A right click: Rename, Delete. The first picture in it is its thumbnail.
+                if (this.chooser == null) card.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) MediaBrowser.this.folderMenu(entry, f, card, e.getX(), e.getY(), dialog, root, dir);
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) MediaBrowser.this.folderMenu(entry, f, card, e.getX(), e.getY(), dialog, root, dir);
+                    }
+                });
+                // A file card dropped on it moves the file in.
+                if (this.chooser == null) this.dropTarget(card, f, dialog, root, dir);
+                File pic = firstPicture(f);
+                if (pic != null) {
+                    card.putClientProperty("media-folder-pic", pic);
+                    ImageIcon have = this.thumbs.get(key(pic));
+                    if (have != null) card.setIcon(have);
+                    else waiting.add(card);
+                }
+                // Up from this folder: its card outlined and scrolled to.
+                if (f.equals(this.focus)) {
+                    card.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xE0B04A), 2));
+                    focusCard = card;
+                }
             } else {
                 card.setToolTipText(entry.dbId != 0 ? "Shows its text (kept in the DB)" : entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
                 // A right click, or holding the button down, opens its menu (a long press, as on the phone).
@@ -341,6 +396,8 @@ final class MediaBrowser {
                         if (this.hold != null) this.hold.stop();
                     }
                 });
+                // Dragged onto a folder card (or Up): moved there.
+                if (this.chooser == null && entry.dbId == 0) this.dragSource(card, f);
                 if (icon == null && (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO)) waiting.add(card);
                 if (icon == null && entry.kind == MediaDir.VIDEO) videos.add(f);
             }
@@ -354,7 +411,10 @@ final class MediaBrowser {
         // Where this folder was last scrolled to comes back; moving remembers it (kept on the next save).
         final String placeOf = dir.getAbsolutePath();
         final int was = MediaDir.place(placeOf);
-        if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
+        final JButton focused = focusCard;
+        this.focus = null;
+        if (focused != null) SwingUtilities.invokeLater(() -> focused.scrollRectToVisible(new java.awt.Rectangle(0, 0, focused.getWidth(), focused.getHeight())));
+        else if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
         scroll.getVerticalScrollBar().addAdjustmentListener(e -> {
             if (!e.getValueIsAdjusting() || e.getValue() > 0) MediaDir.place(placeOf, e.getValue());
         });
@@ -448,6 +508,8 @@ final class MediaBrowser {
             for (final JButton card : cards) {
                 if (gone.get()) break;
                 File f = (File) card.getClientProperty("media-file");
+                // A folder card: the first picture in it.
+                if (card.getClientProperty("media-folder-pic") != null) f = (File) card.getClientProperty("media-folder-pic");
                 int kind = MediaDir.kind(f.getName());
                 ImageIcon icon = null;
                 try {
@@ -490,8 +552,9 @@ final class MediaBrowser {
         MediaDir.Entry e = new MediaDir.Entry();
         e.name = f.getName();
         e.id = f.getAbsolutePath();
-        e.size = f.length();
-        e.kind = MediaDir.kind(e.name);
+        e.folder = f.isDirectory();
+        e.size = e.folder ? 0 : f.length();
+        e.kind = e.folder ? 0 : MediaDir.kind(e.name);
         if (icon != null) card.setIcon(icon);
         card.setText(caption(e, card.getIcon() != null ? null : mark(e)));
     }
@@ -694,11 +757,27 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind);
+        final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
+            if (MediaTags.TAGS.equals(items[i]) || MediaTags.CATEGORY.equals(items[i])) {
+                item.setName("media-menu:" + items[i]);
+                item.addActionListener(e -> {
+                    if (MediaTags.TAGS.equals(items[which])) this.tags(entry);
+                    else this.category(entry);
+                });
+                menu.add(item);
+                continue;
+            }
+            if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[i])) {
+                // Rename, Copy / Move to folder, Delete: asked about first, then the folder shown again.
+                item.setName("media-menu:" + items[i]);
+                item.addActionListener(e -> this.fileAction(entry, f, items[which]));
+                menu.add(item);
+                continue;
+            }
             item.addActionListener(e -> {
                 app.setNow(this.menuPicked(entry, f, which));
                 // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
@@ -711,6 +790,215 @@ final class MediaBrowser {
         }
         this.lastMenu = menu;
         if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /** Up from a folder: the folder to show again in the one above (outlined, scrolled to). */
+    File focus;
+
+    /** A folder's right-click menu: Rename, Delete. */
+    void folderMenu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y, JDialog dialog, File root, File dir) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("media-folder-menu");
+        for (final String a : MediaDir.FOLDER_MENU) {
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(a);
+            item.setName("media-menu:" + a);
+            item.addActionListener(e -> this.fileAction(entry, f, a));
+            menu.add(item);
+        }
+        this.lastMenu = menu;
+        if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /** The answers the tests give instead of the dialogs (a name, a folder, or "yes"); null: ask. */
+    static java.util.function.Function<String, String> answer;
+
+    private String ask(String question, String preset) {
+        if (answer != null) return answer.apply(question);
+        Object a = javax.swing.JOptionPane.showInputDialog(this.last, question, "Media browser", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, preset);
+        return a == null ? null : a.toString();
+    }
+
+    /** Rename, Copy to folder, Move to folder or Delete a file (or a folder: Rename, Delete), then the folder shown again. */
+    void fileAction(MediaDir.Entry entry, File f, String action) {
+        String said;
+        try {
+            if (MediaDir.RENAME.equals(action)) {
+                String typed = this.ask("New name for " + f.getName(), f.getName());
+                if (typed == null) return;
+                String name = f.isDirectory() ? MediaDir.cleanName(typed) : MediaDir.keepEnding(f.getName(), typed);
+                File to = name == null ? null : new File(f.getParentFile(), name);
+                long size = f.length();
+                said = name == null ? "Not a name: " + typed : to.exists() ? name + " is there already"
+                    : f.renameTo(to) ? "Renamed " + f.getName() + " to " + name : "Could not rename " + f.getName();
+                // Its tags and category go with the new name.
+                if (said.startsWith("Renamed") && !to.isDirectory()) MediaTags.renamed(MediaTags.key(f.getName(), size), MediaTags.key(name, size));
+            } else if (MediaDir.DELETE.equals(action)) {
+                String yes = answer != null ? answer.apply("Delete " + f.getName())
+                    : javax.swing.JOptionPane.showOptionDialog(this.last, f.isDirectory() ? "Delete " + f.getName() + " and everything in it?" : "Delete " + f.getName() + "?",
+                        "Delete", javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.WARNING_MESSAGE, null, new Object[] {"Delete", "Cancel"}, "Cancel") == 0 ? "yes" : null;
+                if (!"yes".equals(yes)) return;
+                String tagKey = f.isFile() ? MediaTags.key(f.getName(), f.length()) : null;
+                said = MediaDir.deleteAll(f) ? "Deleted " + f.getName() : "Could not delete all of " + f.getName();
+                if (tagKey != null && said.startsWith("Deleted")) MediaTags.deleted(tagKey);
+            } else {
+                boolean move = MediaDir.MOVE_TO.equals(action);
+                File to;
+                if (answer != null) {
+                    String a = answer.apply((move ? "Move " : "Copy ") + f.getName() + " to");
+                    if (a == null) return;
+                    to = new File(a);
+                } else {
+                    javax.swing.JFileChooser pick = new javax.swing.JFileChooser(this.shown);
+                    pick.setDialogTitle((move ? "Move " : "Copy ") + f.getName() + " to");
+                    pick.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+                    if (pick.showDialog(this.last, move ? "Move here" : "Copy here") != javax.swing.JFileChooser.APPROVE_OPTION) return;
+                    to = pick.getSelectedFile();
+                }
+                if (!to.isDirectory() && !to.mkdirs()) throw new java.io.IOException("could not make " + to.getName());
+                File done = move ? MediaDir.moveInto(f, to) : MediaDir.copyInto(f, to);
+                said = (move ? "Moved " : "Copied ") + f.getName() + " to " + done.getParentFile().getName();
+            }
+        } catch (Exception ex) {
+            said = "Could not " + action.toLowerCase().replace("\u2026", "") + " " + f.getName() + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+        app.setNow(said);
+        // The folder shown again.
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
+    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between). */
+    void tags(MediaDir.Entry entry) {
+        MediaTags.load(PromptDb.dir());
+        String key = MediaTags.key(entry);
+        java.util.List<String> chosen;
+        if (answer != null) {
+            String a = answer.apply("Tags for " + entry.name);
+            if (a == null) return;
+            chosen = new ArrayList<String>(java.util.Arrays.asList(a.split(",")));
+        } else {
+            java.util.List<String> known = MediaTags.known();
+            java.util.List<String> has = MediaTags.tags(key);
+            JPanel boxes = new JPanel(new GridLayout(0, 3, 6, 2));
+            java.util.List<javax.swing.JCheckBox> checks = new ArrayList<javax.swing.JCheckBox>();
+            for (String t : known) {
+                javax.swing.JCheckBox c = new javax.swing.JCheckBox(t, has.contains(t));
+                c.setName("media-tag:" + t);
+                checks.add(c);
+                boxes.add(c);
+            }
+            javax.swing.JTextField more = new javax.swing.JTextField(24);
+            more.setName("media-new-tags");
+            JPanel panel = new JPanel(new BorderLayout(0, 8));
+            if (!known.isEmpty()) panel.add(boxes, BorderLayout.CENTER);
+            JPanel add = new JPanel(new BorderLayout(6, 0));
+            add.add(new JLabel("New tags (a comma between):"), BorderLayout.WEST);
+            add.add(more, BorderLayout.CENTER);
+            panel.add(add, BorderLayout.SOUTH);
+            if (javax.swing.JOptionPane.showConfirmDialog(this.last, panel, "Tags for " + entry.name, javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return;
+            chosen = new ArrayList<String>();
+            for (javax.swing.JCheckBox c : checks) if (c.isSelected()) chosen.add(c.getText());
+            chosen.addAll(java.util.Arrays.asList(more.getText().split(",")));
+        }
+        MediaTags.setTags(key, chosen);
+        String line = MediaTags.line(key);
+        app.setNow(line.length() == 0 ? entry.name + ": no tags" : entry.name + ": " + line);
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
+    /** Category…: one of the prompt library's categories for the file, or none. */
+    void category(MediaDir.Entry entry) {
+        MediaTags.load(PromptDb.dir());
+        String key = MediaTags.key(entry);
+        java.util.List<String> names = new ArrayList<String>();
+        names.add("(none)");
+        try {
+            names.addAll(MediaTags.categoryNames(PromptDb.vault()));
+        } catch (Exception ex) {
+            // no library: none only
+        }
+        String picked;
+        if (answer != null) {
+            picked = answer.apply("Category for " + entry.name);
+        } else {
+            String now = MediaTags.category(key);
+            Object a = javax.swing.JOptionPane.showInputDialog(this.last, "Category for " + entry.name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
+                names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
+            picked = a == null ? null : a.toString();
+        }
+        if (picked == null) return;
+        MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
+        app.setNow(entry.name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
+    /** A file card that can be dragged (its file's path) onto a folder card. */
+    private void dragSource(final JButton card, final File f) {
+        card.setTransferHandler(new javax.swing.TransferHandler() {
+            @Override
+            public int getSourceActions(javax.swing.JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected java.awt.datatransfer.Transferable createTransferable(javax.swing.JComponent c) {
+                return new java.awt.datatransfer.StringSelection(f.getAbsolutePath());
+            }
+        });
+        card.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(java.awt.event.MouseEvent e) {
+                if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+                card.getModel().setArmed(false);
+                card.getModel().setPressed(false);
+                card.getTransferHandler().exportAsDrag(card, e, javax.swing.TransferHandler.MOVE);
+            }
+        });
+    }
+
+    /** A folder card (or Up) a file card can be dropped on: the file is moved into `folder`. */
+    private void dropTarget(javax.swing.JComponent target, final File folder, final JDialog dialog, final File root, final File dir) {
+        target.setTransferHandler(new javax.swing.TransferHandler() {
+            @Override
+            public boolean canImport(javax.swing.TransferHandler.TransferSupport s) {
+                return s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor);
+            }
+
+            @Override
+            public boolean importData(javax.swing.TransferHandler.TransferSupport s) {
+                try {
+                    String path = (String) s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
+                    app.setNow(MediaBrowser.this.dropped(new File(path), folder));
+                    javax.swing.SwingUtilities.invokeLater(() -> MediaBrowser.this.fill(dialog, root, dir));
+                    return true;
+                } catch (Exception ex) {
+                    return false;
+                }
+            }
+        });
+    }
+
+    /** A file dropped on a folder: moved into it. The status line. */
+    String dropped(File f, File folder) {
+        if (!f.isFile() || folder.equals(f.getParentFile())) return "Not moved";
+        try {
+            File done = MediaDir.moveInto(f, folder);
+            return "Moved " + f.getName() + " to " + done.getParentFile().getName();
+        } catch (Exception ex) {
+            return "Could not move " + f.getName() + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+    }
+
+    /** The first picture in folder `dir` (by name), or null: the folder's thumbnail. */
+    static File firstPicture(File dir) {
+        File[] kids = dir.listFiles();
+        File best = null;
+        if (kids == null) return null;
+        for (File k : kids) {
+            if (!k.isFile() || k.getName().startsWith(".") || MediaDir.kind(k.getName()) != MediaDir.PICTURE) continue;
+            if (best == null || k.getName().compareToIgnoreCase(best.getName()) < 0) best = k;
+        }
+        return best;
     }
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */
@@ -842,6 +1130,9 @@ final class MediaBrowser {
         // Its resolution and aspect ratio, once read: "1920×1080 · 16:9".
         String size = e.folder ? null : this.sizes.get(e.id);
         if (size != null && size.length() > 0) sub += "<br>" + size;
+        // Its tags and category.
+        String tags = e.folder || e.dbId != 0 ? "" : MediaTags.line(MediaTags.key(e));
+        if (tags.length() > 0) sub += "<br><span style='color:#D9A441'>" + esc(tags) + "</span>";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + badge + esc(MediaDir.shownName(e)) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }

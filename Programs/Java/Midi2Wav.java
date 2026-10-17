@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -13,7 +14,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test]
+ * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]
  *
  * Plays a drum MIDI file with a SoundFont and saves what it sounds like as a WAV file (16-bit stereo).
  *
@@ -32,6 +33,11 @@ import java.util.TreeMap;
  *               hits it hears (imported as a file set and a song), and CompareHits compares the WAV,
  *               that MIDI and the song (with suggestions for DrumMidi's switches), and the MIDI
  *               played against DrumMidi's (what it missed or added).
+ *   --dir       plays every MIDI file in the folder instead (--recursive: its subfolders too), with
+ *               every kit: --sf2 and each SoundFont in --kits <folder>. Each WAV is
+ *               <midi>-<kit>.wav beside its MIDI, as vst_render.py --dir names them. With --test,
+ *               Pulsekit then runs DrumMidi_CRT --dir on the WAVs and CompareHits --batch on the
+ *               folder (a MidiDrumGen --count or MidiBatch folder: its batch.txt lists the grooves).
  *
  * Plain Java (no lambdas, java.* only), so PyJav can compile it on a phone.
  */
@@ -52,19 +58,25 @@ public class Midi2Wav {
     }
 
     static void usage() {
-        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test]");
+        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]");
     }
 
     static int run(String[] args) throws Exception {
         String input = null;
         String output = null;
         String sf2 = null;
+        String dir = null;
+        String kits = null;
+        boolean recursive = false;
         int rate = 44100;
         double volume = 100;
         for (int i = 0; i < args.length; i++) {
             String a = args[i] == null ? "" : args[i].trim();
             if (a.length() == 0) continue;
             if (a.equals("--sf2") && i + 1 < args.length) sf2 = args[++i].trim();
+            else if (a.equals("--dir") && i + 1 < args.length) dir = args[++i].trim();
+            else if (a.equals("--kits") && i + 1 < args.length) kits = args[++i].trim();
+            else if (a.equals("--recursive")) recursive = true;
             else if (a.equals("--rate") && i + 1 < args.length) rate = (int) Math.round(number(args[++i], a));
             else if (a.equals("--volume") && i + 1 < args.length) volume = number(args[++i], a);
             else if (a.equals("--addtodb") || a.equals("--test")) {
@@ -84,6 +96,7 @@ public class Midi2Wav {
                 return 2;
             }
         }
+        if (dir != null && dir.length() > 0) return runDir(new File(dir), recursive, sf2, kits, rate, volume);
         if (input == null) {
             System.out.println("Failed: give the drum MIDI file to play");
             usage();
@@ -115,59 +128,134 @@ public class Midi2Wav {
         if (!output.toLowerCase(Locale.ROOT).endsWith(".wav")) output = output + ".wav";
         File out = inWork(output);
 
+        SoundFont sf = new SoundFont(font);
+        try {
+            return play(in, sf, font, out, rate, volume, true) ? 0 : 1;
+        } finally {
+            sf.close();
+        }
+    }
+
+    /**
+     * --dir: every MIDI file in the folder (not DrumMidi's own *-dm.mid) played with every kit, each
+     * as <midi>-<kit>.wav beside it. A SoundFont is read once for all the files.
+     */
+    static int runDir(File dir, boolean recursive, String sf2, String kits, int rate, double volume) throws Exception {
+        if (!dir.isDirectory()) {
+            System.out.println("Failed: no folder " + dir.getPath());
+            return 1;
+        }
+        List<File> fonts = new ArrayList<File>();
+        if (sf2 != null && sf2.length() > 0) fonts.add(new File(sf2));
+        if (kits != null && kits.length() > 0) {
+            File[] in = new File(kits).listFiles();
+            if (in == null) {
+                System.out.println("Failed: no folder " + kits);
+                return 1;
+            }
+            Arrays.sort(in);
+            for (File f : in) if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".sf2") && !fonts.contains(f)) fonts.add(f);
+        }
+        if (fonts.isEmpty()) {
+            System.out.println("Failed: give the SoundFont with --sf2, or a folder of them with --kits (in Pulsekit, PyJav gives Pulsekit's kit when none is chosen)");
+            return 2;
+        }
+        for (File f : fonts) {
+            if (!f.isFile()) {
+                System.out.println("Failed: no SoundFont " + f.getPath());
+                return 1;
+            }
+        }
+        List<File> midis = new ArrayList<File>();
+        midisIn(dir, recursive, midis);
+        if (midis.isEmpty()) {
+            System.out.println("Failed: no MIDI files in " + dir.getName());
+            return 1;
+        }
+        System.out.println("Midi2Wav: " + midis.size() + " MIDI file" + (midis.size() == 1 ? "" : "s") + " in " + dir.getName() + " with " + fonts.size() + " kit" + (fonts.size() == 1 ? "" : "s"));
+        int done = 0;
+        for (File font : fonts) {
+            SoundFont sf = new SoundFont(font);
+            try {
+                String kit = font.getName().replaceAll("(?i)\\.sf2$", "").replaceAll("[^A-Za-z0-9._ -]+", "_");
+                for (File m : midis) {
+                    if (Thread.currentThread().isInterrupted()) throw new IllegalStateException("Aborted");
+                    File out = new File(m.getParentFile(), m.getName().replaceAll("(?i)\\.midi?$", "") + "-" + kit + ".wav");
+                    try {
+                        if (play(m, sf, font, out, rate, volume, false)) done++;
+                    } catch (IOException ex) {
+                        System.out.println("Failed " + m.getName() + ": " + ex.getMessage());
+                    }
+                }
+            } finally {
+                sf.close();
+            }
+        }
+        System.out.println("Succeeded: " + done + " of " + midis.size() * fonts.size() + " WAV files in " + dir.getName());
+        return done > 0 ? 0 : 1;
+    }
+
+    static void midisIn(File dir, boolean recursive, List<File> into) {
+        File[] in = dir.listFiles();
+        if (in == null) return;
+        Arrays.sort(in);
+        for (File f : in) {
+            String low = f.getName().toLowerCase(Locale.ROOT);
+            if (f.isFile() && (low.endsWith(".mid") || low.endsWith(".midi")) && !low.endsWith("-dm.mid")) into.add(f);
+        }
+        if (recursive) for (File f : in) if (f.isDirectory() && !f.getName().startsWith(".")) midisIn(f, true, into);
+    }
+
+    /** Plays one MIDI file with a SoundFont into `out` (`one`: the run's only file); false (said why) when it has no notes. */
+    static boolean play(File in, SoundFont sf, File font, File out, int rate, double volume, boolean one) throws IOException {
         Song song = readMidi(readAll(in));
         System.out.println("MIDI: " + in.getName() + ", " + song.notes.size() + " drum " + (song.notes.size() == 1 ? "note" : "notes")
             + (song.allChannels ? " (no notes on the drum channel: all channels played)" : "") + ", " + secs(song.seconds) + " s"
             + (song.bpm > 0 ? " at " + Math.round(song.bpm) + " BPM" : ""));
         if (song.notes.isEmpty()) {
-            System.out.println("Failed: " + in.getName() + " has no notes to play");
-            return 1;
+            System.out.println((one ? "Failed: " : "Left out ") + in.getName() + " has no notes to play");
+            return false;
         }
-        SoundFont sf = new SoundFont(font);
+        System.out.println("SoundFont: " + font.getName() + (sf.name.length() > 0 ? " (" + sf.name + ")" : "") + ", preset " + sf.presetName
+            + (sf.bank == 128 ? " (drum kit)" : " (bank " + sf.bank + ", no drum kit in it)"));
+        float[][] mix = render(song, sf, rate);
+        double peak = 0;
+        double g = volume / 100.0;
+        for (int c = 0; c < 2; c++) for (float v : mix[c]) peak = Math.max(peak, Math.abs(v * g));
+        if (peak > 0.98) {
+            g = g * 0.98 / peak;
+            System.out.println("Note: turned down to " + Math.round(g * 100) + "% so the mix does not clip");
+        } else if (peak < 0.01) {
+            // Velocity 1 is about 80 dB down: a MIDI with very soft notes is played as it is.
+            System.out.println(String.format(Locale.ROOT, "Note: the mix is very quiet (%.0f dB below full scale): the MIDI's notes are soft "
+                + "(low velocities); --volume raises it", 20 * Math.log10(Math.max(1e-9, peak))));
+        }
+        if (sf.missing.size() > 0) {
+            StringBuilder sb = new StringBuilder("Note: no sound in the SoundFont for ");
+            int k = 0;
+            for (Map.Entry<Integer, Integer> e : sf.missing.entrySet()) {
+                sb.append(k++ > 0 ? ", " : "").append(drumName(e.getKey())).append(" (").append(e.getKey()).append(", ").append(e.getValue()).append("x)");
+            }
+            System.out.println(sb);
+        }
+        if (sf.substituted.size() > 0) {
+            StringBuilder sb = new StringBuilder("Note: played with the nearest drum: ");
+            int k = 0;
+            for (Map.Entry<Integer, Integer> e : sf.substituted.entrySet()) {
+                sb.append(k++ > 0 ? ", " : "").append(drumName(e.getKey())).append(" as ").append(drumName(e.getValue()));
+            }
+            System.out.println(sb);
+        }
+        byte[] wav = wav(mix, rate, g);
+        FileOutputStream fos = new FileOutputStream(out);
         try {
-            System.out.println("SoundFont: " + font.getName() + (sf.name.length() > 0 ? " (" + sf.name + ")" : "") + ", preset " + sf.presetName
-                + (sf.bank == 128 ? " (drum kit)" : " (bank " + sf.bank + ", no drum kit in it)"));
-            float[][] mix = render(song, sf, rate);
-            double peak = 0;
-            double g = volume / 100.0;
-            for (int c = 0; c < 2; c++) for (float v : mix[c]) peak = Math.max(peak, Math.abs(v * g));
-            if (peak > 0.98) {
-                g = g * 0.98 / peak;
-                System.out.println("Note: turned down to " + Math.round(g * 100) + "% so the mix does not clip");
-            } else if (peak < 0.01) {
-                // Velocity 1 is about 80 dB down: a MIDI with very soft notes is played as it is.
-                System.out.println(String.format(Locale.ROOT, "Note: the mix is very quiet (%.0f dB below full scale): the MIDI's notes are soft "
-                    + "(low velocities); --volume raises it", 20 * Math.log10(Math.max(1e-9, peak))));
-            }
-            if (sf.missing.size() > 0) {
-                StringBuilder sb = new StringBuilder("Note: no sound in the SoundFont for ");
-                int k = 0;
-                for (Map.Entry<Integer, Integer> e : sf.missing.entrySet()) {
-                    sb.append(k++ > 0 ? ", " : "").append(drumName(e.getKey())).append(" (").append(e.getKey()).append(", ").append(e.getValue()).append("x)");
-                }
-                System.out.println(sb);
-            }
-            if (sf.substituted.size() > 0) {
-                StringBuilder sb = new StringBuilder("Note: played with the nearest drum: ");
-                int k = 0;
-                for (Map.Entry<Integer, Integer> e : sf.substituted.entrySet()) {
-                    sb.append(k++ > 0 ? ", " : "").append(drumName(e.getKey())).append(" as ").append(drumName(e.getValue()));
-                }
-                System.out.println(sb);
-            }
-            byte[] wav = wav(mix, rate, g);
-            FileOutputStream fos = new FileOutputStream(out);
-            try {
-                fos.write(wav);
-            } finally {
-                fos.close();
-            }
-            System.out.println("Wrote " + out.getName() + " (" + size(wav.length) + ", " + secs(mix[0].length / (double) rate) + " s, " + rate + " Hz stereo)");
-            System.out.println("Succeeded: " + out.getName());
-            return 0;
+            fos.write(wav);
         } finally {
-            sf.close();
+            fos.close();
         }
+        System.out.println("Wrote " + out.getName() + " (" + size(wav.length) + ", " + secs(mix[0].length / (double) rate) + " s, " + rate + " Hz stereo)");
+        if (one) System.out.println("Succeeded: " + out.getName());
+        return true;
     }
 
     // ------------------------------------------------------------------ MIDI

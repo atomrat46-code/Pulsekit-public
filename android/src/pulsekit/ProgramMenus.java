@@ -113,9 +113,13 @@ final class ProgramMenus {
             app.setNow("No " + kind + " programs in Programs/" + kind);
             return;
         }
+        // A starred program (a long press in Select program) shows "★ ".
+        ProgramStars.load(app.getFilesDir());
+        String[] shown = new String[names.length];
+        for (int i = 0; i < names.length; i++) shown[i] = ProgramStars.label(names[i]);
         new AlertDialog.Builder(app)
             .setTitle(kind)
-            .setItems(names, (dialog, which) -> this.pick(kind, names[which]))
+            .setItems(shown, (dialog, which) -> this.pick(kind, names[which]))
             .setNegativeButton("Cancel", null)
             .show();
     }

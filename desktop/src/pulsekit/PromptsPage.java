@@ -221,7 +221,7 @@ final class PromptsPage {
         this.col.add(library);
         // Favourite prompts: a click opens the prompt at that version.
         VersionFavourites.load(PromptDb.dir());
-        List<PromptVault.Version> favs = VersionFavourites.list(this.vault);
+        List<PromptVault.Version> favs = VersionFavourites.sorted(this.vault);
         if (!favs.isEmpty()) {
             // Collapsed like Select program: the list opens from its row (and stays open over a rebuild).
             final int count = favs.size();
@@ -246,6 +246,23 @@ final class PromptsPage {
             this.col.add(Box.createVerticalStrut(12));
             this.col.add(toggle);
             this.col.add(favList);
+            // Sort by: the order kept (Move up / down), newest, by main category, by name.
+            JPanel sorts = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            sorts.setOpaque(false);
+            sorts.setAlignmentX(0.0f);
+            sorts.add(new JLabel("Sort by"));
+            for (final String how : VersionFavourites.SORTS) {
+                javax.swing.JToggleButton b = new javax.swing.JToggleButton(how, how.equals(VersionFavourites.sort));
+                b.setName("prompts-favourites-sort:" + how);
+                b.addActionListener(e -> {
+                    VersionFavourites.sort = how;
+                    this.rebuild();
+                });
+                sorts.add(b);
+            }
+            sorts.setMaximumSize(new Dimension(Integer.MAX_VALUE, sorts.getPreferredSize().height));
+            favList.add(sorts);
+            favList.add(Box.createVerticalStrut(6));
             for (PromptVault.Version v : favs) {
                 String label = VersionFavourites.label(this.vault, v);
                 JButton fav = app.action("\u2605 " + label, SURFACE, new java.awt.Color(0xE8C35A));
@@ -361,7 +378,52 @@ final class PromptsPage {
             under.setForeground(MUTED);
             under.setAlignmentX(0.0f);
             this.col.add(under);
-            this.col.add(this.oneRow(this.chipRow(subs, selected), "subcategory-row"));
+            // A tree: + opens a subcategory's own subcategories, − closes them; the chosen one's are open.
+            for (PromptVault.Category c : this.vault.pathTo(selected)) OPEN.add(c.id);
+            this.tree(mainId, selected, 0);
+        }
+    }
+
+    /** The subcategories shown open in the tree (their own subcategories listed under them). */
+    static final java.util.Set<Long> OPEN = new java.util.HashSet<Long>();
+
+    /** `parent`'s subcategories, one a line, indented by depth, each with + or − when it has its own. */
+    void tree(long parent, long selected, int depth) {
+        for (PromptVault.Category c : this.vault.children(parent)) {
+            final long id = c.id;
+            final String name = c.name == null ? "" : c.name;
+            boolean kids = !this.vault.children(id).isEmpty();
+            final boolean open = kids && OPEN.contains(id);
+            JPanel line = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            line.setOpaque(false);
+            line.setAlignmentX(0.0f);
+            line.setBorder(BorderFactory.createEmptyBorder(0, 22 * depth, 0, 0));
+            JButton toggle = app.chip(kids ? (open ? "\u2212" : "+") : " ", false);
+            toggle.setName("category-toggle:" + name);
+            toggle.setEnabled(kids);
+            toggle.addActionListener(e -> {
+                if (open) OPEN.remove(id);
+                else OPEN.add(id);
+                this.rebuild();
+            });
+            boolean on = id == selected;
+            JButton chip = app.chip(name, on);
+            chip.setName("category:" + name);
+            chip.addActionListener(e -> {
+                this.categoryId = id;
+                this.promptId = 0;
+                this.rebuild();
+            });
+            app.onChipMenu(chip, () -> this.categoryMenu(id, name, true));
+            JButton more = app.chip("\u00b7\u00b7\u00b7", on);
+            more.setName("category-menu:" + name);
+            more.addActionListener(e -> this.categoryMenu(id, name, true).show(more, 0, more.getHeight()));
+            line.add(toggle);
+            line.add(chip);
+            line.add(more);
+            line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
+            this.col.add(line);
+            if (open) this.tree(id, selected, depth + 1);
         }
     }
 
@@ -382,7 +444,7 @@ final class PromptsPage {
         return scroll;
     }
 
-    /** The main category a new subcategory goes under: the open prompt's, else the one chosen. */
+    /** The category a new subcategory goes under (subcategories nest): the open prompt's, else the one chosen. */
     String subcategoryParent() {
         if (this.vault == null) return "";
         long selected = this.categoryId;
@@ -390,8 +452,8 @@ final class PromptsPage {
             PromptVault.Prompt item = this.vault.prompt(this.promptId);
             if (item != null) selected = item.categoryId;
         }
-        PromptVault.Category main = this.vault.category(this.vault.mainOf(selected));
-        return main == null || main.name == null ? "" : main.name;
+        PromptVault.Category at = this.vault.category(selected);
+        return at == null || at.name == null ? "" : at.name;
     }
 
     JPanel chipRow(List<PromptVault.Category> categories, long selectedId) {
@@ -422,8 +484,39 @@ final class PromptsPage {
         return row;
     }
 
+    /** A category's Favourites: the favourite prompts in it and under it; a click opens that version. */
+    void categoryFavourites(long id, String name) {
+        VersionFavourites.load(PromptDb.dir());
+        java.util.List<PromptVault.Version> favs = VersionFavourites.inCategory(this.vault, id);
+        if (favs.isEmpty()) {
+            app.setNow("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save prompt");
+            return;
+        }
+        String[] labels = new String[favs.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = VersionFavourites.label(this.vault, favs.get(i));
+        Object picked = javax.swing.JOptionPane.showInputDialog(app, "Favourite prompts in " + name, "\u2605 Favourites", javax.swing.JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]);
+        if (picked == null) return;
+        PromptVault.Version v = favs.get(java.util.Arrays.asList(labels).indexOf(picked.toString()));
+        PromptVault.Prompt p = this.vault.prompt(v.promptId);
+        if (p == null) return;
+        this.categoryId = p.categoryId;
+        this.promptId = p.id;
+        this.loadedVersionId = v.id;
+        this.rebuild();
+    }
+
     JPopupMenu categoryMenu(long id, String name, boolean sub) {
         String kind = sub ? "subcategory" : "category";
+        JPopupMenu menu = this.categoryRenameDelete(id, name, sub, kind);
+        // Favourites: the favourite prompts in this category and under it.
+        JMenuItem favs = new JMenuItem("\u2605 Favourites");
+        favs.setName("category-favourites:" + name);
+        favs.addActionListener(e -> this.categoryFavourites(id, name));
+        menu.insert(favs, 0);
+        return menu;
+    }
+
+    JPopupMenu categoryRenameDelete(long id, String name, boolean sub, String kind) {
         return this.itemMenu(() -> {
             String next = this.ask("Rename " + kind, name);
             if (next == null) return;

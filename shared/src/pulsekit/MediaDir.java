@@ -504,6 +504,15 @@ public final class MediaDir {
   public static final String UPSCALE = "Upscale/resize image";
   public static final int UPSCALE_ITEM = 3;
 
+  /** The file items after those: on the file itself (not in Download, where files have no folders). */
+  public static final String RENAME = "Rename";
+  public static final String COPY_TO = "Copy to folder\u2026";
+  public static final String MOVE_TO = "Move to folder\u2026";
+  public static final String DELETE = "Delete";
+  public static final String[] FILE_ACTIONS = {RENAME, COPY_TO, MOVE_TO, DELETE};
+  /** A folder's long-press menu. */
+  public static final String[] FOLDER_MENU = {RENAME, DELETE};
+
   /** The menu for a file: MENU or MENU_LISTED, and Upscale/resize image for a picture. */
   public static String[] menu(boolean listed, int kind) {
     String[] base = listed ? MENU_LISTED : MENU;
@@ -511,6 +520,78 @@ public final class MediaDir {
     String[] out = java.util.Arrays.copyOf(base, base.length + 1);
     out[UPSCALE_ITEM] = UPSCALE;
     return out;
+  }
+
+  /**
+   * As above, then Tags… and Category… (MediaTags), then Rename, Copy to folder, Move to folder and
+   * Delete (`files`: the file can be changed there).
+   */
+  public static String[] menu(boolean listed, int kind, boolean files) {
+    String[] first = menu(listed, kind);
+    String[] base = java.util.Arrays.copyOf(first, first.length + 2);
+    base[first.length] = MediaTags.TAGS;
+    base[first.length + 1] = MediaTags.CATEGORY;
+    if (!files) return base;
+    String[] out = java.util.Arrays.copyOf(base, base.length + FILE_ACTIONS.length);
+    System.arraycopy(FILE_ACTIONS, 0, out, base.length, FILE_ACTIONS.length);
+    return out;
+  }
+
+  /** A new name for a file or folder: one name, no folder parts; null when it is not one. */
+  public static String cleanName(String typed) {
+    String n = typed == null ? "" : typed.replace('\n', ' ').replace('\r', ' ').trim();
+    if (n.length() == 0 || n.equals(".") || n.equals("..") || n.indexOf('/') >= 0 || n.indexOf('\\') >= 0 || n.indexOf(':') >= 0) return null;
+    return n;
+  }
+
+  /** A file name keeping the old one's ending when the new one has none ("beach" for beach.png gives beach.png). */
+  public static String keepEnding(String old, String typed) {
+    String n = cleanName(typed);
+    if (n == null || old == null) return n;
+    int dot = old.lastIndexOf('.');
+    if (dot <= 0 || n.lastIndexOf('.') > 0) return n;
+    return n + old.substring(dot);
+  }
+
+  /** The folder (and the folders under it) as a whole: deleted, true when all of it went. */
+  public static boolean deleteAll(File f) {
+    if (f == null || !f.exists()) return false;
+    File[] kids = f.isDirectory() ? f.listFiles() : null;
+    boolean ok = true;
+    if (kids != null) for (File k : kids) ok &= deleteAll(k);
+    return f.delete() && ok;
+  }
+
+  /** `f` copied into folder `to` (a free name there: "a (1).png"); the copy, or an exception. */
+  public static File copyInto(File f, File to) throws java.io.IOException {
+    File out = freeName(to, f.getName());
+    if (f.isDirectory()) {
+      if (!out.mkdirs()) throw new java.io.IOException("could not make " + out.getName());
+      File[] kids = f.listFiles();
+      if (kids != null) for (File k : kids) copyInto(k, out);
+      return out;
+    }
+    java.nio.file.Files.copy(f.toPath(), out.toPath());
+    return out;
+  }
+
+  /** `f` moved into folder `to` (a free name there); the moved file, or an exception. */
+  public static File moveInto(File f, File to) throws java.io.IOException {
+    if (to.getAbsolutePath().startsWith(f.getAbsolutePath() + File.separator) || to.equals(f)) throw new java.io.IOException("a folder cannot go inside itself");
+    File out = freeName(to, f.getName());
+    if (f.renameTo(out)) return out;
+    File copy = copyInto(f, to);
+    deleteAll(f);
+    return copy;
+  }
+
+  /** `name` in folder `dir`, or "name (1).ext"... when it is taken. */
+  public static File freeName(File dir, String name) {
+    String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    String ext = name.substring(stem.length());
+    File f = new File(dir, name);
+    for (int n = 1; f.exists(); n++) f = new File(dir, stem + " (" + n + ")" + ext);
+    return f;
   }
 
   /**

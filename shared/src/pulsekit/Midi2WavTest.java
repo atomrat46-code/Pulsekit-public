@@ -16,10 +16,17 @@ import java.util.List;
  */
 public final class Midi2WavTest {
   public static final String FLAG = "--test";
+  /** SogniMusic's and MidiDrumGen's --vst: their drum MIDI played through a VST by vst_render.py (on a computer). */
+  public static final String VST = "--vst";
+  /** vst_render.py's settings kept from its saved Params for such a render (the plugins, their settings, the format). */
+  static final List<String> VST_KEPT = Arrays.asList("--plugin", "--state", "--effect", "--effect_state", "--rate", "--tail", "--volume", "--bits");
   /** Waiting for DrumMidi_CRT's run, for the first CompareHits run, for the second. */
   public static final int DRUM_MIDI = 1;
   public static final int COMPARE = 2;
   public static final int AGAINST_PLAYED = 3;
+  /** Midi2Wav --dir --test: waiting for DrumMidi_CRT --dir on the folder's WAVs, then for CompareHits --batch. */
+  public static final int BATCH_DRUMS = 4;
+  public static final int BATCH_COMPARE = 5;
 
   /** The MIDI Midi2Wav played, the WAV it made, DrumMidi's MIDI, the song's MIDI (paths). */
   public String played = "";
@@ -34,6 +41,12 @@ public final class Midi2WavTest {
   public String drumSaved = "";
   /** What was checked once DrumMidi had run (SogniMusic's test). */
   public String checks = "";
+  /** SogniMusic's run: its --test (DrumMidi, CompareHits, the report) and its --vst (DrumMidi's MIDI to vst_render.py). */
+  public boolean testing = true;
+  public boolean vst;
+  /** Midi2Wav --dir's folder (its batch test), and its --recursive. */
+  public String batch = "";
+  public boolean recursive;
 
   /** The test in progress, or null. */
   private static Midi2WavTest now;
@@ -55,7 +68,40 @@ public final class Midi2WavTest {
 
   /** True for a MidiDrumGen run whose MIDI goes on to Midi2Wav (--towav), or to its test (--test). */
   public static boolean fromGen(String program, List<String> argv) {
-    return "MidiDrumGen.java".equals(program) && argv != null && (argv.contains("--towav") || argv.contains(FLAG));
+    return "MidiDrumGen.java".equals(program) && argv != null && (argv.contains("--towav") || argv.contains(FLAG) || argv.contains(VST));
+  }
+
+  /** True for a MidiDrumGen run whose MIDI goes to vst_render.py (--vst) instead of Midi2Wav. */
+  public static boolean genToVst(String program, List<String> argv) {
+    return "MidiDrumGen.java".equals(program) && argv != null && argv.contains(VST);
+  }
+
+  /**
+   * vst_render.py's arguments for a MIDI: the MIDI, then the plugins, their settings and the format
+   * from vst_render's saved Params (`saved`), and --test (with --no-toms when saved) when `test`.
+   * Null when no plugin was saved: pick one in vst_render.py's Params first.
+   */
+  public static List<String> vstArgs(String midiPath, String vstSource, String saved, boolean test) {
+    String merged = ProgramParams.merge(ProgramParams.parse(vstSource == null ? "" : vstSource), "", saved);
+    List<String> rest = JavaRun.split(merged == null ? "" : merged);
+    List<String> out = new ArrayList<String>();
+    out.add(midiPath);
+    boolean plugin = false;
+    for (int i = 0; i < rest.size(); i++) {
+      String a = rest.get(i);
+      if (VST_KEPT.contains(a) && i + 1 < rest.size() && !rest.get(i + 1).startsWith("--")) {
+        String v = rest.get(++i);
+        if (v.trim().length() == 0) continue;
+        if (a.equals("--plugin")) plugin = true;
+        out.add(a);
+        out.add(v);
+      } else if (a.equals("--no-toms") && test) {
+        out.add(a);
+      }
+    }
+    if (!plugin) return null;
+    if (test) out.add(FLAG);
+    return out;
   }
 
   /**
@@ -83,6 +129,11 @@ public final class Midi2WavTest {
     return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);
   }
 
+  /** True for a SogniMusic run whose track goes on to DrumMidi: its --test, or (on a computer) its --vst. */
+  public static boolean musicSteps(String program, List<String> argv, boolean vstHere) {
+    return musicWanted(program, argv) || vstHere && "SogniMusic.java".equals(program) && argv != null && argv.contains(VST);
+  }
+
   /**
    * SogniMusic's test without drums asked for (no --drums_only, and no drums in --instruments):
    * what to warn about, or null. DrumMidi finds nothing to check in a track without drums.
@@ -98,7 +149,7 @@ public final class Midi2WavTest {
 
   /** True for a SogniMusic run whose track gets a WAV copy (all of them but --no_wav; --test needs it). */
   public static boolean musicToWav(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG));
+    return "SogniMusic.java".equals(program) && (argv == null || !argv.contains("--no_wav") || argv.contains(FLAG) || argv.contains(VST));
   }
 
   /**
@@ -113,6 +164,8 @@ public final class Midi2WavTest {
     t.wav = wav.getAbsolutePath();
     t.expect = MusicExpect.of(argv);
     t.drumSaved = savedDrumMidi == null ? "" : savedDrumMidi;
+    t.testing = argv != null && argv.contains(FLAG);
+    t.vst = argv != null && argv.contains(VST);
     t.stage = DRUM_MIDI;
     now = t;
     return t;
@@ -126,7 +179,68 @@ public final class Midi2WavTest {
 
   /** The report's title. */
   public String title() {
+    if (this.batch.length() > 0) return "Midi2Wav batch test: " + new File(this.batch).getName();
     return (this.expect != null ? "SogniMusic test: " : "Midi2Wav test: ") + new File(this.wav).getName();
+  }
+
+  /** True for a Midi2Wav run with --dir and --test: its batch test (DrumMidi --dir, CompareHits --batch). */
+  public static boolean batchWanted(String program, List<String> argv) {
+    return wanted(program, argv) && valueOf(argv, "--dir") != null;
+  }
+
+  static String valueOf(List<String> argv, String flag) {
+    int i = argv == null ? -1 : argv.indexOf(flag);
+    if (i < 0 || i + 1 >= argv.size()) return null;
+    String v = argv.get(i + 1);
+    return v == null || v.trim().length() == 0 || v.startsWith("--") ? null : v.trim();
+  }
+
+  /**
+   * Midi2Wav --dir is over: when it succeeded, the batch test starts on its folder (DrumMidi_CRT
+   * --dir makes <wav>-dm.mid of each WAV, then CompareHits --batch sums them per kit and style).
+   * Its report is kept as batch-test.txt. Null when the run failed.
+   */
+  public static synchronized Midi2WavTest startBatch(String status, List<String> argv) {
+    now = null;
+    String dir = valueOf(argv, "--dir");
+    if (status == null || !status.startsWith("Succeeded") || dir == null || !new File(dir).isDirectory()) return null;
+    Midi2WavTest t = new Midi2WavTest();
+    t.batch = new File(dir).getAbsolutePath();
+    t.wav = new File(t.batch, "batch.wav").getPath();
+    t.recursive = argv.contains("--recursive");
+    t.stage = BATCH_DRUMS;
+    now = t;
+    return t;
+  }
+
+  /** DrumMidi_CRT's arguments in the batch test: the folder (and its subfolders, as Midi2Wav had them). */
+  public List<String> batchDrumArgs() {
+    List<String> out = new ArrayList<String>();
+    out.add("--dir");
+    out.add(this.batch);
+    if (this.recursive) out.add("--recursive");
+    return out;
+  }
+
+  /** DrumMidi --dir is over: CompareHits --batch next; false (the test is over) when it made nothing. */
+  public synchronized boolean batchDrumsDone(String status) {
+    if (status == null || !status.startsWith("Succeeded") || status.contains(" on 0 of ")) {
+      now = null;
+      return false;
+    }
+    this.stage = BATCH_COMPARE;
+    return true;
+  }
+
+  /** CompareHits' arguments in the batch test. */
+  public List<String> batchCompareArgs() {
+    return new ArrayList<String>(Arrays.asList("--batch", this.batch));
+  }
+
+  /** CompareHits --batch is over (its summary, or why it failed): the test is over. */
+  public synchronized void batchCompareDone(String log) {
+    this.report.append("== CompareHits --batch: each groove against DrumMidi's MIDI of each render, per kit\n").append(clean(log)).append('\n');
+    now = null;
   }
 
   /** The whole report: for SogniMusic, what was asked for, how DrumMidi ran and the checks first; then the comparisons. */
@@ -171,7 +285,7 @@ public final class Midi2WavTest {
     return 0;
   }
 
-  /** True for a Midi2Wav run with --test. */
+  /** True for a Midi2Wav run with --test (with --dir: its batch test, batchWanted). */
   public static boolean wanted(String program, List<String> argv) {
     return "Midi2Wav.java".equals(program) && argv != null && argv.contains(FLAG);
   }
@@ -224,6 +338,8 @@ public final class Midi2WavTest {
     }
     if (this.expect != null) this.checks = this.expect.checks(drumsMidi, wavSeconds(new File(this.wav)));
     this.stage = COMPARE;
+    // SogniMusic's --vst without --test: DrumMidi's MIDI is all it wanted.
+    if (!this.testing) now = null;
     return true;
   }
 

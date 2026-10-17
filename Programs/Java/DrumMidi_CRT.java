@@ -30,6 +30,9 @@ import java.util.Set;
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
  * event ("pulsekit-drummidi; ..."), so CompareHits can suggest changes to them.
  *
+ * --dir <folder> runs on every WAV in the folder (--recursive: its subfolders too), each written as
+ * <wav>-dm.mid beside it with the same switches: a Midi2Wav or vst_render.py batch for CompareHits --batch.
+ *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
  *
@@ -299,6 +302,69 @@ public class DrumMidi_CRT{
         System.out.println(last);
     }
 
+    /**
+     * --dir <folder> [--recursive]: DrumMidi on every WAV in the folder (not one it made), each
+     * written as <wav>-dm.mid beside it, as vst_render.py --test names them, for CompareHits --batch.
+     */
+    static void runDir(List<String> rest, int dirAt) throws Exception {
+        if (dirAt + 1 >= rest.size()) {
+            finish("Failed: --dir needs a folder");
+            return;
+        }
+        File dir = new File(rest.get(dirAt + 1)).getAbsoluteFile();
+        if (!dir.isDirectory()) {
+            finish("Failed: no folder " + dir.getPath());
+            return;
+        }
+        List<String> opts = new ArrayList<String>(rest);
+        opts.remove(dirAt + 1);
+        opts.remove(dirAt);
+        boolean recursive = opts.remove("--recursive");
+        List<File> wavs = new ArrayList<File>();
+        wavsIn(dir, recursive, wavs);
+        if (wavs.isEmpty()) {
+            finish("Failed: no WAV files in " + dir.getName());
+            return;
+        }
+        String keepLog = logPath;
+        logPath = null;
+        int done = 0;
+        for (int k = 0; k < wavs.size(); k++) {
+            checkStop();
+            File w = wavs.get(k);
+            File mid = new File(w.getParentFile(), w.getName().replaceAll("(?i)\\.wave?$", "") + "-dm.mid");
+            List<String> one = new ArrayList<String>();
+            one.add(w.getPath());
+            one.add(mid.getPath());
+            one.addAll(opts);
+            System.out.println("== " + (k + 1) + "/" + wavs.size() + ": " + w.getName());
+            long before = mid.isFile() ? mid.lastModified() : -1;
+            mid.delete();
+            try {
+                run(one.toArray(new String[0]));
+            } catch (IllegalStateException ex) {
+                if ("Aborted".equals(ex.getMessage())) throw ex;
+                System.out.println("Failed " + w.getName() + ": " + ex.getMessage());
+            } catch (Exception ex) {
+                System.out.println("Failed " + w.getName() + ": " + ex.getMessage());
+            }
+            if (mid.isFile() && mid.lastModified() != before) done++;
+        }
+        logPath = keepLog;
+        finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " WAV files in " + dir.getName() + " (<wav>-dm.mid beside each)");
+    }
+
+    static void wavsIn(File dir, boolean recursive, List<File> into) {
+        File[] in = dir.listFiles();
+        if (in == null) return;
+        Arrays.sort(in);
+        for (File f : in) {
+            String low = f.getName().toLowerCase(java.util.Locale.ROOT);
+            if (f.isFile() && (low.endsWith(".wav") || low.endsWith(".wave"))) into.add(f);
+        }
+        if (recursive) for (File f : in) if (f.isDirectory() && !f.getName().startsWith(".")) wavsIn(f, true, into);
+    }
+
     static String num(double v) {
         String t = String.format(java.util.Locale.ROOT, "%.2f", v);
         while (t.endsWith("0")) t = t.substring(0, t.length() - 1);
@@ -324,9 +390,15 @@ public class DrumMidi_CRT{
             rest.add(a);
         }
         args = rest.toArray(new String[0]);
+        // --dir: every WAV in the folder, each to <wav>-dm.mid beside it, with the same switches.
+        int dirAt = rest.indexOf("--dir");
+        if (dirAt >= 0) {
+            runDir(rest, dirAt);
+            return;
+        }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--log <logfile>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--log <logfile>] [--dir <folder>] [--recursive]");
             finish("Failed: need an input wav and an output mid");
             return;
         }

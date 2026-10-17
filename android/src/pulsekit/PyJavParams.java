@@ -50,6 +50,10 @@ public final class PyJavParams {
       return;
     }
     final String[] values = ProgramParams.values(ps, load(activity, name), extra);
+    // A video picked for a picture row fills it (and an empty second picture row) with its frames.
+    shownParams = ps;
+    shownValues = values;
+    shownLabels = new TextView[ps.size()];
     final String[] before = values.clone();
     if (activity instanceof MainActivity) {
       String input = ((MainActivity) activity).pyJav.pkPyInputPath;
@@ -168,6 +172,7 @@ public final class PyJavParams {
         chosen.setTag("params-chosen:" + p.token);
         chosen.setPadding(dp(activity, 8), 0, 0, 0);
         chosen.setText(fileLabel(values[i]));
+        shownLabels[i] = chosen;
         pick.setOnClickListener(v -> pickFile(activity, values, index, chosen));
         row.addView(pick);
         if (p.refs) {
@@ -239,7 +244,7 @@ public final class PyJavParams {
           box.removeView(label);
           box.addView(join);
         }
-        box.addView(row);
+        box.addView(spaced(activity, row));
         if (ProgramParams.previewsPicture(p)) {
           // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
           final android.widget.Button preview = new android.widget.Button(activity);
@@ -325,7 +330,7 @@ public final class PyJavParams {
           target.setSelection(0);
         }));
         row.addView(prompts);
-        box.addView(row);
+        box.addView(spaced(activity, row));
         continue;
       }
       if (p.choices != null && p.choices.length > 0) {
@@ -507,10 +512,7 @@ public final class PyJavParams {
       system.run();
       return;
     }
-    MediaBrowser.choose((MainActivity) activity, (name, file) -> {
-      values[index] = file.getAbsolutePath();
-      label.setText(fileLabel(values[index]));
-    }, system);
+    MediaBrowser.choose((MainActivity) activity, (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null), system);
   }
 
   /** Select file for a prompt field (Params, the Prompts page): the picker's text file fills it. */
@@ -557,12 +559,71 @@ public final class PyJavParams {
       return;
     }
     if (pendingValues == null || pendingIndex < 0 || pendingIndex >= pendingValues.length || path == null) return;
-    pendingValues[pendingIndex] = path;
-    if (pendingLabel != null) pendingLabel.setText(fileLabel(path));
+    if (pendingLabel != null && pendingLabel.getContext() instanceof Activity) assign((Activity) pendingLabel.getContext(), pendingValues, pendingIndex, pendingLabel, path, null);
+    else pendingValues[pendingIndex] = path;
     pendingValues = null;
     pendingIndex = -1;
     pendingLabel = null;
   }
+
+  /** The Params shown (their rows, values and file rows' labels): a video picked for a picture row fills its frames in. */
+  static List<ProgramParams.Param> shownParams;
+  static String[] shownValues;
+  static TextView[] shownLabels;
+
+  /**
+   * A file picked for row `index`: its path, shown (`from`: " · from DB"); a video for a picture
+   * row gives its first frame instead, and its last frame to the next picture row still empty
+   * (read off the main thread; a video it cannot read stays as it is).
+   */
+  static void assign(final Activity activity, final String[] values, final int index, final TextView label, final String path, final String from) {
+    final int[][] frames = values == shownValues ? ProgramParams.framesFor(shownParams, values, index, path) : new int[0][];
+    if (frames.length == 0) {
+      values[index] = path;
+      label.setText(from == null ? fileLabel(path) : new java.io.File(path).getName() + from);
+      return;
+    }
+    final String video = new java.io.File(path).getName();
+    label.setText("Reading the frames of " + video + "\u2026");
+    final TextView[] labels = shownLabels;
+    new Thread(() -> {
+      final String[] made = new String[frames.length];
+      for (int k = 0; k < frames.length; k++) {
+        byte[] png = VideoFrames.frame(path, frames[k][1], 0);
+        if (png == null) continue;
+        try {
+          java.io.File dir = new java.io.File(activity.getCacheDir(), "pyjav-in");
+          if (!dir.isDirectory()) dir.mkdirs();
+          java.io.File out = new java.io.File(dir, video.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + (frames[k][1] < 0 ? "-last.png" : "-first.png"));
+          java.nio.file.Files.write(out.toPath(), png);
+          made[k] = out.getAbsolutePath();
+        } catch (Exception ex) {
+          made[k] = null;
+        }
+      }
+      activity.runOnUiThread(() -> {
+        if (made[0] == null) {
+          // No frame from it: the video itself, as picked.
+          values[index] = path;
+          label.setText(fileLabel(path));
+          lastFramesNote = "none";
+          android.widget.Toast.makeText(activity, "Could not read a frame of " + video, android.widget.Toast.LENGTH_SHORT).show();
+          return;
+        }
+        for (int k = 0; k < frames.length; k++) {
+          if (made[k] == null) continue;
+          int row = frames[k][0];
+          values[row] = made[k];
+          TextView shown = row == index ? label : labels != null && row < labels.length ? labels[row] : null;
+          if (shown != null) shown.setText(fileLabel(made[k]) + " \u00b7 " + (frames[k][1] < 0 ? "last" : "first") + " frame of " + video);
+        }
+        lastFramesNote = frames.length > 1 && made[1] != null ? "first and last frame" : "first frame";
+      });
+    }, "pulsekit-params-frames").start();
+  }
+
+  /** What the last video picked for a picture row gave (for the tests). */
+  static String lastFramesNote;
 
   /** The folder picked for the waiting Directory row: kept readable, shown, and opened in the Media browser. */
   public static void dirPicked(MainActivity app, android.net.Uri tree) {
@@ -604,6 +665,20 @@ public final class PyJavParams {
   /** File paths stay. Saved switches replace the program's own switches. */
   public static String merge(String programText, String extra, String saved) {
     return ProgramParams.merge(ProgramParams.parse(programText), extra, saved);
+  }
+
+  /** A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...). */
+  static LinearLayout spaced(Activity activity, LinearLayout row) {
+    for (int i = 1; i < row.getChildCount(); i++) {
+      android.view.View c = row.getChildAt(i);
+      if (!(c instanceof android.widget.Button)) continue;
+      android.view.ViewGroup.LayoutParams lp = c.getLayoutParams();
+      LinearLayout.LayoutParams m = lp instanceof LinearLayout.LayoutParams ? (LinearLayout.LayoutParams) lp
+          : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+      m.leftMargin = dp(activity, 8);
+      c.setLayoutParams(m);
+    }
+    return row;
   }
 
   private static int dp(Activity activity, int n) {

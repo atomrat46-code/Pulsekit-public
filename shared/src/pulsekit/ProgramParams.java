@@ -107,12 +107,18 @@ public final class ProgramParams {
     boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
+    // BatchRun: a batch of another program's runs (one a picture, or a prompt sheet).
+    boolean batchRun = has(out, "--prompt_file") && has(out, "--slot") && has(out, "--plan");
     // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
     boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
     // vst_render.py: a MIDI (or WAV) played through a VST instrument (and an effect), as a WAV.
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
+    // VideoFrames: pictures from a video (first, last, at times, every N seconds).
+    boolean videoFrames = has(out, "--first") && has(out, "--last") && has(out, "--every");
+    // MidiBatch: MIDI files from a folder or a list into a batch folder, copied or joined at random.
+    boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -132,7 +138,11 @@ public final class ProgramParams {
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
+      if (drumGen && p.token.equals("--vst")) p.label = "Play it through a VST instead (vst_render.py's saved plugin; computer only)";
       if (drumGen) knownDrumGenBatch(p);
+      if (videoFrames) knownVideoFrames(p);
+      if (midiBatch) knownMidiBatch(p);
+      if (batchRun) knownBatchRun(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -323,6 +333,7 @@ public final class ProgramParams {
       p.label = "File (text, MIDI, picture, audio or video)";
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
+    if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.token.equals("--test") && p.label.equals("Test")) p.label = "Test: DrumMidi on the WAV, then CompareHits (what was asked for, checks, suggestions)";
     if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
@@ -450,8 +461,19 @@ public final class ProgramParams {
       p.hint = "optional; <drums>2wav.wav";
     } else if (!p.flag && p.isFile()) {
       p.label = "Drum MIDI file";
-      p.hint = "a .mid; its drum channel is played";
+      p.hint = "a .mid; its drum channel is played; empty with a batch folder below";
       p.refs = true;
+      p.optional = true;
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Batch folder: every MIDI in it, each as <midi>-<kit>.wav (instead of the file above)";
+      p.hint = "a MidiDrumGen --count or MidiBatch folder";
+    } else if (p.token.equals("--recursive")) {
+      p.label = "Its subfolders too";
+    } else if (p.token.equals("--kits")) {
+      p.dir = true;
+      p.label = "Batch kits: every SoundFont in this folder (with the one above)";
+      p.hint = "empty: the SoundFont above, else Pulsekit's kit";
     } else if (p.token.equals("--sf2")) {
       p.label = "SoundFont (.sf2)";
       p.hint = "empty: Pulsekit's kit (the active drum set)";
@@ -467,11 +489,73 @@ public final class ProgramParams {
     } else if (p.token.equals("--addtodb")) {
       p.label = "Add the MIDI, the SoundFont and the WAV to DB";
     } else if (p.token.equals("--test")) {
-      p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions)";
+      p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions); a batch: CompareHits --batch";
     }
   }
 
   /** vst_render.py's labels: the MIDI, the plugins and their settings files, the render's format. */
+  /** VideoFrames: the video (also from the library's video files), which frames, a folder of videos, where they go. */
+  private static void knownVideoFrames(Param p) {
+    if (!p.flag && p.isFile()) {
+      p.label = "Video";
+      p.hint = "an MP4, WebM or MOV";
+      p.refs = true;
+    } else if (p.token.equals("--first")) p.label = "First frame";
+    else if (p.token.equals("--last")) p.label = "Last frame";
+    else if (p.token.equals("--at")) {
+      p.label = "Frames at these times";
+      p.hint = "0:12.345, 1:05 or seconds (12.5); a comma between";
+    } else if (p.token.equals("--every")) {
+      p.label = "A frame every N seconds";
+      p.hint = "empty: none";
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Every video in this folder (instead of one)";
+      p.hint = "empty: the video above";
+    } else if (p.token.equals("--recursive")) p.label = "Its subfolders too";
+    else if (p.token.equals("--max")) {
+      p.label = "Largest side (pixels)";
+      p.hint = "empty: the video's own size";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Folder for the pictures";
+      p.hint = "empty: with PyJav's other output";
+    } else if (p.token.equals("--upscale")) p.label = "Then upscale the first picture (ImageUpscaler, its Params open)";
+  }
+
+  /** MidiBatch's labels: where the MIDI files come from, the batch folder, and joining them. */
+  private static void knownMidiBatch(Param p) {
+    if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "MIDI files in this folder";
+      p.hint = "empty: the list below";
+    } else if (p.token.equals("--recursive")) p.label = "Its subfolders too";
+    else if (p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of MIDI files (list.txt, one a line)";
+      p.hint = "every batch folder gets the list it used";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Batch folder";
+      p.hint = "empty: midi-mix-<seed> in the program files folder";
+    } else if (p.token.equals("--max")) {
+      p.label = "Only this many files, picked at random";
+      p.hint = "empty: all of them";
+    } else if (p.token.equals("--combine")) {
+      p.label = "Join this many random files into each new one";
+      p.hint = "empty: the files are copied as they are";
+    } else if (p.token.equals("--count")) {
+      p.label = "How many joined files";
+      p.hint = "empty: 10";
+    } else if (p.token.equals("--cut")) {
+      p.label = "Bars of each file to use";
+      p.hint = "empty: all of it";
+    } else if (p.token.equals("--seed")) {
+      p.label = "Seed (the same seed picks the same files)";
+      p.hint = "empty: a new one each run";
+    }
+  }
+
   /** MidiDrumGen's batch: --count grooves in random styles, into --outdir, made again with --seed. */
   private static void knownDrumGenBatch(Param p) {
     if (p.token.equals("--count")) {
@@ -649,6 +733,53 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
+    if (p.flag && p.takesValue && p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of videos to join, in order (one a line)";
+      p.hint = "BatchRun --join writes one";
+    }
+  }
+
+  /** BatchRun's labels: the program, the prompt sheet or a folder of them, the pictures, where each goes, the rest. */
+  private static void knownBatchRun(Param p) {
+    if (p.token.equals("--program")) {
+      p.label = "Program to run";
+      p.hint = "SogniVideo";
+      p.choices = new String[] {"SogniVideo", "SogniPedit", "SogniPadd", "ImageUpscaler", "VideoFrames", "Wav2Mp3"};
+      p.choiceValues = p.choices;
+    } else if (p.token.equals("--prompt_file")) {
+      p.ext = "prompt";
+      p.refs = true;
+      p.label = "Prompt sheet: its prompt for every run";
+      p.hint = "a .prompt (Browse DB: the prompt library's prompt files)";
+    } else if (p.token.equals("--prompts")) {
+      p.dir = true;
+      p.label = "Or a folder of prompt sheets: a run for each";
+      p.hint = "empty: the sheet above";
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Files in this folder: a run for each";
+      p.hint = "pictures (PNG, JPEG, WebP) for a Sogni program or ImageUpscaler";
+    } else if (p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of files (one a line)";
+    } else if (p.token.equals("--slot")) {
+      p.label = "Each file goes in";
+      p.hint = "image (ImageUpscaler: input)";
+      p.choices = new String[] {"image (the first frame / the picture)", "image2 (SogniPedit's second reference)", "end_image (SogniVideo's last frame)",
+          "input (first: the program's input file)"};
+      p.choiceValues = new String[] {"image", "image2", "end_image", "input"};
+    } else if (p.token.equals("--args")) {
+      p.label = "The rest of each run's arguments";
+      p.hint = "as the program's Arguments box: --duration 6 --unlimited";
+    } else if (p.token.equals("--join")) {
+      p.label = "Then join the clips in order (JoinVideo; SogniVideo)";
+    } else if (p.token.equals("--max")) {
+      p.label = "At most this many runs (each costs credit)";
+      p.hint = "empty: all of them";
+    } else if (p.token.equals("--plan")) {
+      p.label = "Only show the plan (nothing is run)";
+    }
   }
 
   /** SogniPedit's labels: the pictures are files (also from the prompt library), the LoRAs a list; Unlimited Plan and Save the prompt start ticked. */
@@ -872,6 +1003,40 @@ public final class ProgramParams {
     return p.refs || p.ext != null && p.ext.toLowerCase().matches("png|jpe?g|webp|gif|bmp|image");
   }
 
+  /** A picked file that is a video (by its name, or an MP4's "ftyp" box). */
+  public static boolean isVideo(String path) {
+    if (path == null || path.length() == 0) return false;
+    if (path.toLowerCase().matches(".+\\.(mp4|m4v|webm|mkv|3gp|mov)")) return true;
+    byte[] b = new byte[12];
+    int n = 0;
+    try (java.io.InputStream in = new java.io.FileInputStream(path)) {
+      while (n < b.length) {
+        int r = in.read(b, n, b.length - n);
+        if (r < 0) break;
+        n += r;
+      }
+    } catch (Exception ex) {
+      return false;
+    }
+    return n >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p';
+  }
+
+  /**
+   * A video picked for a picture row: the rows it fills, as {row, which frame} (0 the first frame, -1
+   * the last): this row with the first frame, and the program's next picture row that is still
+   * empty (SogniVideo's end picture, SogniPedit's second picture) with the last. Empty when the row
+   * is not a picture row or the file is no video.
+   */
+  public static int[][] framesFor(List<Param> ps, String[] values, int index, String path) {
+    if (ps == null || index < 0 || index >= ps.size() || !previewsPicture(ps.get(index)) || !isVideo(path)) return new int[0][];
+    int other = -1;
+    for (int k = 1; k < ps.size() && other < 0; k++) {
+      int i = (index + k) % ps.size();
+      if (previewsPicture(ps.get(i)) && (values[i] == null || values[i].trim().length() == 0)) other = i;
+    }
+    return other < 0 ? new int[][] {{index, 0}} : new int[][] {{index, 0}, {other, -1}};
+  }
+
   /** A picked file that is a picture: by its name, or (without a picture's extension) by its first bytes. */
   public static boolean isPicture(String path) {
     if (path == null || path.length() == 0) return false;
@@ -1072,7 +1237,7 @@ public final class ProgramParams {
   }
 
   private static String quote(String v) {
-    return v.indexOf(' ') >= 0 ? "\"" + v + "\"" : v;
+    return JavaRun.quoteArg(v);
   }
 
   private static void append(StringBuilder sb, String s) {

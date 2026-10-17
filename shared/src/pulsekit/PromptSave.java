@@ -25,6 +25,8 @@ public final class PromptSave {
     public String description = "";
     /** Add to favourites: the stored version goes into the favourite prompts (VersionFavourites). */
     public boolean favourite;
+    /** Tag 1–3 (the prompt's tags; empty ones left out). */
+    public List<String> tags = new ArrayList<String>();
   }
 
   /** A sheet to save: its file, as the run wrote it, and the sheet read from it. */
@@ -186,23 +188,66 @@ public final class PromptSave {
       }
     }
     c.description = sheet.description == null ? "" : sheet.description.trim();
+    // The prompt's tags so far, when it is in the library already.
+    if (vault != null) {
+      long cat = find(vault, c.main, c.sub);
+      if (cat != 0) for (PromptVault.Prompt p : vault.prompts(cat)) if (p.title != null && p.title.trim().equalsIgnoreCase(c.name)) c.tags = vault.tags(p.id);
+    }
     return c;
   }
 
-  /** The sheets among a run's files (.prompt files that read as sheets with a name). */
+  /** The tags Tag 1–3 offer: the library's prompts' and the Media browser's, by name. */
+  public static List<String> tagChoices(PromptVault vault, File dir) {
+    java.util.TreeSet<String> all = new java.util.TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+    if (vault != null) all.addAll(vault.allTags());
+    if (dir != null) {
+      MediaTags.load(dir);
+      all.addAll(MediaTags.known());
+    }
+    return new ArrayList<String>(all);
+  }
+
+  /** Add new tag: kept in the tag list (the Media browser's too); the tag as kept, "" when it is not one. */
+  public static String newTag(File dir, String typed) {
+    if (dir != null) MediaTags.load(dir);
+    return MediaTags.addTag(typed);
+  }
+
+  /**
+   * The sheets among a run's files (.prompt files that read as sheets with a name) to save: not a
+   * failed run's (a network error, a cancelled workflow), whose sheet names no result file.
+   */
   public static List<Pending> sheets(JavaRun.Result result) {
     List<Pending> out = new ArrayList<Pending>();
     if (result == null || result.files == null) return out;
     for (JavaRun.FileOut f : result.files) {
       if (!isSheetFile(f)) continue;
       PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, StandardCharsets.UTF_8));
-      if (sheet == null || sheet.name.trim().length() == 0) continue;
+      if (sheet == null || sheet.name.trim().length() == 0 || failed(result, sheet)) continue;
       Pending p = new Pending();
       p.file = f;
       p.sheet = sheet;
       out.add(p);
     }
     return out;
+  }
+
+  /** A run that made nothing: it ended with an error code, or its sheet names no result file. */
+  static boolean failed(JavaRun.Result result, PromptRun.Sheet sheet) {
+    return (result != null && result.code != 0) || sheet.result == null || sheet.result.trim().length() == 0;
+  }
+
+  /** The log lines for a failed run's sheets, which are not saved (and not asked about). */
+  public static String failedNotes(JavaRun.Result result) {
+    StringBuilder out = new StringBuilder();
+    if (result == null || result.files == null) return "";
+    for (JavaRun.FileOut f : result.files) {
+      if (!isSheetFile(f)) continue;
+      PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, StandardCharsets.UTF_8));
+      if (sheet == null || sheet.name.trim().length() == 0 || !failed(result, sheet)) continue;
+      out.append(out.length() > 0 ? "\n" : "").append("Prompt library: ").append(sheet.name.trim()).append(" not saved (the run made no result file)");
+    }
+    return out.toString();
   }
 
   /** A .prompt file a run wrote: the app writes it to disk itself, after asking (or not, when unchanged). */
@@ -255,23 +300,50 @@ public final class PromptSave {
     return 1;
   }
 
-  /** The category for main / sub, 0 when it is not there. */
+  /** The category for main / sub ("Clips / Night": a subcategory of a subcategory), 0 when it is not there. */
   static long find(PromptVault vault, String main, String sub) {
-    long mainId = 0;
-    for (PromptVault.Category c : vault.mains()) if (c.name != null && c.name.trim().equalsIgnoreCase(one(main))) mainId = c.id;
-    if (mainId == 0 || one(sub).length() == 0) return mainId;
-    for (PromptVault.Category c : vault.children(mainId)) if (c.name != null && c.name.trim().equalsIgnoreCase(one(sub))) return c.id;
-    return 0;
+    long at = 0;
+    for (PromptVault.Category c : vault.mains()) if (c.name != null && c.name.trim().equalsIgnoreCase(one(main))) at = c.id;
+    if (at == 0 || one(sub).length() == 0) return at;
+    for (String part : subParts(sub)) {
+      long next = 0;
+      for (PromptVault.Category c : vault.children(at)) if (c.name != null && c.name.trim().equalsIgnoreCase(part)) next = c.id;
+      if (next == 0) return 0;
+      at = next;
+    }
+    return at;
   }
 
-  /** The category for main / sub, made when it is not there. */
+  /** The subcategories under `mainId`, each as its place from there ("Clips", "Clips / Night"), as Save prompt offers them. */
+  public static List<String> subPaths(PromptVault vault, long mainId) {
+    List<String> out = new ArrayList<String>();
+    if (vault == null || mainId == 0) return out;
+    String main = vault.pathName(mainId);
+    for (PromptVault.Category c : vault.descendants(mainId)) {
+      String p = vault.pathName(c.id);
+      out.add(p.startsWith(main + " / ") ? p.substring(main.length() + 3) : c.name);
+    }
+    return out;
+  }
+
+  /** The subcategory names in "Clips / Night" (a "›" between works too). */
+  static List<String> subParts(String sub) {
+    List<String> out = new ArrayList<String>();
+    for (String p : one(sub).split("\\s*[/\u203a]\\s*")) if (p.trim().length() > 0) out.add(p.trim());
+    return out;
+  }
+
+  /** The category for main / sub, made (each level of it) when it is not there. */
   static long place(PromptVault vault, String main, String sub) throws Exception {
     String m = one(main).length() == 0 ? "General" : one(main);
-    long mainId = find(vault, m, "");
-    if (mainId == 0) mainId = vault.addCategory(m);
-    if (one(sub).length() == 0) return mainId;
-    long subId = find(vault, m, sub);
-    return subId != 0 ? subId : vault.addSubcategory(mainId, one(sub));
+    long at = find(vault, m, "");
+    if (at == 0) at = vault.addCategory(m);
+    for (String part : subParts(sub)) {
+      long next = 0;
+      for (PromptVault.Category c : vault.children(at)) if (c.name != null && c.name.trim().equalsIgnoreCase(part)) next = c.id;
+      at = next != 0 ? next : vault.addSubcategory(at, part);
+    }
+    return at;
   }
 
   /** "2026-10-12". */
@@ -301,6 +373,13 @@ public final class PromptSave {
         if (p.title != null && p.title.trim().equalsIgnoreCase(name)) {
           List<PromptVault.Version> rows = vault.versions(p.id);
           if (!rows.isEmpty()) out.versionId = rows.get(0).id;
+          // Tag 1–3: the prompt's tags.
+          if (c.tags != null && !c.tags.isEmpty()) {
+            vault.setTags(p.id, c.tags);
+            StringBuilder tags = new StringBuilder();
+            for (String t : vault.tags(p.id)) tags.append(tags.length() == 0 ? "" : ", ").append(t);
+            out.note = out.note + ", tags " + tags;
+          }
         }
       }
       if (c.favourite && out.versionId != 0) {

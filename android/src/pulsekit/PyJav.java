@@ -266,6 +266,8 @@ final class PyJav {
 
     void pkShowPromptModes() {
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
+        // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
+        if (this.pkReturn != null && !String.valueOf(app.pyName).equals(this.pkReturnFor)) this.pkSetReturn(null);
         // Another program: the prompt sheet's report, reference files and invented output name go.
         if (!prompt) {
             this.pkPromptReport = null;
@@ -492,6 +494,12 @@ final class PyJav {
         this.pkReturnBtn.setVisibility(this.pkReturn == null ? 8 : 0);
         app.pyPane.addView(this.pkReturnBtn, slot);
         slot = slot + 1;
+        // Stop batch: BatchRun's runs end after the one in progress.
+        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
+        this.pkBatchStopBtn.setTag("pyjav-batch-stop");
+        this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
+        app.pyPane.addView(this.pkBatchStopBtn, slot);
+        slot = slot + 1;
         // The run's output, set apart under its own headline.
         android.widget.TextView outHead = app.text("Output", 13, true);
         outHead.setTag("pyjav-output-head");
@@ -577,6 +585,7 @@ final class PyJav {
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable pkReturn;
     android.view.View pkReturnBtn;
+    String pkReturnFor;
 
     public void pkSetReturn(Runnable back) {
         this.pkSetReturn("Return to Media browser", back);
@@ -585,6 +594,8 @@ final class PyJav {
     /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
     public void pkSetReturn(String label, Runnable back) {
         this.pkReturn = back;
+        // It belongs to the program loaded now: another one loaded (from Recent, a script) drops it.
+        this.pkReturnFor = back == null ? null : app.pyName;
         if (this.pkReturnBtn != null) {
             this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
             if (label != null && this.pkReturnBtn instanceof android.widget.TextView) ((android.widget.TextView) this.pkReturnBtn).setText(label);
@@ -865,6 +876,8 @@ final class PyJav {
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
+        // Create again (File > Downloads): the arguments this run had.
+        if (this.pkPending != null && DOWNLOAD_OF.containsKey(this.pkPending)) pulsekit.SogniDownloads.args(DOWNLOAD_OF.get(this.pkPending).longValue(), this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "");
         RUNS.incrementAndGet();
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         if (note != null) live.add(note + "\n");
@@ -1236,11 +1249,16 @@ final class PyJav {
         final String madeLog = log;
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
-        this.pkOffer("the sound", ok && !testing, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
+        // A run of a batch (BatchRun): what it made is saved, not shown; the next run follows.
+        final pulsekit.BatchQueue batch = pulsekit.BatchQueue.current();
+        final boolean inBatch = batch != null && batch.takes(program) && !batch.joining;
+        this.pkOffer("the sound", ok && !testing && !inBatch, () -> AudioOffer.offer(app, pulsekit.PyJavHints.madeAudio(madeLog), made));
+        // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
+        final boolean upscaling = ok && "VideoFrames.java".equals(program) && argv != null && argv.contains("--upscale") && this.pkFrameToUpscaler(made);
         // Pictures it made (SogniChat's tool results) are shown.
-        this.pkOffer("the pictures", ok, () -> PictureOffer.offer(app, made));
+        this.pkOffer("the pictures", ok && !upscaling && !inBatch, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
-        this.pkOffer("the video", ok, () -> VideoOffer.offer(app, made));
+        this.pkOffer("the video", ok && !inBatch, () -> VideoOffer.offer(app, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
@@ -1250,6 +1268,13 @@ final class PyJav {
             String browse = MediaDir.opened(madeLog);
             if (browse != null) MediaBrowser.open(app, browse);
         });
+        // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
+        if (batch != null && batch.takes(program)) {
+            batch.done(status, this.pkBatchCopies(made));
+            this.pkBatchNext(batch);
+        } else if (pulsekit.BatchQueue.start(program, argv, status, madeLog) != null) {
+            this.pkBatchNext(pulsekit.BatchQueue.current());
+        }
         } catch (Throwable ex) {
             String m = ex.getMessage();
             status = "Failed: " + (m == null || m.trim().length() == 0 ? ex.toString() : m);
@@ -1293,6 +1318,7 @@ final class PyJav {
             if (path == null) return false;
             final boolean test = pulsekit.Midi2WavTest.musicWanted(program, argv);
             final java.util.List<String> musicArgv = argv;
+            if (argv.contains(pulsekit.Midi2WavTest.VST)) this.pkAddLogLine(VST_HERE);
             this.pkAddLogLine("Making a WAV of " + mp3Name + "…");
             AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
                 if (wav == null) {
@@ -1308,6 +1334,20 @@ final class PyJav {
                 if (test) this.pkStartMusicTest(musicArgv, wav);
             });
             return test;
+        }
+        // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
+        if (pulsekit.Midi2WavTest.batchWanted(program, argv)) {
+            t = pulsekit.Midi2WavTest.startBatch(status, argv);
+            if (t == null) return false;
+            final java.util.List<String> drumArgs = t.batchDrumArgs();
+            this.pkAddLogLine("Test: DrumMidi_CRT on every WAV in " + new java.io.File(t.batch).getName() + ", then CompareHits --batch");
+            app.handler.post(() -> {
+                this.pkPyInputPath = null;
+                app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+                this.pkForcedArgs = drumArgs;
+                this.pkRunPyJav();
+            });
+            return true;
         }
         if (pulsekit.Midi2WavTest.wanted(program, argv)) {
             String wavName = pulsekit.PyJavHints.madeAudio(log);
@@ -1328,6 +1368,20 @@ final class PyJav {
         if (t == null) return false;
         final pulsekit.Midi2WavTest test = t;
         try {
+            if (t.stage == pulsekit.Midi2WavTest.BATCH_DRUMS && "DrumMidi_CRT.jar".equals(program)) {
+                if (!t.batchDrumsDone(status)) {
+                    this.pkAddLogLine("Test stopped: DrumMidi_CRT made no MIDI (" + (status == null ? "no result" : status) + ")");
+                    return true;
+                }
+                this.pkAddLogLine("Test: CompareHits --batch " + new java.io.File(t.batch).getName());
+                app.handler.post(() -> this.pkRunTestCompare(test.batchCompareArgs()));
+                return true;
+            }
+            if (t.stage == pulsekit.Midi2WavTest.BATCH_COMPARE && "CompareHits.java".equals(program)) {
+                t.batchCompareDone(log);
+                app.handler.post(() -> this.pkShowTestReport(test));
+                return true;
+            }
             if (t.stage == pulsekit.Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(program)) {
                 byte[] drums = null;
                 String drumsName = null;
@@ -1382,6 +1436,33 @@ final class PyJav {
         return false;
     }
 
+    /** VideoFrames --upscale: ImageUpscaler with the first picture the run made as its input, its Params open; false when it made none. */
+    boolean pkFrameToUpscaler(pulsekit.JavaRun.Result made) {
+        if (made == null || made.files == null) return false;
+        for (Object o : made.files) {
+            pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) o;
+            if (f.name == null || !f.name.toLowerCase().endsWith(".png") || f.bytes == null) continue;
+            try {
+                java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                final java.io.File in = new java.io.File(dir, f.name);
+                java.nio.file.Files.write(in.toPath(), f.bytes);
+                app.runOnUiThread(() -> {
+                    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+                    this.pkUseInputPath(in.getAbsolutePath());
+                    this.pkOpenParams();
+                });
+                return true;
+            } catch (Exception ex) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** --vst on the phone: VST plugins run on a computer (vst_render.py in Pulsekit's desktop app). */
+    static final String VST_HERE = "--vst: VST plugins play on a computer (vst_render.py in Pulsekit's desktop app)";
+
     /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). False when it made no MIDI. */
     boolean pkGenToWav(pulsekit.JavaRun.Result result, java.util.List<String> genArgv) {
         pulsekit.JavaRun.FileOut midi = null;
@@ -1405,6 +1486,7 @@ final class PyJav {
             }
             final java.util.List<String> args = pulsekit.Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv,
                 app.programMenus.bundledSource("Midi2Wav.java"), pulsekit.PyJavParams.load(app, "Midi2Wav.java"));
+            if (pulsekit.Midi2WavTest.genToVst("MidiDrumGen.java", genArgv)) this.pkAddLogLine(VST_HERE + "; Midi2Wav plays it here");
             this.pkAddLogLine("Next: Midi2Wav on " + midi.name + (args.contains(pulsekit.Midi2WavTest.FLAG) ? ", then its test" : ""));
             app.handler.post(() -> {
                 this.pkPyInputPath = null;
@@ -1435,6 +1517,82 @@ final class PyJav {
             this.pkForcedArgs = drumArgs;
             this.pkRunPyJav();
         });
+    }
+
+    /** The batch's Stop batch button (shown while a batch runs). */
+    android.view.View pkBatchStopBtn;
+
+    /** A batch run's clips and pictures, kept in the cache for JoinVideo (paths, in order). */
+    java.util.List<String> pkBatchCopies(pulsekit.JavaRun.Result made) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (made == null || made.files == null) return out;
+        java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-batch");
+        if (!dir.isDirectory()) dir.mkdirs();
+        for (int i = 0; i < made.files.size(); i++) {
+            pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) made.files.get(i);
+            if (f.name == null || f.bytes == null || !f.name.toLowerCase().matches(".+\\.(mp4|m4v|mov|png|jpe?g|webp)")) continue;
+            try {
+                java.io.File copy = new java.io.File(dir, f.name);
+                java.nio.file.Files.write(copy.toPath(), f.bytes);
+                out.add(copy.getAbsolutePath());
+            } catch (Exception ignored) {
+                // left out of the join
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
+     * Each run is the program's own, with the arguments BatchRun planned.
+     */
+    void pkBatchNext(pulsekit.BatchQueue q) {
+        if (q == null) return;
+        if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(0);
+        final String program;
+        java.util.List<String> args;
+        if (q.hasNext()) {
+            program = q.program;
+            args = q.nextArgs();
+            this.pkAddLogLine(q.progress());
+        } else if (q.joinNext()) {
+            program = "JoinVideo.java";
+            try {
+                args = q.joinArgs(new java.io.File(app.getCacheDir(), "pyjav-in"));
+            } catch (Exception ex) {
+                this.pkAddLogLine("Batch: could not list the clips for JoinVideo (" + ex.getMessage() + ")");
+                this.pkBatchOver(q);
+                return;
+            }
+            this.pkAddLogLine("Batch: JoinVideo on the " + q.clips().size() + " clips, in order");
+        } else {
+            this.pkBatchOver(q);
+            return;
+        }
+        final java.util.List<String> run = args;
+        app.handler.post(() -> {
+            this.pkPyInputPath = null;
+            app.programMenus.selectProgram("Java", program);
+            this.pkForcedArgs = run;
+            // A batch's next run goes on without asking (the run before may still be storing).
+            this.pkRunConfirmed = true;
+            this.pkRunPyJav();
+        });
+    }
+
+    void pkBatchOver(pulsekit.BatchQueue q) {
+        pulsekit.BatchQueue.stop();
+        if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
+        this.pkAddLogLine(q.summary());
+    }
+
+    /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
+    void pkStopBatch() {
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
+        if (this.pkBatchStopBtn != null && q == null) this.pkBatchStopBtn.setVisibility(8);
+        if (q == null) return;
+        q.stopping = true;
+        this.pkAddLogLine("Batch: stopping after the run in progress");
     }
 
     void pkRunTestCompare(java.util.List<String> args) {

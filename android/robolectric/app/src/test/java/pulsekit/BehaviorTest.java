@@ -44,6 +44,8 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // A long press opens a file's menu (a drag never ends here).
+    MediaBrowser.drags = false;
     // File-set state is static; start each scenario without what an earlier one imported.
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
@@ -3157,6 +3159,793 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /**
+   * Favourite files and category tabs in the Prompts page's galleries: tabs for the main categories
+   * the files' prompts are in; Add to favourite files in a card's long press; the card starred; the
+   * ★ Favourite files list opening it; Remove from favourite files.
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s130_favourite_files_tabs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileFavourites.reset();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long video = vault.addCategory("Videos");
+    long image = vault.addCategory("Images");
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, pngOut);
+    byte[] png = pngOut.toByteArray();
+    long pv = vault.addPrompt(video, "Sea");
+    vault.addVersion(pv, "Sea", "", "Waves", "", "sea.png", png, "", null, "dusk.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 4}, "ai", "");
+    long pi = vault.addPrompt(image, "Face");
+    vault.addVersion(pi, "Face", "", "A face", "", "face.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 5}, "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("tabs: ").append(pane.findViewWithTag("refs-cat:All") != null).append(' ').append(pane.findViewWithTag("refs-cat:Videos") != null).append(' ')
+        .append(pane.findViewWithTag("refs-cat:Images") != null).append('\n');
+    pane.findViewWithTag("refs-cat:Images").performClick();
+    idle();
+    out.append("Images tab: face.png ").append(findText(pane, "face.png") != null).append(", sea.png ").append(findText(pane, "sea.png") != null).append('\n');
+    pane.findViewWithTag("refs-cat:All").performClick();
+    idle();
+    // A long press: Add to favourite files.
+    View card = (View) pane.findViewWithTag("refs-name:sea.png").getParent();
+    card.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    String items = listItems(menu);
+    out.append("menu: ").append(items).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(FileFavourites.ADD));
+    idle();
+    TextView caption = (TextView) pane.findViewWithTag("refs-name:sea.png");
+    TextView favs = (TextView) pane.findViewWithTag("refs-favs");
+    out.append("then: card ").append(caption.getText()).append(", list ").append(favs == null ? "none" : favs.getText()).append('\n');
+    favs.performClick();
+    idle();
+    out.append("Favourite files: ").append(listItems(PromptSheet.lastFavFiles)).append('\n');
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFavFiles).clickOnItem(0);
+    idle();
+    // It opens full size; Back comes to the gallery again.
+    out.append("opened: ").append(pane.findViewWithTag("refs-name:sea.png") == null).append('\n');
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    if (pane.findViewWithTag("refs-name:sea.png") == null) findText(pane, "Back").performClick();
+    idle();
+    // Removed again.
+    card = (View) pane.findViewWithTag("refs-name:sea.png").getParent();
+    card.performLongClick();
+    idle();
+    menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    items = listItems(menu);
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(FileFavourites.REMOVE));
+    idle();
+    out.append("removed: card ").append(((TextView) pane.findViewWithTag("refs-name:sea.png")).getText()).append(", list ").append(pane.findViewWithTag("refs-favs") != null).append('\n');
+    PromptSheet.galleryCategory = FileFavourites.ALL;
+    FileFavourites.reset();
+    // Out of the gallery again (the Prompts page keeps where it was for the next test).
+    findText(pane, "Back").performClick();
+    idle();
+    // Browse prompts: a prompt's pictures as small thumbnails under it; a long press shows one bigger.
+    PromptBrowser.lastCategory = video;
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    View thumbs = bv.findViewWithTag("prompt-browser-thumbs:Sea");
+    out.append("Browse prompts: Sea's thumbnails ").append(thumbs == null ? 0 : ((ViewGroup) thumbs).getChildCount()).append('\n');
+    if (thumbs != null) ((ViewGroup) thumbs).getChildAt(0).performLongClick();
+    idle();
+    out.append("long press: ").append(PromptBrowser.lastBigger != null && PromptBrowser.lastBigger.isShowing() ? "shown bigger" : "nothing").append('\n');
+    if (PromptBrowser.lastBigger != null) PromptBrowser.lastBigger.dismiss();
+    PromptBrowser.last.dismiss();
+    if (!out.toString().contains("Sea's thumbnails 1") || !out.toString().contains("shown bigger")) throw new AssertionError(out.toString());
+    if (!out.toString().contains("tabs: true true true") || !out.toString().contains("Images tab: face.png true, sea.png false") || !out.toString().contains("card \u2605 sea.png")
+        || !out.toString().contains("Favourite files: sea.png") || !out.toString().contains("removed: card sea.png, list false"))
+      throw new AssertionError(out.toString());
+    write("s130_favourite_files_tabs", out.toString());
+  }
+
+  /**
+   * Nested subcategories: a subcategory of a subcategory (5 levels at most), the Prompts page's
+   * +/− tree, Add subcategory under the one chosen, a category's ★ Favourites, deleting a branch;
+   * Save prompt's "Clips / Night"; Browse prompts' rows for each level.
+   */
+  @Test
+  public void s129_category_tree() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long video = vault.addCategory("Video");
+    long clips = vault.addSubcategory(video, "Clips");
+    long night = vault.addSubcategory(clips, "Night");
+    out.append("Night: ").append(vault.pathName(night)).append(", main ").append(vault.category(vault.mainOf(night)).name).append(", depth ").append(vault.depth(night)).append('\n');
+    long deep = night;
+    for (int k = 3; k <= 5; k++) deep = vault.addSubcategory(deep, "L" + k);
+    String limit;
+    try {
+      vault.addSubcategory(deep, "L6");
+      limit = "made";
+    } catch (Exception ex) {
+      limit = ex.getMessage();
+    }
+    out.append("level 6: ").append(limit).append('\n');
+    long walk = vault.addPrompt(night, "Night walk");
+    long v1 = vault.addVersion(walk, "Night walk", "", "A walk under the moon", "", "", null, "", null, "", null, "ai", "");
+    VersionFavourites.load(app.getFilesDir());
+    VersionFavourites.add(v1);
+    out.append("Save prompt finds Clips / Night: ").append(PromptSave.find(vault, "Video", "Clips / Night") == night).append(", offers ").append(PromptSave.subPaths(vault, video)).append('\n');
+    long day = PromptSave.place(vault, "Video", "Clips / Day");
+    out.append("Clips / Day made under ").append(vault.category(vault.category(day).parentId).name).append('\n');
+    // The Prompts page's tree.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Video").performClick();
+    idle();
+    TextView toggle = (TextView) pane.findViewWithTag("category-toggle:Clips");
+    out.append("tree: Clips ").append(toggle == null ? "no toggle" : "[" + toggle.getText() + "]").append(", Night shown ").append(findText(pane, "Night") != null).append('\n');
+    toggle.performClick();
+    idle();
+    out.append("+ on Clips: Night shown ").append(findText(pane, "Night") != null).append(", Day shown ").append(findText(pane, "Day") != null).append(", Clips [")
+        .append(((TextView) pane.findViewWithTag("category-toggle:Clips")).getText()).append("]\n");
+    findText(pane, "Night").performClick();
+    idle();
+    out.append("Night chosen: ").append(((TextView) pane.findViewWithTag("add-subcategory")).getText()).append('\n');
+    pane.findViewWithTag("add-subcategory").performClick();
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    findEdit(ask.getWindow().getDecorView()).setText("Moon");
+    ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    long moon = 0;
+    for (PromptVault.Category c : vault.categories()) if ("Moon".equals(c.name)) moon = c.id;
+    out.append("Moon: ").append(moon == 0 ? "not made" : vault.pathName(moon)).append(", shown ").append(findText(pane, "Moon") != null).append('\n');
+    // A category's ★ Favourites: the favourite prompts in it and under it.
+    findText(pane, "Clips").performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("Clips menu: ").append(listItems(menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    out.append("Clips favourites: ").append(listItems(PromptSheet.lastFavourites)).append('\n');
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFavourites).clickOnItem(0);
+    idle();
+    out.append("opened: ").append(findText(pane, "Night walk") != null || findEdit(pane) != null && String.valueOf(findEdit(pane).getText()).contains("Night walk")).append('\n');
+    // Browse prompts: a row for each level down to Night.
+    PromptBrowser.lastCategory = night;
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    StringBuilder rows = new StringBuilder();
+    java.util.List<View> all = new java.util.ArrayList<View>();
+    collect(PromptBrowser.last.getWindow().getDecorView(), all);
+    for (View v : all) if (v instanceof TextView && ((TextView) v).getText().toString().startsWith("Subcategories of ")) rows.append('[').append(((TextView) v).getText()).append(']');
+    out.append("Browse prompts rows: ").append(rows).append('\n');
+    PromptBrowser.last.dismiss();
+    // Deleting Clips takes Night, Moon, the levels under Night and their prompts with it.
+    vault.deleteCategory(clips);
+    out.append("after deleting Clips: ").append(vault.categories().size()).append(" categories left, Night walk ").append(vault.prompt(walk) == null ? "gone" : "kept").append('\n');
+    if (!limit.contains("5 levels") || PromptSave.find(vault, "Video", "") != video || moon == 0 || vault.category(night) != null || !rows.toString().contains("[Subcategories of Clips][Subcategories of Night]")
+        || !out.toString().contains("Clips favourites: Night walk") || !out.toString().contains("+ on Clips: Night shown true"))
+      throw new AssertionError(out.toString());
+    write("s129_category_tree", out.toString());
+  }
+
+  private static void collect(View v, java.util.List<View> into) {
+    into.add(v);
+    if (v instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) collect(((ViewGroup) v).getChildAt(i), into);
+  }
+
+  /**
+   * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one with Add new tag), kept with the
+   * prompt and offered again on its next save; Browse prompts' search finds prompts by #tag, text
+   * and category, listing each with its place and tags.
+   */
+  @Test
+  public void s128_prompt_tags_search() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptSave.setAsk(true);
+    MediaTags.reset();
+    MediaTags.load(app.getFilesDir());
+    MediaTags.addTag("night");
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addCategory("Video");
+    call("show", "py");
+    idle();
+    app.pyName = "SogniVideo.java";
+    String[] bodies = {"Camera drifts over the night garden", "Camera drifts slowly over the night garden"};
+    for (int run = 0; run < 2; run++) {
+      String sheet = "PKPROMPT1\nsogni-video-garden\n\n\n\n\nCategory: video\nModel: Sogni H3\nReference file 1: \nReference file 2: \nType: ai\n---\n" + bodies[run] + "\n\nResult file: garden.mp4\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-garden.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("garden.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'}));
+      app.pyJav.pkLastArgv = java.util.Arrays.asList("--prompt", bodies[run], "--saveprompt");
+      SavePromptDialog.last = null;
+      app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote garden.mp4\nSucceeded: garden.mp4", files, 0));
+      for (int i = 0; i < 100 && SavePromptDialog.last == null; i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      AlertDialog d = SavePromptDialog.last;
+      View dv = d.getWindow().getDecorView();
+      out.append("run ").append(run + 1).append(": Tag 1 ").append(((TextView) dv.findViewWithTag("save-prompt-tag1")).getText())
+          .append(", Tag 2 ").append(((TextView) dv.findViewWithTag("save-prompt-tag2")).getText()).append(", Tag 3 ").append(((TextView) dv.findViewWithTag("save-prompt-tag3")).getText()).append('\n');
+      if (run == 1) {
+        if (!((TextView) dv.findViewWithTag("save-prompt-tag1")).getText().toString().equals("garden")) throw new AssertionError(out.toString());
+        d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+        idle();
+        break;
+      }
+      // Tag 1: Add new tag (a popup with its own button); Tag 2: one from the list.
+      dv.findViewWithTag("save-prompt-tag-new1").performClick();
+      idle();
+      ((TextView) SavePromptDialog.lastTagAsk.getWindow().getDecorView().findViewWithTag("save-prompt-new-tag-field")).setText("garden");
+      SavePromptDialog.lastTagAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      dv.findViewWithTag("save-prompt-tag2").performClick();
+      idle();
+      String list = listItems(SavePromptDialog.lastTagAsk);
+      out.append("  Tag 2's list: ").append(list).append('\n');
+      org.robolectric.Shadows.shadowOf(SavePromptDialog.lastTagAsk).clickOnItem(java.util.Arrays.asList(list.split(" \\| ")).indexOf("night"));
+      idle();
+      ((TextView) dv.findViewWithTag("save-prompt-name")).setText("Garden walk");
+      out.append("  then: Tag 1 ").append(((TextView) dv.findViewWithTag("save-prompt-tag1")).getText()).append(", Tag 2 ").append(((TextView) dv.findViewWithTag("save-prompt-tag2")).getText()).append('\n');
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      for (int i = 0; i < 100 && !String.valueOf(app.pyJav.pkRunLog).contains("tags"); i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.contains("tags ")) out.append("  log: ").append(line.replaceAll("\\d{4}-\\d\\d-\\d\\d", "<today>")).append('\n');
+    }
+    vault = PromptVault.open(app.getFilesDir());
+    PromptVault.Prompt garden = null;
+    for (PromptVault.Prompt p : vault.allPrompts()) if ("Garden walk".equals(p.title)) garden = p;
+    out.append("library: Garden walk tags ").append(garden == null ? "none" : vault.tags(garden.id)).append(", tag list has garden ").append(MediaTags.known().contains("garden")).append('\n');
+    if (garden == null || !vault.tags(garden.id).equals(java.util.Arrays.asList("garden", "night"))) throw new AssertionError(out.toString());
+    // Browse prompts' search.
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    for (String q : new String[] {"#night", "drifts", "video garden", "#beach", "zzz"}) {
+      ((TextView) bv.findViewWithTag("prompt-browser-search")).setText(q);
+      idle();
+      TextView found = (TextView) bv.findViewWithTag("prompt-browser-found");
+      TextView item = (TextView) bv.findViewWithTag("prompt-browser-item:Garden walk");
+      out.append("search ").append(q).append(": ").append(found == null ? "none" : found.getText()).append(item == null ? "" : " | " + item.getText().toString().split("\n")[1]).append('\n');
+    }
+    ((TextView) bv.findViewWithTag("prompt-browser-search")).setText("");
+    idle();
+    PromptBrowser.last.dismiss();
+    PromptSearch.query = "";
+    MediaTags.reset();
+    if (!out.toString().contains("search #night: 1 prompt found | Video \u00b7 #garden #night") || !out.toString().contains("search zzz: 0 prompts found") || !out.toString().contains("search #beach: 0 prompts found"))
+      throw new AssertionError(out.toString());
+    write("s128_prompt_tags_search", out.toString());
+  }
+
+  /**
+   * Media browser tags and categories: Tags… (a new tag, then ticked), Category… (the prompt
+   * library's), the line under the card, the Tagged filter, Rename keeping them, and a file dropped
+   * on a folder card moved into it (its tags with it).
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s127_media_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaTags.reset();
+    File media = new File(app.getCacheDir(), "media-tags");
+    new File(media, "keep").mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    for (File f : new File[] {new File(media, "a.png"), new File(media, "b.png")}) {
+      java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+      fos.close();
+    }
+    Files.write(new File(media, "b.png").toPath(), new byte[] {1, 2, 3}, java.nio.file.StandardOpenOption.APPEND);
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    java.util.function.Supplier<View> dv = () -> b.dialog.getWindow().getDecorView();
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    java.util.function.Function<String, MediaDir.Entry> entry = n -> {
+      for (MediaDir.Entry e : b.allEntries) if (e.name.equals(n)) return e;
+      return null;
+    };
+    // A long press: the menu (with Tags… and Category…), or a drag where the phone drags.
+    MediaBrowser.lastMenu = null;
+    dv.get().findViewWithTag("media-card:a.png").performLongClick();
+    idle();
+    out.append("long press: ").append(MediaBrowser.lastMenu != null ? listItems(MediaBrowser.lastMenu) : MediaBrowser.dragging != null ? "dragging" : "nothing").append('\n');
+    if (MediaBrowser.lastMenu == null || !listItems(MediaBrowser.lastMenu).contains("Tags\u2026 | Category\u2026")) throw new AssertionError(out.toString());
+    MediaBrowser.lastMenu.dismiss();
+    // Tags…: none yet; New tag… adds two, then they show ticked.
+    b.tags(entry.apply("a.png"));
+    idle();
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-new-tag-field")).setText("beach, #night");
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("tags list then: ").append(listItems(MediaBrowser.lastAsk)).append(", ticked ").append(MediaBrowser.lastAsk.getListView().getCheckedItemCount()).append('\n');
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String aKey = MediaTags.key(entry.apply("a.png"));
+    out.append("a.png: ").append(MediaTags.line(aKey)).append('\n');
+    // Category…: the library's categories (read off the main thread).
+    MediaBrowser.lastAsk = null;
+    b.category(entry.apply("a.png"));
+    for (int i = 0; i < 100 && MediaBrowser.lastAsk == null; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    String cats = listItems(MediaBrowser.lastAsk);
+    out.append("categories: ").append(cats).append('\n');
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(1);
+    idle();
+    String cat = cats.split(" \\| ")[1];
+    TextView line = (TextView) dv.get().findViewWithTag("media-tags:a.png");
+    out.append("card line: ").append(line == null ? "none" : line.getText()).append('\n');
+    if (!MediaTags.line(aKey).equals("#beach #night \u00b7 " + cat) || line == null || !line.getText().toString().equals(MediaTags.line(aKey))) throw new AssertionError(out.toString());
+    // Tagged: #night keeps a.png only.
+    b.tagFilter();
+    idle();
+    String choices = listItems(MediaBrowser.lastAsk);
+    out.append("Tagged choices: ").append(choices).append('\n');
+    int night = java.util.Arrays.asList(choices.split(" \\| ")).indexOf("#night (1)");
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(night);
+    idle();
+    out.append("tagged #night: a.png ").append(dv.get().findViewWithTag("media-card:a.png") != null).append(", b.png ").append(dv.get().findViewWithTag("media-card:b.png") != null)
+        .append(", pill ").append(((TextView) dv.get().findViewWithTag("media-tag-filter")).getText()).append('\n');
+    if (dv.get().findViewWithTag("media-card:a.png") == null || dv.get().findViewWithTag("media-card:b.png") != null) throw new AssertionError(out.toString());
+    MediaTags.filter = "";
+    // Rename: the tags go with the new name.
+    b.fileAction(entry.apply("a.png"), MediaDir.RENAME);
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-rename-field")).setText("sea");
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100 && (b.loading || entry.apply("sea.png") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("renamed sea.png: ").append(MediaTags.line(MediaTags.key(entry.apply("sea.png")))).append('\n');
+    // Dropped on the folder card keep: moved there, its tags too.
+    MediaDir.Entry sea = entry.apply("sea.png");
+    out.append("dropped: ").append(b.dropped(sea, new File(media, "keep").getAbsolutePath())).append(", in keep ").append(new File(media, "keep/sea.png").isFile())
+        .append(", tags ").append(MediaTags.line(MediaTags.key("sea.png", new File(media, "keep/sea.png").length()))).append('\n');
+    if (!new File(media, "keep/sea.png").isFile() || !MediaTags.line(MediaTags.key("sea.png", new File(media, "keep/sea.png").length())).startsWith("#beach #night")) throw new AssertionError(out.toString());
+    b.dialog.dismiss();
+    MediaTags.reset();
+    write("s127_media_tags", out.toString());
+  }
+
+  /**
+   * BatchRun's plan (SogniVideo on two pictures, --join): each run of SogniVideo follows the one
+   * before with the planned arguments, its clip kept and not played, then JoinVideo --list on the
+   * clips. (Programs do not run here: each run's result is given as PyJav would get it.)
+   */
+  @Test
+  public void s126_batch_run() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    String plan = "Batch program: SogniVideo.java\nBatch join: the clips, in order, with JoinVideo\nRun 1/2: a.png\n"
+        + "Batch run: --duration 6 --image /sdcard/a.png --prompt \"The camera \\\"drifts\\\" slowly\"\nRun 2/2: b.png\n"
+        + "Batch run: --duration 6 --image /sdcard/b.png --prompt \"The camera \\\"drifts\\\" slowly\"\nSucceeded: 2 runs of SogniVideo to go";
+    app.pyName = "BatchRun.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt_file", "/sdcard/garden.prompt", "--dir", "/sdcard", "--join"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result(plan, new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    BatchQueue planned = BatchQueue.current();
+    out.append("planned: ").append(planned == null ? "none" : planned.program + " " + planned.runs).append('\n');
+    if (planned == null || !"SogniVideo.java".equals(planned.program) || !planned.join || planned.runs.size() != 2
+        || !String.valueOf(planned.runs.get(0)).equals("[--duration, 6, --image, /sdcard/a.png, --prompt, The camera \"drifts\" slowly]")) throw new AssertionError(out.toString());
+    for (int i = 0; i < 50 && !"SogniVideo.java".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append('\n');
+    if (!"SogniVideo.java".equals(get("pyName"))) throw new AssertionError(out.toString());
+    // SogniVideo cannot run here: each run fails, and the batch still goes on to the next, then ends.
+    for (int i = 0; i < 200 && BatchQueue.current() != null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String last = "";
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Batch")) last = line;
+    out.append("runs that fail: ").append(last).append('\n');
+    if (BatchQueue.current() != null || !last.equals("Batch done: 0 of 2 runs succeeded, 2 failed")) throw new AssertionError(out.toString() + app.pyJav.pkRunLog);
+    // The last run's clip comes back (the first one's already kept): kept, not played, and JoinVideo --list follows.
+    BatchQueue q = BatchQueue.start("BatchRun.java", java.util.Arrays.asList("--join"), "Succeeded: 2 runs", plan);
+    q.next = 2;
+    q.ok = 1;
+    File first = new File(app.getCacheDir(), "pyjav-batch/clip1.mp4");
+    first.getParentFile().mkdirs();
+    Files.write(first.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    q.made.add(first.getAbsolutePath());
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyName = "SogniVideo.java";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("clip2.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote clip2.mp4\nSucceeded: clip2.mp4", files, 0));
+    for (int i = 0; i < 50 && !"JoinVideo.java".equals(get("pyName")); i++) idle();
+    boolean shown = false;
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) shown = true;
+    String listed = new String(Files.readAllBytes(new File(app.getCacheDir(), "pyjav-in/batch-clips.txt").toPath()), StandardCharsets.UTF_8).replace(app.getCacheDir().getAbsolutePath(), "<cache>");
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(app.getCacheDir().getAbsolutePath(), "<cache>"))
+        .append(", its list: ").append(listed.replace("\n", " ")).append(", the clip shown: ").append(shown).append('\n');
+    if (!"JoinVideo.java".equals(get("pyName")) || !listed.equals("<cache>/pyjav-batch/clip1.mp4\n<cache>/pyjav-batch/clip2.mp4\n") || shown)
+      throw new AssertionError(out.toString());
+    // JoinVideo is over (it fails here too): the batch is done.
+    for (int i = 0; i < 200 && BatchQueue.current() != null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Batch")) last = line;
+    out.append("then: ").append(last).append('\n');
+    if (BatchQueue.current() != null || !last.equals("Batch done: 2 of 2 runs succeeded")) throw new AssertionError(out.toString() + app.pyJav.pkRunLog);
+    write("s126_batch_run", out.toString());
+  }
+
+  /**
+   * Midi2Wav --dir --test (a batch folder rendered with SoundFont kits): DrumMidi_CRT --dir on its
+   * WAVs, then CompareHits --batch on the folder, then the report. (Programs do not run here: each
+   * step's result is given as PyJav would get it.)
+   */
+  @Test
+  public void s125_midi2wav_batch_test() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "batch-test");
+    dir.mkdirs();
+    java.util.List<String> argv = java.util.Arrays.asList("--dir", dir.getAbsolutePath(), "--kits", "/sdcard/kits", "--test");
+    out.append("batch test wanted: ").append(Midi2WavTest.batchWanted("Midi2Wav.java", argv)).append(", needs Pulsekit's kit: ").append(JavaRun.needsKit("Midi2Wav.java", argv)).append('\n');
+    // 1. Midi2Wav's batch is over: DrumMidi_CRT --dir on the folder.
+    app.pyName = "Midi2Wav.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(argv);
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Midi2Wav: 2 MIDI files in batch-test with 2 kits\nSucceeded: 4 of 4 WAV files in batch-test", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 50 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    if (!"DrumMidi_CRT.jar".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--dir, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // 2. As if DrumMidi --dir had run: CompareHits --batch follows.
+    Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
+    app.pyName = "DrumMidi_CRT.jar";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", dir.getAbsolutePath()));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: DrumMidi on 4 of 4 WAV files in batch-test (<wav>-dm.mid beside each)", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 50 && !"CompareHits.java".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    if (!"CompareHits.java".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--batch, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // 3. As if CompareHits --batch had run: the report.
+    Midi2WavTest t = Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
+    t.batchDrumsDone("Succeeded: DrumMidi on 4 of 4 WAV files");
+    app.pyName = "CompareHits.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--batch", dir.getAbsolutePath()));
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyJav.pkShowPyResult(new JavaRun.Result("CompareHits --batch: 2 grooves in batch-test, 4 renders compared (2 plugins)\n== Drum Set: 2 grooves, F 75.3%\nSucceeded: 4 renders compared", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 20; i++) idle();
+    String report = null;
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) {
+      if (!d.isShowing()) continue;
+      View v = d.getWindow().getDecorView().findViewWithTag("midi2wav-test-report");
+      if (v instanceof TextView) report = ((TextView) v).getText().toString();
+    }
+    out.append("report: ").append(report == null ? "none" : report.split("\n")[0] + " / " + report.contains("== Drum Set")).append('\n');
+    if (report == null || !report.startsWith("Midi2Wav batch test: batch-test") || !report.contains("== Drum Set") || Midi2WavTest.current() != null) throw new AssertionError(out.toString());
+    write("s125_midi2wav_batch_test", out.toString());
+  }
+
+  /**
+   * --vst on the phone: MidiDrumGen's MIDI still goes to Midi2Wav (VST plugins play on a computer),
+   * and the log says so; the Params rows name it.
+   */
+  @Test
+  public void s124_vst_option_on_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    for (String prog : new String[] {"MidiDrumGen.java", "SogniMusic.java"}) {
+      for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource(prog))) if (p.token.equals("--vst")) out.append(prog).append(" --vst: ").append(p.label).append('\n');
+    }
+    call("show", "py");
+    idle();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    app.pyName = "MidiDrumGen.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Rock", "--bars", "2", "--vst"));
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("drum_track_full_db.mid", Engine.encodeMidi(cells, 120)));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote drum_track_full_db.mid\nSucceeded: drum_track_full_db.mid", files, 0));
+    for (int i = 0; i < 20 && !"Midi2Wav.java".equals(get("pyName")); i++) idle();
+    String log = String.valueOf(app.pyJav.pkRunLog);
+    out.append("MidiDrumGen --vst: program ").append(get("pyName")).append(", note ").append(log.contains("VST plugins play on a computer")).append('\n');
+    Midi2WavTest.stop();
+    if (!"Midi2Wav.java".equals(get("pyName")) || !log.contains("VST plugins play on a computer") || !out.toString().contains("MidiDrumGen.java --vst: ") || !out.toString().contains("SogniMusic.java --vst: ")) throw new AssertionError(out.toString() + log);
+    write("s124_vst_option_on_phone", out.toString());
+  }
+
+  /**
+   * A video picked for a picture row of Params: its first frame goes there and its last frame to the
+   * next picture row still empty; a video no frame can be read from (as here) stays as picked.
+   */
+  @Test
+  public void s123_video_in_picture_slot() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("SogniVideo.java"));
+    int image = -1, end = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if ("--image".equals(ps.get(i).token)) image = i;
+      if ("--end_image".equals(ps.get(i).token)) end = i;
+    }
+    String[] values = new String[ps.size()];
+    out.append("isVideo clip.mp4 ").append(ProgramParams.isVideo("/x/clip.mp4")).append(", beach.png ").append(ProgramParams.isVideo("/x/beach.png")).append('\n');
+    int[][] both = ProgramParams.framesFor(ps, values, image, "/x/clip.mp4");
+    out.append("--image gets: ");
+    for (int[] f : both) out.append(ps.get(f[0]).token).append(f[1] < 0 ? " (last) " : " (first) ");
+    out.append('\n');
+    values[end] = "/x/end.png";
+    out.append("with --end_image set: ").append(ProgramParams.framesFor(ps, values, image, "/x/clip.mp4").length).append(" frame\n");
+    out.append("a picture: ").append(ProgramParams.framesFor(ps, values, image, "/x/beach.png").length).append(" frames\n");
+    if (both.length != 2 || both[0][0] != image || both[0][1] != 0 || both[1][0] != end || both[1][1] != -1) throw new AssertionError(out.toString());
+    // assign, with Robolectric's decoder giving no frame: the video stays, with a note.
+    values[end] = null;
+    PyJavParams.shownParams = ps;
+    PyJavParams.shownValues = values;
+    PyJavParams.shownLabels = new TextView[ps.size()];
+    PyJavParams.lastFramesNote = null;
+    TextView label = new TextView(app);
+    File clip = new File(app.getCacheDir(), "clip.mp4");
+    java.nio.file.Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'});
+    PyJavParams.assign(app, values, image, label, clip.getAbsolutePath(), null);
+    for (int i = 0; i < 100 && PyJavParams.lastFramesNote == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("no frame: ").append(PyJavParams.lastFramesNote).append(", --image ").append(new File(String.valueOf(values[image])).getName()).append(", label ").append(label.getText()).append('\n');
+    PyJavParams.shownParams = null;
+    PyJavParams.shownValues = null;
+    PyJavParams.shownLabels = null;
+    if (!"none".equals(PyJavParams.lastFramesNote) || !String.valueOf(values[image]).endsWith("clip.mp4") || values[end] != null) throw new AssertionError(out.toString());
+    write("s123_video_in_picture_slot", out.toString());
+  }
+
+  /**
+   * VideoFrames: its Params (the video, from the library's videos too; first, last, times, every N
+   * seconds, a folder); --upscale hands the first picture to ImageUpscaler with its Params open.
+   */
+  @Test
+  public void s122_video_frames() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("VideoFrames.java");
+    out.append("in the Java menu: ").append(src != null).append('\n');
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      out.append("param ").append(p.token).append(": ").append(p.label).append(p.isFile() ? " (file" + (p.refs ? ", Browse DB" : "") + ")" : "").append(p.dir ? " (folder)" : "").append('\n');
+    }
+    call("show", "py");
+    idle();
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("clip-first.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3}));
+    boolean handed = app.pyJav.pkFrameToUpscaler(new JavaRun.Result("Wrote clip-first.png\nSucceeded: 1 frame from 1 video", files, 0));
+    for (int i = 0; i < 50 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("--upscale: ").append(handed).append(", then ").append(app.pyName).append(", input ").append(app.pyJav.pkPyInputPath == null ? "none" : new File(app.pyJav.pkPyInputPath).getName()).append('\n');
+    if (!handed || !"ImageUpscaler.java".equals(app.pyName) || !String.valueOf(app.pyJav.pkPyInputPath).endsWith("clip-first.png")) throw new AssertionError(out.toString());
+    write("s122_video_frames", out.toString());
+  }
+
+  /**
+   * Notes batch: Downloads' Sort by, Clear all, Create again and Add to favourites; the favourites'
+   * Sort by; the galleries' new sorts and A I V S T; a prompt file's preview, menu and Edit;
+   * starred programs; Browse DB opening on the file picked last; the download progress line.
+   */
+  @Test
+  public void s121_notes_batch() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long pa = vault.addPrompt(cat, "Beach");
+    long va = vault.addVersion(pa, "Beach", "", "Waves at dusk", "", "sea.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1}, "", null, "beach.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 2}, "ai", "");
+    vault.addPromptFile("beach.prompt", "PKPROMPT1\nBeach\n---\nWaves at dusk\n".getBytes(StandardCharsets.UTF_8), "Beach v1");
+    // Downloads: two finished runs, sorted newest first by default; Create again; Add to favourites; Clear all.
+    SogniDownloads.init(app.getFilesDir());
+    long r1 = SogniDownloads.started("SogniPedit.java", 1000L);
+    SogniDownloads.args(r1, "--prompt \"Waves at dusk\" --unlimited");
+    SogniDownloads.result(r1, "Succeeded: beach.png", "saved Download/beach.png", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(r1, va);
+    SogniDownloads.done(r1);
+    Thread.sleep(5);
+    long r2 = SogniDownloads.started("SogniVideo.java", 2000L);
+    SogniDownloads.result(r2, "Succeeded: clip.mp4", "saved Download/clip.mp4", new java.util.HashMap<String, String>());
+    SogniDownloads.done(r2);
+    StringBuilder order = new StringBuilder();
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) order.append(r.programName()).append(' ');
+    out.append("finished, newest first: ").append(order.toString().trim()).append('\n');
+    if (!order.toString().trim().equals("SogniVideo SogniPedit")) throw new AssertionError(out.toString());
+    SogniDownloads.sort = "Program";
+    order.setLength(0);
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) order.append(r.programName()).append(' ');
+    out.append("by program: ").append(order.toString().trim()).append('\n');
+    SogniDownloads.sort = SogniDownloads.SORTS[0];
+    out.append("Add to favourites: ").append(DownloadsScreen.favourite(app, SogniDownloads.run(r1))).append('\n');
+    call("show", "py");
+    idle();
+    DownloadsScreen.createAgain(app, SogniDownloads.run(r1));
+    idle();
+    out.append("Create again: ").append(app.pyName).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    if (!"SogniPedit.java".equals(app.pyName) || !((TextView) get("pkPyArgs")).getText().toString().contains("Waves at dusk")) throw new AssertionError(out.toString());
+    ShadowDialog.getLatestDialog().dismiss();
+    out.append("Clear all: ").append(SogniDownloads.clearFinished()).append(" off, left ").append(SogniDownloads.tab(SogniDownloads.FINISHED).size()).append('\n');
+    // Favourites' Sort by.
+    VersionFavourites.load(app.getFilesDir());
+    out.append("favourite sorts: ").append(java.util.Arrays.toString(VersionFavourites.SORTS)).append(", sorted ").append(VersionFavourites.sorted(vault).size()).append('\n');
+    // Galleries: the new sorts, and info lines.
+    out.append("gallery sorts: ").append(java.util.Arrays.toString(FileSort.CHOICES)).append('\n');
+    for (PromptVault.StoredFile f : FileSort.sorted(vault.resultFiles(), "by category", vault)) out.append("  ").append(f.name).append(": ").append(FileSort.info(vault, f, "by type").replaceAll("\\d{4}-\\d\\d-\\d\\d", "<date>")).append('\n');
+    // A prompt file: its version, its preview's Edit and its menu.
+    PromptVault.StoredFile pf = vault.promptFiles().get(0);
+    out.append("prompt file belongs to: ").append(vault.versionOf(pf) == null ? "none" : VersionFavourites.label(vault, vault.versionOf(pf))).append('\n');
+    if (vault.versionOf(pf) == null || vault.versionOf(pf).id != va) throw new AssertionError(out.toString());
+    // Starred programs.
+    ProgramStars.load(app.getFilesDir());
+    boolean starred = ProgramStars.toggle("SogniPedit.java");
+    ProgramStars.load(app.getFilesDir());
+    out.append("starred: ").append(starred).append(", kept ").append(ProgramStars.is("SogniPedit.java")).append(", label ").append(ProgramStars.label("SogniPedit.java")).append('\n');
+    ProgramStars.toggle("SogniPedit.java");
+    // The download progress line shows on the running line.
+    out.append("running line: ").append(JavaRun.news("Status: completed\nDownloading: 40% (12.3 of 30.1 MB)")).append('\n');
+    if (!String.valueOf(JavaRun.news("Downloading: 40% (12.3 of 30.1 MB)")).contains("40%")) throw new AssertionError(out.toString());
+    write("s121_notes_batch", out.toString());
+  }
+
+  /**
+   * Media browser: a folder shows its first picture; Up comes back to the folder left (outlined);
+   * Rename, Copy to folder, Move to folder and Delete; a picture full size has edge arrows.
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s120_media_files() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-files");
+    File shots = new File(media, "shots");
+    shots.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(0xff336699);
+    for (File f : new File[] {new File(shots, "a.png"), new File(shots, "b.png"), new File(media, "top.png")}) {
+      java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+      fos.close();
+    }
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    java.util.function.Supplier<View> dv = () -> b.dialog.getWindow().getDecorView();
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    android.widget.ImageView thumb = null;
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(30);
+      idle();
+      View card = dv.get().findViewWithTag("media-folder:shots");
+      thumb = card == null ? null : (android.widget.ImageView) ((android.widget.FrameLayout) ((android.widget.LinearLayout) card).getChildAt(0)).getChildAt(1);
+      if (thumb != null && thumb.getDrawable() != null) break;
+    }
+    out.append("folder thumbnail: ").append(thumb != null && thumb.getDrawable() != null).append('\n');
+    dv.get().findViewWithTag("media-folder:shots").performClick();
+    for (int i = 0; i < 100 && (b.loading || dv.get().findViewWithTag("media-up") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    dv.get().findViewWithTag("media-up").performClick();
+    for (int i = 0; i < 100 && (b.loading || dv.get().findViewWithTag("media-folder:shots") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("back up: shots outlined ").append("media-focus".equals(dv.get().findViewWithTag("media-folder:shots").getTag(MediaBrowser.R_FOCUS))).append('\n');
+    // The file and folder actions.
+    MediaDir.Entry top = null, folder = null;
+    for (MediaDir.Entry e : b.allEntries) {
+      if (e.name.equals("top.png")) top = e;
+      if (e.name.equals("shots")) folder = e;
+    }
+    b.menu(top);
+    out.append("file menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    out.append("rename: ").append(b.rename(top, "beach")).append('\n');
+    MediaDir.Entry beach = new MediaDir.Entry();
+    beach.name = "beach.png";
+    beach.id = new File(media, "beach.png").getAbsolutePath();
+    String kept = b.makeFolder("kept");
+    out.append("copy: ").append(b.copyTo(beach, kept, false)).append('\n');
+    MediaDir.Entry bp = new MediaDir.Entry();
+    bp.name = "b.png";
+    bp.id = new File(shots, "b.png").getAbsolutePath();
+    out.append("move: ").append(b.copyTo(bp, kept, true)).append('\n');
+    b.folderMenu(folder);
+    out.append("folder menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    out.append("delete: ").append(b.delete(folder)).append('\n');
+    String[] left = media.list();
+    java.util.Arrays.sort(left);
+    String[] inKept = new File(kept).list();
+    java.util.Arrays.sort(inKept);
+    out.append("after: ").append(java.util.Arrays.toString(left)).append(", kept ").append(java.util.Arrays.toString(inKept)).append('\n');
+    if (out.indexOf("folder thumbnail: true") < 0 || out.indexOf("outlined true") < 0 || !java.util.Arrays.asList(left).equals(java.util.Arrays.asList("beach.png", "kept"))
+        || !java.util.Arrays.asList(inKept).equals(java.util.Arrays.asList("b.png", "beach.png"))) throw new AssertionError(out.toString());
+    // A picture full size: arrows at its edges.
+    b.load(media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("beach.png")) pic = e;
+    b.openEntry(pic);
+    idle();
+    View full = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    out.append("full size arrows: ").append(full.findViewWithTag("media-full-left") != null).append(", ").append(full.findViewWithTag("media-full-right") != null).append('\n');
+    if (full.findViewWithTag("media-full-left") == null) throw new AssertionError(out.toString());
+    write("s120_media_files", out.toString());
+  }
+
+  /**
+   * Fixes from the notes: a frame captured goes into an "sc" folder already there (not SC (1)...);
+   * a prompt with "quoted speech" survives Params; a failed run's sheet is not offered for saving;
+   * Return goes when another program is loaded; Params' Select file / Browse DB have a gap.
+   */
+  @Test
+  public void s119_note_fixes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // C capture: an existing lowercase sc folder is used.
+    File media = new File(app.getCacheDir(), "clips-sc");
+    new File(media, "sc").mkdirs();
+    String saved = MediaBrowser.saveInto(app, new String[] {"", media.getAbsolutePath()}, MediaDir.FRAMES_DIR, "walk-0m01s000.png", "image/png", new byte[] {1, 2, 3});
+    String[] folders = media.list();
+    java.util.Arrays.sort(folders);
+    out.append("capture: ").append(saved.replace(media.getAbsolutePath(), "<clips>")).append(", folders ").append(java.util.Arrays.toString(folders)).append('\n');
+    if (folders.length != 1 || !new File(new File(media, "sc"), "walk-0m01s000.png").isFile()) throw new AssertionError(out.toString());
+    // A prompt with quotes: Params' line splits back into the same prompt.
+    String src = app.programMenus.bundledSource("SogniPedit.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    String[] values = ProgramParams.values(ps, null, "");
+    String prompt = "She looks at the camera and says \"Hello, it's me\" with a smile";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--prompt")) values[i] = prompt;
+    String line = ProgramParams.line(ps, values, "");
+    java.util.List<String> back = JavaRun.split(line);
+    int at = back.indexOf("--prompt");
+    out.append("prompt line: ").append(line).append('\n');
+    out.append("prompt back: ").append(at >= 0 && at + 1 < back.size() && back.get(at + 1).equals(prompt)).append(", args ").append(back.size()).append('\n');
+    if (at < 0 || !back.get(at + 1).equals(prompt)) throw new AssertionError(out.toString());
+    // A failed run (no result file in its sheet): not offered, the log says why.
+    String failed = "PKPROMPT1\nsogni-pedit-x\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\nSame person\n\nResult text:\nFailed: unexpected end of stream\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-x.prompt", failed.getBytes(StandardCharsets.UTF_8)));
+    JavaRun.Result r = new JavaRun.Result("Failed: unexpected end of stream", files, 0);
+    out.append("failed run: offered ").append(PromptSave.sheets(r).size()).append(", note ").append(PromptSave.failedNotes(r)).append('\n');
+    if (!PromptSave.sheets(r).isEmpty()) throw new AssertionError(out.toString());
+    // Return: set for ImageUpscaler, gone once a prompt sheet is loaded.
+    call("show", "py");
+    idle();
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    app.pyJav.pkSetReturn("Return to Prompts", () -> {});
+    out.append("Return for ImageUpscaler: ").append(app.pyJav.pkReturn != null);
+    app.pyJav.pkOpenPromptText("idea.prompt", "PKPROMPT1\nidea\n\n\n\n\nCategory: image\n---\nA lighthouse\n");
+    idle();
+    out.append(", after another program: ").append(app.pyJav.pkReturn != null).append('\n');
+    if (app.pyJav.pkReturn != null) throw new AssertionError(out.toString());
+    // Params: a gap between Select file and Browse DB.
+    app.programMenus.selectProgram("Java", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    View dv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    View db = dv.findViewWithTag("params-prompt-db:--prompt");
+    int gap = ((android.widget.LinearLayout.LayoutParams) db.getLayoutParams()).leftMargin;
+    out.append("Browse DB gap: ").append(gap > 0).append('\n');
+    if (gap <= 0) throw new AssertionError(out.toString());
+    write("s119_note_fixes", out.toString());
+  }
+
   /** A prompt's reference picture shows as a small thumbnail beside its name; a slot without one shows none. */
   @Test
   @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
@@ -5612,8 +6401,20 @@ public class BehaviorTest {
     View card = findText(pane, "sogni-pedit-smile.prompt");
     ((View) card.getParent()).performClick();
     idle();
-    out.append("preview shows the prompt: ").append(texts(pane).contains("Same person, smiling")).append('\n');
-    if (!texts(pane).contains("Same person, smiling")) throw new AssertionError(out.toString());
+    // A tap opens the prompt file's text (with its prompt's files and Edit).
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog shown = (AlertDialog) pv.get(null);
+    TextView body = shown == null ? null : (TextView) shown.getWindow().getDecorView().findViewWithTag("prompt-file-text");
+    boolean has = body != null && body.getText().toString().contains("Same person, smiling");
+    out.append("preview shows the prompt: ").append(has).append(", Edit ").append(shown != null && shown.getButton(DialogInterface.BUTTON_POSITIVE) != null && shown.getButton(DialogInterface.BUTTON_POSITIVE).getVisibility() == View.VISIBLE).append('\n');
+    if (shown != null) shown.dismiss();
+    if (!has) {
+      java.lang.reflect.Field f = PromptSheet.class.getDeclaredField("promptFilesOpen");
+      f.setAccessible(true);
+      f.set(null, false);
+      throw new AssertionError(out.toString());
+    }
     // The Prompts page as the other tests find it: the preview and the gallery closed.
     for (String f : new String[] {"promptFilesOpen", "previewBack"}) {
       java.lang.reflect.Field field = PromptSheet.class.getDeclaredField(f);

@@ -50,6 +50,8 @@ public final class SogniDownloads {
     public String sheet = "";
     public String sheetName = "";
     public long versionId;
+    /** The arguments it ran with (Create again loads the program with them). */
+    public String args = "";
 
     /** "SogniPedit" for SogniPedit.java. */
     public String programName() {
@@ -222,22 +224,65 @@ public final class SogniDownloads {
     }
   }
 
-  /** The runs in one tab (PENDING, PROGRESS, or FINISHED for finished and failed), by program, the newest first. */
+  /** Finished's Sort by: newest first (the default), oldest first, by program, by type (pictures, videos, sounds...). */
+  public static final String[] SORTS = {"Newest first", "Oldest first", "Program", "Type"};
+  public static String sort = SORTS[0];
+
+  /** Whether the tab shows its runs under program headings (Sort by Program, and the Pending and In progress tabs). */
+  public static boolean byProgram(String state) {
+    return !FINISHED.equals(state) || "Program".equals(sort);
+  }
+
+  /** The runs in one tab (PENDING, PROGRESS, or FINISHED for finished and failed); Finished in the order Sort by says, the others by program, the newest first. */
   public static synchronized List<Run> tab(String state) {
     List<Run> out = new ArrayList<Run>();
     for (Run r : RUNS) {
       boolean in = FINISHED.equals(state) ? FINISHED.equals(r.state) || FAILED.equals(r.state) : state.equals(r.state);
       if (in) out.add(r);
     }
+    final String how = FINISHED.equals(state) ? sort : "Program";
     Collections.sort(out, new Comparator<Run>() {
       @Override
       public int compare(Run a, Run b) {
-        int p = a.programName().compareToIgnoreCase(b.programName());
-        if (p != 0) return p;
-        return Long.compare(b.started, a.started);
+        long ta = a.ended > 0 ? a.ended : a.started, tb = b.ended > 0 ? b.ended : b.started;
+        if ("Oldest first".equals(how)) return Long.compare(ta, tb);
+        if ("Type".equals(how)) {
+          int k = typeOf(a).compareTo(typeOf(b));
+          if (k != 0) return k;
+        } else if ("Program".equals(how)) {
+          int p = a.programName().compareToIgnoreCase(b.programName());
+          if (p != 0) return p;
+        }
+        return Long.compare(tb, ta);
       }
     });
     return out;
+  }
+
+  /** A run's type for Sort by Type: its first file's kind ("picture", "video"...), "~" for none (last). */
+  static String typeOf(Run r) {
+    return r.items.isEmpty() ? "~" : r.items.get(0).kind();
+  }
+
+  /** Clear all (Finished): the finished and failed runs leave the list (their files stay); how many went. */
+  public static synchronized int clearFinished() {
+    int n = 0;
+    for (int i = RUNS.size() - 1; i >= 0; i--) {
+      if (FINISHED.equals(RUNS.get(i).state) || FAILED.equals(RUNS.get(i).state)) {
+        RUNS.remove(i);
+        n++;
+      }
+    }
+    write();
+    return n;
+  }
+
+  /** The arguments a run started with (Create again). */
+  public static synchronized void args(long id, String line) {
+    Run r = run(id);
+    if (r == null) return;
+    r.args = line == null ? "" : line;
+    write();
   }
 
   public static synchronized int count() {
@@ -340,6 +385,8 @@ public final class SogniDownloads {
       if (i > 0) sb.append(I);
       sb.append(clean(item.name)).append('\t').append(clean(item.where)).append('\t').append(clean(item.shown));
     }
+    // After the items (a list from before has none).
+    sb.append(F).append(clean(r.args));
     return sb.toString();
   }
 
@@ -371,6 +418,7 @@ public final class SogniDownloads {
         r.items.add(item);
       }
     }
+    if (f.length > 10) r.args = f[10];
     return r;
   }
 

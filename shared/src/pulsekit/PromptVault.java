@@ -37,6 +37,8 @@ public final class PromptVault {
     public long categoryId;
     public String title;
     public long created;
+    /** Its tags, ";" between (Tag 1–3 in Save prompt): "beach;night". */
+    public String tags = "";
   }
 
   public static final class Version {
@@ -191,12 +193,57 @@ public final class PromptVault {
     return out;
   }
 
+  /** The main category above `id` (subcategories nest: up through each parent). */
   public synchronized long mainOf(long id) {
     Category category = category(id);
     if (category == null) return 0;
-    if (category.parentId == 0) return category.id;
-    Category parent = category(category.parentId);
-    return parent == null ? category.id : parent.id;
+    for (int depth = 0; category.parentId != 0 && depth < 32; depth++) {
+      Category parent = category(category.parentId);
+      if (parent == null) break;
+      category = parent;
+    }
+    return category.id;
+  }
+
+  /** Subcategories nest this many levels under a main category at most. */
+  public static final int MAX_DEPTH = 5;
+
+  /** The categories from the main one down to `id` (empty when it is gone). */
+  public synchronized List<Category> pathTo(long id) {
+    List<Category> out = new ArrayList<Category>();
+    Category c = category(id);
+    for (int depth = 0; c != null && depth < 32; depth++) {
+      out.add(0, c);
+      c = c.parentId == 0 ? null : category(c.parentId);
+    }
+    return out;
+  }
+
+  /** How deep `id` is: 0 for a main category, 1 for its subcategories... */
+  public synchronized int depth(long id) {
+    return Math.max(0, pathTo(id).size() - 1);
+  }
+
+  /** Every category under `id`, each before its own subcategories. */
+  public synchronized List<Category> descendants(long id) {
+    List<Category> out = new ArrayList<Category>();
+    for (Category c : children(id)) {
+      out.add(c);
+      if (c.id != id) out.addAll(descendants(c.id));
+    }
+    return out;
+  }
+
+  /** "Video / Clips / Night": the category's place from its main category. */
+  public synchronized String pathName(long id) {
+    StringBuilder sb = new StringBuilder();
+    for (Category c : pathTo(id)) sb.append(sb.length() == 0 ? "" : " / ").append(c.name);
+    return sb.toString();
+  }
+
+  /** Every prompt, in every category. */
+  public synchronized List<Prompt> allPrompts() {
+    return new ArrayList<Prompt>(prompts);
   }
 
   public synchronized List<Prompt> prompts(long categoryId) {
@@ -307,6 +354,25 @@ public final class PromptVault {
     List<StoredFile> out = new ArrayList<StoredFile>();
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == PROMPT_FILE) addLibrary(out, library.get(i));
     return out;
+  }
+
+  /**
+   * The prompt version a prompt file belongs to, from its "Smile v2" (the prompt of that title with
+   * at least that many versions, the newest such prompt first); null when there is none.
+   */
+  public synchronized Version versionOf(StoredFile f) {
+    if (f == null || f.promptTitle == null) return null;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*) v(\\d+)$").matcher(f.promptTitle.trim());
+    if (!m.find()) return null;
+    String title = m.group(1).trim();
+    int n = Integer.parseInt(m.group(2));
+    for (int i = prompts.size() - 1; i >= 0; i--) {
+      Prompt p = prompts.get(i);
+      if (p.title == null || !p.title.trim().equalsIgnoreCase(title)) continue;
+      List<Version> rows = versions(p.id);
+      if (n >= 1 && n <= rows.size()) return rows.get(rows.size() - n);
+    }
+    return null;
   }
 
   /**
@@ -516,9 +582,11 @@ public final class PromptVault {
     return category.id;
   }
 
+  /** A subcategory of `parentId` (a main category or a subcategory: they nest MAX_DEPTH deep). */
   public synchronized long addSubcategory(long parentId, String name) throws Exception {
-    long main = mainOf(parentId);
-    if (main == 0) throw new IllegalArgumentException("Pick a category");
+    if (category(parentId) == null) throw new IllegalArgumentException("Pick a category");
+    if (depth(parentId) >= MAX_DEPTH) throw new IllegalArgumentException("Subcategories go " + MAX_DEPTH + " levels deep at most");
+    long main = parentId;
     String clean = clean(name);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the subcategory");
     List<Category> kids = children(main);
@@ -771,10 +839,8 @@ public final class PromptVault {
     if (category.parentId == 0 && mains().size() <= 1) throw new IllegalArgumentException("Keep at least one category");
     List<Long> drop = new ArrayList<Long>();
     drop.add(Long.valueOf(id));
-    if (category.parentId == 0) {
-      List<Category> kids = children(id);
-      for (int i = 0; i < kids.size(); i++) drop.add(Long.valueOf(kids.get(i).id));
-    }
+    // Its subcategories, and theirs, go with it.
+    for (Category kid : descendants(id)) drop.add(Long.valueOf(kid.id));
     for (int i = categories.size() - 1; i >= 0; i--) {
       if (drop.contains(Long.valueOf(categories.get(i).id))) categories.remove(i);
     }
@@ -789,6 +855,39 @@ public final class PromptVault {
       if (gone.contains(Long.valueOf(versions.get(i).promptId))) versions.remove(i);
     }
     save();
+  }
+
+  /** A prompt's tags (Tag 1–3 in Save prompt), in order. */
+  public synchronized List<String> tags(long promptId) {
+    Prompt prompt = prompt(promptId);
+    List<String> out = new ArrayList<String>();
+    if (prompt == null || prompt.tags == null) return out;
+    for (String t : prompt.tags.split(";")) if (t.trim().length() > 0) out.add(t.trim());
+    return out;
+  }
+
+  /** The prompt's tags, in place of those it had; they also join the tag list the Media browser uses. */
+  public synchronized void setTags(long promptId, List<String> tags) throws Exception {
+    Prompt prompt = prompt(promptId);
+    if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
+    StringBuilder sb = new StringBuilder();
+    List<String> seen = new ArrayList<String>();
+    for (String typed : tags) {
+      String t = MediaTags.cleanTag(typed);
+      if (t.length() == 0 || seen.contains(t.toLowerCase(java.util.Locale.ROOT))) continue;
+      seen.add(t.toLowerCase(java.util.Locale.ROOT));
+      sb.append(sb.length() == 0 ? "" : ";").append(t);
+    }
+    if (sb.toString().equals(prompt.tags)) return;
+    prompt.tags = sb.toString();
+    save();
+  }
+
+  /** Every tag the library's prompts have, by name. */
+  public synchronized List<String> allTags() {
+    java.util.TreeSet<String> out = new java.util.TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+    for (Prompt p : prompts) if (p.tags != null) for (String t : p.tags.split(";")) if (t.trim().length() > 0) out.add(t.trim());
+    return new ArrayList<String>(out);
   }
 
   public synchronized void renamePrompt(long id, String title) throws Exception {
@@ -938,7 +1037,7 @@ public final class PromptVault {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
-    out.writeInt(7);
+    out.writeInt(8);
     blobsUsed.clear();
     out.writeInt(categories.size());
     for (int i = 0; i < categories.size(); i++) {
@@ -954,6 +1053,7 @@ public final class PromptVault {
       out.writeLong(prompt.categoryId);
       writeUtf(out, prompt.title);
       out.writeLong(prompt.created);
+      writeUtf(out, prompt.tags);
     }
     out.writeInt(versions.size());
     for (int i = 0; i < versions.size(); i++) {
@@ -1046,7 +1146,7 @@ public final class PromptVault {
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
-    if (version < 1 || version > 7) throw new IllegalStateException("Prompt database is from a newer app");
+    if (version < 1 || version > 8) throw new IllegalStateException("Prompt database is from a newer app");
     fileVersion = version;
     int ncat = data.readInt();
     for (int i = 0; i < ncat; i++) {
@@ -1063,6 +1163,7 @@ public final class PromptVault {
       prompt.categoryId = data.readLong();
       prompt.title = readUtf(data);
       prompt.created = data.readLong();
+      prompt.tags = version >= 8 ? readUtf(data) : "";
       prompts.add(prompt);
     }
     int nv = data.readInt();

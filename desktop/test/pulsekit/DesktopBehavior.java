@@ -4567,7 +4567,7 @@ public final class DesktopBehavior {
     out.append("menu: ").append(rows).append('\n');
     javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
     StringBuilder labels = new StringBuilder();
-    for (Component c : runs.getComponents()) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    for (Component c : runs.getComponents()) if (c instanceof javax.swing.JMenuItem) labels.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
     out.append("CompareHits runs: ").append(labels).append('\n');
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     String[][] picks = {{"run", "2"}, {"name", "CompareHits.java"}, {"name", "ImageUpscaler.java"}};
@@ -4682,6 +4682,569 @@ public final class DesktopBehavior {
       out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
       if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
     }
+  }
+
+  /**
+   * Favourite files and category tabs in the galleries: tabs for the main categories the files'
+   * prompts are in, a favourite file starred and in the ★ Favourite files list.
+   */
+  void s112_favourite_files_tabs() throws Exception {
+    FileFavourites.reset();
+    PromptVault vault = PromptDb.vault();
+    long video = vault.addCategory("Videos");
+    long image = vault.addCategory("Images");
+    java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pngOut);
+    long pv = vault.addPrompt(video, "Sea");
+    vault.addVersion(pv, "Sea", "", "Waves", "", "sea.png", pngOut.toByteArray(), "", null, "dusk.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 4}, "ai", "");
+    long pi = vault.addPrompt(image, "Face");
+    vault.addVersion(pi, "Face", "", "A face", "", "face.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 5}, "", null, "", null, "ai", "");
+    PromptVault.StoredFile sea = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("sea.png".equals(f.name)) sea = f;
+    FileFavourites.load(PromptDb.dir());
+    FileFavourites.toggle(sea);
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    for (final long tab : new long[] {FileFavourites.ALL, image}) {
+      PromptDb.galleryCategory = tab;
+      inspectNext = d -> {
+        seen.append(tab == FileFavourites.ALL ? "All" : "Images").append(": tabs ").append(component(d, "gallery-cat:Videos") != null).append(' ').append(component(d, "gallery-cat:Images") != null)
+            .append(", sea.png ").append(component(d, "gallery:sea.png") != null).append(", face.png ").append(component(d, "gallery:face.png") != null);
+        javax.swing.JButton card = (javax.swing.JButton) component(d, "gallery:sea.png");
+        if (card != null) seen.append(", starred ").append(card.getText().contains("\u2605 sea.png"));
+        javax.swing.JComboBox<?> favs = (javax.swing.JComboBox<?>) component(d, "gallery-favs");
+        seen.append(", list ").append(favs == null ? "none" : favs.getItemCount() + " (" + favs.getItemAt(1) + ")").append('\n');
+        d.dispose();
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(false));
+      int before = seen.length();
+      for (int i = 0; i < 100 && seen.length() == before; i++) Thread.sleep(100);
+      idle();
+    }
+    // Browse prompts: a prompt's pictures as small thumbnails on its row.
+    PromptBrowser.lastCategory = video;
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-item:Sea");
+      seen.append("Browse prompts: Sea's thumbnails ").append(item != null && item.getIcon() != null).append('\n');
+      d.dispose();
+    };
+    int before = seen.length();
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 100 && seen.length() == before; i++) Thread.sleep(100);
+    inspectNext = null;
+    PromptDb.galleryCategory = FileFavourites.ALL;
+    FileFavourites.reset();
+    out.append(seen);
+    if (!seen.toString().contains("Sea's thumbnails true")) throw new AssertionError(out.toString());
+    if (!seen.toString().contains("All: tabs true true, sea.png true, face.png true, starred true, list 2 (sea.png") || !seen.toString().contains("Images: tabs true true, sea.png false, face.png true"))
+      throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Nested subcategories: a subcategory of a subcategory, the Prompts page's +/− tree, a category's
+   * ★ Favourites item, Save prompt's "Clips / Night", Browse prompts' rows for each level.
+   */
+  void s111_category_tree() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long video = vault.addCategory("Video");
+    long clips = vault.addSubcategory(video, "Clips");
+    long night = vault.addSubcategory(clips, "Night");
+    long walk = vault.addPrompt(night, "Night walk");
+    long v1 = vault.addVersion(walk, "Night walk", "", "A walk under the moon", "", "", null, "", null, "", null, "ai", "");
+    VersionFavourites.load(PromptDb.dir());
+    VersionFavourites.add(v1);
+    out.append("Night: ").append(vault.pathName(night)).append(", Save prompt finds Clips / Night ").append(PromptSave.find(vault, "Video", "Clips / Night") == night)
+        .append(", offers ").append(PromptSave.subPaths(vault, video)).append('\n');
+    call("showView", "prompts");
+    idle();
+    edt(() -> ((javax.swing.AbstractButton) component(frame.getContentPane(), "category:Video")).doClick());
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      javax.swing.AbstractButton toggle = (javax.swing.AbstractButton) component(frame.getContentPane(), "category-toggle:Clips");
+      seen.append("tree: Clips [").append(toggle.getText()).append("], Night shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      toggle.doClick();
+    });
+    idle();
+    edt(() -> {
+      seen.append("+ on Clips: Night shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      ((javax.swing.AbstractButton) component(frame.getContentPane(), "category:Night")).doClick();
+    });
+    idle();
+    edt(() -> {
+      seen.append("Night chosen, Night still shown ").append(component(frame.getContentPane(), "category:Night") != null).append('\n');
+      javax.swing.AbstractButton more = (javax.swing.AbstractButton) component(frame.getContentPane(), "category-menu:Clips");
+      seen.append("Clips menu has Favourites ").append(more != null).append('\n');
+    });
+    final StringBuilder browse = new StringBuilder();
+    PromptBrowser.lastCategory = night;
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.ArrayDeque<Component> todo = new java.util.ArrayDeque<Component>();
+      todo.add(d);
+      while (!todo.isEmpty()) {
+        Component c = todo.poll();
+        if (c instanceof JLabel && ((JLabel) c).getText() != null && ((JLabel) c).getText().startsWith("Subcategories of ")) browse.append('[').append(((JLabel) c).getText()).append(']');
+        if (c instanceof Container) for (Component k : ((Container) c).getComponents()) todo.add(k);
+      }
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 50 && browse.length() == 0; i++) Thread.sleep(100);
+    inspectNext = null;
+    out.append(seen).append("Browse prompts rows: ").append(browse).append('\n');
+    out.append("Clips favourites: ").append(VersionFavourites.inCategory(vault, clips).size()).append('\n');
+    vault.deleteCategory(clips);
+    out.append("after deleting Clips: Night ").append(vault.category(night) == null ? "gone" : "kept").append(", Night walk ").append(vault.prompt(walk) == null ? "gone" : "kept").append('\n');
+    if (!seen.toString().contains("+ on Clips: Night shown true") || !browse.toString().contains("[Subcategories of Video][Subcategories of Clips]") || vault.category(night) != null
+        || VersionFavourites.inCategory(vault, video).size() != 0)
+      throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Prompt tags: Save prompt's Tag 1–3 (one from the tag list, one added new), kept with the prompt
+   * and offered again on its next save; Browse prompts' search by #tag, text and category.
+   */
+  void s110_prompt_tags_search() throws Exception {
+    PromptSave.setAsk(true);
+    MediaTags.reset();
+    MediaTags.load(PromptDb.dir());
+    MediaTags.addTag("night");
+    PromptVault vault = PromptDb.vault();
+    vault.addCategory("Video");
+    String[] bodies = {"Camera drifts over the night garden", "Camera drifts slowly over the night garden"};
+    for (int run = 0; run < 2; run++) {
+      String sheet = "PKPROMPT1\nsogni-video-garden\n\n\n\n\nCategory: video\nModel: Sogni H3\nReference file 1: \nReference file 2: \nType: ai\n---\n" + bodies[run] + "\n\nResult file: garden.mp4\n";
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-garden.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+      files.add(new JavaRun.FileOut("garden.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'}));
+      final JavaRun.Result r = new JavaRun.Result("Succeeded: garden.mp4", files, 0);
+      final int at = run;
+      final StringBuilder seen = new StringBuilder();
+      inspectNext = d -> {
+        javax.swing.JComboBox<?> t1 = (javax.swing.JComboBox<?>) component(d, "save-prompt-tag1");
+        javax.swing.JComboBox<?> t2 = (javax.swing.JComboBox<?>) component(d, "save-prompt-tag2");
+        seen.append("run ").append(at + 1).append(": Tag 1 ").append(t1.getSelectedItem()).append(", Tag 2 ").append(t2.getSelectedItem()).append(", Add new tag ")
+            .append(component(d, "save-prompt-tag-new1") != null).append('\n');
+        if (at == 0) {
+          // Added new (as Add new tag does), then picked; Tag 2 from the list.
+          String t = PromptSave.newTag(PromptDb.dir(), "garden");
+          ((javax.swing.JComboBox<String>) t1).addItem(t);
+          t1.setSelectedItem(t);
+          t2.setSelectedItem("night");
+          ((JTextField) component(d, "save-prompt-name")).setText("Garden walk");
+        }
+      };
+      answers.add(run == 1 ? "Cancel" : "OK");
+      String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+      idle();
+      out.append(seen);
+      for (String line : kept.split("\n")) if (line.contains("tags ")) out.append("  log: ").append(line.replaceAll("\\d{4}-\\d\\d-\\d\\d", "<today>")).append('\n');
+      answers.clear();
+      inspectNext = null;
+    }
+    vault = PromptDb.vault();
+    PromptVault.Prompt garden = null;
+    for (PromptVault.Prompt p : vault.allPrompts()) if ("Garden walk".equals(p.title)) garden = p;
+    out.append("library: Garden walk tags ").append(garden == null ? "none" : vault.tags(garden.id)).append('\n');
+    final StringBuilder browse = new StringBuilder();
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      JTextField search = (JTextField) component(d, "prompt-browser-search");
+      for (String q : new String[] {"#night", "drifts", "video garden", "#beach", "zzz"}) {
+        search.setText(q);
+        JLabel found = (JLabel) component(d, "prompt-browser-found");
+        javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-item:Garden walk");
+        browse.append("search ").append(q).append(": ").append(found == null ? "none" : found.getText()).append(item == null ? "" : " | " + item.getText().replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim()).append('\n');
+      }
+      search.setText("");
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 50 && browse.length() == 0; i++) Thread.sleep(100);
+    idle();
+    inspectNext = null;
+    out.append(browse);
+    PromptSearch.query = "";
+    MediaTags.reset();
+    if (garden == null || !vault.tags(garden.id).equals(java.util.Arrays.asList("garden", "night")) || !out.toString().contains("run 2: Tag 1 garden, Tag 2 night")
+        || !browse.toString().contains("search #night: 1 prompt found | Garden walk Video \u00b7 #garden #night") || !browse.toString().contains("search zzz: 0 prompts found"))
+      throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Media browser tags and categories: Tags… and Category… in a file's menu, the line on its card,
+   * the Tagged filter, Rename keeping them; file cards drag onto folder cards (moved there).
+   */
+  void s109_media_tags() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-tags");
+    new File(media, "keep").mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(media, "a.png"));
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(50, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(media, "b.png"));
+    MediaTags.reset();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    final String cat = MediaTags.categoryNames(PromptDb.vault()).get(0);
+    MediaBrowser.answer = q -> q.startsWith("Tags for") ? "beach, #night" : q.startsWith("Category for") ? cat : q.startsWith("New name") ? "sea" : null;
+    final StringBuilder seen = new StringBuilder();
+    try {
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        StringBuilder items = new StringBuilder();
+        for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        seen.append("menu: ").append(items).append('\n');
+        ((javax.swing.JMenuItem) component(menu, "media-menu:" + MediaTags.TAGS)).doClick();
+        menu.setVisible(false);
+      });
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        ((javax.swing.JMenuItem) component(menu, "media-menu:" + MediaTags.CATEGORY)).doClick();
+        menu.setVisible(false);
+      });
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        seen.append("card: ").append(card.getText().contains("#beach #night \u00b7 " + cat)).append('\n');
+        seen.append("a.png: ").append(MediaTags.line(MediaTags.key("a.png", new File(media, "a.png").length()))).append('\n');
+        // Drag: file cards and folder cards (and Up) take part.
+        seen.append("drag: file card ").append(card.getTransferHandler() != null).append(", folder card ")
+            .append(((javax.swing.JComponent) component(dlg[0], "media-folder:keep")).getTransferHandler() != null).append('\n');
+        javax.swing.JComboBox<?> tagged = (javax.swing.JComboBox<?>) component(dlg[0], "media-tag-filter");
+        StringBuilder choices = new StringBuilder();
+        for (int i = 0; i < tagged.getItemCount(); i++) choices.append('[').append(tagged.getItemAt(i)).append(']');
+        seen.append("Tagged: ").append(choices).append('\n');
+        for (int i = 0; i < tagged.getItemCount(); i++) if (String.valueOf(tagged.getItemAt(i)).equals("#night (1)")) tagged.setSelectedIndex(i);
+      });
+      edt(() -> {
+        seen.append("tagged #night: a.png ").append(component(dlg[0], "media-card:a.png") != null).append(", b.png ").append(component(dlg[0], "media-card:b.png") != null).append('\n');
+        MediaTags.filter = "";
+        mb.fileAction(null, new File(media, "a.png"), MediaDir.RENAME);
+        seen.append("renamed sea.png: ").append(MediaTags.line(MediaTags.key("sea.png", new File(media, "sea.png").length()))).append('\n');
+        seen.append("dropped: ").append(mb.dropped(new File(media, "sea.png"), new File(media, "keep"))).append('\n');
+      });
+    } finally {
+      MediaBrowser.answer = null;
+      MediaTags.reset();
+      edt(() -> dlg[0].dispose());
+    }
+    out.append(seen);
+    if (!seen.toString().contains("[Tags\u2026][Category\u2026]") || !seen.toString().contains("card: true") || !seen.toString().contains("tagged #night: a.png true, b.png false")
+        || !seen.toString().contains("renamed sea.png: #beach #night") || !seen.toString().contains("drag: file card true, folder card true") || !new File(media, "keep/sea.png").isFile())
+      throw new AssertionError(out.toString());
+  }
+
+  /**
+   * BatchRun: its plan runs one run after another (VideoFrames on each clip of a list here; Sogni
+   * programs alike), what each makes kept and not shown, then the summary; Stop batch ends it after
+   * the run in progress; JoinVideo --list joins a list of clips.
+   */
+  void s108_batch_run() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir"));
+    File list = new File(home, "clips.txt");
+    Files.write(list.toPath(), (new File(dir, "clip-a.mp4").getAbsolutePath() + "\n" + new File(dir, "clip-b.mp4").getAbsolutePath() + "\n").getBytes(StandardCharsets.UTF_8));
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("BatchRun.java"))) out.append("BatchRun ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : p.isFile() ? " (file)" : "").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "BatchRun.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --first"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1200 && !log.getText().contains("Batch done") && !log.getText().contains("Batch stopped"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    java.util.List<String> pics = new java.util.ArrayList<String>();
+    for (String d : new String[] {"Downloads", ".pulsekit"}) {
+      String[] in = new File(home, d).list();
+      if (in != null) for (String n : in) if (n.endsWith("-first.png")) pics.add(n);
+    }
+    java.util.Collections.sort(pics);
+    String summary = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    out.append("batch: ").append(summary).append(", program now ").append(get("pyName")).append(", pictures ").append(pics).append(", Stop batch shown ").append(pj.pyBatchStop.isVisible()).append('\n');
+    if (!summary.equals("Batch done: 2 of 2 runs succeeded") || !pics.contains("clip-a-first.png") || !pics.contains("clip-b-first.png") || pj.pyBatchStop.isVisible() || BatchQueue.current() != null)
+      throw new AssertionError(out.toString() + log.getText());
+    // Stop batch during the first run: the second is not run.
+    call("selectListedProgram", "Java", "BatchRun.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --last"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && BatchQueue.current() == null; i++) Thread.sleep(20);
+    out.append("Stop batch shown while it runs: ").append(pj.pyBatchStop.isVisible()).append('\n');
+    edt(() -> pj.stopBatch());
+    for (int i = 0; i < 1200 && BatchQueue.current() != null; i++) Thread.sleep(50);
+    Thread.sleep(300);
+    summary = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    out.append("stopped: ").append(summary).append('\n');
+    if (!summary.equals("Batch stopped: 1 of 2 runs succeeded, 1 not run")) throw new AssertionError(out.toString() + log.getText());
+    // JoinVideo --list: the clips of a list, in order.
+    call("selectListedProgram", "Java", "JoinVideo.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + list.getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    String joined = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Joined")) joined = line;
+    out.append("JoinVideo --list: ").append(joined).append('\n');
+    if (!joined.startsWith("Joined clip-a.mp4 and then clip-b.mp4")) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
+   * MidiBatch: a folder of MIDI files (and its subfolders) into a batch folder with list.txt and
+   * batch.txt; --combine joins them at random. Then Midi2Wav --dir --test renders it with Pulsekit's
+   * kit, DrumMidi_CRT --dir reads the WAVs and CompareHits --batch sums them, in the test report.
+   */
+  void s107_midi_batch() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File src = new File(home, "my-midis");
+    new File(src, "sub").mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 16; i += 8) cells[2][i] = 100;
+    for (int i = 0; i < 16; i += 2) cells[4][i] = 80;
+    Files.write(new File(src, "a.mid").toPath(), Engine.encodeMidi(cells, 100));
+    Files.write(new File(src, "sub/b.mid").toPath(), Engine.encodeMidi(cells, 140));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("MidiBatch.java"))) out.append("MidiBatch ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    // Copied as they are.
+    File mix = new File(home, "mix-a");
+    call("selectListedProgram", "Java", "MidiBatch.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + src.getAbsolutePath() + "\" --recursive --outdir \"" + mix.getAbsolutePath() + "\" --seed 7"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    String[] made = mix.list();
+    java.util.Arrays.sort(made == null ? new String[0] : made);
+    out.append("copied: ").append(java.util.Arrays.toString(made)).append('\n');
+    if (!new File(mix, "batch.txt").isFile()) throw new AssertionError(out.toString() + log.getText());
+    String batch = new String(Files.readAllBytes(new File(mix, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("batch.txt:\n").append(batch);
+    if (!batch.contains("mix-002-b.mid\tb\tsub\t140\t4/4")) throw new AssertionError(out.toString() + log.getText());
+    // Joined: 3 files of 2 parts each.
+    File joined = new File(home, "mix-b");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + new File(mix, "list.txt").getAbsolutePath() + "\" --combine 2 --count 3 --cut 1 --outdir \"" + joined.getAbsolutePath() + "\" --seed 7"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(new File(joined, "mix-001-2-parts.mid"));
+    out.append("joined: ").append(log.getText().contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
+    if (seq.getTickLength() != 3840) throw new AssertionError(out.toString() + log.getText());
+    // Midi2Wav --dir --test with Pulsekit's kit: the WAVs, DrumMidi on each, CompareHits --batch, the report.
+    final StringBuilder report = new StringBuilder();
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + mix.getAbsolutePath() + "\" --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 2400 && report.length() == 0; i++) Thread.sleep(50);
+    inspectNext = null;
+    String[] after = mix.list();
+    java.util.Arrays.sort(after);
+    out.append("batch folder after: ").append(java.util.Arrays.toString(after)).append('\n');
+    out.append("report:\n").append(report.toString().replace(home.getAbsolutePath(), "~")).append('\n');
+    if (!report.toString().startsWith("Midi2Wav batch test: mix-a") || !report.toString().contains("== Pulsekit-kit: 2 grooves") || !new File(mix, "mix-001-a-Pulsekit-kit-dm.mid").isFile())
+      throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
+   * --vst: MidiDrumGen's MIDI goes to vst_render.py (not Midi2Wav) with the plugin and settings saved
+   * in vst_render's Params (and its --test); SogniMusic's DrumMidi MIDI of the track does too. Without
+   * a saved plugin the log says to pick one. (vst_render itself needs DawDreamer and a plugin: only
+   * its arguments are checked.)
+   */
+  void s106_vst_render_option() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    for (String prog : new String[] {"MidiDrumGen.java", "SogniMusic.java"}) {
+      for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource(prog))) if (p.token.equals("--vst")) out.append(prog).append(" --vst: ").append(p.label).append('\n');
+    }
+    final PyJav pj = (PyJav) get("pyJav");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    // No plugin saved: the log says so, and nothing else runs.
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("No VST render"); i++) Thread.sleep(50);
+    out.append("no plugin saved: ").append(log.getText().contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
+    if (!log.getText().contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
+    // vst_render.py's Params saved: its plugin, settings and format are used, not its folder or Edit.
+    File plugin = new File(home, "Anarchy.vst3");
+    edt(() -> pj.saveParams("vst_render.py", "--plugin \"" + plugin.getAbsolutePath() + "\" --state \"" + new File(home, "kit 1.state").getAbsolutePath() + "\" --rate 48000 --dir beats --edit --no-toms"));
+    java.util.List<String> args = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), true);
+    out.append("vst_render args: ").append(String.valueOf(args).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (args == null || !args.contains("--plugin") || !args.contains("--state") || !args.contains("48000") || args.contains("--dir") || args.contains("--edit") || !args.contains("--test")) throw new AssertionError(out.toString());
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    String ran = "";
+    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    out.append("MidiDrumGen --vst --test: program ").append(get("pyName")).append(", ran ").append(ran.contains("--plugin") && ran.contains("Anarchy.vst3") && ran.contains("--test") && ran.contains("--drummidi") && !ran.contains("--dir")).append('\n');
+    if (!"vst_render.py".equals(get("pyName")) || !ran.contains("Anarchy.vst3") || !ran.contains("--drummidi")) throw new AssertionError(out.toString() + log.getText());
+    // SogniMusic --vst (no --test): after DrumMidi_CRT's MIDI of the track, vst_render.py without its test.
+    File wav = new File(home, "track.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E'});
+    Midi2WavTest t = Midi2WavTest.startMusic(java.util.Arrays.asList("--drums_only", "--vst"), wav, "");
+    out.append("SogniMusic --vst: test ").append(t.testing).append(", vst ").append(t.vst).append('\n');
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    final PythonRun.FileOut drums = new PythonRun.FileOut("track.mid", Engine.encodeMidi(cells, 120));
+    edt(() -> log.setText(""));
+    edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
+    for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    ran = "";
+    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    out.append("then: ").append(get("pyName")).append(" on track-drums.mid ").append(ran.contains("track-drums.mid")).append(", its test ").append(ran.contains("--test")).append('\n');
+    if (t.testing || !t.vst || !ran.contains("track-drums.mid") || ran.contains("--test") || Midi2WavTest.current() != null) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
+   * A video picked for a picture row of Params (SogniVideo's --image): its first frame goes there and
+   * its last frame to --end_image, still empty; read with VLC.
+   */
+  void s105_video_in_picture_slot() throws Exception {
+    File clip = new File(System.getProperty("pulsekit.test.dir"), "clip-a.mp4");
+    File src = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/SogniVideo.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(new String(java.nio.file.Files.readAllBytes(src.toPath()), StandardCharsets.UTF_8));
+    int image = -1, end = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if ("--image".equals(ps.get(i).token)) image = i;
+      if ("--end_image".equals(ps.get(i).token)) end = i;
+    }
+    final String[] values = new String[ps.size()];
+    final javax.swing.JLabel[] labels = new javax.swing.JLabel[ps.size()];
+    labels[image] = new javax.swing.JLabel();
+    labels[end] = new javax.swing.JLabel();
+    final PyJav pj = (PyJav) get("pyJav");
+    pj.lastFramesNote = null;
+    final int row = image;
+    edt(() -> pj.assignFile(ps, values, row, labels, clip.getAbsolutePath(), null));
+    for (int i = 0; i < 600 && pj.lastFramesNote == null; i++) Thread.sleep(50);
+    Thread.sleep(200);
+    out.append("frames: ").append(pj.lastFramesNote).append('\n');
+    out.append("--image ").append(values[image] == null ? "none" : new File(values[image]).getName()).append(" (").append(labels[image].getText()).append(")\n");
+    out.append("--end_image ").append(values[end] == null ? "none" : new File(values[end]).getName()).append(" (").append(labels[end].getText()).append(")\n");
+    if (!"first and last frame".equals(pj.lastFramesNote) || !String.valueOf(values[image]).endsWith("clip-a-first.png") || !String.valueOf(values[end]).endsWith("clip-a-last.png")
+        || !new File(values[end]).isFile()) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * VideoFrames (PyJav's Java menu): the first and last frame and one at a time, read with VLC through
+   * Pulsekit's own JAR; --upscale then opens ImageUpscaler with the first picture as its input.
+   */
+  void s104_video_frames() throws Exception {
+    File clip = new File(System.getProperty("pulsekit.test.dir"), "clip-a.mp4");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "VideoFrames.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("\"" + clip.getAbsolutePath() + "\" --first --last --at 0:01.5 --upscale"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(500);
+    // The pictures, kept in the program files folder (~/Downloads, or ~/.pulsekit without one).
+    File home = new File(System.getProperty("user.home"));
+    java.util.List<String> pics = new java.util.ArrayList<String>();
+    for (String d : new String[] {"Downloads", ".pulsekit"}) {
+      String[] in = new File(home, d).list();
+      if (in != null) for (String n : in) if (n.startsWith("clip-a-") && n.endsWith(".png")) pics.add(n);
+    }
+    java.util.Collections.sort(pics);
+    out.append("pictures: ").append(pics).append('\n');
+    out.append("then: ").append(get("pyName")).append(", input ").append(get("pyInputPath") == null ? "none" : new File(String.valueOf(get("pyInputPath"))).getName()).append('\n');
+    if (!"ImageUpscaler.java".equals(get("pyName")) || get("pyInputPath") == null || !String.valueOf(get("pyInputPath")).contains("clip-a-first")
+        || !pics.contains("clip-a-last.png") || !pics.contains("clip-a-0m01s500.png")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Media browser: a folder shows its first picture; Up comes back to the folder left (outlined);
+   * a file's menu has Rename, Copy to folder, Move to folder and Delete, a folder's Rename and Delete.
+   */
+  void s103_media_files() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-files");
+    File shots = new File(media, "shots");
+    shots.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(shots, "b.png"));
+    javax.imageio.ImageIO.write(img, "png", new File(shots, "a.png"));
+    javax.imageio.ImageIO.write(img, "png", new File(media, "top.png"));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final StringBuilder seen = new StringBuilder();
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    for (int i = 0; i < 60 && ((AbstractButton) component(dlg[0], "media-folder:shots")).getIcon() == null; i++) Thread.sleep(50);
+    edt(() -> {
+      AbstractButton folder = (AbstractButton) component(dlg[0], "media-folder:shots");
+      seen.append("folder thumbnail: ").append(folder.getIcon() != null).append('\n');
+      folder.doClick();
+    });
+    edt(() -> ((AbstractButton) component(dlg[0], "media-up")).doClick());
+    edt(() -> {
+      AbstractButton folder = (AbstractButton) component(dlg[0], "media-folder:shots");
+      seen.append("back up: shots outlined ").append(folder.getBorder() instanceof javax.swing.border.LineBorder).append('\n');
+    });
+    // File actions, answered without dialogs.
+    MediaBrowser.answer = q -> q.startsWith("New name") ? "beach" : q.startsWith("Copy") || q.startsWith("Move") ? new File(media, "kept").getAbsolutePath() : "yes";
+    try {
+      edt(() -> {
+        String[] items = MediaDir.menu(false, MediaDir.PICTURE, true);
+        seen.append("file menu: ").append(java.util.Arrays.toString(items)).append('\n');
+        MediaDir.Entry e = new MediaDir.Entry();
+        e.name = "top.png";
+        e.id = new File(media, "top.png").getAbsolutePath();
+        e.kind = MediaDir.PICTURE;
+        mb.fileAction(e, new File(media, "top.png"), MediaDir.RENAME);
+        mb.fileAction(e, new File(media, "beach.png"), MediaDir.COPY_TO);
+        mb.fileAction(e, new File(shots, "b.png"), MediaDir.MOVE_TO);
+        mb.fileAction(e, new File(shots, "a.png"), MediaDir.DELETE);
+      });
+    } finally {
+      MediaBrowser.answer = null;
+    }
+    String[] top = media.list();
+    java.util.Arrays.sort(top);
+    String[] kept = new File(media, "kept").list();
+    java.util.Arrays.sort(kept);
+    seen.append("after: ").append(java.util.Arrays.toString(top)).append(", kept ").append(java.util.Arrays.toString(kept)).append(", shots ").append(java.util.Arrays.toString(shots.list())).append('\n');
+    edt(() -> dlg[0].dispose());
+    out.append(seen);
+    if (seen.indexOf("folder thumbnail: true") < 0 || seen.indexOf("outlined true") < 0 || !new File(media, "beach.png").isFile()
+        || !java.util.Arrays.asList(kept).equals(java.util.Arrays.asList("b.png", "beach.png")) || shots.list().length != 0) throw new AssertionError(out.toString());
   }
 
   /** A prompt's reference picture shows as a small thumbnail on its name; a slot without one shows none. */
@@ -5175,6 +5738,13 @@ public final class DesktopBehavior {
           }
           dialogs.add(text.toString());
           List<String> want = new ArrayList<String>();
+          // "(keep)": the dialog stays open for the scenario to work in.
+          synchronized (answers) {
+            if ("(keep)".equals(answers.peek())) {
+              answers.poll();
+              continue;
+            }
+          }
           synchronized (answers) {
             while (!answers.isEmpty()) {
               String a = answers.peek();

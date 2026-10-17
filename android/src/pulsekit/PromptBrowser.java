@@ -16,6 +16,7 @@ import java.util.List;
  * version) to the field that asked (Params' Prompt, the Prompts page's Prompt). Opens on the
  * category picked last. Favourite prompts (Save prompt's "Add to favourites", the Prompts page's
  * star) are listed on top, then favourite categories (★ Favourite on the one shown) as a row.
+ * Search (on top) finds prompts by name, category, tag (#night), description or text instead.
  */
 final class PromptBrowser {
     interface Picked {
@@ -44,9 +45,35 @@ final class PromptBrowser {
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(body);
         final AlertDialog[] dialog = new AlertDialog[1];
+        // Search: names, categories, tags (#night), descriptions and texts; empty shows the categories.
+        LinearLayout whole = new LinearLayout(activity);
+        whole.setOrientation(LinearLayout.VERTICAL);
+        final android.widget.EditText search = new android.widget.EditText(activity);
+        search.setSingleLine(true);
+        search.setHint("Search: name, category, #tag, text");
+        search.setTag("prompt-browser-search");
+        search.setText(PromptSearch.query);
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+            @Override
+            public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+            @Override
+            public void afterTextChanged(android.text.Editable t) {
+                PromptSearch.query = t.toString();
+                fill(activity, vault, body, dialog, picked);
+            }
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.leftMargin = pad;
+        slp.rightMargin = pad;
+        whole.addView(search, slp);
+        whole.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
             .setTitle("Browse prompts")
-            .setView(scroll)
+            .setView(whole)
             .setNegativeButton("Cancel", null)
             .create();
         last = dialog[0];
@@ -56,6 +83,10 @@ final class PromptBrowser {
 
     private static void fill(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked) {
         body.removeAllViews();
+        if (PromptSearch.query.trim().length() > 0) {
+            found(activity, vault, body, dialog, picked);
+            return;
+        }
         List<PromptVault.Category> mains = vault.mains();
         if (mains.isEmpty()) {
             body.addView(text(activity, "No categories yet", 14, "#8A8B86"));
@@ -122,15 +153,19 @@ final class PromptBrowser {
         for (PromptVault.Category c : mains) tabRow.addView(chip(activity, vault, c, c.id == mainId, "prompt-browser-tab:", body, dialog, picked), chipLp(activity));
         tabs.addView(tabRow);
         body.addView(tabs);
-        PromptVault.Category main = vault.category(mainId);
-        List<PromptVault.Category> subs = vault.children(mainId);
-        if (!subs.isEmpty()) {
-            body.addView(text(activity, "Subcategories of " + main.name, 12, "#8A8B86"));
+        // Subcategories nest: a row for each level down to the category chosen (and its own under it).
+        List<PromptVault.Category> path = vault.pathTo(chosen);
+        for (int k = 0; k < path.size(); k++) {
+            PromptVault.Category at = path.get(k);
+            List<PromptVault.Category> subs = vault.children(at.id);
+            if (subs.isEmpty()) continue;
+            long on = k + 1 < path.size() ? path.get(k + 1).id : -1;
+            body.addView(text(activity, "Subcategories of " + at.name, 12, "#8A8B86"));
             HorizontalScrollView subScroll = new HorizontalScrollView(activity);
             subScroll.setHorizontalScrollBarEnabled(false);
             LinearLayout subRow = new LinearLayout(activity);
             subRow.setOrientation(LinearLayout.HORIZONTAL);
-            for (PromptVault.Category c : subs) subRow.addView(chip(activity, vault, c, c.id == chosen, "prompt-browser-sub:", body, dialog, picked), chipLp(activity));
+            for (PromptVault.Category c : subs) subRow.addView(chip(activity, vault, c, c.id == on, "prompt-browser-sub:", body, dialog, picked), chipLp(activity));
             subScroll.addView(subRow);
             body.addView(subScroll);
         }
@@ -152,12 +187,30 @@ final class PromptBrowser {
         }
         List<PromptVault.Prompt> prompts = vault.prompts(chosen);
         if (prompts.isEmpty()) body.addView(text(activity, "No prompts here", 14, "#8A8B86"));
+        items(activity, vault, body, dialog, picked, prompts, false);
+    }
+
+    /** The search's prompts: each with its place and tags. */
+    private static void found(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked) {
+        List<PromptVault.Prompt> hits = PromptSearch.find(vault, PromptSearch.query);
+        TextView head = text(activity, hits.size() == 1 ? "1 prompt found" : hits.size() + " prompts found", 12, "#8A8B86");
+        head.setTag("prompt-browser-found");
+        head.setPadding(0, dp(activity, 6), 0, dp(activity, 4));
+        body.addView(head);
+        items(activity, vault, body, dialog, picked, hits, true);
+    }
+
+    private static void items(final Activity activity, final PromptVault vault, final LinearLayout body, final AlertDialog[] dialog, final Picked picked,
+            List<PromptVault.Prompt> prompts, boolean place) {
         for (final PromptVault.Prompt p : prompts) {
-            final PromptVault.Version v = vault.finalVersion(p.id);
-            final String words = v == null ? "" : PromptRun.withoutDescription(v.description, v.body == null ? "" : v.body).trim();
+            final String words = PromptSearch.words(vault, p);
             String first = words.replace('\n', ' ');
             if (first.length() > 70) first = first.substring(0, 70) + "…";
-            TextView item = text(activity, (p.title == null ? "Prompt" : p.title) + (first.length() > 0 ? "\n" + first : ""), 14, "#ECEBE6");
+            // Its place (in search results) and tags under the name.
+            String about = (place ? PromptSearch.where(vault, p) : "");
+            String tags = PromptSearch.tagLine(vault, p);
+            if (tags.length() > 0) about = about.length() == 0 ? tags : about + " \u00b7 " + tags;
+            TextView item = text(activity, (p.title == null ? "Prompt" : p.title) + (about.length() > 0 ? "\n" + about : "") + (first.length() > 0 ? "\n" + first : ""), 14, "#ECEBE6");
             item.setTag("prompt-browser-item:" + p.title);
             item.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8));
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
@@ -175,7 +228,58 @@ final class PromptBrowser {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.bottomMargin = dp(activity, 6);
             body.addView(item, lp);
+            // Its reference and result pictures, small, under it; a long press shows one bigger.
+            LinearLayout thumbs = thumbs(activity, vault, vault.finalVersion(p.id));
+            if (thumbs != null) {
+                thumbs.setTag("prompt-browser-thumbs:" + p.title);
+                LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+                tlp.bottomMargin = dp(activity, 8);
+                body.addView(thumbs, tlp);
+            }
         }
+    }
+
+    /** The picture shown bigger last, for the tests. */
+    static AlertDialog lastBigger;
+
+    /** A prompt's reference and result pictures as a row of small thumbnails, or null when it has none. */
+    private static LinearLayout thumbs(final Activity activity, PromptVault vault, PromptVault.Version v) {
+        if (v == null) return null;
+        LinearLayout row = null;
+        for (int which = 1; which <= 3; which++) {
+            final String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
+            if (n == null || !n.toLowerCase(java.util.Locale.ROOT).matches(".+\\.(png|jpe?g|webp|gif|bmp)")) continue;
+            byte[] bytes = vault.fileBytes(v.id, which);
+            if (bytes == null || bytes.length == 0) continue;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            o.inSampleSize = Math.max(1, Math.max(o.outWidth, o.outHeight) / dp(activity, 96));
+            o.inJustDecodeBounds = false;
+            final android.graphics.Bitmap small = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            if (small == null) continue;
+            if (row == null) {
+                row = new LinearLayout(activity);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+            }
+            final byte[] full = bytes;
+            android.widget.ImageView image = new android.widget.ImageView(activity);
+            image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            image.setImageBitmap(small);
+            image.setTag("prompt-browser-thumb:" + n);
+            image.setContentDescription(n);
+            image.setOnLongClickListener(x -> {
+                android.widget.ImageView big = new android.widget.ImageView(activity);
+                big.setAdjustViewBounds(true);
+                big.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(full, 0, full.length));
+                lastBigger = new AlertDialog.Builder(activity).setTitle(n).setView(big).setPositiveButton("Close", null).show();
+                return true;
+            });
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48));
+            ilp.rightMargin = dp(activity, 6);
+            row.addView(image, ilp);
+        }
+        return row;
     }
 
     private static TextView chip(final Activity activity, final PromptVault vault, final PromptVault.Category c, boolean on, String tag,
