@@ -134,6 +134,7 @@ public final class ProgramParams {
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
+      if (drumGen && p.token.equals("--vst")) p.label = "Play it through a VST instead (vst_render.py's saved plugin; computer only)";
       if (drumGen) knownDrumGenBatch(p);
       if (videoFrames) knownVideoFrames(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
@@ -326,6 +327,7 @@ public final class ProgramParams {
       p.label = "File (text, MIDI, picture, audio or video)";
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
+    if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.token.equals("--test") && p.label.equals("Test")) p.label = "Test: DrumMidi on the WAV, then CompareHits (what was asked for, checks, suggestions)";
     if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";

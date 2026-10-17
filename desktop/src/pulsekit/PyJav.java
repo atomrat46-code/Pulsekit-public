@@ -826,7 +826,7 @@ final class PyJav {
      */
     boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
         Midi2WavTest t = Midi2WavTest.current();
-        if (Midi2WavTest.musicWanted(name, argv)) {
+        if (Midi2WavTest.musicSteps(name, argv, true)) {
             if (!verdict.startsWith("Succeeded")) return false;
             t = Midi2WavTest.startMusic(argv, wav != null && wav.getName().toLowerCase().endsWith(".wav") ? wav : null, this.loadParams("DrumMidi_CRT.jar"));
             if (t == null) {
@@ -835,7 +835,7 @@ final class PyJav {
             }
             final java.util.List<String> drumArgs = t.drumMidiArgs();
             this.testNote("Test: " + t.expect.drumMidiWhy(t.drumSaved));
-            this.testNote("Test: DrumMidi_CRT on " + wav.getName() + ", then CompareHits");
+            this.testNote((t.testing ? "Test: " : "VST: ") + "DrumMidi_CRT on " + wav.getName() + ", then " + (t.testing ? "CompareHits" : "vst_render.py"));
             SwingUtilities.invokeLater(() -> {
                 app.pyInputPath = null;
                 app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
@@ -867,6 +867,11 @@ final class PyJav {
                 }
                 if (!t.drumMidiDone(drums, drumsName, app.learned, app.importedSongs)) {
                     this.testNote("Test stopped: DrumMidi_CRT made no MIDI");
+                    return true;
+                }
+                // SogniMusic's --vst without --test: DrumMidi's MIDI goes straight on to vst_render.py.
+                if (!t.testing) {
+                    SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
                     return true;
                 }
                 this.testNote("Test: CompareHits on " + new File(t.wav).getName() + ", " + new File(t.drums).getName() + (t.song.length() > 0 ? ", " + new File(t.song).getName() : " (no song was made)"));
@@ -923,13 +928,17 @@ final class PyJav {
         return null;
     }
 
-    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). */
+    /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested); with --vst by vst_render.py. */
     void genToWav(PythonRun.FileOut midi, java.util.List<String> genArgv) {
         try {
             File dir = new File(PromptDb.dir(), "pyjav-in");
             dir.mkdirs();
             File f = new File(dir, midi.name);
             Files.write(f.toPath(), midi.bytes);
+            if (Midi2WavTest.genToVst("MidiDrumGen.java", genArgv)) {
+                this.toVst(f.getAbsolutePath(), genArgv.contains(Midi2WavTest.FLAG));
+                return;
+            }
             String source = ProgramFiles.bundledSource("Midi2Wav.java");
             final java.util.List<String> args = Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv, source, this.loadParams("Midi2Wav.java"));
             this.testNote("Next: Midi2Wav on " + midi.name + (args.contains(Midi2WavTest.FLAG) ? ", then its test" : ""));
@@ -942,6 +951,25 @@ final class PyJav {
         } catch (Exception ex) {
             this.testNote("Could not hand " + midi.name + " to Midi2Wav: " + ex.getMessage());
         }
+    }
+
+    /**
+     * --vst (SogniMusic, MidiDrumGen): the MIDI played through a VST by vst_render.py, with the
+     * plugin and settings saved in its Params, and its own --test when `test`.
+     */
+    void toVst(String midiPath, boolean test) {
+        final java.util.List<String> args = Midi2WavTest.vstArgs(midiPath, ProgramFiles.bundledSource("vst_render.py"), this.loadParams("vst_render.py"), test);
+        if (args == null) {
+            this.testNote("No VST render: pick the plugin (and Edit its kit) in vst_render.py's Params and save them; --vst uses those");
+            return;
+        }
+        this.testNote("Next: vst_render.py on " + new File(midiPath).getName() + (test ? ", then its test" : ""));
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Python", "vst_render.py");
+            this.forcedArgs = args;
+            this.runPython();
+        });
     }
 
     void runTestCompare(java.util.List<String> args) {
@@ -969,6 +997,8 @@ final class PyJav {
         area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         area.setCaretPosition(0);
         JOptionPane.showMessageDialog(app, new JScrollPane(area), t.expect != null ? "SogniMusic test" : "Midi2Wav test", JOptionPane.PLAIN_MESSAGE);
+        // SogniMusic's --vst: DrumMidi's MIDI of the track then plays through the VST (and vst_render's own test).
+        if (t.vst && t.drums.length() > 0) this.toVst(t.drums, true);
     }
 
     /** The prompt library version the last run's sheet was stored as (File > Downloads: Delete with it). */

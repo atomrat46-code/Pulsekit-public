@@ -1302,6 +1302,7 @@ final class PyJav {
             if (path == null) return false;
             final boolean test = pulsekit.Midi2WavTest.musicWanted(program, argv);
             final java.util.List<String> musicArgv = argv;
+            if (argv.contains(pulsekit.Midi2WavTest.VST)) this.pkAddLogLine(VST_HERE);
             this.pkAddLogLine("Making a WAV of " + mp3Name + "…");
             AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
                 if (wav == null) {
@@ -1415,6 +1416,9 @@ final class PyJav {
         return false;
     }
 
+    /** --vst on the phone: VST plugins run on a computer (vst_render.py in Pulsekit's desktop app). */
+    static final String VST_HERE = "--vst: VST plugins play on a computer (vst_render.py in Pulsekit's desktop app)";
+
     /** MidiDrumGen --towav / --test: its MIDI played into a WAV by Midi2Wav (and tested). False when it made no MIDI. */
     boolean pkGenToWav(pulsekit.JavaRun.Result result, java.util.List<String> genArgv) {
         pulsekit.JavaRun.FileOut midi = null;
@@ -1438,6 +1442,7 @@ final class PyJav {
             }
             final java.util.List<String> args = pulsekit.Midi2WavTest.genToWavArgs(f.getAbsolutePath(), genArgv,
                 app.programMenus.bundledSource("Midi2Wav.java"), pulsekit.PyJavParams.load(app, "Midi2Wav.java"));
+            if (pulsekit.Midi2WavTest.genToVst("MidiDrumGen.java", genArgv)) this.pkAddLogLine(VST_HERE + "; Midi2Wav plays it here");
             this.pkAddLogLine("Next: Midi2Wav on " + midi.name + (args.contains(pulsekit.Midi2WavTest.FLAG) ? ", then its test" : ""));
             app.handler.post(() -> {
                 this.pkPyInputPath = null;

@@ -4685,6 +4685,64 @@ public final class DesktopBehavior {
   }
 
   /**
+   * --vst: MidiDrumGen's MIDI goes to vst_render.py (not Midi2Wav) with the plugin and settings saved
+   * in vst_render's Params (and its --test); SogniMusic's DrumMidi MIDI of the track does too. Without
+   * a saved plugin the log says to pick one. (vst_render itself needs DawDreamer and a plugin: only
+   * its arguments are checked.)
+   */
+  void s106_vst_render_option() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    for (String prog : new String[] {"MidiDrumGen.java", "SogniMusic.java"}) {
+      for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource(prog))) if (p.token.equals("--vst")) out.append(prog).append(" --vst: ").append(p.label).append('\n');
+    }
+    final PyJav pj = (PyJav) get("pyJav");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    // No plugin saved: the log says so, and nothing else runs.
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("No VST render"); i++) Thread.sleep(50);
+    out.append("no plugin saved: ").append(log.getText().contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
+    if (!log.getText().contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
+    // vst_render.py's Params saved: its plugin, settings and format are used, not its folder or Edit.
+    File plugin = new File(home, "Anarchy.vst3");
+    edt(() -> pj.saveParams("vst_render.py", "--plugin \"" + plugin.getAbsolutePath() + "\" --state \"" + new File(home, "kit 1.state").getAbsolutePath() + "\" --rate 48000 --dir beats --edit --no-toms"));
+    java.util.List<String> args = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), true);
+    out.append("vst_render args: ").append(String.valueOf(args).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (args == null || !args.contains("--plugin") || !args.contains("--state") || !args.contains("48000") || args.contains("--dir") || args.contains("--edit") || !args.contains("--test")) throw new AssertionError(out.toString());
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    String ran = "";
+    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    out.append("MidiDrumGen --vst --test: program ").append(get("pyName")).append(", ran ").append(ran.contains("--plugin") && ran.contains("Anarchy.vst3") && ran.contains("--test") && ran.contains("--drummidi") && !ran.contains("--dir")).append('\n');
+    if (!"vst_render.py".equals(get("pyName")) || !ran.contains("Anarchy.vst3") || !ran.contains("--drummidi")) throw new AssertionError(out.toString() + log.getText());
+    // SogniMusic --vst (no --test): after DrumMidi_CRT's MIDI of the track, vst_render.py without its test.
+    File wav = new File(home, "track.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 36, 0, 0, 0, 'W', 'A', 'V', 'E'});
+    Midi2WavTest t = Midi2WavTest.startMusic(java.util.Arrays.asList("--drums_only", "--vst"), wav, "");
+    out.append("SogniMusic --vst: test ").append(t.testing).append(", vst ").append(t.vst).append('\n');
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    final PythonRun.FileOut drums = new PythonRun.FileOut("track.mid", Engine.encodeMidi(cells, 120));
+    edt(() -> log.setText(""));
+    edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
+    for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    ran = "";
+    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    out.append("then: ").append(get("pyName")).append(" on track-drums.mid ").append(ran.contains("track-drums.mid")).append(", its test ").append(ran.contains("--test")).append('\n');
+    if (t.testing || !t.vst || !ran.contains("track-drums.mid") || ran.contains("--test") || Midi2WavTest.current() != null) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
    * A video picked for a picture row of Params (SogniVideo's --image): its first frame goes there and
    * its last frame to --end_image, still empty; read with VLC.
    */

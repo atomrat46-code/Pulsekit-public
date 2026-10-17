@@ -3158,6 +3158,33 @@ public class BehaviorTest {
   }
 
   /**
+   * --vst on the phone: MidiDrumGen's MIDI still goes to Midi2Wav (VST plugins play on a computer),
+   * and the log says so; the Params rows name it.
+   */
+  @Test
+  public void s124_vst_option_on_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    for (String prog : new String[] {"MidiDrumGen.java", "SogniMusic.java"}) {
+      for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource(prog))) if (p.token.equals("--vst")) out.append(prog).append(" --vst: ").append(p.label).append('\n');
+    }
+    call("show", "py");
+    idle();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    app.pyName = "MidiDrumGen.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--style", "Rock", "--bars", "2", "--vst"));
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("drum_track_full_db.mid", Engine.encodeMidi(cells, 120)));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote drum_track_full_db.mid\nSucceeded: drum_track_full_db.mid", files, 0));
+    for (int i = 0; i < 20 && !"Midi2Wav.java".equals(get("pyName")); i++) idle();
+    String log = String.valueOf(app.pyJav.pkRunLog);
+    out.append("MidiDrumGen --vst: program ").append(get("pyName")).append(", note ").append(log.contains("VST plugins play on a computer")).append('\n');
+    Midi2WavTest.stop();
+    if (!"Midi2Wav.java".equals(get("pyName")) || !log.contains("VST plugins play on a computer") || !out.toString().contains("MidiDrumGen.java --vst: ") || !out.toString().contains("SogniMusic.java --vst: ")) throw new AssertionError(out.toString() + log);
+    write("s124_vst_option_on_phone", out.toString());
+  }
+
+  /**
    * A video picked for a picture row of Params: its first frame goes there and its last frame to the
    * next picture row still empty; a video no frame can be read from (as here) stays as picked.
    */

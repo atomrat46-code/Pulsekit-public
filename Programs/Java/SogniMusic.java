@@ -42,6 +42,10 @@ import java.util.Map;
  * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
  * switches suggested for a mix when other instruments were asked for), then CompareHits on the WAV,
  * DrumMidi's MIDI and the song, in a report that starts with what the track was asked to be.
+ *
+ * --vst (Pulsekit on a computer): the drum MIDI DrumMidi_CRT makes of the track is then played
+ * through a VST instrument by vst_render.py, with the plugin and settings saved in its Params (and
+ * vst_render's own --test with --test). On a phone, which has no VST plugins, it is left out.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
@@ -52,7 +56,7 @@ public final class SogniMusic {
   }
 
   /** Printed first, so a run's log shows which SogniMusic ran. */
-  static final String VERSION = "SogniMusic 2026-10-05c";
+  static final String VERSION = "SogniMusic 2026-10-17";
 
   /**
    * The work folder this run writes in, read when the run starts. On the phone PyJav runs programs
@@ -171,7 +175,7 @@ public final class SogniMusic {
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       // PyJav's, after the run (the WAV copy, the test): nothing for the program to do.
       else if (a.equals("--test")) testing = true;
-      else if (a.equals("--no_wav")) continue;
+      else if (a.equals("--no_wav") || a.equals("--vst")) continue;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -301,7 +305,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst]");
   }
 
   /**
