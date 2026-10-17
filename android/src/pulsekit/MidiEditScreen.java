@@ -30,6 +30,7 @@ public final class MidiEditScreen {
   final MidiHitEdit edit;
   final Dialog dialog;
   final GridView grid;
+  final HorizontalScrollView side;
   final TextView status;
   int[][] cells;
   /** The step under the playhead; -1 none. */
@@ -102,10 +103,10 @@ public final class MidiEditScreen {
     gridRow.addView(names);
     this.grid = new GridView(app);
     this.grid.setTag("midiedit-grid");
-    HorizontalScrollView side = new HorizontalScrollView(app);
-    side.setTag("midiedit-scroll");
-    side.addView(this.grid);
-    gridRow.addView(side, app.flex(1));
+    this.side = new HorizontalScrollView(app);
+    this.side.setTag("midiedit-scroll");
+    this.side.addView(this.grid);
+    gridRow.addView(this.side, app.flex(1));
     ScrollView tall = new ScrollView(app);
     tall.addView(gridRow);
     page.addView(tall, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -187,6 +188,17 @@ public final class MidiEditScreen {
     if (at == this.playhead) return;
     this.playhead = at;
     this.grid.invalidate();
+    if (at >= 0) this.follow(at);
+  }
+
+  /** While it plays, the grid scrolls with the beat: the playhead stays in view, a quarter of the way in. */
+  void follow(int step) {
+    int x = this.grid.stepX(Math.min(step, this.edit.steps() - 1));
+    int width = this.side.getWidth();
+    if (width <= 0) return;
+    int left = this.side.getScrollX();
+    if (x >= left && x + this.grid.cellW() <= left + width * 3 / 4) return;
+    this.side.smoothScrollTo(Math.max(0, x - width / 4), 0);
   }
 
   void save() {

@@ -144,7 +144,8 @@ final class FileSets {
         } catch (java.lang.Exception ex) { return; }
         this.paintMidiClock(mixTime(pos) + " / " + mixTime(dur));
         if (pulsekit.MidiEditScreen.now != null) pulsekit.MidiEditScreen.now.clock(this.pkMidiSrc, pos, going);
-        if (going && this.pkMidiClock != null) app.handler.postDelayed(this.pkMidiClock, 200L);
+        // The MIDI editor's playhead moves a step at a time: the clock ticks faster while it is open.
+        if (going && this.pkMidiClock != null) app.handler.postDelayed(this.pkMidiClock, pulsekit.MidiEditScreen.now != null ? 40L : 200L);
     }
 
     /** Repaints the source-MIDI clock every 200 ms while it plays. */

@@ -46,6 +46,7 @@ final class MidiEditScreen {
     final MidiHitEdit edit;
     final JDialog dialog;
     final Grid grid;
+    final JScrollPane scroll;
     final JLabel status;
     int[][] cells;
     int playhead = -1;
@@ -125,7 +126,7 @@ final class MidiEditScreen {
         for (String s : Engine.TRACK_SHORT) names.add(this.rowName(s, FG));
         this.grid = new Grid();
         this.grid.setName("midiedit-grid");
-        JScrollPane scroll = new JScrollPane(this.grid, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
+        JScrollPane scroll = this.scroll = new JScrollPane(this.grid, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
         // At the top of its own panel: each name as tall as its grid row, however tall the window is.
         JPanel nameColumn = new JPanel(new BorderLayout());
         nameColumn.setBackground(BG);
@@ -218,6 +219,19 @@ final class MidiEditScreen {
         if (at == this.playhead) return;
         this.playhead = at;
         this.grid.repaint();
+        if (at >= 0) this.follow(at);
+    }
+
+    /** While it plays, the grid scrolls with the beat: the playhead stays in view, a quarter of the way in. */
+    void follow(int step) {
+        javax.swing.JViewport port = this.scroll.getViewport();
+        int x = this.grid.stepX(Math.min(step, this.edit.steps() - 1));
+        int width = port.getExtentSize().width;
+        if (width <= 0) return;
+        java.awt.Point at = port.getViewPosition();
+        if (x >= at.x && x + CELL <= at.x + width * 3 / 4) return;
+        int most = Math.max(0, this.grid.getPreferredSize().width - width);
+        port.setViewPosition(new java.awt.Point(Math.min(most, Math.max(0, x - width / 4)), at.y));
     }
 
     void save() {

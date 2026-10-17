@@ -3227,6 +3227,19 @@ public class BehaviorTest {
     ed.tap(1, 0);
     ed.tap(3, 12);
     ed.tap(0, 8);
+    // Playing, the grid scrolls with the beat: a hit at bar 4 makes it four bars long.
+    ed.edit.toggle(0, 63);
+    ed.cells = ed.edit.cells();
+    ed.grid.requestLayout();
+    idle();
+    int before = ed.side.getScrollX();
+    ed.clock(MidiEditScreen.playKey(ed.key), (int) Math.round(50 * 60000.0 / 110 / 4), true);
+    idle();
+    org.robolectric.shadows.ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    out.append("follows the playhead: step ").append(ed.playhead).append(", scrolled ").append(ed.side.getScrollX() > before)
+        .append(", playhead in view ").append(ed.grid.stepX(ed.playhead) >= ed.side.getScrollX() && ed.grid.stepX(ed.playhead) < ed.side.getScrollX() + ed.side.getWidth()).append('\n');
+    ed.edit.toggle(0, 63);
+    ed.cells = ed.edit.cells();
     // Robolectric's media player is told how long the rendered MIDI is.
     org.robolectric.shadows.ShadowMediaPlayer.addMediaInfo(org.robolectric.shadows.util.DataSource.toDataSource(new File(app.getCacheDir(), "pk-midi.wav").getAbsolutePath()),
         new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(2000, 0));

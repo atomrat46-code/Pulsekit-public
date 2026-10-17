@@ -4735,6 +4735,19 @@ public final class DesktopBehavior {
       ed[0].tap(1, 0);
       ed[0].tap(3, 12);
       ed[0].tap(0, 8);
+      // Playing, the grid scrolls with the beat: a hit at bar 4 makes it four bars long.
+      ed[0].edit.toggle(0, 63);
+      ed[0].cells = ed[0].edit.cells();
+      ed[0].grid.revalidate();
+      ed[0].scroll.validate();
+      javax.swing.JViewport port = ed[0].scroll.getViewport();
+      int before = port.getViewPosition().x;
+      ed[0].clock(MidiEditScreen.playKey(ed[0].key), (int) Math.round(50 * 60000.0 / 110 / 4), true);
+      int x = ed[0].grid.stepX(ed[0].playhead);
+      seen.append("follows the playhead: step ").append(ed[0].playhead).append(", scrolled ").append(port.getViewPosition().x > before)
+          .append(", playhead in view ").append(x >= port.getViewPosition().x && x < port.getViewPosition().x + port.getExtentSize().width).append('\n');
+      ed[0].edit.toggle(0, 63);
+      ed[0].cells = ed[0].edit.cells();
       ((javax.swing.JButton) component(page, "midiedit-play")).doClick();
       seen.append("Play: ").append(((JLabel) get("nowPlaying")).getText().replaceAll("No audio output for .*", "no audio device here")).append('\n');
       ((javax.swing.JButton) component(page, "midiedit-save")).doClick();

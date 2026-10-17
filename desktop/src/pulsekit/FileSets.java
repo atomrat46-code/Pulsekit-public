@@ -540,7 +540,8 @@ final class FileSets {
 
     void startMidiClock() {
         if (this.midiTimer != null) this.midiTimer.stop();
-        this.midiTimer = new javax.swing.Timer(200, e -> this.tickMidiClock());
+        // The MIDI editor's playhead moves a step at a time: the clock ticks faster while it is open.
+        this.midiTimer = new javax.swing.Timer(MidiEditScreen.now != null ? 40 : 200, e -> this.tickMidiClock());
         this.midiTimer.start();
     }
 
