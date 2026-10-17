@@ -107,6 +107,8 @@ public final class ProgramParams {
     boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
     boolean joinVideo = has(out, "--b_first") && has(out, "--addtodb");
+    // BatchRun: a batch of another program's runs (one a picture, or a prompt sheet).
+    boolean batchRun = has(out, "--prompt_file") && has(out, "--slot") && has(out, "--plan");
     // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
@@ -140,6 +142,7 @@ public final class ProgramParams {
       if (drumGen) knownDrumGenBatch(p);
       if (videoFrames) knownVideoFrames(p);
       if (midiBatch) knownMidiBatch(p);
+      if (batchRun) knownBatchRun(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -730,6 +733,53 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
+    if (p.flag && p.takesValue && p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of videos to join, in order (one a line)";
+      p.hint = "BatchRun --join writes one";
+    }
+  }
+
+  /** BatchRun's labels: the program, the prompt sheet or a folder of them, the pictures, where each goes, the rest. */
+  private static void knownBatchRun(Param p) {
+    if (p.token.equals("--program")) {
+      p.label = "Program to run";
+      p.hint = "SogniVideo";
+      p.choices = new String[] {"SogniVideo", "SogniPedit", "SogniPadd", "ImageUpscaler", "VideoFrames", "Wav2Mp3"};
+      p.choiceValues = p.choices;
+    } else if (p.token.equals("--prompt_file")) {
+      p.ext = "prompt";
+      p.refs = true;
+      p.label = "Prompt sheet: its prompt for every run";
+      p.hint = "a .prompt (Browse DB: the prompt library's prompt files)";
+    } else if (p.token.equals("--prompts")) {
+      p.dir = true;
+      p.label = "Or a folder of prompt sheets: a run for each";
+      p.hint = "empty: the sheet above";
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Files in this folder: a run for each";
+      p.hint = "pictures (PNG, JPEG, WebP) for a Sogni program or ImageUpscaler";
+    } else if (p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of files (one a line)";
+    } else if (p.token.equals("--slot")) {
+      p.label = "Each file goes in";
+      p.hint = "image (ImageUpscaler: input)";
+      p.choices = new String[] {"image (the first frame / the picture)", "image2 (SogniPedit's second reference)", "end_image (SogniVideo's last frame)",
+          "input (first: the program's input file)"};
+      p.choiceValues = new String[] {"image", "image2", "end_image", "input"};
+    } else if (p.token.equals("--args")) {
+      p.label = "The rest of each run's arguments";
+      p.hint = "as the program's Arguments box: --duration 6 --unlimited";
+    } else if (p.token.equals("--join")) {
+      p.label = "Then join the clips in order (JoinVideo; SogniVideo)";
+    } else if (p.token.equals("--max")) {
+      p.label = "At most this many runs (each costs credit)";
+      p.hint = "empty: all of them";
+    } else if (p.token.equals("--plan")) {
+      p.label = "Only show the plan (nothing is run)";
+    }
   }
 
   /** SogniPedit's labels: the pictures are files (also from the prompt library), the LoRAs a list; Unlimited Plan and Save the prompt start ticked. */

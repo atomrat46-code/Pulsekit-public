@@ -3158,6 +3158,70 @@ public class BehaviorTest {
   }
 
   /**
+   * BatchRun's plan (SogniVideo on two pictures, --join): each run of SogniVideo follows the one
+   * before with the planned arguments, its clip kept and not played, then JoinVideo --list on the
+   * clips. (Programs do not run here: each run's result is given as PyJav would get it.)
+   */
+  @Test
+  public void s126_batch_run() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    String plan = "Batch program: SogniVideo.java\nBatch join: the clips, in order, with JoinVideo\nRun 1/2: a.png\n"
+        + "Batch run: --duration 6 --image /sdcard/a.png --prompt \"The camera \\\"drifts\\\" slowly\"\nRun 2/2: b.png\n"
+        + "Batch run: --duration 6 --image /sdcard/b.png --prompt \"The camera \\\"drifts\\\" slowly\"\nSucceeded: 2 runs of SogniVideo to go";
+    app.pyName = "BatchRun.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt_file", "/sdcard/garden.prompt", "--dir", "/sdcard", "--join"));
+    app.pyJav.pkShowPyResult(new JavaRun.Result(plan, new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    BatchQueue planned = BatchQueue.current();
+    out.append("planned: ").append(planned == null ? "none" : planned.program + " " + planned.runs).append('\n');
+    if (planned == null || !"SogniVideo.java".equals(planned.program) || !planned.join || planned.runs.size() != 2
+        || !String.valueOf(planned.runs.get(0)).equals("[--duration, 6, --image, /sdcard/a.png, --prompt, The camera \"drifts\" slowly]")) throw new AssertionError(out.toString());
+    for (int i = 0; i < 50 && !"SogniVideo.java".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append('\n');
+    if (!"SogniVideo.java".equals(get("pyName"))) throw new AssertionError(out.toString());
+    // SogniVideo cannot run here: each run fails, and the batch still goes on to the next, then ends.
+    for (int i = 0; i < 200 && BatchQueue.current() != null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String last = "";
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Batch")) last = line;
+    out.append("runs that fail: ").append(last).append('\n');
+    if (BatchQueue.current() != null || !last.equals("Batch done: 0 of 2 runs succeeded, 2 failed")) throw new AssertionError(out.toString() + app.pyJav.pkRunLog);
+    // The last run's clip comes back (the first one's already kept): kept, not played, and JoinVideo --list follows.
+    BatchQueue q = BatchQueue.start("BatchRun.java", java.util.Arrays.asList("--join"), "Succeeded: 2 runs", plan);
+    q.next = 2;
+    q.ok = 1;
+    File first = new File(app.getCacheDir(), "pyjav-batch/clip1.mp4");
+    first.getParentFile().mkdirs();
+    Files.write(first.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    q.made.add(first.getAbsolutePath());
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyName = "SogniVideo.java";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("clip2.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote clip2.mp4\nSucceeded: clip2.mp4", files, 0));
+    for (int i = 0; i < 50 && !"JoinVideo.java".equals(get("pyName")); i++) idle();
+    boolean shown = false;
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) shown = true;
+    String listed = new String(Files.readAllBytes(new File(app.getCacheDir(), "pyjav-in/batch-clips.txt").toPath()), StandardCharsets.UTF_8).replace(app.getCacheDir().getAbsolutePath(), "<cache>");
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(app.getCacheDir().getAbsolutePath(), "<cache>"))
+        .append(", its list: ").append(listed.replace("\n", " ")).append(", the clip shown: ").append(shown).append('\n');
+    if (!"JoinVideo.java".equals(get("pyName")) || !listed.equals("<cache>/pyjav-batch/clip1.mp4\n<cache>/pyjav-batch/clip2.mp4\n") || shown)
+      throw new AssertionError(out.toString());
+    // JoinVideo is over (it fails here too): the batch is done.
+    for (int i = 0; i < 200 && BatchQueue.current() != null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Batch")) last = line;
+    out.append("then: ").append(last).append('\n');
+    if (BatchQueue.current() != null || !last.equals("Batch done: 2 of 2 runs succeeded")) throw new AssertionError(out.toString() + app.pyJav.pkRunLog);
+    write("s126_batch_run", out.toString());
+  }
+
+  /**
    * Midi2Wav --dir --test (a batch folder rendered with SoundFont kits): DrumMidi_CRT --dir on its
    * WAVs, then CompareHits --batch on the folder, then the report. (Programs do not run here: each
    * step's result is given as PyJav would get it.)

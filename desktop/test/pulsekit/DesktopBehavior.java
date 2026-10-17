@@ -4685,6 +4685,63 @@ public final class DesktopBehavior {
   }
 
   /**
+   * BatchRun: its plan runs one run after another (VideoFrames on each clip of a list here; Sogni
+   * programs alike), what each makes kept and not shown, then the summary; Stop batch ends it after
+   * the run in progress; JoinVideo --list joins a list of clips.
+   */
+  void s108_batch_run() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir"));
+    File list = new File(home, "clips.txt");
+    Files.write(list.toPath(), (new File(dir, "clip-a.mp4").getAbsolutePath() + "\n" + new File(dir, "clip-b.mp4").getAbsolutePath() + "\n").getBytes(StandardCharsets.UTF_8));
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("BatchRun.java"))) out.append("BatchRun ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : p.isFile() ? " (file)" : "").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "BatchRun.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --first"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 1200 && !log.getText().contains("Batch done") && !log.getText().contains("Batch stopped"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    java.util.List<String> pics = new java.util.ArrayList<String>();
+    for (String d : new String[] {"Downloads", ".pulsekit"}) {
+      String[] in = new File(home, d).list();
+      if (in != null) for (String n : in) if (n.endsWith("-first.png")) pics.add(n);
+    }
+    java.util.Collections.sort(pics);
+    String summary = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    out.append("batch: ").append(summary).append(", program now ").append(get("pyName")).append(", pictures ").append(pics).append(", Stop batch shown ").append(pj.pyBatchStop.isVisible()).append('\n');
+    if (!summary.equals("Batch done: 2 of 2 runs succeeded") || !pics.contains("clip-a-first.png") || !pics.contains("clip-b-first.png") || pj.pyBatchStop.isVisible() || BatchQueue.current() != null)
+      throw new AssertionError(out.toString() + log.getText());
+    // Stop batch during the first run: the second is not run.
+    call("selectListedProgram", "Java", "BatchRun.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --last"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && BatchQueue.current() == null; i++) Thread.sleep(20);
+    out.append("Stop batch shown while it runs: ").append(pj.pyBatchStop.isVisible()).append('\n');
+    edt(() -> pj.stopBatch());
+    for (int i = 0; i < 1200 && BatchQueue.current() != null; i++) Thread.sleep(50);
+    Thread.sleep(300);
+    summary = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    out.append("stopped: ").append(summary).append('\n');
+    if (!summary.equals("Batch stopped: 1 of 2 runs succeeded, 1 not run")) throw new AssertionError(out.toString() + log.getText());
+    // JoinVideo --list: the clips of a list, in order.
+    call("selectListedProgram", "Java", "JoinVideo.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + list.getAbsolutePath() + "\""));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    String joined = "";
+    for (String line : log.getText().split("\n")) if (line.startsWith("Joined")) joined = line;
+    out.append("JoinVideo --list: ").append(joined).append('\n');
+    if (!joined.startsWith("Joined clip-a.mp4 and then clip-b.mp4")) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
    * MidiBatch: a folder of MIDI files (and its subfolders) into a batch folder with list.txt and
    * batch.txt; --combine joins them at random. Then Midi2Wav --dir --test renders it with Pulsekit's
    * kit, DrumMidi_CRT --dir reads the WAVs and CompareHits --batch sums them, in the test report.

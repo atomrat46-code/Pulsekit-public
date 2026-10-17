@@ -144,6 +144,11 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
+        // Stop batch: BatchRun's runs end after the one in progress.
+        this.pyBatchStop = app.action("Stop batch", ELEV, FG, () -> this.stopBatch());
+        this.pyBatchStop.setName("pyjav-batch-stop");
+        this.pyBatchStop.setVisible(BatchQueue.current() != null);
+        controls.add(this.pyBatchStop);
         // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
         final JButton extraLab = new JButton("Arguments \u25b8");
         extraLab.setName("pyjav-args-head");
@@ -373,7 +378,10 @@ final class PyJav {
         final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
-        if (this.mustWait(name, true)) return;
+        // A batch's next run goes on without asking (the run before may still be storing).
+        boolean batchStep = this.batchStep;
+        this.batchStep = false;
+        if (!batchStep && this.mustWait(name, true)) return;
         final byte[] bytes = app.pyBytes;
         final boolean promptProg = name.toLowerCase().endsWith(".prompt");
         final String runSrc = promptProg ? PromptRun.withoutDescription(this.promptDescription, src) : src;
@@ -674,6 +682,9 @@ final class PyJav {
                     SogniDownloads.done(download);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
+                // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
+                final BatchQueue batch = BatchQueue.current();
+                final boolean inBatch = batch != null && batch.takes(name) && !batch.joining;
                 // A run that made an audio file (SogniMusic's track): play it, or make drum MIDI from it.
                 String made = PyJavHints.madeAudio(result.log);
                 // SogniMusic's track is also kept as a WAV (unless --no_wav), beside the MP3.
@@ -688,7 +699,7 @@ final class PyJav {
                 }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
-                if (!testing && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
+                if (!testing && !inBatch && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
                 File frame = result.code == 0 && "VideoFrames.java".equals(name) && argv.contains("--upscale") ? this.firstFrame(savedPictures, argv, result.log) : null;
                 if (frame != null) {
@@ -697,9 +708,9 @@ final class PyJav {
                     this.openParams();
                 }
                 // Pictures it made (SogniChat's tool results) are shown.
-                else if (!savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
+                else if (!inBatch && !savedPictures.isEmpty() && result.code == 0) this.offerPictures(savedPictures);
                 // A video it made (SogniVideo's clip, a SogniChat tool result) is offered for playing.
-                if (!savedVideos.isEmpty() && result.code == 0) {
+                if (!inBatch && !savedVideos.isEmpty() && result.code == 0) {
                     // A joined clip (SogniVideo's Join with this video) is the one to watch.
                     File watch = savedVideos.get(0);
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
@@ -712,6 +723,16 @@ final class PyJav {
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
+                // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
+                if (batch != null && batch.takes(name)) {
+                    java.util.List<String> paths = new java.util.ArrayList<String>();
+                    for (File f : savedVideos) paths.add(f.getAbsolutePath());
+                    for (File f : savedPictures) paths.add(f.getAbsolutePath());
+                    batch.done(verdict, paths);
+                    this.batchNext(batch);
+                } else if (BatchQueue.start(name, argv, verdict, result.log) != null) {
+                    this.batchNext(BatchQueue.current());
+                }
             });
         }, "pulsekit-pyjav").start();
     }
@@ -998,6 +1019,64 @@ final class PyJav {
             this.forcedArgs = args;
             this.runPython();
         });
+    }
+
+    /** Set for the batch's own runs: Run goes on without asking. */
+    boolean batchStep;
+    javax.swing.JComponent pyBatchStop;
+
+    /**
+     * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
+     * Each run is the program's own, with the arguments BatchRun planned.
+     */
+    void batchNext(BatchQueue q) {
+        if (q == null) return;
+        if (this.pyBatchStop != null) this.pyBatchStop.setVisible(true);
+        final String program;
+        java.util.List<String> args;
+        if (q.hasNext()) {
+            program = q.program;
+            args = q.nextArgs();
+            this.testNote(q.progress());
+        } else if (q.joinNext()) {
+            program = "JoinVideo.java";
+            try {
+                args = q.joinArgs(new File(PromptDb.dir(), "pyjav-in"));
+            } catch (Exception ex) {
+                this.testNote("Batch: could not list the clips for JoinVideo (" + ex.getMessage() + ")");
+                this.batchOver(q);
+                return;
+            }
+            this.testNote("Batch: JoinVideo on the " + q.clips().size() + " clips, in order");
+        } else {
+            this.batchOver(q);
+            return;
+        }
+        final java.util.List<String> run = args;
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Java", program);
+            this.forcedArgs = run;
+            this.batchStep = true;
+            this.runPython();
+        });
+    }
+
+    void batchOver(BatchQueue q) {
+        BatchQueue.stop();
+        if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
+        this.testNote(q.summary());
+    }
+
+    /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
+    void stopBatch() {
+        BatchQueue q = BatchQueue.current();
+        if (q == null) {
+            if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
+            return;
+        }
+        q.stopping = true;
+        this.testNote("Batch: stopping after the run in progress");
     }
 
     void runTestCompare(java.util.List<String> args) {

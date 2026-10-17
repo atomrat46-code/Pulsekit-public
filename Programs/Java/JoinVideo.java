@@ -3,13 +3,15 @@
  * with --b_first), then videos c to f when given.
  *
  *   java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4]
- *       [output.mp4] [--b_first] [--addtodb]
+ *       [output.mp4] [--b_first] [--addtodb] [--list <listfile>]
  *
  * --video_c..f  More videos, after a and b, in order.
  * output.mp4  Default: <video a>-merged.mp4 in the work folder (Downloads on the phone); a name in
  *             use gets (1), (2)...
  * --b_first   Video b first, then video a (videos c to f follow).
  * --addtodb   PyJav also keeps the joined video in the prompt library, as a result file.
+ * --list      A text file listing the videos to join, in order (one a line; any number of them):
+ *             BatchRun --join gives its clips this way. Videos given as well follow them.
  *
  * The two pictures must be in the same format (codec, size and codec setup), as two Sogni clips
  * from the same model are; otherwise it says why. Sound is joined when both have it in the same
@@ -42,7 +44,7 @@ public final class JoinVideo {
 
   static void usage() {
     System.out.println("Usage: java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4] "
-        + "[output.mp4] [--b_first] [--addtodb]");
+        + "[output.mp4] [--b_first] [--addtodb] [--list <listfile>]");
   }
 
   static int run(String[] args) {
@@ -52,6 +54,8 @@ public final class JoinVideo {
     String[] more = new String[4];
     boolean bFirst = false;
     boolean addToDb = false;
+    List<String> listed = null;
+    List<String> extra = new ArrayList<String>();
     for (int i = 0; i < args.length; i++) {
       String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
@@ -61,6 +65,13 @@ public final class JoinVideo {
           return 2;
         }
         more[a.charAt(8) - 'c'] = args[++i].trim();
+      } else if (a.equals("--list")) {
+        if (i + 1 >= args.length || args[i + 1] == null || args[i + 1].trim().length() == 0) {
+          System.out.println("Failed: --list needs a list of videos");
+          return 2;
+        }
+        listed = readList(new File(args[++i].trim()));
+        if (listed == null) return 2;
       } else if (a.equals("--b_first")) bFirst = true;
       else if (a.equals("--addtodb")) addToDb = true;
       else if (a.equals("-h") || a.equals("--help")) {
@@ -73,6 +84,21 @@ public final class JoinVideo {
       } else {
         files.add(a);
       }
+    }
+    // --list: its videos in order, then the ones given (an output name may follow).
+    if (listed != null) {
+      String outName = null;
+      for (String f : files) {
+        if (new File(f).isFile() && f.toLowerCase().matches(".+\\.(mp4|m4v|mov)")) listed.add(f);
+        else outName = f;
+      }
+      if (listed.size() < 2) {
+        System.out.println("Failed: --list needs two videos at least (" + listed.size() + " found)");
+        return 2;
+      }
+      files = new ArrayList<String>(listed.subList(0, 2));
+      for (int k = 2; k < listed.size(); k++) extra.add(listed.get(k));
+      if (outName != null) files.add(outName);
     }
     if (files.size() < 2) {
       System.out.println("Failed: give two MP4 videos, video a and video b");
@@ -89,6 +115,7 @@ public final class JoinVideo {
     videos.add(bFirst ? b : a);
     videos.add(bFirst ? a : b);
     for (String m : more) if (m != null) videos.add(new File(m));
+    for (String m : extra) videos.add(new File(m));
     for (File f : videos) {
       if (!f.isFile()) {
         System.out.println("Failed: no such file: " + f.getPath());
@@ -111,6 +138,25 @@ public final class JoinVideo {
       out.delete();
       System.out.println("Failed: could not join the videos: " + ex.getMessage());
       return 1;
+    }
+  }
+
+  /** --list's videos: one a line (# starts a comment; a name without a folder is beside the list); null (said why) when it cannot be read. */
+  static List<String> readList(File list) {
+    List<String> out = new ArrayList<String>();
+    try {
+      File beside = list.getAbsoluteFile().getParentFile();
+      for (String line : new String(java.nio.file.Files.readAllBytes(list.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        String t = line.replace("\r", "").trim();
+        if (t.length() == 0 || t.startsWith("#")) continue;
+        File f = new File(t);
+        if (!f.isAbsolute()) f = new File(beside, t);
+        out.add(f.getPath());
+      }
+      return out;
+    } catch (IOException ex) {
+      System.out.println("Failed: could not read the list " + list.getName() + ": " + ex.getMessage());
+      return null;
     }
   }
 
