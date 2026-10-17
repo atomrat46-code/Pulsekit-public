@@ -3158,6 +3158,54 @@ public class BehaviorTest {
   }
 
   /**
+   * Midi2Wav --dir --test (a batch folder rendered with SoundFont kits): DrumMidi_CRT --dir on its
+   * WAVs, then CompareHits --batch on the folder, then the report. (Programs do not run here: each
+   * step's result is given as PyJav would get it.)
+   */
+  @Test
+  public void s125_midi2wav_batch_test() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "batch-test");
+    dir.mkdirs();
+    java.util.List<String> argv = java.util.Arrays.asList("--dir", dir.getAbsolutePath(), "--kits", "/sdcard/kits", "--test");
+    out.append("batch test wanted: ").append(Midi2WavTest.batchWanted("Midi2Wav.java", argv)).append(", needs Pulsekit's kit: ").append(JavaRun.needsKit("Midi2Wav.java", argv)).append('\n');
+    // 1. Midi2Wav's batch is over: DrumMidi_CRT --dir on the folder.
+    app.pyName = "Midi2Wav.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(argv);
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Midi2Wav: 2 MIDI files in batch-test with 2 kits\nSucceeded: 4 of 4 WAV files in batch-test", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 50 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    if (!"DrumMidi_CRT.jar".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--dir, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // 2. As if DrumMidi --dir had run: CompareHits --batch follows.
+    Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
+    app.pyName = "DrumMidi_CRT.jar";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", dir.getAbsolutePath()));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: DrumMidi on 4 of 4 WAV files in batch-test (<wav>-dm.mid beside each)", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 50 && !"CompareHits.java".equals(get("pyName")); i++) idle();
+    out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    if (!"CompareHits.java".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--batch, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // 3. As if CompareHits --batch had run: the report.
+    Midi2WavTest t = Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
+    t.batchDrumsDone("Succeeded: DrumMidi on 4 of 4 WAV files");
+    app.pyName = "CompareHits.java";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--batch", dir.getAbsolutePath()));
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyJav.pkShowPyResult(new JavaRun.Result("CompareHits --batch: 2 grooves in batch-test, 4 renders compared (2 plugins)\n== Drum Set: 2 grooves, F 75.3%\nSucceeded: 4 renders compared", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    for (int i = 0; i < 20; i++) idle();
+    String report = null;
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) {
+      if (!d.isShowing()) continue;
+      View v = d.getWindow().getDecorView().findViewWithTag("midi2wav-test-report");
+      if (v instanceof TextView) report = ((TextView) v).getText().toString();
+    }
+    out.append("report: ").append(report == null ? "none" : report.split("\n")[0] + " / " + report.contains("== Drum Set")).append('\n');
+    if (report == null || !report.startsWith("Midi2Wav batch test: batch-test") || !report.contains("== Drum Set") || Midi2WavTest.current() != null) throw new AssertionError(out.toString());
+    write("s125_midi2wav_batch_test", out.toString());
+  }
+
+  /**
    * --vst on the phone: MidiDrumGen's MIDI still goes to Midi2Wav (VST plugins play on a computer),
    * and the log says so; the Params rows name it.
    */

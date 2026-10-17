@@ -844,6 +844,20 @@ final class PyJav {
             });
             return true;
         }
+        // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
+        if (Midi2WavTest.batchWanted(name, argv)) {
+            t = Midi2WavTest.startBatch(verdict, argv);
+            if (t == null) return false;
+            final java.util.List<String> drumArgs = t.batchDrumArgs();
+            this.testNote("Test: DrumMidi_CRT on every WAV in " + new File(t.batch).getName() + ", then CompareHits --batch");
+            SwingUtilities.invokeLater(() -> {
+                app.pyInputPath = null;
+                app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+                this.forcedArgs = drumArgs;
+                this.runPython();
+            });
+            return true;
+        }
         if (Midi2WavTest.wanted(name, argv)) {
             t = Midi2WavTest.start(verdict, argv, wav);
             if (t == null) return false;
@@ -858,6 +872,20 @@ final class PyJav {
         if (t == null) return false;
         final Midi2WavTest test = t;
         try {
+            if (t.stage == Midi2WavTest.BATCH_DRUMS && "DrumMidi_CRT.jar".equals(name)) {
+                if (!t.batchDrumsDone(verdict)) {
+                    this.testNote("Test stopped: DrumMidi_CRT made no MIDI (" + (verdict.length() == 0 ? "no result" : verdict) + ")");
+                    return true;
+                }
+                this.testNote("Test: CompareHits --batch " + new File(t.batch).getName());
+                SwingUtilities.invokeLater(() -> this.runTestCompare(test.batchCompareArgs()));
+                return true;
+            }
+            if (t.stage == Midi2WavTest.BATCH_COMPARE && "CompareHits.java".equals(name)) {
+                t.batchCompareDone(log);
+                SwingUtilities.invokeLater(() -> this.showTestReport(test));
+                return true;
+            }
             if (t.stage == Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(name)) {
                 byte[] drums = madeMidi != null ? madeMidi.bytes : null;
                 String drumsName = madeMidi != null ? madeMidi.name : null;

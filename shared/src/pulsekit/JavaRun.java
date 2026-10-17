@@ -345,13 +345,13 @@ public final class JavaRun {
    * not build. `argv` itself, changed.
    */
   /**
-   * Midi2Wav without a SoundFont (--sf2): true, and Pulsekit's own kit (the active drum set, as
-   * Export SF2 writes it) is given with withKit.
+   * Midi2Wav without a SoundFont (--sf2) or a folder of them (--kits): true, and Pulsekit's own
+   * kit (the active drum set, as Export SF2 writes it) is given with withKit.
    */
   public static boolean needsKit(String program, List<String> argv) {
     if (!"Midi2Wav.java".equals(program) || argv == null) return false;
     for (int i = 0; i < argv.size(); i++) {
-      if (!"--sf2".equals(argv.get(i))) continue;
+      if (!"--sf2".equals(argv.get(i)) && !"--kits".equals(argv.get(i))) continue;
       String v = i + 1 < argv.size() ? argv.get(i + 1) : null;
       if (v != null && v.trim().length() > 0 && !v.startsWith("--")) return false;
     }

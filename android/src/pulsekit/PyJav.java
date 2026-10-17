@@ -1319,6 +1319,20 @@ final class PyJav {
             });
             return test;
         }
+        // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
+        if (pulsekit.Midi2WavTest.batchWanted(program, argv)) {
+            t = pulsekit.Midi2WavTest.startBatch(status, argv);
+            if (t == null) return false;
+            final java.util.List<String> drumArgs = t.batchDrumArgs();
+            this.pkAddLogLine("Test: DrumMidi_CRT on every WAV in " + new java.io.File(t.batch).getName() + ", then CompareHits --batch");
+            app.handler.post(() -> {
+                this.pkPyInputPath = null;
+                app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+                this.pkForcedArgs = drumArgs;
+                this.pkRunPyJav();
+            });
+            return true;
+        }
         if (pulsekit.Midi2WavTest.wanted(program, argv)) {
             String wavName = pulsekit.PyJavHints.madeAudio(log);
             byte[] wav = null;
@@ -1338,6 +1352,20 @@ final class PyJav {
         if (t == null) return false;
         final pulsekit.Midi2WavTest test = t;
         try {
+            if (t.stage == pulsekit.Midi2WavTest.BATCH_DRUMS && "DrumMidi_CRT.jar".equals(program)) {
+                if (!t.batchDrumsDone(status)) {
+                    this.pkAddLogLine("Test stopped: DrumMidi_CRT made no MIDI (" + (status == null ? "no result" : status) + ")");
+                    return true;
+                }
+                this.pkAddLogLine("Test: CompareHits --batch " + new java.io.File(t.batch).getName());
+                app.handler.post(() -> this.pkRunTestCompare(test.batchCompareArgs()));
+                return true;
+            }
+            if (t.stage == pulsekit.Midi2WavTest.BATCH_COMPARE && "CompareHits.java".equals(program)) {
+                t.batchCompareDone(log);
+                app.handler.post(() -> this.pkShowTestReport(test));
+                return true;
+            }
             if (t.stage == pulsekit.Midi2WavTest.DRUM_MIDI && "DrumMidi_CRT.jar".equals(program)) {
                 byte[] drums = null;
                 String drumsName = null;

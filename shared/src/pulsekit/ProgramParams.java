@@ -115,6 +115,8 @@ public final class ProgramParams {
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     // VideoFrames: pictures from a video (first, last, at times, every N seconds).
     boolean videoFrames = has(out, "--first") && has(out, "--last") && has(out, "--every");
+    // MidiBatch: MIDI files from a folder or a list into a batch folder, copied or joined at random.
+    boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -137,6 +139,7 @@ public final class ProgramParams {
       if (drumGen && p.token.equals("--vst")) p.label = "Play it through a VST instead (vst_render.py's saved plugin; computer only)";
       if (drumGen) knownDrumGenBatch(p);
       if (videoFrames) knownVideoFrames(p);
+      if (midiBatch) knownMidiBatch(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -455,8 +458,19 @@ public final class ProgramParams {
       p.hint = "optional; <drums>2wav.wav";
     } else if (!p.flag && p.isFile()) {
       p.label = "Drum MIDI file";
-      p.hint = "a .mid; its drum channel is played";
+      p.hint = "a .mid; its drum channel is played; empty with a batch folder below";
       p.refs = true;
+      p.optional = true;
+    } else if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Batch folder: every MIDI in it, each as <midi>-<kit>.wav (instead of the file above)";
+      p.hint = "a MidiDrumGen --count or MidiBatch folder";
+    } else if (p.token.equals("--recursive")) {
+      p.label = "Its subfolders too";
+    } else if (p.token.equals("--kits")) {
+      p.dir = true;
+      p.label = "Batch kits: every SoundFont in this folder (with the one above)";
+      p.hint = "empty: the SoundFont above, else Pulsekit's kit";
     } else if (p.token.equals("--sf2")) {
       p.label = "SoundFont (.sf2)";
       p.hint = "empty: Pulsekit's kit (the active drum set)";
@@ -472,7 +486,7 @@ public final class ProgramParams {
     } else if (p.token.equals("--addtodb")) {
       p.label = "Add the MIDI, the SoundFont and the WAV to DB";
     } else if (p.token.equals("--test")) {
-      p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions)";
+      p.label = "Test: DrumMidi on the WAV, then CompareHits (analysis and suggestions); a batch: CompareHits --batch";
     }
   }
 
@@ -504,6 +518,39 @@ public final class ProgramParams {
       p.label = "Folder for the pictures";
       p.hint = "empty: with PyJav's other output";
     } else if (p.token.equals("--upscale")) p.label = "Then upscale the first picture (ImageUpscaler, its Params open)";
+  }
+
+  /** MidiBatch's labels: where the MIDI files come from, the batch folder, and joining them. */
+  private static void knownMidiBatch(Param p) {
+    if (p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "MIDI files in this folder";
+      p.hint = "empty: the list below";
+    } else if (p.token.equals("--recursive")) p.label = "Its subfolders too";
+    else if (p.token.equals("--list")) {
+      p.ext = "txt";
+      p.label = "Or a list of MIDI files (list.txt, one a line)";
+      p.hint = "every batch folder gets the list it used";
+    } else if (p.token.equals("--outdir")) {
+      p.dir = true;
+      p.label = "Batch folder";
+      p.hint = "empty: midi-mix-<seed> in the program files folder";
+    } else if (p.token.equals("--max")) {
+      p.label = "Only this many files, picked at random";
+      p.hint = "empty: all of them";
+    } else if (p.token.equals("--combine")) {
+      p.label = "Join this many random files into each new one";
+      p.hint = "empty: the files are copied as they are";
+    } else if (p.token.equals("--count")) {
+      p.label = "How many joined files";
+      p.hint = "empty: 10";
+    } else if (p.token.equals("--cut")) {
+      p.label = "Bars of each file to use";
+      p.hint = "empty: all of it";
+    } else if (p.token.equals("--seed")) {
+      p.label = "Seed (the same seed picks the same files)";
+      p.hint = "empty: a new one each run";
+    }
   }
 
   /** MidiDrumGen's batch: --count grooves in random styles, into --outdir, made again with --seed. */

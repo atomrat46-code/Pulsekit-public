@@ -4685,6 +4685,74 @@ public final class DesktopBehavior {
   }
 
   /**
+   * MidiBatch: a folder of MIDI files (and its subfolders) into a batch folder with list.txt and
+   * batch.txt; --combine joins them at random. Then Midi2Wav --dir --test renders it with Pulsekit's
+   * kit, DrumMidi_CRT --dir reads the WAVs and CompareHits --batch sums them, in the test report.
+   */
+  void s107_midi_batch() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File src = new File(home, "my-midis");
+    new File(src, "sub").mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    for (int i = 4; i < 16; i += 8) cells[2][i] = 100;
+    for (int i = 0; i < 16; i += 2) cells[4][i] = 80;
+    Files.write(new File(src, "a.mid").toPath(), Engine.encodeMidi(cells, 100));
+    Files.write(new File(src, "sub/b.mid").toPath(), Engine.encodeMidi(cells, 140));
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("MidiBatch.java"))) out.append("MidiBatch ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    // Copied as they are.
+    File mix = new File(home, "mix-a");
+    call("selectListedProgram", "Java", "MidiBatch.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + src.getAbsolutePath() + "\" --recursive --outdir \"" + mix.getAbsolutePath() + "\" --seed 7"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    String[] made = mix.list();
+    java.util.Arrays.sort(made == null ? new String[0] : made);
+    out.append("copied: ").append(java.util.Arrays.toString(made)).append('\n');
+    if (!new File(mix, "batch.txt").isFile()) throw new AssertionError(out.toString() + log.getText());
+    String batch = new String(Files.readAllBytes(new File(mix, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("batch.txt:\n").append(batch);
+    if (!batch.contains("mix-002-b.mid\tb\tsub\t140\t4/4")) throw new AssertionError(out.toString() + log.getText());
+    // Joined: 3 files of 2 parts each.
+    File joined = new File(home, "mix-b");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + new File(mix, "list.txt").getAbsolutePath() + "\" --combine 2 --count 3 --cut 1 --outdir \"" + joined.getAbsolutePath() + "\" --seed 7"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(new File(joined, "mix-001-2-parts.mid"));
+    out.append("joined: ").append(log.getText().contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
+    if (seq.getTickLength() != 3840) throw new AssertionError(out.toString() + log.getText());
+    // Midi2Wav --dir --test with Pulsekit's kit: the WAVs, DrumMidi on each, CompareHits --batch, the report.
+    final StringBuilder report = new StringBuilder();
+    final Object[] look = new Object[1];
+    look[0] = (java.util.function.Consumer<JDialog>) d -> {
+      java.awt.Component c = component(d, "midi2wav-test-report");
+      if (c != null) report.append(((javax.swing.JTextArea) c).getText());
+      else inspectNext = (java.util.function.Consumer<JDialog>) look[0];
+    };
+    @SuppressWarnings("unchecked")
+    java.util.function.Consumer<JDialog> first = (java.util.function.Consumer<JDialog>) look[0];
+    inspectNext = first;
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + mix.getAbsolutePath() + "\" --test"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 2400 && report.length() == 0; i++) Thread.sleep(50);
+    inspectNext = null;
+    String[] after = mix.list();
+    java.util.Arrays.sort(after);
+    out.append("batch folder after: ").append(java.util.Arrays.toString(after)).append('\n');
+    out.append("report:\n").append(report.toString().replace(home.getAbsolutePath(), "~")).append('\n');
+    if (!report.toString().startsWith("Midi2Wav batch test: mix-a") || !report.toString().contains("== Pulsekit-kit: 2 grooves") || !new File(mix, "mix-001-a-Pulsekit-kit-dm.mid").isFile())
+      throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
    * --vst: MidiDrumGen's MIDI goes to vst_render.py (not Midi2Wav) with the plugin and settings saved
    * in vst_render's Params (and its --test); SogniMusic's DrumMidi MIDI of the track does too. Without
    * a saved plugin the log says to pick one. (vst_render itself needs DawDreamer and a plugin: only
