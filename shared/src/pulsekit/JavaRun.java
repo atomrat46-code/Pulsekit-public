@@ -138,7 +138,7 @@ public final class JavaRun {
       if (t.length() == 0) continue;
       if (progress == null && t.startsWith("Progress: ")) progress = t.substring(10);
       if (status == null && (t.startsWith("Status: ") || t.startsWith("Queued") || t.startsWith("Reconnecting") || t.startsWith("Uploaded ")
-          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks"))) status = t;
+          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks") || t.startsWith("Downloading: "))) status = t;
       if (status != null && progress != null) break;
     }
     if (status == null && progress == null) return null;

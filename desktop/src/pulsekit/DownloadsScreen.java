@@ -128,14 +128,41 @@ final class DownloadsScreen {
         }
         body.add(tabs);
         List<SogniDownloads.Run> runs = SogniDownloads.tab(tab);
+        if (SogniDownloads.FINISHED.equals(tab) && !runs.isEmpty()) {
+            // Sort by (newest first at first), and Clear all: the list, not the files.
+            JPanel sorts = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            sorts.setAlignmentX(0.0f);
+            sorts.add(new JLabel("Sort by"));
+            for (final String how : SogniDownloads.SORTS) {
+                JToggleButton b = new JToggleButton(how, how.equals(SogniDownloads.sort));
+                b.setName("downloads-sort:" + how);
+                b.addActionListener(e -> {
+                    SogniDownloads.sort = how;
+                    fill(app, body);
+                });
+                sorts.add(b);
+            }
+            JButton clearAll = new JButton("Clear all");
+            clearAll.setName("downloads-clear-all");
+            clearAll.addActionListener(e -> {
+                Object[] options = {"Clear all", "Cancel"};
+                if (JOptionPane.showOptionDialog(app, "Take every finished download off this list? The files stay where they are.", "Clear all",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]) != 0) return;
+                app.setNow(SogniDownloads.clearFinished() + " off the list (the files stay)");
+                fill(app, body);
+            });
+            sorts.add(clearAll);
+            body.add(sorts);
+        }
         if (runs.isEmpty()) {
             JLabel none = new JLabel(SogniDownloads.PROGRESS.equals(tab) ? "No run in progress" : SogniDownloads.PENDING.equals(tab) ? "Nothing pending" : "No finished downloads");
             none.setName("downloads-empty");
             body.add(none);
         }
         String program = null;
+        boolean headings = SogniDownloads.byProgram(tab);
         for (final SogniDownloads.Run r : runs) {
-            if (!r.programName().equals(program)) {
+            if (headings && !r.programName().equals(program)) {
                 program = r.programName();
                 JLabel head = new JLabel("<html><b>" + program + "</b></html>");
                 head.setName("downloads-program:" + program);
@@ -143,7 +170,8 @@ final class DownloadsScreen {
                 head.setAlignmentX(0.0f);
                 body.add(head);
             }
-            JLabel line = new JLabel(SogniDownloads.runLabel(r));
+            // Without program headings (Sort by newest, oldest, type) each run says its program.
+            JLabel line = new JLabel((headings ? "" : r.programName() + " \u00b7 ") + SogniDownloads.runLabel(r));
             line.setName("downloads-run:" + r.id);
             line.setAlignmentX(0.0f);
             if (SogniDownloads.PROGRESS.equals(r.state) || SogniDownloads.PENDING.equals(r.state)) {
@@ -245,7 +273,36 @@ final class DownloadsScreen {
         }
     }
 
-    static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…"};
+    static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…", "Create again", "Add to favourites"};
+
+    /** Create again: the program that made the download on PyJav, with the arguments it ran with, its Params open. */
+    static void createAgain(Pulsekit app, SogniDownloads.Run r) {
+        String kind = r.program.toLowerCase(java.util.Locale.ROOT).endsWith(".py") ? "Python" : "Java";
+        app.showView("py");
+        app.programMenus.selectListedProgram(kind, r.program);
+        if (!r.program.equals(app.pyName)) {
+            app.setNow("Could not open " + r.program);
+            return;
+        }
+        if (r.args.length() > 0 && app.pyJav.pyExtra != null) app.pyJav.pyExtra.setText(r.args);
+        app.setNow(r.args.length() > 0 ? r.programName() + " with the arguments it ran with" : r.programName() + " (this download kept no arguments)");
+        javax.swing.SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+    }
+
+    /** Add to favourites: the prompt library version the run stored (its result file with it) among the favourite prompts. */
+    static String favourite(SogniDownloads.Run r) {
+        try {
+            PromptVault vault = PromptDb.vault();
+            PromptVault.Version v = r.versionId == 0 ? null : vault.version(r.versionId);
+            if (v == null) return "Not in the prompt library: a run with Save the prompt into DB is (its result file with it)";
+            VersionFavourites.load(PromptDb.dir());
+            if (VersionFavourites.is(v.id)) return VersionFavourites.label(vault, v) + " is a favourite already";
+            VersionFavourites.add(v.id);
+            return "Added " + VersionFavourites.label(vault, v) + " to favourites";
+        } catch (Exception ex) {
+            return "Could not open the prompt library";
+        }
+    }
 
     /** A finished file's menu. */
     static JPopupMenu menu(final Pulsekit app, final JPanel body, final SogniDownloads.Run r, final SogniDownloads.Item item) {
@@ -255,7 +312,12 @@ final class DownloadsScreen {
             JMenuItem it = new JMenuItem(MENU[i]);
             it.setName("downloads-menu:" + MENU[i]);
             it.addActionListener(e -> {
-                if (which == 0) preview(app, item);
+                if (which == 6) {
+                    createAgain(app, r);
+                    return;
+                }
+                if (which == 7) app.setNow(favourite(r));
+                else if (which == 0) preview(app, item);
                 else if (which == 1) app.setNow(clear(r, item));
                 else if (which == 2) {
                     String next = JOptionPane.showInputDialog(app, "New name", item.name);

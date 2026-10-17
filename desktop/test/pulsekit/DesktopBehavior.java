@@ -4684,6 +4684,66 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * Media browser: a folder shows its first picture; Up comes back to the folder left (outlined);
+   * a file's menu has Rename, Copy to folder, Move to folder and Delete, a folder's Rename and Delete.
+   */
+  void s103_media_files() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-files");
+    File shots = new File(media, "shots");
+    shots.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(shots, "b.png"));
+    javax.imageio.ImageIO.write(img, "png", new File(shots, "a.png"));
+    javax.imageio.ImageIO.write(img, "png", new File(media, "top.png"));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final StringBuilder seen = new StringBuilder();
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    for (int i = 0; i < 60 && ((AbstractButton) component(dlg[0], "media-folder:shots")).getIcon() == null; i++) Thread.sleep(50);
+    edt(() -> {
+      AbstractButton folder = (AbstractButton) component(dlg[0], "media-folder:shots");
+      seen.append("folder thumbnail: ").append(folder.getIcon() != null).append('\n');
+      folder.doClick();
+    });
+    edt(() -> ((AbstractButton) component(dlg[0], "media-up")).doClick());
+    edt(() -> {
+      AbstractButton folder = (AbstractButton) component(dlg[0], "media-folder:shots");
+      seen.append("back up: shots outlined ").append(folder.getBorder() instanceof javax.swing.border.LineBorder).append('\n');
+    });
+    // File actions, answered without dialogs.
+    MediaBrowser.answer = q -> q.startsWith("New name") ? "beach" : q.startsWith("Copy") || q.startsWith("Move") ? new File(media, "kept").getAbsolutePath() : "yes";
+    try {
+      edt(() -> {
+        String[] items = MediaDir.menu(false, MediaDir.PICTURE, true);
+        seen.append("file menu: ").append(java.util.Arrays.toString(items)).append('\n');
+        MediaDir.Entry e = new MediaDir.Entry();
+        e.name = "top.png";
+        e.id = new File(media, "top.png").getAbsolutePath();
+        e.kind = MediaDir.PICTURE;
+        mb.fileAction(e, new File(media, "top.png"), MediaDir.RENAME);
+        mb.fileAction(e, new File(media, "beach.png"), MediaDir.COPY_TO);
+        mb.fileAction(e, new File(shots, "b.png"), MediaDir.MOVE_TO);
+        mb.fileAction(e, new File(shots, "a.png"), MediaDir.DELETE);
+      });
+    } finally {
+      MediaBrowser.answer = null;
+    }
+    String[] top = media.list();
+    java.util.Arrays.sort(top);
+    String[] kept = new File(media, "kept").list();
+    java.util.Arrays.sort(kept);
+    seen.append("after: ").append(java.util.Arrays.toString(top)).append(", kept ").append(java.util.Arrays.toString(kept)).append(", shots ").append(java.util.Arrays.toString(shots.list())).append('\n');
+    edt(() -> dlg[0].dispose());
+    out.append(seen);
+    if (seen.indexOf("folder thumbnail: true") < 0 || seen.indexOf("outlined true") < 0 || !new File(media, "beach.png").isFile()
+        || !java.util.Arrays.asList(kept).equals(java.util.Arrays.asList("b.png", "beach.png")) || shots.list().length != 0) throw new AssertionError(out.toString());
+  }
+
   /** A prompt's reference picture shows as a small thumbnail on its name; a slot without one shows none. */
   void s102_slot_thumbnails() throws Exception {
     java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
@@ -5175,6 +5235,13 @@ public final class DesktopBehavior {
           }
           dialogs.add(text.toString());
           List<String> want = new ArrayList<String>();
+          // "(keep)": the dialog stays open for the scenario to work in.
+          synchronized (answers) {
+            if ("(keep)".equals(answers.peek())) {
+              answers.poll();
+              continue;
+            }
+          }
           synchronized (answers) {
             while (!answers.isEmpty()) {
               String a = answers.peek();

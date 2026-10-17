@@ -310,6 +310,25 @@ public final class PromptVault {
   }
 
   /**
+   * The prompt version a prompt file belongs to, from its "Smile v2" (the prompt of that title with
+   * at least that many versions, the newest such prompt first); null when there is none.
+   */
+  public synchronized Version versionOf(StoredFile f) {
+    if (f == null || f.promptTitle == null) return null;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*) v(\\d+)$").matcher(f.promptTitle.trim());
+    if (!m.find()) return null;
+    String title = m.group(1).trim();
+    int n = Integer.parseInt(m.group(2));
+    for (int i = prompts.size() - 1; i >= 0; i--) {
+      Prompt p = prompts.get(i);
+      if (p.title == null || !p.title.trim().equalsIgnoreCase(title)) continue;
+      List<Version> rows = versions(p.id);
+      if (n >= 1 && n <= rows.size()) return rows.get(rows.size() - n);
+    }
+    return null;
+  }
+
+  /**
    * A prompt sheet kept in the library instead of on disk, under Prompt files. `note` is its
    * prompt and version ("Smile v2"); a sheet of the same name and note is replaced.
    */

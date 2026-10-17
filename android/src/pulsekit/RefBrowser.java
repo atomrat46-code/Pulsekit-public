@@ -274,16 +274,29 @@ final class RefBrowser {
             sub.setMaxLines(1);
             card.addView(sub);
             card.setOnClickListener(v -> {
+                lastPicked = file.versionId + ":" + file.which;
                 if (use(activity, vault, file, picked) && dialog[0] != null) dialog[0].dismiss();
             });
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(cell, -2);
             if (i % 2 == 1) cardLp.leftMargin = gap;
             row.addView(card, cardLp);
+            if ((file.versionId + ":" + file.which).equals(lastPicked)) {
+                // The file picked last: outlined, and scrolled to.
+                android.graphics.drawable.GradientDrawable lit = new android.graphics.drawable.GradientDrawable();
+                lit.setStroke((int) (2 * density), Color.parseColor("#ECEBE6"));
+                lit.setCornerRadius(6 * density);
+                card.setBackground(lit);
+                card.setContentDescription("refs-last");
+                lastRow = row;
+            }
             thumbs[i] = thumb;
             marks[i] = mark;
         }
-        ScrollView scroll = new ScrollView(activity);
+        final ScrollView scroll = new ScrollView(activity);
         scroll.addView(col);
+        final android.view.View toRow = lastRow;
+        lastRow = null;
+        if (toRow != null) scroll.post(() -> scroll.scrollTo(0, Math.max(0, toRow.getTop() - gap)));
         dialog[0] = new AlertDialog.Builder(activity)
             .setTitle(results ? "Result files" : "Reference files")
             .setView(scroll)
@@ -304,6 +317,10 @@ final class RefBrowser {
             }
         }, "pulsekit-ref-thumbs").start();
     }
+
+    /** The file picked last ("version:which"): Browse DB opens scrolled to it, outlined. */
+    static String lastPicked;
+    private static android.view.View lastRow;
 
     /** Copies the stored file into PyJav's input folder and hands it on; false when it cannot. */
     static boolean use(Activity activity, PromptVault vault, PromptVault.StoredFile file, Picked picked) {

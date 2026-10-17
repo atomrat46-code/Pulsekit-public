@@ -226,6 +226,8 @@ final class MediaBrowser {
             up.setName("media-up");
             up.addActionListener(e -> {
                 gone.set(true);
+                // The folder left shows again, outlined and scrolled to.
+                this.focus = dir;
                 this.fill(dialog, dir.equals(root) ? above : root, above);
             });
             top.add(up, BorderLayout.WEST);
@@ -269,6 +271,7 @@ final class MediaBrowser {
         if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
         final List<JButton> waiting = new ArrayList<JButton>();
         final List<File> videos = new ArrayList<File>();
+        JButton focusCard = null;
         for (final MediaDir.Entry entry : entries) {
             final File f = new File(entry.id);
             JButton card = new JButton();
@@ -285,6 +288,30 @@ final class MediaBrowser {
                     gone.set(true);
                     this.fill(dialog, root, f);
                 });
+                // A right click: Rename, Delete. The first picture in it is its thumbnail.
+                if (this.chooser == null) card.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) MediaBrowser.this.folderMenu(entry, f, card, e.getX(), e.getY(), dialog, root, dir);
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) MediaBrowser.this.folderMenu(entry, f, card, e.getX(), e.getY(), dialog, root, dir);
+                    }
+                });
+                File pic = firstPicture(f);
+                if (pic != null) {
+                    card.putClientProperty("media-folder-pic", pic);
+                    ImageIcon have = this.thumbs.get(key(pic));
+                    if (have != null) card.setIcon(have);
+                    else waiting.add(card);
+                }
+                // Up from this folder: its card outlined and scrolled to.
+                if (f.equals(this.focus)) {
+                    card.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xE0B04A), 2));
+                    focusCard = card;
+                }
             } else {
                 card.setToolTipText(entry.dbId != 0 ? "Shows its text (kept in the DB)" : entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
                 // A right click, or holding the button down, opens its menu (a long press, as on the phone).
@@ -354,7 +381,10 @@ final class MediaBrowser {
         // Where this folder was last scrolled to comes back; moving remembers it (kept on the next save).
         final String placeOf = dir.getAbsolutePath();
         final int was = MediaDir.place(placeOf);
-        if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
+        final JButton focused = focusCard;
+        this.focus = null;
+        if (focused != null) SwingUtilities.invokeLater(() -> focused.scrollRectToVisible(new java.awt.Rectangle(0, 0, focused.getWidth(), focused.getHeight())));
+        else if (was > 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(was));
         scroll.getVerticalScrollBar().addAdjustmentListener(e -> {
             if (!e.getValueIsAdjusting() || e.getValue() > 0) MediaDir.place(placeOf, e.getValue());
         });
@@ -448,6 +478,8 @@ final class MediaBrowser {
             for (final JButton card : cards) {
                 if (gone.get()) break;
                 File f = (File) card.getClientProperty("media-file");
+                // A folder card: the first picture in it.
+                if (card.getClientProperty("media-folder-pic") != null) f = (File) card.getClientProperty("media-folder-pic");
                 int kind = MediaDir.kind(f.getName());
                 ImageIcon icon = null;
                 try {
@@ -490,8 +522,9 @@ final class MediaBrowser {
         MediaDir.Entry e = new MediaDir.Entry();
         e.name = f.getName();
         e.id = f.getAbsolutePath();
-        e.size = f.length();
-        e.kind = MediaDir.kind(e.name);
+        e.folder = f.isDirectory();
+        e.size = e.folder ? 0 : f.length();
+        e.kind = e.folder ? 0 : MediaDir.kind(e.name);
         if (icon != null) card.setIcon(icon);
         card.setText(caption(e, card.getIcon() != null ? null : mark(e)));
     }
@@ -694,11 +727,18 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind);
+        final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
+            if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[i])) {
+                // Rename, Copy / Move to folder, Delete: asked about first, then the folder shown again.
+                item.setName("media-menu:" + items[i]);
+                item.addActionListener(e -> this.fileAction(entry, f, items[which]));
+                menu.add(item);
+                continue;
+            }
             item.addActionListener(e -> {
                 app.setNow(this.menuPicked(entry, f, which));
                 // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
@@ -711,6 +751,87 @@ final class MediaBrowser {
         }
         this.lastMenu = menu;
         if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /** Up from a folder: the folder to show again in the one above (outlined, scrolled to). */
+    File focus;
+
+    /** A folder's right-click menu: Rename, Delete. */
+    void folderMenu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y, JDialog dialog, File root, File dir) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("media-folder-menu");
+        for (final String a : MediaDir.FOLDER_MENU) {
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(a);
+            item.setName("media-menu:" + a);
+            item.addActionListener(e -> this.fileAction(entry, f, a));
+            menu.add(item);
+        }
+        this.lastMenu = menu;
+        if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /** The answers the tests give instead of the dialogs (a name, a folder, or "yes"); null: ask. */
+    static java.util.function.Function<String, String> answer;
+
+    private String ask(String question, String preset) {
+        if (answer != null) return answer.apply(question);
+        Object a = javax.swing.JOptionPane.showInputDialog(this.last, question, "Media browser", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, preset);
+        return a == null ? null : a.toString();
+    }
+
+    /** Rename, Copy to folder, Move to folder or Delete a file (or a folder: Rename, Delete), then the folder shown again. */
+    void fileAction(MediaDir.Entry entry, File f, String action) {
+        String said;
+        try {
+            if (MediaDir.RENAME.equals(action)) {
+                String typed = this.ask("New name for " + f.getName(), f.getName());
+                if (typed == null) return;
+                String name = f.isDirectory() ? MediaDir.cleanName(typed) : MediaDir.keepEnding(f.getName(), typed);
+                File to = name == null ? null : new File(f.getParentFile(), name);
+                said = name == null ? "Not a name: " + typed : to.exists() ? name + " is there already"
+                    : f.renameTo(to) ? "Renamed " + f.getName() + " to " + name : "Could not rename " + f.getName();
+            } else if (MediaDir.DELETE.equals(action)) {
+                String yes = answer != null ? answer.apply("Delete " + f.getName())
+                    : javax.swing.JOptionPane.showOptionDialog(this.last, f.isDirectory() ? "Delete " + f.getName() + " and everything in it?" : "Delete " + f.getName() + "?",
+                        "Delete", javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.WARNING_MESSAGE, null, new Object[] {"Delete", "Cancel"}, "Cancel") == 0 ? "yes" : null;
+                if (!"yes".equals(yes)) return;
+                said = MediaDir.deleteAll(f) ? "Deleted " + f.getName() : "Could not delete all of " + f.getName();
+            } else {
+                boolean move = MediaDir.MOVE_TO.equals(action);
+                File to;
+                if (answer != null) {
+                    String a = answer.apply((move ? "Move " : "Copy ") + f.getName() + " to");
+                    if (a == null) return;
+                    to = new File(a);
+                } else {
+                    javax.swing.JFileChooser pick = new javax.swing.JFileChooser(this.shown);
+                    pick.setDialogTitle((move ? "Move " : "Copy ") + f.getName() + " to");
+                    pick.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+                    if (pick.showDialog(this.last, move ? "Move here" : "Copy here") != javax.swing.JFileChooser.APPROVE_OPTION) return;
+                    to = pick.getSelectedFile();
+                }
+                if (!to.isDirectory() && !to.mkdirs()) throw new java.io.IOException("could not make " + to.getName());
+                File done = move ? MediaDir.moveInto(f, to) : MediaDir.copyInto(f, to);
+                said = (move ? "Moved " : "Copied ") + f.getName() + " to " + done.getParentFile().getName();
+            }
+        } catch (Exception ex) {
+            said = "Could not " + action.toLowerCase().replace("\u2026", "") + " " + f.getName() + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+        }
+        app.setNow(said);
+        // The folder shown again.
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
+    /** The first picture in folder `dir` (by name), or null: the folder's thumbnail. */
+    static File firstPicture(File dir) {
+        File[] kids = dir.listFiles();
+        File best = null;
+        if (kids == null) return null;
+        for (File k : kids) {
+            if (!k.isFile() || k.getName().startsWith(".") || MediaDir.kind(k.getName()) != MediaDir.PICTURE) continue;
+            if (best == null || k.getName().compareToIgnoreCase(best.getName()) < 0) best = k;
+        }
+        return best;
     }
 
     /** What a menu item does: 0 and 1 add the file to the prompt library, 2 to the default playlist. Returns the status line. */

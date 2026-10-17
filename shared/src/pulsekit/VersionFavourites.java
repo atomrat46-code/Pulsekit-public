@@ -81,6 +81,36 @@ public final class VersionFavourites {
     return out;
   }
 
+  /** The favourites' Sort by: the order kept (Move up / down), newest version first, by main category, by name. */
+  public static final String[] SORTS = {"My order", "Newest", "Category", "Name"};
+  public static String sort = SORTS[0];
+
+  /** The favourites in the order Sort by says. */
+  public static List<PromptVault.Version> sorted(final PromptVault vault) {
+    List<PromptVault.Version> out = list(vault);
+    final String how = sort;
+    if (SORTS[0].equals(how)) return out;
+    java.util.Collections.sort(out, new java.util.Comparator<PromptVault.Version>() {
+      @Override
+      public int compare(PromptVault.Version a, PromptVault.Version b) {
+        if ("Newest".equals(how)) return Long.compare(b.created, a.created);
+        if ("Category".equals(how)) {
+          int c = mainName(vault, a).compareToIgnoreCase(mainName(vault, b));
+          if (c != 0) return c;
+        }
+        return label(vault, a).compareToIgnoreCase(label(vault, b));
+      }
+    });
+    return out;
+  }
+
+  /** The main category the version's prompt is in ("" when none). */
+  public static String mainName(PromptVault vault, PromptVault.Version v) {
+    PromptVault.Prompt p = vault.prompt(v.promptId);
+    PromptVault.Category c = p == null ? null : vault.category(vault.mainOf(p.categoryId));
+    return c == null || c.name == null ? "" : c.name;
+  }
+
   /** "Rock ballad · v3": the prompt's title and the version's number. */
   public static String label(PromptVault vault, PromptVault.Version v) {
     PromptVault.Prompt p = vault.prompt(v.promptId);

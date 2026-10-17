@@ -59,8 +59,10 @@ final class ProgramMenus {
             none.setEnabled(false);
             menu.add(none);
         }
+        // A starred program (a right click in Select program) shows "★ ".
+        ProgramStars.load(PromptDb.dir());
         for (String name : names) {
-            JMenuItem item = new JMenuItem(name);
+            JMenuItem item = new JMenuItem(ProgramStars.label(name));
             item.addActionListener(e -> {
                 if ("Code".equals(kind)) this.openCodeFile(name);
                 else if ("Scripts".equals(kind)) this.openScript(name);

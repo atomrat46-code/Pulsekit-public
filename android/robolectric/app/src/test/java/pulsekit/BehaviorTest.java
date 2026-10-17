@@ -3158,6 +3158,160 @@ public class BehaviorTest {
   }
 
   /**
+   * Notes batch: Downloads' Sort by, Clear all, Create again and Add to favourites; the favourites'
+   * Sort by; the galleries' new sorts and A I V S T; a prompt file's preview, menu and Edit;
+   * starred programs; Browse DB opening on the file picked last; the download progress line.
+   */
+  @Test
+  public void s121_notes_batch() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long pa = vault.addPrompt(cat, "Beach");
+    long va = vault.addVersion(pa, "Beach", "", "Waves at dusk", "", "sea.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1}, "", null, "beach.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 2}, "ai", "");
+    vault.addPromptFile("beach.prompt", "PKPROMPT1\nBeach\n---\nWaves at dusk\n".getBytes(StandardCharsets.UTF_8), "Beach v1");
+    // Downloads: two finished runs, sorted newest first by default; Create again; Add to favourites; Clear all.
+    SogniDownloads.init(app.getFilesDir());
+    long r1 = SogniDownloads.started("SogniPedit.java", 1000L);
+    SogniDownloads.args(r1, "--prompt \"Waves at dusk\" --unlimited");
+    SogniDownloads.result(r1, "Succeeded: beach.png", "saved Download/beach.png", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(r1, va);
+    SogniDownloads.done(r1);
+    Thread.sleep(5);
+    long r2 = SogniDownloads.started("SogniVideo.java", 2000L);
+    SogniDownloads.result(r2, "Succeeded: clip.mp4", "saved Download/clip.mp4", new java.util.HashMap<String, String>());
+    SogniDownloads.done(r2);
+    StringBuilder order = new StringBuilder();
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) order.append(r.programName()).append(' ');
+    out.append("finished, newest first: ").append(order.toString().trim()).append('\n');
+    if (!order.toString().trim().equals("SogniVideo SogniPedit")) throw new AssertionError(out.toString());
+    SogniDownloads.sort = "Program";
+    order.setLength(0);
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) order.append(r.programName()).append(' ');
+    out.append("by program: ").append(order.toString().trim()).append('\n');
+    SogniDownloads.sort = SogniDownloads.SORTS[0];
+    out.append("Add to favourites: ").append(DownloadsScreen.favourite(app, SogniDownloads.run(r1))).append('\n');
+    call("show", "py");
+    idle();
+    DownloadsScreen.createAgain(app, SogniDownloads.run(r1));
+    idle();
+    out.append("Create again: ").append(app.pyName).append(", args ").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    if (!"SogniPedit.java".equals(app.pyName) || !((TextView) get("pkPyArgs")).getText().toString().contains("Waves at dusk")) throw new AssertionError(out.toString());
+    ShadowDialog.getLatestDialog().dismiss();
+    out.append("Clear all: ").append(SogniDownloads.clearFinished()).append(" off, left ").append(SogniDownloads.tab(SogniDownloads.FINISHED).size()).append('\n');
+    // Favourites' Sort by.
+    VersionFavourites.load(app.getFilesDir());
+    out.append("favourite sorts: ").append(java.util.Arrays.toString(VersionFavourites.SORTS)).append(", sorted ").append(VersionFavourites.sorted(vault).size()).append('\n');
+    // Galleries: the new sorts, and info lines.
+    out.append("gallery sorts: ").append(java.util.Arrays.toString(FileSort.CHOICES)).append('\n');
+    for (PromptVault.StoredFile f : FileSort.sorted(vault.resultFiles(), "by category", vault)) out.append("  ").append(f.name).append(": ").append(FileSort.info(vault, f, "by type").replaceAll("\\d{4}-\\d\\d-\\d\\d", "<date>")).append('\n');
+    // A prompt file: its version, its preview's Edit and its menu.
+    PromptVault.StoredFile pf = vault.promptFiles().get(0);
+    out.append("prompt file belongs to: ").append(vault.versionOf(pf) == null ? "none" : VersionFavourites.label(vault, vault.versionOf(pf))).append('\n');
+    if (vault.versionOf(pf) == null || vault.versionOf(pf).id != va) throw new AssertionError(out.toString());
+    // Starred programs.
+    ProgramStars.load(app.getFilesDir());
+    boolean starred = ProgramStars.toggle("SogniPedit.java");
+    ProgramStars.load(app.getFilesDir());
+    out.append("starred: ").append(starred).append(", kept ").append(ProgramStars.is("SogniPedit.java")).append(", label ").append(ProgramStars.label("SogniPedit.java")).append('\n');
+    ProgramStars.toggle("SogniPedit.java");
+    // The download progress line shows on the running line.
+    out.append("running line: ").append(JavaRun.news("Status: completed\nDownloading: 40% (12.3 of 30.1 MB)")).append('\n');
+    if (!String.valueOf(JavaRun.news("Downloading: 40% (12.3 of 30.1 MB)")).contains("40%")) throw new AssertionError(out.toString());
+    write("s121_notes_batch", out.toString());
+  }
+
+  /**
+   * Media browser: a folder shows its first picture; Up comes back to the folder left (outlined);
+   * Rename, Copy to folder, Move to folder and Delete; a picture full size has edge arrows.
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s120_media_files() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-files");
+    File shots = new File(media, "shots");
+    shots.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(0xff336699);
+    for (File f : new File[] {new File(shots, "a.png"), new File(shots, "b.png"), new File(media, "top.png")}) {
+      java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+      fos.close();
+    }
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    java.util.function.Supplier<View> dv = () -> b.dialog.getWindow().getDecorView();
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    android.widget.ImageView thumb = null;
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(30);
+      idle();
+      View card = dv.get().findViewWithTag("media-folder:shots");
+      thumb = card == null ? null : (android.widget.ImageView) ((android.widget.FrameLayout) ((android.widget.LinearLayout) card).getChildAt(0)).getChildAt(1);
+      if (thumb != null && thumb.getDrawable() != null) break;
+    }
+    out.append("folder thumbnail: ").append(thumb != null && thumb.getDrawable() != null).append('\n');
+    dv.get().findViewWithTag("media-folder:shots").performClick();
+    for (int i = 0; i < 100 && (b.loading || dv.get().findViewWithTag("media-up") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    dv.get().findViewWithTag("media-up").performClick();
+    for (int i = 0; i < 100 && (b.loading || dv.get().findViewWithTag("media-folder:shots") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("back up: shots outlined ").append("media-focus".equals(dv.get().findViewWithTag("media-folder:shots").getTag(MediaBrowser.R_FOCUS))).append('\n');
+    // The file and folder actions.
+    MediaDir.Entry top = null, folder = null;
+    for (MediaDir.Entry e : b.allEntries) {
+      if (e.name.equals("top.png")) top = e;
+      if (e.name.equals("shots")) folder = e;
+    }
+    b.menu(top);
+    out.append("file menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    out.append("rename: ").append(b.rename(top, "beach")).append('\n');
+    MediaDir.Entry beach = new MediaDir.Entry();
+    beach.name = "beach.png";
+    beach.id = new File(media, "beach.png").getAbsolutePath();
+    String kept = b.makeFolder("kept");
+    out.append("copy: ").append(b.copyTo(beach, kept, false)).append('\n');
+    MediaDir.Entry bp = new MediaDir.Entry();
+    bp.name = "b.png";
+    bp.id = new File(shots, "b.png").getAbsolutePath();
+    out.append("move: ").append(b.copyTo(bp, kept, true)).append('\n');
+    b.folderMenu(folder);
+    out.append("folder menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    out.append("delete: ").append(b.delete(folder)).append('\n');
+    String[] left = media.list();
+    java.util.Arrays.sort(left);
+    String[] inKept = new File(kept).list();
+    java.util.Arrays.sort(inKept);
+    out.append("after: ").append(java.util.Arrays.toString(left)).append(", kept ").append(java.util.Arrays.toString(inKept)).append('\n');
+    if (out.indexOf("folder thumbnail: true") < 0 || out.indexOf("outlined true") < 0 || !java.util.Arrays.asList(left).equals(java.util.Arrays.asList("beach.png", "kept"))
+        || !java.util.Arrays.asList(inKept).equals(java.util.Arrays.asList("b.png", "beach.png"))) throw new AssertionError(out.toString());
+    // A picture full size: arrows at its edges.
+    b.load(media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("beach.png")) pic = e;
+    b.openEntry(pic);
+    idle();
+    View full = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    out.append("full size arrows: ").append(full.findViewWithTag("media-full-left") != null).append(", ").append(full.findViewWithTag("media-full-right") != null).append('\n');
+    if (full.findViewWithTag("media-full-left") == null) throw new AssertionError(out.toString());
+    write("s120_media_files", out.toString());
+  }
+
+  /**
    * Fixes from the notes: a frame captured goes into an "sc" folder already there (not SC (1)...);
    * a prompt with "quoted speech" survives Params; a failed run's sheet is not offered for saving;
    * Return goes when another program is loaded; Params' Select file / Browse DB have a gap.

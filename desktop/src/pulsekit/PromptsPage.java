@@ -221,7 +221,7 @@ final class PromptsPage {
         this.col.add(library);
         // Favourite prompts: a click opens the prompt at that version.
         VersionFavourites.load(PromptDb.dir());
-        List<PromptVault.Version> favs = VersionFavourites.list(this.vault);
+        List<PromptVault.Version> favs = VersionFavourites.sorted(this.vault);
         if (!favs.isEmpty()) {
             // Collapsed like Select program: the list opens from its row (and stays open over a rebuild).
             final int count = favs.size();
@@ -246,6 +246,23 @@ final class PromptsPage {
             this.col.add(Box.createVerticalStrut(12));
             this.col.add(toggle);
             this.col.add(favList);
+            // Sort by: the order kept (Move up / down), newest, by main category, by name.
+            JPanel sorts = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            sorts.setOpaque(false);
+            sorts.setAlignmentX(0.0f);
+            sorts.add(new JLabel("Sort by"));
+            for (final String how : VersionFavourites.SORTS) {
+                javax.swing.JToggleButton b = new javax.swing.JToggleButton(how, how.equals(VersionFavourites.sort));
+                b.setName("prompts-favourites-sort:" + how);
+                b.addActionListener(e -> {
+                    VersionFavourites.sort = how;
+                    this.rebuild();
+                });
+                sorts.add(b);
+            }
+            sorts.setMaximumSize(new Dimension(Integer.MAX_VALUE, sorts.getPreferredSize().height));
+            favList.add(sorts);
+            favList.add(Box.createVerticalStrut(6));
             for (PromptVault.Version v : favs) {
                 String label = VersionFavourites.label(this.vault, v);
                 JButton fav = app.action("\u2605 " + label, SURFACE, new java.awt.Color(0xE8C35A));

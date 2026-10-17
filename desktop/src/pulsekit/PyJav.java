@@ -479,6 +479,8 @@ final class PyJav {
         final long download = this.reconnectDownload != 0 ? this.reconnectDownload
             : pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
         this.reconnectDownload = 0;
+        // Create again (File > Downloads): the arguments this run had.
+        if (download != 0) SogniDownloads.args(download, filled);
         // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
         final JavaRun.Live live = new JavaRun.Live();
         if (note != null) live.add(note + "\n");
@@ -1262,8 +1264,9 @@ final class PyJav {
             none.setEnabled(false);
             menu.add(none);
         }
+        ProgramStars.load(PromptDb.dir());
         for (final String name : programs) {
-            final javax.swing.JMenuItem item = new javax.swing.JMenuItem(name);
+            final javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramStars.label(name));
             item.setName("pyjav-recent:" + name);
             item.setToolTipText("A right click lists its recent parameters");
             item.addActionListener(e -> this.loadRecent(PyJavRecent.tapped(this.pyRecentItems, name)));
@@ -1285,6 +1288,13 @@ final class PyJav {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("pyjav-recent-runs");
         java.util.List<PyJavRecent.Item> runs = PyJavRecent.runsOf(this.pyRecentItems, name);
+        // The star: bright when the program is starred; a click stars it or takes the star off.
+        final boolean starred = ProgramStars.is(name);
+        javax.swing.JMenuItem star = new javax.swing.JMenuItem(starred ? "\u2605 Starred" : "\u2606 Star " + name);
+        star.setName("pyjav-recent-star");
+        star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
+        menu.add(star);
+        menu.addSeparator();
         for (int i = 0; i < runs.size(); i++) {
             final PyJavRecent.Item run = runs.get(i);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));

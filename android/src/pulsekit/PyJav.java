@@ -870,6 +870,8 @@ final class PyJav {
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
+        // Create again (File > Downloads): the arguments this run had.
+        if (this.pkPending != null && DOWNLOAD_OF.containsKey(this.pkPending)) pulsekit.SogniDownloads.args(DOWNLOAD_OF.get(this.pkPending).longValue(), this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "");
         RUNS.incrementAndGet();
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         if (note != null) live.add(note + "\n");
