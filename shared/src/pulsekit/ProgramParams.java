@@ -591,6 +591,10 @@ public final class ProgramParams {
       p.label = "Plugin (VST2 .dll / VST3 .vst3)";
       p.ext = "any";
       p.plugin = true;
+    } else if (p.token.equals("--carla")) {
+      p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
+      p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
+      p.ext = "any";
     } else if (p.token.equals("--state")) {
       p.label = "Plugin settings (from Edit, .fxp, .vstpreset)";
       p.hint = "empty: the settings last saved with Edit";

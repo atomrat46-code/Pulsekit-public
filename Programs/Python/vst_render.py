@@ -1,12 +1,17 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
   --plugin        the instrument: a VST2 (.dll, .so, .vst) or VST3 (.vst3) plugin. With --wav, an
                   effect (an amp, a reverb) that the WAV is played through instead.
+  --carla         a Carla project (.carxp, saved in Carla): its plugins play the MIDI, in the Carla-Rack
+                  VST (found in the VST folders unless --plugin gives it). Carla hosts LV2, VST2, VST3,
+                  SFZ and SoundFonts natively on Linux, and Windows plugins bridged with yabridge, so
+                  a Linux computer renders without Windows. Set the kit up in Carla (the plugin's own
+                  window), save the project, and give it here; no --edit needed.
   --state         the plugin's settings (its kit, patch, mixer): a file --edit saved, a .fxp/.fxb
                   (VST2) or a .vstpreset (VST3). Without it, the settings last saved with --edit for
                   this plugin are used (~/.pulsekit/vst/<plugin>.state), else the plugin's defaults.
@@ -33,7 +38,8 @@ The plugins' own delay (lookahead, oversampling) is taken off the start, so the 
 the MIDI has them.
 
 Carla (free) can be the plugin too: its Carla-Rack or Carla-Patchbay VST hosts other plugins
-(also LV2, SFZ and SoundFonts); set it up with --edit.
+(also LV2, SFZ and SoundFonts); set it up with --edit, or on Linux with --carla and a project saved
+in Carla.
 
 Needs DawDreamer and numpy (pip install dawdreamer), on Windows, Mac or Linux (64-bit Python 3.9+).
 A plugin is a desktop program: this does not run on a phone. Licensed plugins render as they do in a
@@ -71,7 +77,70 @@ def vst_folders():
     return [d for d in dirs if os.path.isdir(d)]
 
 
+def lv2_folders():
+    """The usual LV2 folders of this computer that exist (their plugins play through --carla)."""
+    home = os.path.expanduser("~")
+    if sys.platform.startswith("win"):
+        dirs = [os.path.join(os.environ.get("CommonProgramFiles", r"C:\Program Files\Common Files"), "LV2"), os.path.join(os.environ.get("APPDATA", home), "LV2")]
+    elif sys.platform == "darwin":
+        dirs = ["/Library/Audio/Plug-Ins/LV2", os.path.join(home, "Library/Audio/Plug-Ins/LV2")]
+    else:
+        dirs = [os.path.join(home, ".lv2"), "/usr/lib/lv2", "/usr/local/lib/lv2", "/usr/lib/x86_64-linux-gnu/lv2"]
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def carla_rack():
+    """Carla's Carla-Rack VST in the VST folders (also Carla's own folders); None when there is none."""
+    dirs = vst_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
+                                        "/Applications/Carla.app/Contents/MacOS") if os.path.isdir(d)]
+    for d in dirs:
+        for root, subdirs, files in os.walk(d):
+            for n in sorted(subdirs + files):
+                if os.path.splitext(n)[0] == "CarlaRack" and n.lower().endswith(PLUGIN_ENDS):
+                    return os.path.join(root, n)
+    return None
+
+
+def carla_state(proc, project):
+    """Loads the Carla project's plugins into the Carla-Rack VST; returns the line saying which."""
+    import re
+    import tempfile
+    if not os.path.isfile(project):
+        fail("no Carla project at %s" % project)
+    text = open(project, "rb").read().decode("utf-8", "replace")
+    plugins = re.findall(r"<Plugin>.*?</Plugin>", text, re.S)
+    if not plugins:
+        fail("%s has no plugins (save the project in Carla with the plugin loaded)" % os.path.basename(project))
+    names = [m.strip() for m in re.findall(r"<Name>(.*?)</Name>", "".join(plugins), re.S)]
+    work = tempfile.mkdtemp(prefix="pulsekit-carla-")
+    empty = os.path.join(work, "empty.state")
+    proc.save_state(empty)
+    raw = open(empty, "rb").read()
+    at = raw.find(b"<?xml")
+    end = raw.rfind(b"</CARLA-PROJECT>")
+    if at < 4 or end < 0:
+        fail("the plugin is not Carla's Carla-Rack (give Carla-Rack with --plugin, or leave --plugin out)")
+    xml = raw[at:end] + ("\n".join(" " + p for p in plugins) + "\n</CARLA-PROJECT>\n").encode("utf-8") + b"\0"
+    state = os.path.join(work, "project.state")
+    # The rack's state is its project text, its length before it.
+    with open(state, "wb") as f:
+        f.write(raw[:at - 4] + struct.pack(">I", len(xml)) + xml)
+    proc.load_state(state)
+    # What the rack has now: a plugin Carla could not find is left out.
+    check = os.path.join(work, "check.state")
+    proc.save_state(check)
+    loaded = open(check, "rb").read().count(b"<Plugin>")
+    if loaded < len(plugins):
+        fail("Carla loaded %d of the %d plugins in %s. Are they installed on this computer (and in Carla's folders)?" % (loaded, len(plugins), os.path.basename(project)))
+    return "Carla project: %s (%s)" % (os.path.basename(project), ", ".join(names))
+
+
 def scan():
+    rack = carla_rack()
+    print("Carla-Rack (for --carla): %s" % (rack or "not found; Carla is free at kx.studio/carla"))
+    for d in lv2_folders():
+        bundles = sorted(n for n in os.listdir(d) if n.lower().endswith(".lv2"))
+        print("%s (LV2, through --carla): %s" % (d, ", ".join(b[:-4] for b in bundles) or "none"))
     found = 0
     for d in vst_folders():
         print(d)
@@ -360,7 +429,9 @@ class Chain(object):
         self.plugin = opts["--plugin"]
         self.main = load_plugin(self.engine, "plugin", self.plugin)
         print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
-        if "--edit" in switches:
+        if opts["--carla"]:
+            print(carla_state(self.main, opts["--carla"]))
+        elif "--edit" in switches:
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
@@ -419,7 +490,7 @@ def finish(np, audio, volume):
 
 
 def main(argv):
-    opts = {"--plugin": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
+    opts = {"--plugin": None, "--carla": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java"}
     switches = set()
@@ -445,9 +516,18 @@ def main(argv):
         return
     midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
     out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
+    if opts["--carla"]:
+        if "--edit" in switches:
+            fail("--carla plays a project set up in Carla: change the kit there and save the project again")
+        if not opts["--plugin"]:
+            opts["--plugin"] = carla_rack()
+            if not opts["--plugin"]:
+                fail("--carla needs Carla's Carla-Rack VST (install Carla, or give it with --plugin)")
     plugin = opts["--plugin"]
     if not plugin:
         fail("no plugin: give one with --plugin (--scan lists the installed ones)")
+    # The WAVs and the report are named after the Carla project, not the rack.
+    name = opts["--carla"] or plugin
     folder = opts["--dir"]
     if folder:
         if not os.path.isdir(folder):
@@ -508,10 +588,12 @@ def main(argv):
         if opts["--wav"]:
             print("Input: %s, %.1f s" % (os.path.basename(source), length))
         audio, note = finish(np, audio, volume)
+        if note and opts["--carla"] and note.startswith("the render is silent"):
+            note = "the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again."
         if note:
             print("Note: " + note)
         if not out:
-            out = "%s-%s.wav" % (stem(source), stem(plugin))
+            out = "%s-%s.wav" % (stem(source), stem(name))
         if opts["--outdir"]:
             if not os.path.isdir(opts["--outdir"]):
                 os.makedirs(opts["--outdir"])
@@ -535,13 +617,13 @@ def main(argv):
                 where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
             if not os.path.isdir(where):
                 os.makedirs(where)
-            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(plugin)))
+            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             write_wav(o, audio, rate, bits)
             print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
-                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(plugin)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         for m, o in batch_done:
@@ -571,7 +653,7 @@ def main(argv):
         print("")
         print(text)
         where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1])))
-        rep = os.path.join(where, "vst-test-%s.txt" % stem(plugin))
+        rep = os.path.join(where, "vst-test-%s.txt" % stem(name))
         with open(rep, "w") as f:
             f.write(text + "\n")
         print("Wrote %s" % rep)

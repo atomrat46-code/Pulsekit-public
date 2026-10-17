@@ -5254,6 +5254,14 @@ public final class DesktopBehavior {
     java.util.List<String> args = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), true);
     out.append("vst_render args: ").append(String.valueOf(args).replace(home.getAbsolutePath(), "~")).append('\n');
     if (args == null || !args.contains("--plugin") || !args.contains("--state") || !args.contains("48000") || args.contains("--dir") || args.contains("--edit") || !args.contains("--test")) throw new AssertionError(out.toString());
+    // A Carla project alone (Linux: its LV2 or bridged plugins, in Carla-Rack) is a plugin for --vst too.
+    String vstSaved = pj.loadParams("vst_render.py");
+    edt(() -> pj.saveParams("vst_render.py", "--carla \"" + new File(home, "Anarchy kit.carxp").getAbsolutePath() + "\" --rate 48000"));
+    java.util.List<String> carla = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), false);
+    out.append("Carla project args: ").append(String.valueOf(carla).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (carla == null || !carla.contains("--carla") || carla.contains("--plugin")) throw new AssertionError(out.toString());
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--carla")) out.append("--carla row: ").append(p.label).append('\n');
+    edt(() -> pj.saveParams("vst_render.py", vstSaved));
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));
