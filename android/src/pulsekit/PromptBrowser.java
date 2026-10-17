@@ -228,7 +228,58 @@ final class PromptBrowser {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.bottomMargin = dp(activity, 6);
             body.addView(item, lp);
+            // Its reference and result pictures, small, under it; a long press shows one bigger.
+            LinearLayout thumbs = thumbs(activity, vault, vault.finalVersion(p.id));
+            if (thumbs != null) {
+                thumbs.setTag("prompt-browser-thumbs:" + p.title);
+                LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+                tlp.bottomMargin = dp(activity, 8);
+                body.addView(thumbs, tlp);
+            }
         }
+    }
+
+    /** The picture shown bigger last, for the tests. */
+    static AlertDialog lastBigger;
+
+    /** A prompt's reference and result pictures as a row of small thumbnails, or null when it has none. */
+    private static LinearLayout thumbs(final Activity activity, PromptVault vault, PromptVault.Version v) {
+        if (v == null) return null;
+        LinearLayout row = null;
+        for (int which = 1; which <= 3; which++) {
+            final String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
+            if (n == null || !n.toLowerCase(java.util.Locale.ROOT).matches(".+\\.(png|jpe?g|webp|gif|bmp)")) continue;
+            byte[] bytes = vault.fileBytes(v.id, which);
+            if (bytes == null || bytes.length == 0) continue;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            o.inSampleSize = Math.max(1, Math.max(o.outWidth, o.outHeight) / dp(activity, 96));
+            o.inJustDecodeBounds = false;
+            final android.graphics.Bitmap small = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            if (small == null) continue;
+            if (row == null) {
+                row = new LinearLayout(activity);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+            }
+            final byte[] full = bytes;
+            android.widget.ImageView image = new android.widget.ImageView(activity);
+            image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            image.setImageBitmap(small);
+            image.setTag("prompt-browser-thumb:" + n);
+            image.setContentDescription(n);
+            image.setOnLongClickListener(x -> {
+                android.widget.ImageView big = new android.widget.ImageView(activity);
+                big.setAdjustViewBounds(true);
+                big.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(full, 0, full.length));
+                lastBigger = new AlertDialog.Builder(activity).setTitle(n).setView(big).setPositiveButton("Close", null).show();
+                return true;
+            });
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48));
+            ilp.rightMargin = dp(activity, 6);
+            row.addView(image, ilp);
+        }
+        return row;
     }
 
     private static TextView chip(final Activity activity, final PromptVault vault, final PromptVault.Category c, boolean on, String tag,

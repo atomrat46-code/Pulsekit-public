@@ -8,6 +8,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.ImageIcon;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -230,9 +231,36 @@ final class PromptBrowser {
                 dialog.dispose();
                 picked.picked(p.title, words);
             });
+            // Its reference and result pictures, small; a right click shows them bigger.
+            final PromptVault.Version v = vault.finalVersion(p.id);
+            ImageIcon strip = PromptDb.slotStrip(vault, v, 40);
+            if (strip != null) {
+                item.setIcon(strip);
+                item.setHorizontalTextPosition(JButton.RIGHT);
+                item.putClientProperty("thumbs", Boolean.TRUE);
+                item.setMaximumSize(new Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
+                item.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) bigger(dialog, p.title, vault, v);
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                        if (e.isPopupTrigger()) bigger(dialog, p.title, vault, v);
+                    }
+                });
+            }
             body.add(item);
             body.add(Box.createVerticalStrut(4));
         }
+    }
+
+    /** A prompt's reference and result pictures, bigger (a right click on its row). */
+    static void bigger(JDialog over, String title, PromptVault vault, PromptVault.Version v) {
+        ImageIcon big = PromptDb.slotStrip(vault, v, 240);
+        if (big == null) return;
+        javax.swing.JOptionPane.showMessageDialog(over, new JLabel(big), title, javax.swing.JOptionPane.PLAIN_MESSAGE);
     }
 
     private static JPanel row(final PromptVault vault, List<PromptVault.Category> cats, long on, String tag, final JPanel body, final JDialog dialog, final Picked picked) {

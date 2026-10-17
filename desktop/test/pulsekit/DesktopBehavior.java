@@ -4685,6 +4685,63 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Favourite files and category tabs in the galleries: tabs for the main categories the files'
+   * prompts are in, a favourite file starred and in the ★ Favourite files list.
+   */
+  void s112_favourite_files_tabs() throws Exception {
+    FileFavourites.reset();
+    PromptVault vault = PromptDb.vault();
+    long video = vault.addCategory("Videos");
+    long image = vault.addCategory("Images");
+    java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pngOut);
+    long pv = vault.addPrompt(video, "Sea");
+    vault.addVersion(pv, "Sea", "", "Waves", "", "sea.png", pngOut.toByteArray(), "", null, "dusk.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 4}, "ai", "");
+    long pi = vault.addPrompt(image, "Face");
+    vault.addVersion(pi, "Face", "", "A face", "", "face.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 5}, "", null, "", null, "ai", "");
+    PromptVault.StoredFile sea = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("sea.png".equals(f.name)) sea = f;
+    FileFavourites.load(PromptDb.dir());
+    FileFavourites.toggle(sea);
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    for (final long tab : new long[] {FileFavourites.ALL, image}) {
+      PromptDb.galleryCategory = tab;
+      inspectNext = d -> {
+        seen.append(tab == FileFavourites.ALL ? "All" : "Images").append(": tabs ").append(component(d, "gallery-cat:Videos") != null).append(' ').append(component(d, "gallery-cat:Images") != null)
+            .append(", sea.png ").append(component(d, "gallery:sea.png") != null).append(", face.png ").append(component(d, "gallery:face.png") != null);
+        javax.swing.JButton card = (javax.swing.JButton) component(d, "gallery:sea.png");
+        if (card != null) seen.append(", starred ").append(card.getText().contains("\u2605 sea.png"));
+        javax.swing.JComboBox<?> favs = (javax.swing.JComboBox<?>) component(d, "gallery-favs");
+        seen.append(", list ").append(favs == null ? "none" : favs.getItemCount() + " (" + favs.getItemAt(1) + ")").append('\n');
+        d.dispose();
+      };
+      SwingUtilities.invokeLater(() -> db.gallery(false));
+      int before = seen.length();
+      for (int i = 0; i < 100 && seen.length() == before; i++) Thread.sleep(100);
+      idle();
+    }
+    // Browse prompts: a prompt's pictures as small thumbnails on its row.
+    PromptBrowser.lastCategory = video;
+    PromptSearch.query = "";
+    inspectNext = d -> {
+      javax.swing.JButton item = (javax.swing.JButton) component(d, "prompt-browser-item:Sea");
+      seen.append("Browse prompts: Sea's thumbnails ").append(item != null && item.getIcon() != null).append('\n');
+      d.dispose();
+    };
+    int before = seen.length();
+    SwingUtilities.invokeLater(() -> PromptBrowser.show((Pulsekit) frame, (title, text) -> {}));
+    for (int i = 0; i < 100 && seen.length() == before; i++) Thread.sleep(100);
+    inspectNext = null;
+    PromptDb.galleryCategory = FileFavourites.ALL;
+    FileFavourites.reset();
+    out.append(seen);
+    if (!seen.toString().contains("Sea's thumbnails true")) throw new AssertionError(out.toString());
+    if (!seen.toString().contains("All: tabs true true, sea.png true, face.png true, starred true, list 2 (sea.png") || !seen.toString().contains("Images: tabs true true, sea.png false, face.png true"))
+      throw new AssertionError(out.toString());
+  }
+
+  /**
    * Nested subcategories: a subcategory of a subcategory, the Prompts page's +/− tree, a category's
    * ★ Favourites item, Save prompt's "Clips / Night", Browse prompts' rows for each level.
    */

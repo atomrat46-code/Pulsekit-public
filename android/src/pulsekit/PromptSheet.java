@@ -610,7 +610,52 @@ public final class PromptSheet {
     LinearLayout.LayoutParams kindsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     kindsLp.bottomMargin = dp(activity, 8);
     col.addView(kinds, kindsLp);
-    List<PromptVault.StoredFile> files = FileSort.sorted(galleryFiles(), FileSort.current, vault);
+    // Category tabs: All, the main categories the files' prompts are in, No category.
+    List<PromptVault.StoredFile> kindFiles = galleryFiles();
+    List<long[]> tabs = FileFavourites.tabs(vault, kindFiles);
+    boolean tabThere = false;
+    for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
+    if (!tabThere) galleryCategory = FileFavourites.ALL;
+    if (tabs.size() > 2 || galleryCategory != FileFavourites.ALL) {
+      android.widget.HorizontalScrollView tabScroll = new android.widget.HorizontalScrollView(activity);
+      tabScroll.setHorizontalScrollBarEnabled(false);
+      LinearLayout tabRow = new LinearLayout(activity);
+      tabRow.setOrientation(LinearLayout.HORIZONTAL);
+      for (long[] t : tabs) {
+        final long tab = t[0];
+        String tabName = FileFavourites.tabName(vault, tab);
+        boolean on = tab == galleryCategory;
+        TextView pill = button(activity, tabName, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+        pill.setTag("refs-cat:" + tabName);
+        pill.setPadding(dp(activity, 12), 0, dp(activity, 12), 0);
+        pill.setOnClickListener(v -> {
+          galleryCategory = tab;
+          rebuild(activity);
+        });
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 36));
+        tlp.rightMargin = dp(activity, 6);
+        tabRow.addView(pill, tlp);
+      }
+      tabScroll.addView(tabRow);
+      LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+      tsLp.bottomMargin = dp(activity, 8);
+      col.addView(tabScroll, tsLp);
+    }
+    // ★ Favourite files: this gallery's favourites in a list; picking one opens it.
+    FileFavourites.load(activity.getFilesDir());
+    final List<PromptVault.StoredFile> favFiles = FileFavourites.among(promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles());
+    if (!favFiles.isEmpty()) {
+      TextView favs = button(activity, "\u2605 Favourite files (" + favFiles.size() + ") \u25be", "#1B1D1F", "#E8C35A");
+      favs.setTag("refs-favs");
+      favs.setOnClickListener(v -> {
+        CharSequence[] labels = new CharSequence[favFiles.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
+        lastFavFiles = new AlertDialog.Builder(activity).setTitle("\u2605 Favourite files")
+            .setItems(labels, (d, which) -> galleryOpen(activity, favFiles.get(which), null)).setNegativeButton("Close", null).show();
+      });
+      col.addView(favs, buttonLp(activity));
+    }
+    List<PromptVault.StoredFile> files = FileSort.sorted(FileFavourites.onTab(vault, kindFiles, galleryCategory), FileSort.current, vault);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;
@@ -650,7 +695,8 @@ public final class PromptSheet {
       card.setPadding(dp(activity, 6), dp(activity, 6), dp(activity, 6), dp(activity, 8));
       card.addView(frame);
       String name = file.name == null ? "file" : file.name;
-      TextView caption = label(activity, name, 12, "#ECEBE6", false);
+      TextView caption = label(activity, FileFavourites.shown(file, name), 12, FileFavourites.is(file) ? "#E8C35A" : "#ECEBE6", false);
+      caption.setTag("refs-name:" + name);
       caption.setPadding(0, dp(activity, 6), 0, 0);
       caption.setMaxLines(2);
       card.addView(caption);
@@ -678,23 +724,7 @@ public final class PromptSheet {
       frame.setOnLongClickListener(menu);
       thumb.setOnLongClickListener(menu);
       // One tap: a sound plays in place; anything else opens full size (Back comes to this thumbnail again).
-      View.OnClickListener play = v -> {
-        if (which == PromptVault.PROMPT_FILE) {
-          // A prompt file: its text, its prompt's files and Edit (no zoom).
-          focusId = versionId;
-          focusWhich = which;
-          promptFilePreview(activity, file, owner);
-          return;
-        }
-        if (previewKindByName(itemName) == 4) {
-          galleryPlay(activity, versionId, which, itemName, mark);
-          return;
-        }
-        stopGallery();
-        focusId = versionId;
-        focusWhich = which;
-        openPreview(activity, itemName, vault.fileBytes(versionId, which), 3);
-      };
+      View.OnClickListener play = v -> galleryOpen(activity, file, mark);
       card.setOnClickListener(play);
       frame.setOnClickListener(play);
       thumb.setOnClickListener(play);
@@ -722,8 +752,36 @@ public final class PromptSheet {
     watchGallery(activity, token);
   }
 
-  /** The gallery's A I V S T choice (all files at first). */
+  /** The gallery's A I V S T choice (all files at first), and its category tab (FileFavourites.ALL at first). */
   private static String galleryFilter = "A";
+  static long galleryCategory = FileFavourites.ALL;
+  /** The ★ Favourite files list shown last, for the tests. */
+  static AlertDialog lastFavFiles;
+
+  /**
+   * A gallery file opened (a card's tap, or picked from ★ Favourite files): a prompt file shows its
+   * text, its prompt's files and Edit; a sound plays in place (on its card's `mark`); anything else
+   * opens full size (Back comes to its thumbnail again).
+   */
+  private static void galleryOpen(Activity activity, PromptVault.StoredFile file, TextView mark) {
+    long versionId = file.versionId;
+    int which = file.which;
+    String itemName = file.name == null ? "file" : file.name;
+    if (which == PromptVault.PROMPT_FILE) {
+      focusId = versionId;
+      focusWhich = which;
+      promptFilePreview(activity, file, vault.versionOf(file));
+      return;
+    }
+    if (previewKindByName(itemName) == 4) {
+      galleryPlay(activity, versionId, which, itemName, mark != null ? mark : new TextView(activity));
+      return;
+    }
+    stopGallery();
+    focusId = versionId;
+    focusWhich = which;
+    openPreview(activity, itemName, vault.fileBytes(versionId, which), 3);
+  }
 
   /** The files of the gallery open: Prompt files, Result files or Ref files, of the kind A I V S T picks. */
   private static List<PromptVault.StoredFile> galleryFiles() {
@@ -1721,6 +1779,15 @@ public final class PromptSheet {
       items.add("Edit");
       runs.add(() -> editVersion(activity, owner));
     }
+    // The file itself among the favourite files (★ Favourite files above the gallery).
+    FileFavourites.load(activity.getFilesDir());
+    final boolean favFile = FileFavourites.is(file);
+    items.add(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
+    runs.add(() -> {
+      FileFavourites.toggle(file);
+      toast(activity, file.name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
+      rebuild(activity);
+    });
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -1782,6 +1849,19 @@ public final class PromptSheet {
     boolean extract = PromptExtract.offered(vault, versionId, which, name);
     java.util.List<CharSequence> items = new java.util.ArrayList<CharSequence>();
     java.util.List<Runnable> runs = new java.util.ArrayList<Runnable>();
+    // The file among the favourite files (★ Favourite files above the gallery).
+    final PromptVault.StoredFile stored = new PromptVault.StoredFile();
+    stored.versionId = versionId;
+    stored.which = which;
+    stored.name = name;
+    FileFavourites.load(activity.getFilesDir());
+    final boolean favFile = FileFavourites.is(stored);
+    items.add(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
+    runs.add(() -> {
+      FileFavourites.toggle(stored);
+      toast(activity, name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
+      rebuild(activity);
+    });
     if (fullSize) {
       items.add("Open in full size");
       runs.add(() -> {

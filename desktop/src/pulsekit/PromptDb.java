@@ -475,7 +475,9 @@ final class PromptDb {
     }
 
     private String caption(PromptVault.StoredFile file, String mark) {
-        String safe = (file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
+        // A favourite file (★ Favourite files) is starred.
+        FileFavourites.load(dir());
+        String safe = FileFavourites.shown(file, file.name == null ? "file" : file.name).replace("&", "&amp;").replace("<", "&lt;");
         // A picture's resolution and aspect ratio ("1920×1080 · 16:9"), a video's aspect ratio (from its preview).
         String dims = lastSize == null || lastSize.isEmpty() ? "" : lastSize + "<br>";
         String sub = dims + (file.shownTitle().replace("&", "&amp;").replace("<", "&lt;")) + " · " + (file.size / 1024) + " KB";
@@ -727,18 +729,60 @@ final class PromptDb {
             });
             sortRow.add(b);
         }
-        JPanel top = new JPanel(new GridLayout(kinds == null ? 1 : 2, 1, 0, 6));
-        if (kinds != null) top.add(kinds);
-        top.add(sortRow);
         PromptVault lib = null;
         try {
             lib = vault();
         } catch (Exception ex) {
             // by category then sorts by name
         }
+        List<PromptVault.StoredFile> every = kind == 2 ? promptFiles() : stored(results);
         List<PromptVault.StoredFile> kept = new ArrayList<PromptVault.StoredFile>();
-        for (PromptVault.StoredFile f : kind == 2 ? promptFiles() : stored(results)) if (DbFilter.fits(f.name, galleryFilter)) kept.add(f);
-        List<PromptVault.StoredFile> list = FileSort.sorted(kept, FileSort.current, lib);
+        for (PromptVault.StoredFile f : every) if (DbFilter.fits(f.name, galleryFilter)) kept.add(f);
+        // Category tabs: All, the main categories the files' prompts are in, No category.
+        final PromptVault tabsLib = lib;
+        List<long[]> tabs = FileFavourites.tabs(lib, kept);
+        boolean tabThere = false;
+        for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
+        if (!tabThere) galleryCategory = FileFavourites.ALL;
+        JPanel catRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        if (tabs.size() > 2) {
+            for (long[] t : tabs) {
+                final long tab = t[0];
+                String tabName = FileFavourites.tabName(tabsLib, tab);
+                javax.swing.JToggleButton b = new javax.swing.JToggleButton(tabName, tab == galleryCategory);
+                b.setName("gallery-cat:" + tabName);
+                b.addActionListener(e -> {
+                    galleryCategory = tab;
+                    dialog.dispose();
+                    this.gallery(kind);
+                });
+                catRow.add(b);
+            }
+        }
+        // ★ Favourite files: this gallery's favourites in a list; picking one opens it.
+        FileFavourites.load(dir());
+        final List<PromptVault.StoredFile> favFiles = FileFavourites.among(every);
+        if (!favFiles.isEmpty()) {
+            String[] labels = new String[favFiles.size() + 1];
+            labels[0] = "\u2605 Favourite files (" + favFiles.size() + ")";
+            for (int i = 0; i < favFiles.size(); i++) labels[i + 1] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
+            final javax.swing.JComboBox<String> favs = new javax.swing.JComboBox<String>(labels);
+            favs.setName("gallery-favs");
+            favs.addActionListener(e -> {
+                int i = favs.getSelectedIndex();
+                if (i <= 0) return;
+                favs.setSelectedIndex(0);
+                this.preview(favFiles.get(i - 1), new JButton());
+            });
+            catRow.add(javax.swing.Box.createHorizontalStrut(12));
+            catRow.add(favs);
+        }
+        boolean third = catRow.getComponentCount() > 0;
+        JPanel top = new JPanel(new GridLayout((kinds == null ? 1 : 2) + (third ? 1 : 0), 1, 0, 6));
+        if (kinds != null) top.add(kinds);
+        top.add(sortRow);
+        if (third) top.add(catRow);
+        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, galleryCategory), FileSort.current, lib);
         JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
@@ -769,8 +813,9 @@ final class PromptDb {
     /** The name of the file Browse DB picked last: it opens scrolled to it, outlined. */
     static String lastPicked;
 
-    /** The galleries' A I V S T choice (all files at first). */
+    /** The galleries' A I V S T choice (all files at first), and category tab (FileFavourites.ALL at first). */
     static String galleryFilter = "A";
+    static long galleryCategory = FileFavourites.ALL;
 
     /** The library's change count (PromptVault.changes) the gallery shown last was built at. */
     long galleryBuilt;
@@ -980,6 +1025,17 @@ final class PromptDb {
             menu.add(star);
             menu.add(edit);
         }
+        // The file itself among the favourite files (★ Favourite files above the gallery).
+        FileFavourites.load(dir());
+        final boolean favFile = FileFavourites.is(file);
+        JMenuItem favItem = new JMenuItem(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
+        favItem.setName("gallery-favourite-file");
+        favItem.addActionListener(e -> {
+            FileFavourites.toggle(file);
+            app.setNow(file.name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
+            changed.run();
+        });
+        menu.add(favItem);
         menu.add(open);
         menu.add(save);
         boolean extractable = false;

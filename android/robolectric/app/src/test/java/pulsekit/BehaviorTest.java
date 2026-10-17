@@ -3160,6 +3160,95 @@ public class BehaviorTest {
   }
 
   /**
+   * Favourite files and category tabs in the Prompts page's galleries: tabs for the main categories
+   * the files' prompts are in; Add to favourite files in a card's long press; the card starred; the
+   * ★ Favourite files list opening it; Remove from favourite files.
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s130_favourite_files_tabs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileFavourites.reset();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long video = vault.addCategory("Videos");
+    long image = vault.addCategory("Images");
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, pngOut);
+    byte[] png = pngOut.toByteArray();
+    long pv = vault.addPrompt(video, "Sea");
+    vault.addVersion(pv, "Sea", "", "Waves", "", "sea.png", png, "", null, "dusk.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 4}, "ai", "");
+    long pi = vault.addPrompt(image, "Face");
+    vault.addVersion(pi, "Face", "", "A face", "", "face.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 5}, "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    findText(pane, "Ref files").performClick();
+    idle();
+    out.append("tabs: ").append(pane.findViewWithTag("refs-cat:All") != null).append(' ').append(pane.findViewWithTag("refs-cat:Videos") != null).append(' ')
+        .append(pane.findViewWithTag("refs-cat:Images") != null).append('\n');
+    pane.findViewWithTag("refs-cat:Images").performClick();
+    idle();
+    out.append("Images tab: face.png ").append(findText(pane, "face.png") != null).append(", sea.png ").append(findText(pane, "sea.png") != null).append('\n');
+    pane.findViewWithTag("refs-cat:All").performClick();
+    idle();
+    // A long press: Add to favourite files.
+    View card = (View) pane.findViewWithTag("refs-name:sea.png").getParent();
+    card.performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    String items = listItems(menu);
+    out.append("menu: ").append(items).append('\n');
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(FileFavourites.ADD));
+    idle();
+    TextView caption = (TextView) pane.findViewWithTag("refs-name:sea.png");
+    TextView favs = (TextView) pane.findViewWithTag("refs-favs");
+    out.append("then: card ").append(caption.getText()).append(", list ").append(favs == null ? "none" : favs.getText()).append('\n');
+    favs.performClick();
+    idle();
+    out.append("Favourite files: ").append(listItems(PromptSheet.lastFavFiles)).append('\n');
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFavFiles).clickOnItem(0);
+    idle();
+    // It opens full size; Back comes to the gallery again.
+    out.append("opened: ").append(pane.findViewWithTag("refs-name:sea.png") == null).append('\n');
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    if (pane.findViewWithTag("refs-name:sea.png") == null) findText(pane, "Back").performClick();
+    idle();
+    // Removed again.
+    card = (View) pane.findViewWithTag("refs-name:sea.png").getParent();
+    card.performLongClick();
+    idle();
+    menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    items = listItems(menu);
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(FileFavourites.REMOVE));
+    idle();
+    out.append("removed: card ").append(((TextView) pane.findViewWithTag("refs-name:sea.png")).getText()).append(", list ").append(pane.findViewWithTag("refs-favs") != null).append('\n');
+    PromptSheet.galleryCategory = FileFavourites.ALL;
+    FileFavourites.reset();
+    // Out of the gallery again (the Prompts page keeps where it was for the next test).
+    findText(pane, "Back").performClick();
+    idle();
+    // Browse prompts: a prompt's pictures as small thumbnails under it; a long press shows one bigger.
+    PromptBrowser.lastCategory = video;
+    PromptSearch.query = "";
+    PromptBrowser.show(app, (title, text) -> {});
+    idle();
+    View bv = PromptBrowser.last.getWindow().getDecorView();
+    View thumbs = bv.findViewWithTag("prompt-browser-thumbs:Sea");
+    out.append("Browse prompts: Sea's thumbnails ").append(thumbs == null ? 0 : ((ViewGroup) thumbs).getChildCount()).append('\n');
+    if (thumbs != null) ((ViewGroup) thumbs).getChildAt(0).performLongClick();
+    idle();
+    out.append("long press: ").append(PromptBrowser.lastBigger != null && PromptBrowser.lastBigger.isShowing() ? "shown bigger" : "nothing").append('\n');
+    if (PromptBrowser.lastBigger != null) PromptBrowser.lastBigger.dismiss();
+    PromptBrowser.last.dismiss();
+    if (!out.toString().contains("Sea's thumbnails 1") || !out.toString().contains("shown bigger")) throw new AssertionError(out.toString());
+    if (!out.toString().contains("tabs: true true true") || !out.toString().contains("Images tab: face.png true, sea.png false") || !out.toString().contains("card \u2605 sea.png")
+        || !out.toString().contains("Favourite files: sea.png") || !out.toString().contains("removed: card sea.png, list false"))
+      throw new AssertionError(out.toString());
+    write("s130_favourite_files_tabs", out.toString());
+  }
+
+  /**
    * Nested subcategories: a subcategory of a subcategory (5 levels at most), the Prompts page's
    * +/− tree, Add subcategory under the one chosen, a category's ★ Favourites, deleting a branch;
    * Save prompt's "Clips / Night"; Browse prompts' rows for each level.
