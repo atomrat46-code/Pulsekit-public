@@ -115,6 +115,15 @@ final class PromptDb {
         }
     }
 
+    /** The prompt files (the sheets runs saved with --saveprompt), as the Prompts page's Prompt files lists them. */
+    static List<PromptVault.StoredFile> promptFiles() {
+        try {
+            return new ArrayList<PromptVault.StoredFile>(vault().promptFiles());
+        } catch (Exception ex) {
+            return new ArrayList<PromptVault.StoredFile>();
+        }
+    }
+
     /** Reference and result files together: Browse DB is greyed when there are none. */
     static List<PromptVault.StoredFile> allFiles(String only) {
         List<PromptVault.StoredFile> out = files(false, only);
@@ -568,8 +577,14 @@ final class PromptDb {
 
     /** The Prompts page's Ref files / Result files: previews; a click plays or opens, a right click has the rest. */
     void gallery(boolean results) {
-        final JDialog dialog = new JDialog(app, results ? "Result files" : "Ref files", true);
-        JPanel kinds = this.kinds(results, k -> stored(k).size(), showResults -> {
+        this.gallery(results ? 1 : 0);
+    }
+
+    /** The galleries: 0 Ref files, 1 Result files, 2 Prompt files (the sheets runs saved with --saveprompt). */
+    void gallery(final int kind) {
+        final boolean results = kind == 1;
+        final JDialog dialog = new JDialog(app, kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files", true);
+        JPanel kinds = kind == 2 ? null : this.kinds(results, k -> stored(k).size(), showResults -> {
             dialog.dispose();
             this.gallery(showResults);
         });
@@ -584,19 +599,19 @@ final class PromptDb {
             FileSort.current = picked;
             writeSort(picked);
             dialog.dispose();
-            this.gallery(results);
+            this.gallery(kind);
         });
         JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         sortRow.add(new JLabel("Sort by"));
         sortRow.add(sort);
-        JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
-        top.add(kinds);
+        JPanel top = new JPanel(new GridLayout(kinds == null ? 1 : 2, 1, 0, 6));
+        if (kinds != null) top.add(kinds);
         top.add(sortRow);
-        List<PromptVault.StoredFile> list = FileSort.sorted(stored(results), FileSort.current);
+        List<PromptVault.StoredFile> list = FileSort.sorted(kind == 2 ? promptFiles() : stored(results), FileSort.current);
         JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
-                this.gallery(results);
+                this.gallery(kind);
             }), "gallery:");
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());
@@ -606,7 +621,7 @@ final class PromptDb {
         this.galleryBuilt = PromptVault.changes;
         final javax.swing.Timer watch = new javax.swing.Timer(1500, null);
         watch.addActionListener(e -> {
-            if (this.refreshGallery(dialog, results)) watch.stop();
+            if (this.refreshGallery(dialog, kind)) watch.stop();
         });
         watch.start();
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
@@ -617,7 +632,7 @@ final class PromptDb {
             }
         });
         this.lastGallery = dialog;
-        this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(results)), grid, close);
+        this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(kind)), grid, close);
     }
 
     /** The library's change count (PromptVault.changes) the gallery shown last was built at. */
@@ -625,10 +640,14 @@ final class PromptDb {
 
     /** The gallery shown, out of date (the library changed): opened again. True when it was. */
     boolean refreshGallery(JDialog dialog, boolean results) {
+        return this.refreshGallery(dialog, results ? 1 : 0);
+    }
+
+    boolean refreshGallery(JDialog dialog, int kind) {
         if (!dialog.isShowing() || this.lastPreview != null && this.lastPreview.isShowing()) return false;
         if (PromptVault.changes == this.galleryBuilt) return false;
         dialog.dispose();
-        SwingUtilities.invokeLater(() -> this.gallery(results));
+        SwingUtilities.invokeLater(() -> this.gallery(kind));
         return true;
     }
 

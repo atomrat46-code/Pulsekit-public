@@ -437,6 +437,9 @@ final class PyJav {
             MediaBrowser.loadLoop();
             runArgs = MediaDir.withLastRoot(runArgs);
         }
+        // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
+        // in the program files folder, not the run's temporary one.
+        runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
         // vst_render.py --test: Pulsekit's DrumMidi_CRT.jar and this Java for it.
         if ("vst_render.py".equals(name) && runArgs.contains("--test")) {
             try {
@@ -1208,12 +1211,17 @@ final class PyJav {
     }
 
     /** Writes a program's file to the program files folder (else ~/Downloads, or ~/.pulsekit), never over an existing file. */
+    /** The program files folder from Drum Midi Settings, else ~/Downloads (or ~/.pulsekit). */
+    File programFolder() {
+        File home = new File(System.getProperty("user.home", "."));
+        File dir = ProgramFolder.get() != null ? new File(ProgramFolder.get()) : new File(home, "Downloads");
+        if (ProgramFolder.get() == null && !dir.isDirectory()) dir = new File(home, ".pulsekit");
+        return dir;
+    }
+
     File saveProgramFile(String name, byte[] data) {
         try {
-            File home = new File(System.getProperty("user.home", "."));
-            // The program files folder from Drum Midi Settings, else ~/Downloads (or ~/.pulsekit).
-            File dir = ProgramFolder.get() != null ? new File(ProgramFolder.get()) : new File(home, "Downloads");
-            if (ProgramFolder.get() == null && !dir.isDirectory()) dir = new File(home, ".pulsekit");
+            File dir = this.programFolder();
             if (!dir.isDirectory()) dir.mkdirs();
             String safe = name.replace('\\', '_').replace('/', '_');
             int dot = safe.lastIndexOf('.');
@@ -1795,6 +1803,12 @@ final class PyJav {
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
+        // Another program loaded meanwhile (ImageUpscaler from the Media browser Choose file opened):
+        // its argument line is not this program's (it was given SogniPedit's --prompt).
+        if (!program.equals(app.pyName)) {
+            app.setNow("Params of " + program + " saved");
+            return;
+        }
         String input = null;
         boolean newInput = false;
         for (int i = 0; i < ps.size(); i++) {

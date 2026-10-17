@@ -874,13 +874,15 @@ public final class ArtJava {
    */
   static String mimeOf(String name) {
     String n = name.toLowerCase();
+    // A prompt sheet as text/plain was saved as "name.prompt.txt": Download keeps the ending of a file of no known type.
+    if (n.endsWith(".prompt")) return "application/octet-stream";
     int dot = n.lastIndexOf('.');
     String known = dot < 0 ? null : android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(n.substring(dot + 1));
     if (known != null) return known;
     if (n.endsWith(".mid") || n.endsWith(".midi")) return "audio/midi";
     if (n.endsWith(".mp3")) return "audio/mpeg";
     if (n.endsWith(".wav")) return "audio/x-wav";
-    if (n.endsWith(".txt") || n.endsWith(".prompt")) return "text/plain";
+    if (n.endsWith(".txt")) return "text/plain";
     return "application/octet-stream";
   }
 

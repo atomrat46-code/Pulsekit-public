@@ -13,6 +13,12 @@
  *     With song.mid (the song Pulsekit made from DrumMidi's MIDI) the song is checked against the
  *     drums played too, and hits DrumMidi found but the song lost are put down to the import.
  *
+ *   java CompareHits --batch <folder> [--no-toms] [--log <logfile>]
+ *     A MidiDrumGen batch (MidiDrumGen --count) after vst_render.py --dir <folder> --test: each
+ *     groove listed in the folder's batch.txt against every DrumMidi MIDI made from its renders
+ *     (<groove>-<plugin>-dm.mid, in the folder or under it), summed per plugin and per base style,
+ *     time signature and hat pattern, weakest first. Also written as batch-summary.txt there.
+ *
  *   --no-toms  leaves toms out on both sides (no Toms row). A MIDI DrumMidi_CRT made with --no-toms
  *              says so in its settings, and its toms are left out without the switch.
  *
@@ -86,9 +92,14 @@ public final class CompareHits {
   static void run(String[] args) throws Exception {
     List<String> files = new ArrayList<String>();
     boolean truth = false;
+    String batchDir = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
+      if ("--batch".equals(a) && i + 1 < args.length) {
+        batchDir = args[++i].trim();
+        continue;
+      }
       if ("--truth".equals(a)) {
         truth = true;
         continue;
@@ -106,8 +117,12 @@ public final class CompareHits {
       }
       files.add(a);
     }
+    if (batchDir != null) {
+      runBatch(batchDir);
+      return;
+    }
     if (files.size() < 2) {
-      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--no-toms] [--log <logfile>] | <played.mid> <drums.mid> [song.mid] --truth");
+      out("Usage: java CompareHits <input.wav> <drums.mid> [song.mid] [--no-toms] [--log <logfile>] [--batch <folder>] | <played.mid> <drums.mid> [song.mid] --truth");
       finish("Failed: need a WAV and a MIDI file, or two MIDI files");
       return;
     }
@@ -155,6 +170,199 @@ public final class CompareHits {
     out(suggestionsText(suggestions(midi, cymbalKinds(midiBytes), midiBpm(midiBytes), vsWav, songVsMidi, settings, wav ? name(files.get(0)) : null)));
     out(LEGEND);
     finish("Succeeded: compared " + files.size() + " files");
+  }
+
+  /** One groove of a batch: its batch.txt row (column name to value). */
+  static final class Groove {
+    String file;
+    java.util.Map<String, String> cols = new java.util.HashMap<String, String>();
+  }
+
+  /** Sums per family: hits played, found by DrumMidi, matched; and how many grooves went in. */
+  static final class Tally {
+    final int[] ref = new int[FAMILIES.length];
+    final int[] test = new int[FAMILIES.length];
+    final int[] matched = new int[FAMILIES.length];
+    int grooves;
+
+    void add(Result r) {
+      grooves++;
+      for (Row row : r.rows) {
+        int f = Arrays.asList(FAMILIES).indexOf(row.family);
+        if (f < 0) continue;
+        ref[f] += row.ref;
+        test[f] += row.test;
+        matched[f] += row.matched;
+      }
+    }
+
+    /** The F score over all families (2PR / (P + R) of the summed hits). */
+    double score() {
+      int r = 0, t = 0, m = 0;
+      for (int f = 0; f < ref.length; f++) {
+        r += ref[f];
+        t += test[f];
+        m += matched[f];
+      }
+      return r + t == 0 ? 0 : 2.0 * m / (r + t);
+    }
+
+    String line() {
+      StringBuilder sb = new StringBuilder();
+      for (int f = 0; f < FAMILIES.length; f++) {
+        if (ref[f] == 0 && test[f] == 0) continue;
+        sb.append(String.format(Locale.ROOT, "  %s %d/%d P%3.0f R%3.0f", FAMILIES[f], matched[f], ref[f],
+            test[f] == 0 ? 0 : 100.0 * matched[f] / test[f], ref[f] == 0 ? 0 : 100.0 * matched[f] / ref[f]));
+      }
+      return sb.toString();
+    }
+  }
+
+  /**
+   * --batch: every groove of a MidiDrumGen batch against the DrumMidi MIDI made from each of its
+   * renders (vst_render.py --dir --test leaves <groove>-<plugin>-dm.mid beside the WAV), summed per
+   * plugin, then per base style, time signature and hat pattern (weakest first).
+   */
+  static void runBatch(String folder) throws Exception {
+    java.io.File dir = new java.io.File(folder);
+    java.io.File list = new java.io.File(dir, "batch.txt");
+    if (!list.isFile()) {
+      finish("Failed: no batch.txt in " + folder + " (MidiDrumGen --count writes it with the grooves)");
+      return;
+    }
+    List<Groove> grooves = new ArrayList<Groove>();
+    String[] head = null;
+    for (String line : new String(read(list.getPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+      line = line.replace("\r", "");
+      if (line.trim().length() == 0 || line.startsWith("#")) continue;
+      String[] p = line.split("\t", -1);
+      if (head == null) {
+        head = p;
+        continue;
+      }
+      Groove g = new Groove();
+      g.file = p[0];
+      for (int i = 0; i < head.length && i < p.length; i++) g.cols.put(head[i], p[i]);
+      grooves.add(g);
+    }
+    // Every DrumMidi MIDI in the folder (and under it, for vst_render --outdir in it), by name.
+    java.util.Map<String, java.io.File> found = new java.util.TreeMap<String, java.io.File>();
+    collect(dir, found, 0);
+    java.util.Map<String, Tally> perPlugin = new java.util.TreeMap<String, Tally>();
+    java.util.Map<String, java.util.Map<String, Tally>> groups = new java.util.LinkedHashMap<String, java.util.Map<String, Tally>>();
+    String[][] by = {{"base", "Base style"}, {"timesig", "Time signature"}, {"hats", "Hats"}};
+    java.util.Map<String, List<String>> worst = new java.util.TreeMap<String, List<String>>();
+    int pairs = 0;
+    List<String> missing = new ArrayList<String>();
+    for (Groove g : grooves) {
+      java.io.File played = new java.io.File(dir, g.file);
+      String stem = g.file.replaceAll("(?i)\\.midi?$", "");
+      boolean any = false;
+      for (java.util.Map.Entry<String, java.io.File> e : found.entrySet()) {
+        String n = e.getKey();
+        if (!n.startsWith(stem + "-") || !n.toLowerCase(Locale.ROOT).endsWith("-dm.mid")) continue;
+        String plugin = n.substring(stem.length() + 1, n.length() - "-dm.mid".length());
+        if (!played.isFile()) continue;
+        byte[] dm = read(e.getValue().getPath());
+        boolean was = noToms;
+        if ("off".equals(drumMidiSettings(dm).get("toms"))) noToms = true;
+        Result r = compare(g.file, "Played", withoutToms(midiHits(read(played.getPath()))), "DrumMidi", withoutToms(midiHits(dm)), false);
+        noToms = was;
+        any = true;
+        pairs++;
+        tally(perPlugin, plugin).add(r);
+        for (String[] b : by) {
+          java.util.Map<String, Tally> m = groups.get(plugin + "\t" + b[0]);
+          if (m == null) groups.put(plugin + "\t" + b[0], m = new java.util.TreeMap<String, Tally>());
+          String v = g.cols.get(b[0]);
+          tally(m, v == null || v.length() == 0 ? "?" : v).add(r);
+        }
+        Tally one = new Tally();
+        one.add(r);
+        List<String> w = worst.get(plugin);
+        if (w == null) worst.put(plugin, w = new ArrayList<String>());
+        w.add(String.format(Locale.ROOT, "%06.1f\t%s (%s, %s BPM)%s", 100 * one.score(), g.file, g.cols.get("style"), g.cols.get("tempo"), one.line()));
+      }
+      if (!any) missing.add(g.file);
+    }
+    out(String.format(Locale.ROOT, "CompareHits --batch: %d grooves in %s, %d renders compared (%d plugin%s)", grooves.size(), dir.getName(), pairs,
+        perPlugin.size(), perPlugin.size() == 1 ? "" : "s"));
+    out("P: DrumMidi's hits that were played, R: played hits DrumMidi found (within " + Math.round(TOLERANCE * 1000) + " ms, after the best shift)");
+    if (noToms) out("Toms left out (--no-toms)");
+    if (pairs == 0) {
+      out("No DrumMidi MIDI found: run vst_render.py --dir \"" + folder + "\" --plugin <plugin> --test first (it leaves <groove>-<plugin>-dm.mid)");
+      writeSummary(dir);
+      finish("Failed: nothing to compare in " + folder);
+      return;
+    }
+    for (java.util.Map.Entry<String, Tally> p : perPlugin.entrySet()) {
+      String plugin = p.getKey();
+      out("");
+      out(String.format(Locale.ROOT, "== %s: %d grooves, F %.1f%%", plugin, p.getValue().grooves, 100 * p.getValue().score()));
+      out("All:" + p.getValue().line());
+      for (String[] b : by) {
+        java.util.Map<String, Tally> m = groups.get(plugin + "\t" + b[0]);
+        if (m == null) continue;
+        List<java.util.Map.Entry<String, Tally>> rows = new ArrayList<java.util.Map.Entry<String, Tally>>(m.entrySet());
+        java.util.Collections.sort(rows, new java.util.Comparator<java.util.Map.Entry<String, Tally>>() {
+          @Override
+          public int compare(java.util.Map.Entry<String, Tally> x, java.util.Map.Entry<String, Tally> y) {
+            return Double.compare(x.getValue().score(), y.getValue().score());
+          }
+        });
+        out("");
+        out(b[1] + " (weakest first):");
+        for (java.util.Map.Entry<String, Tally> row : rows) {
+          out(String.format(Locale.ROOT, "  %-16s %3d  F %5.1f%%%s", row.getKey(), row.getValue().grooves, 100 * row.getValue().score(), row.getValue().line()));
+        }
+      }
+      List<String> w = worst.get(plugin);
+      java.util.Collections.sort(w);
+      out("");
+      out("Weakest grooves:");
+      for (int i = 0; i < Math.min(5, w.size()); i++) {
+        String[] part = w.get(i).split("\t", 2);
+        out(String.format(Locale.ROOT, "  F %5.1f%%  %s", Double.parseDouble(part[0]), part[1]));
+      }
+    }
+    if (!missing.isEmpty()) {
+      out("");
+      out("Not rendered (no DrumMidi MIDI): " + missing.size() + (missing.size() <= 10 ? " " + missing : ""));
+    }
+    writeSummary(dir);
+    finish("Succeeded: " + pairs + " renders of " + grooves.size() + " grooves compared");
+  }
+
+  private static Tally tally(java.util.Map<String, Tally> m, String key) {
+    Tally t = m.get(key);
+    if (t == null) m.put(key, t = new Tally());
+    return t;
+  }
+
+  /** The DrumMidi MIDI files (-dm.mid) in `dir` and up to three folders under it, by name. */
+  private static void collect(java.io.File dir, java.util.Map<String, java.io.File> into, int depth) {
+    java.io.File[] kids = dir.listFiles();
+    if (kids == null) return;
+    for (java.io.File f : kids) {
+      if (f.isDirectory() && depth < 3) collect(f, into, depth + 1);
+      else if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith("-dm.mid") && !into.containsKey(f.getName())) into.put(f.getName(), f);
+    }
+  }
+
+  /** The batch summary as batch-summary.txt in the batch's folder (also with --log). */
+  private static void writeSummary(java.io.File dir) {
+    try {
+      java.io.File f = new java.io.File(dir, "batch-summary.txt");
+      java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+      try {
+        fos.write(report.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+      out("Wrote " + f.getPath());
+    } catch (Exception ex) {
+      out("Could not write batch-summary.txt: " + ex.getMessage());
+    }
   }
 
   /**

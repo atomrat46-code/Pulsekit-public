@@ -26,6 +26,50 @@ public final class MediaDir {
     public long size;
     /** When it was added (seconds), where known: Download lists the newest first. */
     public long date;
+    /** A prompt file kept in the library (Prompt files), listed under T with a star: its library id; 0 for a file in the folder. */
+    public long dbId;
+  }
+
+  /** The id a library prompt file is listed by. */
+  public static final String DB_PROMPT = "pulsekit-db-prompt:";
+
+  /** What a library prompt file's name shows with: a star. */
+  public static final String STAR = "\u2605 ";
+
+  /** The name a card shows: a library prompt file's with its star. */
+  public static String shownName(Entry e) {
+    return e.dbId != 0 ? STAR + e.name : e.name;
+  }
+
+  /**
+   * The folder's entries and, after them, the library's prompt files (the sheets runs saved with
+   * --saveprompt): those show only under T, with a star. `vault` null leaves them out.
+   */
+  public static List<Entry> withPromptFiles(List<Entry> all, PromptVault vault) {
+    List<Entry> out = new ArrayList<Entry>();
+    if (all != null) out.addAll(all);
+    if (vault == null) return out;
+    for (PromptVault.StoredFile f : vault.promptFiles()) {
+      Entry e = new Entry();
+      e.name = f.name;
+      e.id = DB_PROMPT + f.versionId;
+      e.dbId = f.versionId;
+      e.size = f.size;
+      out.add(e);
+    }
+    return out;
+  }
+
+  /** How many entries selector `f` shows (folders left out); A leaves the library's prompt files out, as it lists the folder. */
+  public static int count(List<Entry> all, String f) {
+    int n = 0;
+    if (all == null) return 0;
+    for (Entry e : all) {
+      if ("A".equals(f)) {
+        if (e.dbId == 0) n++;
+      } else if (!e.folder && f.equals(filterOf(e.name))) n++;
+    }
+    return n;
   }
 
   private MediaDir() {}
@@ -85,11 +129,15 @@ public final class MediaDir {
     return "O";
   }
 
-  /** The entries under selector `f` ("A" keeps them all; folders stay). */
+  /** The entries under selector `f` ("A" keeps the folder's all; folders stay; the library's prompt files only under T). */
   public static List<Entry> filtered(List<Entry> all, String f) {
     if (all == null) return new ArrayList<Entry>();
-    if (f == null || "A".equals(f)) return all;
     List<Entry> out = new ArrayList<Entry>();
+    if (f == null || "A".equals(f)) {
+      // The library's prompt files show under T only.
+      for (Entry e : all) if (e.dbId == 0) out.add(e);
+      return out;
+    }
     for (Entry e : all) if (e.folder || f.equals(filterOf(e.name))) out.add(e);
     return out;
   }

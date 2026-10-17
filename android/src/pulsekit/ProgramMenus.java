@@ -134,6 +134,7 @@ final class ProgramMenus {
     void selectProgram(String kind, String name) {
         // Another program: Return (back to the Media browser after ImageUpscaler) goes.
         app.pyJav.pkSetReturn(null);
+        PyJavParams.closeOthers(name);
         try {
             byte[] data = this.read(kind, name);
             String low = name.toLowerCase();

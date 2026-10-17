@@ -191,6 +191,9 @@ final class PromptsPage {
 
     // ------------------------------------------------------------ list
 
+    /** Favourite prompts opened from their row (collapsed at first, like Select program). */
+    boolean favouritesOpen;
+
     void buildList() {
         JPanel library = this.row();
         JButton refs = app.action("Ref files", ELEV, FG);
@@ -199,6 +202,10 @@ final class PromptsPage {
         JButton results = app.action("Result files", ELEV, FG);
         results.setName("prompts-result-files");
         results.addActionListener(e -> app.promptDb.gallery(true));
+        // Prompt files: the sheets runs saved with --saveprompt, kept in the library instead of on disk.
+        JButton promptFiles = app.action("Prompt files", ELEV, FG);
+        promptFiles.setName("prompts-prompt-files");
+        promptFiles.addActionListener(e -> app.promptDb.gallery(2));
         // Import: .prompt sheets (Export's, a program's --saveprompt) with their reference and result files.
         JButton imp = app.action("Import", ELEV, FG);
         imp.setName("prompts-import");
@@ -207,6 +214,8 @@ final class PromptsPage {
         library.add(Box.createHorizontalStrut(8));
         library.add(results);
         library.add(Box.createHorizontalStrut(8));
+        library.add(promptFiles);
+        library.add(Box.createHorizontalStrut(8));
         library.add(imp);
         this.col.add(Box.createVerticalStrut(12));
         this.col.add(library);
@@ -214,7 +223,29 @@ final class PromptsPage {
         VersionFavourites.load(PromptDb.dir());
         List<PromptVault.Version> favs = VersionFavourites.list(this.vault);
         if (!favs.isEmpty()) {
-            this.col.add(this.caption("FAVOURITE PROMPTS"));
+            // Collapsed like Select program: the list opens from its row (and stays open over a rebuild).
+            final int count = favs.size();
+            final JButton toggle = app.action("\u2605 Favourite prompts (" + count + ") " + (this.favouritesOpen ? "\u25b4" : "\u25be"), ELEV, new java.awt.Color(0xE8C35A));
+            toggle.setName("prompts-favourites-toggle");
+            toggle.setHorizontalAlignment(JButton.LEFT);
+            toggle.setAlignmentX(0.0f);
+            toggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, toggle.getPreferredSize().height));
+            final JPanel favList = new JPanel();
+            favList.setLayout(new BoxLayout(favList, BoxLayout.Y_AXIS));
+            favList.setOpaque(false);
+            favList.setAlignmentX(0.0f);
+            favList.setBorder(BorderFactory.createEmptyBorder(6, 16, 0, 0));
+            favList.setVisible(this.favouritesOpen);
+            toggle.addActionListener(e -> {
+                this.favouritesOpen = !this.favouritesOpen;
+                favList.setVisible(this.favouritesOpen);
+                toggle.setText("\u2605 Favourite prompts (" + count + ") " + (this.favouritesOpen ? "\u25b4" : "\u25be"));
+                this.col.revalidate();
+                this.col.repaint();
+            });
+            this.col.add(Box.createVerticalStrut(12));
+            this.col.add(toggle);
+            this.col.add(favList);
             for (PromptVault.Version v : favs) {
                 String label = VersionFavourites.label(this.vault, v);
                 JButton fav = app.action("\u2605 " + label, SURFACE, new java.awt.Color(0xE8C35A));
@@ -241,8 +272,8 @@ final class PromptsPage {
                 line.add(fav, BorderLayout.CENTER);
                 line.add(more, BorderLayout.EAST);
                 line.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(fav.getPreferredSize().height, more.getPreferredSize().height)));
-                this.col.add(line);
-                this.col.add(Box.createVerticalStrut(6));
+                favList.add(line);
+                favList.add(Box.createVerticalStrut(6));
             }
         }
         this.col.add(this.caption("CATEGORIES"));
@@ -717,6 +748,10 @@ final class PromptsPage {
     void fileBlock(String heading, JLabel name, int which) {
         this.col.add(this.caption(heading.toUpperCase()));
         this.col.add(name);
+        // A small thumbnail of a picture (or a video's preview) before the name, whenever the slot's file changes.
+        name.setIconTextGap(10);
+        name.addPropertyChangeListener("text", e -> this.slotThumb(name, which));
+        this.slotThumb(name, which);
         JPanel actions = this.row();
         JButton pick = app.action("Choose file", ELEV, FG);
         pick.setName("prompt-choose:" + which);
@@ -749,6 +784,31 @@ final class PromptsPage {
         actions.add(preview);
         this.col.add(Box.createVerticalStrut(4));
         this.col.add(actions);
+    }
+
+    /** The slot's file as a 56-pixel thumbnail on its name label (none for a file that is not a picture or a previewed video). */
+    void slotThumb(JLabel name, int which) {
+        final String n = which == 1 ? this.ref1Name : which == 2 ? this.ref2Name : this.resultName;
+        final byte[] b = which == 1 ? this.ref1Bytes : which == 2 ? this.ref2Bytes : this.resultBytes;
+        name.putClientProperty("thumb-for", b);
+        if (b == null || b.length == 0 || n == null) {
+            name.setIcon(null);
+            return;
+        }
+        new Thread(() -> {
+            javax.swing.ImageIcon big = PromptDb.thumb(n, b);
+            final javax.swing.ImageIcon icon = big == null ? null : small(big, 56);
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (name.getClientProperty("thumb-for") == b) name.setIcon(icon);
+            });
+        }, "pulsekit-slot-thumb").start();
+    }
+
+    private static javax.swing.ImageIcon small(javax.swing.ImageIcon icon, int px) {
+        int w = icon.getIconWidth(), h = icon.getIconHeight();
+        if (w <= 0 || h <= 0) return null;
+        double s = Math.min(px / (double) w, px / (double) h);
+        return new javax.swing.ImageIcon(icon.getImage().getScaledInstance(Math.max(1, (int) (w * s)), Math.max(1, (int) (h * s)), java.awt.Image.SCALE_SMOOTH));
     }
 
     /** A text file's contents into the Prompt field (a prompt sheet gives its prompt). */

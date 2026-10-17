@@ -3157,6 +3157,154 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /** A prompt's reference picture shows as a small thumbnail beside its name; a slot without one shows none. */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s118_slot_thumbnails() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(0xff3366cc);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    android.widget.ImageView t1 = null;
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(30);
+      idle();
+      t1 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:1");
+      if (t1 != null && t1.getVisibility() == View.VISIBLE) break;
+    }
+    android.widget.ImageView t2 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:2");
+    out.append("reference 1 thumbnail: ").append(t1 != null && t1.getVisibility() == View.VISIBLE && t1.getDrawable() != null)
+        .append(", reference 2 (none): ").append(t2 != null && t2.getVisibility() == View.VISIBLE).append('\n');
+    if (t1 == null || t1.getVisibility() != View.VISIBLE || t2.getVisibility() == View.VISIBLE) throw new AssertionError(out.toString());
+    pid.set(null, 0L);
+    write("s118_slot_thumbnails", out.toString());
+  }
+
+  /**
+   * MidiDrumGen --count: a batch run is not given the app's style, bars, swing and time signature
+   * (one groove still is); a batch's plain folder names are made whole; Params label the switches.
+   */
+  @Test
+  public void s117_drumgen_batch_args() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("MidiDrumGen.java");
+    out.append("one: ").append(JavaRun.argvFor(src, 120, "funk", 8, 12, "--intensity 5", 3, 4)).append('\n');
+    java.util.List<String> batch = JavaRun.argvFor(src, 120, "funk", 8, 12, "--count 20 --styles rock,metal", 3, 4);
+    out.append("batch: ").append(batch).append('\n');
+    if (batch.contains("--style") || batch.contains("--timesig") || !JavaRun.argvFor(src, 120, "funk", 8, 12, "", 3, 4).contains("--style")) throw new AssertionError(out.toString());
+    File base = new File("/data/programs");
+    out.append("folders: ").append(ProgramFolder.batchFolders("MidiDrumGen.java", java.util.Arrays.asList("--count", "3", "--seed", "5"), base)).append('\n');
+    out.append("  ").append(ProgramFolder.batchFolders("vst_render.py", java.util.Arrays.asList("--dir", "gen3", "--test"), base)).append('\n');
+    out.append("  ").append(ProgramFolder.batchFolders("CompareHits.java", java.util.Arrays.asList("--batch", "/abs/gen3"), base)).append('\n');
+    if (!ProgramFolder.batchFolders("MidiDrumGen.java", java.util.Arrays.asList("--count", "3", "--seed", "5"), base).contains("/data/programs/midi-batch-5")) throw new AssertionError(out.toString());
+    for (ProgramParams.Param p : ProgramParams.parse(src)) {
+      if (java.util.Arrays.asList("--count", "--outdir", "--seed", "--styles").contains(p.token)) out.append("param ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("CompareHits.java"))) {
+      if (p.token.equals("--batch")) out.append("CompareHits ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    if (out.indexOf("param --count") < 0 || out.indexOf("CompareHits --batch") < 0) throw new AssertionError(out.toString());
+    write("s117_drumgen_batch_args", out.toString());
+  }
+
+  /**
+   * Upscale image from the Media browser that Choose file opened in SogniPedit's Params: those
+   * Params close, and SogniPedit's arguments (--prompt) do not go to ImageUpscaler.
+   */
+  @Test
+  public void s116_upscale_from_params_chooser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    app.programMenus.selectProgram("Java", "SogniPedit.java");
+    idle();
+    call("pkOpenParams");
+    idle();
+    AlertDialog pedit = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((android.widget.EditText) pedit.getWindow().getDecorView().findViewWithTag("params-field:--prompt")).setText("Same person");
+    File media = new File(app.getCacheDir(), "media-up3");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("a.png")) pic = e;
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("SogniPedit Params open: ").append(pedit.isShowing()).append('\n');
+    AlertDialog up = (AlertDialog) ShadowDialog.getLatestDialog();
+    up.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    // Even if its OK is pressed, SogniPedit's line stays out of ImageUpscaler's.
+    if (pedit.isShowing()) pedit.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((TextView) get("pkPyArgs")).getText().toString();
+    out.append("ImageUpscaler args: ").append(new File(args).getName()).append(", --prompt ").append(args.contains("--prompt")).append('\n');
+    if (pedit.isShowing() || args.contains("--prompt")) throw new AssertionError(out.toString());
+    write("s116_upscale_from_params_chooser", out.toString());
+  }
+
+  /**
+   * ImageUpscaler from the Media browser after a prompt sheet was open: the sheet's reference
+   * files, output name and report are not passed to it (they were added to every program's run).
+   */
+  @Test
+  public void s115_upscaler_after_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    String sheet = "PKPROMPT1\nsmile\nface.png\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: face.png\nReference file 2: \nType: ai\n---\nSame person, smiling\n";
+    app.pyJav.pkOpenPromptText("smile.prompt", sheet);
+    idle();
+    app.pyJav.pkLoadRefs(sheet);
+    File face = new File(app.getCacheDir(), "face.png");
+    Files.write(face.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1});
+    app.pyJav.pkRef1Path = face.getAbsolutePath();
+    app.pyJav.pkPromptReport = "Category: image";
+    out.append("prompt open: ").append(app.pyName).append(", reference ").append(new File(app.pyJav.pkRef1Path).getName()).append('\n');
+    File media = new File(app.getCacheDir(), "media-up2");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    MediaDir.Entry pic = null;
+    for (MediaDir.Entry e : b.entries) if (e.name.equals("a.png")) pic = e;
+    b.pick(pic, MediaDir.UPSCALE_ITEM);
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) {
+      Thread.sleep(20);
+      ShadowLooper.idleMainLooper();
+    }
+    idle();
+    out.append("upscaler: ").append(app.pyName).append(", args ").append(new File(((TextView) get("pkPyArgs")).getText().toString()).getName())
+        .append(", reference ").append(app.pyJav.pkRef1Path).append(", report ").append(app.pyJav.pkPromptReport).append(", invented output ").append(app.pyJav.pkOutputInvented).append('\n');
+    if (app.pyJav.pkRef1Path != null || app.pyJav.pkPromptReport != null || app.pyJav.pkOutputInvented) throw new AssertionError(out.toString());
+    write("s115_upscaler_after_prompt", out.toString());
+  }
+
   @Test
   public void s92_menu_upscale() throws Exception {
     // Media browser: a picture's menu has Upscale/resize image, which loads ImageUpscaler with it and opens its Params.
@@ -5390,6 +5538,13 @@ public class BehaviorTest {
       return o.toString();
     };
     out.append("favourites: ").append(order.get()).append('\n');
+    // Collapsed like Select program: its row opens the list.
+    TextView favToggle = (TextView) pane.findViewWithTag("prompts-favourites-toggle");
+    out.append("toggle: ").append(favToggle.getText()).append(", list shown ").append(pane.findViewWithTag("prompts-favourites-list").getVisibility() == View.VISIBLE).append('\n');
+    favToggle.performClick();
+    idle();
+    out.append("opened: ").append(favToggle.getText()).append(", list shown ").append(pane.findViewWithTag("prompts-favourites-list").getVisibility() == View.VISIBLE).append('\n');
+    if (pane.findViewWithTag("prompts-favourites-list").getVisibility() != View.VISIBLE) throw new AssertionError(out.toString());
     pane.findViewWithTag("prompts-favourite-menu:Portrait \u00b7 v1").performClick();
     idle();
     AlertDialog menu = FavouriteMenu.last;
@@ -5422,6 +5577,74 @@ public class BehaviorTest {
     out.append(": ").append(order.get()).append(", row ").append(pane.findViewWithTag("prompts-favourite-menu:Portrait lit \u00b7 v1") != null).append('\n');
     if (!order.get().equals("[Portrait lit \u00b7 v1]")) throw new AssertionError(out.toString());
     write("s113_save_in_place_favourite_menu", out.toString());
+  }
+
+  /**
+   * --saveprompt: the run's sheet is kept in the library under Prompt files, not saved in Download.
+   * Prompts page: Prompt files lists it and opens its text. Media browser: under T with a star
+   * (not under A), its text on a tap.
+   */
+  @Test
+  public void s114_prompt_files_in_db() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    String sheet = "PKPROMPT1\nsogni-pedit-smile\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, smiling\n\nResult file: sogni-pedit-smile.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-smile.png", files, 0);
+    PromptSave.load(app.getFilesDir());
+    java.util.List<PromptSave.Pending> pending = PromptSave.sheets(r);
+    String line = app.pyJav.pkWriteSheet(PromptSave.storeAsIs(app.getFilesDir(), pending.get(0), r, new java.util.ArrayList<String>()), null);
+    for (String l : line.split("\n")) out.append("log: ").append(l.replace(PromptSave.today(), "<today>")).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    out.append("prompt files: ").append(vault.promptFiles().size()).append(", in Ref files ").append(vault.referenceFiles().size()).append('\n');
+    if (vault.promptFiles().size() != 1 || line.contains("saved ")) throw new AssertionError(out.toString());
+    // Saved to disk (when the DB cannot keep it), a sheet keeps its .prompt ending: not text/plain, which Download gave a .txt.
+    out.append("type on disk: ").append(ArtJava.mimeOf("sogni-pedit-smile.prompt")).append('\n');
+    if (!"application/octet-stream".equals(ArtJava.mimeOf("sogni-pedit-smile.prompt"))) throw new AssertionError(out.toString());
+    // Prompts page: Prompt files.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    out.append("gallery: ").append(findText(pane, "PROMPT FILES") != null).append(", card ").append(findText(pane, "sogni-pedit-smile.prompt") != null).append('\n');
+    View card = findText(pane, "sogni-pedit-smile.prompt");
+    ((View) card.getParent()).performClick();
+    idle();
+    out.append("preview shows the prompt: ").append(texts(pane).contains("Same person, smiling")).append('\n');
+    if (!texts(pane).contains("Same person, smiling")) throw new AssertionError(out.toString());
+    // The Prompts page as the other tests find it: the preview and the gallery closed.
+    for (String f : new String[] {"promptFilesOpen", "previewBack"}) {
+      java.lang.reflect.Field field = PromptSheet.class.getDeclaredField(f);
+      field.setAccessible(true);
+      field.set(null, f.equals("previewBack") ? (Object) 0 : (Object) false);
+    }
+    // Media browser: T lists it with a star, A does not.
+    File media = new File(app.getCacheDir(), "media-prompts");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    out.append("A: card ").append(bv.findViewWithTag("media-card:sogni-pedit-smile.prompt") != null).append(", T ").append(bv.findViewWithTag("media-filter:T").getContentDescription()).append('\n');
+    bv.findViewWithTag("media-filter:T").performClick();
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    View starred = bv.findViewWithTag("media-card:sogni-pedit-smile.prompt");
+    out.append("T: card ").append(starred != null).append(", shows ").append(findText(bv, "\u2605 sogni-pedit-smile.prompt") != null).append('\n');
+    starred.performClick();
+    idle();
+    TextView text = (TextView) MediaBrowser.lastPromptFile.getWindow().getDecorView().findViewWithTag("media-prompt-text");
+    out.append("opened: ").append(MediaBrowser.lastPromptFile.isShowing()).append(", shows the prompt ").append(text.getText().toString().contains("Same person, smiling")).append('\n');
+    MediaDir.filter = "A";
+    if (out.indexOf("A: card false") < 0 || out.indexOf("shows true") < 0 || out.indexOf("shows the prompt true") < 0) throw new AssertionError(out.toString());
+    write("s114_prompt_files_in_db", out.toString());
   }
 
   /** SogniChat Params: New chat clears "Continue from saved chat", so the next run starts a new chat; the other arguments stay. */

@@ -4630,6 +4630,11 @@ public final class DesktopBehavior {
       page.rebuild();
     });
     out.append("favourites: ").append(order.get()).append('\n');
+    // Collapsed like Select program: its row opens the list.
+    final javax.swing.JButton favToggle = (javax.swing.JButton) component(frame, "prompts-favourites-toggle");
+    out.append("toggle: ").append(favToggle.getText()).append(", list shown ").append(component(frame, "prompts-favourite-menu:Portrait \u00b7 v1").isShowing()).append('\n');
+    edt(favToggle::doClick);
+    out.append("opened: ").append(favToggle.getText()).append(", list shown ").append(component(frame, "prompts-favourite-menu:Portrait \u00b7 v1").isShowing()).append('\n');
     for (String[] step : new String[][] {{"v1", "Move down"}, {"v2", "Remove from favourites"}}) {
       final StringBuilder items = new StringBuilder();
       edt(() -> {
@@ -4677,6 +4682,146 @@ public final class DesktopBehavior {
       out.append(program).append(" takes the audio: ").append(PyJavHints.takesAudio(program, hint)).append('\n');
       if (PyJavHints.takesAudio(program, hint) != !program.startsWith("Sogni")) throw new AssertionError(out.toString());
     }
+  }
+
+  /** A prompt's reference picture shows as a small thumbnail on its name; a slot without one shows none. */
+  void s102_slot_thumbnails() throws Exception {
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptVault vault = PromptDb.vault();
+    long cat = vault.categories().get(0).id;
+    long id = vault.addPrompt(cat, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    PromptsPage page = (PromptsPage) get("promptsPage");
+    call("showView", "prompts");
+    edt(() -> {
+      page.openPrompt(id);
+      page.loadVersion(v1);
+    });
+    for (int i = 0; i < 100 && page.promptRef1.getIcon() == null; i++) Thread.sleep(30);
+    idle();
+    out.append("reference 1 thumbnail: ").append(page.promptRef1.getIcon() == null ? "none" : page.promptRef1.getIcon().getIconWidth() + "x" + page.promptRef1.getIcon().getIconHeight())
+        .append(", reference 2 (none): ").append(page.promptRef2.getIcon() != null).append('\n');
+    if (page.promptRef1.getIcon() == null || page.promptRef2.getIcon() != null) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * MidiDrumGen --count: a batch of grooves in random styles, into a folder named plainly (it goes in
+   * the program files folder, not the run's temporary one), with batch.txt; the app's style is not
+   * passed to it. Then CompareHits --batch on the folder sums DrumMidi's results per style (here
+   * the grooves themselves stand for DrumMidi's MIDI: every hit found).
+   */
+  void s101_drumgen_batch() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("MidiDrumGen batch") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("$ java"))
+        out.append("run: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--seed \\d+", "--seed N")).append('\n');
+    }
+    java.io.File dir = null;
+    for (String d : new String[] {"Downloads", ".pulsekit"}) if (new File(new File(home, d), "gen3").isDirectory()) dir = new File(new File(home, d), "gen3");
+    out.append("folder: ").append(dir == null ? "none" : home.toPath().relativize(dir.toPath())).append('\n');
+    if (dir == null) throw new AssertionError(out.toString());
+    String[] names = dir.list();
+    java.util.Arrays.sort(names);
+    out.append("files: ").append(java.util.Arrays.toString(names)).append('\n');
+    String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    int grooves = 0;
+    for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;
+    if (grooves != 3 || list.contains("\thouse\t")) throw new AssertionError(out.toString());
+    // vst_render.py --dir --test leaves <groove>-<plugin>-dm.mid beside each render.
+    for (String n : names) {
+      if (n.endsWith(".mid")) Files.copy(new File(dir, n).toPath(), new File(dir, n.replace(".mid", "-Kit-dm.mid")).toPath());
+    }
+    call("selectListedProgram", "Java", "CompareHits.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--batch gen3"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    for (String line : log.getText().split("\n")) {
+      if (line.startsWith("CompareHits --batch") || line.startsWith("== ") || line.startsWith("All:") || line.startsWith("Succeeded") || line.startsWith("Failed"))
+        out.append("summary: ").append(line).append('\n');
+    }
+    out.append("batch-summary.txt: ").append(new File(dir, "batch-summary.txt").isFile()).append('\n');
+    if (!log.getText().contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * --saveprompt: the run's sheet is kept in the library under Prompt files, not written to disk.
+   * Prompts page: Prompt files lists it and its text shows. Media browser: under T with a star
+   * (not under A), its text on a click, and Choose file gets a copy.
+   */
+  void s100_prompt_files_in_db() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String sheet = "PKPROMPT1\nsogni-pedit-smile\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\n"
+        + "Same person, smiling\n\nResult file: sogni-pedit-smile.png\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.prompt", sheet.getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sogni-pedit-smile.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: sogni-pedit-smile.png", files, 0);
+    String kept = (String) call("saveSheets", PromptDb.dir(), r, new java.util.ArrayList<String>());
+    for (String line : kept.split("\n")) out.append("log: ").append(line.replace(PromptSave.today(), "<today>").replace(home.getAbsolutePath(), "~")).append('\n');
+    PromptVault vault = PromptDb.vault();
+    java.util.List<PromptVault.StoredFile> pf = vault.promptFiles();
+    out.append("prompt files: ").append(pf.size());
+    for (PromptVault.StoredFile f : pf) out.append(" [").append(f.name).append(" \u00b7 ").append(f.promptTitle).append(']');
+    out.append(", in Ref files ").append(vault.referenceFiles().size()).append(", in Result files ").append(vault.resultFiles().size()).append('\n');
+    boolean onDisk = false;
+    for (File d : new File[] {new File(home, "Downloads"), new File(home, ".pulsekit")}) {
+      File[] in = d.listFiles();
+      if (in != null) for (File f : in) if (f.getName().endsWith(".prompt")) onDisk = true;
+    }
+    out.append("sheet on disk: ").append(onDisk).append('\n');
+    if (pf.size() != 1 || onDisk || !kept.contains("Prompt files")) throw new AssertionError(out.toString());
+    // Prompts page: Prompt files.
+    call("showView", "prompts");
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = d -> {
+      seen.append("gallery: ").append(d.getTitle()).append(", card ").append(component(d, "gallery:sogni-pedit-smile.prompt") != null).append('\n');
+      inspectNext = preview -> seen.append("preview: ").append(preview.getTitle()).append(", shows the prompt ")
+          .append(texts(preview.getContentPane()).toString().contains("Same person, smiling")).append('\n');
+      final AbstractButton card = (AbstractButton) component(d, "gallery:sogni-pedit-smile.prompt");
+      SwingUtilities.invokeLater(card::doClick);
+    };
+    SwingUtilities.invokeLater(() -> ((AbstractButton) component(frame, "prompts-prompt-files")).doClick());
+    for (int i = 0; i < 100 && seen.indexOf("preview") < 0; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("shows the prompt true") < 0) throw new AssertionError(out.toString());
+    // Media browser: T lists it with a star, A does not.
+    File media = new File(home, "media-prompts");
+    media.mkdirs();
+    Files.write(new File(media, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
+    MediaDir.remember(media.getAbsolutePath(), new ArrayList<String>());
+    MediaBrowser.saveLoop();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final StringBuilder browsed = new StringBuilder();
+    final File[] picked = new File[1];
+    MediaDir.filter = "A";
+    inspectNext = d -> {
+      AbstractButton t = (AbstractButton) component(d, "media-filter:T");
+      browsed.append("A: card ").append(component(d, "media-card:sogni-pedit-smile.prompt") != null).append(", T ").append(t.getToolTipText()).append('\n');
+      t.doClick();
+      AbstractButton card = (AbstractButton) component(d, "media-card:sogni-pedit-smile.prompt");
+      browsed.append("T: card ").append(card != null).append(", shows ").append(card == null ? "" : card.getText().contains("\u2605 sogni-pedit-smile.prompt")).append('\n');
+      SwingUtilities.invokeLater(card::doClick);
+    };
+    SwingUtilities.invokeLater(() -> mb.choose(f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    out.append(browsed);
+    out.append("chosen: ").append(picked[0] == null ? "none" : picked[0].getName() + ", " + new String(Files.readAllBytes(picked[0].toPath()), StandardCharsets.UTF_8).contains("Same person, smiling")).append('\n');
+    MediaDir.filter = "A";
+    if (picked[0] == null || browsed.indexOf("A: card false") < 0 || browsed.indexOf("shows true") < 0) throw new AssertionError(out.toString());
   }
 
   /**
