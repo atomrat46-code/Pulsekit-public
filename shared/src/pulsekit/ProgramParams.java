@@ -1072,7 +1072,7 @@ public final class ProgramParams {
   }
 
   private static String quote(String v) {
-    return v.indexOf(' ') >= 0 ? "\"" + v + "\"" : v;
+    return JavaRun.quoteArg(v);
   }
 
   private static void append(StringBuilder sb, String s) {

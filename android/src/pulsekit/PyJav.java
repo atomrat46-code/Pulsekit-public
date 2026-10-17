@@ -266,6 +266,8 @@ final class PyJav {
 
     void pkShowPromptModes() {
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
+        // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
+        if (this.pkReturn != null && !String.valueOf(app.pyName).equals(this.pkReturnFor)) this.pkSetReturn(null);
         // Another program: the prompt sheet's report, reference files and invented output name go.
         if (!prompt) {
             this.pkPromptReport = null;
@@ -577,6 +579,7 @@ final class PyJav {
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable pkReturn;
     android.view.View pkReturnBtn;
+    String pkReturnFor;
 
     public void pkSetReturn(Runnable back) {
         this.pkSetReturn("Return to Media browser", back);
@@ -585,6 +588,8 @@ final class PyJav {
     /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
     public void pkSetReturn(String label, Runnable back) {
         this.pkReturn = back;
+        // It belongs to the program loaded now: another one loaded (from Recent, a script) drops it.
+        this.pkReturnFor = back == null ? null : app.pyName;
         if (this.pkReturnBtn != null) {
             this.pkReturnBtn.setVisibility(back == null ? 8 : 0);
             if (label != null && this.pkReturnBtn instanceof android.widget.TextView) ((android.widget.TextView) this.pkReturnBtn).setText(label);

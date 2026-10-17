@@ -164,7 +164,19 @@ final class MediaBrowser {
 
     /** Whether `under` is a folder that can still be opened in this browser. */
     boolean there(String under) {
-        return this.tree != null ? this.list(under) != null : new File(under).isDirectory() && under.startsWith(this.base + File.separator);
+        if (this.tree == null) return new File(under).isDirectory() && under.startsWith(this.base + File.separator);
+        // The folder itself is asked about, not listed: listing a folder of thousands of files on the
+        // main thread here stopped the app (Choose file on a large Recent MB folder).
+        Cursor c = null;
+        try {
+            c = this.app.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(this.tree, under),
+                new String[] {DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            return c != null && c.moveToFirst() && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0));
+        } catch (Exception ex) {
+            return false;
+        } finally {
+            if (c != null) c.close();
+        }
     }
 
     /** The folder this browser was made on, as Params gives it (Add to favourites keeps it). */
@@ -426,6 +438,11 @@ final class MediaBrowser {
         }
         if (tree == null || tree.length() == 0) {
             File folder = sub == null ? new File(dir) : new File(dir, sub);
+            // Any case: an "sc" folder already there is the SC folder.
+            if (sub != null && !folder.isDirectory()) {
+                File[] kids = new File(dir).listFiles();
+                if (kids != null) for (File k : kids) if (k.isDirectory() && k.getName().equalsIgnoreCase(sub)) folder = k;
+            }
             if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
             String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
             String ext = name.substring(stem.length());
@@ -450,7 +467,9 @@ final class MediaBrowser {
                 if (c != null) {
                     try {
                         while (c.moveToNext()) {
-                            if (sub.equals(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) found = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
+                            // Any case: an "sc" folder already there is the SC folder (an exact match made "SC (1)"
+                            // ... "SC (32)", one per capture, until the phone made no more).
+                            if (found == null && sub.equalsIgnoreCase(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) found = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
                         }
                     } finally {
                         c.close();

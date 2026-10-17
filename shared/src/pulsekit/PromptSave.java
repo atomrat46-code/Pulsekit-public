@@ -189,20 +189,41 @@ public final class PromptSave {
     return c;
   }
 
-  /** The sheets among a run's files (.prompt files that read as sheets with a name). */
+  /**
+   * The sheets among a run's files (.prompt files that read as sheets with a name) to save: not a
+   * failed run's (a network error, a cancelled workflow), whose sheet names no result file.
+   */
   public static List<Pending> sheets(JavaRun.Result result) {
     List<Pending> out = new ArrayList<Pending>();
     if (result == null || result.files == null) return out;
     for (JavaRun.FileOut f : result.files) {
       if (!isSheetFile(f)) continue;
       PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, StandardCharsets.UTF_8));
-      if (sheet == null || sheet.name.trim().length() == 0) continue;
+      if (sheet == null || sheet.name.trim().length() == 0 || failed(result, sheet)) continue;
       Pending p = new Pending();
       p.file = f;
       p.sheet = sheet;
       out.add(p);
     }
     return out;
+  }
+
+  /** A run that made nothing: it ended with an error code, or its sheet names no result file. */
+  static boolean failed(JavaRun.Result result, PromptRun.Sheet sheet) {
+    return (result != null && result.code != 0) || sheet.result == null || sheet.result.trim().length() == 0;
+  }
+
+  /** The log lines for a failed run's sheets, which are not saved (and not asked about). */
+  public static String failedNotes(JavaRun.Result result) {
+    StringBuilder out = new StringBuilder();
+    if (result == null || result.files == null) return "";
+    for (JavaRun.FileOut f : result.files) {
+      if (!isSheetFile(f)) continue;
+      PromptRun.Sheet sheet = PromptRun.parse(new String(f.bytes, StandardCharsets.UTF_8));
+      if (sheet == null || sheet.name.trim().length() == 0 || !failed(result, sheet)) continue;
+      out.append(out.length() > 0 ? "\n" : "").append("Prompt library: ").append(sheet.name.trim()).append(" not saved (the run made no result file)");
+    }
+    return out.toString();
   }
 
   /** A .prompt file a run wrote: the app writes it to disk itself, after asking (or not, when unchanged). */

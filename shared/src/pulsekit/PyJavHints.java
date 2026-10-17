@@ -200,7 +200,7 @@ public final class PyJavHints {
 
   /** Put the chosen file where the input placeholder was. */
   public static String withInput(String extra, String hint, String token, String path) {
-    String quoted = path != null && path.indexOf(' ') >= 0 ? "\"" + path + "\"" : path;
+    String quoted = path == null ? null : JavaRun.quoteArg(path);
     String base = extra == null ? "" : extra.trim();
     if (base.length() == 0) base = placeholders(hint);
     if (token != null && token.length() > 0 && base.indexOf(token) >= 0) {
@@ -354,7 +354,7 @@ public final class PyJavHints {
 
   private static String quote(String path) {
     if (path == null) return "";
-    return path.indexOf(' ') >= 0 ? "\"" + path + "\"" : path;
+    return JavaRun.quoteArg(path);
   }
 
   private static boolean wantsOutput(String text) {

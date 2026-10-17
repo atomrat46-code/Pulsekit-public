@@ -239,7 +239,7 @@ public final class PyJavParams {
           box.removeView(label);
           box.addView(join);
         }
-        box.addView(row);
+        box.addView(spaced(activity, row));
         if (ProgramParams.previewsPicture(p)) {
           // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
           final android.widget.Button preview = new android.widget.Button(activity);
@@ -325,7 +325,7 @@ public final class PyJavParams {
           target.setSelection(0);
         }));
         row.addView(prompts);
-        box.addView(row);
+        box.addView(spaced(activity, row));
         continue;
       }
       if (p.choices != null && p.choices.length > 0) {
@@ -604,6 +604,20 @@ public final class PyJavParams {
   /** File paths stay. Saved switches replace the program's own switches. */
   public static String merge(String programText, String extra, String saved) {
     return ProgramParams.merge(ProgramParams.parse(programText), extra, saved);
+  }
+
+  /** A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...). */
+  static LinearLayout spaced(Activity activity, LinearLayout row) {
+    for (int i = 1; i < row.getChildCount(); i++) {
+      android.view.View c = row.getChildAt(i);
+      if (!(c instanceof android.widget.Button)) continue;
+      android.view.ViewGroup.LayoutParams lp = c.getLayoutParams();
+      LinearLayout.LayoutParams m = lp instanceof LinearLayout.LayoutParams ? (LinearLayout.LayoutParams) lp
+          : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+      m.leftMargin = dp(activity, 8);
+      c.setLayoutParams(m);
+    }
+    return row;
   }
 
   private static int dp(Activity activity, int n) {

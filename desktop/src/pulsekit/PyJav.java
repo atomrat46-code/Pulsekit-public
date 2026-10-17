@@ -952,9 +952,11 @@ final class PyJav {
 
     String saveSheets(File dir, JavaRun.Result r, java.util.List<String> argv) {
         java.util.List<PromptSave.Pending> sheets = PromptSave.sheets(r);
-        if (sheets.isEmpty()) return "";
+        // A failed run's sheet is neither asked about nor saved: the log says so.
+        String failed = PromptSave.failedNotes(r);
+        if (sheets.isEmpty()) return failed;
         PromptSave.load(dir);
-        StringBuilder out = new StringBuilder();
+        StringBuilder out = new StringBuilder(failed);
         PromptVault vault = null;
         try {
             vault = PromptVault.open(dir);
@@ -1318,6 +1320,8 @@ final class PyJav {
 
     void showPyHint(String status) {
         this.pyHintPlain = status == null ? "" : status;
+        // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
+        if (this.returnTo != null && !String.valueOf(app.pyName).equals(this.returnFor)) this.setReturn(null);
         // The audio input carries over to a program that takes a sound (not to SogniPedit, which
         // would name its picture after it).
         if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
@@ -1422,6 +1426,7 @@ final class PyJav {
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable returnTo;
     javax.swing.JComponent pyReturn;
+    String returnFor;
 
     void setReturn(Runnable back) {
         this.setReturn("Return to Media browser", back);
@@ -1430,6 +1435,8 @@ final class PyJav {
     /** Return: back to what opened this program, the button saying where ("Return to Prompts"). */
     void setReturn(String label, Runnable back) {
         this.returnTo = back;
+        // It belongs to the program loaded now: another one loaded (from Recent, a script) drops it.
+        this.returnFor = back == null ? null : app.pyName;
         if (this.pyReturn != null) {
             this.pyReturn.setVisible(back != null);
             if (label != null && this.pyReturn instanceof javax.swing.AbstractButton) ((javax.swing.AbstractButton) this.pyReturn).setText(label);

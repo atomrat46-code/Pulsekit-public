@@ -246,14 +246,29 @@ public final class JavaRun {
   public static List<String> split(String line) {
     List<String> out = new ArrayList<String>();
     if (line == null || line.trim().isEmpty()) return out;
-    Matcher m = Pattern.compile("\"([^\"]*)\"|'([^']*)'|(\\S+)").matcher(line.trim());
+    // "..." (with \" for a quote inside, as quoteArg writes it), '...', or a word.
+    Matcher m = Pattern.compile("\"((?:\\\\\"|[^\"])*)\"|'([^']*)'|(\\S+)").matcher(line.trim());
     while (m.find()) {
-      String a = m.group(1);
+      String a = m.group(1) != null ? m.group(1).replace("\\\"", "\"") : null;
       if (a == null) a = m.group(2);
       if (a == null) a = m.group(3);
       if (a != null && !a.isEmpty()) out.add(a);
     }
     return out;
+  }
+
+  /**
+   * One argument as split reads it back: as it is when it has no space or quote; in double quotes;
+   * in single quotes when it has a double quote in it (a prompt with speech: She says "Hello");
+   * with both kinds, in double quotes with \" for each double quote.
+   */
+  public static String quoteArg(String v) {
+    if (v == null) return "";
+    boolean dq = v.indexOf('"') >= 0, sq = v.indexOf('\'') >= 0;
+    if (!dq && !(sq && v.startsWith("'")) && v.indexOf(' ') < 0 && v.indexOf('\t') < 0 && v.length() > 0) return v;
+    if (!dq) return "\"" + v + "\"";
+    if (!sq) return "'" + v + "'";
+    return "\"" + v.replace("\"", "\\\"") + "\"";
   }
 
   /**

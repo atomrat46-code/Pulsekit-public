@@ -3157,6 +3157,63 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /**
+   * Fixes from the notes: a frame captured goes into an "sc" folder already there (not SC (1)...);
+   * a prompt with "quoted speech" survives Params; a failed run's sheet is not offered for saving;
+   * Return goes when another program is loaded; Params' Select file / Browse DB have a gap.
+   */
+  @Test
+  public void s119_note_fixes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // C capture: an existing lowercase sc folder is used.
+    File media = new File(app.getCacheDir(), "clips-sc");
+    new File(media, "sc").mkdirs();
+    String saved = MediaBrowser.saveInto(app, new String[] {"", media.getAbsolutePath()}, MediaDir.FRAMES_DIR, "walk-0m01s000.png", "image/png", new byte[] {1, 2, 3});
+    String[] folders = media.list();
+    java.util.Arrays.sort(folders);
+    out.append("capture: ").append(saved.replace(media.getAbsolutePath(), "<clips>")).append(", folders ").append(java.util.Arrays.toString(folders)).append('\n');
+    if (folders.length != 1 || !new File(new File(media, "sc"), "walk-0m01s000.png").isFile()) throw new AssertionError(out.toString());
+    // A prompt with quotes: Params' line splits back into the same prompt.
+    String src = app.programMenus.bundledSource("SogniPedit.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    String[] values = ProgramParams.values(ps, null, "");
+    String prompt = "She looks at the camera and says \"Hello, it's me\" with a smile";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--prompt")) values[i] = prompt;
+    String line = ProgramParams.line(ps, values, "");
+    java.util.List<String> back = JavaRun.split(line);
+    int at = back.indexOf("--prompt");
+    out.append("prompt line: ").append(line).append('\n');
+    out.append("prompt back: ").append(at >= 0 && at + 1 < back.size() && back.get(at + 1).equals(prompt)).append(", args ").append(back.size()).append('\n');
+    if (at < 0 || !back.get(at + 1).equals(prompt)) throw new AssertionError(out.toString());
+    // A failed run (no result file in its sheet): not offered, the log says why.
+    String failed = "PKPROMPT1\nsogni-pedit-x\n\n\n\n\nCategory: image\nModel: Sogni Krea 2 Identity Edit\nReference file 1: \nReference file 2: \nType: ai\n---\nSame person\n\nResult text:\nFailed: unexpected end of stream\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("sogni-pedit-x.prompt", failed.getBytes(StandardCharsets.UTF_8)));
+    JavaRun.Result r = new JavaRun.Result("Failed: unexpected end of stream", files, 0);
+    out.append("failed run: offered ").append(PromptSave.sheets(r).size()).append(", note ").append(PromptSave.failedNotes(r)).append('\n');
+    if (!PromptSave.sheets(r).isEmpty()) throw new AssertionError(out.toString());
+    // Return: set for ImageUpscaler, gone once a prompt sheet is loaded.
+    call("show", "py");
+    idle();
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    app.pyJav.pkSetReturn("Return to Prompts", () -> {});
+    out.append("Return for ImageUpscaler: ").append(app.pyJav.pkReturn != null);
+    app.pyJav.pkOpenPromptText("idea.prompt", "PKPROMPT1\nidea\n\n\n\n\nCategory: image\n---\nA lighthouse\n");
+    idle();
+    out.append(", after another program: ").append(app.pyJav.pkReturn != null).append('\n');
+    if (app.pyJav.pkReturn != null) throw new AssertionError(out.toString());
+    // Params: a gap between Select file and Browse DB.
+    app.programMenus.selectProgram("Java", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    View dv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    View db = dv.findViewWithTag("params-prompt-db:--prompt");
+    int gap = ((android.widget.LinearLayout.LayoutParams) db.getLayoutParams()).leftMargin;
+    out.append("Browse DB gap: ").append(gap > 0).append('\n');
+    if (gap <= 0) throw new AssertionError(out.toString());
+    write("s119_note_fixes", out.toString());
+  }
+
   /** A prompt's reference picture shows as a small thumbnail beside its name; a slot without one shows none. */
   @Test
   @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
