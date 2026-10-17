@@ -892,7 +892,7 @@ final class MediaBrowser {
                 if (mine != this.listing) return;
                 this.loading = false;
                 this.allEntries = got == null ? new ArrayList<MediaDir.Entry>() : got;
-                this.entries = MediaDir.filtered(this.allEntries, MediaDir.filter);
+                this.entries = this.shownEntries();
                 int pages = Math.max(1, (this.entries.size() + PAGE - 1) / PAGE);
                 this.page = Math.max(0, Math.min(pages - 1, MediaDir.place(this.folderKey())));
                 // Up from a folder: the page with its card.
@@ -917,7 +917,7 @@ final class MediaBrowser {
             int n = MediaDir.count(this.allEntries, f);
             TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
                 MediaDir.filter = f;
-                this.entries = MediaDir.filtered(this.allEntries, f);
+                this.entries = this.shownEntries();
                 this.page = 0;
                 this.paint();
             });
@@ -932,8 +932,159 @@ final class MediaBrowser {
         legend.setTextColor(UiKit.MUTED);
         legend.setTag("media-filter-name");
         row.addView(legend);
+        // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
+        TextView tagged = this.app.pill(MediaTags.filter.length() == 0 ? "Tagged \u25be" : MediaTags.filter + " \u25be", MediaTags.filter.length() > 0, v -> this.tagFilter());
+        tagged.setTag("media-tag-filter");
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
+        tlp.leftMargin = this.app.dp(8);
+        row.addView(tagged, tlp);
         row.setPadding(0, 0, 0, this.app.dp(6));
         this.body.addView(row);
+    }
+
+    /** The folder's files the type selector and the tag filter keep. */
+    List<MediaDir.Entry> shownEntries() {
+        MediaTags.load(this.app.getFilesDir());
+        return MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter);
+    }
+
+    /** The tag filter's choices for this folder: All files, each tag and category its files have. */
+    void tagFilter() {
+        MediaTags.load(this.app.getFilesDir());
+        final List<String[]> choices = MediaTags.choices(this.allEntries);
+        String[] names = new String[choices.size()];
+        for (int i = 0; i < names.length; i++) names[i] = choices.get(i)[0];
+        lastAsk = new AlertDialog.Builder(this.app).setTitle("Show the files tagged")
+            .setItems(names, (d, which) -> {
+                MediaTags.filter = choices.get(which)[1];
+                this.entries = this.shownEntries();
+                this.page = 0;
+                this.paint();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one. */
+    void tags(final MediaDir.Entry e) {
+        MediaTags.load(this.app.getFilesDir());
+        final String key = MediaTags.key(e);
+        final List<String> known = MediaTags.known();
+        final List<String> has = MediaTags.tags(key);
+        final String[] names = known.toArray(new String[0]);
+        final boolean[] on = new boolean[names.length];
+        for (int i = 0; i < names.length; i++) on[i] = has.contains(names[i]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle("Tags for " + e.name);
+        if (names.length > 0) b.setMultiChoiceItems(names, on, (d, which, checked) -> on[which] = checked);
+        else b.setMessage("No tags yet: add one with New tag.");
+        lastAsk = b.setPositiveButton("Save", (d, w) -> {
+                List<String> chosen = new ArrayList<String>();
+                for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
+                this.tagged(e, key, chosen);
+            })
+            .setNeutralButton("New tag\u2026", (d, w) -> {
+                final android.widget.EditText field = new android.widget.EditText(this.app);
+                field.setSingleLine(true);
+                field.setHint("beach, night (a comma between)");
+                field.setTag("media-new-tag-field");
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("New tag").setView(field)
+                    .setPositiveButton("Add new tag", (d2, w2) -> {
+                        List<String> chosen = new ArrayList<String>();
+                        for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
+                        for (String t : field.getText().toString().split(",")) chosen.add(t);
+                        this.tagged(e, key, chosen);
+                        // The list again, the new tag ticked.
+                        this.tags(e);
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    private void tagged(MediaDir.Entry e, String key, List<String> chosen) {
+        MediaTags.setTags(key, chosen);
+        String line = MediaTags.line(key);
+        this.app.setNow(line.length() == 0 ? e.name + ": no tags" : e.name + ": " + line);
+        this.entries = this.shownEntries();
+        this.paint();
+    }
+
+    /** Category…: one of the prompt library's categories for the file, or none (read off the main thread). */
+    void category(final MediaDir.Entry e) {
+        MediaTags.load(this.app.getFilesDir());
+        final String key = MediaTags.key(e);
+        new Thread(() -> {
+            final List<String> names = new ArrayList<String>();
+            names.add("(none)");
+            try {
+                names.addAll(MediaTags.categoryNames(PromptVault.open(this.app.getFilesDir())));
+            } catch (Throwable ex) {
+                // no library: none only
+            }
+            this.main.post(() -> {
+                int now = Math.max(0, names.indexOf(MediaTags.category(key)));
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("Category for " + e.name)
+                    .setSingleChoiceItems(names.toArray(new String[0]), now, (d, which) -> {
+                        String picked = names.get(which);
+                        MediaTags.setCategory(key, which == 0 ? "" : picked);
+                        this.app.setNow(e.name + (which == 0 ? ": no category" : " is in " + picked));
+                        d.dismiss();
+                        this.entries = this.shownEntries();
+                        this.paint();
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            });
+        }, "pulsekit-media-categories").start();
+    }
+
+    /** The file being dragged onto a folder card (press, hold and move), or null. */
+    static MediaDir.Entry dragging;
+
+    /** False: a long press only opens the menu (the tests, where a drag never ends). */
+    static boolean drags = true;
+
+    /** Starts dragging a file card; false when the phone does not drag (its menu shows instead). */
+    boolean startDrag(View card, MediaDir.Entry e) {
+        if (!drags) return false;
+        try {
+            dragging = e;
+            boolean started = card.startDragAndDrop(android.content.ClipData.newPlainText("media", e.name), new View.DragShadowBuilder(card), e, 0);
+            if (!started) dragging = null;
+            return started;
+        } catch (Throwable ex) {
+            dragging = null;
+            return false;
+        }
+    }
+
+    /** A folder card (or Up) a file can be dropped on: moved into `folderId` (an id as `path` holds). */
+    void dropTarget(final View target, final String folderId) {
+        target.setOnDragListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_STARTED:
+                    return ev.getLocalState() instanceof MediaDir.Entry;
+                case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                    v.setAlpha(0.6f);
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_EXITED:
+                case android.view.DragEvent.ACTION_DRAG_ENDED:
+                    v.setAlpha(1f);
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    v.setAlpha(1f);
+                    MediaDir.Entry moved = (MediaDir.Entry) ev.getLocalState();
+                    dragging = null;
+                    this.main.post(() -> this.done(this.dropped(moved, folderId)));
+                    return true;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    /** A file dropped on a folder: moved into it. The status line. */
+    String dropped(MediaDir.Entry e, String folderId) {
+        if (e == null || e.folder || folderId == null) return "Not moved";
+        return this.copyTo(e, folderId, true);
     }
 
     /** True while the folder is being read ("Reading the folder…"); bumped for each folder read, so an older read is dropped. */
@@ -1077,6 +1228,7 @@ final class MediaBrowser {
         if (this.path.size() > 1 || this.canGoAbove()) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
+            if (this.path.size() > 1 && this.changeable()) this.dropTarget(up, this.path.get(this.path.size() - 2));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.rightMargin = this.app.dp(6);
             tools.addView(up, lp);
@@ -1147,6 +1299,16 @@ final class MediaBrowser {
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             name.setPadding(0, this.app.dp(3), 0, 0);
             card.addView(name);
+            // Its tags and category.
+            String tagLine = e.folder || e.dbId != 0 ? "" : MediaTags.line(MediaTags.key(e));
+            if (tagLine.length() > 0) {
+                TextView tags = this.app.text(tagLine, 10, false);
+                tags.setTextColor(0xFFD9A441);
+                tags.setMaxLines(2);
+                tags.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                tags.setTag("media-tags:" + e.name);
+                card.addView(tags);
+            }
             card.setOnClickListener(v -> {
                 if (e.folder) this.openFolder(e);
                 else if (this.chooser != null) this.chosen(e);
@@ -1154,9 +1316,22 @@ final class MediaBrowser {
             });
             // A long press on a file: Add to DB (reference or result file), Add to default playlist,
             // Rename, Copy / Move to folder, Delete; on a folder: Rename, Delete.
+            // Held and moved onto a folder card (or Up), a file is moved there; let go on itself, its menu shows.
             if (!e.folder && e.dbId == 0) {
                 card.setOnLongClickListener(v -> {
-                    this.menu(e);
+                    if (!this.changeable() || !this.startDrag(v, e)) this.menu(e);
+                    return true;
+                });
+                card.setOnDragListener((v, ev) -> {
+                    if (ev.getAction() == android.view.DragEvent.ACTION_DRAG_STARTED) return ev.getLocalState() == e;
+                    // Let go anywhere but on a folder (on the card itself, most often): its menu.
+                    if (ev.getAction() == android.view.DragEvent.ACTION_DROP && ev.getLocalState() == e) {
+                        dragging = null;
+                        this.main.post(() -> this.menu(e));
+                    } else if (ev.getAction() == android.view.DragEvent.ACTION_DRAG_ENDED && !ev.getResult() && dragging == e) {
+                        dragging = null;
+                        this.main.post(() -> this.menu(e));
+                    }
                     return true;
                 });
             } else if (e.folder && this.changeable()) {
@@ -1164,6 +1339,7 @@ final class MediaBrowser {
                     this.folderMenu(e);
                     return true;
                 });
+                this.dropTarget(card, e.id);
             }
             if (e.id.equals(this.focusId)) {
                 // The folder Up came from: outlined, and scrolled to.
@@ -1290,7 +1466,9 @@ final class MediaBrowser {
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
-                if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
+                if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
+                else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else this.pick(e, which);
             })
             .setNegativeButton("Cancel", null)
@@ -1324,12 +1502,22 @@ final class MediaBrowser {
             int dot = e.folder ? -1 : e.name.lastIndexOf('.');
             field.setSelection(0, dot > 0 ? dot : e.name.length());
             lastAsk = new AlertDialog.Builder(this.app).setTitle("Rename " + e.name).setView(field)
-                .setPositiveButton("Rename", (d, w) -> this.done(this.rename(e, field.getText().toString())))
+                .setPositiveButton("Rename", (d, w) -> {
+                    String typed = field.getText().toString();
+                    String said = this.rename(e, typed);
+                    // Its tags and category go with the new name.
+                    if (said.startsWith("Renamed") && !e.folder) MediaTags.renamed(MediaTags.key(e), MediaTags.key(MediaDir.keepEnding(e.name, typed), e.size));
+                    this.done(said);
+                })
                 .setNegativeButton("Cancel", null).show();
         } else if (MediaDir.DELETE.equals(action)) {
             lastAsk = new AlertDialog.Builder(this.app).setTitle(e.folder ? "Delete folder" : "Delete file")
                 .setMessage(e.folder ? "Delete " + e.name + " and everything in it?" : "Delete " + e.name + "?")
-                .setPositiveButton("Delete", (d, w) -> this.done(this.delete(e)))
+                .setPositiveButton("Delete", (d, w) -> {
+                    String said = this.delete(e);
+                    if (said.startsWith("Deleted") && !e.folder) MediaTags.deleted(MediaTags.key(e));
+                    this.done(said);
+                })
                 .setNegativeButton("Cancel", null).show();
         } else {
             final boolean move = MediaDir.MOVE_TO.equals(action);

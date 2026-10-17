@@ -4685,6 +4685,78 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Media browser tags and categories: Tags… and Category… in a file's menu, the line on its card,
+   * the Tagged filter, Rename keeping them; file cards drag onto folder cards (moved there).
+   */
+  void s109_media_tags() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File media = new File(home, "media-tags");
+    new File(media, "keep").mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(media, "a.png"));
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(50, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(media, "b.png"));
+    MediaTags.reset();
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    final String cat = MediaTags.categoryNames(PromptDb.vault()).get(0);
+    MediaBrowser.answer = q -> q.startsWith("Tags for") ? "beach, #night" : q.startsWith("Category for") ? cat : q.startsWith("New name") ? "sea" : null;
+    final StringBuilder seen = new StringBuilder();
+    try {
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        StringBuilder items = new StringBuilder();
+        for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        seen.append("menu: ").append(items).append('\n');
+        ((javax.swing.JMenuItem) component(menu, "media-menu:" + MediaTags.TAGS)).doClick();
+        menu.setVisible(false);
+      });
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        ((javax.swing.JMenuItem) component(menu, "media-menu:" + MediaTags.CATEGORY)).doClick();
+        menu.setVisible(false);
+      });
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:a.png");
+        seen.append("card: ").append(card.getText().contains("#beach #night \u00b7 " + cat)).append('\n');
+        seen.append("a.png: ").append(MediaTags.line(MediaTags.key("a.png", new File(media, "a.png").length()))).append('\n');
+        // Drag: file cards and folder cards (and Up) take part.
+        seen.append("drag: file card ").append(card.getTransferHandler() != null).append(", folder card ")
+            .append(((javax.swing.JComponent) component(dlg[0], "media-folder:keep")).getTransferHandler() != null).append('\n');
+        javax.swing.JComboBox<?> tagged = (javax.swing.JComboBox<?>) component(dlg[0], "media-tag-filter");
+        StringBuilder choices = new StringBuilder();
+        for (int i = 0; i < tagged.getItemCount(); i++) choices.append('[').append(tagged.getItemAt(i)).append(']');
+        seen.append("Tagged: ").append(choices).append('\n');
+        for (int i = 0; i < tagged.getItemCount(); i++) if (String.valueOf(tagged.getItemAt(i)).equals("#night (1)")) tagged.setSelectedIndex(i);
+      });
+      edt(() -> {
+        seen.append("tagged #night: a.png ").append(component(dlg[0], "media-card:a.png") != null).append(", b.png ").append(component(dlg[0], "media-card:b.png") != null).append('\n');
+        MediaTags.filter = "";
+        mb.fileAction(null, new File(media, "a.png"), MediaDir.RENAME);
+        seen.append("renamed sea.png: ").append(MediaTags.line(MediaTags.key("sea.png", new File(media, "sea.png").length()))).append('\n');
+        seen.append("dropped: ").append(mb.dropped(new File(media, "sea.png"), new File(media, "keep"))).append('\n');
+      });
+    } finally {
+      MediaBrowser.answer = null;
+      MediaTags.reset();
+      edt(() -> dlg[0].dispose());
+    }
+    out.append(seen);
+    if (!seen.toString().contains("[Tags\u2026][Category\u2026]") || !seen.toString().contains("card: true") || !seen.toString().contains("tagged #night: a.png true, b.png false")
+        || !seen.toString().contains("renamed sea.png: #beach #night") || !seen.toString().contains("drag: file card true, folder card true") || !new File(media, "keep/sea.png").isFile())
+      throw new AssertionError(out.toString());
+  }
+
+  /**
    * BatchRun: its plan runs one run after another (VideoFrames on each clip of a list here; Sogni
    * programs alike), what each makes kept and not shown, then the summary; Stop batch ends it after
    * the run in progress; JoinVideo --list joins a list of clips.

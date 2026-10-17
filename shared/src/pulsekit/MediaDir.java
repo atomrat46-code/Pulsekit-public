@@ -522,9 +522,15 @@ public final class MediaDir {
     return out;
   }
 
-  /** As above, then Rename, Copy to folder, Move to folder and Delete (`files`: the file can be changed there). */
+  /**
+   * As above, then Tags… and Category… (MediaTags), then Rename, Copy to folder, Move to folder and
+   * Delete (`files`: the file can be changed there).
+   */
   public static String[] menu(boolean listed, int kind, boolean files) {
-    String[] base = menu(listed, kind);
+    String[] first = menu(listed, kind);
+    String[] base = java.util.Arrays.copyOf(first, first.length + 2);
+    base[first.length] = MediaTags.TAGS;
+    base[first.length + 1] = MediaTags.CATEGORY;
     if (!files) return base;
     String[] out = java.util.Arrays.copyOf(base, base.length + FILE_ACTIONS.length);
     System.arraycopy(FILE_ACTIONS, 0, out, base.length, FILE_ACTIONS.length);

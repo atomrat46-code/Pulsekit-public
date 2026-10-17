@@ -44,6 +44,8 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // A long press opens a file's menu (a drag never ends here).
+    MediaBrowser.drags = false;
     // File-set state is static; start each scenario without what an earlier one imported.
     Engine.fileSetOrigins.clear();
     Engine.fileSetAudio.clear();
@@ -3155,6 +3157,104 @@ public class BehaviorTest {
         .append(MediaBrowser.last != null && MediaBrowser.last.dialog.isShowing() ? "open" : "not open").append('\n');
     ApiKeys.clear();
     write("s93_upscaler_extras", out.toString());
+  }
+
+  /**
+   * Media browser tags and categories: Tags… (a new tag, then ticked), Category… (the prompt
+   * library's), the line under the card, the Tagged filter, Rename keeping them, and a file dropped
+   * on a folder card moved into it (its tags with it).
+   */
+  @Test
+  @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+  public void s127_media_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaTags.reset();
+    File media = new File(app.getCacheDir(), "media-tags");
+    new File(media, "keep").mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    for (File f : new File[] {new File(media, "a.png"), new File(media, "b.png")}) {
+      java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+      fos.close();
+    }
+    Files.write(new File(media, "b.png").toPath(), new byte[] {1, 2, 3}, java.nio.file.StandardOpenOption.APPEND);
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    java.util.function.Supplier<View> dv = () -> b.dialog.getWindow().getDecorView();
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    java.util.function.Function<String, MediaDir.Entry> entry = n -> {
+      for (MediaDir.Entry e : b.allEntries) if (e.name.equals(n)) return e;
+      return null;
+    };
+    // A long press: the menu (with Tags… and Category…), or a drag where the phone drags.
+    MediaBrowser.lastMenu = null;
+    dv.get().findViewWithTag("media-card:a.png").performLongClick();
+    idle();
+    out.append("long press: ").append(MediaBrowser.lastMenu != null ? listItems(MediaBrowser.lastMenu) : MediaBrowser.dragging != null ? "dragging" : "nothing").append('\n');
+    if (MediaBrowser.lastMenu == null || !listItems(MediaBrowser.lastMenu).contains("Tags\u2026 | Category\u2026")) throw new AssertionError(out.toString());
+    MediaBrowser.lastMenu.dismiss();
+    // Tags…: none yet; New tag… adds two, then they show ticked.
+    b.tags(entry.apply("a.png"));
+    idle();
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-new-tag-field")).setText("beach, #night");
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("tags list then: ").append(listItems(MediaBrowser.lastAsk)).append(", ticked ").append(MediaBrowser.lastAsk.getListView().getCheckedItemCount()).append('\n');
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String aKey = MediaTags.key(entry.apply("a.png"));
+    out.append("a.png: ").append(MediaTags.line(aKey)).append('\n');
+    // Category…: the library's categories (read off the main thread).
+    MediaBrowser.lastAsk = null;
+    b.category(entry.apply("a.png"));
+    for (int i = 0; i < 100 && MediaBrowser.lastAsk == null; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    String cats = listItems(MediaBrowser.lastAsk);
+    out.append("categories: ").append(cats).append('\n');
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(1);
+    idle();
+    String cat = cats.split(" \\| ")[1];
+    TextView line = (TextView) dv.get().findViewWithTag("media-tags:a.png");
+    out.append("card line: ").append(line == null ? "none" : line.getText()).append('\n');
+    if (!MediaTags.line(aKey).equals("#beach #night \u00b7 " + cat) || line == null || !line.getText().toString().equals(MediaTags.line(aKey))) throw new AssertionError(out.toString());
+    // Tagged: #night keeps a.png only.
+    b.tagFilter();
+    idle();
+    String choices = listItems(MediaBrowser.lastAsk);
+    out.append("Tagged choices: ").append(choices).append('\n');
+    int night = java.util.Arrays.asList(choices.split(" \\| ")).indexOf("#night (1)");
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(night);
+    idle();
+    out.append("tagged #night: a.png ").append(dv.get().findViewWithTag("media-card:a.png") != null).append(", b.png ").append(dv.get().findViewWithTag("media-card:b.png") != null)
+        .append(", pill ").append(((TextView) dv.get().findViewWithTag("media-tag-filter")).getText()).append('\n');
+    if (dv.get().findViewWithTag("media-card:a.png") == null || dv.get().findViewWithTag("media-card:b.png") != null) throw new AssertionError(out.toString());
+    MediaTags.filter = "";
+    // Rename: the tags go with the new name.
+    b.fileAction(entry.apply("a.png"), MediaDir.RENAME);
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-rename-field")).setText("sea");
+    MediaBrowser.lastAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100 && (b.loading || entry.apply("sea.png") == null); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("renamed sea.png: ").append(MediaTags.line(MediaTags.key(entry.apply("sea.png")))).append('\n');
+    // Dropped on the folder card keep: moved there, its tags too.
+    MediaDir.Entry sea = entry.apply("sea.png");
+    out.append("dropped: ").append(b.dropped(sea, new File(media, "keep").getAbsolutePath())).append(", in keep ").append(new File(media, "keep/sea.png").isFile())
+        .append(", tags ").append(MediaTags.line(MediaTags.key("sea.png", new File(media, "keep/sea.png").length()))).append('\n');
+    if (!new File(media, "keep/sea.png").isFile() || !MediaTags.line(MediaTags.key("sea.png", new File(media, "keep/sea.png").length())).startsWith("#beach #night")) throw new AssertionError(out.toString());
+    b.dialog.dismiss();
+    MediaTags.reset();
+    write("s127_media_tags", out.toString());
   }
 
   /**
