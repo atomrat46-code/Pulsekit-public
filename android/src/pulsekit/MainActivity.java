@@ -400,7 +400,7 @@ public class MainActivity extends UiKit {
         linearLayout2.addView((View)linearLayout3);
         LinearLayout linearLayout8 = this.col();
         linearLayout8.setPadding(0, this.dp(8), 0, this.dp(2));
-        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (the row under the main tabs).
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (buttons under the page's header).
         LinearLayout linearLayout9 = this.row();
         this.addTab(linearLayout9, DRUM_TRACKS, "Drum Tracks");
         this.addTab(linearLayout9, "pads", "Pads");
@@ -409,15 +409,19 @@ public class MainActivity extends UiKit {
         linearLayout10.setPadding(0, this.dp(4), 0, 0);
         this.addTab(linearLayout10, "py", "PyJav");
         this.addFileTab(linearLayout10);
-        this.drumSubtabs = this.row();
-        this.drumSubtabs.setPadding(this.dp(16), this.dp(4), this.dp(16), 0);
+        // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
+        this.drumSubtabs = this.col();
         this.drumSubtabs.setTag("drum-subtabs");
-        this.addTab(this.drumSubtabs, "pattern", "Pattern");
-        this.addTab(this.drumSubtabs, "combo", "Fillern");
-        this.addTab(this.drumSubtabs, "fills", "Fills");
+        this.drumSubtabs.setPadding(0, this.dp(6), 0, this.dp(4));
+        this.drumSubtabs.addView((View)this.text("Drum Tracks", 18, true));
+        LinearLayout drumButtons = this.row();
+        drumButtons.setPadding(0, this.dp(8), 0, 0);
+        this.addTab(drumButtons, "pattern", "Pattern");
+        this.addTab(drumButtons, "combo", "Fillern");
+        this.addTab(drumButtons, "fills", "Fills");
+        this.drumSubtabs.addView((View)drumButtons);
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
-        linearLayout8.addView((View)this.drumSubtabs);
         linearLayout2.addView((View)linearLayout8);
         this.now = this.text(" ", 11, true);
         this.now.setTextColor(HIT);
@@ -474,6 +478,7 @@ public class MainActivity extends UiKit {
         this.body = this.col();
         this.body.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));
         this.chrome.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, -2));
+        this.body.addView((View)this.drumSubtabs);
         this.body.addView((View)this.chrome);
         FrameLayout frameLayout = new FrameLayout((Context)this);
         frameLayout.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));

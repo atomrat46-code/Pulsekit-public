@@ -346,7 +346,7 @@ public final class Pulsekit extends UiKit {
         jPanel.add((Component)jPanel2, "North");
         JPanel jPanel6 = new JPanel(new BorderLayout(0, 8));
         jPanel6.setOpaque(false);
-        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (the row under the main tabs).
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (buttons under the page's header).
         JPanel jPanel7 = new JPanel(new GridLayout(1, 6, 6, 4));
         jPanel7.setOpaque(false);
         this.addTab(jPanel7, DRUM_TRACKS, "Drum Tracks");
@@ -355,17 +355,29 @@ public final class Pulsekit extends UiKit {
         this.addTab(jPanel7, "py", "PyJav");
         this.addTab(jPanel7, "prompts", "Prompts");
         this.addFileTab(jPanel7);
-        this.drumSubtabs = new JPanel(new GridLayout(1, 3, 6, 4));
+        // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
+        this.drumSubtabs = new JPanel();
+        this.drumSubtabs.setLayout(new BoxLayout(this.drumSubtabs, 1));
         this.drumSubtabs.setOpaque(false);
         this.drumSubtabs.setName("drum-subtabs");
-        this.drumSubtabs.setBorder(BorderFactory.createEmptyBorder(4, 40, 0, 40));
-        this.addTab(this.drumSubtabs, "pattern", "Pattern");
-        this.addTab(this.drumSubtabs, "combo", "Fillern");
-        this.addTab(this.drumSubtabs, "fills", "Fills");
+        this.drumSubtabs.setBorder(BorderFactory.createEmptyBorder(4, 0, 8, 0));
+        JLabel drumHead = new JLabel("Drum Tracks");
+        drumHead.setFont(new Font("SansSerif", 1, 20));
+        drumHead.setForeground(FG);
+        drumHead.setAlignmentX(0.0f);
+        this.drumSubtabs.add(drumHead);
+        this.drumSubtabs.add(Box.createVerticalStrut(8));
+        JPanel drumButtons = new JPanel(new GridLayout(1, 3, 6, 4));
+        drumButtons.setOpaque(false);
+        drumButtons.setAlignmentX(0.0f);
+        this.addTab(drumButtons, "pattern", "Pattern");
+        this.addTab(drumButtons, "combo", "Fillern");
+        this.addTab(drumButtons, "fills", "Fills");
+        drumButtons.setMaximumSize(new Dimension(420, drumButtons.getPreferredSize().height));
+        this.drumSubtabs.add(drumButtons);
         JPanel tabRows = new JPanel(new BorderLayout());
         tabRows.setOpaque(false);
         tabRows.add((Component)jPanel7, "North");
-        tabRows.add((Component)this.drumSubtabs, "South");
         JPanel jPanel8 = new JPanel(new BorderLayout());
         jPanel8.setOpaque(false);
         jPanel8.add((Component)tabRows, "North");
@@ -493,7 +505,14 @@ public final class Pulsekit extends UiKit {
         this.chrome.add(this.toolsRow);
         JPanel jPanel9 = new JPanel(new BorderLayout(0, 6));
         jPanel9.setOpaque(false);
-        jPanel9.add((Component)this.chrome, "North");
+        JPanel pageTop = new JPanel();
+        pageTop.setOpaque(false);
+        pageTop.setLayout(new BoxLayout(pageTop, 1));
+        this.drumSubtabs.setAlignmentX(0.0f);
+        this.chrome.setAlignmentX(0.0f);
+        pageTop.add(this.drumSubtabs);
+        pageTop.add(this.chrome);
+        jPanel9.add((Component)pageTop, "North");
         this.pageHost.setOpaque(false);
         this.gridHost = new JPanel(new BorderLayout());
         this.gridHost.setOpaque(false);
