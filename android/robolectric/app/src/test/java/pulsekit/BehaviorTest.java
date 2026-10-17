@@ -3181,6 +3181,74 @@ public class BehaviorTest {
   }
 
   /**
+   * A long press on a file set's source MIDI opens the MIDI editor: its hits on a grid (ACC and a
+   * row per track). A tap adds or erases a hit; Back leaves without saving, Save keeps the MIDI.
+   */
+  @Test
+  public void s134_midi_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 120;
+    cells[2][12] = 90;
+    byte[] midi = Engine.encodeMidi(cells, 110, 16);
+    Engine.stageSourceMidi(midi, "Edit Me.mid");
+    call("ingest", midi, "Edit Me.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "combo");
+    idle();
+    TextView label = null;
+    for (View v : allViews(root())) {
+      if (v instanceof TextView && "Edit Me.mid".contentEquals(((TextView) v).getText()) && v.isLongClickable()) label = (TextView) v;
+    }
+    out.append("source MIDI row: ").append(label != null).append('\n');
+    label.performLongClick();
+    idle();
+    MidiEditScreen ed = MidiEditScreen.now;
+    View page = ed.dialog.getWindow().getDecorView();
+    out.append("editor open: ").append(ed.dialog.isShowing()).append(", ").append(((TextView) page.findViewWithTag("midiedit-status")).getText()).append('\n');
+    out.append("buttons: ").append(((TextView) page.findViewWithTag("midiedit-play")).getText()).append(" ")
+        .append(((TextView) page.findViewWithTag("midiedit-pause")).getText()).append(" ").append(((TextView) page.findViewWithTag("midiedit-stop")).getText()).append(" ")
+        .append(((TextView) page.findViewWithTag("midiedit-back")).getText()).append(" ").append(((TextView) page.findViewWithTag("midiedit-save")).getText()).append('\n');
+    out.append("grid steps ").append(ed.edit.steps()).append(", kick at 0: ").append(ed.cells[0][0]).append(", accent at 4: ").append(ed.edit.accent(4)).append('\n');
+    ed.tap(1, 2);
+    out.append("tap KIK 3: ").append(ed.cells[0][2]).append(", ").append(((TextView) page.findViewWithTag("midiedit-status")).getText()).append('\n');
+    page.findViewWithTag("midiedit-back").performClick();
+    idle();
+    out.append("Back: closed ").append(!ed.dialog.isShowing()).append(", MIDI kept as it was ")
+        .append(java.util.Arrays.equals(midi, Engine.fileSetAudioOf("Edit Me").sourceMidi)).append('\n');
+    label.performLongClick();
+    idle();
+    ed = MidiEditScreen.now;
+    page = ed.dialog.getWindow().getDecorView();
+    ed.tap(1, 2);
+    ed.tap(1, 0);
+    ed.tap(3, 12);
+    ed.tap(0, 8);
+    // Robolectric's media player is told how long the rendered MIDI is.
+    org.robolectric.shadows.ShadowMediaPlayer.addMediaInfo(org.robolectric.shadows.util.DataSource.toDataSource(new File(app.getCacheDir(), "pk-midi.wav").getAbsolutePath()),
+        new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(2000, 0));
+    page.findViewWithTag("midiedit-play").performClick();
+    idle();
+    out.append("Play: ").append(((FileSets) get("fileSets")).pkMidiSrc).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    page.findViewWithTag("midiedit-save").performClick();
+    idle();
+    out.append("Save: closed ").append(!ed.dialog.isShowing()).append(", playback stopped ").append(((FileSets) get("fileSets")).pkMidiSrc == null).append('\n');
+    Engine.MidiBars bars = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    StringBuilder grid = new StringBuilder();
+    for (int t = 0; t < 3; t++) {
+      for (int st = 0; st < 16; st++) grid.append(bars.bars.get(0)[t][st] == 0 ? '.' : (bars.bars.get(0)[t][st] >= MidiHitEdit.ACCENT_FROM ? 'X' : 'x'));
+      grid.append(' ');
+    }
+    out.append("saved: ").append(grid).append(bars.bpm).append(" BPM").append('\n');
+    out.append("kept on disk: ").append(new File(app.getFilesDir(), "fset-audio").isDirectory()).append('\n');
+    if (MidiEditScreen.now != null || bars.bars.get(0)[0][2] == 0 || bars.bars.get(0)[0][0] != 0 || bars.bars.get(0)[2][12] != 0) throw new AssertionError(out.toString());
+    write("s134_midi_editor", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.

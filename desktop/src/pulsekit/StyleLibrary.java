@@ -798,6 +798,11 @@ final class StyleLibrary {
             return m;
         });
         pack.add(head);
+        JPanel midi = key != null && key.startsWith("f:") ? app.fileSets.midiRow(key.substring(2)) : null;
+        if (midi != null) {
+            midi.setVisible(open);
+            pack.add(midi);
+        }
         kids.setVisible(open);
         kids.setAlignmentX(0f);
         pack.add(kids);

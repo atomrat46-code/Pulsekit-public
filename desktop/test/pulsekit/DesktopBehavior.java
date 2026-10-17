@@ -4684,6 +4684,77 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * The file set's source.mid row (name, clock, Play, Pause, Stop); a right click or long press on
+   * its name opens the MIDI editor: the hits on a grid, a click adds or erases one; Back leaves
+   * without saving, Save keeps the MIDI.
+   */
+  void s116_midi_editor() throws Exception {
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 120;
+    cells[2][12] = 90;
+    final byte[] midi = Engine.encodeMidi(cells, 110, 16);
+    Engine.stageSourceMidi(midi, "Edit Me.mid");
+    answers.add("Yes");
+    call("ingest", midi, "Edit Me.mid");
+    call("showView", "combo");
+    final javax.swing.JButton[] name = {null};
+    edt(() -> name[0] = (javax.swing.JButton) component(frame, "sourcemidi-name"));
+    out.append("source MIDI row: ").append(name[0] != null ? name[0].getText() : "none").append(", play ").append(named(frame, "sourcemidi-play")).append('\n');
+    answers.add("(keep)");
+    edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 4, 4, 1, false, java.awt.event.MouseEvent.BUTTON3)));
+    idle();
+    Thread.sleep(300);
+    final MidiEditScreen[] ed = {MidiEditScreen.now};
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      java.awt.Container page = ed[0].dialog.getContentPane();
+      seen.append("editor open: ").append(ed[0].dialog.isShowing()).append(", ").append(((JLabel) component(page, "midiedit-status")).getText()).append('\n');
+      seen.append("buttons:");
+      for (String b : new String[] {"midiedit-play", "midiedit-pause", "midiedit-stop", "midiedit-back", "midiedit-save"}) seen.append(' ').append(((javax.swing.JButton) component(page, b)).getText());
+      seen.append('\n');
+      seen.append("grid steps ").append(ed[0].edit.steps()).append(", kick at 0: ").append(ed[0].cells[0][0]).append(", accent at 4: ").append(ed[0].edit.accent(4)).append('\n');
+      // A click on the grid: KIK, step 3.
+      MidiEditScreen.Grid g = ed[0].grid;
+      int x = g.stepX(2) + 5;
+      int y = MidiEditScreen.ROW + 5;
+      g.dispatchEvent(new java.awt.event.MouseEvent(g, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, x, y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+      seen.append("click KIK 3: ").append(ed[0].cells[0][2]).append(", ").append(((JLabel) component(page, "midiedit-status")).getText()).append('\n');
+      ((javax.swing.JButton) component(page, "midiedit-back")).doClick();
+      seen.append("Back: closed ").append(!ed[0].dialog.isShowing()).append(", MIDI kept as it was ").append(java.util.Arrays.equals(midi, Engine.fileSetAudioOf("Edit Me").sourceMidi)).append('\n');
+    });
+    answers.add("(keep)");
+    edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 4, 4, 1, false, java.awt.event.MouseEvent.BUTTON3)));
+    idle();
+    Thread.sleep(300);
+    ed[0] = MidiEditScreen.now;
+    edt(() -> {
+      java.awt.Container page = ed[0].dialog.getContentPane();
+      ed[0].tap(1, 2);
+      ed[0].tap(1, 0);
+      ed[0].tap(3, 12);
+      ed[0].tap(0, 8);
+      ((javax.swing.JButton) component(page, "midiedit-play")).doClick();
+      seen.append("Play: ").append(((JLabel) get("nowPlaying")).getText().replaceAll("No audio output for .*", "no audio device here")).append('\n');
+      ((javax.swing.JButton) component(page, "midiedit-save")).doClick();
+      seen.append("Save: closed ").append(!ed[0].dialog.isShowing()).append(", editor gone ").append(MidiEditScreen.now == null).append('\n');
+    });
+    out.append(seen);
+    Engine.MidiBars bars = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    StringBuilder grid = new StringBuilder();
+    for (int t = 0; t < 3; t++) {
+      for (int st = 0; st < 16; st++) grid.append(bars.bars.get(0)[t][st] == 0 ? '.' : (bars.bars.get(0)[t][st] >= MidiHitEdit.ACCENT_FROM ? 'X' : 'x'));
+      grid.append(' ');
+    }
+    out.append("saved: ").append(grid).append(bars.bpm).append(" BPM").append('\n');
+    Engine.fileSetAudio.clear();
+    Engine.loadFileSetAudioDir(new File(System.getProperty("user.home"), ".pulsekit/fset-audio"));
+    Engine.MidiBars again = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    out.append("kept on disk: ").append(again != null && again.bars.get(0)[0][2] > 0).append('\n');
+    if (bars.bars.get(0)[0][2] == 0 || bars.bars.get(0)[0][0] != 0 || bars.bars.get(0)[2][12] != 0 || again == null) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));
