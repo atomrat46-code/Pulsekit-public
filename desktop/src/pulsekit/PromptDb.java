@@ -146,6 +146,9 @@ final class PromptDb {
     void browse(boolean results, String only, Picked picked) {
         final JDialog dialog = new JDialog(app, results ? "Result files" : "Reference files", true);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
+            // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
+            browseScroll[results ? 1 : 0] = this.scrolledTo();
+            this.restoreScroll = browseScroll[showResults ? 1 : 0];
             dialog.dispose();
             this.browse(showResults, only, picked);
         });
@@ -177,13 +180,14 @@ final class PromptDb {
             dialog.dispose();
             picked.picked(file.name, copy);
         }, null, "refs-pick:", true);
-        // The file picked last: outlined, and scrolled to.
+        // The file picked last: outlined, and scrolled to (unless a tab switch brings back that tab's place).
+        final boolean switched = this.restoreScroll >= 0;
         for (java.awt.Component c : grid.getComponents()) {
             if (lastPicked != null && c instanceof JButton && ("refs-pick:" + lastPicked).equals(c.getName())) {
                 final JButton was = (JButton) c;
                 was.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xE0B04A), 2));
                 was.putClientProperty("refs-last", Boolean.TRUE);
-                SwingUtilities.invokeLater(() -> was.scrollRectToVisible(new java.awt.Rectangle(0, 0, was.getWidth(), was.getHeight())));
+                if (!switched) SwingUtilities.invokeLater(() -> was.scrollRectToVisible(new java.awt.Rectangle(0, 0, was.getWidth(), was.getHeight())));
                 break;
             }
         }
@@ -629,6 +633,10 @@ final class PromptDb {
         scroll.setPreferredSize(new Dimension(3 * (CELL + 28) + 24, 460));
         scroll.getVerticalScrollBar().setUnitIncrement(24);
         body.add(scroll, BorderLayout.CENTER);
+        this.shownScroll = scroll;
+        final int at = this.restoreScroll;
+        this.restoreScroll = -1;
+        if (at >= 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(at));
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         bottom.add(close);
         body.add(bottom, BorderLayout.SOUTH);
@@ -698,10 +706,7 @@ final class PromptDb {
     void gallery(final int kind) {
         final boolean results = kind == 1;
         final JDialog dialog = new JDialog(app, kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files", true);
-        JPanel kinds = kind == 2 ? null : this.kinds(results, k -> stored(k).size(), showResults -> {
-            dialog.dispose();
-            this.gallery(showResults);
-        });
+        JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
         FileSort.current = FileSort.valid(readSort());
         javax.swing.JComboBox<String> sort = new javax.swing.JComboBox<String>(FileSort.CHOICES);
@@ -810,6 +815,40 @@ final class PromptDb {
         });
         this.lastGallery = dialog;
         this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(kind)), grid, close);
+    }
+
+    /** Ref files (n) | Result files (n) | Prompt files (n): the one shown is greyed; another opens in its place, where it was left. */
+    private JPanel galleryTabs(final int kind, final JDialog dialog) {
+        JPanel tabs = new JPanel(new GridLayout(1, 3, 8, 0));
+        String[] names = {"Ref files", "Result files", "Prompt files"};
+        for (int k = 0; k < 3; k++) {
+            final int to = k;
+            int n = k == 2 ? promptFiles().size() : stored(k == 1).size();
+            JButton tab = new JButton(names[k] + " (" + n + ")");
+            tab.setName("gallery-tab:" + k);
+            tab.setEnabled(k != kind);
+            tab.addActionListener(e -> {
+                galleryScroll[kind] = this.scrolledTo();
+                this.restoreScroll = galleryScroll[to];
+                dialog.dispose();
+                this.gallery(to);
+            });
+            tabs.add(tab);
+        }
+        return tabs;
+    }
+
+    /** Where each tab was left: Browse DB's Ref files / Result files, and the galleries' three. */
+    static final int[] browseScroll = new int[2];
+    static final int[] galleryScroll = new int[3];
+
+    /** The grid's scroll shown last; the place the next one opens at (-1: its own default). */
+    JScrollPane shownScroll;
+    int restoreScroll = -1;
+
+    /** How far down the grid shown last is scrolled. */
+    int scrolledTo() {
+        return this.shownScroll == null ? 0 : this.shownScroll.getVerticalScrollBar().getValue();
     }
 
     /** The name of the file Browse DB picked last: it opens scrolled to it, outlined. */

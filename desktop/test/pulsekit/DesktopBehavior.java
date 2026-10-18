@@ -1220,7 +1220,7 @@ public final class DesktopBehavior {
     edt(() -> ((javax.swing.JButton) component(frame, "prompts-ref-files")).doClick());
     JDialog gallery = (JDialog) get("lastGallery");
     out.append("gallery \"").append(gallery.getTitle()).append("\": ");
-    for (String n : new String[] {"refs-kind:refs", "refs-kind:results"}) {
+    for (String n : new String[] {"gallery-tab:0", "gallery-tab:1", "gallery-tab:2"}) {
       javax.swing.JButton b = (javax.swing.JButton) component(gallery, n);
       out.append('[').append(b.getText()).append(b.isEnabled() ? "" : " (shown)").append("] ");
     }
@@ -4988,6 +4988,148 @@ public final class DesktopBehavior {
     idle();
     out.append("Add to composer stack: ").append(page.composer().stack.size() - before).append(" blocks, view ").append(get("view")).append(", ").append(((javax.swing.JLabel) get("nowPlaying")).getText()).append('\n');
     if (song.size() != 10 || !kept.contains("Verse") || page.composer().stack.size() <= before || !"composer".equals(get("view"))) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sunday notes. Browse DB and the galleries: the tabs stay over the thumbnails, and each tab opens
+   * where it was left. A long MIDI's Make a song? question offers Composer parts: the song split
+   * into parts and a song form. MIDI ready: Add to composer stack. Variate on pattern and fill
+   * menus. The video player's clock reads mm:ss / mm:ss.
+   */
+  void s122_sunday_notes() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    for (int i = 0; i < 30; i++) {
+      PromptDb.vault().addLibraryFile("ref" + i + ".txt", ("ref " + i).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+      PromptDb.vault().addLibraryFile("res" + i + ".txt", ("res " + i).getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    }
+    // Browse DB: scrolled down on Ref files, then on Result files; each comes back where it was.
+    java.util.function.Function<Action, JDialog> opened = a -> {
+      try {
+        final Object before = get("lastBrowse");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog d = opened.apply(() -> db.browse(false, null, (name, file) -> {}));
+    final boolean topOutside = !SwingUtilities.isDescendingFrom(component(d, "refs-kind:results"), db.shownScroll);
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(300));
+    final JDialog refs = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(refs, "refs-kind:results")).doClick());
+    out.append("Browse DB: tabs over the scroll ").append(topOutside).append(", Result files at ").append(db.scrolledTo()).append('\n');
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(120));
+    final JDialog res = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(res, "refs-kind:refs")).doClick());
+    int backRefs = db.scrolledTo();
+    final JDialog refs2 = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(refs2, "refs-kind:results")).doClick());
+    int backRes = db.scrolledTo();
+    out.append("back on Ref files at ").append(backRefs).append(", on Result files at ").append(backRes).append('\n');
+    final JDialog lastB = d;
+    edt(() -> lastB.dispose());
+    // The galleries: Ref files | Result files | Prompt files over the thumbnails, each where it was left.
+    java.util.function.Function<Action, JDialog> gallery = a -> {
+      try {
+        final Object before = get("lastGallery");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastGallery");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog g = gallery.apply(() -> db.gallery(0));
+    out.append("gallery \"").append(g.getTitle()).append("\":");
+    for (int k = 0; k < 3; k++) {
+      javax.swing.JButton b = (javax.swing.JButton) component(g, "gallery-tab:" + k);
+      out.append(" [").append(b.getText()).append(b.isEnabled() ? "" : " (shown)").append(']');
+    }
+    out.append('\n');
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(250));
+    final JDialog g0 = g;
+    g = gallery.apply(() -> ((javax.swing.JButton) component(g0, "gallery-tab:2")).doClick());
+    out.append("Prompt files at ").append(db.scrolledTo()).append(", title ").append(g.getTitle()).append('\n');
+    final JDialog g2 = g;
+    g = gallery.apply(() -> ((javax.swing.JButton) component(g2, "gallery-tab:0")).doClick());
+    int galleryBack = db.scrolledTo();
+    out.append("back on Ref files at ").append(galleryBack).append('\n');
+    final JDialog lastG = g;
+    edt(() -> lastG.dispose());
+    idle();
+
+    // A long MIDI: Make a song? offers Composer parts.
+    List<Engine.Part> parts = new ArrayList<>();
+    int[][] rock = Engine.styleCells(Engine.styles().get("rock"));
+    int[][] funk = Engine.styleCells(Engine.styles().get("funk"));
+    parts.add(Engine.groove("Intro", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    for (int round = 0; round < 2; round++) {
+      parts.add(Engine.groove("V", 110, rock, 4));
+      parts.add(Engine.fill("toms", 110, 1));
+      parts.add(Engine.groove("C", 110, funk, 4));
+      parts.add(Engine.fill("snare", 110, 1));
+    }
+    answers.add("Composer parts");
+    call("ingest", Engine.encodeSongMidi(parts), "Long song.mid");
+    final ComposerPage page = (ComposerPage) get("composerPage");
+    Composer c = page.composer();
+    out.append("view ").append(get("view")).append(", ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    for (Composer.Part p : c.parts) {
+      out.append("part ").append(p.name).append(':');
+      for (Composer.Entry e : p.entries) out.append(' ').append(e.label());
+      out.append('\n');
+    }
+    out.append("form: ").append(c.formLabel()).append(", kept ").append(Composer.load(PromptDb.dir()).encode().equals(c.encode())).append('\n');
+    // MIDI ready: Add to composer stack.
+    final int before = c.stack.size();
+    answers.add("No");
+    call("ingest", Engine.encodeMidi(Engine.styleCells(Engine.styles().get("hiphop")), 92), "Gen groove.mid");
+    final byte[] gen = Engine.encodeSongMidi(songParts());
+    answers.add("No");
+    call("ingest", gen, "Gen song.mid");
+    answers.add("Add to composer stack");
+    call("offerMidi", "Gen song.mid", gen);
+    out.append("MIDI ready, Add to composer stack: ").append(c.stack.size() - before).append(" blocks, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    // Variate: the first item on the pattern and fill menus; it does what Gen does.
+    final StyleLibrary lib = (StyleLibrary) get("styleLibrary");
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      javax.swing.JPopupMenu m = lib.builtinStyleMenu("rock");
+      javax.swing.JMenuItem v = (javax.swing.JMenuItem) m.getComponent(0);
+      seen.append("Rock menu: ").append(v.getText());
+      v.doClick();
+      seen.append(" -> ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+      Engine.LearnedFill f = ((Pulsekit) frame).learnedFills.get(0);
+      javax.swing.JMenuItem fv = (javax.swing.JMenuItem) lib.learnedFillMenu(f).getComponent(0);
+      seen.append("fill menu: ").append(fv.getText());
+      int had = ((Pulsekit) frame).variatedFills.size();
+      fv.doClick();
+      seen.append(" -> ").append(((Pulsekit) frame).variatedFills.size() - had).append(" variated fill, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    });
+    out.append(seen);
+    // The video player's clock: mm:ss / mm:ss.
+    File clip = new File(System.getProperty("user.home"), "walk.mp4");
+    Files.write(clip.toPath(), new byte[16]);
+    String html = new String(Files.readAllBytes(((File) call("videoPage", clip)).toPath()), StandardCharsets.UTF_8);
+    out.append("video clock: ").append(html.contains(">00:00 / 00:00<")).append(", minutes padded ").append(html.contains("(m<10?'0':'')+m")).append('\n');
+    if (!topOutside || backRefs != 300 || backRes != 120 || galleryBack != 250 || c.form.isEmpty() || c.stack.size() <= before || seen.indexOf("Variate") < 0) throw new AssertionError(out.toString());
   }
 
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */

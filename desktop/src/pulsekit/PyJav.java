@@ -1236,10 +1236,23 @@ final class PyJav {
         try {
             while (true) {
                 boolean playing = clip != null && clip.isRunning();
-                Object[] options = new Object[] {playing ? "Stop" : "Play", "Close"};
+                // Add to composer stack: the file set's patterns and fills, as blocks to compose with.
+                Object[] options = new Object[] {playing ? "Stop" : "Play", "Add to composer stack", "Close"};
                 int ans = JOptionPane.showOptionDialog(app, midiName + " (" + length + ") is imported as a file set.\n\n"
                     + "Play sounds it with Pulsekit's kit (your imported SoundFont, if any).", "MIDI ready",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+                if (ans == 1) {
+                    String set = app.importLibrary.lastPackedSet;
+                    if (set == null) {
+                        app.setNow("No file set of " + midiName + " to put on the stack");
+                        break;
+                    }
+                    Composer c = app.composerPage.composer();
+                    int added = c.addFileSet(set, app.learned, app.learnedFills);
+                    c.save(PromptDb.dir());
+                    app.setNow(Composer.stackedNote(midiName, added));
+                    break;
+                }
                 if (ans != 0) break;
                 if (playing) {
                     clip.stop();
@@ -1316,7 +1329,7 @@ final class PyJav {
             + "<div id=\"box\"><video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline" + (loop ? " loop" : "") + "></video></div>\n"
             + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button>"
             + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label>"
-            + " <span id=\"time\">0:00 / 0:00</span></div>\n"
+            + " <span id=\"time\">00:00 / 00:00</span></div>\n"
             + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span>"
             + " &nbsp;Speed <select id=\"speed\">" + speeds + "</select></div>\n"
             + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"" + volume + "\"> <span id=\"level\">" + volume + "%</span></div>\n"
@@ -1339,7 +1352,7 @@ final class PyJav {
             + "box.onwheel=function(e){e.preventDefault();step(e.deltaY<0);};\n"
             + "var dx=null,dy=0;box.onmousedown=function(e){dx=e.clientX-px;dy=e.clientY-py;};window.onmouseup=function(){dx=null;};\n"
             + "window.onmousemove=function(e){if(dx!==null&&z>1){px=e.clientX-dx;py=e.clientY-dy;paint();}};\n"
-            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60;return Math.floor(t/60)+':'+(s<10?'0':'')+s;}\n"
+            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60,m=Math.floor(t/60);return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;}\n"
             + "function tick(){document.getElementById('time').textContent=clock(v.currentTime)+' / '+clock(isFinite(v.duration)?v.duration:0);}\n"
             + "v.ontimeupdate=v.ondurationchange=tick;\n"
             + "v.onloadedmetadata=function(){paint();tick();};\n"

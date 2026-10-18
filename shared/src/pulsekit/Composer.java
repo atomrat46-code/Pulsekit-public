@@ -141,6 +141,141 @@ public final class Composer {
     return this.stack.size() - before;
   }
 
+  /**
+   * A long MIDI's song (as the file set `source` made it) split into parts: its patterns, fills and
+   * silences in order, a section ending after each fill (or after 8 bars of one pattern turning into
+   * another). Sections played alike become one part, named by how the song uses it: the one heard
+   * most is the Verse, the next the Chorus, a short one at the start the Intro, a lone one at the
+   * end the Outro, the others Bridge... The song form becomes the sections' letters when it is empty;
+   * otherwise a part named after the file plays them in order. The blocks go on the stack. Returns
+   * the status line.
+   */
+  public String addSong(String source, List<Engine.Part> song, List<Engine.Learned> learned, List<Engine.LearnedFill> fills) {
+    // The song's blocks, the same block one after another as one entry.
+    List<Entry> run = new ArrayList<Entry>();
+    for (Engine.Part sp : song) {
+      Block b = this.blockFor(source, sp, learned, fills);
+      if (b == null) continue;
+      Entry last = run.isEmpty() ? null : run.get(run.size() - 1);
+      int times = Math.max(1, sp.repeats);
+      if (last != null && last.block.same(b)) last.repeats += times;
+      else {
+        Entry e = Entry.of(this.addBlock(b));
+        e.repeats = times;
+        run.add(e);
+      }
+    }
+    if (run.isEmpty()) return "No patterns in " + source + " for the Composer";
+    // Sections: closed after a fill (or a one-bar pattern after a longer one: a fill the file
+    // played as a pattern), before a new pattern once 8 bars are in, and after an opening pattern
+    // the song never comes back to (an intro).
+    List<List<Entry>> sections = new ArrayList<List<Entry>>();
+    List<Entry> at = new ArrayList<Entry>();
+    int bars = 0;
+    for (int i = 0; i < run.size(); i++) {
+      Entry e = run.get(i);
+      Entry prev = at.isEmpty() ? null : at.get(at.size() - 1);
+      boolean split = prev != null && PATTERN.equals(e.block.kind) && e.repeats >= 2 && prev.repeats >= 2 && !FILL.equals(prev.block.kind)
+          && (bars >= 8 || !playedFrom(run, i, prev.block));
+      if (split) {
+        sections.add(at);
+        at = new ArrayList<Entry>();
+        bars = 0;
+      }
+      at.add(e);
+      bars += e.repeats;
+      boolean fillLike = FILL.equals(e.block.kind) || (e.repeats == 1 && prev != null && prev.repeats >= 2 && !prev.block.same(e.block));
+      if (fillLike) {
+        sections.add(at);
+        at = new ArrayList<Entry>();
+        bars = 0;
+      }
+    }
+    if (!at.isEmpty()) sections.add(at);
+    // Sections alike: one letter each, in the order first heard.
+    List<String> keys = new ArrayList<String>();
+    List<String> order = new ArrayList<String>();
+    Map<String, Integer> heard = new LinkedHashMap<String, Integer>();
+    Map<String, List<Entry>> body = new LinkedHashMap<String, List<Entry>>();
+    for (List<Entry> sec : sections) {
+      StringBuilder k = new StringBuilder();
+      for (Entry e : sec) k.append(e.block.kind).append(':').append(e.block.key).append('x').append(e.repeats).append(' ');
+      String key = k.toString();
+      keys.add(key);
+      if (!heard.containsKey(key)) {
+        order.add(key);
+        body.put(key, sec);
+        heard.put(key, 0);
+      }
+      heard.put(key, heard.get(key) + 1);
+    }
+    // Names: Intro (short, once, first), Outro (once, last), then Verse, Chorus by how often heard, Bridge...
+    Map<String, String> named = new LinkedHashMap<String, String>();
+    String first = keys.get(0);
+    String lastKey = keys.get(keys.size() - 1);
+    if (order.size() > 1 && heard.get(first) == 1 && barsOf(body.get(first)) <= 8) named.put(first, "Intro");
+    if (order.size() > 2 && heard.get(lastKey) == 1 && !named.containsKey(lastKey)) named.put(lastKey, "Outro");
+    List<String> byHeard = new ArrayList<String>();
+    for (String k : order) if (!named.containsKey(k)) byHeard.add(k);
+    byHeard.sort((a, b) -> heard.get(b) - heard.get(a));
+    String[] next = {"Verse", "Chorus", "Bridge", "B1", "B2", "A1", "A2"};
+    for (int i = 0; i < byHeard.size(); i++) named.put(byHeard.get(i), i < next.length ? next[i] : "Part " + (i + 1));
+    Map<String, String> partOf = new LinkedHashMap<String, String>();
+    for (String k : order) {
+      Part p = this.addPart(named.get(k));
+      for (Entry e : body.get(k)) {
+        Entry copy = Entry.of(e.block);
+        copy.repeats = Math.max(1, Math.min(64, e.repeats));
+        p.entries.add(copy);
+      }
+      partOf.put(k, p.name);
+    }
+    if (this.form.isEmpty()) {
+      Map<String, String> letterOf = new LinkedHashMap<String, String>();
+      this.letters.clear();
+      for (String k : order) {
+        String l = String.valueOf((char) ('A' + Math.min(25, letterOf.size())));
+        letterOf.put(k, l);
+        this.letters.put(l, partOf.get(k));
+      }
+      for (String k : keys) this.form.add(letterOf.get(k));
+      this.formName = source;
+      return source + " · " + order.size() + (order.size() == 1 ? " part" : " parts") + " · song form " + this.formLabel();
+    }
+    Part whole = this.addPart(source);
+    for (String k : keys) whole.entries.add(Entry.sub(partOf.get(k)));
+    return source + " · " + order.size() + (order.size() == 1 ? " part" : " parts") + ", played in order by the part " + whole.name;
+  }
+
+  /** True when `b` is played at `from` or later in the song. */
+  private static boolean playedFrom(List<Entry> run, int from, Block b) {
+    for (int i = from; i < run.size(); i++) if (run.get(i).block.same(b)) return true;
+    return false;
+  }
+
+  private static int barsOf(List<Entry> sec) {
+    int n = 0;
+    for (Entry e : sec) n += e.repeats;
+    return n;
+  }
+
+  /** The stack block a song part of the file set `source` plays: its pattern, fill, or silence. */
+  private Block blockFor(String source, Engine.Part sp, List<Engine.Learned> learned, List<Engine.LearnedFill> fills) {
+    String kind = sp.kind == null ? "groove" : sp.kind.toLowerCase();
+    if ("fill".equals(kind)) {
+      for (Engine.LearnedFill f : fills) if (source.equals(Engine.sourceOf(f)) && f.name.equals(sp.name)) return new Block(FILL, "l:" + f.id, f.name);
+      return null;
+    }
+    if ("rest".equals(kind) || "break".equals(kind)) return new Block(SILENT, "silent", "Silent");
+    for (Engine.Learned l : learned) if (source.equals(Engine.sourceOf(l)) && l.name.equals(sp.name)) return new Block(PATTERN, "l:" + l.id, l.name);
+    return null;
+  }
+
+  /** The status line after a file set's blocks went on the stack. */
+  public static String stackedNote(String what, int added) {
+    return what + " \u00b7 " + added + (added == 1 ? " block" : " blocks") + " on the Composer's stack";
+  }
+
   public void removeBlock(int i) {
     if (i >= 0 && i < this.stack.size()) this.stack.remove(i);
   }

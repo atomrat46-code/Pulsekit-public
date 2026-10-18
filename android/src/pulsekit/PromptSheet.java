@@ -316,9 +316,13 @@ public final class PromptSheet {
     } else {
       buildEditor(activity, col);
     }
+    // A gallery: its Ref files / Result files / Prompt files tabs stay above the thumbnails.
+    boolean gallery = vault != null && previewBack == 0 && (refsOpen || resultsOpen || promptFilesOpen);
+    if (gallery) host.addView(galleryTabs(activity), new LinearLayout.LayoutParams(-1, -2));
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(col);
-    host.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    host.addView(scroll, gallery ? new LinearLayout.LayoutParams(-1, 0, 1f) : new LinearLayout.LayoutParams(-1, -1));
+    pageScroll = scroll;
     final View focus = focusCard;
     focusCard = null;
     final int kept = keepScroll;
@@ -546,6 +550,47 @@ public final class PromptSheet {
       }
     }));
     col.addView(add, buttonLp(activity));
+  }
+
+  /** The page's scroll view as rebuilt last. */
+  private static ScrollView pageScroll;
+  /** Where each gallery (Ref files, Result files, Prompt files) was scrolled to when another tab was opened. */
+  static final int[] galleryScroll = new int[3];
+
+  /** The gallery shown: 0 Ref files, 1 Result files, 2 Prompt files. */
+  static int galleryTab() {
+    return promptFilesOpen ? 2 : resultsOpen && !refsOpen ? 1 : 0;
+  }
+
+  /** Ref files | Result files | Prompt files, the one shown lit; a tap keeps this one's place and opens the other where it was left. */
+  private static LinearLayout galleryTabs(final Activity activity) {
+    LinearLayout row = new LinearLayout(activity);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setTag("gallery-tabs");
+    int pad = dp(activity, 16);
+    row.setPadding(pad, dp(activity, 8), pad, dp(activity, 4));
+    row.setBackgroundColor(Color.parseColor("#0A0B0C"));
+    String[] names = {"Ref files", "Result files", "Prompt files"};
+    final int now = galleryTab();
+    for (int i = 0; i < names.length; i++) {
+      final int tab = i;
+      boolean on = tab == now;
+      TextView b = button(activity, names[i], on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      b.setTag("gallery-tab:" + tab);
+      b.setOnClickListener(v -> {
+        if (tab == galleryTab()) return;
+        if (pageScroll != null) galleryScroll[galleryTab()] = pageScroll.getScrollY();
+        refsOpen = tab == 0;
+        resultsOpen = tab == 1;
+        promptFilesOpen = tab == 2;
+        keepScroll = galleryScroll[tab];
+        rebuild(activity);
+      });
+      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
+      lp.setMargins(i == 0 ? 0 : dp(activity, 4), 0, 0, 0);
+      row.addView(b, lp);
+    }
+    return row;
   }
 
   private static void buildRefGallery(Activity activity, LinearLayout col) {

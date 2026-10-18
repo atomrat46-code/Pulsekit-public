@@ -167,6 +167,13 @@ final class RefBrowser {
         return out;
     }
 
+    /** Where each tab (Ref files, Result files) was scrolled to when the other was opened. */
+    static final int[] scrollAt = new int[2];
+    /** Set by a tab's button: the tab opening goes back to its place. */
+    static boolean switched;
+    /** The browser shown last (for the tests). */
+    static AlertDialog last;
+
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
         final List<PromptVault.StoredFile> files = shown(activity, results, only);
         final PromptVault vault;
@@ -181,7 +188,12 @@ final class RefBrowser {
         final int cell = Math.max((int) (100 * density), (width - gap) / 2);
         LinearLayout col = new LinearLayout(activity);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(gap * 2, gap, gap * 2, gap);
+        col.setPadding(gap * 2, 0, gap * 2, gap);
+        // The tabs and the letters stay at the top; only the thumbnails scroll.
+        LinearLayout top = new LinearLayout(activity);
+        top.setOrientation(LinearLayout.VERTICAL);
+        top.setPadding(gap * 2, gap, gap * 2, 0);
+        final ScrollView[] scrolled = new ScrollView[1];
         final AlertDialog[] dialog = new AlertDialog[1];
         // Ref files / Result files: the list shown is lit; the other opens in its place.
         LinearLayout kinds = new LinearLayout(activity);
@@ -193,12 +205,15 @@ final class RefBrowser {
             kind.setTag(showResults ? "refs-kind:results" : "refs-kind:refs");
             kind.setEnabled(showResults != results);
             kind.setOnClickListener(v -> {
+                // This tab's place is kept; the other opens where it was left.
+                if (scrolled[0] != null) scrollAt[results ? 1 : 0] = scrolled[0].getScrollY();
+                switched = true;
                 if (dialog[0] != null) dialog[0].dismiss();
                 browse(activity, showResults, only, picked);
             });
             kinds.addView(kind, new LinearLayout.LayoutParams(0, -2, 1f));
         }
-        col.addView(kinds);
+        top.addView(kinds);
         // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is lit.
         LinearLayout letters = new LinearLayout(activity);
         letters.setOrientation(LinearLayout.HORIZONTAL);
@@ -225,7 +240,7 @@ final class RefBrowser {
             lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
             letters.addView(b, lp);
         }
-        col.addView(letters);
+        top.addView(letters);
         if (files.isEmpty()) {
             TextView none = new TextView(activity);
             none.setText("none");
@@ -299,15 +314,26 @@ final class RefBrowser {
             marks[i] = mark;
         }
         final ScrollView scroll = new ScrollView(activity);
+        scroll.setTag("refs-scroll");
         scroll.addView(col);
+        scrolled[0] = scroll;
         final android.view.View toRow = lastRow;
         lastRow = null;
-        if (toRow != null) scroll.post(() -> scroll.scrollTo(0, Math.max(0, toRow.getTop() - gap)));
+        // Back on a tab: where it was left; opened anew: the file picked last.
+        final int back = switched ? scrollAt[results ? 1 : 0] : -1;
+        switched = false;
+        if (back >= 0) scroll.post(() -> scroll.scrollTo(0, back));
+        else if (toRow != null) scroll.post(() -> scroll.scrollTo(0, Math.max(0, toRow.getTop() - gap)));
+        LinearLayout page = new LinearLayout(activity);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.addView(top);
+        page.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
             .setTitle(results ? "Result files" : "Reference files")
-            .setView(scroll)
+            .setView(page)
             .setNegativeButton("Cancel", null)
             .show();
+        last = dialog[0];
         // Previews come in the background, as on the Prompts page.
         new Thread(() -> {
             for (int i = 0; i < files.size(); i++) {

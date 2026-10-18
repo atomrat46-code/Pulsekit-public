@@ -798,6 +798,15 @@ final class ImportLibrary {
         app.fileSets.wireFileSetListActions();
     }
 
+    /** Composer parts: the imported song split into the Composer's parts (and its stack), the Composer shown. */
+    void toComposerParts(java.lang.String stem, java.util.List song) {
+        pulsekit.Composer c = app.composerPage.composer();
+        java.lang.String note = c.addSong(stem, (java.util.List<pulsekit.Engine.Part>) song, app.learned, app.learnedFills);
+        c.save(app.getFilesDir());
+        app.show("composer");
+        app.setNow(note);
+    }
+
     /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
     boolean openEditor;
     /** Set while a MIDI becomes a file set for the Composer's stack: no Make a song question. */
@@ -839,8 +848,9 @@ final class ImportLibrary {
             } else if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")
-                    .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays."))
+                    .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays. Composer parts: the song split into parts (Intro, Verse, Chorus...) in the Composer."))
                     .setPositiveButton((java.lang.CharSequence) "Make song", pulsekit.FileSetClicks.makeSong(app, stem, song))
+                    .setNeutralButton((java.lang.CharSequence) "Composer parts", (d, w) -> this.toComposerParts(stem, song))
                     .setNegativeButton((java.lang.CharSequence) "Not now", null)
                     .show();
             }

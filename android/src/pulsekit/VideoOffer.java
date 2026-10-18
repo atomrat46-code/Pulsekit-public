@@ -27,6 +27,23 @@ final class VideoOffer {
         TextView play;
         TextView mute;
         TextView level;
+        /** "00:12 / 00:30": where the clip is, while the dialog shows. */
+        TextView clock;
+        boolean open;
+
+        void tick() {
+            if (!open || clock == null || view == null) return;
+            int at = 0, all = 0;
+            try {
+                at = view.getCurrentPosition();
+                all = view.getDuration();
+            } catch (Exception ignored) {
+                // not ready yet
+            }
+            clock.setText(FileSets.mixTime(at) + " / " + FileSets.mixTime(Math.max(0, all)));
+            clock.postDelayed(this::tick, 250);
+        }
+
         /** The dialog's window and the app's: the screen is kept on while it plays. */
         android.view.Window window;
         android.view.Window appWindow;
@@ -151,6 +168,13 @@ final class VideoOffer {
             buttons.addView(b, lp);
         }
         col.addView(buttons);
+        // Where the clip is: mm:ss / mm:ss, ticking while it plays.
+        p.clock = app.text("00:00 / 00:00", 13, false);
+        p.clock.setTag("video-offer:clock");
+        p.clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+        p.clock.setGravity(android.view.Gravity.CENTER);
+        p.clock.setPadding(0, app.dp(4), 0, 0);
+        col.addView(p.clock, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout volumeRow = app.row();
         volumeRow.setPadding(0, app.dp(6), 0, 0);
         volumeRow.addView(app.text("Volume", 13, false));
@@ -185,6 +209,7 @@ final class VideoOffer {
         dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override
             public void onDismiss(DialogInterface d) {
+                p.open = false;
                 p.playing = false;
                 p.awake();
                 p.media = null;
@@ -194,6 +219,8 @@ final class VideoOffer {
         p.window = dialog.getWindow();
         p.appWindow = app.getWindow();
         dialog.show();
+        p.open = true;
+        p.tick();
         return true;
     }
 

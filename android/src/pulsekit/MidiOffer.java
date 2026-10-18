@@ -50,10 +50,27 @@ final class MidiOffer {
             .setMessage(midi.name + " (" + (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60)
                 + ") is imported as a file set.\n\nPlay sounds it with Pulsekit's kit (your imported SoundFont, if any).")
             .setNeutralButton("Play", null)
+            .setNegativeButton("Add to composer stack", null)
             .setPositiveButton("Close", null)
             .create();
+        // The file set the run's MIDI became: its patterns and fills go on the Composer's stack.
+        final String set = app.importLibrary.lastPackedSet;
+        final String shown = midi.name;
         dialog.setOnDismissListener(d -> stop());
         dialog.setOnShowListener(d -> {
+            Button stack = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+            stack.setTag("midi-offer:composer");
+            stack.setOnClickListener(v -> {
+                if (set == null) {
+                    app.setNow("No file set of " + shown + " to put on the stack");
+                    return;
+                }
+                Composer c = app.composerPage.composer();
+                int added = c.addFileSet(set, app.learned, app.learnedFills);
+                c.save(app.getFilesDir());
+                app.setNow(Composer.stackedNote(shown, added));
+                dialog.dismiss();
+            });
             final Button play = dialog.getButton(DialogInterface.BUTTON_NEUTRAL);
             play.setTag("midi-offer:play");
             play.setOnClickListener(v -> {

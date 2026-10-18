@@ -361,17 +361,30 @@ final class ImportLibrary {
         } else if (!parts.isEmpty() && Midi2WavTest.makesSong()) {
             app.songEditor.addImportedSong(stem, parts);
         } else if (!parts.isEmpty()) {
-            int ans = JOptionPane.showConfirmDialog(
+            // Where it goes: a song (Song tab, under Imported), or the Composer, split into parts.
+            Object[] where = {"Yes", "Composer parts", "No"};
+            int ans = JOptionPane.showOptionDialog(
                 app,
-                app.nowPlaying.getText() + "\n\nMake a song from these? It goes under Imported. Your original song stays.",
+                app.nowPlaying.getText() + "\n\nMake a song from these? It goes under Imported. Your original song stays."
+                    + "\nComposer parts: the song split into parts (Intro, Verse, Chorus...) in the Composer.",
                 "Make a song?",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE);
-            if (ans == JOptionPane.YES_OPTION) app.songEditor.addImportedSong(stem, parts);
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE, null, where, where[0]);
+            if (ans == 0) app.songEditor.addImportedSong(stem, parts);
+            else if (ans == 1) this.toComposerParts(stem, parts);
         }
         // After the question: the MIDI editor, on the MIDI just imported.
         if (this.openEditor && madeSet.sourceMidi != null) MidiEditScreen.openFromImport(app, madeSet.name);
         return true;
+    }
+
+    /** Composer parts: the imported song split into the Composer's parts (and its stack), the Composer shown. */
+    void toComposerParts(String stem, List<Engine.Part> parts) {
+        Composer c = app.composerPage.composer();
+        String note = c.addSong(stem, parts, app.learned, app.learnedFills);
+        c.save(PromptDb.dir());
+        app.showView("composer");
+        app.setNow(note);
     }
 
     /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
