@@ -1201,7 +1201,7 @@ final class PyJav {
                         if (!sheets.isEmpty()) {
                             PromptVault vault = PromptVault.open(filesDir);
                             for (PromptSave.Pending p : sheets) {
-                                String same = PromptSave.unchanged(vault, p.sheet);
+                                String same = PromptSave.unchanged(vault, p.sheet, kept0, argv);
                                 String line;
                                 if (same != null) {
                                     line = PromptSave.unchangedNote(p.sheet, same);

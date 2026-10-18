@@ -4102,6 +4102,52 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The same SogniVideo prompt run again (as Process as a reference does) with a new clip: a new
+   * version with the new clip in Result files, not "unchanged, not saved again" (only the prompt,
+   * settings and file names were compared).
+   */
+  @Test
+  public void s147_rerun_new_clip_kept() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    java.io.File in = new java.io.File(app.getCacheDir(), "process-ref");
+    in.mkdirs();
+    java.io.File pic = new java.io.File(in, "sogni-pedit-smile.png");
+    String sheet = "PKPROMPT1\nsogni-video-smile\n\n\nsogni-pedit-smile.png\n\nCategory: video\nModel: Sogni minimax-h3\n"
+        + "Reference file 1: sogni-pedit-smile.png\nReference file 2: \nType: ai\n---\nShe smiles\n\nResult file: sogni-video-smile.mp4\n";
+    for (int run = 1; run <= 3; run++) {
+      // Runs 1 and 2: the same picture and clip; run 3: a new picture (same name) and a new clip.
+      java.nio.file.Files.write(pic.toPath(), run < 3 ? new byte[] {1, 2, 3} : new byte[] {1, 2, 3, 4, 5});
+      byte[] clip = new byte[run < 3 ? 7000 : 9000];
+      clip[0] = 0; clip[1] = 0; clip[2] = 0; clip[3] = 24; clip[4] = 'f'; clip[5] = 't'; clip[6] = 'y'; clip[7] = 'p';
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-smile.prompt", sheet.getBytes("UTF-8")));
+      files.add(new JavaRun.FileOut("sogni-video-smile.mp4", clip));
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "She smiles", "--image", pic.getAbsolutePath(), "--saveprompt"));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo\nSaved prompt sogni-video-smile.prompt\nWrote sogni-video-smile.mp4\nSucceeded: sogni-video-smile.mp4", files, 0));
+      idle();
+      for (int i = 0; i < 20; i++) {
+        AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+        if (d != null && d.isShowing()) d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+        Thread.sleep(50);
+        idle();
+      }
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) {
+        if (line.startsWith("Prompt library")) out.append("run ").append(run).append(": ").append(line.replace(PromptSave.today(), "<today>")).append('\n');
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    StringBuilder sizes = new StringBuilder();
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("sogni-video-smile.mp4")) sizes.append(f.size).append(' ');
+    out.append("Result files: sogni-video-smile.mp4 ").append(sizes).append('\n');
+    write("s147_rerun_new_clip_kept", out.toString());
+    if (!sizes.toString().contains("9000")) throw new AssertionError(out.toString());
+  }
+
   private static String namesOf(List<PromptVault.StoredFile> files) {
     StringBuilder sb = new StringBuilder();
     for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);

@@ -455,8 +455,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File cut = new File(home, "take one_cutted.wav");
@@ -480,8 +480,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Read") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File mp3 = new File(home, "take three.mp3");
@@ -500,8 +500,8 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--dir " + folder.getAbsolutePath() + " --outdir " + mp3s.getAbsolutePath() + " --bitrate 128 --mode mono"));
     edt(() -> log.setText(""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wav2Mp3:") || line.startsWith("Wrote") || line.startsWith("Resampled") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     String[] made = mp3s.list();
@@ -524,8 +524,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Split") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line).append('\n');
     }
     // Three seconds in parts of one: three parts (more than two parts' length gives as many as needed).
@@ -632,8 +632,8 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --drums_only --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (int i = 0; i < 600 && !(log.getText().contains("Saved") || log.getText().contains("Failed") || log.getText().contains("Could not")); i++) Thread.sleep(50);
-      for (String line : log.getText().split("\n")) {
+      for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Saved") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("Could not")); i++) Thread.sleep(50);
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("Saved") || line.startsWith("Status") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")
             || line.startsWith("Model") || line.startsWith("Import") || line.startsWith("Music") || line.startsWith("Workflow")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -682,8 +682,8 @@ public final class DesktopBehavior {
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     // Pulsekit's own "Saved ..." line comes after the program's output, so wait for it.
-    for (int i = 0; i < 400 && !(log.getText().contains("Saved " + home.getAbsolutePath()) || log.getText().contains("Could not save")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Saved " + home.getAbsolutePath()) || String.valueOf(log.getText()).contains("Could not save")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Saved") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File sheet = new File(home, ".pulsekit/sogni-House.prompt");
@@ -877,10 +877,10 @@ public final class DesktopBehavior {
         // A run that makes a picture shows it; Close the dialog.
         if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -1024,10 +1024,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -1078,9 +1078,9 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Hard Rock\" --bars 4"));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wrote") || line.startsWith("Import") || line.startsWith("$ java") || line.contains("rror")) out.append("log: ").append(line).append('\n');
     }
     // A tempo outside the style's range in the style database is moved into it.
@@ -1090,9 +1090,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Techno --tempo 90 --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
     // The app's time signature (here 3/4) goes to MidiDrumGen as --timesig; 4/4 is not passed.
@@ -1106,9 +1106,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("$ java") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
     set("tsNum", 4);
@@ -1119,9 +1119,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Ballad 6/8\" --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
   }
@@ -1261,9 +1261,9 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 600 && !log.getText().contains("Prompt library") && !log.getText().contains("rror"); i++) Thread.sleep(50);
+      for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Prompt library") && !String.valueOf(log.getText()).contains("rror"); i++) Thread.sleep(50);
       Thread.sleep(500);
-      for (String line : log.getText().split("\n")) if (line.startsWith("Prompt library") || line.contains("rror")) out.append(extra).append(": ").append(line).append('\n');
+      for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Prompt library") || line.contains("rror")) out.append(extra).append(": ").append(line).append('\n');
     }
     PromptVault vault = PromptDb.vault();
     for (PromptVault.Category c : vault.categories()) {
@@ -3025,10 +3025,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Prompt library") || log.getText().contains("Failed") || (!extra.contains("--saveprompt") && log.getText().contains("Succeeded"))); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Prompt library") || String.valueOf(log.getText()).contains("Failed") || (!extra.contains("--saveprompt") && String.valueOf(log.getText()).contains("Succeeded"))); i++) Thread.sleep(50);
         Thread.sleep(500);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -3453,10 +3453,10 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((javax.swing.JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 300 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(300);
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
         out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -3985,11 +3985,11 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --towav"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !"Midi2Wav.java".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded: "); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded: "); i++) Thread.sleep(50);
     Thread.sleep(800);
     idle();
     out.append("--towav: program now ").append((String) get("pyName")).append('\n');
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       String t = line.trim();
       if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
     }
@@ -4104,11 +4104,11 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       answers.add("Close");
       edt(() -> call("runPython"));
-      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(400);
       idle();
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.contains(".h2pattern") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.contains("pattern")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -4163,8 +4163,8 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("\"" + midi.getPath() + "\""));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
+    for (int i = 0; i < 400 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
     // --test: Pulsekit's DrumMidi_CRT.jar and Java are handed on (not twice, not without --test).
     File jar = new File(System.getProperty("user.home"), "tools/DrumMidi_CRT.jar");
     java.util.List<String> args = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid", "--test"), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
@@ -4201,8 +4201,8 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(run[1]));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (int i = 0; i < 400 && !(log.getText().contains(" WAV files done") || log.getText().startsWith("Failed")); i++) Thread.sleep(50);
-      for (String line : log.getText().split("\n")) {
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains(" WAV files done") || log.getText().startsWith("Failed")); i++) Thread.sleep(50);
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("SplitWav:") || line.startsWith("CutWav:") || line.startsWith("Succeeded: ") && line.contains("WAV files") || line.startsWith("Failed")) {
           out.append(run[0]).append(": ").append(line.replace(home.getPath(), "~")).append('\n');
         }
@@ -4321,11 +4321,11 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       answers.add("Close");
       edt(() -> call("runPython"));
-      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(600);
       idle();
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Saved") || t.startsWith("Prompt library"))
           out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
@@ -4379,7 +4379,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 300 && !log.getText().contains("Prompt library"); i++) Thread.sleep(50);
+    for (int i = 0; i < 300 && !String.valueOf(log.getText()).contains("Prompt library"); i++) Thread.sleep(50);
     Thread.sleep(300);
     idle();
     // A finished run: its picture and answer in Downloads, its sheet stored in the library.
@@ -4453,11 +4453,11 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 300 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(300);
       idle();
       out.append("== ").append(extra.replace(none, "")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.startsWith("Image analyze") || t.startsWith("Tools mode") || t.startsWith("Note:")) out.append("  ").append(t).append('\n');
       }
@@ -4582,7 +4582,7 @@ public final class DesktopBehavior {
           if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
         }
       }
-      for (int i = 0; i < 200 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed") || log.getText().contains("exit")); i++) Thread.sleep(50);
+      for (int i = 0; i < 200 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("exit")); i++) Thread.sleep(50);
       Thread.sleep(300);
       idle();
       out.append(pick[0]).append(' ').append(pick[1]).append(": ").append((String) get("pyName")).append(", args [").append(((JTextField) get("pyExtra")).getText()).append("], ran ").append(!log.getText().equals("")).append('\n');
@@ -5411,13 +5411,13 @@ public final class DesktopBehavior {
     edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
     idle();
     out.append("after DrumMidi: ").append(new File(dir, "sogni-neo_soul-92bpm.mid").isFile()).append(", test over ").append(Midi2WavTest.current() == null).append('\n');
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
     // MidiDrumGen into the same folder: its grooves follow, numbered on.
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--count 2 --outdir \"" + dir.getAbsolutePath() + "\" --seed 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
     StringBuilder files = new StringBuilder();
     for (String line : list.split("\n")) if (!line.startsWith("#") && !line.startsWith("file\t") && line.trim().length() > 0) files.append('[').append(line.split("\t")[0]).append(" ").append(line.split("\t")[2]).append(']');
@@ -5728,7 +5728,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --first"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 1200 && !log.getText().contains("Batch done") && !log.getText().contains("Batch stopped"); i++) Thread.sleep(50);
+    for (int i = 0; i < 1200 && !String.valueOf(log.getText()).contains("Batch done") && !String.valueOf(log.getText()).contains("Batch stopped"); i++) Thread.sleep(50);
     Thread.sleep(300);
     java.util.List<String> pics = new java.util.ArrayList<String>();
     for (String d : new String[] {"Downloads", ".pulsekit"}) {
@@ -5737,7 +5737,7 @@ public final class DesktopBehavior {
     }
     java.util.Collections.sort(pics);
     String summary = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch")) summary = line;
     out.append("batch: ").append(summary).append(", program now ").append(get("pyName")).append(", pictures ").append(pics).append(", Stop batch shown ").append(pj.pyBatchStop.isVisible()).append('\n');
     if (!summary.equals("Batch done: 2 of 2 runs succeeded") || !pics.contains("clip-a-first.png") || !pics.contains("clip-b-first.png") || pj.pyBatchStop.isVisible() || BatchQueue.current() != null)
       throw new AssertionError(out.toString() + log.getText());
@@ -5752,7 +5752,7 @@ public final class DesktopBehavior {
     for (int i = 0; i < 1200 && BatchQueue.current() != null; i++) Thread.sleep(50);
     Thread.sleep(300);
     summary = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch")) summary = line;
     out.append("stopped: ").append(summary).append('\n');
     if (!summary.equals("Batch stopped: 1 of 2 runs succeeded, 1 not run")) throw new AssertionError(out.toString() + log.getText());
     // JoinVideo --list: the clips of a list, in order.
@@ -5760,9 +5760,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + list.getAbsolutePath() + "\""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     String joined = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Joined")) joined = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Joined")) joined = line;
     out.append("JoinVideo --list: ").append(joined).append('\n');
     if (!joined.startsWith("Joined clip-a.mp4 and then clip-b.mp4")) throw new AssertionError(out.toString() + log.getText());
   }
@@ -5791,7 +5791,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + src.getAbsolutePath() + "\" --recursive --outdir \"" + mix.getAbsolutePath() + "\" --seed 7"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
     String[] made = mix.list();
     java.util.Arrays.sort(made == null ? new String[0] : made);
@@ -5805,10 +5805,10 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + new File(mix, "list.txt").getAbsolutePath() + "\" --combine 2 --count 3 --cut 1 --outdir \"" + joined.getAbsolutePath() + "\" --seed 7"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
     javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(new File(joined, "mix-001-2-parts.mid"));
-    out.append("joined: ").append(log.getText().contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
+    out.append("joined: ").append(String.valueOf(log.getText()).contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
     if (seq.getTickLength() != 3840) throw new AssertionError(out.toString() + log.getText());
     // Midi2Wav --dir --test with Pulsekit's kit: the WAVs, DrumMidi on each, CompareHits --batch, the report.
     final StringBuilder report = new StringBuilder();
@@ -5854,9 +5854,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("No VST render"); i++) Thread.sleep(50);
-    out.append("no plugin saved: ").append(log.getText().contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
-    if (!log.getText().contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("No VST render"); i++) Thread.sleep(50);
+    out.append("no plugin saved: ").append(String.valueOf(log.getText()).contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
+    if (!String.valueOf(log.getText()).contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
     // vst_render.py's Params saved: its plugin, settings and format are used, not its folder or Edit.
     File plugin = new File(home, "Anarchy.vst3");
     edt(() -> pj.saveParams("vst_render.py", "--plugin \"" + plugin.getAbsolutePath() + "\" --state \"" + new File(home, "kit 1.state").getAbsolutePath() + "\" --rate 48000 --dir beats --edit --no-toms"));
@@ -5881,10 +5881,10 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
     Thread.sleep(300);
     String ran = "";
-    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
     out.append("MidiDrumGen --vst --test: program ").append(get("pyName")).append(", ran ").append(ran.contains("--plugin") && ran.contains("Anarchy.vst3") && ran.contains("--test") && ran.contains("--drummidi") && !ran.contains("--dir")).append('\n');
     if (!"vst_render.py".equals(get("pyName")) || !ran.contains("Anarchy.vst3") || !ran.contains("--drummidi")) throw new AssertionError(out.toString() + log.getText());
     // SogniMusic --vst (no --test): after DrumMidi_CRT's MIDI of the track, vst_render.py without its test.
@@ -5898,10 +5898,10 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
     for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
     Thread.sleep(300);
     ran = "";
-    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
     out.append("then: ").append(get("pyName")).append(" on track-drums.mid ").append(ran.contains("track-drums.mid")).append(", its test ").append(ran.contains("--test")).append('\n');
     if (t.testing || !t.vst || !ran.contains("track-drums.mid") || ran.contains("--test") || Midi2WavTest.current() != null) throw new AssertionError(out.toString() + log.getText());
   }
@@ -5948,7 +5948,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("\"" + clip.getAbsolutePath() + "\" --first --last --at 0:01.5 --upscale"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(500);
     // The pictures, kept in the program files folder (~/Downloads, or ~/.pulsekit without one).
     File home = new File(System.getProperty("user.home"));
@@ -6060,9 +6060,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("MidiDrumGen batch") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("$ java"))
         out.append("run: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--seed \\d+", "--seed N")).append('\n');
     }
@@ -6085,14 +6085,14 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--batch gen3"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("CompareHits --batch") || line.startsWith("== ") || line.startsWith("All:") || line.startsWith("Succeeded") || line.startsWith("Failed"))
         out.append("summary: ").append(line).append('\n');
     }
     out.append("batch-summary.txt: ").append(new File(dir, "batch-summary.txt").isFile()).append('\n');
-    if (!log.getText().contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
+    if (!String.valueOf(log.getText()).contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
   }
 
   /**

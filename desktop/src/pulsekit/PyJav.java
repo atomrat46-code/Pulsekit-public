@@ -1143,7 +1143,7 @@ final class PyJav {
             // store says why
         }
         for (PromptSave.Pending p : sheets) {
-            String same = PromptSave.unchanged(vault, p.sheet);
+            String same = PromptSave.unchanged(vault, p.sheet, r, argv);
             String line;
             if (same != null) {
                 line = PromptSave.unchangedNote(p.sheet, same);

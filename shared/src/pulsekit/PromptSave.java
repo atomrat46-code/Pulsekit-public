@@ -261,6 +261,15 @@ public final class PromptSave {
    * files), as "Image › Portraits: Smile v2"; null when it has none (something changed).
    */
   public static String unchanged(PromptVault vault, PromptRun.Sheet sheet) {
+    return unchanged(vault, sheet, null, null);
+  }
+
+  /**
+   * As above, and the run's files the same too: its result file (by name and size) and the
+   * reference files it read (`argv`'s, by size). A new clip made with the same prompt and settings
+   * (Process as a reference reruns a program's prompt) is a new version, not "unchanged".
+   */
+  public static String unchanged(PromptVault vault, PromptRun.Sheet sheet, JavaRun.Result result, List<String> argv) {
     if (vault == null || sheet == null) return null;
     String body = sheet.body == null ? "" : sheet.body.trim();
     for (PromptVault.Category c : vault.categories()) {
@@ -270,6 +279,7 @@ public final class PromptSave {
           PromptVault.Version v = rows.get(i);
           String stored = PromptRun.withoutDescription(v.description, v.body == null ? "" : v.body).trim();
           if (!body.equals(stored) || !same(sheet.model, v.model) || !same(sheet.ref1, v.ref1Name) || !same(sheet.ref2, v.ref2Name)) continue;
+          if (result != null && !sameFiles(vault, v, sheet, result, argv)) continue;
           long main = vault.mainOf(c.id);
           PromptVault.Category m = vault.category(main);
           String place = main == c.id || m == null ? c.name : placeLabel(m.name, c.name);
@@ -278,6 +288,27 @@ public final class PromptSave {
       }
     }
     return null;
+  }
+
+  /** The run's result and reference files the same as the version's (by size; a file the run did not make or read counts as the same). */
+  private static boolean sameFiles(PromptVault vault, PromptVault.Version v, PromptRun.Sheet sheet, JavaRun.Result result, List<String> argv) {
+    String made = sheet.result == null ? "" : sheet.result.trim();
+    if (made.length() > 0 && result.files != null) {
+      for (JavaRun.FileOut f : result.files) {
+        if (!made.equals(f.name) || f.bytes == null) continue;
+        if (!made.equals(v.resultName) || vault.sizeOf(v, 3) != f.bytes.length) return false;
+      }
+    }
+    String[] refs = {sheet.ref1, sheet.ref2};
+    for (int i = 0; i < 2; i++) {
+      String n = refs[i] == null ? "" : refs[i].trim();
+      if (n.length() == 0 || argv == null) continue;
+      for (String a : argv) {
+        File f = new File(a == null ? "" : a);
+        if (f.isFile() && f.getName().equals(n) && vault.sizeOf(v, i + 1) != f.length()) return false;
+      }
+    }
+    return true;
   }
 
   /** The line for a sheet that was not saved again. */
