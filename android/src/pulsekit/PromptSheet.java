@@ -640,15 +640,29 @@ public final class PromptSheet {
     // A I V S T: all files, or only pictures, videos, sound files or text files.
     LinearLayout kinds = new LinearLayout(activity);
     kinds.setOrientation(LinearLayout.HORIZONTAL);
-    for (String letter : DbFilter.LETTERS) {
+    // G: a group's files (held: the list of groups).
+    FileGroups.load(activity.getFilesDir());
+    final Runnable toGroup = () -> {
+      galleryFilter = FileGroups.LETTER;
+      rebuild(activity);
+    };
+    for (String letter : RefBrowser.withGroup()) {
+      final boolean g = FileGroups.LETTER.equals(letter);
       boolean on = letter.equals(galleryFilter);
-      TextView pill = button(activity, letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      TextView pill = button(activity, g ? FileGroups.label() : letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
       pill.setTag("refs-filter:" + letter);
+      pill.setSingleLine(true);
+      pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
       pill.setOnClickListener(v -> {
+        if (g && !GroupDialogs.tap(activity, toGroup)) return;
         galleryFilter = letter;
         rebuild(activity);
       });
-      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), 1f);
+      if (g) pill.setOnLongClickListener(v -> {
+        GroupDialogs.pick(activity, toGroup);
+        return true;
+      });
+      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), g ? 2f : 1f);
       plp.rightMargin = dp(activity, 6);
       kinds.addView(pill, plp);
     }
@@ -833,7 +847,8 @@ public final class PromptSheet {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
     if ("A".equals(galleryFilter)) return all;
     List<PromptVault.StoredFile> out = new java.util.ArrayList<PromptVault.StoredFile>();
-    for (PromptVault.StoredFile f : all) if (DbFilter.fits(f.name, galleryFilter)) out.add(f);
+    boolean group = FileGroups.LETTER.equals(galleryFilter);
+    for (PromptVault.StoredFile f : all) if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) out.add(f);
     return out;
   }
 
@@ -1833,6 +1848,8 @@ public final class PromptSheet {
       toast(activity, file.name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
       rebuild(activity);
     });
+    items.add(FileGroups.ADD);
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(file), file.name, () -> rebuild(activity)));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -1907,6 +1924,8 @@ public final class PromptSheet {
       toast(activity, name + (favFile ? " is no longer a favourite file" : " is a favourite file"));
       rebuild(activity);
     });
+    items.add(FileGroups.ADD);
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(stored), name, () -> rebuild(activity)));
     if (fullSize) {
       items.add("Open in full size");
       runs.add(() -> {

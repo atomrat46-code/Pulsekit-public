@@ -67,6 +67,8 @@ public final class MediaDir {
     for (Entry e : all) {
       if ("A".equals(f)) {
         if (e.dbId == 0) n++;
+      } else if (FileGroups.LETTER.equals(f)) {
+        if (!e.folder && e.dbId == 0 && FileGroups.fits(groupKey(e))) n++;
       } else if (!e.folder && f.equals(filterOf(e.name))) n++;
     }
     return n;
@@ -115,8 +117,13 @@ public final class MediaDir {
    * The browser's type selectors: A all, I pictures, V videos, S sounds (MIDI too), T text, O other
    * files. Folders are always shown.
    */
-  public static final String[] FILTERS = {"A", "I", "V", "S", "T", "O"};
-  public static final String[] FILTER_NAMES = {"all", "pictures", "videos", "sounds", "text", "other files"};
+  public static final String[] FILTERS = {"A", "I", "V", "S", "T", "O", FileGroups.LETTER};
+  public static final String[] FILTER_NAMES = {"all", "pictures", "videos", "sounds", "text", "other files", "a group"};
+
+  /** A file's key in the groups (Add to group): its name and size, as its tags have it. */
+  public static String groupKey(Entry e) {
+    return FileGroups.fileKey(MediaTags.key(e));
+  }
 
   /** The selector a file comes under: "I", "V", "S", "T" or "O". */
   public static String filterOf(String name) {
@@ -136,6 +143,11 @@ public final class MediaDir {
     if (f == null || "A".equals(f)) {
       // The library's prompt files show under T only.
       for (Entry e : all) if (e.dbId == 0) out.add(e);
+      return out;
+    }
+    // G: the files in the group G shows (folders stay, to go on looking).
+    if (FileGroups.LETTER.equals(f)) {
+      for (Entry e : all) if (e.folder || (e.dbId == 0 && FileGroups.fits(groupKey(e)))) out.add(e);
       return out;
     }
     for (Entry e : all) if (e.folder || f.equals(filterOf(e.name))) out.add(e);
@@ -558,14 +570,15 @@ public final class MediaDir {
   }
 
   /**
-   * As above, then Tags… and Category… (MediaTags), then Rename, Copy to folder, Move to folder and
+   * As above, then Tags…, Category… (MediaTags) and Add to group (FileGroups), then Rename, Copy to folder, Move to folder and
    * Delete (`files`: the file can be changed there).
    */
   public static String[] menu(boolean listed, int kind, boolean files) {
     String[] first = menu(listed, kind);
-    String[] base = java.util.Arrays.copyOf(first, first.length + 2);
+    String[] base = java.util.Arrays.copyOf(first, first.length + 3);
     base[first.length] = MediaTags.TAGS;
     base[first.length + 1] = MediaTags.CATEGORY;
+    base[first.length + 2] = FileGroups.ADD;
     if (!files) return base;
     String[] out = java.util.Arrays.copyOf(base, base.length + FILE_ACTIONS.length);
     System.arraycopy(FILE_ACTIONS, 0, out, base.length, FILE_ACTIONS.length);

@@ -3741,6 +3741,110 @@ public class BehaviorTest {
         || !((PyJav) get("pyJav")).pkPyArgs.getText().toString().contains("walk-0m00s000")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Groups: Browse DB's long press has Add to favourites (★ on the card) and Add to group (New
+   * group…); G by A I V S T shows the group picked (a long press on G lists the groups). The Ref
+   * files gallery has Add to group and G too; the Media browser's file menu has Add to group, and
+   * its G keeps the group's files.
+   */
+  @Test
+  public void s142_file_groups() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    java.util.function.Function<String, View> inBrowser = tag -> RefBrowser.last.getWindow().getDecorView().findViewWithTag(tag);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("G button: ").append(((TextView) inBrowser.apply("db-filter:G")).getText()).append('\n');
+    // beach.png into a new group, Trip.
+    inBrowser.apply("refs-pick:beach.png").performLongClick();
+    idle();
+    out.append("card menu: ").append(listItems(RefBrowser.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(1);
+    idle();
+    out.append("groups: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-new-name")).setText("Trip");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("after New group: ").append(((TextView) get("now")).getText()).append('\n');
+    // dune.png into Trip too, from the list.
+    inBrowser.apply("refs-pick:dune.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(1);
+    idle();
+    out.append("groups for dune.png: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    // notes.txt a favourite.
+    inBrowser.apply("refs-pick:notes.txt").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(0);
+    idle();
+    out.append("favourite: ").append(findText(RefBrowser.last.getWindow().getDecorView(), "\u2605 notes.txt") != null ? "\u2605 notes.txt" : "no star").append('\n');
+    // G: no group picked yet, so the list; Trip shows its two files.
+    inBrowser.apply("db-filter:G").performClick();
+    idle();
+    out.append("G list: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    StringBuilder shown = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) shown.append(n).append(' ');
+    out.append("G \u00b7 Trip: ").append(shown).append("| button ").append(((TextView) inBrowser.apply("db-filter:G")).getText()).append('\n');
+    inBrowser.apply("db-filter:G").performLongClick();
+    idle();
+    out.append("G held: ").append(listItems(GroupDialogs.last)).append('\n');
+    GroupDialogs.last.dismiss();
+    RefBrowser.last.dismiss();
+    DbFilter.current = "A";
+    idle();
+    // The Ref files gallery: Add to group in a card's menu, and G.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    TextView g = (TextView) pane.findViewWithTag("refs-filter:G");
+    out.append("gallery G: ").append(g == null ? "missing" : g.getText());
+    g.performClick();
+    idle();
+    out.append(", shows beach.png ").append(findText(pane, "beach.png") != null).append(", notes.txt ").append(findText(pane, "notes.txt") != null || findText(pane, "\u2605 notes.txt") != null).append('\n');
+    pane.findViewWithTag("refs-filter:A").performClick();
+    refsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    // The Media browser: Add to group in a file's menu; G keeps the group's files.
+    out.append("media menu has ").append(FileGroups.ADD).append(": ").append(java.util.Arrays.asList(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false)).contains(FileGroups.ADD)).append('\n');
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "sky.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    FileGroups.toggle("Trip", MediaDir.groupKey(all.get(0)));
+    StringBuilder kept = new StringBuilder();
+    for (MediaDir.Entry e : MediaDir.filtered(all, "G")) kept.append(e.name).append(' ');
+    out.append("media G \u00b7 Trip: ").append(kept).append(", count ").append(MediaDir.count(all, "G")).append('\n');
+    // Kept across a restart.
+    FileGroups.reset();
+    FileGroups.load(app.getFilesDir());
+    out.append("kept: ").append(FileGroups.names()).append(", shown ").append(FileGroups.shown).append(", in Trip ").append(FileGroups.groupsOf(MediaDir.groupKey(all.get(0)))).append('\n');
+    write("s142_file_groups", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty()) throw new AssertionError(out.toString());
+  }
+
   private static List<Engine.Part> songPartsForStack() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));
