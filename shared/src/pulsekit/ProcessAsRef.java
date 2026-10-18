@@ -86,6 +86,16 @@ public final class ProcessAsRef {
     return sb.toString();
   }
 
+  /**
+   * The program's saved Params with the picture in the slot's row, when they have that row: saved
+   * Params win over the run's arguments (in Params and at Run), so an old picture kept there would
+   * stand in for this one. Null when nothing needs changing.
+   */
+  public static String savedWithPicture(String saved, String token, String path) {
+    if (saved == null || !JavaRun.split(saved).contains(token)) return null;
+    return withPicture(saved, token, path);
+  }
+
   /** The choice kept last time (an empty one when there is none). */
   public static Choice load(File dir) {
     Choice c = new Choice();

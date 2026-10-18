@@ -4835,6 +4835,8 @@ public final class DesktopBehavior {
     PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
     final File pic = new File(System.getProperty("user.home"), "look.png");
     javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    // Saved Params with an old picture in the slot: they win over the run's arguments, so the picture goes there too.
+    pj.saveParams("SogniPedit.java", "--image2 old2.png --steps 4");
     answers.add("(keep)");
     SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
     for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
@@ -4849,9 +4851,15 @@ public final class DesktopBehavior {
     idle();
     String args = pj.pyExtra.getText().replace(pic.getAbsolutePath(), "~/look.png");
     out.append(seen).append("Open: view ").append(((Pulsekit) frame).view).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    String saved = pj.loadParams("SogniPedit.java");
+    List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    String[] values = ProgramParams.values(ps, saved, pj.pyExtra.getText());
+    String shown = "";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--image2")) shown = values[i].replace(pic.getAbsolutePath(), "~/look.png");
+    out.append("Params: --image2 ").append(shown).append(", saved ").append(saved.replace(pic.getAbsolutePath(), "~/look.png")).append('\n');
     ProcessAsRef.Choice kept = ProcessAsRef.load(PromptDb.dir());
     out.append("kept: ").append(kept.program).append(", slot ").append(kept.slot).append('\n');
-    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2) throw new AssertionError(out.toString());
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2 || !shown.equals("~/look.png")) throw new AssertionError(out.toString());
   }
 
   /**

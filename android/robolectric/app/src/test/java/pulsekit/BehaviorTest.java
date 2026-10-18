@@ -3383,10 +3383,19 @@ public class BehaviorTest {
     out.append("program ").append(d.programBtn.getText()).append(", prompt ").append(d.promptBtn.getText()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
     d.run = 1;
     d.setSlot(2);
+    // Saved Params with an old picture in the slot: they win over the run's arguments, so the picture goes there too.
+    PyJavParams.store(app, "SogniPedit.java", "--image2 old2.png --steps 4");
     d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     String args = ((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
     out.append("Open: view ").append(get("view")).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    String saved = PyJavParams.load(app, "SogniPedit.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    String[] values = ProgramParams.values(ps, saved, ((PyJav) get("pyJav")).pkPyArgs.getText().toString());
+    String shown = "";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--image2")) shown = values[i];
+    shown = shown.replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
+    out.append("Params: --image2 ").append(shown).append(", saved ").append(saved.replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~")).append('\n');
     // Next time: the same choices.
     PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
     idle();
@@ -3395,7 +3404,7 @@ public class BehaviorTest {
     ProcessRefDialog again = ProcessRefDialog.last;
     out.append("kept: prompt ").append(again.promptBtn.getText()).append(", slot ").append(again.slot).append('\n');
     again.dialog.dismiss();
-    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java")) throw new AssertionError(out.toString());
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java") || !shown.equals("~/look.png")) throw new AssertionError(out.toString());
     write("s137_process_as_reference", out.toString());
   }
 

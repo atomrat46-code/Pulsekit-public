@@ -649,6 +649,11 @@ public final class PyJavParams {
     activity.getSharedPreferences(PREFS, 0).edit().putString(program, ProgramParams.drop(saved, "--join")).apply();
   }
 
+  /** The program's saved Params replaced by `args`. */
+  static void store(Activity activity, String program, String args) {
+    activity.getSharedPreferences(PREFS, 0).edit().putString(program, args).apply();
+  }
+
   public static String load(Activity activity, String program) {
     if (activity == null || program == null) return null;
     SharedPreferences prefs = activity.getSharedPreferences(PREFS, 0);
