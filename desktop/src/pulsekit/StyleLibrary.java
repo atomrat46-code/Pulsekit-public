@@ -778,6 +778,9 @@ final class StyleLibrary {
                 make.addActionListener(ev -> app.fileSets.makeFileSetSong(key, label));
                 m.add(make);
                 if (app.fileSets.hasSourceMidi(key)) {
+                    JMenuItem editor = new JMenuItem("Open in MIDI editor");
+                    editor.addActionListener(ev -> MidiEditScreen.open(app, key.substring(2)));
+                    m.add(editor);
                     JMenuItem compare = new JMenuItem("Compare hits");
                     compare.addActionListener(ev -> app.fileSets.compareFileSetHits(key, label));
                     m.add(compare);

@@ -270,6 +270,15 @@ final class RefBrowser {
             sub.setTextSize(11);
             sub.setMaxLines(1);
             card.addView(sub);
+            // When it was kept: the newest come first.
+            if (file.when().length() > 0) {
+                TextView when = new TextView(activity);
+                when.setText(file.when());
+                when.setTag("refs-when");
+                when.setTextSize(11);
+                when.setTextColor(Color.parseColor("#D9A441"));
+                card.addView(when);
+            }
             card.setOnClickListener(v -> {
                 lastPicked = file.versionId + ":" + file.which;
                 if (use(activity, vault, file, picked) && dialog[0] != null) dialog[0].dismiss();

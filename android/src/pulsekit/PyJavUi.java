@@ -300,6 +300,7 @@ public final class PyJavUi implements JavaRun.Listener {
       @Override
       public void run() {
         if (ownRun) PyJav.RUNS.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        if (PyJav.RUNS.get() == 0) RunKeeper.stop(host);
         if (ownRun) host.pyJav.pkShowPyResult(result, pending, argv, saveRun, src);
         else host.pyJav.pkShowPyResult(result);
       }

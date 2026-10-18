@@ -54,6 +54,13 @@ public final class FileSetClicks {
           }
         });
         if (host.fileSets.hasSourceMidi(key)) {
+          items.add("Open in MIDI editor");
+          acts.add(new Runnable() {
+            @Override
+            public void run() {
+              MidiEditScreen.open(host, key.substring(2));
+            }
+          });
           items.add("Compare hits");
           acts.add(new Runnable() {
             @Override

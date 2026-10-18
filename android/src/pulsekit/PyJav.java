@@ -879,6 +879,8 @@ final class PyJav {
         // Create again (File > Downloads): the arguments this run had.
         if (this.pkPending != null && DOWNLOAD_OF.containsKey(this.pkPending)) pulsekit.SogniDownloads.args(DOWNLOAD_OF.get(this.pkPending).longValue(), this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "");
         RUNS.incrementAndGet();
+        // Kept running (a notification) until the run is over: switching apps does not lose it.
+        pulsekit.RunKeeper.start(app, name);
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         if (note != null) live.add(note + "\n");
         String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";

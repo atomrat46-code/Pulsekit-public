@@ -268,6 +268,8 @@ public class MainActivity extends UiKit {
 
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // A crash is written to crash-log.txt; the next start shows it.
+        CrashLog.install(this);
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -296,7 +298,12 @@ public class MainActivity extends UiKit {
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());
         if (left > 0) this.setNow(left + " database " + (left == 1 ? "operation" : "operations") + " did not finish when Pulsekit last stopped");
+        // What went wrong last time: a crash, or Android closing Pulsekit while a program ran.
+        this.lastStop = CrashLog.showLast(this);
     }
+
+    /** The dialog about how Pulsekit stopped last time, when there was one (for the tests). */
+    android.app.AlertDialog lastStop;
 
     /** "Processing DB, please wait" while the prompt library opens or saves for more than a moment (shown over dialogs too). */
     long dbToastAt;

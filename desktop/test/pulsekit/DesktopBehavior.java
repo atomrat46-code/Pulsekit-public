@@ -4804,6 +4804,26 @@ public final class DesktopBehavior {
     if (ed == null || !"pattern".equals(afterBack) || MidiEditScreen.now != null) throw new AssertionError(out.toString());
   }
 
+  /**
+   * VLC: when it closed Pulsekit as it started (vlc-starting.txt left), the next start turns it off
+   * and says so; General settings' Use VLC turns it on and off (vlc-off.txt), and off it is not tried.
+   */
+  void s118_vlc_off() throws Exception {
+    java.nio.file.Files.write(VlcPlayer.startingFile().toPath(), new byte[0]);
+    answers.add("OK");
+    final Pulsekit[] again = new Pulsekit[1];
+    SwingUtilities.invokeAndWait(() -> again[0] = new Pulsekit());
+    idle();
+    Thread.sleep(400);
+    out.append("after VLC closed Pulsekit: off ").append(VlcPlayer.turnedOff()).append(", note gone ").append(!VlcPlayer.startingFile().exists())
+        .append(", says ").append(again[0].nowPlaying.getText().startsWith("VLC closed Pulsekit")).append('\n');
+    SwingUtilities.invokeAndWait(() -> again[0].dispose());
+    out.append("off: used ").append(VlcPlayer.available()).append(", why ").append(VlcPlayer.why()).append('\n');
+    VlcPlayer.setOff(false);
+    out.append("on again: off ").append(VlcPlayer.turnedOff()).append('\n');
+    if (VlcPlayer.turnedOff()) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

@@ -40,10 +40,27 @@ final class GeneralSettings {
             + "library already is not saved again. Unticked, it goes into the category its sheet names.");
         askNote.setEditable(false);
         askNote.setOpaque(false);
+        // VLC plays videos inside Pulsekit; where it does not work, the browser plays them.
+        final JCheckBox vlc = new JCheckBox("Use VLC for videos (when it is installed)", !VlcPlayer.turnedOff());
+        vlc.setName("settings-vlc");
+        vlc.addActionListener(e -> {
+            VlcPlayer.setOff(!vlc.isSelected());
+            app.setNow(vlc.isSelected() ? "VLC is used again for videos" : "VLC is not used: videos play in the browser, thumbnails without a picture");
+        });
+        JTextArea vlcNote = new JTextArea("Unticked, Pulsekit does not start VLC at all (when VLC crashes on this computer). If VLC closes\n"
+            + "Pulsekit as it starts, it is unticked at the next start by itself.");
+        vlcNote.setEditable(false);
+        vlcNote.setOpaque(false);
+        JPanel vlcBox = new JPanel(new BorderLayout(0, 4));
+        vlcBox.add(vlc, BorderLayout.NORTH);
+        vlcBox.add(vlcNote, BorderLayout.CENTER);
+        JPanel askBox = new JPanel(new BorderLayout(0, 8));
+        askBox.add(ask, BorderLayout.NORTH);
+        askBox.add(askNote, BorderLayout.CENTER);
+        askBox.add(vlcBox, BorderLayout.SOUTH);
         JPanel middle = new JPanel(new BorderLayout(0, 8));
         middle.add(note, BorderLayout.NORTH);
-        middle.add(ask, BorderLayout.CENTER);
-        middle.add(askNote, BorderLayout.SOUTH);
+        middle.add(askBox, BorderLayout.CENTER);
         col.add(middle, BorderLayout.CENTER);
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());

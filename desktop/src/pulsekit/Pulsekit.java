@@ -235,6 +235,12 @@ public final class Pulsekit extends UiKit {
         // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
         String lastTab = readLastTab();
         if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.showView(lastTab);
+        // VLC brought Pulsekit down as it started last time: it is off now, and Pulsekit says so.
+        final String vlcCrashed = VlcPlayer.crashedLastTime();
+        if (vlcCrashed != null) {
+            this.setNow(vlcCrashed);
+            SwingUtilities.invokeLater(() -> javax.swing.JOptionPane.showMessageDialog(this, vlcCrashed, "VLC is off", javax.swing.JOptionPane.WARNING_MESSAGE));
+        }
         this.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {

@@ -3316,6 +3316,46 @@ public class BehaviorTest {
   }
 
   /**
+   * How Pulsekit stopped last time: a crash is written to crash-log.txt and shown once at the next
+   * start (with Save); when Android closed Pulsekit while a program ran (running.txt left), the next
+   * start says so. A run keeps Pulsekit going with RunKeeper's notification until it is over.
+   */
+  @Test
+  public void s136_crash_log_and_run_keeper() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    // Android closed Pulsekit during a run.
+    RunKeeper.markedHere = false;
+    Files.write(new File(dir, RunKeeper.MARK).toPath(), "SogniVideo.java\n1\n".getBytes(StandardCharsets.UTF_8));
+    MainActivity again = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("closed during a run: ").append(again.lastStop == null ? "none" : ((TextView) again.lastStop.findViewById(android.R.id.message)).getText().toString().contains("SogniVideo.java")).append('\n');
+    out.append("note gone: ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    if (again.lastStop != null) again.lastStop.dismiss();
+    // A crash.
+    CrashLog.write(dir, Thread.currentThread(), new IllegalStateException("boom in a download"));
+    MainActivity third = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    String msg = third.lastStop == null ? "" : ((TextView) third.lastStop.findViewById(android.R.id.message)).getText().toString();
+    out.append("crash shown: ").append(msg.startsWith("Pulsekit stopped ")).append(", has the error ").append(msg.contains("boom in a download"))
+        .append(", Save ").append(third.lastStop == null ? "" : third.lastStop.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    if (third.lastStop != null) third.lastStop.dismiss();
+    MainActivity fourth = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("shown once: ").append(fourth.lastStop == null).append('\n');
+    // A run: the notification service starts, and stops when the run is over.
+    RunKeeper.start(app, "SogniVideo.java");
+    android.content.Intent started = org.robolectric.Shadows.shadowOf(app).getNextStartedService();
+    out.append("run kept going: ").append(started != null && started.getComponent().getClassName().equals(RunKeeper.class.getName()))
+        .append(", ").append(started == null ? "" : started.getStringExtra(RunKeeper.TEXT)).append(", noted ").append(new File(dir, RunKeeper.MARK).isFile()).append('\n');
+    RunKeeper.stop(app);
+    out.append("over: note gone ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    RunKeeper.markedHere = false;
+    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null) throw new AssertionError(out.toString());
+    write("s136_crash_log_and_run_keeper", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.
