@@ -22,9 +22,8 @@ final class GroupDialogs {
 
     /** As above, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
     static void addTo(final Activity activity, final String[] keys, final String name, final Runnable after) {
-        final String key = keys[0];
         FileGroups.load(activity.getFilesDir());
-        final String[] rows = FileGroups.menu(key);
+        final String[] rows = FileGroups.menu(keys);
         last = new AlertDialog.Builder(activity)
             .setTitle(FileGroups.ADD + " · " + name)
             .setItems(rows, (d, w) -> {

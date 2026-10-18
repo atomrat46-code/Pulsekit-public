@@ -208,7 +208,7 @@ final class PromptDb {
                 again.run();
             });
             m.add(favItem);
-            m.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, FileGroups.LETTER.equals(DbFilter.current) ? again : null));
+            m.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, FileGroups.LETTER.equals(DbFilter.current) ? again : null));
             this.lastCardMenu = m;
             m.show(card, 10, 10);
         }, "refs-pick:", true);
@@ -1131,7 +1131,7 @@ final class PromptDb {
             changed.run();
         });
         menu.add(favItem);
-        menu.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, changed));
+        menu.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, changed));
         menu.add(open);
         menu.add(save);
         boolean extractable = false;

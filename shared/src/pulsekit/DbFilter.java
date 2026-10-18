@@ -15,7 +15,7 @@ public final class DbFilter {
   /** Whether a library file shows under `letter`: F its favourites, G the group G shows, else by its name. */
   public static boolean fits(PromptVault.StoredFile f, String letter) {
     if (FileFavourites.LETTER.equals(letter)) return FileFavourites.is(f);
-    if (FileGroups.LETTER.equals(letter)) return FileGroups.fits(FileGroups.key(f));
+    if (FileGroups.LETTER.equals(letter)) return FileGroups.fits(f);
     return fits(f.name, letter);
   }
 

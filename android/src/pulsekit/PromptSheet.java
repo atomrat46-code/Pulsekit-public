@@ -1877,7 +1877,7 @@ public final class PromptSheet {
       rebuild(activity);
     });
     items.add(FileGroups.ADD);
-    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(file), file.name, () -> rebuild(activity)));
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(file), file.name, () -> rebuild(activity)));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -1953,7 +1953,7 @@ public final class PromptSheet {
       rebuild(activity);
     });
     items.add(FileGroups.ADD);
-    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(stored), name, () -> rebuild(activity)));
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(stored), name, () -> rebuild(activity)));
     if (fullSize) {
       items.add("Open in full size");
       runs.add(() -> {

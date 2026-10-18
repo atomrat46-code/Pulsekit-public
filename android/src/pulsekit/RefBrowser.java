@@ -337,7 +337,7 @@ final class RefBrowser {
                             if (activity instanceof MainActivity) ((MainActivity) activity).setNow(shownName + (now ? " added to favourites" : " taken out of favourites"));
                             again.run();
                         } else {
-                            GroupDialogs.addTo(activity, FileGroups.key(file), shownName, FileGroups.LETTER.equals(DbFilter.current) ? again : null);
+                            GroupDialogs.addTo(activity, FileGroups.keys(file), shownName, FileGroups.LETTER.equals(DbFilter.current) ? again : null);
                         }
                     })
                     .setNegativeButton("Cancel", null)

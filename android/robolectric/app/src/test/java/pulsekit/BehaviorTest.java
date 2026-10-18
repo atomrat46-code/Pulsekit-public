@@ -4018,8 +4018,9 @@ public class BehaviorTest {
     ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-new-name")).setText("Run");
     GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
-    out.append("group Run: Media browser ").append(FileGroups.in("Run", MediaDir.groupKey(e))).append(", library copy ").append(FileGroups.in("Run", FileGroups.key(stored))).append('\n');
-    boolean groupOk = FileGroups.in("Run", MediaDir.groupKey(e)) && FileGroups.in("Run", FileGroups.key(stored));
+    FileGroups.shown = "Run";
+    out.append("group Run: Media browser ").append(FileGroups.in("Run", MediaDir.groupKey(e))).append(", library copy ").append(DbFilter.fits(stored, "G")).append('\n');
+    boolean groupOk = FileGroups.in("Run", MediaDir.groupKey(e)) && DbFilter.fits(stored, "G");
     PictureOffer.last.dismiss();
     // Video ready: the clip's long press has them too.
     java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
@@ -4042,13 +4043,26 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
     idle();
     out.append("walk.mp4 in Run: ").append(FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length))).append('\n');
-    boolean videoOk = MarkFile.isFavourite("walk.mp4", clip.length) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length));
+    // The library keeps the clip only now (after it was marked): it is a favourite and in Run there too.
+    DbImport.store(app, "walk.mp4", clip, true);
+    PromptVault.StoredFile video = null;
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals("walk.mp4")) video = f;
+    out.append("walk.mp4 kept later: Result files F ").append(DbFilter.fits(video, "F")).append(", G ").append(DbFilter.fits(video, "G")).append(", in Favourite files ")
+        .append(namesOf(FileFavourites.among(PromptVault.open(app.getFilesDir()).resultFiles()))).append('\n');
+    boolean videoOk = MarkFile.isFavourite("walk.mp4", clip.length) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length))
+        && DbFilter.fits(video, "F") && DbFilter.fits(video, "G") && namesOf(FileFavourites.among(PromptVault.open(app.getFilesDir()).resultFiles())).contains("walk.mp4");
     p.dialog.dismiss();
     idle();
     write("s145_ready_favourites_groups", out.toString());
     FileGroups.reset();
     FileFavourites.reset();
     if (!favOk || !groupOk || !videoOk) throw new AssertionError(out.toString());
+  }
+
+  private static String namesOf(List<PromptVault.StoredFile> files) {
+    StringBuilder sb = new StringBuilder();
+    for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);
+    return sb.toString();
   }
 
   private static List<Engine.Part> songPartsForStack() {

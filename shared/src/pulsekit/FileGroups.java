@@ -140,9 +140,33 @@ public final class FileGroups {
 
   /** As toggle, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
   public static synchronized boolean toggle(String group, String[] keys) {
-    boolean now = toggle(group, keys[0]);
-    for (int i = 1; i < keys.length; i++) set(group, keys[i], now);
+    boolean now = !in(group, keys);
+    for (String k : keys) set(group, k, now);
     return now;
+  }
+
+  /** In the group by any of its keys. */
+  public static synchronized boolean in(String group, String[] keys) {
+    for (String k : keys) if (in(group, k)) return true;
+    return false;
+  }
+
+  /** A library file's keys: its place in the library, and the file it is (name and size), as a run's file is marked. */
+  public static String[] keys(PromptVault.StoredFile f) {
+    return new String[] {key(f), MarkFile.mediaKey(f.name, f.size)};
+  }
+
+  /** As menu(key), ✓ where the file is in by any of its keys. */
+  public static synchronized String[] menu(String[] keys) {
+    List<String> out = new ArrayList<String>();
+    for (String g : GROUPS.keySet()) out.add(g + (in(g, keys) ? " \u2713" : ""));
+    out.add(NEW);
+    return out.toArray(new String[0]);
+  }
+
+  /** Whether a library file shows under G: in the group G shows by either key. */
+  public static synchronized boolean fits(PromptVault.StoredFile f) {
+    return !shown.isEmpty() && in(shown, keys(f));
   }
 
   /** The Add to group list: each group (✓ when the file is in it), then New group…. */

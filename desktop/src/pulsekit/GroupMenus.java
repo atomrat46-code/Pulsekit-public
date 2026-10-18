@@ -24,10 +24,9 @@ final class GroupMenus {
 
     /** As above, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
     static JPopupMenu addTo(final Pulsekit app, final String[] keys, final String name, final Runnable after) {
-        final String key = keys[0];
         FileGroups.load(PromptDb.dir());
         JPopupMenu m = new JPopupMenu();
-        String[] rows = FileGroups.menu(key);
+        String[] rows = FileGroups.menu(keys);
         for (int i = 0; i < rows.length; i++) {
             final String group = FileGroups.groupAt(i);
             JMenuItem item = new JMenuItem(rows[i]);
@@ -52,7 +51,7 @@ final class GroupMenus {
     /** Add to group as a question of its own (from a dialog's button): the groups, then New group…. */
     static void ask(final Pulsekit app, final String[] keys, final String name) {
         FileGroups.load(PromptDb.dir());
-        String[] rows = FileGroups.menu(keys[0]);
+        String[] rows = FileGroups.menu(keys);
         Object picked = JOptionPane.showInputDialog(app, "Group for " + name, FileGroups.ADD, JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
         if (picked == null) return;
         int row = java.util.Arrays.asList(rows).indexOf(picked);
@@ -104,6 +103,10 @@ final class GroupMenus {
 
     /** "Add to group" for a file's menu: opens the group list where the menu was. */
     static JMenuItem item(final Pulsekit app, final Component at, final String key, final String name, final Runnable after) {
+        return item(app, at, new String[] {key}, name, after);
+    }
+
+    static JMenuItem item(final Pulsekit app, final Component at, final String[] key, final String name, final Runnable after) {
         JMenuItem add = new JMenuItem(FileGroups.ADD + "…");
         add.setName("add-to-group");
         add.addActionListener(e -> {
