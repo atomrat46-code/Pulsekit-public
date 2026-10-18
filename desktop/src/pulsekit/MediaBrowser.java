@@ -266,7 +266,7 @@ final class MediaBrowser {
                 this.fill(dialog, root, dir);
             };
             b.addActionListener(e -> {
-                if (g && !GroupMenus.tap(app, b, toGroup)) {
+                if (g && !GroupMenus.tap(app, b, toGroup, f.equals(MediaDir.filter))) {
                     b.setSelected(f.equals(MediaDir.filter));
                     return;
                 }
@@ -277,7 +277,8 @@ final class MediaBrowser {
             if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             filters.add(b);
         }
-        filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]));
+        filters.add(new JLabel(" " + (FileGroups.LETTER.equals(MediaDir.filter) && !FileGroups.shown.isEmpty() ? "group " + FileGroups.shown
+            : MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)])));
         // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
         final List<String[]> tagChoices = MediaTags.choices(allEntries);
         boolean known = false;

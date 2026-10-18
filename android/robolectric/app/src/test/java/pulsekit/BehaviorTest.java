@@ -3799,6 +3799,25 @@ public class BehaviorTest {
     idle();
     out.append("G held: ").append(listItems(GroupDialogs.last)).append('\n');
     GroupDialogs.last.dismiss();
+    out.append("title: ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    // Result files, then Reference files again: G still works (a tap on G, on already, lists the groups).
+    inBrowser.apply("refs-kind:results").performClick();
+    idle();
+    inBrowser.apply("refs-kind:refs").performClick();
+    idle();
+    GroupDialogs.last = null;
+    inBrowser.apply("db-filter:G").performClick();
+    idle();
+    out.append("after the tabs, G tapped: ").append(GroupDialogs.last == null ? "nothing" : listItems(GroupDialogs.last)).append('\n');
+    boolean tabsOk = GroupDialogs.last != null;
+    if (tabsOk) {
+      org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+      idle();
+    }
+    StringBuilder again = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) again.append(n).append(' ');
+    out.append("then: ").append(again).append('\n');
+    tabsOk &= "beach.png dune.png ".equals(again.toString()) && "G".contentEquals(((TextView) inBrowser.apply("db-filter:G")).getText());
     RefBrowser.last.dismiss();
     DbFilter.current = "A";
     idle();
@@ -3842,7 +3861,7 @@ public class BehaviorTest {
     write("s142_file_groups", out.toString());
     FileGroups.reset();
     FileFavourites.reset();
-    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty()) throw new AssertionError(out.toString());
+    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty() || !tabsOk) throw new AssertionError(out.toString());
   }
 
   /**

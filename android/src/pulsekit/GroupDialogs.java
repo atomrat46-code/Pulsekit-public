@@ -80,8 +80,13 @@ final class GroupDialogs {
 
     /** A tap on G: the group picked before, or the list when none is. True when G shows a group now. */
     static boolean tap(Activity activity, Runnable picked) {
+        return tap(activity, picked, false);
+    }
+
+    /** As above; `on`: G shows a group already, so a tap lists the groups to pick another. */
+    static boolean tap(Activity activity, Runnable picked, boolean on) {
         FileGroups.load(activity.getFilesDir());
-        if (FileGroups.shown.isEmpty()) {
+        if (on || FileGroups.shown.isEmpty()) {
             pick(activity, picked);
             return false;
         }

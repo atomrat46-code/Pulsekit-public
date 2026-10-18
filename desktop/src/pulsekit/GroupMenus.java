@@ -141,8 +141,13 @@ final class GroupMenus {
 
     /** A click on G: the group picked before, or the list when none is. True when G shows a group now. */
     static boolean tap(Pulsekit app, Component at, Runnable picked) {
+        return tap(app, at, picked, false);
+    }
+
+    /** As above; `on`: G shows a group already, so a click lists the groups to pick another. */
+    static boolean tap(Pulsekit app, Component at, Runnable picked, boolean on) {
         FileGroups.load(PromptDb.dir());
-        if (FileGroups.shown.isEmpty()) {
+        if (on || FileGroups.shown.isEmpty()) {
             pick(app, at, picked);
             return false;
         }

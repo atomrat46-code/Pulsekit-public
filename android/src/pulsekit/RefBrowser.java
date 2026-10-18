@@ -254,8 +254,9 @@ final class RefBrowser {
                 again.run();
             };
             b.setOnClickListener(v -> {
+                // G on already: a tap picks another group.
+                if (g && !GroupDialogs.tap(activity, toGroup, letter.equals(DbFilter.current))) return;
                 if (letter.equals(DbFilter.current)) return;
-                if (g && !GroupDialogs.tap(activity, toGroup)) return;
                 DbFilter.current = letter;
                 again.run();
             });
@@ -263,7 +264,7 @@ final class RefBrowser {
                 GroupDialogs.pick(activity, toGroup);
                 return true;
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), g ? 2f : 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
             lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
             letters.addView(b, lp);
         }
@@ -375,7 +376,7 @@ final class RefBrowser {
         page.addView(top);
         page.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
-            .setTitle(results ? "Result files" : "Reference files")
+            .setTitle((results ? "Result files" : "Reference files") + FileGroups.title(DbFilter.current))
             .setView(page)
             .setNegativeButton("Cancel", null)
             .show();

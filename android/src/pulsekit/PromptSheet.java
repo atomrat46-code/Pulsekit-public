@@ -605,7 +605,7 @@ public final class PromptSheet {
     });
     col.addView(back, buttonLp(activity));
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
-    col.addView(caption(activity, promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES"));
+    col.addView(caption(activity, (promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES") + FileGroups.title(galleryFilter).toUpperCase()));
     // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
     FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
     LinearLayout sortRow = new LinearLayout(activity);
@@ -655,7 +655,8 @@ public final class PromptSheet {
       pill.setSingleLine(true);
       pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
       pill.setOnClickListener(v -> {
-        if (g && !GroupDialogs.tap(activity, toGroup)) return;
+        // G on already: a tap picks another group.
+        if (g && !GroupDialogs.tap(activity, toGroup, letter.equals(galleryFilter))) return;
         galleryFilter = letter;
         rebuild(activity);
       });
@@ -663,7 +664,7 @@ public final class PromptSheet {
         GroupDialogs.pick(activity, toGroup);
         return true;
       });
-      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), g ? 2f : 1f);
+      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), 1f);
       plp.rightMargin = dp(activity, 6);
       kinds.addView(pill, plp);
     }

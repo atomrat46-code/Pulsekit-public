@@ -924,7 +924,8 @@ final class MediaBrowser {
                 this.refilter();
             };
             TextView pill = this.app.pill(g ? FileGroups.label() : f, f.equals(MediaDir.filter), v -> {
-                if (g && !GroupDialogs.tap(this.app, toGroup)) return;
+                // G on already: a tap picks another group.
+                if (g && !GroupDialogs.tap(this.app, toGroup, f.equals(MediaDir.filter))) return;
                 MediaDir.filter = f;
                 this.refilter();
             });
@@ -939,7 +940,8 @@ final class MediaBrowser {
             lp.rightMargin = this.app.dp(6);
             row.addView(pill, lp);
         }
-        TextView legend = this.app.text(MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)], 12, false);
+        TextView legend = this.app.text(FileGroups.LETTER.equals(MediaDir.filter) && !FileGroups.shown.isEmpty() ? "group " + FileGroups.shown
+            : MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)], 12, false);
         legend.setTextColor(UiKit.MUTED);
         legend.setTag("media-filter-name");
         row.addView(legend);

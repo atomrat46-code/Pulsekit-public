@@ -194,9 +194,14 @@ public final class FileGroups {
     save();
   }
 
-  /** G's label: "G", or "G · Trip" when a group is picked. */
+  /** G's label: just G (with the group's name, cut to fit, it read as "G E"); the group shown goes in the title (title()). */
   public static String label() {
-    return shown.isEmpty() ? LETTER : LETTER + " · " + shown;
+    return LETTER;
+  }
+
+  /** While G shows a group: " · Group: Trip" for the screen's title; "" otherwise. */
+  public static String title(String letter) {
+    return LETTER.equals(letter) && !shown.isEmpty() ? " \u00b7 Group: " + shown : "";
   }
 
   /** Whether a file shows under G: it is in the group G shows. */

@@ -147,7 +147,7 @@ final class PromptDb {
 
     /** A grid of the library's files of the `only` kind; a click hands the picked one on. Ref files / Result files at the top. */
     void browse(boolean results, String only, Picked picked) {
-        final JDialog dialog = new JDialog(app, results ? "Result files" : "Reference files", true);
+        final JDialog dialog = new JDialog(app, (results ? "Result files" : "Reference files") + FileGroups.title(DbFilter.current), true);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
             // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
             browseScroll[results ? 1 : 0] = this.scrolledTo();
@@ -174,8 +174,9 @@ final class PromptDb {
             b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
             b.setEnabled(!letter.equals(DbFilter.current) || g);
             b.addActionListener(e -> {
+                // G on already: a click picks another group.
+                if (g && !GroupMenus.tap(app, b, toGroup, letter.equals(DbFilter.current))) return;
                 if (letter.equals(DbFilter.current)) return;
-                if (g && !GroupMenus.tap(app, b, toGroup)) return;
                 DbFilter.current = letter;
                 again.run();
             });
@@ -745,7 +746,7 @@ final class PromptDb {
     /** The galleries: 0 Ref files, 1 Result files, 2 Prompt files (the sheets runs saved with --saveprompt). */
     void gallery(final int kind) {
         final boolean results = kind == 1;
-        final JDialog dialog = new JDialog(app, kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files", true);
+        final JDialog dialog = new JDialog(app, (kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files") + FileGroups.title(galleryFilter), true);
         JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
         FileSort.current = FileSort.valid(readSort());
@@ -778,8 +779,8 @@ final class PromptDb {
             b.setName("gallery-filter:" + letter);
             b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
             b.addActionListener(e -> {
-                if (g && !GroupMenus.tap(app, b, toGroup)) {
-                    b.setSelected(false);
+                if (g && !GroupMenus.tap(app, b, toGroup, letter.equals(galleryFilter))) {
+                    b.setSelected(letter.equals(galleryFilter));
                     return;
                 }
                 galleryFilter = letter;
