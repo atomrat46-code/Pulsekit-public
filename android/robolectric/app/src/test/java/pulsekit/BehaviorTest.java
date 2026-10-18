@@ -3356,6 +3356,50 @@ public class BehaviorTest {
   }
 
   /**
+   * Picture ready > Process as a reference: a recent program that takes pictures, one of its recent
+   * prompts, and Reference file 1 or 2; Open loads it in PyJav with the picture in that slot. The
+   * choices are kept and picked again next time.
+   */
+  @Test
+  public void s137_process_as_reference() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"make the coat blue\" --image old.png", pedit, null);
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    PyJavRecent.remember(app.getFilesDir(), "Wav2Mp3.java", "", ((ProgramMenus) get("programMenus")).bundledSource("Wav2Mp3.java"), null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    View offer = PictureOffer.last.getWindow().getDecorView();
+    out.append("button: ").append(((TextView) offer.findViewWithTag("picture-ref:look.png")).getText()).append('\n');
+    offer.findViewWithTag("picture-ref:look.png").performClick();
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("programs (takes pictures): ").append(d.programs).append('\n');
+    out.append("program ").append(d.programBtn.getText()).append(", prompt ").append(d.promptBtn.getText()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
+    d.run = 1;
+    d.setSlot(2);
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
+    out.append("Open: view ").append(get("view")).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    // Next time: the same choices.
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-ref:look.png").performClick();
+    idle();
+    ProcessRefDialog again = ProcessRefDialog.last;
+    out.append("kept: prompt ").append(again.promptBtn.getText()).append(", slot ").append(again.slot).append('\n');
+    again.dialog.dismiss();
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java")) throw new AssertionError(out.toString());
+    write("s137_process_as_reference", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.

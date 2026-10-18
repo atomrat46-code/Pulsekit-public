@@ -43,18 +43,29 @@ final class PictureOffer {
             view.setAdjustViewBounds(true);
             view.setTag("picture-offer:" + f.name);
             col.addView(view, new LinearLayout.LayoutParams(-1, -2));
+            // The picture into another program, as its Reference file 1 or 2.
+            final JavaRun.FileOut pic = f;
+            TextView process = app.outline("Process as a reference", false, v -> {
+                if (last != null) last.dismiss();
+                ProcessRefDialog.open(app, pic.name, pic.bytes);
+            });
+            process.setTag("picture-ref:" + f.name);
+            col.addView(process);
             shown++;
         }
         if (shown == 0) return false;
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
-        new AlertDialog.Builder(app)
+        last = new AlertDialog.Builder(app)
             .setTitle(pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready")
             .setView(scroll)
             .setPositiveButton("Close", null)
             .show();
         return true;
     }
+
+    /** The dialog shown last (closed when a picture goes on to Process as a reference). */
+    static AlertDialog last;
 
     /** The picture at about `max` pixels wide at most, read at a smaller size first when it is big. */
     static Bitmap decode(byte[] data, int max) {

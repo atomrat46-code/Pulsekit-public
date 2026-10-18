@@ -765,10 +765,21 @@ final class PyJav {
         }
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
         scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(560, col.getPreferredSize().height + 8)));
-        Object[] options = new Object[] {"Open", "Close"};
+        // Process as a reference: the picture (the first, or the one picked) into another program as its Reference file 1 or 2.
+        Object[] options = new Object[] {"Process as a reference", "Open", "Close"};
         int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
         if (ans == 0) {
+            File pick = pictures.get(0);
+            if (pictures.size() > 1) {
+                String[] names = new String[pictures.size()];
+                for (int i = 0; i < names.length; i++) names[i] = pictures.get(i).getName();
+                Object chosen = JOptionPane.showInputDialog(app, "Which picture?", "Process as a reference", JOptionPane.QUESTION_MESSAGE, null, names, names[0]);
+                if (chosen == null) return;
+                for (File f : pictures) if (f.getName().equals(chosen)) pick = f;
+            }
+            ProcessRefDialog.open(app, pick);
+        } else if (ans == 1) {
             try {
                 java.awt.Desktop.getDesktop().open(pictures.get(0));
             } catch (Exception ex) {

@@ -4824,6 +4824,36 @@ public final class DesktopBehavior {
     if (VlcPlayer.turnedOff()) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Picture ready > Process as a reference: a recent program that takes pictures, one of its recent
+   * prompts, Reference file 1 or 2; Open loads it in PyJav with the picture in that slot. Kept.
+   */
+  void s119_process_as_reference() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"make the coat blue\" --image old.png", pedit, null);
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    final File pic = new File(System.getProperty("user.home"), "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("programs: ").append(d.programs).append(", prompt ").append(d.prompt.getSelectedItem()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
+      d.prompt.setSelectedIndex(1);
+      d.ref2.setSelected(true);
+      ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick();
+    });
+    idle();
+    String args = pj.pyExtra.getText().replace(pic.getAbsolutePath(), "~/look.png");
+    out.append(seen).append("Open: view ").append(((Pulsekit) frame).view).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    ProcessAsRef.Choice kept = ProcessAsRef.load(PromptDb.dir());
+    out.append("kept: ").append(kept.program).append(", slot ").append(kept.slot).append('\n');
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));
