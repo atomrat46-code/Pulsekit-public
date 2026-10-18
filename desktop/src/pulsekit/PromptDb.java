@@ -1764,6 +1764,8 @@ final class PromptDb {
                     SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
                 });
                 m.add(process);
+                // The video among the favourites, or in a group.
+                for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem) m.add((JMenuItem) c);
                 PromptDb.this.lastFrameMenu = m;
                 m.show(player.screen, e.getX(), e.getY());
             }

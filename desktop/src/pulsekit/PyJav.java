@@ -759,6 +759,10 @@ final class PyJav {
             java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
             JLabel view = new JLabel(new javax.swing.ImageIcon(shown));
             view.setName("picture-offer:" + f.getName());
+            view.setToolTipText("Right click: Add to favourites, Add to group");
+            // Right click: Add to favourites, Add to group.
+            final File pic = f;
+            GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
             view.setAlignmentX(0.0f);
             col.add(view);
             col.add(javax.swing.Box.createVerticalStrut(8));
@@ -1284,14 +1288,22 @@ final class PyJav {
      * Open uses the system player; Close leaves it saved.
      */
     void offerVideo(File video, int count) {
-        Object[] options = new Object[] {"Play", "Open", "Close"};
         String more = count > 1 ? "\n" + (count - 1) + " more " + (count == 2 ? "video is" : "videos are") + " saved beside it." : "";
         // With VLC the video plays here (right click: Extract frame); without it, in the browser.
         boolean vlc = VlcPlayer.available();
-        int ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
-            + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
-                : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        int ans;
+        // Add to favourites and Add to group come back to the question.
+        while (true) {
+            FileFavourites.load(PromptDb.dir());
+            Object[] options = new Object[] {"Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD, "Close"};
+            ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
+                + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
+                    : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (ans == 2) GroupMenus.toggleFavourite(app, video);
+            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName());
+            else break;
+        }
         try {
             if (ans == 0 && vlc) {
                 try {

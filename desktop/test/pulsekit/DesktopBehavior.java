@@ -5346,6 +5346,37 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** Video ready: Add to favourites and Add to group (the question comes back); Picture ready's right click menu has them too. */
+  void s126_ready_favourites_groups() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    File runs = new File(System.getProperty("user.home"), "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    FileGroups.load(PromptDb.dir());
+    FileGroups.toggle("Run", "file:other.png|1");
+    answers.add("Add to favourites");
+    answers.add("Add to group");
+    answers.add("OK");
+    answers.add("Close");
+    edt(() -> pj.offerVideo(clip, 1));
+    idle();
+    out.append("walk.mp4: favourite ").append(MarkFile.isFavourite("walk.mp4", clip.length())).append(", in Run ").append(FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length()))).append('\n');
+    boolean ok = MarkFile.isFavourite("walk.mp4", clip.length()) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length()));
+    // Picture ready: the picture's right click.
+    final File pic = new File(runs, "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final javax.swing.JPopupMenu[] m = new javax.swing.JPopupMenu[1];
+    edt(() -> m[0] = GroupMenus.fileMenu((Pulsekit) frame, pic));
+    StringBuilder items = new StringBuilder();
+    for (Component c : m[0].getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("Picture ready menu: ").append(items).append('\n');
+    edt(() -> ((javax.swing.JMenuItem) component(m[0], "file-favourite")).doClick());
+    out.append("look.png favourite: ").append(MarkFile.isFavourite("look.png", pic.length())).append('\n');
+    ok &= MarkFile.isFavourite("look.png", pic.length());
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

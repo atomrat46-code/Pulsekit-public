@@ -89,6 +89,9 @@ final class VideoOffer {
             awake();
         }
 
+        /** The clip's size: with its name, how the favourites and groups know it. */
+        long clipSize;
+
         /** The Video ready dialog. */
         AlertDialog dialog;
         /** The long press's menu (for the tests). */
@@ -96,13 +99,17 @@ final class VideoOffer {
         /** Where the last extracted frame was saved (for the tests). */
         String extracted;
 
-        /** Long press: paused, then Extract frame. */
+        /** Long press: paused, then Extract frame, Capture frame and process as a reference, Add to favourites, Add to group. */
         void frameMenu(final MainActivity app, final String path, final String clipName) {
             if (playing) playPause();
             final int ms = Math.max(0, view.getCurrentPosition());
             menu = new AlertDialog.Builder(app)
                 .setTitle("Frame at " + FileSets.mixTime(ms))
-                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference"}, (d, w) -> extractFrame(app, path, clipName, ms, w == 1))
+                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD}, (d, w) -> {
+                    if (w < 2) extractFrame(app, path, clipName, ms, w == 1);
+                    else if (w == 2) PictureOffer.toggleFavourite(app, clipName, clipSize);
+                    else GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null);
+                })
                 .setNegativeButton("Cancel", null)
                 .show();
         }
@@ -223,6 +230,7 @@ final class VideoOffer {
         p.view.setVideoPath(path);
         // Long press: the clip pauses, and the frame shown can be extracted.
         final String clipName = clip.name;
+        p.clipSize = clip.bytes.length;
         p.view.setOnLongClickListener(v -> {
             p.frameMenu(app, path, clipName);
             return true;

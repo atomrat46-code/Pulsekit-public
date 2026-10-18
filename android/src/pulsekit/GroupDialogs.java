@@ -17,6 +17,12 @@ final class GroupDialogs {
 
     /** The groups (✓ the ones the file is in: picked again, it is taken out), then New group…. */
     static void addTo(final Activity activity, final String key, final String name, final Runnable after) {
+        addTo(activity, new String[] {key}, name, after);
+    }
+
+    /** As above, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
+    static void addTo(final Activity activity, final String[] keys, final String name, final Runnable after) {
+        final String key = keys[0];
         FileGroups.load(activity.getFilesDir());
         final String[] rows = FileGroups.menu(key);
         last = new AlertDialog.Builder(activity)
@@ -24,7 +30,7 @@ final class GroupDialogs {
             .setItems(rows, (d, w) -> {
                 String group = FileGroups.groupAt(w);
                 if (group != null) {
-                    done(activity, name, group, FileGroups.toggle(group, key), after);
+                    done(activity, name, group, FileGroups.toggle(group, keys), after);
                     return;
                 }
                 final EditText field = new EditText(activity);
@@ -37,7 +43,7 @@ final class GroupDialogs {
                     .setPositiveButton("Add", (d2, w2) -> {
                         String made = FileGroups.clean(field.getText().toString());
                         if (made.isEmpty()) return;
-                        done(activity, name, made, FileGroups.toggle(made, key), after);
+                        done(activity, name, made, FileGroups.toggle(made, keys), after);
                     })
                     .setNegativeButton("Cancel", null)
                     .show();

@@ -3972,6 +3972,85 @@ public class BehaviorTest {
     if (!back) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Picture ready (a picture's long press) and Video ready (the clip's long press): Add to favourites
+   * and Add to group. The run's file is marked as the Media browser knows it (name and size), and its
+   * copy in the prompt library with it.
+   */
+  @Test
+  public void s145_ready_favourites_groups() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] pic = png.toByteArray();
+    // The run kept it as a result file too.
+    DbImport.store(app, "look.png", pic, true);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", pic));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("Picture ready menu: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(0);
+    idle();
+    PromptVault.StoredFile stored = PromptVault.open(app.getFilesDir()).resultFiles().get(0);
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "look.png";
+    e.id = "/sdcard/Download/look.png";
+    e.kind = MediaDir.PICTURE;
+    e.size = pic.length;
+    List<MediaDir.Entry> one = new ArrayList<MediaDir.Entry>();
+    one.add(e);
+    out.append("favourite: Media browser F ").append(MediaDir.filtered(one, "F").size()).append(", library copy ").append(FileFavourites.is(stored)).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    boolean favOk = MediaDir.filtered(one, "F").size() == 1 && FileFavourites.is(stored);
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("again: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(1);
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-new-name")).setText("Run");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("group Run: Media browser ").append(FileGroups.in("Run", MediaDir.groupKey(e))).append(", library copy ").append(FileGroups.in("Run", FileGroups.key(stored))).append('\n');
+    boolean groupOk = FileGroups.in("Run", MediaDir.groupKey(e)) && FileGroups.in("Run", FileGroups.key(stored));
+    PictureOffer.last.dismiss();
+    // Video ready: the clip's long press has them too.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    byte[] clip = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    clips.add(new JavaRun.FileOut("walk.mp4", clip));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player p = VideoOffer.last;
+    p.view.performLongClick();
+    idle();
+    out.append("Video ready menu: ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(2);
+    idle();
+    out.append("walk.mp4 favourite: ").append(MarkFile.isFavourite("walk.mp4", clip.length)).append('\n');
+    p.view.performLongClick();
+    idle();
+    out.append("then: ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(3);
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    out.append("walk.mp4 in Run: ").append(FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length))).append('\n');
+    boolean videoOk = MarkFile.isFavourite("walk.mp4", clip.length) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length));
+    p.dialog.dismiss();
+    idle();
+    write("s145_ready_favourites_groups", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!favOk || !groupOk || !videoOk) throw new AssertionError(out.toString());
+  }
+
   private static List<Engine.Part> songPartsForStack() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));

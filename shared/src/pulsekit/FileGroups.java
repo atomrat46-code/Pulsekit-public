@@ -123,6 +123,28 @@ public final class FileGroups {
     return now;
   }
 
+  /** The file in the group (made when it is new), or out of it. */
+  public static synchronized void set(String group, String key, boolean in) {
+    String name = clean(group);
+    if (name.isEmpty() || key == null || key.isEmpty()) return;
+    List<String> g = GROUPS.get(name);
+    if (g == null) {
+      if (!in) return;
+      g = new ArrayList<String>();
+      GROUPS.put(name, g);
+    }
+    if (in && !g.contains(key)) g.add(key);
+    if (!in) g.remove(key);
+    save();
+  }
+
+  /** As toggle, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
+  public static synchronized boolean toggle(String group, String[] keys) {
+    boolean now = toggle(group, keys[0]);
+    for (int i = 1; i < keys.length; i++) set(group, keys[i], now);
+    return now;
+  }
+
   /** The Add to group list: each group (✓ when the file is in it), then New group…. */
   public static synchronized String[] menu(String key) {
     List<String> out = new ArrayList<String>();

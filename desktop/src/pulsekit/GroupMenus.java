@@ -1,6 +1,7 @@
 package pulsekit;
 
 import java.awt.Component;
+import java.io.File;
 import java.util.List;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -18,6 +19,12 @@ final class GroupMenus {
 
     /** The groups (✓ the ones the file is in: picked again, it is taken out), then New group…. */
     static JPopupMenu addTo(final Pulsekit app, final String key, final String name, final Runnable after) {
+        return addTo(app, new String[] {key}, name, after);
+    }
+
+    /** As above, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
+    static JPopupMenu addTo(final Pulsekit app, final String[] keys, final String name, final Runnable after) {
+        final String key = keys[0];
         FileGroups.load(PromptDb.dir());
         JPopupMenu m = new JPopupMenu();
         String[] rows = FileGroups.menu(key);
@@ -32,7 +39,7 @@ final class GroupMenus {
                     to = FileGroups.clean(typed == null ? "" : typed.toString());
                     if (to.isEmpty()) return;
                 }
-                boolean now = FileGroups.toggle(to, key);
+                boolean now = FileGroups.toggle(to, keys);
                 app.setNow(FileGroups.note(name, to, now));
                 if (after != null) after.run();
             });
@@ -40,6 +47,59 @@ final class GroupMenus {
         }
         last = m;
         return m;
+    }
+
+    /** Add to group as a question of its own (from a dialog's button): the groups, then New group…. */
+    static void ask(final Pulsekit app, final String[] keys, final String name) {
+        FileGroups.load(PromptDb.dir());
+        String[] rows = FileGroups.menu(keys[0]);
+        Object picked = JOptionPane.showInputDialog(app, "Group for " + name, FileGroups.ADD, JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
+        if (picked == null) return;
+        int row = java.util.Arrays.asList(rows).indexOf(picked);
+        String to = FileGroups.groupAt(row);
+        if (to == null) {
+            Object typed = JOptionPane.showInputDialog(app, "Group name", FileGroups.NEW, JOptionPane.PLAIN_MESSAGE, null, null, "");
+            to = FileGroups.clean(typed == null ? "" : typed.toString());
+            if (to.isEmpty()) return;
+        }
+        app.setNow(FileGroups.note(name, to, FileGroups.toggle(to, keys)));
+    }
+
+    /** A run's file (Picture ready, Video ready): Add to favourites (Remove when it is one), Add to group, as a right click menu. */
+    static JPopupMenu fileMenu(final Pulsekit app, final File file) {
+        final String name = file.getName();
+        final long size = file.length();
+        FileFavourites.load(PromptDb.dir());
+        JPopupMenu m = new JPopupMenu();
+        JMenuItem fav = new JMenuItem(MarkFile.isFavourite(name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT);
+        fav.setName("file-favourite");
+        fav.addActionListener(e -> toggleFavourite(app, file));
+        m.add(fav);
+        JMenuItem group = new JMenuItem(FileGroups.ADD + "\u2026");
+        group.setName("file-group");
+        group.addActionListener(e -> ask(app, keys(file), name));
+        m.add(group);
+        last = m;
+        return m;
+    }
+
+    static void toggleFavourite(Pulsekit app, File file) {
+        FileFavourites.load(PromptDb.dir());
+        boolean now = MarkFile.toggleFavourite(vault(), file.getName(), file.length());
+        app.setNow(file.getName() + (now ? " added to favourites" : " taken out of favourites"));
+    }
+
+    static String[] keys(File file) {
+        FileGroups.load(PromptDb.dir());
+        return MarkFile.groupKeys(vault(), file.getName(), file.length());
+    }
+
+    private static PromptVault vault() {
+        try {
+            return PromptDb.vault();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /** "Add to group" for a file's menu: opens the group list where the menu was. */
