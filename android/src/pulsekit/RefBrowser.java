@@ -163,12 +163,10 @@ final class RefBrowser {
     /** The `only` kind's files, then only those the A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(Activity activity, boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        // G: only the files of the group G shows.
-        boolean group = FileGroups.LETTER.equals(DbFilter.current);
-        if (group) FileGroups.load(activity.getFilesDir());
-        for (PromptVault.StoredFile f : files(activity, results, only)) {
-            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
-        }
+        // F: only the favourites; G: only the files of the group G shows.
+        FileGroups.load(activity.getFilesDir());
+        FileFavourites.load(activity.getFilesDir());
+        for (PromptVault.StoredFile f : files(activity, results, only)) if (DbFilter.fits(f, DbFilter.current)) out.add(f);
         return out;
     }
 
@@ -180,11 +178,9 @@ final class RefBrowser {
     static AlertDialog last;
     static AlertDialog menu;
 
-    /** A I V S T and G (a group). */
+    /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
-        out[out.length - 1] = FileGroups.LETTER;
-        return out;
+        return DbFilter.WITH_FAV_GROUP.clone();
     }
 
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {

@@ -912,6 +912,7 @@ final class MediaBrowser {
     /** The type selectors: A all, I pictures, V videos, S sounds, T text, O other files. */
     private void filters() {
         FileGroups.load(this.app.getFilesDir());
+        FileFavourites.load(this.app.getFilesDir());
         LinearLayout row = this.app.row();
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
@@ -963,6 +964,7 @@ final class MediaBrowser {
     List<MediaDir.Entry> shownEntries() {
         MediaTags.load(this.app.getFilesDir());
         FileGroups.load(this.app.getFilesDir());
+        FileFavourites.load(this.app.getFilesDir());
         return MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter);
     }
 
@@ -1481,10 +1483,19 @@ final class MediaBrowser {
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
         final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        // A favourite already: Remove from favourites.
+        FileFavourites.load(this.app.getFilesDir());
+        final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
+        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
                 if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                else if (FileFavourites.ADD_SHORT.equals(items[which]) || FileFavourites.REMOVE_SHORT.equals(items[which])) {
+                    boolean now = FileFavourites.toggleKey(MediaDir.groupKey(e));
+                    this.app.setNow(e.name + (now ? " added to favourites" : " taken out of favourites"));
+                    this.refilter();
+                }
                 else if (FileGroups.ADD.equals(items[which])) GroupDialogs.addTo(this.app, MediaDir.groupKey(e), e.name, () -> {
                     if (FileGroups.LETTER.equals(MediaDir.filter)) this.refilter();
                 });

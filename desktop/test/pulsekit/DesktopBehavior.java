@@ -5314,6 +5314,38 @@ public final class DesktopBehavior {
     if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString())) throw new AssertionError(out.toString());
   }
 
+  /** F (favourites) before G: Browse DB and the galleries (Prompt files too) show only the favourites; the Media browser's Add to favourites and F. */
+  void s125_favourites_letter() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    for (String n : new String[] {"beach.png", "notes.txt"}) PromptDb.vault().addLibraryFile(n, ("x" + n).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    for (int i = 0; i < 30; i++) PromptDb.vault().addPromptFile("prompt-" + i + ".prompt", ("Prompt " + i + "\n").getBytes(StandardCharsets.UTF_8), "Prompt " + i);
+    FileFavourites.load(PromptDb.dir());
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) if (f.name.equals("notes.txt")) FileFavourites.toggle(f);
+    DbFilter.current = "F";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog d = (JDialog) get("lastBrowse");
+    out.append("Browse DB F: notes.txt ").append(component(d, "refs-pick:notes.txt") != null).append(", beach.png ").append(component(d, "refs-pick:beach.png") != null)
+        .append(", F button ").append(component(d, "db-filter:F") != null).append('\n');
+    boolean ok = component(d, "refs-pick:notes.txt") != null && component(d, "refs-pick:beach.png") == null;
+    edt(() -> d.dispose());
+    DbFilter.current = "A";
+    // Prompt files: its 30 cards, the three tabs and A I V S T F G.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(2));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog g = (JDialog) get("lastGallery");
+    out.append("Prompt files: ").append(g.getTitle()).append(", cards ").append(component(g, "gallery:prompt-0.prompt") != null && component(g, "gallery:prompt-29.prompt") != null)
+        .append(", tabs ").append(component(g, "gallery-tab:0") != null).append(", F ").append(component(g, "gallery-filter:F") != null).append(", G ").append(component(g, "gallery-filter:G") != null).append('\n');
+    ok &= component(g, "gallery:prompt-29.prompt") != null && component(g, "gallery-filter:F") != null;
+    edt(() -> g.dispose());
+    out.append("media filters: ").append(String.join(" ", MediaDir.FILTERS)).append(", menu has ").append(java.util.Arrays.asList(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", true)).contains(FileFavourites.ADD_SHORT)).append('\n');
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

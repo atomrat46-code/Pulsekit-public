@@ -640,8 +640,9 @@ public final class PromptSheet {
     // A I V S T: all files, or only pictures, videos, sound files or text files.
     LinearLayout kinds = new LinearLayout(activity);
     kinds.setOrientation(LinearLayout.HORIZONTAL);
-    // G: a group's files (held: the list of groups).
+    // F: the favourites; G: a group's files (held: the list of groups).
     FileGroups.load(activity.getFilesDir());
+    FileFavourites.load(activity.getFilesDir());
     final Runnable toGroup = () -> {
       galleryFilter = FileGroups.LETTER;
       rebuild(activity);
@@ -847,8 +848,7 @@ public final class PromptSheet {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
     if ("A".equals(galleryFilter)) return all;
     List<PromptVault.StoredFile> out = new java.util.ArrayList<PromptVault.StoredFile>();
-    boolean group = FileGroups.LETTER.equals(galleryFilter);
-    for (PromptVault.StoredFile f : all) if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) out.add(f);
+    for (PromptVault.StoredFile f : all) if (DbFilter.fits(f, galleryFilter)) out.add(f);
     return out;
   }
 
@@ -884,7 +884,24 @@ public final class PromptSheet {
   }
 
   private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
+    final List<Runnable> slotJobs = new java.util.ArrayList<Runnable>(SLOT_JOBS);
+    SLOT_JOBS.clear();
     new Thread(() -> {
+      try {
+        readRefThumbs(activity, token, views, marks, subs, ids, slots, names, px);
+        // Then the prompt files' small thumbnails, one at a time.
+        for (Runnable job : slotJobs) {
+          if (token != refsToken) return;
+          job.run();
+        }
+      } catch (Throwable ex) {
+        // A file too big to read (out of memory): the gallery stays, without the rest of its previews.
+      }
+    }, "pulsekit-gallery-previews").start();
+  }
+
+  private static void readRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
+    {
       for (int i = 0; i < views.length; i++) {
         if (token != refsToken) return;
         Bitmap bitmap = refThumb(activity, names[i], vault.fileBytes(ids[i], slots[i]), px);
@@ -917,7 +934,7 @@ public final class PromptSheet {
           mark.setVisibility(View.GONE);
         });
       }
-    }).start();
+    }
   }
 
   /** The size of the picture or video refThumb read last on this thread ({width, height}; 0 when not known). */
@@ -1723,6 +1740,9 @@ public final class PromptSheet {
   }
 
   /** Up to three small thumbnails (reference 1, reference 2, result) along the bottom of a prompt file's card. */
+  /** The prompt files' small thumbnails still to read: loadRefThumbs reads them after the previews. */
+  private static final List<Runnable> SLOT_JOBS = new java.util.ArrayList<Runnable>();
+
   private static void slotThumbs(Activity activity, android.widget.FrameLayout frame, PromptVault.Version v, int cell) {
     LinearLayout strip = new LinearLayout(activity);
     strip.setOrientation(LinearLayout.HORIZONTAL);
@@ -1738,12 +1758,13 @@ public final class PromptSheet {
       LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px, px);
       lp.rightMargin = dp(activity, 4);
       strip.addView(mini, lp);
+      // Read later, one after another with the gallery's own previews (a thread each ran out of memory with many prompt files).
       final long vid = v.id;
       final int slot = which;
-      new Thread(() -> {
+      SLOT_JOBS.add(() -> {
         Bitmap b = refThumb(activity, n, vault.fileBytes(vid, slot), px);
         if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
-      }, "pulsekit-prompt-file-thumb").start();
+      });
     }
     if (strip.getChildCount() == 0) return;
     android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);

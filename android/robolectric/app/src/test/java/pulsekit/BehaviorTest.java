@@ -3845,6 +3845,92 @@ public class BehaviorTest {
     if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty()) throw new AssertionError(out.toString());
   }
 
+  /**
+   * F (favourites) before G on the thumbnail screens: Browse DB, the galleries (Prompt files too,
+   * which opens with many prompt files, its previews read one at a time) and the Media browser
+   * (Add to favourites in a file's menu).
+   */
+  @Test
+  public void s143_favourites_letter() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    long cat = vault.addCategory("Pictures");
+    for (int i = 0; i < 40; i++) {
+      long p = vault.addPrompt(cat, "Prompt " + i);
+      vault.addVersion(p, "v1", "", "a picture " + i, "", "ref" + i + ".png", png.toByteArray(), "", null, "out" + i + ".png", png.toByteArray(), "", "");
+      vault.addPromptFile("prompt-" + i + ".prompt", ("Prompt " + i + "\n").getBytes(StandardCharsets.UTF_8), "Prompt " + i);
+    }
+    for (String n : new String[] {"beach.png", "notes.txt"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    // Browse DB: notes.txt a favourite; F shows it only.
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    View dv = RefBrowser.last.getWindow().getDecorView();
+    StringBuilder letters = new StringBuilder();
+    for (String l : RefBrowser.withGroup()) letters.append(dv.findViewWithTag("db-filter:" + l) != null ? l : "-");
+    out.append("letters: ").append(letters).append('\n');
+    dv.findViewWithTag("refs-pick:notes.txt").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(0);
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("db-filter:F").performClick();
+    idle();
+    dv = RefBrowser.last.getWindow().getDecorView();
+    out.append("F: beach.png ").append(dv.findViewWithTag("refs-pick:beach.png") != null).append(", notes.txt ").append(dv.findViewWithTag("refs-pick:notes.txt") != null).append('\n');
+    boolean fOk = dv.findViewWithTag("refs-pick:notes.txt") != null && dv.findViewWithTag("refs-pick:beach.png") == null;
+    RefBrowser.last.dismiss();
+    DbFilter.current = "A";
+    // Prompts page: Prompt files opens with its 40 prompt files; F there too.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    for (int i = 0; i < 10; i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    out.append("Prompt files: shown ").append(findText(pane, "PROMPT FILES") != null).append(", cards ").append(findText(pane, "prompt-0.prompt") != null && findText(pane, "prompt-39.prompt") != null)
+        .append(", F ").append(pane.findViewWithTag("refs-filter:F") != null).append(", G ").append(pane.findViewWithTag("refs-filter:G") != null).append('\n');
+    pane.findViewWithTag("gallery-tab:0").performClick();
+    idle();
+    pane.findViewWithTag("refs-filter:F").performClick();
+    idle();
+    out.append("Ref files F: notes.txt ").append(findText(pane, "\u2605 notes.txt") != null).append(", beach.png ").append(findText(pane, "beach.png") != null).append('\n');
+    boolean galleryOk = findText(pane, "\u2605 notes.txt") != null && findText(pane, "beach.png") == null;
+    pane.findViewWithTag("refs-filter:A").performClick();
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    refsOpen.setAccessible(true);
+    refsOpen.set(null, false);
+    // The Media browser: Add to favourites; F keeps the favourites.
+    String[] items = MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false);
+    out.append("media menu has ").append(FileFavourites.ADD_SHORT).append(": ").append(java.util.Arrays.asList(items).contains(FileFavourites.ADD_SHORT)).append(", filters ").append(String.join(" ", MediaDir.FILTERS)).append('\n');
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "sky.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    FileFavourites.toggleKey(MediaDir.groupKey(all.get(1)));
+    StringBuilder kept = new StringBuilder();
+    for (MediaDir.Entry e : MediaDir.filtered(all, "F")) kept.append(e.name).append(' ');
+    out.append("media F: ").append(kept).append('\n');
+    FileFavourites.reset();
+    FileFavourites.load(app.getFilesDir());
+    out.append("kept after a restart: ").append(FileFavourites.isKey(MediaDir.groupKey(all.get(1)))).append('\n');
+    write("s143_favourites_letter", out.toString());
+    FileFavourites.reset();
+    FileGroups.reset();
+    if (!fOk || !galleryOk || !"sky.png ".equals(kept.toString())) throw new AssertionError(out.toString());
+  }
+
   private static List<Engine.Part> songPartsForStack() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));

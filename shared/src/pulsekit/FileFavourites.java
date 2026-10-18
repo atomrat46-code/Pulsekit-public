@@ -30,7 +30,8 @@ public final class FileFavourites {
     try {
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String t = line.trim();
-        if (t.matches("\\d+:\\d+") && !KEYS.contains(t)) KEYS.add(t);
+        // A library file ("3:42"), or a Media browser file ("file:beach.png|1234").
+        if ((t.matches("\\d+:\\d+") || t.startsWith("file:")) && !KEYS.contains(t)) KEYS.add(t);
       }
     } catch (Exception ignored) {
       // none kept
@@ -67,6 +68,24 @@ public final class FileFavourites {
     String k = key(f);
     boolean now = !KEYS.remove(k);
     if (now) KEYS.add(k);
+    save();
+    return now;
+  }
+
+  /** F by the A I V S T letters: the favourites only. */
+  public static final String LETTER = "F";
+  /** A Media browser file's menu item (Remove from favourites when it is one). */
+  public static final String ADD_SHORT = "Add to favourites";
+  public static final String REMOVE_SHORT = "Remove from favourites";
+
+  /** A file outside the library (the Media browser's, by its MediaDir.groupKey) among the favourites. */
+  public static synchronized boolean isKey(String key) {
+    return key != null && KEYS.contains(key);
+  }
+
+  public static synchronized boolean toggleKey(String key) {
+    boolean now = !KEYS.remove(key);
+    if (now) KEYS.add(key);
     save();
     return now;
   }

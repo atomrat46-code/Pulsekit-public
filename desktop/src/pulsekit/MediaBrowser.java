@@ -194,6 +194,7 @@ final class MediaBrowser {
         // The type selector (A I V S T O), then the tag filter: what of the folder is shown.
         MediaTags.load(PromptDb.dir());
         FileGroups.load(PromptDb.dir());
+        FileFavourites.load(PromptDb.dir());
         final List<MediaDir.Entry> entries = MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter);
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
@@ -771,10 +772,23 @@ final class MediaBrowser {
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
         final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true);
+        // A favourite already: Remove from favourites.
+        FileFavourites.load(PromptDb.dir());
+        final boolean fav = FileFavourites.isKey(MediaDir.groupKey(entry));
+        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
+            if (FileFavourites.ADD_SHORT.equals(items[i]) || FileFavourites.REMOVE_SHORT.equals(items[i])) {
+                item.setName("media-menu:favourite");
+                item.addActionListener(e -> {
+                    boolean now = FileFavourites.toggleKey(MediaDir.groupKey(entry));
+                    app.setNow(entry.name + (now ? " added to favourites" : " taken out of favourites"));
+                });
+                menu.add(item);
+                continue;
+            }
             if (FileGroups.ADD.equals(items[i])) {
                 // Add to group: the groups' list where the menu was.
                 item.setName("media-menu:" + items[i]);

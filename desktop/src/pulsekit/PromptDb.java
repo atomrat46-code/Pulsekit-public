@@ -101,12 +101,10 @@ final class PromptDb {
     /** The `only` kind's files, then only those Browse DB's A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        // G: only the files of the group G shows.
-        boolean group = FileGroups.LETTER.equals(DbFilter.current);
-        if (group) FileGroups.load(dir());
-        for (PromptVault.StoredFile f : files(results, only)) {
-            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
-        }
+        // F: only the favourites; G: only the files of the group G shows.
+        FileGroups.load(dir());
+        FileFavourites.load(dir());
+        for (PromptVault.StoredFile f : files(results, only)) if (DbFilter.fits(f, DbFilter.current)) out.add(f);
         return out;
     }
 
@@ -415,11 +413,9 @@ final class PromptDb {
     /** A Browse DB card's right click menu shown last, for the tests. */
     javax.swing.JPopupMenu lastCardMenu;
 
-    /** A I V S T and G (a group). */
+    /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
-        out[out.length - 1] = FileGroups.LETTER;
-        return out;
+        return DbFilter.WITH_FAV_GROUP.clone();
     }
 
     /** The Browse DB dialog shown last, for the tests. */
@@ -801,8 +797,8 @@ final class PromptDb {
         }
         List<PromptVault.StoredFile> every = kind == 2 ? promptFiles() : stored(results);
         List<PromptVault.StoredFile> kept = new ArrayList<PromptVault.StoredFile>();
-        boolean inGroup = FileGroups.LETTER.equals(galleryFilter);
-        for (PromptVault.StoredFile f : every) if (inGroup ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) kept.add(f);
+        FileFavourites.load(dir());
+        for (PromptVault.StoredFile f : every) if (DbFilter.fits(f, galleryFilter)) kept.add(f);
         // Category tabs: All, the main categories the files' prompts are in, No category.
         final PromptVault tabsLib = lib;
         List<long[]> tabs = FileFavourites.tabs(lib, kept);
