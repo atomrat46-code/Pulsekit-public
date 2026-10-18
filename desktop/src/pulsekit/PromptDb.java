@@ -455,6 +455,16 @@ final class PromptDb {
         } catch (Exception ex) {
             vault = null;
         }
+        // The cards' previews: their reads are no "Processing DB" (one after another, the notice kept coming back).
+        PromptVault.quiet(true);
+        try {
+            return this.cards(grid, vault, list, click, menu, tag, play);
+        } finally {
+            PromptVault.quiet(false);
+        }
+    }
+
+    private JPanel cards(JPanel grid, PromptVault vault, List<PromptVault.StoredFile> list, CardAction click, CardAction menu, String tag, boolean play) {
         for (final PromptVault.StoredFile file : list) {
             String name = file.name == null ? "file" : file.name;
             JButton card = new JButton();

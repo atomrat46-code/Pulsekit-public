@@ -888,6 +888,8 @@ public final class PromptSheet {
     final List<Runnable> slotJobs = new java.util.ArrayList<Runnable>(SLOT_JOBS);
     SLOT_JOBS.clear();
     new Thread(() -> {
+      // The previews' reads are no "Processing DB" (one after another, the notice kept coming back).
+      PromptVault.quiet(true);
       try {
         readRefThumbs(activity, token, views, marks, subs, ids, slots, names, px);
         // Then the prompt files' small thumbnails, one at a time.
@@ -1820,6 +1822,7 @@ public final class PromptSheet {
         lp.rightMargin = dp(activity, 8);
         thumbs.addView(box, lp);
         new Thread(() -> {
+          PromptVault.quiet(true);
           Bitmap b = refThumb(activity, n, vault.fileBytes(owner.id, slot), px);
           if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
         }, "pulsekit-prompt-file-thumb").start();

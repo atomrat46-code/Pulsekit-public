@@ -135,6 +135,26 @@ public final class PromptVault {
   private static volatile long busySince;
   private static volatile String busyWhat = "";
 
+  /**
+   * Set on a thread that reads files for thumbnails in the background (the galleries, Browse DB):
+   * its reads are not "Processing DB" (one after another for minutes, the notice kept coming back).
+   */
+  private static final ThreadLocal<Boolean> QUIET = new ThreadLocal<Boolean>();
+
+  public static void quiet(boolean on) {
+    if (on) QUIET.set(Boolean.TRUE);
+    else QUIET.remove();
+  }
+
+  /** When the library became busy (0: it is not), so a notice is given once for each time. */
+  public static long busySince() {
+    return busySince;
+  }
+
+  private static boolean quietRead() {
+    return QUIET.get() != null;
+  }
+
   private static void begin(String what) {
     if (BUSY.getAndIncrement() == 0) {
       busyWhat = what;
@@ -1377,7 +1397,8 @@ public final class PromptVault {
     if (name.equals(lastBlob) && lastBlobBytes != null) return copy(lastBlobBytes);
     File blob = new File(file.getParentFile(), name);
     if (!blob.isFile()) return new byte[0];
-    begin("Reading a file from the encrypted database");
+    boolean quiet = quietRead();
+    if (!quiet) begin("Reading a file from the encrypted database");
     try {
       byte[] raw = new byte[(int) blob.length()];
       DataInputStream fin = new DataInputStream(new FileInputStream(blob));
@@ -1399,7 +1420,7 @@ public final class PromptVault {
     } catch (Exception ex) {
       return new byte[0];
     } finally {
-      end();
+      if (!quiet) end();
     }
   }
 

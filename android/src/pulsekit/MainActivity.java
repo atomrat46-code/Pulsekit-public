@@ -311,9 +311,10 @@ public class MainActivity extends UiKit {
     final Runnable dbWatch = new Runnable() {
         public void run() {
             String what = PromptVault.busy(600);
-            long now = System.currentTimeMillis();
-            if (what != null && now - MainActivity.this.dbToastAt > 2500) {
-                MainActivity.this.dbToastAt = now;
+            // Once for each time the library is busy (it kept coming back every 2.5 s while it lasted).
+            long since = PromptVault.busySince();
+            if (what != null && since != MainActivity.this.dbToastAt) {
+                MainActivity.this.dbToastAt = since;
                 if (MainActivity.this.dbToast != null) MainActivity.this.dbToast.cancel();
                 MainActivity.this.dbToast = android.widget.Toast.makeText(MainActivity.this, "Processing DB, please wait\u2026\n" + what, android.widget.Toast.LENGTH_SHORT);
                 MainActivity.this.dbToast.show();

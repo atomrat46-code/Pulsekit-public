@@ -381,8 +381,9 @@ final class RefBrowser {
             .setNegativeButton("Cancel", null)
             .show();
         last = dialog[0];
-        // Previews come in the background, as on the Prompts page.
+        // Previews come in the background, as on the Prompts page (no "Processing DB" for them).
         new Thread(() -> {
+            PromptVault.quiet(true);
             for (int i = 0; i < files.size(); i++) {
                 if (dialog[0] == null || !dialog[0].isShowing()) return;
                 PromptVault.StoredFile f = files.get(i);
