@@ -1286,10 +1286,21 @@ final class PyJav {
     void offerVideo(File video, int count) {
         Object[] options = new Object[] {"Play", "Open", "Close"};
         String more = count > 1 ? "\n" + (count - 1) + " more " + (count == 2 ? "video is" : "videos are") + " saved beside it." : "";
+        // With VLC the video plays here (right click: Extract frame); without it, in the browser.
+        boolean vlc = VlcPlayer.available();
         int ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
-            + "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume.", "Video ready",
+            + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
+                : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         try {
+            if (ans == 0 && vlc) {
+                try {
+                    app.promptDb.vlcPreview(video.getName(), video);
+                    return;
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() != null ? ex.getMessage() : "VLC could not play " + video.getName());
+                }
+            }
             if (ans == 0) java.awt.Desktop.getDesktop().browse(this.videoPage(video).toURI());
             else if (ans == 1) java.awt.Desktop.getDesktop().open(video);
         } catch (Exception ex) {

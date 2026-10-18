@@ -3690,6 +3690,35 @@ public class BehaviorTest {
     if (!outside || backRefs != refsAt || backRes != resAt || c.form.isEmpty() || c.stack.size() <= before || app.variatedFills.size() <= had || clock == null || !clock.getText().toString().matches("\\d\\d:\\d\\d / \\d\\d:\\d\\d")) throw new AssertionError(out.toString());
   }
 
+  /** Video ready: a long press on the clip pauses it and has Extract frame: a PNG in Downloads' SC folder, then Picture ready. */
+  @Test
+  public void s141_video_ready_extract_frame() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    String path = new File(new File(app.getCacheDir(), "video-offer"), "walk.mp4").getAbsolutePath();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 9, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(path), 0, bmp);
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player p = VideoOffer.last;
+    p.play.performClick();
+    out.append("playing ").append(p.playing);
+    p.view.performLongClick();
+    idle();
+    out.append(", long press: playing ").append(p.playing).append(", menu ").append(org.robolectric.Shadows.shadowOf(p.menu).getTitle()).append(": ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(0);
+    for (int i = 0; i < 50 && (p.extracted == null || PictureOffer.last == null || !PictureOffer.last.isShowing()); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    out.append("saved: ").append(p.extracted).append(", status ").append(((TextView) get("now")).getText()).append('\n');
+    out.append("Picture ready: ").append(PictureOffer.last != null && PictureOffer.last.isShowing() ? org.robolectric.Shadows.shadowOf(PictureOffer.last).getTitle() : "not shown").append('\n');
+    if (PictureOffer.last != null) PictureOffer.last.dismiss();
+    write("s141_video_ready_extract_frame", out.toString());
+    if (p.playing || p.extracted == null || !p.extracted.endsWith("SC/walk-0m00s000.png")) throw new AssertionError(out.toString());
+  }
+
   private static List<Engine.Part> songPartsForStack() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));

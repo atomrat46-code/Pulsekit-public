@@ -1475,6 +1475,9 @@ final class PromptDb {
         this.vlcPreview(name, video, false, false);
     }
 
+    /** The right click's menu shown last (Extract frame), for the tests. */
+    javax.swing.JPopupMenu lastFrameMenu;
+
     /** The last frame C saved, for the tests. */
     File lastCapture;
 
@@ -1682,6 +1685,21 @@ final class PromptDb {
         sound.add(volume);
         sound.add(level);
         transport.add(looping);
+        // Right click (the phone's long press): paused, then Extract frame (into the SC folder beside the video).
+        player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isRightMouseButton(e)) return;
+                if (player.playing()) player.pause();
+                javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+                javax.swing.JMenuItem extract = new javax.swing.JMenuItem("Extract frame");
+                extract.setName("video-extract-frame");
+                extract.addActionListener(ev -> PromptDb.this.captureFrame(name, video, player));
+                m.add(extract);
+                PromptDb.this.lastFrameMenu = m;
+                m.show(player.screen, e.getX(), e.getY());
+            }
+        });
         if (remember) {
             sound.setVisible(false);
             // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
@@ -1694,6 +1712,8 @@ final class PromptDb {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     this.held = false;
+                    this.at = null;
+                    if (!SwingUtilities.isLeftMouseButton(e)) return;
                     this.at = e.getPoint();
                     this.hold = new javax.swing.Timer(600, ev -> {
                         this.held = true;

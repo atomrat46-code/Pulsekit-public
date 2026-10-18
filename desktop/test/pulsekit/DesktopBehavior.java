@@ -5140,6 +5140,50 @@ public final class DesktopBehavior {
     if (!topOutside || backRefs != 300 || backRes != 120 || galleryBack != 250 || c.form.isEmpty() || c.stack.size() <= before || seen.indexOf("Variate") < 0) throw new AssertionError(out.toString());
   }
 
+  /** Video ready: Play plays it here (VLC); a right click (the phone's long press) pauses it and has Extract frame, into SC beside the video. */
+  void s123_video_ready_extract_frame() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File runs = new File(home, "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add("Play");
+    // Answered (Fit) so the test's watcher leaves the player open.
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> pj.offerVideo(clip, 1));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    idle();
+    final JDialog dialog = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    out.append("player: ").append(dialog == null ? "none" : dialog.getTitle()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(1000);
+    out.append("playing ").append(player.playing());
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 20, 20, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    Thread.sleep(600);
+    final PromptDb db = (PromptDb) get("promptDb");
+    javax.swing.JMenuItem item = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(0);
+    out.append(", right click: playing ").append(player.playing()).append(", menu ").append(item.getText()).append('\n');
+    edt(() -> item.doClick());
+    edt(() -> db.lastFrameMenu.setVisible(false));
+    File sc = new File(runs, MediaDir.FRAMES_DIR);
+    String[] got = sc.list();
+    out.append("SC folder: ").append(got == null ? "none" : got.length + " file(s), " + (got.length > 0 && got[0].matches("walk-0m0\\ds\\d{3}\\.png") ? "named walk-<time>.png" : String.join(",", got))).append('\n');
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    if (got == null || got.length != 1 || player.playing()) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));
