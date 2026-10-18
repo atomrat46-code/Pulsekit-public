@@ -4950,12 +4950,12 @@ public final class DesktopBehavior {
       ((javax.swing.JButton) component(frame, "composer-form:AABA")).doClick();
       seen.append("AABA: ").append(page.composer().formLabel()).append('\n');
       ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
-      ((javax.swing.JMenuItem) page.lastMenu.getComponent(0)).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(0)).doClick();
       ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
-      ((javax.swing.JMenuItem) page.lastMenu.getComponent(1)).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(1)).doClick();
       page.composer().part("Verse").entries.get(0).repeats = 2;
       ((javax.swing.JButton) component(frame, "composer-part-sub:Bridge")).doClick();
-      ((javax.swing.JMenuItem) page.lastMenu.getComponent(0)).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(0)).doClick();
       seen.append("Verse: ").append(page.composer().part("Verse").entries.get(0).label()).append(", ").append(page.composer().part("Verse").entries.get(1).label())
           .append("; Bridge: ").append(page.composer().part("Bridge").entries.get(0).label()).append('\n');
       ((javax.swing.JButton) component(frame, "composer-to-song")).doClick();

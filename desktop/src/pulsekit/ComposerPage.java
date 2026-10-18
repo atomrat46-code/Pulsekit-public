@@ -38,7 +38,7 @@ final class ComposerPage {
     Composer composer;
     JPanel body;
     /** The menu shown last (for the tests). */
-    JPopupMenu lastMenu;
+    JPopupMenu lastComposerMenu;
 
     ComposerPage(Pulsekit app) {
         this.app = app;
@@ -254,7 +254,7 @@ final class ComposerPage {
             it.addActionListener(e -> r.run());
             m.add(it);
         }
-        this.lastMenu = m;
+        this.lastComposerMenu = m;
         if (anchor != null && anchor.isShowing()) m.show(anchor, 0, anchor.getHeight());
         return m;
     }
