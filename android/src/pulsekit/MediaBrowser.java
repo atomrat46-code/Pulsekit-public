@@ -911,15 +911,25 @@ final class MediaBrowser {
 
     /** The type selectors: A all, I pictures, V videos, S sounds, T text, O other files. */
     private void filters() {
+        FileGroups.load(this.app.getFilesDir());
         LinearLayout row = this.app.row();
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
+            final boolean g = FileGroups.LETTER.equals(f);
             int n = MediaDir.count(this.allEntries, f);
-            TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
+            // G: a group's files (held: the list of groups).
+            final Runnable toGroup = () -> {
+                MediaDir.filter = FileGroups.LETTER;
+                this.refilter();
+            };
+            TextView pill = this.app.pill(g ? FileGroups.label() : f, f.equals(MediaDir.filter), v -> {
+                if (g && !GroupDialogs.tap(this.app, toGroup)) return;
                 MediaDir.filter = f;
-                this.entries = this.shownEntries();
-                this.page = 0;
-                this.paint();
+                this.refilter();
+            });
+            if (g) pill.setOnLongClickListener(v -> {
+                GroupDialogs.pick(this.app, toGroup);
+                return true;
             });
             pill.setTag("media-filter:" + f);
             pill.setContentDescription(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
@@ -942,9 +952,17 @@ final class MediaBrowser {
         this.body.addView(row);
     }
 
+    /** The type selector (or G's group) picked: the folder shown again with what it keeps. */
+    void refilter() {
+        this.entries = this.shownEntries();
+        this.page = 0;
+        this.paint();
+    }
+
     /** The folder's files the type selector and the tag filter keep. */
     List<MediaDir.Entry> shownEntries() {
         MediaTags.load(this.app.getFilesDir());
+        FileGroups.load(this.app.getFilesDir());
         return MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter);
     }
 
@@ -1467,6 +1485,9 @@ final class MediaBrowser {
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
                 if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                else if (FileGroups.ADD.equals(items[which])) GroupDialogs.addTo(this.app, MediaDir.groupKey(e), e.name, () -> {
+                    if (FileGroups.LETTER.equals(MediaDir.filter)) this.refilter();
+                });
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);

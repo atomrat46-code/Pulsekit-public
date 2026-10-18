@@ -163,7 +163,12 @@ final class RefBrowser {
     /** The `only` kind's files, then only those the A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(Activity activity, boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        for (PromptVault.StoredFile f : files(activity, results, only)) if (DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        // G: only the files of the group G shows.
+        boolean group = FileGroups.LETTER.equals(DbFilter.current);
+        if (group) FileGroups.load(activity.getFilesDir());
+        for (PromptVault.StoredFile f : files(activity, results, only)) {
+            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        }
         return out;
     }
 
@@ -171,8 +176,16 @@ final class RefBrowser {
     static final int[] scrollAt = new int[2];
     /** Set by a tab's button: the tab opening goes back to its place. */
     static boolean switched;
-    /** The browser shown last (for the tests). */
+    /** The browser shown last, and a card's long press menu (for the tests). */
     static AlertDialog last;
+    static AlertDialog menu;
+
+    /** A I V S T and G (a group). */
+    static String[] withGroup() {
+        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
+        out[out.length - 1] = FileGroups.LETTER;
+        return out;
+    }
 
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
         final List<PromptVault.StoredFile> files = shown(activity, results, only);
@@ -217,10 +230,19 @@ final class RefBrowser {
         // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is lit.
         LinearLayout letters = new LinearLayout(activity);
         letters.setOrientation(LinearLayout.HORIZONTAL);
-        for (final String letter : DbFilter.LETTERS) {
+        FileGroups.load(activity.getFilesDir());
+        FileFavourites.load(activity.getFilesDir());
+        final Runnable again = () -> {
+            if (dialog[0] != null) dialog[0].dismiss();
+            browse(activity, results, only, picked);
+        };
+        for (final String letter : withGroup()) {
+            final boolean g = FileGroups.LETTER.equals(letter);
             boolean on = letter.equals(DbFilter.current);
             TextView b = new TextView(activity);
-            b.setText(letter);
+            b.setText(g ? FileGroups.label() : letter);
+            b.setSingleLine(true);
+            b.setEllipsize(android.text.TextUtils.TruncateAt.END);
             b.setGravity(Gravity.CENTER);
             b.setTextSize(16);
             b.setTag("db-filter:" + letter);
@@ -230,13 +252,22 @@ final class RefBrowser {
             bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
             b.setBackground(bg);
             b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
+            // G: the group picked before (the list when there is none); held, the list of groups.
+            final Runnable toGroup = () -> {
+                DbFilter.current = FileGroups.LETTER;
+                again.run();
+            };
             b.setOnClickListener(v -> {
                 if (letter.equals(DbFilter.current)) return;
+                if (g && !GroupDialogs.tap(activity, toGroup)) return;
                 DbFilter.current = letter;
-                if (dialog[0] != null) dialog[0].dismiss();
-                browse(activity, results, only, picked);
+                again.run();
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
+            if (g) b.setOnLongClickListener(v -> {
+                GroupDialogs.pick(activity, toGroup);
+                return true;
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), g ? 2f : 1f);
             lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
             letters.addView(b, lp);
         }
@@ -276,7 +307,7 @@ final class RefBrowser {
             card.setTag("refs-pick:" + name);
             card.addView(frame);
             TextView caption = new TextView(activity);
-            caption.setText(name);
+            caption.setText(FileFavourites.shown(file, name));
             caption.setMaxLines(2);
             caption.setPadding(0, gap / 2, 0, 0);
             card.addView(caption);
@@ -297,6 +328,25 @@ final class RefBrowser {
             card.setOnClickListener(v -> {
                 lastPicked = file.versionId + ":" + file.which;
                 if (use(activity, vault, file, picked) && dialog[0] != null) dialog[0].dismiss();
+            });
+            // Long press: Add to favourites (★ on the card), Add to group.
+            final String shownName = name;
+            card.setOnLongClickListener(v -> {
+                final boolean fav = FileFavourites.is(file);
+                menu = new AlertDialog.Builder(activity)
+                    .setTitle(shownName)
+                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD}, (d, w) -> {
+                        if (w == 0) {
+                            boolean now = FileFavourites.toggle(file);
+                            if (activity instanceof MainActivity) ((MainActivity) activity).setNow(shownName + (now ? " added to favourites" : " taken out of favourites"));
+                            again.run();
+                        } else {
+                            GroupDialogs.addTo(activity, FileGroups.key(file), shownName, FileGroups.LETTER.equals(DbFilter.current) ? again : null);
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+                return true;
             });
             LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(cell, -2);
             if (i % 2 == 1) cardLp.leftMargin = gap;

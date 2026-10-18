@@ -3383,10 +3383,19 @@ public class BehaviorTest {
     out.append("program ").append(d.programBtn.getText()).append(", prompt ").append(d.promptBtn.getText()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
     d.run = 1;
     d.setSlot(2);
+    // Saved Params with an old picture in the slot: they win over the run's arguments, so the picture goes there too.
+    PyJavParams.store(app, "SogniPedit.java", "--image2 old2.png --steps 4");
     d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     String args = ((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
     out.append("Open: view ").append(get("view")).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    String saved = PyJavParams.load(app, "SogniPedit.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    String[] values = ProgramParams.values(ps, saved, ((PyJav) get("pyJav")).pkPyArgs.getText().toString());
+    String shown = "";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--image2")) shown = values[i];
+    shown = shown.replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
+    out.append("Params: --image2 ").append(shown).append(", saved ").append(saved.replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~")).append('\n');
     // Next time: the same choices.
     PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
     idle();
@@ -3395,7 +3404,7 @@ public class BehaviorTest {
     ProcessRefDialog again = ProcessRefDialog.last;
     out.append("kept: prompt ").append(again.promptBtn.getText()).append(", slot ").append(again.slot).append('\n');
     again.dialog.dismiss();
-    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java")) throw new AssertionError(out.toString());
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java") || !shown.equals("~/look.png")) throw new AssertionError(out.toString());
     write("s137_process_as_reference", out.toString());
   }
 
@@ -3679,6 +3688,161 @@ public class BehaviorTest {
     idle();
     write("s140_sunday_notes", out.toString());
     if (!outside || backRefs != refsAt || backRes != resAt || c.form.isEmpty() || c.stack.size() <= before || app.variatedFills.size() <= had || clock == null || !clock.getText().toString().matches("\\d\\d:\\d\\d / \\d\\d:\\d\\d")) throw new AssertionError(out.toString());
+  }
+
+  /** Video ready: a long press on the clip pauses it and has Extract frame: a PNG in Downloads' SC folder, then Picture ready. */
+  @Test
+  public void s141_video_ready_extract_frame() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    String path = new File(new File(app.getCacheDir(), "video-offer"), "walk.mp4").getAbsolutePath();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 9, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(path), 0, bmp);
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player p = VideoOffer.last;
+    p.play.performClick();
+    out.append("playing ").append(p.playing);
+    p.view.performLongClick();
+    idle();
+    out.append(", long press: playing ").append(p.playing).append(", menu ").append(org.robolectric.Shadows.shadowOf(p.menu).getTitle()).append(": ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(0);
+    for (int i = 0; i < 50 && (p.extracted == null || PictureOffer.last == null || !PictureOffer.last.isShowing()); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    out.append("saved: ").append(p.extracted).append(", status ").append(((TextView) get("now")).getText()).append('\n');
+    out.append("Picture ready: ").append(PictureOffer.last != null && PictureOffer.last.isShowing() ? org.robolectric.Shadows.shadowOf(PictureOffer.last).getTitle() : "not shown").append('\n');
+    if (PictureOffer.last != null) PictureOffer.last.dismiss();
+    idle();
+    // Capture frame and process as a reference: the frame into a program, as in Picture ready; the video closes.
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniVideo.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", pedit, null);
+    String before = p.extracted;
+    p.play.performClick();
+    p.view.performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(1);
+    for (int i = 0; i < 50 && (ProcessRefDialog.last == null || ProcessRefDialog.last.dialog == null || !ProcessRefDialog.last.dialog.isShowing()); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    ProcessRefDialog r = ProcessRefDialog.last;
+    out.append("process: video ").append(p.dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName() + ", program " + r.programBtn.getText())
+        .append(", saved again ").append(p.extracted != null && !p.extracted.equals(before)).append('\n');
+    if (r != null) {
+      r.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      out.append("Open: program ").append(get("pyName")).append(", args ").append(((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~")).append('\n');
+    }
+    write("s141_video_ready_extract_frame", out.toString());
+    if (p.playing || before == null || !before.endsWith("SC/walk-0m00s000.png") || r == null || p.dialog.isShowing()
+        || !((PyJav) get("pyJav")).pkPyArgs.getText().toString().contains("walk-0m00s000")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Groups: Browse DB's long press has Add to favourites (★ on the card) and Add to group (New
+   * group…); G by A I V S T shows the group picked (a long press on G lists the groups). The Ref
+   * files gallery has Add to group and G too; the Media browser's file menu has Add to group, and
+   * its G keeps the group's files.
+   */
+  @Test
+  public void s142_file_groups() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    java.util.function.Function<String, View> inBrowser = tag -> RefBrowser.last.getWindow().getDecorView().findViewWithTag(tag);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    out.append("G button: ").append(((TextView) inBrowser.apply("db-filter:G")).getText()).append('\n');
+    // beach.png into a new group, Trip.
+    inBrowser.apply("refs-pick:beach.png").performLongClick();
+    idle();
+    out.append("card menu: ").append(listItems(RefBrowser.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(1);
+    idle();
+    out.append("groups: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-new-name")).setText("Trip");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("after New group: ").append(((TextView) get("now")).getText()).append('\n');
+    // dune.png into Trip too, from the list.
+    inBrowser.apply("refs-pick:dune.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(1);
+    idle();
+    out.append("groups for dune.png: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    // notes.txt a favourite.
+    inBrowser.apply("refs-pick:notes.txt").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(0);
+    idle();
+    out.append("favourite: ").append(findText(RefBrowser.last.getWindow().getDecorView(), "\u2605 notes.txt") != null ? "\u2605 notes.txt" : "no star").append('\n');
+    // G: no group picked yet, so the list; Trip shows its two files.
+    inBrowser.apply("db-filter:G").performClick();
+    idle();
+    out.append("G list: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    StringBuilder shown = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) shown.append(n).append(' ');
+    out.append("G \u00b7 Trip: ").append(shown).append("| button ").append(((TextView) inBrowser.apply("db-filter:G")).getText()).append('\n');
+    inBrowser.apply("db-filter:G").performLongClick();
+    idle();
+    out.append("G held: ").append(listItems(GroupDialogs.last)).append('\n');
+    GroupDialogs.last.dismiss();
+    RefBrowser.last.dismiss();
+    DbFilter.current = "A";
+    idle();
+    // The Ref files gallery: Add to group in a card's menu, and G.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    TextView g = (TextView) pane.findViewWithTag("refs-filter:G");
+    out.append("gallery G: ").append(g == null ? "missing" : g.getText());
+    g.performClick();
+    idle();
+    out.append(", shows beach.png ").append(findText(pane, "beach.png") != null).append(", notes.txt ").append(findText(pane, "notes.txt") != null || findText(pane, "\u2605 notes.txt") != null).append('\n');
+    pane.findViewWithTag("refs-filter:A").performClick();
+    refsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    // The Media browser: Add to group in a file's menu; G keeps the group's files.
+    out.append("media menu has ").append(FileGroups.ADD).append(": ").append(java.util.Arrays.asList(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false)).contains(FileGroups.ADD)).append('\n');
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "sky.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    FileGroups.toggle("Trip", MediaDir.groupKey(all.get(0)));
+    StringBuilder kept = new StringBuilder();
+    for (MediaDir.Entry e : MediaDir.filtered(all, "G")) kept.append(e.name).append(' ');
+    out.append("media G \u00b7 Trip: ").append(kept).append(", count ").append(MediaDir.count(all, "G")).append('\n');
+    // Kept across a restart.
+    FileGroups.reset();
+    FileGroups.load(app.getFilesDir());
+    out.append("kept: ").append(FileGroups.names()).append(", shown ").append(FileGroups.shown).append(", in Trip ").append(FileGroups.groupsOf(MediaDir.groupKey(all.get(0)))).append('\n');
+    write("s142_file_groups", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty()) throw new AssertionError(out.toString());
   }
 
   private static List<Engine.Part> songPartsForStack() {

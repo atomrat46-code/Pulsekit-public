@@ -4835,6 +4835,8 @@ public final class DesktopBehavior {
     PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
     final File pic = new File(System.getProperty("user.home"), "look.png");
     javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    // Saved Params with an old picture in the slot: they win over the run's arguments, so the picture goes there too.
+    pj.saveParams("SogniPedit.java", "--image2 old2.png --steps 4");
     answers.add("(keep)");
     SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
     for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
@@ -4849,9 +4851,15 @@ public final class DesktopBehavior {
     idle();
     String args = pj.pyExtra.getText().replace(pic.getAbsolutePath(), "~/look.png");
     out.append(seen).append("Open: view ").append(((Pulsekit) frame).view).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    String saved = pj.loadParams("SogniPedit.java");
+    List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    String[] values = ProgramParams.values(ps, saved, pj.pyExtra.getText());
+    String shown = "";
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--image2")) shown = values[i].replace(pic.getAbsolutePath(), "~/look.png");
+    out.append("Params: --image2 ").append(shown).append(", saved ").append(saved.replace(pic.getAbsolutePath(), "~/look.png")).append('\n');
     ProcessAsRef.Choice kept = ProcessAsRef.load(PromptDb.dir());
     out.append("kept: ").append(kept.program).append(", slot ").append(kept.slot).append('\n');
-    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2) throw new AssertionError(out.toString());
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2 || !shown.equals("~/look.png")) throw new AssertionError(out.toString());
   }
 
   /**
@@ -5130,6 +5138,180 @@ public final class DesktopBehavior {
     String html = new String(Files.readAllBytes(((File) call("videoPage", clip)).toPath()), StandardCharsets.UTF_8);
     out.append("video clock: ").append(html.contains(">00:00 / 00:00<")).append(", minutes padded ").append(html.contains("(m<10?'0':'')+m")).append('\n');
     if (!topOutside || backRefs != 300 || backRes != 120 || galleryBack != 250 || c.form.isEmpty() || c.stack.size() <= before || seen.indexOf("Variate") < 0) throw new AssertionError(out.toString());
+  }
+
+  /** Video ready: Play plays it here (VLC); a right click (the phone's long press) pauses it and has Extract frame, into SC beside the video. */
+  void s123_video_ready_extract_frame() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File runs = new File(home, "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add("Play");
+    // Answered (Fit) so the test's watcher leaves the player open.
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> pj.offerVideo(clip, 1));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    idle();
+    final JDialog dialog = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    out.append("player: ").append(dialog == null ? "none" : dialog.getTitle()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(1000);
+    out.append("playing ").append(player.playing());
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 20, 20, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    Thread.sleep(600);
+    final PromptDb db = (PromptDb) get("promptDb");
+    javax.swing.JMenuItem item = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(0);
+    out.append(", right click: playing ").append(player.playing()).append(", menu ").append(item.getText()).append('\n');
+    edt(() -> item.doClick());
+    edt(() -> db.lastFrameMenu.setVisible(false));
+    File sc = new File(runs, MediaDir.FRAMES_DIR);
+    String[] got = sc.list();
+    out.append("SC folder: ").append(got == null ? "none" : got.length + " file(s), " + (got.length > 0 && got[0].matches("walk-0m0\\ds\\d{3}\\.png") ? "named walk-<time>.png" : String.join(",", got))).append('\n');
+    // Capture frame and process as a reference: the frame into a program, as in Picture ready; the video closes.
+    String sv = ProgramFiles.bundledSource("SogniVideo.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", sv, null);
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 20, 20, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    final javax.swing.JMenuItem process = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(1);
+    out.append("second item: ").append(process.getText()).append('\n');
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      process.doClick();
+      db.lastFrameMenu.setVisible(false);
+    });
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    idle();
+    final ProcessRefDialog r = ProcessRefDialog.last;
+    String[] now = sc.list();
+    out.append("process: video ").append(dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName().replaceAll("\\d", "#") + ", programs " + r.programs)
+        .append(", SC files ").append(now == null ? 0 : now.length).append('\n');
+    if (r != null) {
+      edt(() -> ((javax.swing.JButton) component(r.dialog.getContentPane(), "process-ref-open")).doClick());
+      out.append("Open: program ").append(get("pyName")).append(", args ").append(pj.pyExtra.getText().replace(sc.getAbsolutePath(), "~/runs/SC").replaceAll("\\d", "#")).append('\n');
+    }
+    if (dialog.isShowing()) edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    if (got == null || got.length != 1 || r == null || dialog.isShowing() || !pj.pyExtra.getText().contains("walk-0m0")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Groups: a Browse DB card's right click has Add to favourites (★) and Add to group (New group…);
+   * G by A I V S T shows the group picked (a right click on G lists the groups). The galleries and
+   * the Media browser have Add to group and G too.
+   */
+  void s124_file_groups() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    DbFilter.current = "A";
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) PromptDb.vault().addLibraryFile(n, ("x" + n).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    java.util.function.Function<Action, JDialog> opened = a -> {
+      try {
+        final Object before = get("lastBrowse");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    final JDialog[] d = {opened.apply(() -> db.browse(false, null, (name, file) -> {}))};
+    java.util.function.Consumer<String> rightClick = name -> {
+      try {
+        edt(() -> {
+          java.awt.Component card = component(d[0], "refs-pick:" + name);
+          java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+              java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+          for (java.awt.event.MouseListener l : card.getMouseListeners()) l.mousePressed(press);
+        });
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      return sb.toString();
+    };
+    out.append("G button: ").append(((javax.swing.JButton) component(d[0], "db-filter:G")).getText()).append('\n');
+    // beach.png into a new group, Trip.
+    rightClick.accept("beach.png");
+    out.append("card menu: ").append(items.apply(db.lastCardMenu)).append('\n');
+    edt(() -> ((javax.swing.JMenuItem) component(db.lastCardMenu, "add-to-group")).doClick());
+    out.append("groups: ").append(items.apply(GroupMenus.last)).append('\n');
+    inspectNext = dlg -> {
+      javax.swing.JTextField field = null;
+      for (javax.swing.JTextField t : fields(dlg.getContentPane())) field = t;
+      if (field != null) field.setText("Trip");
+    };
+    answers.add("OK");
+    final javax.swing.JPopupMenu first = GroupMenus.last;
+    edt(() -> ((javax.swing.JMenuItem) component(first, "group-new")).doClick());
+    idle();
+    out.append("after New group: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    rightClick.accept("dune.png");
+    edt(() -> ((javax.swing.JMenuItem) component(db.lastCardMenu, "add-to-group")).doClick());
+    out.append("groups for dune.png: ").append(items.apply(GroupMenus.last)).append('\n');
+    final javax.swing.JPopupMenu second = GroupMenus.last;
+    edt(() -> ((javax.swing.JMenuItem) component(second, "group:Trip")).doClick());
+    // notes.txt a favourite: the browser opens again with ★ on it.
+    rightClick.accept("notes.txt");
+    final javax.swing.JPopupMenu fav = db.lastCardMenu;
+    d[0] = opened.apply(() -> ((javax.swing.JMenuItem) component(fav, "refs-favourite")).doClick());
+    out.append("favourite: ").append(((javax.swing.JButton) component(d[0], "refs-pick:notes.txt")).getText().contains("\u2605") ? "starred" : "no star").append('\n');
+    // G: no group picked yet, so the list; Trip shows its two files.
+    final JDialog atG = d[0];
+    edt(() -> ((javax.swing.JButton) component(atG, "db-filter:G")).doClick());
+    out.append("G list: ").append(items.apply(GroupMenus.last)).append('\n');
+    final javax.swing.JPopupMenu list = GroupMenus.last;
+    d[0] = opened.apply(() -> ((javax.swing.JMenuItem) component(list, "group-show:Trip")).doClick());
+    StringBuilder shown = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (component(d[0], "refs-pick:" + n) != null) shown.append(n).append(' ');
+    out.append("G \u00b7 Trip: ").append(shown).append("| button ").append(((javax.swing.JButton) component(d[0], "db-filter:G")).getText()).append('\n');
+    final JDialog last = d[0];
+    edt(() -> last.dispose());
+    DbFilter.current = "A";
+    // The galleries' G, and the Media browser's.
+    final JDialog[] gal = new JDialog[1];
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(0));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    idle();
+    gal[0] = (JDialog) get("lastGallery");
+    out.append("gallery G: ").append(((javax.swing.AbstractButton) component(gal[0], "gallery-filter:G")).getText()).append('\n');
+    edt(() -> gal[0].dispose());
+    out.append("media menu has ").append(FileGroups.ADD).append(": ").append(java.util.Arrays.asList(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", true)).contains(FileGroups.ADD)).append('\n');
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    for (String n : new String[] {"sea.png", "sky.png"}) Files.write(new File(pics, n).toPath(), new byte[] {1, 2, 3});
+    List<MediaDir.Entry> all = MediaBrowser.list(pics);
+    for (MediaDir.Entry e : all) if (e.name.equals("sea.png")) FileGroups.toggle("Trip", MediaDir.groupKey(e));
+    StringBuilder kept = new StringBuilder();
+    for (MediaDir.Entry e : MediaDir.filtered(all, "G")) kept.append(e.name).append(' ');
+    out.append("media G \u00b7 Trip: ").append(kept).append('\n');
+    out.append("kept: ").append(new String(Files.readAllBytes(new File(PromptDb.dir(), "file-groups.txt").toPath()), StandardCharsets.UTF_8).split("\n").length).append(" lines\n");
+    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString())) throw new AssertionError(out.toString());
   }
 
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
@@ -6190,6 +6372,16 @@ public final class DesktopBehavior {
       for (java.awt.Component k : ((java.awt.Container) c).getComponents()) if (named(k, name)) return true;
     }
     return false;
+  }
+
+  /** The text fields in a container (an input dialog's). */
+  private static List<javax.swing.JTextField> fields(java.awt.Container c) {
+    List<javax.swing.JTextField> out = new ArrayList<javax.swing.JTextField>();
+    for (Component k : c.getComponents()) {
+      if (k instanceof javax.swing.JTextField) out.add((javax.swing.JTextField) k);
+      else if (k instanceof java.awt.Container) out.addAll(fields((java.awt.Container) k));
+    }
+    return out;
   }
 
   private static List<Engine.Part> songParts() {

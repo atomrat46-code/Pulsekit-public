@@ -101,7 +101,12 @@ final class PromptDb {
     /** The `only` kind's files, then only those Browse DB's A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        for (PromptVault.StoredFile f : files(results, only)) if (DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        // G: only the files of the group G shows.
+        boolean group = FileGroups.LETTER.equals(DbFilter.current);
+        if (group) FileGroups.load(dir());
+        for (PromptVault.StoredFile f : files(results, only)) {
+            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        }
         return out;
     }
 
@@ -153,17 +158,30 @@ final class PromptDb {
             this.browse(showResults, only, picked);
         });
         // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is greyed.
-        JPanel letters = new JPanel(new GridLayout(1, DbFilter.LETTERS.length, 6, 0));
-        for (String letter : DbFilter.LETTERS) {
-            JButton b = new JButton(letter);
+        // G: a group's files (a right click on G picks the group).
+        JPanel letters = new JPanel(new GridLayout(1, DbFilter.LETTERS.length + 1, 6, 0));
+        final Runnable again = () -> {
+            dialog.dispose();
+            this.browse(results, only, picked);
+        };
+        final Runnable toGroup = () -> {
+            DbFilter.current = FileGroups.LETTER;
+            again.run();
+        };
+        FileGroups.load(dir());
+        for (String letter : withGroup()) {
+            final boolean g = FileGroups.LETTER.equals(letter);
+            final JButton b = new JButton(g ? FileGroups.label() : letter);
             b.setName("db-filter:" + letter);
-            b.setToolTipText(DbFilter.label(letter));
-            b.setEnabled(!letter.equals(DbFilter.current));
+            b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
+            b.setEnabled(!letter.equals(DbFilter.current) || g);
             b.addActionListener(e -> {
+                if (letter.equals(DbFilter.current)) return;
+                if (g && !GroupMenus.tap(app, b, toGroup)) return;
                 DbFilter.current = letter;
-                dialog.dispose();
-                this.browse(results, only, picked);
+                again.run();
             });
+            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             letters.add(b);
         }
         JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
@@ -179,7 +197,23 @@ final class PromptDb {
             lastPicked = file.name;
             dialog.dispose();
             picked.picked(file.name, copy);
-        }, null, "refs-pick:", true);
+        }, (file, card) -> {
+            // Right click: Add to favourites (★ on the card), Add to group.
+            FileFavourites.load(dir());
+            final boolean fav = FileFavourites.is(file);
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            JMenuItem favItem = new JMenuItem(fav ? "Remove from favourites" : "Add to favourites");
+            favItem.setName("refs-favourite");
+            favItem.addActionListener(e -> {
+                boolean now = FileFavourites.toggle(file);
+                app.setNow(file.name + (now ? " added to favourites" : " taken out of favourites"));
+                again.run();
+            });
+            m.add(favItem);
+            m.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, FileGroups.LETTER.equals(DbFilter.current) ? again : null));
+            this.lastCardMenu = m;
+            m.show(card, 10, 10);
+        }, "refs-pick:", true);
         // The file picked last: outlined, and scrolled to (unless a tab switch brings back that tab's place).
         final boolean switched = this.restoreScroll >= 0;
         for (java.awt.Component c : grid.getComponents()) {
@@ -377,6 +411,16 @@ final class PromptDb {
 
     /** The DB dialog shown last, for the tests. */
     JDialog lastPick;
+
+    /** A Browse DB card's right click menu shown last, for the tests. */
+    javax.swing.JPopupMenu lastCardMenu;
+
+    /** A I V S T and G (a group). */
+    static String[] withGroup() {
+        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
+        out[out.length - 1] = FileGroups.LETTER;
+        return out;
+    }
 
     /** The Browse DB dialog shown last, for the tests. */
     JDialog lastBrowse;
@@ -725,15 +769,28 @@ final class PromptDb {
         sortRow.add(sort);
         // A I V S T: all files, or only pictures, videos, sound files or text files.
         sortRow.add(javax.swing.Box.createHorizontalStrut(12));
-        for (final String letter : DbFilter.LETTERS) {
-            javax.swing.JToggleButton b = new javax.swing.JToggleButton(letter, letter.equals(galleryFilter));
+        // G: a group's files (a right click on G picks the group).
+        FileGroups.load(dir());
+        final Runnable toGroup = () -> {
+            galleryFilter = FileGroups.LETTER;
+            dialog.dispose();
+            this.gallery(kind);
+        };
+        for (final String letter : withGroup()) {
+            final boolean g = FileGroups.LETTER.equals(letter);
+            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(g ? FileGroups.label() : letter, letter.equals(galleryFilter));
             b.setName("gallery-filter:" + letter);
-            b.setToolTipText(DbFilter.label(letter));
+            b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
             b.addActionListener(e -> {
+                if (g && !GroupMenus.tap(app, b, toGroup)) {
+                    b.setSelected(false);
+                    return;
+                }
                 galleryFilter = letter;
                 dialog.dispose();
                 this.gallery(kind);
             });
+            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             sortRow.add(b);
         }
         PromptVault lib = null;
@@ -744,7 +801,8 @@ final class PromptDb {
         }
         List<PromptVault.StoredFile> every = kind == 2 ? promptFiles() : stored(results);
         List<PromptVault.StoredFile> kept = new ArrayList<PromptVault.StoredFile>();
-        for (PromptVault.StoredFile f : every) if (DbFilter.fits(f.name, galleryFilter)) kept.add(f);
+        boolean inGroup = FileGroups.LETTER.equals(galleryFilter);
+        for (PromptVault.StoredFile f : every) if (inGroup ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) kept.add(f);
         // Category tabs: All, the main categories the files' prompts are in, No category.
         final PromptVault tabsLib = lib;
         List<long[]> tabs = FileFavourites.tabs(lib, kept);
@@ -1077,6 +1135,7 @@ final class PromptDb {
             changed.run();
         });
         menu.add(favItem);
+        menu.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, changed));
         menu.add(open);
         menu.add(save);
         boolean extractable = false;
@@ -1475,6 +1534,9 @@ final class PromptDb {
         this.vlcPreview(name, video, false, false);
     }
 
+    /** The right click's menu shown last (Extract frame), for the tests. */
+    javax.swing.JPopupMenu lastFrameMenu;
+
     /** The last frame C saved, for the tests. */
     File lastCapture;
 
@@ -1682,6 +1744,34 @@ final class PromptDb {
         sound.add(volume);
         sound.add(level);
         transport.add(looping);
+        // Right click (the phone's long press): paused, then Extract frame (into the SC folder beside the video).
+        player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isRightMouseButton(e)) return;
+                if (player.playing()) player.pause();
+                javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+                javax.swing.JMenuItem extract = new javax.swing.JMenuItem("Extract frame");
+                extract.setName("video-extract-frame");
+                extract.addActionListener(ev -> PromptDb.this.captureFrame(name, video, player));
+                m.add(extract);
+                // The frame captured, then into a program as its Reference file (as Picture ready's Process as a reference).
+                javax.swing.JMenuItem process = new javax.swing.JMenuItem("Capture frame and process as a reference");
+                process.setName("video-process-frame");
+                process.addActionListener(ev -> {
+                    PromptDb.this.lastCapture = null;
+                    PromptDb.this.captureFrame(name, video, player);
+                    final File shot = PromptDb.this.lastCapture;
+                    if (shot == null) return;
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
+                    if (w != null) w.dispose();
+                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+                });
+                m.add(process);
+                PromptDb.this.lastFrameMenu = m;
+                m.show(player.screen, e.getX(), e.getY());
+            }
+        });
         if (remember) {
             sound.setVisible(false);
             // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
@@ -1694,6 +1784,8 @@ final class PromptDb {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     this.held = false;
+                    this.at = null;
+                    if (!SwingUtilities.isLeftMouseButton(e)) return;
                     this.at = e.getPoint();
                     this.hold = new javax.swing.Timer(600, ev -> {
                         this.held = true;

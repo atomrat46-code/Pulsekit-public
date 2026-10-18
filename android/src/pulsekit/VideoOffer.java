@@ -89,6 +89,73 @@ final class VideoOffer {
             awake();
         }
 
+        /** The Video ready dialog. */
+        AlertDialog dialog;
+        /** The long press's menu (for the tests). */
+        AlertDialog menu;
+        /** Where the last extracted frame was saved (for the tests). */
+        String extracted;
+
+        /** Long press: paused, then Extract frame. */
+        void frameMenu(final MainActivity app, final String path, final String clipName) {
+            if (playing) playPause();
+            final int ms = Math.max(0, view.getCurrentPosition());
+            menu = new AlertDialog.Builder(app)
+                .setTitle("Frame at " + FileSets.mixTime(ms))
+                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference"}, (d, w) -> extractFrame(app, path, clipName, ms, w == 1))
+                .setNegativeButton("Cancel", null)
+                .show();
+        }
+
+        /**
+         * The frame at `ms` as a PNG in Downloads' SC folder (clip-0m12s345.png), then shown in
+         * Picture ready; with `process`, straight into Process as a reference (the program, its
+         * prompt and Reference file 1 or 2), the video closed. Read and written off the main thread.
+         */
+        void extractFrame(final MainActivity app, final String path, final String clipName, final int ms, final boolean process) {
+            app.setNow("Extracting the frame at " + FileSets.mixTime(ms) + "\u2026");
+            final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+            new Thread(() -> {
+                String said;
+                byte[] png = null;
+                String name = MediaDir.frameName(clipName, ms);
+                android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+                try {
+                    media.setDataSource(path);
+                    android.graphics.Bitmap frame = media.getFrameAtTime(ms * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST);
+                    if (frame == null) frame = media.getFrameAtTime(ms * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (frame == null) throw new java.io.IOException("the phone gave no picture at " + FileSets.mixTime(ms));
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+                    png = out.toByteArray();
+                    String where = MediaBrowser.saveInto(app, new String[] {"", MediaBrowser.DOWNLOADS}, MediaDir.FRAMES_DIR, name, "image/png", png);
+                    extracted = where;
+                    said = "Saved the frame as " + where;
+                } catch (Throwable ex) {
+                    said = "Could not extract the frame: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                } finally {
+                    try {
+                        media.release();
+                    } catch (Exception ignored) {}
+                }
+                final String shown = said;
+                final byte[] made = png;
+                main.post(() -> {
+                    app.setNow(shown);
+                    android.widget.Toast.makeText(app, shown, android.widget.Toast.LENGTH_SHORT).show();
+                    if (made == null) return;
+                    if (process) {
+                        if (dialog != null) dialog.dismiss();
+                        ProcessRefDialog.open(app, name, made);
+                        return;
+                    }
+                    List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();
+                    files.add(new JavaRun.FileOut(name, made));
+                    PictureOffer.offer(app, new JavaRun.Result("Succeeded: " + name, files, 0));
+                });
+            }, "pulsekit-video-frame").start();
+        }
+
         void toggleMute(MainActivity app) {
             muted = !muted;
             mute.setText(muted ? "Unmute" : "Mute");
@@ -154,6 +221,12 @@ final class VideoOffer {
             }
         });
         p.view.setVideoPath(path);
+        // Long press: the clip pauses, and the frame shown can be extracted.
+        final String clipName = clip.name;
+        p.view.setOnLongClickListener(v -> {
+            p.frameMenu(app, path, clipName);
+            return true;
+        });
         LinearLayout buttons = app.row();
         buttons.setPadding(0, app.dp(10), 0, app.dp(4));
         p.play = app.pill("Play", true, v -> p.playPause());
@@ -216,6 +289,7 @@ final class VideoOffer {
                 p.view.stopPlayback();
             }
         });
+        p.dialog = dialog;
         p.window = dialog.getWindow();
         p.appWindow = app.getWindow();
         dialog.show();

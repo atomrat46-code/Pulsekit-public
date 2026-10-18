@@ -157,6 +157,9 @@ final class ProcessRefDialog {
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = this.slot;
         ProcessAsRef.save(this.app.getFilesDir(), this.choice);
+        // The program's saved Params win over the run's arguments: the picture goes in there too.
+        String saved = ProcessAsRef.savedWithPicture(PyJavParams.load(this.app, this.program), token, this.picture.getAbsolutePath());
+        if (saved != null) PyJavParams.store(this.app, this.program, saved);
         PyJav pj = this.app.pyJav;
         pj.pkPyRecentItems = this.recent;
         int index = item == null ? this.recent.indexOf(PyJavRecent.tapped(this.recent, this.program)) : this.recent.indexOf(item);

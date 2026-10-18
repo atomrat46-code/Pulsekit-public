@@ -193,6 +193,7 @@ final class MediaBrowser {
         final List<MediaDir.Entry> allEntries = read;
         // The type selector (A I V S T O), then the tag filter: what of the folder is shown.
         MediaTags.load(PromptDb.dir());
+        FileGroups.load(PromptDb.dir());
         final List<MediaDir.Entry> entries = MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter);
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
@@ -252,15 +253,27 @@ final class MediaBrowser {
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
             int n = MediaDir.count(allEntries, f);
-            javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
+            final boolean g = FileGroups.LETTER.equals(f);
+            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(g ? FileGroups.label() : f, f.equals(MediaDir.filter));
             b.setName("media-filter:" + f);
-            b.setToolTipText(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
-            b.setEnabled(n > 0 || f.equals("A") || f.equals(MediaDir.filter));
+            b.setToolTipText(g ? "A group's files (" + n + " here; right click: pick the group)" : MediaDir.FILTER_NAMES[i] + " (" + n + ")");
+            b.setEnabled(n > 0 || f.equals("A") || g || f.equals(MediaDir.filter));
+            // G: a group's files (a right click on G picks the group).
+            final Runnable toGroup = () -> {
+                MediaDir.filter = FileGroups.LETTER;
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            };
             b.addActionListener(e -> {
+                if (g && !GroupMenus.tap(app, b, toGroup)) {
+                    b.setSelected(f.equals(MediaDir.filter));
+                    return;
+                }
                 MediaDir.filter = f;
                 gone.set(true);
                 this.fill(dialog, root, dir);
             });
+            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             filters.add(b);
         }
         filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]));
@@ -762,6 +775,16 @@ final class MediaBrowser {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
+            if (FileGroups.ADD.equals(items[i])) {
+                // Add to group: the groups' list where the menu was.
+                item.setName("media-menu:" + items[i]);
+                item.addActionListener(e -> {
+                    javax.swing.JPopupMenu groups = GroupMenus.addTo(app, MediaDir.groupKey(entry), entry.name, null);
+                    if (card != null && card.isShowing()) groups.show(card, x, y);
+                });
+                menu.add(item);
+                continue;
+            }
             if (MediaTags.TAGS.equals(items[i]) || MediaTags.CATEGORY.equals(items[i])) {
                 item.setName("media-menu:" + items[i]);
                 item.addActionListener(e -> {
