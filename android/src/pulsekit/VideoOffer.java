@@ -89,6 +89,8 @@ final class VideoOffer {
             awake();
         }
 
+        /** The Video ready dialog. */
+        AlertDialog dialog;
         /** The long press's menu (for the tests). */
         AlertDialog menu;
         /** Where the last extracted frame was saved (for the tests). */
@@ -100,16 +102,17 @@ final class VideoOffer {
             final int ms = Math.max(0, view.getCurrentPosition());
             menu = new AlertDialog.Builder(app)
                 .setTitle("Frame at " + FileSets.mixTime(ms))
-                .setItems(new CharSequence[] {"Extract frame"}, (d, w) -> extractFrame(app, path, clipName, ms))
+                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference"}, (d, w) -> extractFrame(app, path, clipName, ms, w == 1))
                 .setNegativeButton("Cancel", null)
                 .show();
         }
 
         /**
          * The frame at `ms` as a PNG in Downloads' SC folder (clip-0m12s345.png), then shown in
-         * Picture ready (Process as a reference...). Read and written off the main thread.
+         * Picture ready; with `process`, straight into Process as a reference (the program, its
+         * prompt and Reference file 1 or 2), the video closed. Read and written off the main thread.
          */
-        void extractFrame(final MainActivity app, final String path, final String clipName, final int ms) {
+        void extractFrame(final MainActivity app, final String path, final String clipName, final int ms, final boolean process) {
             app.setNow("Extracting the frame at " + FileSets.mixTime(ms) + "\u2026");
             final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
             new Thread(() -> {
@@ -141,6 +144,11 @@ final class VideoOffer {
                     app.setNow(shown);
                     android.widget.Toast.makeText(app, shown, android.widget.Toast.LENGTH_SHORT).show();
                     if (made == null) return;
+                    if (process) {
+                        if (dialog != null) dialog.dismiss();
+                        ProcessRefDialog.open(app, name, made);
+                        return;
+                    }
                     List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();
                     files.add(new JavaRun.FileOut(name, made));
                     PictureOffer.offer(app, new JavaRun.Result("Succeeded: " + name, files, 0));
@@ -281,6 +289,7 @@ final class VideoOffer {
                 p.view.stopPlayback();
             }
         });
+        p.dialog = dialog;
         p.window = dialog.getWindow();
         p.appWindow = app.getWindow();
         dialog.show();

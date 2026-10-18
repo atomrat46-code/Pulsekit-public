@@ -5180,8 +5180,33 @@ public final class DesktopBehavior {
     File sc = new File(runs, MediaDir.FRAMES_DIR);
     String[] got = sc.list();
     out.append("SC folder: ").append(got == null ? "none" : got.length + " file(s), " + (got.length > 0 && got[0].matches("walk-0m0\\ds\\d{3}\\.png") ? "named walk-<time>.png" : String.join(",", got))).append('\n');
-    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
-    if (got == null || got.length != 1 || player.playing()) throw new AssertionError(out.toString());
+    // Capture frame and process as a reference: the frame into a program, as in Picture ready; the video closes.
+    String sv = ProgramFiles.bundledSource("SogniVideo.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", sv, null);
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 20, 20, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    final javax.swing.JMenuItem process = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(1);
+    out.append("second item: ").append(process.getText()).append('\n');
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      process.doClick();
+      db.lastFrameMenu.setVisible(false);
+    });
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    idle();
+    final ProcessRefDialog r = ProcessRefDialog.last;
+    String[] now = sc.list();
+    out.append("process: video ").append(dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName().replaceAll("\\d", "#") + ", programs " + r.programs)
+        .append(", SC files ").append(now == null ? 0 : now.length).append('\n');
+    if (r != null) {
+      edt(() -> ((javax.swing.JButton) component(r.dialog.getContentPane(), "process-ref-open")).doClick());
+      out.append("Open: program ").append(get("pyName")).append(", args ").append(pj.pyExtra.getText().replace(sc.getAbsolutePath(), "~/runs/SC").replaceAll("\\d", "#")).append('\n');
+    }
+    if (dialog.isShowing()) edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    if (got == null || got.length != 1 || r == null || dialog.isShowing() || !pj.pyExtra.getText().contains("walk-0m0")) throw new AssertionError(out.toString());
   }
 
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */

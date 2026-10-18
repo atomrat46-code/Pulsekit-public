@@ -1696,6 +1696,19 @@ final class PromptDb {
                 extract.setName("video-extract-frame");
                 extract.addActionListener(ev -> PromptDb.this.captureFrame(name, video, player));
                 m.add(extract);
+                // The frame captured, then into a program as its Reference file (as Picture ready's Process as a reference).
+                javax.swing.JMenuItem process = new javax.swing.JMenuItem("Capture frame and process as a reference");
+                process.setName("video-process-frame");
+                process.addActionListener(ev -> {
+                    PromptDb.this.lastCapture = null;
+                    PromptDb.this.captureFrame(name, video, player);
+                    final File shot = PromptDb.this.lastCapture;
+                    if (shot == null) return;
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
+                    if (w != null) w.dispose();
+                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+                });
+                m.add(process);
                 PromptDb.this.lastFrameMenu = m;
                 m.show(player.screen, e.getX(), e.getY());
             }

@@ -3715,8 +3715,30 @@ public class BehaviorTest {
     out.append("saved: ").append(p.extracted).append(", status ").append(((TextView) get("now")).getText()).append('\n');
     out.append("Picture ready: ").append(PictureOffer.last != null && PictureOffer.last.isShowing() ? org.robolectric.Shadows.shadowOf(PictureOffer.last).getTitle() : "not shown").append('\n');
     if (PictureOffer.last != null) PictureOffer.last.dismiss();
+    idle();
+    // Capture frame and process as a reference: the frame into a program, as in Picture ready; the video closes.
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniVideo.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", pedit, null);
+    String before = p.extracted;
+    p.play.performClick();
+    p.view.performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(1);
+    for (int i = 0; i < 50 && (ProcessRefDialog.last == null || ProcessRefDialog.last.dialog == null || !ProcessRefDialog.last.dialog.isShowing()); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    ProcessRefDialog r = ProcessRefDialog.last;
+    out.append("process: video ").append(p.dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName() + ", program " + r.programBtn.getText())
+        .append(", saved again ").append(p.extracted != null && !p.extracted.equals(before)).append('\n');
+    if (r != null) {
+      r.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+      out.append("Open: program ").append(get("pyName")).append(", args ").append(((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~")).append('\n');
+    }
     write("s141_video_ready_extract_frame", out.toString());
-    if (p.playing || p.extracted == null || !p.extracted.endsWith("SC/walk-0m00s000.png")) throw new AssertionError(out.toString());
+    if (p.playing || before == null || !before.endsWith("SC/walk-0m00s000.png") || r == null || p.dialog.isShowing()
+        || !((PyJav) get("pyJav")).pkPyArgs.getText().toString().contains("walk-0m00s000")) throw new AssertionError(out.toString());
   }
 
   private static List<Engine.Part> songPartsForStack() {
