@@ -522,6 +522,41 @@ public final class MediaDir {
     return out;
   }
 
+  /** A MIDI file's items: the MIDI editor, Midi2Wav (a SoundFont), vst_render (a plugin; computer only), played with the system's own SoundFont. */
+  public static final String MIDI_EDIT = "Open in MIDI editor";
+  public static final String RENDER_SF2 = "Render with SF2";
+  public static final String RENDER_PLUGIN = "Render with plugin";
+  public static final String PLAY_SF = "Play with default SoundFont";
+  /** A MIDI's: its patterns and fills (a file set made of it) onto the Composer's stack. */
+  public static final String TO_COMPOSER = "Add to composer stack";
+  /** A WAV or MP3's item: DrumMidi_CRT on it, its drum hits as a MIDI. */
+  public static final String TO_MIDI = "Convert drum hits into MIDI";
+
+  /** The items `name` has for what it is: a MIDI's (with Render with plugin when `plugins`), a sound's. */
+  public static String[] kindItems(String name, boolean plugins) {
+    if (isMidi(name)) return plugins ? new String[] {MIDI_EDIT, RENDER_SF2, RENDER_PLUGIN, PLAY_SF, TO_COMPOSER} : new String[] {MIDI_EDIT, RENDER_SF2, PLAY_SF, TO_COMPOSER};
+    if (name != null && kind(name) == SOUND) return new String[] {TO_MIDI};
+    return new String[0];
+  }
+
+  /** True for the items kindItems gives. */
+  public static boolean isKindItem(String item) {
+    return MIDI_EDIT.equals(item) || RENDER_SF2.equals(item) || RENDER_PLUGIN.equals(item) || PLAY_SF.equals(item) || TO_MIDI.equals(item) || TO_COMPOSER.equals(item);
+  }
+
+  /** As menu(listed, kind, files), with `name`'s own items (kindItems) before Tags…. */
+  public static String[] menu(boolean listed, int kind, boolean files, String name, boolean plugins) {
+    String[] all = menu(listed, kind, files);
+    String[] extra = kindItems(name, plugins);
+    if (extra.length == 0) return all;
+    int at = menu(listed, kind).length;
+    String[] out = new String[all.length + extra.length];
+    System.arraycopy(all, 0, out, 0, at);
+    System.arraycopy(extra, 0, out, at, extra.length);
+    System.arraycopy(all, at, out, at + extra.length, all.length - at);
+    return out;
+  }
+
   /**
    * As above, then Tags… and Category… (MediaTags), then Rename, Copy to folder, Move to folder and
    * Delete (`files`: the file can be changed there).

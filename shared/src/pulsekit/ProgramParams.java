@@ -334,6 +334,11 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
+    if (p.flag && p.takesValue && p.token.equals("--batchdir")) {
+      p.dir = true;
+      p.label = "Batch folder: DrumMidi's MIDI of the track joins it (a MidiDrumGen or MidiBatch folder)";
+      p.hint = "empty: none; then vst_render.py --dir renders them all";
+    }
     if (p.flag && p.token.equals("--test") && p.label.equals("Test")) p.label = "Test: DrumMidi on the WAV, then CompareHits (what was asked for, checks, suggestions)";
     if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
@@ -586,6 +591,18 @@ public final class ProgramParams {
       p.label = "Plugin (VST2 .dll / VST3 .vst3)";
       p.ext = "any";
       p.plugin = true;
+    } else if (p.token.equals("--carla")) {
+      p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
+      p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
+      p.ext = "any";
+    } else if (p.token.equals("--drumgizmo")) {
+      p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";
+      p.hint = "free kits at drumgizmo.org; the plugin above stays empty";
+      p.ext = "any";
+    } else if (p.token.equals("--midimap")) {
+      p.label = "DrumGizmo MIDI map (.xml)";
+      p.hint = "empty: the kit folder's Midimap*.xml";
+      p.ext = "any";
     } else if (p.token.equals("--state")) {
       p.label = "Plugin settings (from Edit, .fxp, .vstpreset)";
       p.hint = "empty: the settings last saved with Edit";

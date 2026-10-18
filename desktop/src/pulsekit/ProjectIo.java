@@ -71,6 +71,23 @@ final class ProjectIo {
         toDbNote.setAlignmentX(0.0f);
         toDbNote.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 24, 8, 0));
         jPanel2.add(toDbNote);
+        // An imported MIDI can open in the MIDI editor first; Back there goes on to its patterns.
+        ImportDb.midiEditor = this.loadImportSetting("midiEditor");
+        javax.swing.JCheckBox toEditor = new javax.swing.JCheckBox("Open in MIDI editor", ImportDb.midiEditor);
+        toEditor.setName("import-midi-editor");
+        toEditor.setOpaque(false);
+        toEditor.setForeground(FG);
+        toEditor.setAlignmentX(0.0f);
+        toEditor.addActionListener(e -> {
+            ImportDb.midiEditor = toEditor.isSelected();
+            this.saveImportToDb();
+        });
+        jPanel2.add(toEditor);
+        JLabel toEditorNote = new JLabel("An imported MIDI opens in the MIDI editor; Back or Save there shows its file set's patterns.");
+        toEditorNote.setForeground(MUTED);
+        toEditorNote.setAlignmentX(0.0f);
+        toEditorNote.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 24, 8, 0));
+        jPanel2.add(toEditorNote);
         // Choose file, then Browse DB: a file from the prompt library, imported as if it were chosen.
         JPanel chooseRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         chooseRow.setOpaque(false);
@@ -779,9 +796,14 @@ final class ProjectIo {
     }
 
     boolean loadImportToDb() {
+        return this.loadImportSetting("toDb");
+    }
+
+    /** An Import screen setting kept in the import settings file ("toDb=1", "midiEditor=1"). */
+    boolean loadImportSetting(String name) {
         try {
             File f = this.importSettingsFile();
-            return f.isFile() && new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains("toDb=1");
+            return f.isFile() && new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains(name + "=1");
         } catch (Exception ex) {
             return false;
         }
@@ -791,7 +813,7 @@ final class ProjectIo {
         try {
             File f = this.importSettingsFile();
             f.getParentFile().mkdirs();
-            Files.write(f.toPath(), ("toDb=" + (ImportDb.on ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+            Files.write(f.toPath(), ("toDb=" + (ImportDb.on ? 1 : 0) + "\nmidiEditor=" + (ImportDb.midiEditor ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {
             // the setting stays for this session
         }
@@ -951,7 +973,16 @@ final class ProjectIo {
             app.setNow("SoundFont \u00b7 " + n2 + " drums");
             return;
         }
-        app.importLibrary.applyMidiBytes(byArray, string);
+        // Open in MIDI editor: the file set keeps this MIDI (source.mid), and the editor opens on it.
+        boolean toEditor = ImportDb.midiEditor && !Engine.hasStagedMidi();
+        if (toEditor) Engine.stageSourceMidi(byArray, string);
+        app.importLibrary.openEditor = toEditor;
+        try {
+            app.importLibrary.applyMidiBytes(byArray, string);
+        } finally {
+            app.importLibrary.openEditor = false;
+            if (toEditor) Engine.clearStagedMidi();
+        }
     }
 
     void tryDub() {

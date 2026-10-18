@@ -31,7 +31,7 @@ final class FileSets {
     // Analyze, Compose, Prompts, file-set Info, stem/MIDI playback, PyJav.
     // ------------------------------------------------------------------
 
-    private android.media.MediaPlayer pkMidiPlayer;
+    android.media.MediaPlayer pkMidiPlayer;
 
     java.lang.String pkMidiSrc;
 
@@ -46,6 +46,42 @@ final class FileSets {
     void wireFileSetListActions() {
         this.wireFileSetListActionsCore();
         this.pkRebindFileSetClicks();
+        this.stackFileSetRows();
+    }
+
+    /**
+     * Import screen: each file set's name on a line of its own and its buttons (Make song, Change
+     * style, Export, Delete) on the next, wrapping, so a long name is never squeezed to a sliver.
+     */
+    void stackFileSetRows() {
+        if (app.importedFileList == null) return;
+        for (int i = 0; i < app.importedFileList.getChildCount(); i++) {
+            android.view.View child = app.importedFileList.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            if (row.getOrientation() != android.widget.LinearLayout.HORIZONTAL) continue;
+            android.widget.TextView packHead = null;
+            java.util.ArrayList<android.view.View> buttons = new java.util.ArrayList<android.view.View>();
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View v = row.getChildAt(j);
+                java.lang.CharSequence cs = v instanceof android.widget.TextView ? ((android.widget.TextView) v).getText() : null;
+                java.lang.String s = cs == null ? "" : cs.toString();
+                if (s.startsWith("\u25be ") || s.startsWith("\u25b8 ")) packHead = (android.widget.TextView) v;
+                else buttons.add(v);
+            }
+            if (packHead == null || buttons.isEmpty()) continue;
+            row.setOrientation(android.widget.LinearLayout.VERTICAL);
+            android.widget.LinearLayout.LayoutParams lp = app.wrap();
+            lp.setMargins(app.dp(3), app.dp(4), app.dp(3), app.dp(2));
+            packHead.setLayoutParams(lp);
+            pulsekit.FlowLayout bar = new pulsekit.FlowLayout(app, 0, 0);
+            bar.setTag("fileset-actions");
+            for (android.view.View b : buttons) {
+                row.removeView(b);
+                bar.addView(b);
+            }
+            row.addView(bar, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        }
     }
 
 
@@ -143,7 +179,9 @@ final class FileSets {
             going = mp.isPlaying();
         } catch (java.lang.Exception ex) { return; }
         this.paintMidiClock(mixTime(pos) + " / " + mixTime(dur));
-        if (going && this.pkMidiClock != null) app.handler.postDelayed(this.pkMidiClock, 200L);
+        if (pulsekit.MidiEditScreen.now != null) pulsekit.MidiEditScreen.now.clock(this.pkMidiSrc, pos, going);
+        // The MIDI editor's playhead moves a step at a time: the clock ticks faster while it is open.
+        if (going && this.pkMidiClock != null) app.handler.postDelayed(this.pkMidiClock, pulsekit.MidiEditScreen.now != null ? 40L : 200L);
     }
 
     /** Repaints the source-MIDI clock every 200 ms while it plays. */
@@ -168,6 +206,7 @@ final class FileSets {
         this.pkMidiSrc = null;
         if (mp != null) this.releasePlayer(mp);
         this.paintMidiClock("00:00 / 00:00");
+        if (pulsekit.MidiEditScreen.now != null) pulsekit.MidiEditScreen.now.clock(null, 0, false);
         app.setNow("Stopped");
     }
 
@@ -195,14 +234,20 @@ final class FileSets {
                 return;
             } catch (java.lang.Exception ignored) {}
         }
-        this.stopSourceMidi();
         pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
         if (au == null || au.sourceMidi == null || au.sourceMidi.length < 14) {
+            this.stopSourceMidi();
             app.setNow("That MIDI file is missing");
             return;
         }
+        this.playMidiBytes(src, au.sourceMidi, pulsekit.Engine.fileSetMidiName(src), 0);
+    }
+
+    /** Plays a MIDI as the kit sounds it, from `fromMs` on; `src` names it for Pause and Play again (the MIDI editor's is "edit:" and the set). */
+    public void playMidiBytes(java.lang.String src, byte[] midi, java.lang.String shown, int fromMs) {
+        this.stopSourceMidi();
         try {
-            short[] pcm = pulsekit.AudioIo.renderMidiDrums(au.sourceMidi, app.playback.mixVoices(), 22050);
+            short[] pcm = pulsekit.AudioIo.renderMidiDrums(midi, app.playback.mixVoices(), 22050);
             if (pcm == null || pcm.length < 8) {
                 app.setNow("No drum notes in that MIDI");
                 return;
@@ -212,12 +257,13 @@ final class FileSets {
             android.media.MediaPlayer mp = new android.media.MediaPlayer();
             mp.setDataSource(f.getAbsolutePath());
             mp.prepare();
+            if (fromMs > 0 && fromMs < mp.getDuration()) mp.seekTo(fromMs);
             mp.start();
             this.pkMidiPlayer = mp;
             this.pkMidiSrc = src;
             this.pkMidiPaused = false;
             this.startMidiClock();
-            app.setNow("Play \u00b7 " + pulsekit.Engine.fileSetMidiName(src));
+            app.setNow("Play \u00b7 " + shown);
         } catch (java.lang.Throwable ex) {
             java.lang.String m = ex.getMessage();
             app.setNow(m != null ? m : "Could not play that MIDI");
@@ -239,6 +285,8 @@ final class FileSets {
         line.setPadding(app.dp(8), 0, 0, app.dp(4));
         android.widget.TextView label = app.text(name, 12, false);
         label.setTextColor(MUTED);
+        this.editOnLongPress(label, src);
+        this.editOnLongPress(line, src);
         line.addView(label, app.flex(1));
         android.widget.TextView clock = app.text("00:00 / 00:00", 11, false);
         clock.setTag("midiclock");
@@ -251,6 +299,15 @@ final class FileSets {
         host.addView(line);
         android.widget.LinearLayout results = this.pkResultsRow(src);
         if (results != null) host.addView(results);
+    }
+
+    /** A long press on the source MIDI's row opens its hits in the MIDI editor. */
+    void editOnLongPress(android.view.View v, final java.lang.String src) {
+        v.setLongClickable(true);
+        v.setOnLongClickListener(view -> {
+            pulsekit.MidiEditScreen.open(app, src);
+            return true;
+        });
     }
 
     /** True when the file set keeps a source MIDI, so Compare hits has something to compare. */
@@ -906,6 +963,8 @@ final class FileSets {
         line.setPadding(app.dp(8), app.dp(4), 0, app.dp(4));
         android.widget.TextView label = app.text(name, 12, false);
         label.setTextColor(FG);
+        this.editOnLongPress(label, src);
+        this.editOnLongPress(line, src);
         line.addView(label, app.flex(1));
         android.widget.TextView clock = app.text("00:00 / 00:00", 11, false);
         clock.setTag("midiclock");

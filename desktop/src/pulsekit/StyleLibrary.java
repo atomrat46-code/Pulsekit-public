@@ -419,8 +419,33 @@ final class StyleLibrary {
         this.addFillernItems(m, loadPattern, patternKey);
     }
 
+    /** Variate: the pattern (a Fillern on the Fillern tab) loaded, then Gen on it. */
+    JMenuItem variateItem(final Runnable load, final String name) {
+        JMenuItem v = new JMenuItem("Variate");
+        v.setName("variate");
+        v.addActionListener(e -> {
+            load.run();
+            app.playback.generate();
+            app.setNow("Variated \u00b7 " + name);
+        });
+        return v;
+    }
+
+    /** A fill's Variate: the fill picked, then varied as the Fills tab's Variate does it. */
+    JMenuItem variateFillItem(final String fillId) {
+        JMenuItem v = new JMenuItem("Variate");
+        v.setName("variate");
+        v.addActionListener(e -> {
+            this.applyFill(fillId);
+            this.variateFill();
+        });
+        return v;
+    }
+
     JPopupMenu builtinStyleMenu(final String sid) {
         JPopupMenu m = new JPopupMenu();
+        Engine.Style st = app.styles.get(sid);
+        m.add(this.variateItem(() -> this.loadStyle(sid, false), st != null ? st.label : sid));
         JMenuItem dup = new JMenuItem("Duplicate");
         dup.addActionListener(e -> this.replicateStyle(sid));
         JMenuItem hide = new JMenuItem("Hide");
@@ -433,6 +458,7 @@ final class StyleLibrary {
 
     JPopupMenu learnedStyleMenu(final Engine.Learned item) {
         JPopupMenu m = new JPopupMenu();
+        m.add(this.variateItem(() -> this.loadLearned(item.id), item.name));
         JMenuItem dup = new JMenuItem("Duplicate");
         dup.addActionListener(e -> this.replicateStyle(item.id));
         JMenuItem ren = new JMenuItem("Rename");
@@ -448,6 +474,7 @@ final class StyleLibrary {
 
     JPopupMenu learnedFillMenu(final Engine.LearnedFill item) {
         JPopupMenu m = new JPopupMenu();
+        m.add(this.variateFillItem("l:" + item.id));
         JMenuItem ren = new JMenuItem("Rename");
         ren.addActionListener(e -> this.renameLearnedFill(item.id));
         JMenuItem del = new JMenuItem("Delete");
@@ -553,6 +580,7 @@ final class StyleLibrary {
             b.addActionListener(e -> this.loadStyle(it.id, false));
             app.onChipMenu(b, () -> {
                 JPopupMenu m = new JPopupMenu();
+                m.add(this.variateItem(() -> this.loadStyle(it.id, false), it.name));
                 JMenuItem dup = new JMenuItem("Duplicate");
                 dup.addActionListener(ev -> this.replicateStyle(it.id));
                 JMenuItem ren = new JMenuItem("Rename");
@@ -646,11 +674,19 @@ final class StyleLibrary {
             b.putClientProperty("fill", "v:" + it.id);
             b.putClientProperty("variated", it.id);
             b.addActionListener(e -> this.applyFill("v:" + it.id));
-            app.onRightClick(b, () -> {
-                app.variatedFills.removeIf(x -> it.id.equals(x.id));
-                app.persistence.persistLearned();
-                this.refreshLearnedChips();
-                app.setNow("Variation deleted");
+            // Variate, Delete (as on the phone).
+            app.onChipMenu(b, () -> {
+                JPopupMenu m = new JPopupMenu();
+                m.add(this.variateFillItem("v:" + it.id));
+                JMenuItem del = new JMenuItem("Delete");
+                del.addActionListener(ev -> {
+                    app.variatedFills.removeIf(x -> it.id.equals(x.id));
+                    app.persistence.persistLearned();
+                    this.refreshLearnedChips();
+                    app.setNow("Variation deleted");
+                });
+                m.add(del);
+                return m;
             });
             app.variatedFillBar.add(b);
         }
@@ -778,6 +814,9 @@ final class StyleLibrary {
                 make.addActionListener(ev -> app.fileSets.makeFileSetSong(key, label));
                 m.add(make);
                 if (app.fileSets.hasSourceMidi(key)) {
+                    JMenuItem editor = new JMenuItem("Open in MIDI editor");
+                    editor.addActionListener(ev -> MidiEditScreen.open(app, key.substring(2)));
+                    m.add(editor);
                     JMenuItem compare = new JMenuItem("Compare hits");
                     compare.addActionListener(ev -> app.fileSets.compareFileSetHits(key, label));
                     m.add(compare);
@@ -798,6 +837,11 @@ final class StyleLibrary {
             return m;
         });
         pack.add(head);
+        JPanel midi = key != null && key.startsWith("f:") ? app.fileSets.midiRow(key.substring(2)) : null;
+        if (midi != null) {
+            midi.setVisible(open);
+            pack.add(midi);
+        }
         kids.setVisible(open);
         kids.setAlignmentX(0f);
         pack.add(kids);
@@ -876,6 +920,7 @@ final class StyleLibrary {
     /** Right click on a built-in fill: copy it, or a variation of it, into a file set; or hide it. */
     void builtinFillMenu(JComponent anchor, String fillId) {
         JPopupMenu m = new JPopupMenu();
+        m.add(this.variateFillItem(fillId));
         javax.swing.JMenu copy = new javax.swing.JMenu("Copy fill to file set");
         javax.swing.JMenu variated = new javax.swing.JMenu("Variated fill into file set");
         List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);

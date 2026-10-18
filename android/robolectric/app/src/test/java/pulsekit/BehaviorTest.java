@@ -3159,6 +3159,607 @@ public class BehaviorTest {
     write("s93_upscaler_extras", out.toString());
   }
 
+  /** The tab Pulsekit was on is kept, and Pulsekit opens on it again (a main tab or a Drum Tracks subtab). */
+  @Test
+  public void s133_last_tab_kept() throws Exception {
+    StringBuilder out = new StringBuilder();
+    app.show("fills");
+    idle();
+    out.append("kept: ").append(app.getSharedPreferences(MainActivity.UI_PREFS, 0).getString("tab", null)).append('\n');
+    MainActivity again = org.robolectric.Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("started again on: ").append(again.view).append(", subtabs ").append(again.drumSubtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    app.show("song");
+    idle();
+    MainActivity third = org.robolectric.Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("after Song: ").append(third.view).append('\n');
+    app.show("pattern");
+    idle();
+    if (!"fills".equals(again.view) || !"song".equals(third.view)) throw new AssertionError(out.toString());
+    write("s133_last_tab_kept", out.toString());
+  }
+
+  /**
+   * A long press on a file set's source MIDI opens the MIDI editor: its hits on a grid (ACC and a
+   * row per track). A tap adds or erases a hit; Back leaves without saving, Save keeps the MIDI.
+   */
+  @Test
+  public void s134_midi_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 120;
+    cells[2][12] = 90;
+    byte[] midi = Engine.encodeMidi(cells, 110, 16);
+    Engine.stageSourceMidi(midi, "Edit Me.mid");
+    call("ingest", midi, "Edit Me.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "combo");
+    idle();
+    TextView label = null;
+    for (View v : allViews(root())) {
+      if (v instanceof TextView && "Edit Me.mid".contentEquals(((TextView) v).getText()) && v.isLongClickable()) label = (TextView) v;
+    }
+    out.append("source MIDI row: ").append(label != null).append('\n');
+    label.performLongClick();
+    idle();
+    MidiEditScreen ed = MidiEditScreen.now;
+    View page = ed.dialog.getWindow().getDecorView();
+    out.append("editor open: ").append(ed.dialog.isShowing()).append(", ").append(((TextView) page.findViewWithTag("midiedit-status")).getText()).append('\n');
+    out.append("buttons: ").append(((TextView) page.findViewWithTag("midiedit-play")).getText()).append(" ")
+        .append(((TextView) page.findViewWithTag("midiedit-pause")).getText()).append(" ").append(((TextView) page.findViewWithTag("midiedit-stop")).getText()).append(" ")
+        .append(((TextView) page.findViewWithTag("midiedit-back")).getText()).append(" ").append(((TextView) page.findViewWithTag("midiedit-save")).getText()).append('\n');
+    out.append("grid steps ").append(ed.edit.steps()).append(", kick at 0: ").append(ed.cells[0][0]).append(", accent at 4: ").append(ed.edit.accent(4)).append('\n');
+    ed.tap(1, 2);
+    out.append("tap KIK 3: ").append(ed.cells[0][2]).append(", ").append(((TextView) page.findViewWithTag("midiedit-status")).getText()).append('\n');
+    page.findViewWithTag("midiedit-back").performClick();
+    idle();
+    out.append("Back: closed ").append(!ed.dialog.isShowing()).append(", MIDI kept as it was ")
+        .append(java.util.Arrays.equals(midi, Engine.fileSetAudioOf("Edit Me").sourceMidi)).append('\n');
+    label.performLongClick();
+    idle();
+    ed = MidiEditScreen.now;
+    page = ed.dialog.getWindow().getDecorView();
+    ed.tap(1, 2);
+    ed.tap(1, 0);
+    ed.tap(3, 12);
+    ed.tap(0, 8);
+    // Playing, the grid scrolls with the beat: a hit at bar 4 makes it four bars long.
+    ed.edit.toggle(0, 63);
+    ed.cells = ed.edit.cells();
+    ed.grid.requestLayout();
+    idle();
+    int before = ed.side.getScrollX();
+    ed.clock(MidiEditScreen.playKey(ed.key), (int) Math.round(50 * 60000.0 / 110 / 4), true);
+    idle();
+    org.robolectric.shadows.ShadowLooper.idleMainLooper(2, java.util.concurrent.TimeUnit.SECONDS);
+    out.append("follows the playhead: step ").append(ed.playhead).append(", scrolled ").append(ed.side.getScrollX() > before)
+        .append(", playhead in view ").append(ed.grid.stepX(ed.playhead) >= ed.side.getScrollX() && ed.grid.stepX(ed.playhead) < ed.side.getScrollX() + ed.side.getWidth()).append('\n');
+    ed.edit.toggle(0, 63);
+    ed.cells = ed.edit.cells();
+    // Robolectric's media player is told how long the rendered MIDI is.
+    org.robolectric.shadows.ShadowMediaPlayer.addMediaInfo(org.robolectric.shadows.util.DataSource.toDataSource(new File(app.getCacheDir(), "pk-midi.wav").getAbsolutePath()),
+        new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(2000, 0));
+    page.findViewWithTag("midiedit-play").performClick();
+    idle();
+    out.append("Play: ").append(((FileSets) get("fileSets")).pkMidiSrc).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    page.findViewWithTag("midiedit-save").performClick();
+    idle();
+    out.append("Save: closed ").append(!ed.dialog.isShowing()).append(", playback stopped ").append(((FileSets) get("fileSets")).pkMidiSrc == null).append('\n');
+    Engine.MidiBars bars = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    StringBuilder grid = new StringBuilder();
+    for (int t = 0; t < 3; t++) {
+      for (int st = 0; st < 16; st++) grid.append(bars.bars.get(0)[t][st] == 0 ? '.' : (bars.bars.get(0)[t][st] >= MidiHitEdit.ACCENT_FROM ? 'X' : 'x'));
+      grid.append(' ');
+    }
+    out.append("saved: ").append(grid).append(bars.bpm).append(" BPM").append('\n');
+    out.append("kept on disk: ").append(new File(app.getFilesDir(), "fset-audio").isDirectory()).append('\n');
+    if (MidiEditScreen.now != null || bars.bars.get(0)[0][2] == 0 || bars.bars.get(0)[0][0] != 0 || bars.bars.get(0)[2][12] != 0) throw new AssertionError(out.toString());
+    write("s134_midi_editor", out.toString());
+  }
+
+  /**
+   * Import screen, Open in MIDI editor: an imported MIDI keeps its MIDI with its file set and opens
+   * in the MIDI editor; Back there shows the Pattern view with the file set open. Unticked, the file
+   * set is made as before. The imported files list has each set's buttons under its name.
+   */
+  @Test
+  public void s135_import_opens_midi_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("rock")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    byte[] midi = Engine.encodeSongMidi(parts);
+    call("show", "import");
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) root().findViewWithTag("import-midi-editor");
+    out.append("checkbox: ").append(box.getText()).append(", ticked ").append(box.isChecked()).append('\n');
+    box.setChecked(true);
+    out.append("kept: ").append(app.getSharedPreferences("pulsekit-export", 0).getAll().containsKey(ProjectIo.IMPORT_MIDI_EDITOR) || ImportDb.midiEditor).append('\n');
+    call("ingest", midi, "Night Drive.mid", null);
+    idle();
+    MidiEditScreen ed = MidiEditScreen.now;
+    out.append("editor open: ").append(ed != null && ed.dialog.isShowing()).append(", file set ").append(ed == null ? "" : ed.key)
+        .append(", ").append(ed == null ? "" : ((TextView) ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-status")).getText()).append('\n');
+    out.append("MIDI kept with the set: ").append(Engine.fileSetMidiName("Night Drive")).append('\n');
+    ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-back").performClick();
+    idle();
+    Object afterBack = get("view");
+    out.append("Back: view ").append(afterBack).append(", file set open ").append(((ImportLibrary) get("importLibrary")).openPacks.get("f:Night Drive")).append('\n');
+    // Make a song? was asked under the editor: it is there after Back.
+    for (android.app.Dialog q : ShadowDialog.getShownDialogs()) {
+      if (!(q instanceof AlertDialog) || !q.isShowing()) continue;
+      out.append("then the question: ").append(((TextView) q.findViewById(android.R.id.message)).getText().toString().contains("Imported")).append('\n');
+      ((AlertDialog) q).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+      idle();
+    }
+    // Unticked: no editor.
+    call("show", "import");
+    idle();
+    ((android.widget.CheckBox) root().findViewWithTag("import-midi-editor")).setChecked(false);
+    call("ingest", midi, "Day Drive.mid", null);
+    idle();
+    out.append("unticked: editor ").append(MidiEditScreen.now != null).append(", MIDI kept ").append(Engine.fileSetMidiName("Day Drive").length() > 0).append('\n');
+    for (android.app.Dialog q : ShadowDialog.getShownDialogs()) if (q instanceof AlertDialog && q.isShowing()) ((AlertDialog) q).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("show", "import");
+    idle();
+    View bar = root().findViewWithTag("fileset-actions");
+    out.append("buttons under the name: ").append(bar != null).append(bar == null ? "" : ", " + texts((ViewGroup) bar)).append('\n');
+    ImportDb.midiEditor = false;
+    if (ed == null || !"pattern".equals(afterBack) || MidiEditScreen.now != null || bar == null) throw new AssertionError(out.toString());
+    write("s135_import_opens_midi_editor", out.toString());
+  }
+
+  /**
+   * How Pulsekit stopped last time: a crash is written to crash-log.txt and shown once at the next
+   * start (with Save); when Android closed Pulsekit while a program ran (running.txt left), the next
+   * start says so. A run keeps Pulsekit going with RunKeeper's notification until it is over.
+   */
+  @Test
+  public void s136_crash_log_and_run_keeper() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    // Android closed Pulsekit during a run.
+    RunKeeper.markedHere = false;
+    Files.write(new File(dir, RunKeeper.MARK).toPath(), "SogniVideo.java\n1\n".getBytes(StandardCharsets.UTF_8));
+    MainActivity again = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("closed during a run: ").append(again.lastStop == null ? "none" : ((TextView) again.lastStop.findViewById(android.R.id.message)).getText().toString().contains("SogniVideo.java")).append('\n');
+    out.append("note gone: ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    if (again.lastStop != null) again.lastStop.dismiss();
+    // A crash.
+    CrashLog.write(dir, Thread.currentThread(), new IllegalStateException("boom in a download"));
+    MainActivity third = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    String msg = third.lastStop == null ? "" : ((TextView) third.lastStop.findViewById(android.R.id.message)).getText().toString();
+    out.append("crash shown: ").append(msg.startsWith("Pulsekit stopped ")).append(", has the error ").append(msg.contains("boom in a download"))
+        .append(", Save ").append(third.lastStop == null ? "" : third.lastStop.getButton(DialogInterface.BUTTON_POSITIVE).getText()).append('\n');
+    if (third.lastStop != null) third.lastStop.dismiss();
+    MainActivity fourth = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("shown once: ").append(fourth.lastStop == null).append('\n');
+    // A run: the notification service starts, and stops when the run is over.
+    RunKeeper.start(app, "SogniVideo.java");
+    android.content.Intent started = org.robolectric.Shadows.shadowOf(app).getNextStartedService();
+    out.append("run kept going: ").append(started != null && started.getComponent().getClassName().equals(RunKeeper.class.getName()))
+        .append(", ").append(started == null ? "" : started.getStringExtra(RunKeeper.TEXT)).append(", noted ").append(new File(dir, RunKeeper.MARK).isFile()).append('\n');
+    RunKeeper.stop(app);
+    out.append("over: note gone ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    RunKeeper.markedHere = false;
+    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null) throw new AssertionError(out.toString());
+    write("s136_crash_log_and_run_keeper", out.toString());
+  }
+
+  /**
+   * Picture ready > Process as a reference: a recent program that takes pictures, one of its recent
+   * prompts, and Reference file 1 or 2; Open loads it in PyJav with the picture in that slot. The
+   * choices are kept and picked again next time.
+   */
+  @Test
+  public void s137_process_as_reference() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"make the coat blue\" --image old.png", pedit, null);
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    PyJavRecent.remember(app.getFilesDir(), "Wav2Mp3.java", "", ((ProgramMenus) get("programMenus")).bundledSource("Wav2Mp3.java"), null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    View offer = PictureOffer.last.getWindow().getDecorView();
+    out.append("button: ").append(((TextView) offer.findViewWithTag("picture-ref:look.png")).getText()).append('\n');
+    offer.findViewWithTag("picture-ref:look.png").performClick();
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("programs (takes pictures): ").append(d.programs).append('\n');
+    out.append("program ").append(d.programBtn.getText()).append(", prompt ").append(d.promptBtn.getText()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
+    d.run = 1;
+    d.setSlot(2);
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String args = ((PyJav) get("pyJav")).pkPyArgs.getText().toString().replace(new File(app.getFilesDir(), "process-ref").getAbsolutePath(), "~");
+    out.append("Open: view ").append(get("view")).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    // Next time: the same choices.
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-ref:look.png").performClick();
+    idle();
+    ProcessRefDialog again = ProcessRefDialog.last;
+    out.append("kept: prompt ").append(again.promptBtn.getText()).append(", slot ").append(again.slot).append('\n');
+    again.dialog.dismiss();
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || again.slot != 2 || d.programs.contains("Wav2Mp3.java")) throw new AssertionError(out.toString());
+    write("s137_process_as_reference", out.toString());
+  }
+
+  /**
+   * Media browser: a MIDI's long press has Open in MIDI editor (Save writes <name>-edited.mid beside
+   * it), Render with SF2 (Midi2Wav) and Play with default SoundFont; a WAV's has Convert drum hits
+   * into MIDI (DrumMidi_CRT). The programs open on PyJav with the file as their input.
+   */
+  @Test
+  public void s138_media_midi_items() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-midi");
+    media.mkdirs();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    Files.write(new File(media, "beat.mid").toPath(), Engine.encodeMidi(cells, 120, 16));
+    Files.write(new File(media, "hit.wav").toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    String filterWas = MediaDir.filter;
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry mid = null, wav = null;
+    for (MediaDir.Entry e : b.allEntries) {
+      if (e.name.equals("beat.mid")) mid = e;
+      if (e.name.equals("hit.wav")) wav = e;
+    }
+    b.menu(mid);
+    out.append("MIDI menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    b.menu(wav);
+    out.append("WAV menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    b.kindItem(mid, MediaDir.MIDI_EDIT);
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MidiEditScreen ed = MidiEditScreen.now;
+    out.append("editor: ").append(ed != null).append(", hits ").append(ed == null ? -1 : ed.edit.hits()).append('\n');
+    ed.tap(3, 4);
+    ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-save").performClick();
+    idle();
+    File edited = new File(media, "beat-edited.mid");
+    out.append("saved beside it: ").append(edited.isFile()).append(", original kept ").append(Engine.parseMidiBars(Files.readAllBytes(new File(media, "beat.mid").toPath())).bars.get(0)[2][4] == 0)
+        .append(", edit in it ").append(edited.isFile() && Engine.parseMidiBars(Files.readAllBytes(edited.toPath())).bars.get(0)[2][4] > 0).append('\n');
+    MediaBrowser b2 = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b2.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry w2 = null;
+    for (MediaDir.Entry e : b2.allEntries) if (e.name.equals("hit.wav")) w2 = e;
+    b2.kindItem(w2, MediaDir.TO_MIDI);
+    for (int i = 0; i < 100 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("Convert drum hits into MIDI: ").append(get("pyName")).append(", input ").append(new File(String.valueOf(((PyJav) get("pyJav")).pkPyInputPath)).getName()).append('\n');
+    MediaDir.filter = filterWas;
+    if (ed == null || !edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !out.toString().contains("Open in MIDI editor | Render with SF2 | Play with default SoundFont")) throw new AssertionError(out.toString());
+    write("s138_media_midi_items", out.toString());
+  }
+
+  /**
+   * Composer: building blocks from the Song tab's picker, the AABA form making Verse and Bridge,
+   * blocks and a subpart in parts, To Song putting the form on the Song tab, the Song tab's From
+   * Composer, kept across a restart, and a MIDI's Add to composer stack.
+   */
+  @Test
+  public void s139_composer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "composer");
+    idle();
+    ComposerPage page = (ComposerPage) get("composerPage");
+    out.append("tab: ").append(get("view")).append(", page shown ").append(page.pane.getVisibility() == View.VISIBLE).append('\n');
+    root().findViewWithTag("composer-add-block").performClick();
+    idle();
+    AlertDialog pick = (AlertDialog) ShadowDialog.getLatestDialog();
+    int rock = -1;
+    for (int i = 0; i < pick.getListView().getAdapter().getCount(); i++) if ("Rock".equals(String.valueOf(pick.getListView().getAdapter().getItem(i)))) rock = i;
+    org.robolectric.Shadows.shadowOf(pick).clickOnItem(rock);
+    idle();
+    page.composer().addBlock(new Composer.Block(Composer.FILL, "toms", "Toms"));
+    page.changed();
+    out.append("stack: ");
+    for (Composer.Block b : page.composer().stack) out.append(b.label()).append(" | ");
+    out.append('\n');
+    root().findViewWithTag("composer-form:AABA").performClick();
+    idle();
+    out.append("AABA: ").append(page.composer().formLabel()).append('\n');
+    // Verse: Rock x2 and Toms; Bridge: Verse inside it.
+    root().findViewWithTag("composer-part-add:Verse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(0);
+    idle();
+    root().findViewWithTag("composer-part-add:Verse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(1);
+    idle();
+    page.composer().part("Verse").entries.get(0).repeats = 2;
+    root().findViewWithTag("composer-part-sub:Bridge").performClick();
+    idle();
+    out.append("parts for Bridge: ").append(listItems(ComposerPage.lastDialog)).append('\n');
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(0);
+    idle();
+    root().findViewWithTag("composer-part-sub:Verse").performClick();
+    idle();
+    out.append("a part inside Verse: ").append(String.valueOf(get("now") instanceof TextView ? ((TextView) get("now")).getText() : "")).append('\n');
+    out.append("Verse: ").append(page.composer().part("Verse").entries.get(0).label()).append(", ").append(page.composer().part("Verse").entries.get(1).label())
+        .append("; Bridge: ").append(page.composer().part("Bridge").entries.get(0).label()).append('\n');
+    root().findViewWithTag("composer-to-song").performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) get("song");
+    StringBuilder names = new StringBuilder();
+    for (Engine.Part p : song) names.append(p.name).append(" x").append(p.repeats).append(", ");
+    out.append("To Song: view ").append(get("view")).append(", ").append(song.size()).append(" parts: ").append(names).append('\n');
+    // Song tab: From Composer.
+    root().findViewWithTag("song-from-composer").performClick();
+    idle();
+    out.append("From Composer: ").append(listItems(SongEditor.lastFromComposer)).append('\n');
+    org.robolectric.Shadows.shadowOf(SongEditor.lastFromComposer).clickOnItem(1);
+    idle();
+    out.append("after adding Verse: ").append(song.size()).append(" parts").append('\n');
+    // Kept.
+    String kept = page.composer().encode();
+    MainActivity again = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("kept: ").append(again.composerPage.composer().encode().equals(kept)).append('\n');
+    // A MIDI's Add to composer stack.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("house")), 4));
+    File mid = new File(app.getCacheDir(), "Night Drive.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    int before = page.composer().stack.size();
+    MediaBrowser.toComposer(app, mid, "Night Drive.mid");
+    idle();
+    out.append("Add to composer stack: ").append(page.composer().stack.size() - before).append(" blocks, view ").append(get("view")).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    if (song.size() != 10 || !kept.contains("Verse") || page.composer().stack.size() <= before || !"composer".equals(get("view"))) throw new AssertionError(out.toString());
+    write("s139_composer", out.toString());
+  }
+
+  /**
+   * Sunday notes. Browse DB: the tabs stay above the scrolling thumbnails, and each tab opens where
+   * it was left; the Prompts page's galleries get Ref files | Result files | Prompt files tabs. A
+   * long MIDI's Make a song? offers Composer parts. MIDI ready: Add to composer stack. Variate on
+   * pattern and fill menus. The video's clock reads mm:ss / mm:ss.
+   */
+  @Test
+  public void s140_sunday_notes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    DbFilter.current = "A";
+    RefBrowser.scrollAt[0] = RefBrowser.scrollAt[1] = 0;
+    for (int i = 0; i < 30; i++) {
+      DbImport.store(app, "ref" + i + ".txt", ("ref " + i).getBytes(StandardCharsets.UTF_8), false);
+      DbImport.store(app, "res" + i + ".txt", ("res " + i).getBytes(StandardCharsets.UTF_8), true);
+    }
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    View dv = RefBrowser.last.getWindow().getDecorView();
+    android.widget.ScrollView sc = (android.widget.ScrollView) dv.findViewWithTag("refs-scroll");
+    boolean outside = sc.findViewWithTag("refs-kind:results") == null && dv.findViewWithTag("refs-kind:results") != null;
+    sc.scrollTo(0, 300);
+    int refsAt = sc.getScrollY();
+    dv.findViewWithTag("refs-kind:results").performClick();
+    idle();
+    dv = RefBrowser.last.getWindow().getDecorView();
+    sc = (android.widget.ScrollView) dv.findViewWithTag("refs-scroll");
+    out.append("Browse DB: tabs above the scroll ").append(outside).append(", Ref files left at ").append(refsAt).append(", Result files at ").append(sc.getScrollY()).append('\n');
+    sc.scrollTo(0, 120);
+    int resAt = sc.getScrollY();
+    dv.findViewWithTag("refs-kind:refs").performClick();
+    idle();
+    sc = (android.widget.ScrollView) RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-scroll");
+    int backRefs = sc.getScrollY();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-kind:results").performClick();
+    idle();
+    sc = (android.widget.ScrollView) RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-scroll");
+    int backRes = sc.getScrollY();
+    out.append("back on Ref files at ").append(backRefs).append(" (left ").append(refsAt).append("), on Result files at ").append(backRes).append(" (left ").append(resAt).append(")\n");
+    RefBrowser.last.dismiss();
+    idle();
+    // The Prompts page's galleries: the three tabs, the one shown lit; a tap opens the other.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Field resultsOpen = PromptSheet.class.getDeclaredField("resultsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {refsOpen, resultsOpen, rebuild}) o.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    out.append("gallery tabs:");
+    for (int k = 0; k < 3; k++) {
+      TextView t = (TextView) pane.findViewWithTag("gallery-tab:" + k);
+      out.append(' ').append(t == null ? "missing" : t.getText());
+    }
+    out.append(", shown ").append(PromptSheet.galleryTab());
+    pane.findViewWithTag("gallery-tab:1").performClick();
+    idle();
+    out.append(", after Result files: shown ").append(PromptSheet.galleryTab()).append(", Ref files open ").append(refsOpen.get(null)).append('\n');
+    refsOpen.set(null, false);
+    resultsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    // A long MIDI: Make a song? offers Composer parts.
+    List<Engine.Part> parts = new ArrayList<>();
+    int[][] rock = Engine.styleCells(Engine.styles().get("rock"));
+    int[][] funk = Engine.styleCells(Engine.styles().get("funk"));
+    parts.add(Engine.groove("Intro", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    for (int round = 0; round < 2; round++) {
+      parts.add(Engine.groove("V", 110, rock, 4));
+      parts.add(Engine.fill("toms", 110, 1));
+      parts.add(Engine.groove("C", 110, funk, 4));
+      parts.add(Engine.fill("snare", 110, 1));
+    }
+    call("ingest", Engine.encodeSongMidi(parts), "Long song.mid", null);
+    idle();
+    AlertDialog q = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("question: ").append(org.robolectric.Shadows.shadowOf(q).getTitle()).append(", ").append(q.getButton(DialogInterface.BUTTON_POSITIVE).getText())
+        .append(" / ").append(q.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append(" / ").append(q.getButton(DialogInterface.BUTTON_NEGATIVE).getText()).append('\n');
+    q.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    Composer c = ((ComposerPage) get("composerPage")).composer();
+    out.append("view ").append(get("view")).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    for (Composer.Part p : c.parts) {
+      out.append("part ").append(p.name).append(':');
+      for (Composer.Entry e : p.entries) out.append(' ').append(e.label());
+      out.append('\n');
+    }
+    // MIDI ready: Add to composer stack.
+    int before = c.stack.size();
+    byte[] gen = Engine.encodeSongMidi(songPartsForStack());
+    call("ingest", gen, "Gen song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("Gen song.mid", gen));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(1000, 0));
+    MidiOffer.offer(app, new JavaRun.Result("Wrote Gen song.mid", files, 0));
+    idle();
+    AlertDialog ready = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.Button stack = ready.getButton(DialogInterface.BUTTON_NEGATIVE);
+    out.append("MIDI ready: ").append(stack.getText()).append(" (").append(stack.getTag()).append(")");
+    stack.performClick();
+    idle();
+    out.append(" -> ").append(c.stack.size() - before).append(" blocks, ").append(((TextView) get("now")).getText()).append(", shown ").append(ready.isShowing()).append('\n');
+    // Variate: first on the pattern menu and the fill menus; it does what Gen does.
+    app.styleLibrary.showEntryMenu("Rock", "rock", () -> app.styleLibrary.loadStyle("rock", false), new ArrayList<String>(), new ArrayList<Runnable>());
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    out.append("Rock menu: ").append(listItems(menu));
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    out.append(" -> ").append(((TextView) get("now")).getText()).append('\n');
+    Engine.LearnedFill f = app.learnedFills.get(0);
+    TextView chip = new TextView(app);
+    app.styleLibrary.attachLearnedFillMenu(chip, f);
+    chip.performLongClick();
+    idle();
+    menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    int had = app.variatedFills.size();
+    out.append("fill menu: ").append(listItems(menu));
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    out.append(" -> ").append(app.variatedFills.size() - had).append(" variated fill\n");
+    // The video's clock under its buttons.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    TextView clock = (TextView) ((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView().findViewWithTag("video-offer:clock");
+    out.append("video clock: ").append(clock == null ? "none" : clock.getText()).append('\n');
+    ((AlertDialog) ShadowDialog.getLatestDialog()).dismiss();
+    idle();
+    write("s140_sunday_notes", out.toString());
+    if (!outside || backRefs != refsAt || backRes != resAt || c.form.isEmpty() || c.stack.size() <= before || app.variatedFills.size() <= had || clock == null || !clock.getText().toString().matches("\\d\\d:\\d\\d / \\d\\d:\\d\\d")) throw new AssertionError(out.toString());
+  }
+
+  private static List<Engine.Part> songPartsForStack() {
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));
+    parts.add(Engine.fill("toms", 110, 1));
+    parts.add(Engine.groove("B", 110, Engine.styleCells(Engine.styles().get("trap")), 4));
+    return parts;
+  }
+
+  /**
+   * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
+   * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
+   * nothing else follows.
+   */
+  @Test
+  public void s132_sogni_batch_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    File dir = new File(app.getCacheDir(), "shared-batch");
+    dir.mkdirs();
+    Files.write(new File(dir, "batch.txt").toPath(), ("# MidiDrumGen batch\nfile\tstyle\tbase\ttempo\ttimesig\tbars\tswing\tintensity\thats\thumanize\tfills\tcrashes\thalftime\n"
+        + "gen-001-funk-100bpm.mid\tfunk\tfunk\t100\t4/4\t4\t0.10\t5\t16ths\t3\ton\ton\toff\n").getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> argv = java.util.Arrays.asList("--genre", "Neo Soul", "--bpm", "92", "--drums_only", "--batchdir", dir.getAbsolutePath());
+    out.append("DrumMidi follows: ").append(Midi2WavTest.musicSteps("SogniMusic.java", argv, false)).append(", the test takes the run: ").append(Midi2WavTest.musicWanted("SogniMusic.java", argv)).append('\n');
+    File wav = new File(app.getCacheDir(), "track.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[22050], 22050));
+    Midi2WavTest t = Midi2WavTest.startMusic(argv, wav, "");
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("track.mid", Engine.encodeMidi(cells, 92)));
+    app.pyName = "DrumMidi_CRT.jar";
+    app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList(wav.getAbsolutePath(), "track.mid"));
+    for (android.app.Dialog d : ShadowDialog.getShownDialogs()) if (d.isShowing()) d.dismiss();
+    app.pyJav.pkShowPyResult(new JavaRun.Result("Wrote track.mid\nSucceeded: track.mid", files, 0));
+    for (int i = 0; i < 20; i++) idle();
+    String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    String[] lines = list.trim().split("\n");
+    out.append("folder: ").append(new File(dir, "sogni-neo_soul-92bpm.mid").isFile()).append(", last row: ").append(lines[lines.length - 1].replace('\t', '|')).append('\n');
+    String note = "";
+    for (String line : String.valueOf(app.pyJav.pkRunLog).split("\n")) if (line.startsWith("Batch folder:")) note = line;
+    out.append("log: ").append(note).append(", then ").append(get("pyName")).append(", test over ").append(Midi2WavTest.current() == null).append('\n');
+    Midi2WavTest.stop();
+    if (!lines[lines.length - 1].startsWith("sogni-neo_soul-92bpm.mid\tNeo Soul\tSogniMusic\t92\t4/4") || !note.contains("(2 files in its batch.txt)") || "CompareHits.java".equals(get("pyName")))
+      throw new AssertionError(out.toString());
+    write("s132_sogni_batch_folder", out.toString());
+  }
+
+  /**
+   * Drum Tracks: one main tab, with Pattern, Fillern and Fills as its subtabs in a row under the
+   * main tabs (shown with them only); the tab opens the subtab used last.
+   */
+  @Test
+  public void s131_drum_tracks_tab() throws Exception {
+    StringBuilder out = new StringBuilder();
+    View top = app.findViewById(android.R.id.content);
+    View subtabs = top.findViewWithTag("drum-subtabs");
+    java.util.function.Supplier<String> state = () -> "view " + app.view + ", subtabs " + (subtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden")
+        + ", Drum Tracks lit " + (((TextView) top.findViewWithTag("drums")).getCurrentTextColor() == ((TextView) top.findViewWithTag(String.valueOf(app.view))).getCurrentTextColor());
+    out.append("main tabs: Drum Tracks ").append(top.findViewWithTag("drums") != null).append(", subtabs ").append(((android.view.ViewGroup) subtabs).getChildCount()).append('\n');
+    top.findViewWithTag("drums").performClick();
+    idle();
+    out.append("Drum Tracks: ").append(state.get()).append('\n');
+    top.findViewWithTag("fills").performClick();
+    idle();
+    out.append("Fills: ").append(state.get()).append('\n');
+    top.findViewWithTag("song").performClick();
+    idle();
+    out.append("Song: view ").append(app.view).append(", subtabs ").append(subtabs.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    top.findViewWithTag("drums").performClick();
+    idle();
+    out.append("Drum Tracks again: ").append(state.get()).append('\n');
+    top.findViewWithTag("pattern").performClick();
+    idle();
+    if (!out.toString().contains("Fills: view fills, subtabs shown, Drum Tracks lit true") || !out.toString().contains("Song: view song, subtabs hidden")
+        || !out.toString().contains("Drum Tracks again: view fills, subtabs shown")) throw new AssertionError(out.toString());
+    write("s131_drum_tracks_tab", out.toString());
+  }
+
   /**
    * Favourite files and category tabs in the Prompts page's galleries: tabs for the main categories
    * the files' prompts are in; Add to favourite files in a card's long press; the card starred; the

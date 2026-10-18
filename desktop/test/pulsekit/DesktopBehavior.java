@@ -1220,7 +1220,7 @@ public final class DesktopBehavior {
     edt(() -> ((javax.swing.JButton) component(frame, "prompts-ref-files")).doClick());
     JDialog gallery = (JDialog) get("lastGallery");
     out.append("gallery \"").append(gallery.getTitle()).append("\": ");
-    for (String n : new String[] {"refs-kind:refs", "refs-kind:results"}) {
+    for (String n : new String[] {"gallery-tab:0", "gallery-tab:1", "gallery-tab:2"}) {
       javax.swing.JButton b = (javax.swing.JButton) component(gallery, n);
       out.append('[').append(b.getText()).append(b.isEnabled() ? "" : " (shown)").append("] ");
     }
@@ -4685,6 +4685,525 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The file set's source.mid row (name, clock, Play, Pause, Stop); a right click or long press on
+   * its name opens the MIDI editor: the hits on a grid, a click adds or erases one; Back leaves
+   * without saving, Save keeps the MIDI.
+   */
+  void s116_midi_editor() throws Exception {
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    cells[2][4] = 120;
+    cells[2][12] = 90;
+    final byte[] midi = Engine.encodeMidi(cells, 110, 16);
+    Engine.stageSourceMidi(midi, "Edit Me.mid");
+    answers.add("Yes");
+    call("ingest", midi, "Edit Me.mid");
+    call("showView", "combo");
+    final javax.swing.JButton[] name = {null};
+    edt(() -> name[0] = (javax.swing.JButton) component(frame, "sourcemidi-name"));
+    out.append("source MIDI row: ").append(name[0] != null ? name[0].getText() : "none").append(", play ").append(named(frame, "sourcemidi-play")).append('\n');
+    answers.add("(keep)");
+    edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 4, 4, 1, false, java.awt.event.MouseEvent.BUTTON3)));
+    idle();
+    Thread.sleep(300);
+    final MidiEditScreen[] ed = {MidiEditScreen.now};
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      java.awt.Container page = ed[0].dialog.getContentPane();
+      seen.append("editor open: ").append(ed[0].dialog.isShowing()).append(", ").append(((JLabel) component(page, "midiedit-status")).getText()).append('\n');
+      seen.append("buttons:");
+      for (String b : new String[] {"midiedit-play", "midiedit-pause", "midiedit-stop", "midiedit-back", "midiedit-save"}) seen.append(' ').append(((javax.swing.JButton) component(page, b)).getText());
+      seen.append('\n');
+      seen.append("grid steps ").append(ed[0].edit.steps()).append(", kick at 0: ").append(ed[0].cells[0][0]).append(", accent at 4: ").append(ed[0].edit.accent(4)).append('\n');
+      // A click on the grid: KIK, step 3.
+      MidiEditScreen.Grid g = ed[0].grid;
+      int x = g.stepX(2) + 5;
+      int y = MidiEditScreen.ROW + 5;
+      g.dispatchEvent(new java.awt.event.MouseEvent(g, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, x, y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+      seen.append("click KIK 3: ").append(ed[0].cells[0][2]).append(", ").append(((JLabel) component(page, "midiedit-status")).getText()).append('\n');
+      ((javax.swing.JButton) component(page, "midiedit-back")).doClick();
+      seen.append("Back: closed ").append(!ed[0].dialog.isShowing()).append(", MIDI kept as it was ").append(java.util.Arrays.equals(midi, Engine.fileSetAudioOf("Edit Me").sourceMidi)).append('\n');
+    });
+    answers.add("(keep)");
+    edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 4, 4, 1, false, java.awt.event.MouseEvent.BUTTON3)));
+    idle();
+    Thread.sleep(300);
+    ed[0] = MidiEditScreen.now;
+    edt(() -> {
+      java.awt.Container page = ed[0].dialog.getContentPane();
+      ed[0].tap(1, 2);
+      ed[0].tap(1, 0);
+      ed[0].tap(3, 12);
+      ed[0].tap(0, 8);
+      // Playing, the grid scrolls with the beat: a hit at bar 4 makes it four bars long.
+      ed[0].edit.toggle(0, 63);
+      ed[0].cells = ed[0].edit.cells();
+      ed[0].grid.revalidate();
+      ed[0].scroll.validate();
+      javax.swing.JViewport port = ed[0].scroll.getViewport();
+      int before = port.getViewPosition().x;
+      ed[0].clock(MidiEditScreen.playKey(ed[0].key), (int) Math.round(50 * 60000.0 / 110 / 4), true);
+      int x = ed[0].grid.stepX(ed[0].playhead);
+      seen.append("follows the playhead: step ").append(ed[0].playhead).append(", scrolled ").append(port.getViewPosition().x > before)
+          .append(", playhead in view ").append(x >= port.getViewPosition().x && x < port.getViewPosition().x + port.getExtentSize().width).append('\n');
+      ed[0].edit.toggle(0, 63);
+      ed[0].cells = ed[0].edit.cells();
+      ((javax.swing.JButton) component(page, "midiedit-play")).doClick();
+      seen.append("Play: ").append(((JLabel) get("nowPlaying")).getText().replaceAll("No audio output for .*", "no audio device here")).append('\n');
+      ((javax.swing.JButton) component(page, "midiedit-save")).doClick();
+      seen.append("Save: closed ").append(!ed[0].dialog.isShowing()).append(", editor gone ").append(MidiEditScreen.now == null).append('\n');
+    });
+    out.append(seen);
+    Engine.MidiBars bars = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    StringBuilder grid = new StringBuilder();
+    for (int t = 0; t < 3; t++) {
+      for (int st = 0; st < 16; st++) grid.append(bars.bars.get(0)[t][st] == 0 ? '.' : (bars.bars.get(0)[t][st] >= MidiHitEdit.ACCENT_FROM ? 'X' : 'x'));
+      grid.append(' ');
+    }
+    out.append("saved: ").append(grid).append(bars.bpm).append(" BPM").append('\n');
+    Engine.fileSetAudio.clear();
+    Engine.loadFileSetAudioDir(new File(System.getProperty("user.home"), ".pulsekit/fset-audio"));
+    Engine.MidiBars again = Engine.parseMidiBars(Engine.fileSetAudioOf("Edit Me").sourceMidi);
+    out.append("kept on disk: ").append(again != null && again.bars.get(0)[0][2] > 0).append('\n');
+    if (bars.bars.get(0)[0][2] == 0 || bars.bars.get(0)[0][0] != 0 || bars.bars.get(0)[2][12] != 0 || again == null) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Import screen, Open in MIDI editor: an imported MIDI keeps its MIDI with its file set and opens
+   * in the MIDI editor after the Make a song question; Back there shows the Pattern view with the
+   * file set open. Unticked, no editor. The setting is kept.
+   */
+  void s117_import_opens_midi_editor() throws Exception {
+    call("showView", "import");
+    final javax.swing.JCheckBox[] box = {null};
+    edt(() -> box[0] = (javax.swing.JCheckBox) component(frame, "import-midi-editor"));
+    out.append("checkbox: ").append(box[0].getText()).append(", ticked ").append(box[0].isSelected()).append('\n');
+    edt(() -> box[0].doClick());
+    out.append("kept: ").append(new String(Files.readAllBytes(((ProjectIo) get("projectIo")).importSettingsFile().toPath()), StandardCharsets.UTF_8).contains("midiEditor=1")).append('\n');
+    answers.add("No");
+    answers.add("(keep)");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Night Drive.mid");
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) Thread.sleep(50);
+    idle();
+    final MidiEditScreen ed = MidiEditScreen.now;
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("editor open: ").append(ed != null && ed.dialog.isShowing()).append(", file set ").append(ed == null ? "" : ed.key).append('\n');
+      seen.append("MIDI kept with the set: ").append(Engine.fileSetMidiName("Night Drive")).append('\n');
+      ((javax.swing.JButton) component(ed.dialog.getContentPane(), "midiedit-back")).doClick();
+      seen.append("Back: view ").append(((Pulsekit) frame).view).append(", file set open ").append(((Pulsekit) frame).openPacks.get("f:Night Drive")).append('\n');
+    });
+    out.append(seen);
+    String afterBack = seen.toString().contains("Back: view pattern") ? "pattern" : "";
+    call("showView", "import");
+    edt(() -> box[0].doClick());
+    answers.add("No");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Day Drive.mid");
+    idle();
+    out.append("unticked: editor ").append(MidiEditScreen.now != null).append(", MIDI kept ").append(Engine.fileSetMidiName("Day Drive").length() > 0).append('\n');
+    if (ed == null || !"pattern".equals(afterBack) || MidiEditScreen.now != null) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * VLC: when it closed Pulsekit as it started (vlc-starting.txt left), the next start turns it off
+   * and says so; General settings' Use VLC turns it on and off (vlc-off.txt), and off it is not tried.
+   */
+  void s118_vlc_off() throws Exception {
+    java.nio.file.Files.write(VlcPlayer.startingFile().toPath(), new byte[0]);
+    answers.add("OK");
+    final Pulsekit[] again = new Pulsekit[1];
+    SwingUtilities.invokeAndWait(() -> again[0] = new Pulsekit());
+    idle();
+    Thread.sleep(400);
+    out.append("after VLC closed Pulsekit: off ").append(VlcPlayer.turnedOff()).append(", note gone ").append(!VlcPlayer.startingFile().exists())
+        .append(", says ").append(again[0].nowPlaying.getText().startsWith("VLC closed Pulsekit")).append('\n');
+    SwingUtilities.invokeAndWait(() -> again[0].dispose());
+    out.append("off: used ").append(VlcPlayer.available()).append(", why ").append(VlcPlayer.why()).append('\n');
+    VlcPlayer.setOff(false);
+    out.append("on again: off ").append(VlcPlayer.turnedOff()).append('\n');
+    if (VlcPlayer.turnedOff()) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Picture ready > Process as a reference: a recent program that takes pictures, one of its recent
+   * prompts, Reference file 1 or 2; Open loads it in PyJav with the picture in that slot. Kept.
+   */
+  void s119_process_as_reference() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"make the coat blue\" --image old.png", pedit, null);
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    final File pic = new File(System.getProperty("user.home"), "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("programs: ").append(d.programs).append(", prompt ").append(d.prompt.getSelectedItem()).append(", slots ").append(d.ref1.getText()).append(" | ").append(d.ref2.getText()).append('\n');
+      d.prompt.setSelectedIndex(1);
+      d.ref2.setSelected(true);
+      ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick();
+    });
+    idle();
+    String args = pj.pyExtra.getText().replace(pic.getAbsolutePath(), "~/look.png");
+    out.append(seen).append("Open: view ").append(((Pulsekit) frame).view).append(", program ").append(get("pyName")).append(", args ").append(args).append('\n');
+    ProcessAsRef.Choice kept = ProcessAsRef.load(PromptDb.dir());
+    out.append("kept: ").append(kept.program).append(", slot ").append(kept.slot).append('\n');
+    if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Media browser: a MIDI's right click has Open in MIDI editor (Save writes <name>-edited.mid beside
+   * it), Render with SF2, Render with plugin and Play with default SoundFont; a WAV's has Convert
+   * drum hits into MIDI. The programs open on PyJav with the file as their input.
+   */
+  void s120_media_midi_items() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File media = new File(home, "media-midi");
+    media.mkdirs();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    Files.write(new File(media, "beat.mid").toPath(), Engine.encodeMidi(cells, 120, 16));
+    Files.write(new File(media, "hit.wav").toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    final StringBuilder seen = new StringBuilder();
+    for (final String name : new String[] {"beat.mid", "hit.wav"}) {
+      for (int i = 0; i < 100; i++) {
+        final boolean[] has = {false};
+        edt(() -> has[0] = component(dlg[0], "media-card:" + name) != null);
+        if (has[0]) break;
+        Thread.sleep(50);
+      }
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:" + name);
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        StringBuilder items = new StringBuilder();
+        for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        seen.append(name).append(" menu: ").append(items).append('\n');
+        menu.setVisible(false);
+      });
+    }
+    out.append(seen);
+    answers.add("(keep)");
+    edt(() -> {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = "beat.mid";
+      e.id = new File(media, "beat.mid").getAbsolutePath();
+      mb.kindItem(e, new File(media, "beat.mid"), MediaDir.MIDI_EDIT);
+    });
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) Thread.sleep(50);
+    final MidiEditScreen ed = MidiEditScreen.now;
+    edt(() -> {
+      ed.tap(3, 4);
+      ((javax.swing.JButton) component(ed.dialog.getContentPane(), "midiedit-save")).doClick();
+    });
+    idle();
+    File edited = new File(media, "beat-edited.mid");
+    out.append("saved beside it: ").append(edited.isFile()).append(", edit in it ").append(edited.isFile() && Engine.parseMidiBars(Files.readAllBytes(edited.toPath())).bars.get(0)[2][4] > 0).append('\n');
+    edt(() -> {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = "hit.wav";
+      e.id = new File(media, "hit.wav").getAbsolutePath();
+      mb.kindItem(e, new File(media, "hit.wav"), MediaDir.TO_MIDI);
+    });
+    idle();
+    out.append("Convert drum hits into MIDI: ").append(get("pyName")).append('\n');
+    if (!edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !seen.toString().contains("[Open in MIDI editor][Render with SF2][Render with plugin][Play with default SoundFont]")
+        || !seen.toString().contains("[Convert drum hits into MIDI]")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Composer: building blocks from the Song tab's picker, the AABA form making Verse and Bridge,
+   * blocks and a subpart in parts, To Song putting the form on the Song tab, the Song tab's From
+   * Composer, kept, and a MIDI's Add to composer stack.
+   */
+  void s121_composer() throws Exception {
+    call("showView", "composer");
+    final ComposerPage page = (ComposerPage) get("composerPage");
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("tab: ").append(((Pulsekit) frame).view).append(", page ").append(named(frame, "composer")).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-add-block")).doClick();
+      javax.swing.JPopupMenu pick = ((Pulsekit) frame).songEditor.lastPick;
+      for (Component c : pick.getComponents()) if (c instanceof javax.swing.JMenuItem && "Rock".equals(((javax.swing.JMenuItem) c).getText())) {
+        ((javax.swing.JMenuItem) c).doClick();
+        break;
+      }
+      pick.setVisible(false);
+    });
+    idle();
+    edt(() -> {
+      page.composer().addBlock(new Composer.Block(Composer.FILL, "toms", "Toms"));
+      page.changed();
+      seen.append("stack: ");
+      for (Composer.Block b : page.composer().stack) seen.append(b.label()).append(" | ");
+      seen.append('\n');
+      ((javax.swing.JButton) component(frame, "composer-form:AABA")).doClick();
+      seen.append("AABA: ").append(page.composer().formLabel()).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(0)).doClick();
+      ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(1)).doClick();
+      page.composer().part("Verse").entries.get(0).repeats = 2;
+      ((javax.swing.JButton) component(frame, "composer-part-sub:Bridge")).doClick();
+      ((javax.swing.JMenuItem) page.lastComposerMenu.getComponent(0)).doClick();
+      seen.append("Verse: ").append(page.composer().part("Verse").entries.get(0).label()).append(", ").append(page.composer().part("Verse").entries.get(1).label())
+          .append("; Bridge: ").append(page.composer().part("Bridge").entries.get(0).label()).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-to-song")).doClick();
+    });
+    idle();
+    @SuppressWarnings("unchecked")
+    final List<Engine.Part> song = (List<Engine.Part>) get("song");
+    edt(() -> {
+      StringBuilder names = new StringBuilder();
+      for (Engine.Part p : song) names.append(p.name).append(" x").append(p.repeats).append(", ");
+      seen.append("To Song: view ").append(((Pulsekit) frame).view).append(", ").append(song.size()).append(" parts: ").append(names).append('\n');
+      javax.swing.JPopupMenu from = ((Pulsekit) frame).songEditor.fromComposerMenu();
+      StringBuilder items = new StringBuilder();
+      for (Component c : from.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("From Composer: ").append(items).append('\n');
+      ((javax.swing.JMenuItem) from.getComponent(1)).doClick();
+      seen.append("after adding Verse: ").append(song.size()).append(" parts\n");
+    });
+    out.append(seen);
+    String kept = page.composer().encode();
+    out.append("kept: ").append(Composer.load(PromptDb.dir()).encode().equals(kept)).append('\n');
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("house")), 4));
+    final File mid = new File(System.getProperty("user.home"), "Night Drive.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    final int before = page.composer().stack.size();
+    edt(() -> MediaBrowser.toComposer((Pulsekit) frame, mid, "Night Drive.mid"));
+    idle();
+    out.append("Add to composer stack: ").append(page.composer().stack.size() - before).append(" blocks, view ").append(get("view")).append(", ").append(((javax.swing.JLabel) get("nowPlaying")).getText()).append('\n');
+    if (song.size() != 10 || !kept.contains("Verse") || page.composer().stack.size() <= before || !"composer".equals(get("view"))) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sunday notes. Browse DB and the galleries: the tabs stay over the thumbnails, and each tab opens
+   * where it was left. A long MIDI's Make a song? question offers Composer parts: the song split
+   * into parts and a song form. MIDI ready: Add to composer stack. Variate on pattern and fill
+   * menus. The video player's clock reads mm:ss / mm:ss.
+   */
+  void s122_sunday_notes() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    for (int i = 0; i < 30; i++) {
+      PromptDb.vault().addLibraryFile("ref" + i + ".txt", ("ref " + i).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+      PromptDb.vault().addLibraryFile("res" + i + ".txt", ("res " + i).getBytes(StandardCharsets.UTF_8), "Imported", 3);
+    }
+    // Browse DB: scrolled down on Ref files, then on Result files; each comes back where it was.
+    java.util.function.Function<Action, JDialog> opened = a -> {
+      try {
+        final Object before = get("lastBrowse");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog d = opened.apply(() -> db.browse(false, null, (name, file) -> {}));
+    final boolean topOutside = !SwingUtilities.isDescendingFrom(component(d, "refs-kind:results"), db.shownScroll);
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(300));
+    final JDialog refs = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(refs, "refs-kind:results")).doClick());
+    out.append("Browse DB: tabs over the scroll ").append(topOutside).append(", Result files at ").append(db.scrolledTo()).append('\n');
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(120));
+    final JDialog res = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(res, "refs-kind:refs")).doClick());
+    int backRefs = db.scrolledTo();
+    final JDialog refs2 = d;
+    d = opened.apply(() -> ((javax.swing.JButton) component(refs2, "refs-kind:results")).doClick());
+    int backRes = db.scrolledTo();
+    out.append("back on Ref files at ").append(backRefs).append(", on Result files at ").append(backRes).append('\n');
+    final JDialog lastB = d;
+    edt(() -> lastB.dispose());
+    // The galleries: Ref files | Result files | Prompt files over the thumbnails, each where it was left.
+    java.util.function.Function<Action, JDialog> gallery = a -> {
+      try {
+        final Object before = get("lastGallery");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastGallery") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastGallery");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog g = gallery.apply(() -> db.gallery(0));
+    out.append("gallery \"").append(g.getTitle()).append("\":");
+    for (int k = 0; k < 3; k++) {
+      javax.swing.JButton b = (javax.swing.JButton) component(g, "gallery-tab:" + k);
+      out.append(" [").append(b.getText()).append(b.isEnabled() ? "" : " (shown)").append(']');
+    }
+    out.append('\n');
+    edt(() -> db.shownScroll.getVerticalScrollBar().setValue(250));
+    final JDialog g0 = g;
+    g = gallery.apply(() -> ((javax.swing.JButton) component(g0, "gallery-tab:2")).doClick());
+    out.append("Prompt files at ").append(db.scrolledTo()).append(", title ").append(g.getTitle()).append('\n');
+    final JDialog g2 = g;
+    g = gallery.apply(() -> ((javax.swing.JButton) component(g2, "gallery-tab:0")).doClick());
+    int galleryBack = db.scrolledTo();
+    out.append("back on Ref files at ").append(galleryBack).append('\n');
+    final JDialog lastG = g;
+    edt(() -> lastG.dispose());
+    idle();
+
+    // A long MIDI: Make a song? offers Composer parts.
+    List<Engine.Part> parts = new ArrayList<>();
+    int[][] rock = Engine.styleCells(Engine.styles().get("rock"));
+    int[][] funk = Engine.styleCells(Engine.styles().get("funk"));
+    parts.add(Engine.groove("Intro", 110, Engine.styleCells(Engine.styles().get("house")), 2));
+    for (int round = 0; round < 2; round++) {
+      parts.add(Engine.groove("V", 110, rock, 4));
+      parts.add(Engine.fill("toms", 110, 1));
+      parts.add(Engine.groove("C", 110, funk, 4));
+      parts.add(Engine.fill("snare", 110, 1));
+    }
+    answers.add("Composer parts");
+    call("ingest", Engine.encodeSongMidi(parts), "Long song.mid");
+    final ComposerPage page = (ComposerPage) get("composerPage");
+    Composer c = page.composer();
+    out.append("view ").append(get("view")).append(", ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    for (Composer.Part p : c.parts) {
+      out.append("part ").append(p.name).append(':');
+      for (Composer.Entry e : p.entries) out.append(' ').append(e.label());
+      out.append('\n');
+    }
+    out.append("form: ").append(c.formLabel()).append(", kept ").append(Composer.load(PromptDb.dir()).encode().equals(c.encode())).append('\n');
+    // MIDI ready: Add to composer stack.
+    final int before = c.stack.size();
+    answers.add("No");
+    call("ingest", Engine.encodeMidi(Engine.styleCells(Engine.styles().get("hiphop")), 92), "Gen groove.mid");
+    final byte[] gen = Engine.encodeSongMidi(songParts());
+    answers.add("No");
+    call("ingest", gen, "Gen song.mid");
+    answers.add("Add to composer stack");
+    call("offerMidi", "Gen song.mid", gen);
+    out.append("MIDI ready, Add to composer stack: ").append(c.stack.size() - before).append(" blocks, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    // Variate: the first item on the pattern and fill menus; it does what Gen does.
+    final StyleLibrary lib = (StyleLibrary) get("styleLibrary");
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      javax.swing.JPopupMenu m = lib.builtinStyleMenu("rock");
+      javax.swing.JMenuItem v = (javax.swing.JMenuItem) m.getComponent(0);
+      seen.append("Rock menu: ").append(v.getText());
+      v.doClick();
+      seen.append(" -> ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+      Engine.LearnedFill f = ((Pulsekit) frame).learnedFills.get(0);
+      javax.swing.JMenuItem fv = (javax.swing.JMenuItem) lib.learnedFillMenu(f).getComponent(0);
+      seen.append("fill menu: ").append(fv.getText());
+      int had = ((Pulsekit) frame).variatedFills.size();
+      fv.doClick();
+      seen.append(" -> ").append(((Pulsekit) frame).variatedFills.size() - had).append(" variated fill, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    });
+    out.append(seen);
+    // The video player's clock: mm:ss / mm:ss.
+    File clip = new File(System.getProperty("user.home"), "walk.mp4");
+    Files.write(clip.toPath(), new byte[16]);
+    String html = new String(Files.readAllBytes(((File) call("videoPage", clip)).toPath()), StandardCharsets.UTF_8);
+    out.append("video clock: ").append(html.contains(">00:00 / 00:00<")).append(", minutes padded ").append(html.contains("(m<10?'0':'')+m")).append('\n');
+    if (!topOutside || backRefs != 300 || backRes != 120 || galleryBack != 250 || c.form.isEmpty() || c.stack.size() <= before || seen.indexOf("Variate") < 0) throw new AssertionError(out.toString());
+  }
+
+  /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
+  void s115_last_tab_kept() throws Exception {
+    edt(() -> call("showView", "fills"));
+    out.append("kept: ").append(new String(Files.readAllBytes(Pulsekit.lastTabFile().toPath()), StandardCharsets.UTF_8).trim()).append('\n');
+    final Pulsekit[] again = new Pulsekit[1];
+    SwingUtilities.invokeAndWait(() -> again[0] = new Pulsekit());
+    out.append("started again on: ").append(again[0].view).append(", subtabs ").append(again[0].drumSubtabs.isVisible() ? "shown" : "hidden").append('\n');
+    SwingUtilities.invokeAndWait(() -> again[0].dispose());
+    edt(() -> call("showView", "pattern"));
+    if (!"fills".equals(again[0].view)) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The shared VST batch folder: SogniMusic --batchdir puts DrumMidi's MIDI of its track in it (a
+   * batch.txt row, base SogniMusic); MidiDrumGen --count --outdir the same folder adds its grooves
+   * after it, numbered on; one vst_render --dir run then has them all.
+   */
+  void s114_shared_batch_folder() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "shared-batch");
+    final PyJav pj = (PyJav) get("pyJav");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    java.util.List<String> argv = java.util.Arrays.asList("--genre", "Neo Soul", "--bpm", "92", "--drums_only", "--batchdir", dir.getAbsolutePath());
+    File wav = new File(home, "track.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[22050], 22050));
+    Midi2WavTest.startMusic(argv, wav, "");
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    final PythonRun.FileOut drums = new PythonRun.FileOut("track.mid", Engine.encodeMidi(cells, 92));
+    edt(() -> log.setText(""));
+    edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
+    idle();
+    out.append("after DrumMidi: ").append(new File(dir, "sogni-neo_soul-92bpm.mid").isFile()).append(", test over ").append(Midi2WavTest.current() == null).append('\n');
+    for (String line : log.getText().split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
+    // MidiDrumGen into the same folder: its grooves follow, numbered on.
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    edt(() -> log.setText(""));
+    edt(() -> ((JTextField) get("pyExtra")).setText("--count 2 --outdir \"" + dir.getAbsolutePath() + "\" --seed 4"));
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
+    StringBuilder files = new StringBuilder();
+    for (String line : list.split("\n")) if (!line.startsWith("#") && !line.startsWith("file\t") && line.trim().length() > 0) files.append('[').append(line.split("\t")[0]).append(" ").append(line.split("\t")[2]).append(']');
+    out.append("batch.txt: ").append(files).append('\n');
+    if (!files.toString().startsWith("[sogni-neo_soul-92bpm.mid SogniMusic][gen-002-") || !files.toString().contains("[gen-003-")) throw new AssertionError(out.toString() + log.getText());
+  }
+
+  /**
+   * Drum Tracks: one main tab, with Pattern, Fillern and Fills as its subtabs under the main tabs
+   * (shown with them only); the tab opens the subtab used last.
+   */
+  void s113_drum_tracks_tab() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    final Container root = frame.getContentPane();
+    java.util.function.Supplier<String> state = () -> "view " + ((Pulsekit) frame).view + ", subtabs " + (component(root, "drum-subtabs").isVisible() ? "shown" : "hidden")
+        + ", Drum Tracks lit " + ((javax.swing.JButton) component(root, "tab:drums")).getForeground().equals(((javax.swing.JButton) component(root, "tab:" + ((Pulsekit) frame).view)).getForeground());
+    edt(() -> ((javax.swing.JButton) component(root, "tab:drums")).doClick());
+    edt(() -> seen.append("Drum Tracks: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:fills")).doClick());
+    edt(() -> seen.append("Fills: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:song")).doClick());
+    edt(() -> seen.append("Song: view ").append(((Pulsekit) frame).view).append(", subtabs ").append(component(root, "drum-subtabs").isVisible() ? "shown" : "hidden").append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:drums")).doClick());
+    edt(() -> seen.append("Drum Tracks again: ").append(state.get()).append('\n'));
+    edt(() -> ((javax.swing.JButton) component(root, "tab:pattern")).doClick());
+    out.append(seen);
+    if (!seen.toString().contains("Fills: view fills, subtabs shown, Drum Tracks lit true") || !seen.toString().contains("Song: view song, subtabs hidden")
+        || !seen.toString().contains("Drum Tracks again: view fills, subtabs shown")) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Favourite files and category tabs in the galleries: tabs for the main categories the files'
    * prompts are in, a favourite file starred and in the ★ Favourite files list.
    */
@@ -5099,6 +5618,19 @@ public final class DesktopBehavior {
     java.util.List<String> args = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), true);
     out.append("vst_render args: ").append(String.valueOf(args).replace(home.getAbsolutePath(), "~")).append('\n');
     if (args == null || !args.contains("--plugin") || !args.contains("--state") || !args.contains("48000") || args.contains("--dir") || args.contains("--edit") || !args.contains("--test")) throw new AssertionError(out.toString());
+    // A Carla project alone (Linux: its LV2 or bridged plugins, in Carla-Rack) is a plugin for --vst too.
+    String vstSaved = pj.loadParams("vst_render.py");
+    edt(() -> pj.saveParams("vst_render.py", "--carla \"" + new File(home, "Anarchy kit.carxp").getAbsolutePath() + "\" --rate 48000"));
+    java.util.List<String> carla = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), false);
+    out.append("Carla project args: ").append(String.valueOf(carla).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (carla == null || !carla.contains("--carla") || carla.contains("--plugin")) throw new AssertionError(out.toString());
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--carla") || p.token.equals("--drumgizmo") || p.token.equals("--midimap")) out.append(p.token).append(" row: ").append(p.label).append('\n');
+    // A DrumGizmo kit alone (DrumGizmo's own program plays it) too.
+    edt(() -> pj.saveParams("vst_render.py", "--drumgizmo \"" + new File(home, "DRSKit/DRSKit_full.xml").getAbsolutePath() + "\" --rate 48000"));
+    java.util.List<String> gizmo = Midi2WavTest.vstArgs("/x/a.mid", ProgramFiles.bundledSource("vst_render.py"), pj.loadParams("vst_render.py"), false);
+    out.append("DrumGizmo kit args: ").append(String.valueOf(gizmo).replace(home.getAbsolutePath(), "~")).append('\n');
+    if (gizmo == null || !gizmo.contains("--drumgizmo") || gizmo.contains("--plugin")) throw new AssertionError(out.toString());
+    edt(() -> pj.saveParams("vst_render.py", vstSaved));
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));

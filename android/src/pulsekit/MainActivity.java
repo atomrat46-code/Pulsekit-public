@@ -268,6 +268,8 @@ public class MainActivity extends UiKit {
 
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // A crash is written to crash-log.txt; the next start shows it.
+        CrashLog.install(this);
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -287,13 +289,21 @@ public class MainActivity extends UiKit {
         this.gridEditor.applyGridWidth();
         this.refreshTabs();
         this.songEditor.refreshSong();
+        // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
+        String lastTab = this.getSharedPreferences(UI_PREFS, 0).getString("tab", null);
+        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.show(lastTab);
 
         ArtJava.pinWorkDir(this);
         this.handler.postDelayed(this.dbWatch, 400);
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());
         if (left > 0) this.setNow(left + " database " + (left == 1 ? "operation" : "operations") + " did not finish when Pulsekit last stopped");
+        // What went wrong last time: a crash, or Android closing Pulsekit while a program ran.
+        this.lastStop = CrashLog.showLast(this);
     }
+
+    /** The dialog about how Pulsekit stopped last time, when there was one (for the tests). */
+    android.app.AlertDialog lastStop;
 
     /** "Processing DB, please wait" while the prompt library opens or saves for more than a moment (shown over dialogs too). */
     long dbToastAt;
@@ -397,16 +407,27 @@ public class MainActivity extends UiKit {
         linearLayout2.addView((View)linearLayout3);
         LinearLayout linearLayout8 = this.col();
         linearLayout8.setPadding(0, this.dp(8), 0, this.dp(2));
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (buttons under the page's header).
         LinearLayout linearLayout9 = this.row();
-        this.addTab(linearLayout9, "pattern", "Pattern");
-        this.addTab(linearLayout9, "combo", "Fillern");
-        this.addTab(linearLayout9, "fills", "Fills");
+        this.addTab(linearLayout9, DRUM_TRACKS, "Drum Tracks");
         this.addTab(linearLayout9, "pads", "Pads");
+        this.addTab(linearLayout9, "song", "Song");
+        this.addTab(linearLayout9, "composer", "Composer");
         LinearLayout linearLayout10 = this.row();
         linearLayout10.setPadding(0, this.dp(4), 0, 0);
-        this.addTab(linearLayout10, "song", "Song");
         this.addTab(linearLayout10, "py", "PyJav");
         this.addFileTab(linearLayout10);
+        // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
+        this.drumSubtabs = this.col();
+        this.drumSubtabs.setTag("drum-subtabs");
+        this.drumSubtabs.setPadding(0, this.dp(6), 0, this.dp(4));
+        this.drumSubtabs.addView((View)this.text("Drum Tracks", 18, true));
+        LinearLayout drumButtons = this.row();
+        drumButtons.setPadding(0, this.dp(8), 0, 0);
+        this.addTab(drumButtons, "pattern", "Pattern");
+        this.addTab(drumButtons, "combo", "Fillern");
+        this.addTab(drumButtons, "fills", "Fills");
+        this.drumSubtabs.addView((View)drumButtons);
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
         linearLayout2.addView((View)linearLayout8);
@@ -465,12 +486,14 @@ public class MainActivity extends UiKit {
         this.body = this.col();
         this.body.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));
         this.chrome.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, -2));
+        this.body.addView((View)this.drumSubtabs);
         this.body.addView((View)this.chrome);
         FrameLayout frameLayout = new FrameLayout((Context)this);
         frameLayout.setLayoutParams((ViewGroup.LayoutParams)new LinearLayout.LayoutParams(-1, 0, 1.0f));
         this.gridEditor.buildGridPane(frameLayout);
         this.playback.buildPadsPane(frameLayout);
         this.songEditor.buildSongPane(frameLayout);
+        this.composerPage.build(frameLayout);
         this.pyJav.buildPyPane(frameLayout);
         this.projectIo.buildImportPane(frameLayout);
         this.projectIo.buildExportPane(frameLayout);
@@ -532,11 +555,20 @@ public class MainActivity extends UiKit {
         return rangeBar;
     }
 
+    /** The Drum Tracks tab (Pattern, Fillern and Fills under it), its subtab row, and the subtab shown last. */
+    static final String DRUM_TRACKS = "drums";
+    LinearLayout drumSubtabs;
+    String lastDrumView = "pattern";
+
+    static boolean drumView(String view) {
+        return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
     void addTab(LinearLayout linearLayout, String string, String string2) {
         TextView textView = this.text(string2, 13, true);
         textView.setGravity(17);
         textView.setTag((Object)string);
-        textView.setOnClickListener(view -> this.show(string));
+        textView.setOnClickListener(view -> this.show(DRUM_TRACKS.equals(string) ? this.lastDrumView : string));
         textView.setPadding(0, this.dp(8), 0, this.dp(8));
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
         layoutParams.setMargins(this.dp(2), 0, this.dp(2), 0);
@@ -562,9 +594,18 @@ public class MainActivity extends UiKit {
         return "pattern".equals(this.view) || "combo".equals(this.view);
     }
 
+    /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "composer", "py");
+    static final String UI_PREFS = "pulsekit-ui";
+
     void show(String string) {
         this.gridEditor.hideLenMenu();
+        if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
         this.view = string;
+        if (REMEMBERED_TABS.contains(string)) this.getSharedPreferences(UI_PREFS, 0).edit().putString("tab", string).apply();
+        // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
+        if (drumView(string)) this.lastDrumView = string;
+        if (this.drumSubtabs != null) this.drumSubtabs.setVisibility(drumView(string) ? 0 : 8);
         boolean bl = "song".equals(string);
         boolean bl2 = "py".equals(string);
         boolean bl3 = "pads".equals(string);
@@ -994,6 +1035,7 @@ public class MainActivity extends UiKit {
     final GridEditor gridEditor = new GridEditor(this);
     final Playback playback = new Playback(this);
     final SongEditor songEditor = new SongEditor(this);
+    final ComposerPage composerPage = new ComposerPage(this);
     final StyleLibrary styleLibrary = new StyleLibrary(this);
     final ImportLibrary importLibrary = new ImportLibrary(this);
     final FileSets fileSets = new FileSets(this);
@@ -1114,6 +1156,7 @@ public class MainActivity extends UiKit {
             android.widget.TextView tab = (android.widget.TextView) it.next();
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
+                    || (DRUM_TRACKS.equals(tag) && drumView(this.view))
                     || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
@@ -1139,8 +1182,9 @@ public class MainActivity extends UiKit {
         boolean help = "help".equals(this.view);
         boolean midi = "midisettings".equals(this.view);
         boolean compare = "comparehits".equals(this.view);
+        boolean composer = "composer".equals(this.view);
         // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
-        boolean noTransport = pr || help || midi || compare || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
+        boolean noTransport = pr || help || midi || compare || composer || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
             || "py".equals(this.view);
         if (this.transportBar != null) this.transportBar.setVisibility(noTransport ? 8 : 0);
         // Without the bar there is no Stop: a beat or song that was playing stops here.
@@ -1168,7 +1212,14 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr || help || midi || compare) {
+        if (this.composerPage.pane != null) {
+            this.composerPage.pane.setVisibility(composer ? 0 : 8);
+            if (composer) {
+                this.composerPage.pane.bringToFront();
+                this.composerPage.refresh();
+            }
+        }
+        if (info || pr || help || midi || compare || composer) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -1181,7 +1232,9 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (compare) {
+            if (composer) {
+                this.setNow("Composer");
+            } else if (compare) {
                 this.setNow("Compare Hits");
             } else if (midi) {
                 this.setNow("Drum Midi Settings");

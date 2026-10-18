@@ -261,9 +261,16 @@ public final class PromptVault {
     public String name;
     public String promptTitle;
     public int size;
+    /** When it was kept (its prompt version's date, or when it was imported; ms); 0 unknown. */
+    public long created;
     /** How many prompts (and imported files) use this same file: it is listed once, kept once. */
     public int uses = 1;
     String key;
+
+    /** When it was kept, "2026-10-18 14:05"; "" when not known (imported before dates were kept). */
+    public String when() {
+      return created <= 0 ? "" : new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.ROOT).format(new java.util.Date(created));
+    }
 
     /** The prompt's title, with how many more use the file: "Sunset +2". */
     public String shownTitle() {
@@ -285,6 +292,7 @@ public final class PromptVault {
       addStored(out, version, 1);
       addStored(out, version, 2);
     }
+    newestFirst(out);
     List<StoredFile> once = new ArrayList<StoredFile>();
     java.util.Map<String, StoredFile> seen = new java.util.HashMap<String, StoredFile>();
     java.util.Map<String, java.util.Set<String>> titles = new java.util.HashMap<String, java.util.Set<String>>();
@@ -343,7 +351,18 @@ public final class PromptVault {
     // Files imported as result files (File > Import as Result file) first, newest first.
     for (int i = library.size() - 1; i >= 0; i--) if (library.get(i).which == 3) addLibrary(out, library.get(i));
     for (int i = versions.size() - 1; i >= 0; i--) addStored(out, versions.get(i), 3);
+    newestFirst(out);
     return out;
+  }
+
+  /** Newest first: imported files and prompt versions together (their ids count up as they are made). */
+  private static void newestFirst(List<StoredFile> out) {
+    java.util.Collections.sort(out, new java.util.Comparator<StoredFile>() {
+      @Override
+      public int compare(StoredFile a, StoredFile b) {
+        return a.versionId == b.versionId ? 0 : a.versionId > b.versionId ? -1 : 1;
+      }
+    });
   }
 
   /** The kind of a prompt file kept in the library (a run's --saveprompt sheet): Prompt files on the Prompts page. */
@@ -396,6 +415,7 @@ public final class PromptVault {
     }
     LibraryFile file = new LibraryFile();
     file.id = nextId++;
+    file.created = System.currentTimeMillis();
     file.name = clean;
     file.bytes = copy(bytes);
     file.note = label;
@@ -447,6 +467,7 @@ public final class PromptVault {
     row.name = name;
     row.promptTitle = title;
     row.size = size;
+    row.created = version.created;
     out.add(row);
   }
 
@@ -473,6 +494,7 @@ public final class PromptVault {
     }
     LibraryFile image = new LibraryFile();
     image.id = nextId++;
+    image.created = System.currentTimeMillis();
     image.name = clean;
     image.bytes = copy(bytes);
     image.note = label;
@@ -506,6 +528,7 @@ public final class PromptVault {
     }
     LibraryFile file = new LibraryFile();
     file.id = nextId++;
+    file.created = System.currentTimeMillis();
     file.name = clean;
     file.bytes = copy(bytes);
     file.note = label;
@@ -525,6 +548,7 @@ public final class PromptVault {
     row.name = name;
     row.promptTitle = title;
     row.size = image.size();
+    row.created = image.created;
     out.add(row);
   }
 
@@ -544,6 +568,8 @@ public final class PromptVault {
     /** Kept in its own file (see Version.ref1Blob): its name and size, and bytes is empty. */
     String blob;
     int blobSize;
+    /** When it was added (ms); 0 for a file added before the library kept dates. */
+    long created;
 
     int size() {
       return blob != null ? blobSize : bytes == null ? 0 : bytes.length;
@@ -1105,6 +1131,12 @@ public final class PromptVault {
         }
         writeBytes(out, image.bytes, image.blob);
       }
+      // The files' dates, after them: a library written before dates were kept simply has none.
+      out.writeInt(library.size());
+      for (int i = 0; i < library.size(); i++) {
+        out.writeLong(library.get(i).id);
+        out.writeLong(library.get(i).created);
+      }
     }
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
@@ -1219,6 +1251,12 @@ public final class PromptVault {
           image.blobSize = readSize;
         }
         if (image.size() > 0) library.add(image);
+      }
+      if (data.available() >= 4) {
+        int ndates = data.readInt();
+        java.util.Map<Long, Long> dates = new java.util.HashMap<Long, Long>();
+        for (int i = 0; i < ndates && data.available() >= 16; i++) dates.put(data.readLong(), data.readLong());
+        for (LibraryFile image : library) if (dates.containsKey(image.id)) image.created = dates.get(image.id);
       }
     }
   }

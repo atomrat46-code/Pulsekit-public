@@ -232,6 +232,15 @@ public final class Pulsekit extends UiKit {
         this.persistence.restoreSessionFiles();
         this.styleChosen = false;
         this.styleLibrary.refreshStyles();
+        // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
+        String lastTab = readLastTab();
+        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.showView(lastTab);
+        // VLC brought Pulsekit down as it started last time: it is off now, and Pulsekit says so.
+        final String vlcCrashed = VlcPlayer.crashedLastTime();
+        if (vlcCrashed != null) {
+            this.setNow(vlcCrashed);
+            SwingUtilities.invokeLater(() -> javax.swing.JOptionPane.showMessageDialog(this, vlcCrashed, "VLC is off", javax.swing.JOptionPane.WARNING_MESSAGE));
+        }
         this.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -343,19 +352,42 @@ public final class Pulsekit extends UiKit {
         jPanel.add((Component)jPanel2, "North");
         JPanel jPanel6 = new JPanel(new BorderLayout(0, 8));
         jPanel6.setOpaque(false);
-        JPanel jPanel7 = new JPanel(new GridLayout(2, 4, 6, 4));
+        // Drum Tracks: Pattern, Fillern and Fills as its subtabs (buttons under the page's header).
+        JPanel jPanel7 = new JPanel(new GridLayout(1, 6, 6, 4));
         jPanel7.setOpaque(false);
-        this.addTab(jPanel7, "pattern", "Pattern");
-        this.addTab(jPanel7, "combo", "Fillern");
-        this.addTab(jPanel7, "fills", "Fills");
+        this.addTab(jPanel7, DRUM_TRACKS, "Drum Tracks");
         this.addTab(jPanel7, "pads", "Pads");
         this.addTab(jPanel7, "song", "Song");
+        this.addTab(jPanel7, "composer", "Composer");
         this.addTab(jPanel7, "py", "PyJav");
         this.addTab(jPanel7, "prompts", "Prompts");
         this.addFileTab(jPanel7);
+        // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
+        this.drumSubtabs = new JPanel();
+        this.drumSubtabs.setLayout(new BoxLayout(this.drumSubtabs, 1));
+        this.drumSubtabs.setOpaque(false);
+        this.drumSubtabs.setName("drum-subtabs");
+        this.drumSubtabs.setBorder(BorderFactory.createEmptyBorder(4, 0, 8, 0));
+        JLabel drumHead = new JLabel("Drum Tracks");
+        drumHead.setFont(new Font("SansSerif", 1, 20));
+        drumHead.setForeground(FG);
+        drumHead.setAlignmentX(0.0f);
+        this.drumSubtabs.add(drumHead);
+        this.drumSubtabs.add(Box.createVerticalStrut(8));
+        JPanel drumButtons = new JPanel(new GridLayout(1, 3, 6, 4));
+        drumButtons.setOpaque(false);
+        drumButtons.setAlignmentX(0.0f);
+        this.addTab(drumButtons, "pattern", "Pattern");
+        this.addTab(drumButtons, "combo", "Fillern");
+        this.addTab(drumButtons, "fills", "Fills");
+        drumButtons.setMaximumSize(new Dimension(420, drumButtons.getPreferredSize().height));
+        this.drumSubtabs.add(drumButtons);
+        JPanel tabRows = new JPanel(new BorderLayout());
+        tabRows.setOpaque(false);
+        tabRows.add((Component)jPanel7, "North");
         JPanel jPanel8 = new JPanel(new BorderLayout());
         jPanel8.setOpaque(false);
-        jPanel8.add((Component)jPanel7, "North");
+        jPanel8.add((Component)tabRows, "North");
         this.nowPlaying.setForeground(HIT);
         this.nowPlaying.setFont(new Font("SansSerif", 1, 13));
         this.nowPlaying.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
@@ -480,7 +512,14 @@ public final class Pulsekit extends UiKit {
         this.chrome.add(this.toolsRow);
         JPanel jPanel9 = new JPanel(new BorderLayout(0, 6));
         jPanel9.setOpaque(false);
-        jPanel9.add((Component)this.chrome, "North");
+        JPanel pageTop = new JPanel();
+        pageTop.setOpaque(false);
+        pageTop.setLayout(new BoxLayout(pageTop, 1));
+        this.drumSubtabs.setAlignmentX(0.0f);
+        this.chrome.setAlignmentX(0.0f);
+        pageTop.add(this.drumSubtabs);
+        pageTop.add(this.chrome);
+        jPanel9.add((Component)pageTop, "North");
         this.pageHost.setOpaque(false);
         this.gridHost = new JPanel(new BorderLayout());
         this.gridHost.setOpaque(false);
@@ -488,6 +527,7 @@ public final class Pulsekit extends UiKit {
         this.pageHost.add((Component)this.gridHost, "grid");
         this.pageHost.add((Component)this.playback.buildPads(), "pads");
         this.pageHost.add((Component)this.songEditor.buildSongPage(), "song");
+        this.pageHost.add((Component)this.composerPage.buildComposerPage(), "composer");
         this.pageHost.add((Component)this.pyJav.buildPyPage(), "py");
         this.pageHost.add((Component)this.projectIo.buildImportPage(), "import");
         this.pageHost.add((Component)this.projectIo.buildExportPage(), "export");
@@ -549,12 +589,22 @@ public final class Pulsekit extends UiKit {
         return jPanel;
     }
 
+    /** The Drum Tracks tab (Pattern, Fillern and Fills under it), its subtab row, and the subtab shown last. */
+    static final String DRUM_TRACKS = "drums";
+    JPanel drumSubtabs;
+    String lastDrumView = "pattern";
+
+    static boolean drumView(String view) {
+        return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
     void addTab(JPanel jPanel, String string, String string2) {
         JButton jButton = new JButton(string2);
         this.flatten(jButton);
         jButton.setFont(new Font("SansSerif", 1, 13));
         jButton.putClientProperty("tab", string);
-        jButton.addActionListener(actionEvent -> this.showView(string));
+        jButton.setName("tab:" + string);
+        jButton.addActionListener(actionEvent -> this.showView(DRUM_TRACKS.equals(string) ? this.lastDrumView : string));
         jPanel.add(jButton);
         this.tabs.add(jButton);
     }
@@ -655,6 +705,7 @@ public final class Pulsekit extends UiKit {
     final GridEditor gridEditor = new GridEditor(this);
     final Playback playback = new Playback(this);
     final SongEditor songEditor = new SongEditor(this);
+    final ComposerPage composerPage = new ComposerPage(this);
     final StyleLibrary styleLibrary = new StyleLibrary(this);
     final ImportLibrary importLibrary = new ImportLibrary(this);
     final FileSets fileSets = new FileSets(this);
@@ -675,8 +726,37 @@ public final class Pulsekit extends UiKit {
     JPanel transportBar;
 
 
+    /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "composer", "py", "prompts");
+
+    static java.io.File lastTabFile() {
+        return new java.io.File(PromptDb.dir(), "last-tab.txt");
+    }
+
+    static String readLastTab() {
+        try {
+            java.io.File f = lastTabFile();
+            return f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim() : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     void showView(String string) {
+        if (DRUM_TRACKS.equals(string)) string = this.lastDrumView;
+        // Kept for the next start when it changes.
+        if (REMEMBERED_TABS.contains(string) && !string.equals(this.view)) {
+            try {
+                lastTabFile().getParentFile().mkdirs();
+                java.nio.file.Files.write(lastTabFile().toPath(), (string + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
+                // this run only
+            }
+        }
         this.view = string;
+        // Pattern, Fillern and Fills are Drum Tracks' subtabs: their row shows with them.
+        if (drumView(string)) this.lastDrumView = string;
+        if (this.drumSubtabs != null) this.drumSubtabs.setVisible(drumView(string));
         if (("pattern".equals(string) || "combo".equals(string)) && !string.equals(this.importedFor)) this.styleLibrary.refreshLearnedChips();
         boolean bl = "fills".equals(string);
         boolean combo = "combo".equals(string);
@@ -686,8 +766,8 @@ public final class Pulsekit extends UiKit {
         boolean bl3 = "py".equals(string);
         this.nowPlaying.setVisible(!bl3 && this.nowPlaying.getText() != null && this.nowPlaying.getText().trim().length() > 0);
         boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string) || "comparehits".equals(string);
-        boolean prompts = "prompts".equals(string);
-        // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
+        boolean prompts = "prompts".equals(string) || "composer".equals(string);
+        // Prompts, Composer, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
         boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
             || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
         if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
@@ -707,7 +787,8 @@ public final class Pulsekit extends UiKit {
             this.songEditor.refreshSong();
         }
         // The prompt library may have changed (a run, an import): the Prompts page reads it again.
-        if (prompts) this.promptsPage.rebuild();
+        if ("prompts".equals(string)) this.promptsPage.rebuild();
+        if ("composer".equals(string)) this.composerPage.refresh();
         if (pattern) {
             this.fillLast = false;
             this.setNow(null);
@@ -751,7 +832,7 @@ public final class Pulsekit extends UiKit {
             this.setNow("Scripts on web");
         }
         if (prompts) {
-            this.setNow("Prompts");
+            this.setNow("composer".equals(string) ? "Composer" : "Prompts");
         }
         if ("help".equals(string)) {
             this.setNow("Help");
@@ -790,6 +871,7 @@ public final class Pulsekit extends UiKit {
             JButton jButton = iterator.next();
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
+                || (DRUM_TRACKS.equals(tab) && drumView(this.view))
                 || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);

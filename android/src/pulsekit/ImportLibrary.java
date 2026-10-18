@@ -798,6 +798,22 @@ final class ImportLibrary {
         app.fileSets.wireFileSetListActions();
     }
 
+    /** Composer parts: the imported song split into the Composer's parts (and its stack), the Composer shown. */
+    void toComposerParts(java.lang.String stem, java.util.List song) {
+        pulsekit.Composer c = app.composerPage.composer();
+        java.lang.String note = c.addSong(stem, (java.util.List<pulsekit.Engine.Part>) song, app.learned, app.learnedFills);
+        c.save(app.getFilesDir());
+        app.show("composer");
+        app.setNow(note);
+    }
+
+    /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
+    boolean openEditor;
+    /** Set while a MIDI becomes a file set for the Composer's stack: no Make a song question. */
+    boolean quietSet;
+    /** The file set the last tryPackMidiFileSet made (its source name). */
+    java.lang.String lastPackedSet;
+
     boolean tryPackMidiFileSet(java.lang.String filename, pulsekit.Engine.MidiBars bars, boolean force) {
         if (bars == null || bars.bars == null || bars.bars.isEmpty()) return false;
         java.util.List segs = pulsekit.Engine.segmentMidiBars(bars.bars);
@@ -819,21 +835,27 @@ final class ImportLibrary {
             pulsekit.Engine.attachStagedMidi(set);
             if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
             app.fileSets.storeFsetParts(stem, set.parts);
+            this.lastPackedSet = stem;
             byte[] packed = pulsekit.Engine.encodeFset(set);
             this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
             // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
             java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             // Midi2Wav's test makes the song without asking: CompareHits compares it.
-            if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
+            if (this.quietSet) {
+                // Add to composer stack: the set's patterns go on the stack, no song asked about.
+            } else if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
                 app.songEditor.addImportedMidiSong(stem, song);
             } else if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)
                     .setTitle((java.lang.CharSequence) "Make a song?")
-                    .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays."))
+                    .setMessage((java.lang.CharSequence) (set.patterns.size() + " patterns · " + set.fills.size() + " fills. It goes under Imported. Your original song stays. Composer parts: the song split into parts (Intro, Verse, Chorus...) in the Composer."))
                     .setPositiveButton((java.lang.CharSequence) "Make song", pulsekit.FileSetClicks.makeSong(app, stem, song))
+                    .setNeutralButton((java.lang.CharSequence) "Composer parts", (d, w) -> this.toComposerParts(stem, song))
                     .setNegativeButton((java.lang.CharSequence) "Not now", null)
                     .show();
             }
+            // Over the question: the MIDI editor, on the MIDI just imported.
+            if (this.openEditor && set.sourceMidi != null) pulsekit.MidiEditScreen.openFromImport(app, set.name);
             return true;
         } catch (java.lang.Exception ex) {
             java.lang.String m = ex.getMessage();

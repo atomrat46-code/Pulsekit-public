@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="pulsekit.app"
-    android:versionCode="198"
-    android:versionName="198.0">
+    android:versionCode="200"
+    android:versionName="200.0">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="33" />
   <uses-permission android:name="android.permission.INTERNET" />
+  <!-- A program run (a Sogni download) keeps Pulsekit running while another app is open: RunKeeper's notification. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- The Media browser's and Choose file's Download: the pictures, videos and sounds other apps saved there. -->
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
   <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -51,6 +55,10 @@
           android:name="android.accessibilityservice"
           android:resource="@xml/prompt_inserter" />
     </service>
+    <service
+        android:name="pulsekit.RunKeeper"
+        android:exported="false"
+        android:foregroundServiceType="dataSync" />
     <provider
         android:name="pulsekit.RefProvider"
         android:authorities="pulsekit.app.refs"

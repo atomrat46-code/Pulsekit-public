@@ -1009,6 +1009,22 @@ public class MidiDrumGen {
      * with batch.txt listing each one's settings. In PyJav on the phone (its work folder is the only
      * place kept) they go into the work folder, named <folder>-gen-001-....
      */
+    static String join(String[] cols) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cols.length; i++) sb.append(i == 0 ? "" : "\t").append(cols[i]);
+        return sb.toString();
+    }
+
+    /** A row of columns named `names` in the order `header` has them (a column it lacks is left out, one it has more is empty). */
+    static String reorder(String[] values, String[] names, String[] header) {
+        String[] out = new String[header.length];
+        for (int h = 0; h < header.length; h++) {
+            out[h] = "";
+            for (int k = 0; k < names.length && k < values.length; k++) if (names[k].equals(header[h])) out[h] = values[k];
+        }
+        return join(out);
+    }
+
     static void batch(int count, String outdir, Long seedGiven, String styles, String style, Integer tempo, Integer bars, Double swing,
             Integer intensity, String hats, Integer humanize, Boolean fills, Boolean crashes, Boolean halfTime, boolean anyTempo, int[] ts) {
         if (count > 1000) {
@@ -1051,13 +1067,32 @@ public class MidiDrumGen {
         }
         System.out.println(String.format(Locale.US, "MidiDrumGen batch: %d grooves, seed %d, %s, into %s", count, seed,
                 style != null ? "style " + style : pool.size() + " style" + (pool.size() == 1 ? "" : "s"), dir.getPath()));
+        // A folder with a batch.txt already (another batch, SogniMusic's --batchdir): its list goes on,
+        // numbered after the files there, so one vst_render --dir run renders them all.
+        File listFile = new File(dir, prefix + "batch.txt");
+        String[] header = null;
+        int rows = 0;
+        if (listFile.isFile()) {
+            try {
+                for (String line : new String(java.nio.file.Files.readAllBytes(listFile.toPath()), StandardCharsets.UTF_8).split("\n")) {
+                    String t = line.replace("\r", "");
+                    if (t.trim().length() == 0 || t.startsWith("#")) continue;
+                    if (header == null) header = t.split("\t", -1);
+                    else rows++;
+                }
+            } catch (java.io.IOException ex) {
+                header = null;
+            }
+        }
         StringBuilder list = new StringBuilder();
         list.append("# MidiDrumGen batch: ").append(count).append(" grooves, seed ").append(seed).append('\n');
         list.append("# Again: MidiDrumGen --count ").append(count).append(" --seed ").append(seed)
                 .append(styles != null && style == null ? " --styles " + styles.trim().replace(" ", "") : "").append('\n');
-        list.append("file\tstyle\tbase\ttempo\ttimesig\tbars\tswing\tintensity\thats\thumanize\tfills\tcrashes\thalftime\n");
+        String[] mine = "file\tstyle\tbase\ttempo\ttimesig\tbars\tswing\tintensity\thats\thumanize\tfills\tcrashes\thalftime".split("\t");
+        if (header == null) list.append(join(mine)).append('\n');
+        else System.out.println("Adding to " + listFile.getName() + " (" + rows + " files listed there already)");
         int made = 0;
-        for (int i = 1; i <= count; i++) {
+        for (int i = rows + 1; i <= rows + count; i++) {
             String id = pool.get(rnd.nextInt(pool.size()));
             DefaultArgs d = DEFAULTS.get(id);
             int lo = d.minTempo > 0 && d.maxTempo >= d.minTempo ? d.minTempo : Math.max(40, (int) Math.round(d.tempo * 0.9));
@@ -1094,12 +1129,12 @@ public class MidiDrumGen {
                 continue;
             }
             made++;
-            list.append(String.format(Locale.US, "%s\t%s\t%s\t%d\t%d/%d\t%d\t%.2f\t%d\t%s\t%d\t%s\t%s\t%s\n", name, id, resolveStyle(id), fTempo, tsNum, tsDen,
-                    fBars, fSwing, fIntensity, fHats.equals("auto") ? d.hats : fHats, fHumanize, fFills ? "on" : "off", fCrashes ? "on" : "off", fHalf ? "on" : "off"));
+            String row = String.format(Locale.US, "%s\t%s\t%s\t%d\t%d/%d\t%d\t%.2f\t%d\t%s\t%d\t%s\t%s\t%s", name, id, resolveStyle(id), fTempo, tsNum, tsDen,
+                    fBars, fSwing, fIntensity, fHats.equals("auto") ? d.hats : fHats, fHumanize, fFills ? "on" : "off", fCrashes ? "on" : "off", fHalf ? "on" : "off");
+            list.append(header == null ? row : reorder(row.split("\t", -1), mine, header)).append('\n');
         }
-        File listFile = new File(dir, prefix + "batch.txt");
         try {
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(listFile);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(listFile, header != null);
             try {
                 fos.write(list.toString().getBytes(StandardCharsets.UTF_8));
             } finally {

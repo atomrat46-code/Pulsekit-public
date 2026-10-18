@@ -405,6 +405,166 @@ final class FileSets {
         return box;
     }
 
+    // ------------------------------------------------------------ source MIDI: row, play, pause, stop
+
+    /** The source MIDI playing (its file set, or "edit:" and the set for the MIDI editor's). */
+    javax.sound.sampled.Clip midiClip;
+    String midiSrc;
+    boolean midiPaused;
+    javax.swing.Timer midiTimer;
+    static java.util.concurrent.Callable<javax.sound.sampled.Clip> midiClips = javax.sound.sampled.AudioSystem::getClip;
+
+    static String mixTime(int ms) {
+        if (ms < 0) ms = 0;
+        int s = ms / 1000;
+        int m = s / 60;
+        s = s % 60;
+        return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    /** The file set's source.mid under its name: name, clock, Play, Pause and Stop. A long press or right click on the name opens the MIDI editor. Null when it has none. */
+    JPanel midiRow(String src) {
+        final String key = Engine.fileSetMidiKeyForLabel(src == null ? "" : src);
+        String name = Engine.fileSetMidiName(key);
+        if (name.length() == 0) return null;
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        row.setOpaque(false);
+        row.setAlignmentX(0f);
+        row.setName("sourcemidi");
+        JButton label = app.chip(name, false);
+        label.setName("sourcemidi-name");
+        label.setToolTipText("Long press or right click: MIDI editor");
+        label.setBackground(BG);
+        label.setForeground(FG);
+        app.onRightClick(label, () -> MidiEditScreen.open(app, key));
+        row.add(label);
+        JLabel clock = new JLabel("00:00 / 00:00");
+        clock.setName("midiclock");
+        clock.setForeground(MUTED);
+        clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        row.add(clock);
+        JButton play = app.outline("Play", false);
+        play.setName("sourcemidi-play");
+        play.addActionListener(e -> this.playSourceMidi(key));
+        JButton pause = app.outline("Pause", false);
+        pause.addActionListener(e -> this.pauseSourceMidi());
+        JButton stop = app.outline("Stop", false);
+        stop.addActionListener(e -> this.stopSourceMidi());
+        row.add(play);
+        row.add(pause);
+        row.add(stop);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
+    void playSourceMidi(String src) {
+        if (src != null && src.equals(this.midiSrc) && this.midiClip != null && this.midiPaused) {
+            this.resumeSourceMidi();
+            return;
+        }
+        Engine.FileSetAudio au = Engine.fileSetAudioOf(src);
+        if (au == null || au.sourceMidi == null || au.sourceMidi.length < 14) {
+            this.stopSourceMidi();
+            app.setNow("That MIDI file is missing");
+            return;
+        }
+        this.playMidiBytes(src, au.sourceMidi, Engine.fileSetMidiName(src), 0);
+    }
+
+    /** Plays a MIDI as the kit sounds it, from `fromMs` on; `src` names it for Pause and Play again. */
+    void playMidiBytes(String src, byte[] midi, String shown, int fromMs) {
+        this.stopSourceMidi();
+        short[] pcm = AudioIo.renderMidiDrums(midi, app.playback.mixVoices(), 22050);
+        if (pcm == null || pcm.length < 8) {
+            app.setNow("No drum notes in that MIDI");
+            return;
+        }
+        // Who plays it: the clock and the MIDI editor know it before the sound starts.
+        this.midiSrc = src;
+        this.midiPaused = false;
+        byte[] raw = new byte[pcm.length * 2];
+        for (int i = 0; i < pcm.length; i++) {
+            raw[2 * i] = (byte) pcm[i];
+            raw[2 * i + 1] = (byte) (pcm[i] >> 8);
+        }
+        try {
+            javax.sound.sampled.Clip c = midiClips.call();
+            c.open(new javax.sound.sampled.AudioFormat(22050, 16, 1, true, false), raw, 0, raw.length);
+            if (fromMs > 0) c.setMicrosecondPosition(fromMs * 1000L);
+            c.start();
+            this.midiClip = c;
+            this.startMidiClock();
+            app.setNow("Play \u00b7 " + shown);
+        } catch (Exception ex) {
+            this.midiSrc = null;
+            app.setNow("No audio output for " + shown);
+        }
+    }
+
+    void resumeSourceMidi() {
+        if (this.midiClip == null) return;
+        this.midiClip.start();
+        this.midiPaused = false;
+        this.startMidiClock();
+        app.setNow("Play");
+    }
+
+    void pauseSourceMidi() {
+        javax.sound.sampled.Clip c = this.midiClip;
+        if (c == null) return;
+        c.stop();
+        this.midiPaused = true;
+        this.tickMidiClock();
+        app.setNow("Paused");
+    }
+
+    void stopSourceMidi() {
+        if (this.midiTimer != null) this.midiTimer.stop();
+        this.midiTimer = null;
+        javax.sound.sampled.Clip c = this.midiClip;
+        this.midiClip = null;
+        this.midiPaused = false;
+        this.midiSrc = null;
+        if (c != null) {
+            try {
+                c.stop();
+                c.close();
+            } catch (Exception ignored) {
+                // closed already
+            }
+        }
+        this.paintMidiClock("00:00 / 00:00");
+        if (MidiEditScreen.now != null) MidiEditScreen.now.clock(null, 0, false);
+        app.setNow("Stopped");
+    }
+
+    void startMidiClock() {
+        if (this.midiTimer != null) this.midiTimer.stop();
+        // The MIDI editor's playhead moves a step at a time: the clock ticks faster while it is open.
+        this.midiTimer = new javax.swing.Timer(MidiEditScreen.now != null ? 40 : 200, e -> this.tickMidiClock());
+        this.midiTimer.start();
+    }
+
+    void tickMidiClock() {
+        javax.sound.sampled.Clip c = this.midiClip;
+        if (c == null) return;
+        int pos = (int) (c.getMicrosecondPosition() / 1000);
+        int dur = (int) (c.getMicrosecondLength() / 1000);
+        this.paintMidiClock(mixTime(pos) + " / " + mixTime(dur));
+        if (MidiEditScreen.now != null) MidiEditScreen.now.clock(this.midiSrc, pos, c.isRunning());
+        // Played to the end: back to the start.
+        if (!this.midiPaused && pos >= dur && dur > 0) this.stopSourceMidi();
+    }
+
+    void paintMidiClock(String label) {
+        for (java.awt.Window w : java.awt.Window.getWindows()) this.paintMidiClockOn(w, label);
+    }
+
+    void paintMidiClockOn(java.awt.Component c, String label) {
+        if (c instanceof JLabel && "midiclock".equals(c.getName())) ((JLabel) c).setText(label);
+        if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) this.paintMidiClockOn(k, label);
+    }
+
     void storeAudioDir() {
         Engine.storeFileSetAudioDir(new File(app.persistence.pulsekitDir(), "fset-audio"));
     }

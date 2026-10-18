@@ -1,12 +1,22 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
   --plugin        the instrument: a VST2 (.dll, .so, .vst) or VST3 (.vst3) plugin. With --wav, an
                   effect (an amp, a reverb) that the WAV is played through instead.
+  --carla         a Carla project (.carxp, saved in Carla): its plugins play the MIDI, in the Carla-Rack
+                  VST (found in the VST folders unless --plugin gives it). Carla hosts LV2, VST2, VST3,
+                  SFZ and SoundFonts natively on Linux, and Windows plugins bridged with yabridge, so
+                  a Linux computer renders without Windows. Set the kit up in Carla (the plugin's own
+                  window), save the project, and give it here; no --edit needed.
+  --drumgizmo     a DrumGizmo kit (its drumkit .xml, free kits at drumgizmo.org): DrumGizmo's own
+                  program plays the MIDI (Linux; no DawDreamer or plugin needed), its channels
+                  (kick, snare, overheads...) mixed to stereo, the ...L and ...R ones to their side.
+  --midimap       the kit's MIDI map (.xml): which note plays which drum. Without it, the kit
+                  folder's Midimap*.xml is used.
   --state         the plugin's settings (its kit, patch, mixer): a file --edit saved, a .fxp/.fxb
                   (VST2) or a .vstpreset (VST3). Without it, the settings last saved with --edit for
                   this plugin are used (~/.pulsekit/vst/<plugin>.state), else the plugin's defaults.
@@ -33,9 +43,11 @@ The plugins' own delay (lookahead, oversampling) is taken off the start, so the 
 the MIDI has them.
 
 Carla (free) can be the plugin too: its Carla-Rack or Carla-Patchbay VST hosts other plugins
-(also LV2, SFZ and SoundFonts); set it up with --edit.
+(also LV2, SFZ and SoundFonts); set it up with --edit, or on Linux with --carla and a project saved
+in Carla.
 
-Needs DawDreamer and numpy (pip install dawdreamer), on Windows, Mac or Linux (64-bit Python 3.9+).
+--drumgizmo needs DrumGizmo (Linux: apt install drumgizmo) and numpy; the rest needs DawDreamer and
+numpy (pip install dawdreamer), on Windows, Mac or Linux (64-bit Python 3.9+).
 A plugin is a desktop program: this does not run on a phone. Licensed plugins render as they do in a
 DAW once they are installed and activated on the computer.
 """
@@ -71,7 +83,238 @@ def vst_folders():
     return [d for d in dirs if os.path.isdir(d)]
 
 
+def lv2_folders():
+    """The usual LV2 folders of this computer that exist (their plugins play through --carla)."""
+    home = os.path.expanduser("~")
+    if sys.platform.startswith("win"):
+        dirs = [os.path.join(os.environ.get("CommonProgramFiles", r"C:\Program Files\Common Files"), "LV2"), os.path.join(os.environ.get("APPDATA", home), "LV2")]
+    elif sys.platform == "darwin":
+        dirs = ["/Library/Audio/Plug-Ins/LV2", os.path.join(home, "Library/Audio/Plug-Ins/LV2")]
+    else:
+        dirs = [os.path.join(home, ".lv2"), "/usr/lib/lv2", "/usr/local/lib/lv2", "/usr/lib/x86_64-linux-gnu/lv2"]
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def carla_rack():
+    """Carla's Carla-Rack VST in the VST folders (also Carla's own folders); None when there is none."""
+    dirs = vst_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
+                                        "/Applications/Carla.app/Contents/MacOS") if os.path.isdir(d)]
+    for d in dirs:
+        for root, subdirs, files in os.walk(d):
+            for n in sorted(subdirs + files):
+                if os.path.splitext(n)[0] == "CarlaRack" and n.lower().endswith(PLUGIN_ENDS):
+                    return os.path.join(root, n)
+    return None
+
+
+def carla_state(proc, project):
+    """Loads the Carla project's plugins into the Carla-Rack VST; returns the line saying which."""
+    import re
+    import tempfile
+    if not os.path.isfile(project):
+        fail("no Carla project at %s" % project)
+    text = open(project, "rb").read().decode("utf-8", "replace")
+    plugins = re.findall(r"<Plugin>.*?</Plugin>", text, re.S)
+    if not plugins:
+        fail("%s has no plugins (save the project in Carla with the plugin loaded)" % os.path.basename(project))
+    names = [m.strip() for m in re.findall(r"<Name>(.*?)</Name>", "".join(plugins), re.S)]
+    work = tempfile.mkdtemp(prefix="pulsekit-carla-")
+    empty = os.path.join(work, "empty.state")
+    proc.save_state(empty)
+    raw = open(empty, "rb").read()
+    at = raw.find(b"<?xml")
+    end = raw.rfind(b"</CARLA-PROJECT>")
+    if at < 4 or end < 0:
+        fail("the plugin is not Carla's Carla-Rack (give Carla-Rack with --plugin, or leave --plugin out)")
+    xml = raw[at:end] + ("\n".join(" " + p for p in plugins) + "\n</CARLA-PROJECT>\n").encode("utf-8") + b"\0"
+    state = os.path.join(work, "project.state")
+    # The rack's state is its project text, its length before it.
+    with open(state, "wb") as f:
+        f.write(raw[:at - 4] + struct.pack(">I", len(xml)) + xml)
+    proc.load_state(state)
+    # What the rack has now: a plugin Carla could not find is left out.
+    check = os.path.join(work, "check.state")
+    proc.save_state(check)
+    loaded = open(check, "rb").read().count(b"<Plugin>")
+    if loaded < len(plugins):
+        fail("Carla loaded %d of the %d plugins in %s. Are they installed on this computer (and in Carla's folders)?" % (loaded, len(plugins), os.path.basename(project)))
+    return "Carla project: %s (%s)" % (os.path.basename(project), ", ".join(names))
+
+
+def gizmo_map(kit, given):
+    """The kit's MIDI map: the one given, else the kit folder's Midimap*.xml (a full one first)."""
+    if given:
+        if not os.path.isfile(given):
+            fail("no MIDI map at %s" % given)
+        return given
+    folder = os.path.dirname(os.path.abspath(kit))
+    maps = sorted(n for n in os.listdir(folder) if n.lower().startswith("midimap") and n.lower().endswith(".xml"))
+    if not maps:
+        fail("no Midimap*.xml in %s: give the kit's MIDI map with --midimap" % folder)
+    full = [n for n in maps if "full" in n.lower()]
+    return os.path.join(folder, (full or maps)[0])
+
+
+def gizmo_side(name):
+    """Where a kit channel goes in the stereo mix: -1 left (OHL, AmbL, Room_Left), 1 right, 0 the middle."""
+    low = name.lower()
+    if low.endswith("left") or low.endswith(("_l", "-l", " l")) or name.endswith("L"):
+        return -1
+    if low.endswith("right") or low.endswith(("_r", "-r", " r")) or name.endswith("R"):
+        return 1
+    return 0
+
+
+def wav_samples(path):
+    """A mono WAV DrumGizmo wrote, as floats: 32-bit float read from the disk as it is needed (it can be long)."""
+    import numpy as np
+    with open(path, "rb") as f:
+        data = f.read(4096)
+    p = 12
+    fmt, bits = 3, 32
+    while p + 8 <= len(data):
+        cid = data[p:p + 4]
+        size = struct.unpack("<I", data[p + 4:p + 8])[0]
+        if cid == b"fmt ":
+            fmt, _, _, _, _, bits = struct.unpack("<HHIIHH", data[p + 8:p + 24])
+        elif cid == b"data":
+            n = (os.path.getsize(path) - p - 8) // (bits // 8)
+            if n <= 0:
+                return np.zeros(0, dtype=np.float32)
+            if fmt == 3 and bits == 32:
+                return np.memmap(path, dtype="<f4", mode="r", offset=p + 8, shape=(n,))
+            if bits == 16:
+                return np.memmap(path, dtype="<i2", mode="r", offset=p + 8, shape=(n,)).astype(np.float32) / 32768.0
+            break
+        p += 8 + size + (size & 1)
+    fail("%s: a WAV format DrumGizmo does not write" % os.path.basename(path))
+
+
+def midi_file(path, notes, bpm=120, tpq=480):
+    """A drum MIDI of (beat, note) hits, for the DrumGizmo check."""
+    def vlq(v):
+        out = [v & 0x7f]
+        v >>= 7
+        while v:
+            out.insert(0, (v & 0x7f) | 0x80)
+            v >>= 7
+        return bytes(out)
+    us = int(60000000 / bpm)
+    ev = b"\x00\xff\x51\x03" + bytes([(us >> 16) & 0xff, (us >> 8) & 0xff, us & 0xff])
+    at = 0
+    for beat, note in notes:
+        tick = int(beat * tpq)
+        ev += vlq(tick - at) + bytes([0x99, note, 110]) + vlq(10) + bytes([0x89, note, 0])
+        at = tick + 10
+    ev += b"\x00\xff\x2f\x00"
+    with open(path, "wb") as f:
+        f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, tpq) + b"MTrk" + struct.pack(">I", len(ev)) + ev)
+
+
+class Gizmo:
+    """
+    DrumGizmo's own program on a kit: each MIDI rendered, its channels mixed to stereo.
+
+    Its MIDI file player puts each hit at the start of a block of about a thousand samples (up to
+    23 ms early at 44.1 kHz), and some versions play the file at half speed. So the kit is rendered
+    at four or eight times the rate (the blocks a few ms long) and every 4th or 8th sample kept; the
+    speed is measured first, with one hit four seconds in.
+    """
+
+    def __init__(self, rate, opts):
+        import shutil
+        self.rate = rate
+        self.kit = opts["--drumgizmo"]
+        if not os.path.isfile(self.kit):
+            fail("no DrumGizmo kit at %s (give its drumkit .xml)" % self.kit)
+        self.exe = shutil.which("drumgizmo")
+        if not self.exe:
+            fail("DrumGizmo is not installed (Linux: sudo apt install drumgizmo). On Windows or Mac, give its VST with --plugin")
+        self.midimap = gizmo_map(self.kit, opts["--midimap"])
+        import re
+        notes = [int(n) for n in re.findall(r'note\s*=\s*"(\d+)"', open(self.midimap, "rb").read().decode("utf-8", "replace"))]
+        if not notes:
+            fail("%s maps no notes" % os.path.basename(self.midimap))
+        self.speed = 1.0
+        self.speed = self.measure(notes[0])
+        print("DrumGizmo: %s, MIDI map %s%s" % (self.kit, os.path.basename(self.midimap), "" if abs(self.speed - 1) < 0.01 else ", its MIDI speed %.3g corrected" % self.speed))
+
+    def latency(self):
+        return 0
+
+    def run(self, midi, seconds, factor):
+        """DrumGizmo on the MIDI at `factor` times the rate: its folder and channel files (name, path)."""
+        import subprocess
+        import tempfile
+        work = tempfile.mkdtemp(prefix="pulsekit-gizmo-")
+        cmd = [self.exe, "-i", "midifile", "-I", "file=%s,midimap=%s,speed=%.6f" % (os.path.abspath(midi), os.path.abspath(self.midimap), self.speed),
+               "-o", "wavfile", "-O", "file=%s,srate=%d" % (os.path.join(work, "out"), self.rate * factor),
+               "-e", str(int(seconds * self.rate * factor)), os.path.abspath(self.kit)]
+        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        made = sorted(n for n in os.listdir(work) if n.startswith("out") and n.endswith(".wav"))
+        if done.returncode != 0 or not made:
+            last = done.stdout.decode("utf-8", "replace").strip().splitlines()[-3:]
+            raise ValueError("DrumGizmo could not render it (%s)" % " / ".join(last))
+        # outKick-0.wav: the channel's name, then its number.
+        return work, [(n[3:-4].rsplit("-", 1)[0], os.path.join(work, n)) for n in made]
+
+    @staticmethod
+    def clean(work, files):
+        for _, path in files:
+            os.remove(path)
+        os.rmdir(work)
+
+    def measure(self, note):
+        """DrumGizmo's MIDI speed: where a hit four seconds in (at 120 BPM) lands, against where it should."""
+        import numpy as np
+        import tempfile
+        midi = os.path.join(tempfile.mkdtemp(prefix="pulsekit-gizmo-check-"), "check.mid")
+        midi_file(midi, [(8, note)])
+        try:
+            work, files = self.run(midi, 9.5, 4)
+        except ValueError as e:
+            fail(str(e))
+        first = None
+        for _, path in files:
+            audio = np.abs(np.asarray(wav_samples(path)))
+            loud = np.nonzero(audio > max(1e-4, float(audio.max()) * 0.05))[0] if audio.size else []
+            if len(loud) and (first is None or loud[0] < first):
+                first = int(loud[0])
+        self.clean(work, files)
+        os.remove(midi)
+        os.rmdir(os.path.dirname(midi))
+        if first is None:
+            fail("DrumGizmo played nothing for note %d of %s: does the MIDI map fit the kit?" % (note, os.path.basename(self.midimap)))
+        landed = first / float(self.rate * 4)
+        return round(landed / 4.0, 3) if landed > 1 else 1.0
+
+    def render(self, np, midi=None, wav=None, tail=2.0):
+        if wav:
+            raise ValueError("DrumGizmo plays MIDI; --wav needs an effect plugin")
+        length = midi_notes(midi)[0]
+        frames = int((length + tail) * self.rate)
+        # Eight times the rate for a short MIDI (hits within 2 ms), four for a long one (5 ms): less disk.
+        factor = 8 if length + tail <= 60 else 4
+        work, files = self.run(midi, length + tail, factor)
+        mix = np.zeros((2, frames), dtype=np.float32)
+        for channel, path in files:
+            audio = np.asarray(wav_samples(path)[::factor][:frames], dtype=np.float32)
+            side = gizmo_side(channel)
+            left, right = (1.0, 0.0) if side < 0 else (0.0, 1.0) if side > 0 else (0.7071, 0.7071)
+            mix[0, :len(audio)] += audio * left
+            mix[1, :len(audio)] += audio * right
+        self.clean(work, files)
+        return mix, length, 0
+
+
 def scan():
+    rack = carla_rack()
+    print("Carla-Rack (for --carla): %s" % (rack or "not found; Carla is free at kx.studio/carla"))
+    import shutil
+    print("DrumGizmo (for --drumgizmo): %s" % (shutil.which("drumgizmo") or "not installed (Linux: apt install drumgizmo)"))
+    for d in lv2_folders():
+        bundles = sorted(n for n in os.listdir(d) if n.lower().endswith(".lv2"))
+        print("%s (LV2, through --carla): %s" % (d, ", ".join(b[:-4] for b in bundles) or "none"))
     found = 0
     for d in vst_folders():
         print(d)
@@ -360,7 +603,9 @@ class Chain(object):
         self.plugin = opts["--plugin"]
         self.main = load_plugin(self.engine, "plugin", self.plugin)
         print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
-        if "--edit" in switches:
+        if opts["--carla"]:
+            print(carla_state(self.main, opts["--carla"]))
+        elif "--edit" in switches:
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
@@ -403,6 +648,10 @@ class Chain(object):
             audio = audio[None, :]
         if audio.shape[0] == 1:
             audio = np.vstack([audio, audio])
+        if audio.shape[0] > 2:
+            # A drum plugin with an output for each drum (DrumGizmo's VST): the others go in the middle.
+            rest = audio[2:].sum(axis=0) * 0.7071
+            audio = np.vstack([audio[0] + rest, audio[1] + rest])
         # The plugins' own delay (lookahead, oversampling): the hits land where the MIDI has them.
         return audio[:2, late:], length, late
 
@@ -419,7 +668,7 @@ def finish(np, audio, volume):
 
 
 def main(argv):
-    opts = {"--plugin": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
+    opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java"}
     switches = set()
@@ -445,9 +694,25 @@ def main(argv):
         return
     midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
     out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
+    if opts["--carla"]:
+        if "--edit" in switches:
+            fail("--carla plays a project set up in Carla: change the kit there and save the project again")
+        if not opts["--plugin"]:
+            opts["--plugin"] = carla_rack()
+            if not opts["--plugin"]:
+                fail("--carla needs Carla's Carla-Rack VST (install Carla, or give it with --plugin)")
+    gizmo = opts["--drumgizmo"]
+    if gizmo:
+        if opts["--plugin"] or opts["--carla"] or opts["--effect"] or opts["--wav"] or "--edit" in switches:
+            fail("--drumgizmo plays the kit with DrumGizmo's own program: no --plugin, --carla, --effect, --wav or --edit with it")
+        opts["--plugin"] = gizmo
     plugin = opts["--plugin"]
     if not plugin:
         fail("no plugin: give one with --plugin (--scan lists the installed ones)")
+    # The WAVs and the report are named after the Carla project or the kit, not the rack.
+    name = opts["--carla"] or plugin
+    if gizmo and stem(gizmo).lower() == "drumkit":
+        name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
     folder = opts["--dir"]
     if folder:
         if not os.path.isdir(folder):
@@ -484,11 +749,16 @@ def main(argv):
     tail = max(0.0, min(30.0, tail))
     try:
         import numpy as np
-        import dawdreamer as daw
     except ImportError as e:
-        fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
-
-    chain = Chain(daw, rate, opts, switches)
+        fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
+    if gizmo:
+        chain = Gizmo(rate, opts)
+    else:
+        try:
+            import dawdreamer as daw
+        except ImportError as e:
+            fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
+        chain = Chain(daw, rate, opts, switches)
     late = chain.latency()
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
@@ -508,10 +778,14 @@ def main(argv):
         if opts["--wav"]:
             print("Input: %s, %.1f s" % (os.path.basename(source), length))
         audio, note = finish(np, audio, volume)
+        if note and gizmo and note.startswith("the render is silent"):
+            note = "the render is silent. Does the MIDI map play this kit's drums with the MIDI's notes (--midimap)?"
+        if note and opts["--carla"] and note.startswith("the render is silent"):
+            note = "the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again."
         if note:
             print("Note: " + note)
         if not out:
-            out = "%s-%s.wav" % (stem(source), stem(plugin))
+            out = "%s-%s.wav" % (stem(source), stem(name))
         if opts["--outdir"]:
             if not os.path.isdir(opts["--outdir"]):
                 os.makedirs(opts["--outdir"])
@@ -535,13 +809,13 @@ def main(argv):
                 where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
             if not os.path.isdir(where):
                 os.makedirs(where)
-            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(plugin)))
+            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             write_wav(o, audio, rate, bits)
             print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
-                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(plugin)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         for m, o in batch_done:
@@ -571,7 +845,7 @@ def main(argv):
         print("")
         print(text)
         where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1])))
-        rep = os.path.join(where, "vst-test-%s.txt" % stem(plugin))
+        rep = os.path.join(where, "vst-test-%s.txt" % stem(name))
         with open(rep, "w") as f:
             f.write(text + "\n")
         print("Wrote %s" % rep)

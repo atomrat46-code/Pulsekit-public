@@ -316,9 +316,13 @@ public final class PromptSheet {
     } else {
       buildEditor(activity, col);
     }
+    // A gallery: its Ref files / Result files / Prompt files tabs stay above the thumbnails.
+    boolean gallery = vault != null && previewBack == 0 && (refsOpen || resultsOpen || promptFilesOpen);
+    if (gallery) host.addView(galleryTabs(activity), new LinearLayout.LayoutParams(-1, -2));
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(col);
-    host.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    host.addView(scroll, gallery ? new LinearLayout.LayoutParams(-1, 0, 1f) : new LinearLayout.LayoutParams(-1, -1));
+    pageScroll = scroll;
     final View focus = focusCard;
     focusCard = null;
     final int kept = keepScroll;
@@ -546,6 +550,47 @@ public final class PromptSheet {
       }
     }));
     col.addView(add, buttonLp(activity));
+  }
+
+  /** The page's scroll view as rebuilt last. */
+  private static ScrollView pageScroll;
+  /** Where each gallery (Ref files, Result files, Prompt files) was scrolled to when another tab was opened. */
+  static final int[] galleryScroll = new int[3];
+
+  /** The gallery shown: 0 Ref files, 1 Result files, 2 Prompt files. */
+  static int galleryTab() {
+    return promptFilesOpen ? 2 : resultsOpen && !refsOpen ? 1 : 0;
+  }
+
+  /** Ref files | Result files | Prompt files, the one shown lit; a tap keeps this one's place and opens the other where it was left. */
+  private static LinearLayout galleryTabs(final Activity activity) {
+    LinearLayout row = new LinearLayout(activity);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setTag("gallery-tabs");
+    int pad = dp(activity, 16);
+    row.setPadding(pad, dp(activity, 8), pad, dp(activity, 4));
+    row.setBackgroundColor(Color.parseColor("#0A0B0C"));
+    String[] names = {"Ref files", "Result files", "Prompt files"};
+    final int now = galleryTab();
+    for (int i = 0; i < names.length; i++) {
+      final int tab = i;
+      boolean on = tab == now;
+      TextView b = button(activity, names[i], on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      b.setTag("gallery-tab:" + tab);
+      b.setOnClickListener(v -> {
+        if (tab == galleryTab()) return;
+        if (pageScroll != null) galleryScroll[galleryTab()] = pageScroll.getScrollY();
+        refsOpen = tab == 0;
+        resultsOpen = tab == 1;
+        promptFilesOpen = tab == 2;
+        keepScroll = galleryScroll[tab];
+        rebuild(activity);
+      });
+      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
+      lp.setMargins(i == 0 ? 0 : dp(activity, 4), 0, 0, 0);
+      row.addView(b, lp);
+    }
+    return row;
   }
 
   private static void buildRefGallery(Activity activity, LinearLayout col) {
@@ -1888,11 +1933,17 @@ public final class PromptSheet {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
     }
+    // A MIDI: the MIDI editor, Render with SF2, Play with default SoundFont; a sound: Convert drum hits into MIDI (as the Media browser has them).
+    String[] kinds = activity instanceof MainActivity ? MediaDir.kindItems(name, false) : new String[0];
+    for (final String kindItem : kinds) {
+      items.add(kindItem);
+      runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
+    }
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    if (!fullSize && !extract && !strip && !picture) {
+    if (!fullSize && !extract && !strip && !picture && kinds.length == 0) {
       itemMenu(activity, name, rename, delete);
       return;
     }
@@ -1903,6 +1954,53 @@ public final class PromptSheet {
   }
 
   /** Upscale/Resize image: the stored picture copied into PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
+  /**
+   * A MIDI or sound file of the library, as the Media browser's items do it: the MIDI editor (Save
+   * keeps the edited MIDI as a new file of the same gallery, <name>-edited.mid), Render with SF2
+   * (Midi2Wav) or Convert drum hits into MIDI (DrumMidi_CRT) on PyJav with it as the input (Return
+   * comes back here), or Play with default SoundFont.
+   */
+  private static void storedKindItem(Activity activity, long versionId, int which, String name, String item) {
+    try {
+      final MainActivity host = (MainActivity) activity;
+      byte[] bytes = vault.fileBytes(versionId, which);
+      if (bytes == null || bytes.length == 0) {
+        toast(activity, name + " is empty");
+        return;
+      }
+      if (MediaDir.MIDI_EDIT.equals(item)) {
+        final String edited = PromptVault.fileTitle(name).replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+        MidiEditScreen.openFile(host, name, bytes, midi -> {
+          vault.addLibraryFile(edited, midi, "Edited", which == 3 ? 3 : 1);
+          rebuild(activity);
+          return edited + " in " + (which == 3 ? "Result files" : "Ref files");
+        });
+        return;
+      }
+      File dir = new File(activity.getCacheDir(), "pyjav-in");
+      if (!dir.isDirectory()) dir.mkdirs();
+      File in = new File(dir, PromptVault.fileTitle(name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+      java.nio.file.Files.write(in.toPath(), bytes);
+      if (MediaDir.PLAY_SF.equals(item)) {
+        MediaBrowser.playDefault(host, in, name);
+        return;
+      }
+      if (MediaDir.TO_COMPOSER.equals(item)) {
+        MediaBrowser.toComposer(host, in, name);
+        return;
+      }
+      focusId = versionId;
+      focusWhich = which;
+      host.openKitView("py");
+      host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+      host.pyJav.pkUseInputPath(in.getAbsolutePath());
+      host.pyJav.pkSetReturn("Return to Prompts", () -> host.openKitView("prompts"));
+      host.pyJav.pkOpenParams();
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
+  }
+
   private static void upscaleStored(Activity activity, long versionId, int which, String name) {
     try {
       MainActivity host = (MainActivity) activity;

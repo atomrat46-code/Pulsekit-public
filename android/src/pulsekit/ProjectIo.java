@@ -63,6 +63,28 @@ final class ProjectIo {
         });
         app.importPane.addView((View)toDb);
         app.importPane.addView((View)app.hint("A file chosen with Choose file is also added to the prompt library, as a reference file."));
+        // An imported MIDI can open in the MIDI editor first; Back there goes on to its patterns.
+        try {
+            ImportDb.midiEditor = app.getSharedPreferences(EXPORT_PREFS, 0).getBoolean(IMPORT_MIDI_EDITOR, false);
+        } catch (Throwable ignored) {
+            // off for this session
+        }
+        android.widget.CheckBox toEditor = new android.widget.CheckBox(app);
+        toEditor.setText("Open in MIDI editor");
+        toEditor.setTag("import-midi-editor");
+        toEditor.setTextColor(FG);
+        toEditor.setButtonTintList(android.content.res.ColorStateList.valueOf(FG));
+        toEditor.setChecked(ImportDb.midiEditor);
+        toEditor.setOnCheckedChangeListener((b, on) -> {
+            ImportDb.midiEditor = on;
+            try {
+                app.getSharedPreferences(EXPORT_PREFS, 0).edit().putBoolean(IMPORT_MIDI_EDITOR, on).apply();
+            } catch (Throwable ignored) {
+                // the setting stays for this session
+            }
+        });
+        app.importPane.addView((View)toEditor);
+        app.importPane.addView((View)app.hint("An imported MIDI opens in the MIDI editor; Back or Save there shows its file set's patterns."));
         // Choose file, then Browse DB: a file from the prompt library, imported as if it were chosen.
         LinearLayout chooseRow = app.row();
         chooseRow.addView((View)app.action("Choose file", FG, BG, view -> this.openFile()), (ViewGroup.LayoutParams)app.flexBtn());
@@ -87,6 +109,7 @@ final class ProjectIo {
     static final String EXPORT_TO_DB = "toDb";
     /** Import to DB: its own setting, beside it. */
     static final String IMPORT_TO_DB = "importToDb";
+    static final String IMPORT_MIDI_EDITOR = "importMidiEditor";
 
     /** Import screen's Browse DB: a file from the prompt library, imported as Choose file would (not stored again). */
     void browseDb() {
@@ -596,7 +619,14 @@ final class ProjectIo {
         }
         String string6 = Engine.midiRoleFromFile(string);
         Engine.MidiBars songBars;
-        if (string6 == null && (songBars = Engine.parseMidiBars(byArray)) != null && app.importLibrary.learnFromSongImport(string, songBars)) {
+        // Open in MIDI editor: the file set keeps this MIDI (source.mid), and the editor opens on it.
+        boolean toEditor = ImportDb.midiEditor && !Engine.hasStagedMidi();
+        if (toEditor) Engine.stageSourceMidi(byArray, string);
+        app.importLibrary.openEditor = toEditor;
+        boolean learned = string6 == null && (songBars = Engine.parseMidiBars(byArray)) != null && app.importLibrary.learnFromSongImport(string, songBars);
+        app.importLibrary.openEditor = false;
+        if (toEditor) Engine.clearStagedMidi();
+        if (learned) {
             return;
         }
         object = Engine.parseMidi(byArray);

@@ -183,7 +183,11 @@ final class StyleLibrary {
     /** Long press on a built-in fill: copy it, or a variation of it, into a file set. */
     void attachBuiltinFillMenu(TextView textView, String fillId) {
         textView.setOnLongClickListener(view -> {
-            new AlertDialog.Builder((Context)app).setTitle((CharSequence)this.fillLabel(fillId)).setItems(new CharSequence[]{"Copy fill to file set", "Variated fill into file set"}, (dialogInterface, n) -> this.chooseFileSetFor(fillId, n == 1)).setNegativeButton((CharSequence)"Cancel", null).show();
+            // Variate: the fill picked, then varied (as the Fills tab's Variate), its copy under Variated.
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)this.fillLabel(fillId)).setItems(new CharSequence[]{"Variate", "Copy fill to file set", "Variated fill into file set"}, (dialogInterface, n) -> {
+                if (n == 0) this.variateFillOf(fillId);
+                else this.chooseFileSetFor(fillId, n == 2);
+            }).setNegativeButton((CharSequence)"Cancel", null).show();
             return true;
         });
     }
@@ -234,6 +238,12 @@ final class StyleLibrary {
         this.applyFill("l:" + fill.id);
         app.setNow(fill.name + " \u00b7 " + (source.isEmpty() ? "Other" : source));
         return fill;
+    }
+
+    /** A fill's Variate: the fill picked, then varied as the Fills tab's Variate does it. */
+    void variateFillOf(String fillId) {
+        this.applyFill(fillId);
+        this.variateFill();
     }
 
     void variateFill() {
@@ -588,7 +598,11 @@ final class StyleLibrary {
         TextView textView = app.pill(learnedFill.name, false, view -> this.applyFill(string));
         textView.setTag((Object)string);
         textView.setOnLongClickListener(view -> {
-            new AlertDialog.Builder((Context)app).setTitle((CharSequence)learnedFill.name).setItems(new CharSequence[]{"Delete"}, (dialogInterface, n) -> {
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)learnedFill.name).setItems(new CharSequence[]{"Variate", "Delete"}, (dialogInterface, n) -> {
+                if (n == 0) {
+                    this.variateFillOf(string);
+                    return;
+                }
                 app.variatedFills.remove(learnedFill);
                 app.variatedFillBar.removeView((View)textView);
                 app.persistence.persistLearned();
@@ -819,6 +833,13 @@ final class StyleLibrary {
     void showEntryMenu(String string, String string2, Runnable runnable, List<String> list, List<Runnable> list2) {
         ArrayList<CharSequence> arrayList = new ArrayList<CharSequence>(list);
         ArrayList<Runnable> arrayList2 = new ArrayList<Runnable>(list2);
+        // Variate: the pattern (a Fillern on the Fillern tab) loaded, then Gen on it.
+        arrayList.add(0, "Variate");
+        arrayList2.add(0, () -> {
+            runnable.run();
+            app.playback.generate();
+            app.setNow("Variated \u00b7 " + string);
+        });
         this.addFillernFillRows(arrayList, arrayList2, string2, runnable);
         if (arrayList.isEmpty()) {
             return;
@@ -875,8 +896,10 @@ final class StyleLibrary {
 
     void attachLearnedFillMenu(TextView textView, Engine.LearnedFill learnedFill) {
         textView.setOnLongClickListener(view -> {
-            new AlertDialog.Builder((Context)app).setTitle((CharSequence)learnedFill.name).setItems(new CharSequence[]{"Rename", "Delete"}, (dialogInterface, n) -> {
+            new AlertDialog.Builder((Context)app).setTitle((CharSequence)learnedFill.name).setItems(new CharSequence[]{"Variate", "Rename", "Delete"}, (dialogInterface, n) -> {
                 if (n == 0) {
+                    this.variateFillOf("l:" + learnedFill.id);
+                } else if (n == 1) {
                     this.promptRename(learnedFill.name, string -> {
                         learnedFill.name = string;
                         textView.setText((CharSequence)string);

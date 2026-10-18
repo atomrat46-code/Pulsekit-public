@@ -146,6 +146,9 @@ final class PromptDb {
     void browse(boolean results, String only, Picked picked) {
         final JDialog dialog = new JDialog(app, results ? "Result files" : "Reference files", true);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
+            // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
+            browseScroll[results ? 1 : 0] = this.scrolledTo();
+            this.restoreScroll = browseScroll[showResults ? 1 : 0];
             dialog.dispose();
             this.browse(showResults, only, picked);
         });
@@ -177,13 +180,14 @@ final class PromptDb {
             dialog.dispose();
             picked.picked(file.name, copy);
         }, null, "refs-pick:", true);
-        // The file picked last: outlined, and scrolled to.
+        // The file picked last: outlined, and scrolled to (unless a tab switch brings back that tab's place).
+        final boolean switched = this.restoreScroll >= 0;
         for (java.awt.Component c : grid.getComponents()) {
             if (lastPicked != null && c instanceof JButton && ("refs-pick:" + lastPicked).equals(c.getName())) {
                 final JButton was = (JButton) c;
                 was.setBorder(BorderFactory.createLineBorder(new java.awt.Color(0xE0B04A), 2));
                 was.putClientProperty("refs-last", Boolean.TRUE);
-                SwingUtilities.invokeLater(() -> was.scrollRectToVisible(new java.awt.Rectangle(0, 0, was.getWidth(), was.getHeight())));
+                if (!switched) SwingUtilities.invokeLater(() -> was.scrollRectToVisible(new java.awt.Rectangle(0, 0, was.getWidth(), was.getHeight())));
                 break;
             }
         }
@@ -487,6 +491,8 @@ final class PromptDb {
         } catch (Exception ex) {
             // no library: no line
         }
+        // When it was kept: the newest come first.
+        if (file.when().length() > 0) sub = sub + "<br><span style='color:#D9A441'>" + file.when() + "</span>";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
             + "<div style='width:" + CELL + "px'>" + safe + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
@@ -627,6 +633,10 @@ final class PromptDb {
         scroll.setPreferredSize(new Dimension(3 * (CELL + 28) + 24, 460));
         scroll.getVerticalScrollBar().setUnitIncrement(24);
         body.add(scroll, BorderLayout.CENTER);
+        this.shownScroll = scroll;
+        final int at = this.restoreScroll;
+        this.restoreScroll = -1;
+        if (at >= 0) SwingUtilities.invokeLater(() -> scroll.getVerticalScrollBar().setValue(at));
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         bottom.add(close);
         body.add(bottom, BorderLayout.SOUTH);
@@ -696,10 +706,7 @@ final class PromptDb {
     void gallery(final int kind) {
         final boolean results = kind == 1;
         final JDialog dialog = new JDialog(app, kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files", true);
-        JPanel kinds = kind == 2 ? null : this.kinds(results, k -> stored(k).size(), showResults -> {
-            dialog.dispose();
-            this.gallery(showResults);
-        });
+        JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
         FileSort.current = FileSort.valid(readSort());
         javax.swing.JComboBox<String> sort = new javax.swing.JComboBox<String>(FileSort.CHOICES);
@@ -808,6 +815,40 @@ final class PromptDb {
         });
         this.lastGallery = dialog;
         this.show(dialog, this.withPreviews(top, list, dialog, () -> this.gallery(kind)), grid, close);
+    }
+
+    /** Ref files (n) | Result files (n) | Prompt files (n): the one shown is greyed; another opens in its place, where it was left. */
+    private JPanel galleryTabs(final int kind, final JDialog dialog) {
+        JPanel tabs = new JPanel(new GridLayout(1, 3, 8, 0));
+        String[] names = {"Ref files", "Result files", "Prompt files"};
+        for (int k = 0; k < 3; k++) {
+            final int to = k;
+            int n = k == 2 ? promptFiles().size() : stored(k == 1).size();
+            JButton tab = new JButton(names[k] + " (" + n + ")");
+            tab.setName("gallery-tab:" + k);
+            tab.setEnabled(k != kind);
+            tab.addActionListener(e -> {
+                galleryScroll[kind] = this.scrolledTo();
+                this.restoreScroll = galleryScroll[to];
+                dialog.dispose();
+                this.gallery(to);
+            });
+            tabs.add(tab);
+        }
+        return tabs;
+    }
+
+    /** Where each tab was left: Browse DB's Ref files / Result files, and the galleries' three. */
+    static final int[] browseScroll = new int[2];
+    static final int[] galleryScroll = new int[3];
+
+    /** The grid's scroll shown last; the place the next one opens at (-1: its own default). */
+    JScrollPane shownScroll;
+    int restoreScroll = -1;
+
+    /** How far down the grid shown last is scrolled. */
+    int scrolledTo() {
+        return this.shownScroll == null ? 0 : this.shownScroll.getVerticalScrollBar().getValue();
     }
 
     /** The name of the file Browse DB picked last: it opens scrolled to it, outlined. */
@@ -1085,6 +1126,13 @@ final class PromptDb {
             upscale.addActionListener(e -> this.upscale(file));
             menu.add(upscale);
         }
+        // A MIDI: the MIDI editor, Render with SF2 or plugin, Play with default SoundFont; a sound: Convert drum hits into MIDI.
+        for (final String kindItem : MediaDir.kindItems(file.name, true)) {
+            JMenuItem k = new JMenuItem(kindItem);
+            k.setName("file-menu:" + kindItem);
+            k.addActionListener(e -> this.kindItem(file, kindItem));
+            menu.add(k);
+        }
         menu.add(rename);
         menu.add(delete);
         this.lastFileMenu = menu;
@@ -1118,6 +1166,49 @@ final class PromptDb {
             app.setNow("ImageUpscaler: " + file.name);
         } catch (Exception ex) {
             app.setNow("Could not upscale " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+        }
+    }
+
+    /**
+     * A MIDI or sound file of the library, as the Media browser's items do it: the MIDI editor (Save
+     * keeps the edited MIDI as a new file of the same gallery, <name>-edited.mid), Render with SF2
+     * (Midi2Wav), Render with plugin (vst_render.py) or Convert drum hits into MIDI (DrumMidi_CRT)
+     * on PyJav with it as the input (Return comes back to Prompts), or Play with default SoundFont.
+     */
+    void kindItem(final PromptVault.StoredFile file, String item) {
+        try {
+            byte[] bytes = vault().fileBytes(file.versionId, file.which);
+            if (MediaDir.MIDI_EDIT.equals(item)) {
+                final String edited = PromptVault.fileTitle(file.name).replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+                MidiEditScreen.openFile(app, file.name, bytes, midi -> {
+                    vault().addLibraryFile(edited, midi, "Edited", file.which == 3 ? 3 : 1);
+                    return edited + " in " + (file.which == 3 ? "Result files" : "Ref files");
+                });
+                return;
+            }
+            File dir = new File(dir(), "pyjav-in");
+            dir.mkdirs();
+            File in = new File(dir, PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+            Files.write(in.toPath(), bytes);
+            if (MediaDir.PLAY_SF.equals(item)) {
+                MediaBrowser.playDefault(app, in, file.name);
+                return;
+            }
+            if (MediaDir.TO_COMPOSER.equals(item)) {
+                MediaBrowser.toComposer(app, in, file.name);
+                return;
+            }
+            java.awt.Window open = javax.swing.SwingUtilities.getWindowAncestor(this.lastFileMenu == null ? null : this.lastFileMenu.getInvoker());
+            if (open instanceof JDialog) open.dispose();
+            app.showView("py");
+            if (MediaDir.RENDER_PLUGIN.equals(item)) app.programMenus.selectListedProgram("Python", "vst_render.py");
+            else app.programMenus.selectListedProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+            app.pyJav.setInputFile(in);
+            app.pyJav.setReturn("Return to Prompts", () -> app.showView("prompts"));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            app.setNow(item + ": " + file.name);
+        } catch (Exception ex) {
+            app.setNow(item + " failed for " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
         }
     }
 

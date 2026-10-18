@@ -93,6 +93,46 @@ final class VlcPlayer {
         return System.getProperty("pulsekit.vlc.args", "");
     }
 
+    /** General settings' "Don't use VLC": kept as vlc-off.txt in ~/.pulsekit. */
+    static java.io.File offFile() {
+        return new java.io.File(PromptDb.dir(), "vlc-off.txt");
+    }
+
+    /** Written while VLC starts, gone once it has: left there, VLC closed Pulsekit as it started. */
+    static java.io.File startingFile() {
+        return new java.io.File(PromptDb.dir(), "vlc-starting.txt");
+    }
+
+    static boolean turnedOff() {
+        return offFile().isFile();
+    }
+
+    /** Don't use VLC (on), or use it again (off; tried again at the next video). */
+    static synchronized void setOff(boolean off) {
+        try {
+            if (off) {
+                offFile().getParentFile().mkdirs();
+                java.nio.file.Files.write(offFile().toPath(), "VLC is not used: General settings\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } else {
+                offFile().delete();
+                tried = false;
+            }
+        } catch (Exception ignored) {
+            // for this session only
+        }
+    }
+
+    /**
+     * At start: when VLC closed Pulsekit as it started last time, it is turned off now (General
+     * settings has it); the line saying so, or null.
+     */
+    static String crashedLastTime() {
+        if (!startingFile().isFile()) return null;
+        startingFile().delete();
+        setOff(true);
+        return "VLC closed Pulsekit as it started last time, so it is not used now: videos play in the browser. General settings > Use VLC turns it on again.";
+    }
+
     /** True when VLC was found and started (tried once), unless it is turned off. */
     static synchronized boolean available() {
         // -Dpulsekit.novlc=true keeps the browser player even with VLC installed.
@@ -100,8 +140,19 @@ final class VlcPlayer {
             why = "VLC is turned off (pulsekit.novlc)";
             return false;
         }
+        if (turnedOff()) {
+            why = "VLC is turned off (General settings)";
+            return false;
+        }
         if (!tried) {
             tried = true;
+            // VLC is started inside Pulsekit: if it brings Pulsekit down, the next start knows (crashedLastTime).
+            try {
+                startingFile().getParentFile().mkdirs();
+                java.nio.file.Files.write(startingFile().toPath(), new byte[0]);
+            } catch (Exception ignored) {
+                // not noted
+            }
             try {
                 load();
             } catch (Throwable t) {
@@ -109,6 +160,7 @@ final class VlcPlayer {
                 instance = null;
                 why = t.getMessage() == null ? t.toString() : t.getMessage();
             }
+            startingFile().delete();
         }
         return instance != null;
     }

@@ -765,10 +765,21 @@ final class PyJav {
         }
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
         scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(560, col.getPreferredSize().height + 8)));
-        Object[] options = new Object[] {"Open", "Close"};
+        // Process as a reference: the picture (the first, or the one picked) into another program as its Reference file 1 or 2.
+        Object[] options = new Object[] {"Process as a reference", "Open", "Close"};
         int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
         if (ans == 0) {
+            File pick = pictures.get(0);
+            if (pictures.size() > 1) {
+                String[] names = new String[pictures.size()];
+                for (int i = 0; i < names.length; i++) names[i] = pictures.get(i).getName();
+                Object chosen = JOptionPane.showInputDialog(app, "Which picture?", "Process as a reference", JOptionPane.QUESTION_MESSAGE, null, names, names[0]);
+                if (chosen == null) return;
+                for (File f : pictures) if (f.getName().equals(chosen)) pick = f;
+            }
+            ProcessRefDialog.open(app, pick);
+        } else if (ans == 1) {
             try {
                 java.awt.Desktop.getDesktop().open(pictures.get(0));
             } catch (Exception ex) {
@@ -856,14 +867,16 @@ final class PyJav {
             }
             final java.util.List<String> drumArgs = t.drumMidiArgs();
             this.testNote("Test: " + t.expect.drumMidiWhy(t.drumSaved));
-            this.testNote((t.testing ? "Test: " : "VST: ") + "DrumMidi_CRT on " + wav.getName() + ", then " + (t.testing ? "CompareHits" : "vst_render.py"));
+            this.testNote((t.testing ? "Test: " : t.vst ? "VST: " : "Batch folder: ") + "DrumMidi_CRT on " + wav.getName() + ", then "
+                + (t.testing ? "CompareHits" : t.vst ? "vst_render.py" : "its MIDI into " + new File(t.batchDir).getName()));
             SwingUtilities.invokeLater(() -> {
                 app.pyInputPath = null;
                 app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
                 this.forcedArgs = drumArgs;
                 this.runPython();
             });
-            return true;
+            // The track is offered as usual unless the test (or the VST render) takes the run.
+            return t.testing || t.vst;
         }
         // Midi2Wav --dir --test: DrumMidi_CRT --dir on the folder's WAVs, then CompareHits --batch.
         if (Midi2WavTest.batchWanted(name, argv)) {
@@ -918,9 +931,10 @@ final class PyJav {
                     this.testNote("Test stopped: DrumMidi_CRT made no MIDI");
                     return true;
                 }
-                // SogniMusic's --vst without --test: DrumMidi's MIDI goes straight on to vst_render.py.
+                if (t.batchNote.length() > 0) this.testNote(t.batchNote);
+                // SogniMusic's --vst (or --batchdir) without --test: DrumMidi's MIDI goes straight on to vst_render.py, or that was all.
                 if (!t.testing) {
-                    SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
+                    if (t.vst) SwingUtilities.invokeLater(() -> this.toVst(test.drums, false));
                     return true;
                 }
                 this.testNote("Test: CompareHits on " + new File(t.wav).getName() + ", " + new File(t.drums).getName() + (t.song.length() > 0 ? ", " + new File(t.song).getName() : " (no song was made)"));
@@ -1009,7 +1023,7 @@ final class PyJav {
     void toVst(String midiPath, boolean test) {
         final java.util.List<String> args = Midi2WavTest.vstArgs(midiPath, ProgramFiles.bundledSource("vst_render.py"), this.loadParams("vst_render.py"), test);
         if (args == null) {
-            this.testNote("No VST render: pick the plugin (and Edit its kit) in vst_render.py's Params and save them; --vst uses those");
+            this.testNote("No VST render: pick the plugin (and Edit its kit), a Carla project or a DrumGizmo kit, in vst_render.py's Params and save them; --vst uses those");
             return;
         }
         this.testNote("Next: vst_render.py on " + new File(midiPath).getName() + (test ? ", then its test" : ""));
@@ -1222,10 +1236,23 @@ final class PyJav {
         try {
             while (true) {
                 boolean playing = clip != null && clip.isRunning();
-                Object[] options = new Object[] {playing ? "Stop" : "Play", "Close"};
+                // Add to composer stack: the file set's patterns and fills, as blocks to compose with.
+                Object[] options = new Object[] {playing ? "Stop" : "Play", "Add to composer stack", "Close"};
                 int ans = JOptionPane.showOptionDialog(app, midiName + " (" + length + ") is imported as a file set.\n\n"
                     + "Play sounds it with Pulsekit's kit (your imported SoundFont, if any).", "MIDI ready",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+                if (ans == 1) {
+                    String set = app.importLibrary.lastPackedSet;
+                    if (set == null) {
+                        app.setNow("No file set of " + midiName + " to put on the stack");
+                        break;
+                    }
+                    Composer c = app.composerPage.composer();
+                    int added = c.addFileSet(set, app.learned, app.learnedFills);
+                    c.save(PromptDb.dir());
+                    app.setNow(Composer.stackedNote(midiName, added));
+                    break;
+                }
                 if (ans != 0) break;
                 if (playing) {
                     clip.stop();
@@ -1302,7 +1329,7 @@ final class PyJav {
             + "<div id=\"box\"><video id=\"v\" src=\"" + src + "\" preload=\"auto\" playsinline" + (loop ? " loop" : "") + "></video></div>\n"
             + "<div class=\"bar\"><button id=\"play\" class=\"on\">Play</button><button id=\"stop\">Stop</button><button id=\"mute\">Mute</button>"
             + "<label><input id=\"loop\" type=\"checkbox\"" + (loop ? " checked" : "") + "> Loop</label>"
-            + " <span id=\"time\">0:00 / 0:00</span></div>\n"
+            + " <span id=\"time\">00:00 / 00:00</span></div>\n"
             + "<div class=\"bar\"><button id=\"zout\">Zoom &minus;</button><button id=\"zin\">Zoom +</button><button id=\"fit\">Fit</button> <span id=\"zoom\">100%</span>"
             + " &nbsp;Speed <select id=\"speed\">" + speeds + "</select></div>\n"
             + "<div class=\"bar\">Volume <input id=\"volume\" type=\"range\" min=\"0\" max=\"100\" value=\"" + volume + "\"> <span id=\"level\">" + volume + "%</span></div>\n"
@@ -1325,7 +1352,7 @@ final class PyJav {
             + "box.onwheel=function(e){e.preventDefault();step(e.deltaY<0);};\n"
             + "var dx=null,dy=0;box.onmousedown=function(e){dx=e.clientX-px;dy=e.clientY-py;};window.onmouseup=function(){dx=null;};\n"
             + "window.onmousemove=function(e){if(dx!==null&&z>1){px=e.clientX-dx;py=e.clientY-dy;paint();}};\n"
-            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60;return Math.floor(t/60)+':'+(s<10?'0':'')+s;}\n"
+            + "function clock(t){t=Math.max(0,Math.floor(t||0));var s=t%60,m=Math.floor(t/60);return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;}\n"
             + "function tick(){document.getElementById('time').textContent=clock(v.currentTime)+' / '+clock(isFinite(v.duration)?v.duration:0);}\n"
             + "v.ontimeupdate=v.ondurationchange=tick;\n"
             + "v.onloadedmetadata=function(){paint();tick();};\n"
