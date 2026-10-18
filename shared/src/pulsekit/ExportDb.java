@@ -7,13 +7,13 @@ import java.io.File;
  * Export screen saves (Pattern, Fillern, Fill, WAV, MP3, Song MIDI, Song WAV, Song MP3) also
  * goes into the prompt library on its own, as a reference file under the name it was saved as:
  * it shows in Ref files and in Browse DB. Other exports (PRJ, SF2, JAR...) are left out. Up to
- * the library's 16 MB.
+ * the library's 128 MB.
  */
 public final class ExportDb {
   /** The setting: kept by each app (preferences on the phone, a file in ~/.pulsekit on the desktop). */
   public static volatile boolean on;
 
-  private static final int MAX_BYTES = 16 * 1024 * 1024;
+  private static final int MAX_BYTES = 128 * 1024 * 1024;
 
   private ExportDb() {}
 
@@ -29,7 +29,7 @@ public final class ExportDb {
    */
   public static String store(File dir, String name, byte[] bytes) {
     if (!on || !supported(name) || bytes == null || bytes.length == 0) return "";
-    if (bytes.length > MAX_BYTES) return name + " is over the library's 16 MB, so it is not in the DB";
+    if (bytes.length > MAX_BYTES) return name + " is over the library's 128 MB, so it is not in the DB";
     try {
       PromptVault.open(dir).addLibraryFile(name, bytes, "Exported", 1);
       return "also in the DB as a reference file";

@@ -14,7 +14,7 @@ import java.util.Map;
  * library already holds (same text, model and file names) is not added again.
  */
 public final class PromptImport {
-  private static final int MAX_BYTES = 16 * 1024 * 1024;
+  private static final int MAX_BYTES = 128 * 1024 * 1024;
 
   private PromptImport() {}
 
@@ -101,7 +101,7 @@ public final class PromptImport {
       return stored;
     }
     if (picked != null && picked.length > MAX_BYTES) {
-      notes.add(kind + " " + n + " (over 16 MB, by name only)");
+      notes.add(kind + " " + n + " (over 128 MB, by name only)");
       return null;
     }
     if (picked != null) {

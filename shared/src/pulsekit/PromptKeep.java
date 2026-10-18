@@ -8,12 +8,12 @@ import java.util.List;
  * into the prompt library as a new version of the prompt with its name, in its category: the prompt,
  * the model and type, the reference files it names (read from the run's own inputs: SogniVideo's
  * first and last frame pictures), the result file the run made and the result text. Opening the
- * sheet later loads the pictures back as its reference files. A file over the library's 16 MB is
+ * sheet later loads the pictures back as its reference files. A file over the library's 128 MB is
  * kept by name only. The programs write only the .prompt file; the library is the app's (the same
  * on the phone and the desktop; `dir` is the folder it is kept in).
  */
 final class PromptKeep {
-    private static final long MAX_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_BYTES = 128L * 1024 * 1024;
 
     private PromptKeep() {}
 
@@ -92,7 +92,7 @@ final class PromptKeep {
             vault.addVersion(promptId, title, "", args.toString(), program, refNames[0], refs[0], refNames[1], refs[1], made == null ? "" : made.name, kept, "", said.toString());
             if (refs[0] != null) note.append(", reference ").append(refNames[0]);
             if (refs[1] != null) note.append(", ").append(refNames[1]);
-            if (made != null) note.append(", result ").append(made.name).append(kept == null ? " (by name only, over 16 MB)" : "");
+            if (made != null) note.append(", result ").append(made.name).append(kept == null ? " (by name only, over 128 MB)" : "");
             if (byName.length() > 0) note.append(" (by name only: ").append(byName).append(')');
             return note.toString();
         } catch (Exception ex) {
@@ -177,7 +177,7 @@ final class PromptKeep {
         if (ref1 != null) sb.append(", reference ").append(sheet.ref1);
         if (ref2 != null) sb.append(", ").append(sheet.ref2);
         if (made != null) sb.append(", result ").append(sheet.result);
-        if (byName.length() > 0) sb.append(" (by name only, over 16 MB or not found: ").append(byName).append(')');
+        if (byName.length() > 0) sb.append(" (by name only, over 128 MB or not found: ").append(byName).append(')');
         return sb.toString();
     }
 
@@ -194,7 +194,7 @@ final class PromptKeep {
     /**
      * SogniMusic's track into the prompt library (Drum Midi Settings: Save SogniMusic output file
      * into DB), as MidiDrumGen's MIDI goes: a new version of the prompt "SogniMusic" in Music, its
-     * arguments as text, the track as result file (by name only over 16 MB), and the run's "Wrote"
+     * arguments as text, the track as result file (by name only over 128 MB), and the run's "Wrote"
      * and "Workflow:" lines as result text (the workflow id fetches the track again).
      */
     static String keepSogniMusic(File dir, JavaRun.Result result, List<String> argv) {
@@ -213,7 +213,7 @@ final class PromptKeep {
             if (!low.matches(".+-merged(\\(\\d+\\))?\\.mp4") || f.bytes == null || f.bytes.length == 0) continue;
             note.append(note.length() > 0 ? "\n" : "");
             if (f.bytes.length > MAX_BYTES) {
-                note.append("Prompt library: ").append(f.name).append(" is over 16 MB, so it is not kept there");
+                note.append("Prompt library: ").append(f.name).append(" is over 128 MB, so it is not kept there");
                 continue;
             }
             try {
@@ -238,7 +238,7 @@ final class PromptKeep {
             if (!low.matches(".+\\.(mp4|m4v|mov)") || f.bytes == null || f.bytes.length == 0) continue;
             note.append(note.length() > 0 ? "\n" : "");
             if (f.bytes.length > MAX_BYTES) {
-                note.append("Prompt library: ").append(f.name).append(" is over 16 MB, so it is not kept there");
+                note.append("Prompt library: ").append(f.name).append(" is over 128 MB, so it is not kept there");
                 continue;
             }
             try {
@@ -259,7 +259,7 @@ final class PromptKeep {
         if (dir == null || argv == null || !argv.contains("--addtodb")) return "";
         JavaRun.FileOut f = made(result);
         if (f == null) return "";
-        if (f.bytes.length > MAX_BYTES) return "Prompt library: " + f.name + " is over 16 MB, so it is not kept there";
+        if (f.bytes.length > MAX_BYTES) return "Prompt library: " + f.name + " is over 128 MB, so it is not kept there";
         try {
             PromptVault.open(dir).addLibraryFile(f.name, f.bytes, "ImageUpscaler", 1);
             return "Prompt library: " + f.name + " (reference file)";
@@ -313,7 +313,7 @@ final class PromptKeep {
             if (line.trim().startsWith("Workflow: ")) workflow = line.trim();
         }
         if (workflow.length() > 0) wrote = wrote.length() > 0 ? wrote + "\n" + workflow : workflow;
-        // The library keeps files of up to 16 MB: a longer track is kept by name only.
+        // The library keeps files of up to 128 MB: a longer track is kept by name only.
         byte[] kept = midi.bytes.length > MAX_BYTES ? null : midi.bytes;
         try {
             PromptVault vault = PromptVault.open(dir);
@@ -324,7 +324,7 @@ final class PromptKeep {
             for (PromptVault.Prompt p : vault.prompts(catId)) if (program.equalsIgnoreCase(p.title == null ? "" : p.title.trim())) promptId = p.id;
             if (promptId == 0) promptId = vault.addPrompt(catId, program);
             vault.addVersion(promptId, program, "", args.toString(), "", "", null, "", null, midi.name, kept, "", wrote);
-            return "Prompt library: " + program + " (Music), result " + midi.name + (kept == null ? " (by name only, over 16 MB)" : "");
+            return "Prompt library: " + program + " (Music), result " + midi.name + (kept == null ? " (by name only, over 128 MB)" : "");
         } catch (Exception ex) {
             return "Prompt library: could not store " + midi.name + (ex.getMessage() == null ? "" : " (" + ex.getMessage() + ")");
         }

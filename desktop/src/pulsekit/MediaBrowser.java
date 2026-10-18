@@ -1209,7 +1209,7 @@ final class MediaBrowser {
             this.paintPlaylist();
             return said;
         }
-        if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 16 MB, so it is not in the DB";
+        if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 128 MB, so it is not in the DB";
         try {
             return MediaDir.addToDb(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()), which == 1);
         } catch (Exception ex) {

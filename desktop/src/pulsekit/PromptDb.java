@@ -43,7 +43,7 @@ final class PromptDb {
     static final String VIDEOS = "videos";
     /** Text files (a prompt field's Browse DB: an Answer Prompt 1.txt). */
     static final String TEXTS = "texts";
-    private static final long MAX_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_BYTES = 128L * 1024 * 1024;
     private static final int CELL = 150;
 
     final Pulsekit app;
@@ -2192,7 +2192,7 @@ final class PromptDb {
     void importPicked(File file, boolean result) {
         String name = file.getName();
         if (file.length() > MAX_BYTES) {
-            app.setNow(name + " is over the library's 16 MB");
+            app.setNow(name + " is over the library's 128 MB");
             return;
         }
         byte[] bytes;

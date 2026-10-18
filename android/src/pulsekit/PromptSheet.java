@@ -37,7 +37,7 @@ import java.util.Locale;
 
 /** Prompts tab. Prompts, categories, reference files, and versions live in an encrypted database. */
 public final class PromptSheet {
-  private static final int MAX = 16 * 1024 * 1024;
+  private static final int MAX = 128 * 1024 * 1024;
   private static LinearLayout host;
   private static PromptVault vault;
   private static long categoryId;
@@ -177,7 +177,7 @@ public final class PromptSheet {
         while ((n = in.read(buf)) > 0) {
           total += n;
           if (total > MAX) {
-            toast(activity, label + " is too large (max 16 MB)");
+            toast(activity, label + " is too large (max 128 MB)");
             return;
           }
           bos.write(buf, 0, n);
@@ -365,7 +365,7 @@ public final class PromptSheet {
           else picked.put(name, bytes);
         }
         said = PromptImport.importAll(PromptVault.open(app.getFilesDir()), picked);
-        if (!big.isEmpty()) said = said + "\nOver 16 MB, not read: " + String.join(", ", big);
+        if (!big.isEmpty()) said = said + "\nOver 128 MB, not read: " + String.join(", ", big);
       } catch (Throwable ex) {
         said = "Could not import: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
       }

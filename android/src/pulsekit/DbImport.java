@@ -7,12 +7,12 @@ import android.net.Uri;
 /**
  * File > Import as Ref file / Import as Result file: a file picked with the system picker goes
  * into the prompt library on its own (not with a prompt), after OK, as a reference file (Ref files,
- * Browse DB) or a result file (Result files). Up to the library's 16 MB.
+ * Browse DB) or a result file (Result files). Up to the library's 128 MB.
  */
 final class DbImport {
     static final int PICK_REF = 35;
     static final int PICK_RESULT = 36;
-    private static final long MAX_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_BYTES = 128L * 1024 * 1024;
 
     private DbImport() {}
 
@@ -35,7 +35,7 @@ final class DbImport {
             return;
         }
         if (bytes == null) {
-            app.setNow(name + " is over the library's 16 MB");
+            app.setNow(name + " is over the library's 128 MB");
             return;
         }
         new AlertDialog.Builder(app)
@@ -78,7 +78,7 @@ final class DbImport {
         return name.trim();
     }
 
-    /** The file's bytes, or null when it is over 16 MB. */
+    /** The file's bytes, or null when it is over 128 MB. */
     static byte[] read(MainActivity app, Uri uri) throws Exception {
         java.io.InputStream in = app.getContentResolver().openInputStream(uri);
         if (in == null) throw new java.io.IOException("no data");

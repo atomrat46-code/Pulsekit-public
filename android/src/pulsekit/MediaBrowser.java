@@ -1884,7 +1884,7 @@ final class MediaBrowser {
             if (box != null) this.badge(box, e);
             return said;
         }
-        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
+        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 128 MB, so it is not in the DB";
         byte[] bytes;
         try {
             bytes = this.read(e);
@@ -1894,7 +1894,7 @@ final class MediaBrowser {
         return MediaDir.addToDb(this.app.getFilesDir(), e.name, bytes, which == 1);
     }
 
-    /** The file's bytes (up to the library's 16 MB, plus one to tell). */
+    /** The file's bytes (up to the library's 128 MB, plus one to tell). */
     private byte[] read(MediaDir.Entry e) throws Exception {
         InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
         try {
@@ -1903,7 +1903,7 @@ final class MediaBrowser {
             int n;
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
-                if (out.size() > 16 * 1024 * 1024) break;
+                if (out.size() > 128 * 1024 * 1024) break;
             }
             return out.toByteArray();
         } finally {

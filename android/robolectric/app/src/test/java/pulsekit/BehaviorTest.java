@@ -4078,6 +4078,30 @@ public class BehaviorTest {
     if (!favOk || !groupOk || !videoOk) throw new AssertionError(out.toString());
   }
 
+  /** A run's video over the old 16 MB (20 MB here) is kept in the library as its result file, read back whole; F finds it once marked in Video ready. */
+  @Test
+  public void s146_big_video_in_library() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileFavourites.reset();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    byte[] video = new byte[20 * 1024 * 1024];
+    for (int i = 0; i < video.length; i += 4096) video[i] = (byte) i;
+    long p = vault.addPrompt(vault.addCategory("Video"), "Walk");
+    vault.addVersion(p, "Walk", "", "a walk", "", "first.png", new byte[] {1, 2, 3}, "", null, "walk.mp4", video, "", "");
+    PromptVault.StoredFile kept = null;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("walk.mp4")) kept = f;
+    byte[] back = kept == null ? null : vault.fileBytes(kept.versionId, kept.which);
+    out.append("Result files: ").append(kept == null ? "missing" : kept.name + ", " + (kept.size / (1024 * 1024)) + " MB").append(", read back ").append(back != null && java.util.Arrays.equals(back, video)).append('\n');
+    FileFavourites.load(app.getFilesDir());
+    MarkFile.toggleFavourite(vault, "walk.mp4", video.length);
+    out.append("marked in Video ready: F ").append(kept != null && DbFilter.fits(kept, "F")).append('\n');
+    write("s146_big_video_in_library", out.toString());
+    boolean ok = kept != null && back != null && java.util.Arrays.equals(back, video) && DbFilter.fits(kept, "F");
+    FileFavourites.reset();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   private static String namesOf(List<PromptVault.StoredFile> files) {
     StringBuilder sb = new StringBuilder();
     for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);

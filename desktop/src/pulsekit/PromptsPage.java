@@ -77,7 +77,7 @@ final class PromptsPage {
     String codeType = "";
 
     static final String[] TYPES = {"bash", "cmd", "python", "java", "javascript", "typescript", "powershell"};
-    static final long MAX = 16L * 1024 * 1024;
+    static final long MAX = 128L * 1024 * 1024;
 
     JPanel buildPromptsPage() {
         JPanel page = new JPanel(new BorderLayout());
@@ -160,7 +160,7 @@ final class PromptsPage {
         StringBuilder skipped = new StringBuilder();
         try {
             for (File f : picked) {
-                if (f.length() > 16L * 1024 * 1024) {
+                if (f.length() > 128L * 1024 * 1024) {
                     skipped.append(skipped.length() > 0 ? ", " : "").append(f.getName());
                     continue;
                 }
@@ -175,11 +175,11 @@ final class PromptsPage {
                 for (String n : new String[] {sheet.ref1, sheet.ref2, sheet.result}) {
                     if (n == null || n.trim().isEmpty() || files.containsKey(n.trim())) continue;
                     File near = new File(f.getAbsoluteFile().getParentFile(), n.trim());
-                    if (near.isFile() && near.length() <= 16L * 1024 * 1024) files.put(n.trim(), Files.readAllBytes(near.toPath()));
+                    if (near.isFile() && near.length() <= 128L * 1024 * 1024) files.put(n.trim(), Files.readAllBytes(near.toPath()));
                 }
             }
             String said = PromptImport.importAll(this.vault, files);
-            if (skipped.length() > 0) said = said + "\nOver 16 MB, not read: " + skipped;
+            if (skipped.length() > 0) said = said + "\nOver 128 MB, not read: " + skipped;
             this.lastImport = said;
             app.setNow(said.split("\n")[0]);
             JOptionPane.showMessageDialog(app, said, "Import", JOptionPane.INFORMATION_MESSAGE);
@@ -933,7 +933,7 @@ final class PromptsPage {
     /** A file from disk into the row, stored in the library at once (in the version shown, or a new one). */
     void takeFile(int which, File file) {
         if (file.length() > MAX) {
-            app.setNow(slotLabel(which) + " is too large (max 16 MB)");
+            app.setNow(slotLabel(which) + " is too large (max 128 MB)");
             return;
         }
         try {
