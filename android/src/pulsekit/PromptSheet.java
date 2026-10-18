@@ -1888,11 +1888,17 @@ public final class PromptSheet {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
     }
+    // A MIDI: the MIDI editor, Render with SF2, Play with default SoundFont; a sound: Convert drum hits into MIDI (as the Media browser has them).
+    String[] kinds = activity instanceof MainActivity ? MediaDir.kindItems(name, false) : new String[0];
+    for (final String kindItem : kinds) {
+      items.add(kindItem);
+      runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
+    }
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    if (!fullSize && !extract && !strip && !picture) {
+    if (!fullSize && !extract && !strip && !picture && kinds.length == 0) {
       itemMenu(activity, name, rename, delete);
       return;
     }
@@ -1903,6 +1909,49 @@ public final class PromptSheet {
   }
 
   /** Upscale/Resize image: the stored picture copied into PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
+  /**
+   * A MIDI or sound file of the library, as the Media browser's items do it: the MIDI editor (Save
+   * keeps the edited MIDI as a new file of the same gallery, <name>-edited.mid), Render with SF2
+   * (Midi2Wav) or Convert drum hits into MIDI (DrumMidi_CRT) on PyJav with it as the input (Return
+   * comes back here), or Play with default SoundFont.
+   */
+  private static void storedKindItem(Activity activity, long versionId, int which, String name, String item) {
+    try {
+      final MainActivity host = (MainActivity) activity;
+      byte[] bytes = vault.fileBytes(versionId, which);
+      if (bytes == null || bytes.length == 0) {
+        toast(activity, name + " is empty");
+        return;
+      }
+      if (MediaDir.MIDI_EDIT.equals(item)) {
+        final String edited = PromptVault.fileTitle(name).replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+        MidiEditScreen.openFile(host, name, bytes, midi -> {
+          vault.addLibraryFile(edited, midi, "Edited", which == 3 ? 3 : 1);
+          rebuild(activity);
+          return edited + " in " + (which == 3 ? "Result files" : "Ref files");
+        });
+        return;
+      }
+      File dir = new File(activity.getCacheDir(), "pyjav-in");
+      if (!dir.isDirectory()) dir.mkdirs();
+      File in = new File(dir, PromptVault.fileTitle(name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+      java.nio.file.Files.write(in.toPath(), bytes);
+      if (MediaDir.PLAY_SF.equals(item)) {
+        MediaBrowser.playDefault(host, in, name);
+        return;
+      }
+      focusId = versionId;
+      focusWhich = which;
+      host.openKitView("py");
+      host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+      host.pyJav.pkUseInputPath(in.getAbsolutePath());
+      host.pyJav.pkSetReturn("Return to Prompts", () -> host.openKitView("prompts"));
+      host.pyJav.pkOpenParams();
+    } catch (Exception ex) {
+      toast(activity, ex);
+    }
+  }
+
   private static void upscaleStored(Activity activity, long versionId, int which, String name) {
     try {
       MainActivity host = (MainActivity) activity;

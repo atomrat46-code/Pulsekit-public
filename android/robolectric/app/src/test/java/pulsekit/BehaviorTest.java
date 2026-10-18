@@ -3400,6 +3400,69 @@ public class BehaviorTest {
   }
 
   /**
+   * Media browser: a MIDI's long press has Open in MIDI editor (Save writes <name>-edited.mid beside
+   * it), Render with SF2 (Midi2Wav) and Play with default SoundFont; a WAV's has Convert drum hits
+   * into MIDI (DrumMidi_CRT). The programs open on PyJav with the file as their input.
+   */
+  @Test
+  public void s138_media_midi_items() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File media = new File(app.getCacheDir(), "media-midi");
+    media.mkdirs();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    Files.write(new File(media, "beat.mid").toPath(), Engine.encodeMidi(cells, 120, 16));
+    Files.write(new File(media, "hit.wav").toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    String filterWas = MediaDir.filter;
+    MediaDir.filter = "A";
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry mid = null, wav = null;
+    for (MediaDir.Entry e : b.allEntries) {
+      if (e.name.equals("beat.mid")) mid = e;
+      if (e.name.equals("hit.wav")) wav = e;
+    }
+    b.menu(mid);
+    out.append("MIDI menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    b.menu(wav);
+    out.append("WAV menu: ").append(listItems(MediaBrowser.lastMenu)).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    b.kindItem(mid, MediaDir.MIDI_EDIT);
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MidiEditScreen ed = MidiEditScreen.now;
+    out.append("editor: ").append(ed != null).append(", hits ").append(ed == null ? -1 : ed.edit.hits()).append('\n');
+    ed.tap(3, 4);
+    ed.dialog.getWindow().getDecorView().findViewWithTag("midiedit-save").performClick();
+    idle();
+    File edited = new File(media, "beat-edited.mid");
+    out.append("saved beside it: ").append(edited.isFile()).append(", original kept ").append(Engine.parseMidiBars(Files.readAllBytes(new File(media, "beat.mid").toPath())).bars.get(0)[2][4] == 0)
+        .append(", edit in it ").append(edited.isFile() && Engine.parseMidiBars(Files.readAllBytes(edited.toPath())).bars.get(0)[2][4] > 0).append('\n');
+    MediaBrowser b2 = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b2.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry w2 = null;
+    for (MediaDir.Entry e : b2.allEntries) if (e.name.equals("hit.wav")) w2 = e;
+    b2.kindItem(w2, MediaDir.TO_MIDI);
+    for (int i = 0; i < 100 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    out.append("Convert drum hits into MIDI: ").append(get("pyName")).append(", input ").append(new File(String.valueOf(((PyJav) get("pyJav")).pkPyInputPath)).getName()).append('\n');
+    MediaDir.filter = filterWas;
+    if (ed == null || !edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !out.toString().contains("Open in MIDI editor | Render with SF2 | Play with default SoundFont")) throw new AssertionError(out.toString());
+    write("s138_media_midi_items", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.

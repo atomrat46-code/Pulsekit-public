@@ -4854,6 +4854,73 @@ public final class DesktopBehavior {
     if (!args.contains("--image2 ~/look.png") || !args.contains("make the coat blue") || kept.slot != 2) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Media browser: a MIDI's right click has Open in MIDI editor (Save writes <name>-edited.mid beside
+   * it), Render with SF2, Render with plugin and Play with default SoundFont; a WAV's has Convert
+   * drum hits into MIDI. The programs open on PyJav with the file as their input.
+   */
+  void s120_media_midi_items() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File media = new File(home, "media-midi");
+    media.mkdirs();
+    int[][] cells = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    Files.write(new File(media, "beat.mid").toPath(), Engine.encodeMidi(cells, 120, 16));
+    Files.write(new File(media, "hit.wav").toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final javax.swing.JDialog[] dlg = new javax.swing.JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    final StringBuilder seen = new StringBuilder();
+    for (final String name : new String[] {"beat.mid", "hit.wav"}) {
+      for (int i = 0; i < 100; i++) {
+        final boolean[] has = {false};
+        edt(() -> has[0] = component(dlg[0], "media-card:" + name) != null);
+        if (has[0]) break;
+        Thread.sleep(50);
+      }
+      edt(() -> {
+        javax.swing.JButton card = (javax.swing.JButton) component(dlg[0], "media-card:" + name);
+        card.dispatchEvent(new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
+        javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
+        StringBuilder items = new StringBuilder();
+        for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+        seen.append(name).append(" menu: ").append(items).append('\n');
+        menu.setVisible(false);
+      });
+    }
+    out.append(seen);
+    answers.add("(keep)");
+    edt(() -> {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = "beat.mid";
+      e.id = new File(media, "beat.mid").getAbsolutePath();
+      mb.kindItem(e, new File(media, "beat.mid"), MediaDir.MIDI_EDIT);
+    });
+    for (int i = 0; i < 100 && MidiEditScreen.now == null; i++) Thread.sleep(50);
+    final MidiEditScreen ed = MidiEditScreen.now;
+    edt(() -> {
+      ed.tap(3, 4);
+      ((javax.swing.JButton) component(ed.dialog.getContentPane(), "midiedit-save")).doClick();
+    });
+    idle();
+    File edited = new File(media, "beat-edited.mid");
+    out.append("saved beside it: ").append(edited.isFile()).append(", edit in it ").append(edited.isFile() && Engine.parseMidiBars(Files.readAllBytes(edited.toPath())).bars.get(0)[2][4] > 0).append('\n');
+    edt(() -> {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = "hit.wav";
+      e.id = new File(media, "hit.wav").getAbsolutePath();
+      mb.kindItem(e, new File(media, "hit.wav"), MediaDir.TO_MIDI);
+    });
+    idle();
+    out.append("Convert drum hits into MIDI: ").append(get("pyName")).append('\n');
+    if (!edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !seen.toString().contains("[Open in MIDI editor][Render with SF2][Render with plugin][Play with default SoundFont]")
+        || !seen.toString().contains("[Convert drum hits into MIDI]")) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

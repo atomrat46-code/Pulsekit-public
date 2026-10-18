@@ -1087,6 +1087,13 @@ final class PromptDb {
             upscale.addActionListener(e -> this.upscale(file));
             menu.add(upscale);
         }
+        // A MIDI: the MIDI editor, Render with SF2 or plugin, Play with default SoundFont; a sound: Convert drum hits into MIDI.
+        for (final String kindItem : MediaDir.kindItems(file.name, true)) {
+            JMenuItem k = new JMenuItem(kindItem);
+            k.setName("file-menu:" + kindItem);
+            k.addActionListener(e -> this.kindItem(file, kindItem));
+            menu.add(k);
+        }
         menu.add(rename);
         menu.add(delete);
         this.lastFileMenu = menu;
@@ -1120,6 +1127,45 @@ final class PromptDb {
             app.setNow("ImageUpscaler: " + file.name);
         } catch (Exception ex) {
             app.setNow("Could not upscale " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+        }
+    }
+
+    /**
+     * A MIDI or sound file of the library, as the Media browser's items do it: the MIDI editor (Save
+     * keeps the edited MIDI as a new file of the same gallery, <name>-edited.mid), Render with SF2
+     * (Midi2Wav), Render with plugin (vst_render.py) or Convert drum hits into MIDI (DrumMidi_CRT)
+     * on PyJav with it as the input (Return comes back to Prompts), or Play with default SoundFont.
+     */
+    void kindItem(final PromptVault.StoredFile file, String item) {
+        try {
+            byte[] bytes = vault().fileBytes(file.versionId, file.which);
+            if (MediaDir.MIDI_EDIT.equals(item)) {
+                final String edited = PromptVault.fileTitle(file.name).replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+                MidiEditScreen.openFile(app, file.name, bytes, midi -> {
+                    vault().addLibraryFile(edited, midi, "Edited", file.which == 3 ? 3 : 1);
+                    return edited + " in " + (file.which == 3 ? "Result files" : "Ref files");
+                });
+                return;
+            }
+            File dir = new File(dir(), "pyjav-in");
+            dir.mkdirs();
+            File in = new File(dir, PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+            Files.write(in.toPath(), bytes);
+            if (MediaDir.PLAY_SF.equals(item)) {
+                MediaBrowser.playDefault(app, in, file.name);
+                return;
+            }
+            java.awt.Window open = javax.swing.SwingUtilities.getWindowAncestor(this.lastFileMenu == null ? null : this.lastFileMenu.getInvoker());
+            if (open instanceof JDialog) open.dispose();
+            app.showView("py");
+            if (MediaDir.RENDER_PLUGIN.equals(item)) app.programMenus.selectListedProgram("Python", "vst_render.py");
+            else app.programMenus.selectListedProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+            app.pyJav.setInputFile(in);
+            app.pyJav.setReturn("Return to Prompts", () -> app.showView("prompts"));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            app.setNow(item + ": " + file.name);
+        } catch (Exception ex) {
+            app.setNow(item + " failed for " + file.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
         }
     }
 

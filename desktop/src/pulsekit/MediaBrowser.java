@@ -757,7 +757,7 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null);
+        final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
@@ -768,6 +768,13 @@ final class MediaBrowser {
                     if (MediaTags.TAGS.equals(items[which])) this.tags(entry);
                     else this.category(entry);
                 });
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.isKindItem(items[i])) {
+                // A MIDI's editor, renders and player; a sound's Convert drum hits into MIDI.
+                item.setName("media-menu:" + items[i]);
+                item.addActionListener(e -> this.kindItem(entry, f, items[which]));
                 menu.add(item);
                 continue;
             }
@@ -790,6 +797,107 @@ final class MediaBrowser {
         }
         this.lastMenu = menu;
         if (card.isShowing()) menu.show(card, x, y);
+    }
+
+    /**
+     * A MIDI's Open in MIDI editor (Save writes <name>-edited.mid beside it), Render with SF2
+     * (Midi2Wav), Render with plugin (vst_render.py), Play with default SoundFont (Java's own MIDI
+     * synth, all instruments); a sound's Convert drum hits into MIDI (DrumMidi_CRT). Programs open
+     * in PyJav with the file as their input, Params open, and Return comes back to this folder.
+     */
+    void kindItem(MediaDir.Entry entry, final File f, String item) {
+        if (MediaDir.MIDI_EDIT.equals(item)) {
+            byte[] bytes;
+            try {
+                bytes = java.nio.file.Files.readAllBytes(f.toPath());
+            } catch (Exception ex) {
+                app.setNow("Could not read " + entry.name);
+                return;
+            }
+            final String edited = entry.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+            final File dir = this.shown;
+            MidiEditScreen.openFile(app, entry.name, bytes, midi -> {
+                String where = writeBeside(f, edited, midi);
+                // The new file is listed at once.
+                if (this.last != null && this.last.isShowing() && dir != null) this.open(dir);
+                return where;
+            });
+            return;
+        }
+        if (MediaDir.PLAY_SF.equals(item)) {
+            playDefault(app, f, entry.name);
+            return;
+        }
+        final File root = this.shownRoot;
+        final File dir = this.shown;
+        if (this.last != null) this.last.dispose();
+        app.showView("py");
+        if (MediaDir.RENDER_PLUGIN.equals(item)) app.programMenus.selectListedProgram("Python", "vst_render.py");
+        else app.programMenus.selectListedProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+        app.pyJav.setInputFile(f);
+        app.pyJav.setReturn(() -> this.reopen(root, dir));
+        SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+        app.setNow(item + ": " + entry.name);
+    }
+
+    /** `data` as `name` in the file's own folder (a name taken gets " (1)"); returns its path. */
+    static String writeBeside(File file, String name, byte[] data) throws Exception {
+        String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        String ext = name.substring(stem.length());
+        File out = new File(file.getParentFile(), name);
+        for (int n = 1; out.exists(); n++) out = new File(file.getParentFile(), stem + " (" + n + ")" + ext);
+        java.nio.file.Files.write(out.toPath(), data);
+        return out.getPath();
+    }
+
+    /** Play with default SoundFont: Java's own MIDI synth (its default sound bank), Stop in a small window. */
+    static javax.sound.midi.Sequencer playing;
+    static JDialog lastPlay;
+
+    static void playDefault(Pulsekit app, File f, String name) {
+        stopDefault();
+        try {
+            javax.sound.midi.Sequencer seq = javax.sound.midi.MidiSystem.getSequencer();
+            seq.open();
+            seq.setSequence(javax.sound.midi.MidiSystem.getSequence(f));
+            seq.start();
+            playing = seq;
+        } catch (Exception ex) {
+            app.setNow("Could not play " + name + " with the default SoundFont" + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return;
+        }
+        app.setNow("Playing " + name + " with the default SoundFont");
+        final JDialog d = new JDialog(app, name, false);
+        d.setName("media-play-default");
+        JButton stop = new JButton("Stop");
+        stop.addActionListener(e -> d.dispose());
+        JPanel p = new JPanel(new java.awt.BorderLayout(0, 8));
+        p.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        p.add(new javax.swing.JLabel("Playing with the default SoundFont"), java.awt.BorderLayout.CENTER);
+        p.add(stop, java.awt.BorderLayout.SOUTH);
+        d.setContentPane(p);
+        d.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                stopDefault();
+            }
+        });
+        d.pack();
+        d.setLocationRelativeTo(app);
+        d.setVisible(true);
+        lastPlay = d;
+    }
+
+    static void stopDefault() {
+        javax.sound.midi.Sequencer seq = playing;
+        playing = null;
+        if (seq == null) return;
+        try {
+            seq.stop();
+            seq.close();
+        } catch (Exception ignored) {
+            // closed already
+        }
     }
 
     /** Up from a folder: the folder to show again in the one above (outlined, scrolled to). */

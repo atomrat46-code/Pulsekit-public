@@ -51,6 +51,22 @@ public final class MidiEditScreen {
     if (now != null) now.fromImport = true;
   }
 
+  /** Save for a MIDI that is not a file set's (the Media browser's): writes it, returns where. */
+  public interface Saver {
+    String save(byte[] midi) throws Exception;
+  }
+
+  /** The editor on a MIDI file's bytes (`name`); Save hands the MIDI to `saver`. */
+  public static void openFile(MainActivity app, String name, byte[] midi, Saver saver) {
+    MidiHitEdit edit = MidiHitEdit.of(midi);
+    if (edit == null) {
+      app.setNow(name + " is not a MIDI file");
+      return;
+    }
+    if (now != null) now.close();
+    now = new MidiEditScreen(app, "", name, edit, saver);
+  }
+
   public static void open(MainActivity app, String label) {
     String key = Engine.fileSetMidiKeyForLabel(label == null ? "" : label);
     Engine.FileSetAudio au = Engine.fileSetAudioOf(key);
@@ -60,10 +76,14 @@ public final class MidiEditScreen {
       return;
     }
     if (now != null) now.close();
-    now = new MidiEditScreen(app, key, Engine.fileSetMidiName(key), edit);
+    now = new MidiEditScreen(app, key, Engine.fileSetMidiName(key), edit, null);
   }
 
-  private MidiEditScreen(final MainActivity app, String key, String name, MidiHitEdit edit) {
+  /** Where Save puts a MIDI that is not a file set's; null for a file set's. */
+  final Saver saver;
+
+  private MidiEditScreen(final MainActivity app, String key, String name, MidiHitEdit edit, Saver saver) {
+    this.saver = saver;
     this.app = app;
     this.key = key;
     this.name = name;
@@ -75,7 +95,7 @@ public final class MidiEditScreen {
     page.setPadding(app.dp(14), app.dp(12), app.dp(14), app.dp(12));
     TextView title = app.text("MIDI editor", 22, true);
     page.addView(title);
-    TextView sub = app.text((key.isEmpty() ? "Other" : key) + " · " + name, 13, false);
+    TextView sub = app.text(saver != null ? name + " \u00b7 Save keeps it as a new file beside it" : (key.isEmpty() ? "Other" : key) + " · " + name, 13, false);
     sub.setTextColor(MUTED);
     sub.setPadding(0, app.dp(4), 0, app.dp(2));
     page.addView(sub);
@@ -210,7 +230,13 @@ public final class MidiEditScreen {
   }
 
   void save() {
-    if (this.edit.changed) {
+    if (this.saver != null && this.edit.changed) {
+      try {
+        this.app.setNow("Saved \u00b7 " + this.saver.save(this.edit.toMidi()));
+      } catch (Exception ex) {
+        this.app.setNow("Could not save: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+      }
+    } else if (this.edit.changed) {
       MidiHitEdit.saveToFileSet(this.key, this.edit.toMidi());
       Engine.storeFileSetAudioDir(new java.io.File(this.app.getFilesDir(), "fset-audio"));
       this.app.setNow("Saved · " + this.name);

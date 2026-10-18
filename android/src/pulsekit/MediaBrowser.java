@@ -1462,17 +1462,102 @@ final class MediaBrowser {
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
-        final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable());
+        final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
                 if (MediaTags.TAGS.equals(items[which])) this.tags(e);
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
+                else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
                 else this.pick(e, which);
             })
             .setNegativeButton("Cancel", null)
             .show();
+    }
+
+    /**
+     * A MIDI's Open in MIDI editor (Save writes <name>-edited.mid beside it), Render with SF2
+     * (Midi2Wav), Play with default SoundFont (the phone's own MIDI player); a sound's Convert drum
+     * hits into MIDI (DrumMidi_CRT). Programs open in PyJav with the file as their input, Params
+     * open, and Return comes back to this folder.
+     */
+    void kindItem(final MediaDir.Entry e, final String item) {
+        final Uri tree = this.tree;
+        final String base = this.base;
+        final String root = this.root;
+        final List<String> at = new ArrayList<String>(this.path);
+        final MainActivity host = this.app;
+        this.chosen(e, (name, file) -> {
+            if (MediaDir.MIDI_EDIT.equals(item)) {
+                final String[] origin = ORIGIN.get(file.getAbsolutePath());
+                byte[] bytes;
+                try {
+                    bytes = java.nio.file.Files.readAllBytes(file.toPath());
+                } catch (Exception ex) {
+                    host.setNow("Could not read " + name);
+                    return;
+                }
+                final String edited = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+                MidiEditScreen.openFile(host, name, bytes, midi -> origin != null
+                    ? saveInto(host, origin, null, edited, "audio/midi", midi)
+                    : writeBeside(file, edited, midi));
+            } else if (MediaDir.PLAY_SF.equals(item)) {
+                playDefault(host, file, name);
+            } else {
+                host.openKitView("py");
+                host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
+                host.pyJav.pkUseInputPath(file.getAbsolutePath());
+                host.pyJav.pkSetReturn(() -> reopen(host, tree, base, root, at));
+                host.pyJav.pkOpenParams();
+            }
+        });
+    }
+
+    /** `data` as `name` in the file's own folder (a name taken gets " (1)"); returns its path. */
+    static String writeBeside(File file, String name, byte[] data) throws Exception {
+        String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        String ext = name.substring(stem.length());
+        File f = new File(file.getParentFile(), name);
+        for (int n = 1; f.exists(); n++) f = new File(file.getParentFile(), stem + " (" + n + ")" + ext);
+        java.nio.file.Files.write(f.toPath(), data);
+        return f.getPath();
+    }
+
+    /** Play with default SoundFont: the phone's own MIDI player (all its instruments), Stop in a small dialog. */
+    static android.media.MediaPlayer playing;
+    static AlertDialog lastPlay;
+
+    static void playDefault(final MainActivity app, File file, String name) {
+        stopDefault();
+        try {
+            android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            mp.setDataSource(file.getAbsolutePath());
+            mp.prepare();
+            mp.start();
+            playing = mp;
+            mp.setOnCompletionListener(p -> {
+                if (lastPlay != null && lastPlay.isShowing()) lastPlay.dismiss();
+            });
+        } catch (Exception ex) {
+            app.setNow("The phone could not play " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return;
+        }
+        app.setNow("Playing " + name + " with the default SoundFont");
+        lastPlay = new AlertDialog.Builder(app).setTitle(name).setMessage("Playing with the phone's default SoundFont")
+            .setPositiveButton("Stop", null).setOnDismissListener(d -> stopDefault()).show();
+    }
+
+    static void stopDefault() {
+        android.media.MediaPlayer mp = playing;
+        playing = null;
+        if (mp == null) return;
+        try {
+            mp.stop();
+        } catch (Exception ignored) {
+            // not started
+        }
+        mp.release();
     }
 
     /** A folder's long-press menu: Rename, Delete. */

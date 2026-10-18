@@ -65,6 +65,22 @@ final class MidiEditScreen {
         if (now != null) now.fromImport = true;
     }
 
+    /** Save for a MIDI that is not a file set's (the Media browser's): writes it, returns where. */
+    interface Saver {
+        String save(byte[] midi) throws Exception;
+    }
+
+    /** The editor on a MIDI file's bytes (`name`); Save hands the MIDI to `saver`. */
+    static void openFile(Pulsekit app, String name, byte[] midi, Saver saver) {
+        MidiHitEdit edit = MidiHitEdit.of(midi);
+        if (edit == null) {
+            app.setNow(name + " is not a MIDI file");
+            return;
+        }
+        if (now != null) now.close();
+        now = new MidiEditScreen(app, "", name, edit, saver);
+    }
+
     /** Opens the editor on the file set's source MIDI; `label` is the set's row (or its source). */
     static void open(Pulsekit app, String label) {
         String key = Engine.fileSetMidiKeyForLabel(label == null ? "" : label);
@@ -75,10 +91,14 @@ final class MidiEditScreen {
             return;
         }
         if (now != null) now.close();
-        now = new MidiEditScreen(app, key, Engine.fileSetMidiName(key), edit);
+        now = new MidiEditScreen(app, key, Engine.fileSetMidiName(key), edit, null);
     }
 
-    private MidiEditScreen(Pulsekit app, String key, String name, MidiHitEdit edit) {
+    /** Where Save puts a MIDI that is not a file set's; null for a file set's. */
+    final Saver saver;
+
+    private MidiEditScreen(Pulsekit app, String key, String name, MidiHitEdit edit, Saver saver) {
+        this.saver = saver;
         this.app = app;
         this.key = key;
         this.name = name;
@@ -96,7 +116,7 @@ final class MidiEditScreen {
         title.setFont(new Font("SansSerif", Font.BOLD, 22));
         title.setForeground(FG);
         top.add(title);
-        JLabel sub = new JLabel((key.isEmpty() ? "Other" : key) + " · " + name);
+        JLabel sub = new JLabel(saver != null ? name + " \u00b7 Save keeps it as a new file beside it" : (key.isEmpty() ? "Other" : key) + " · " + name);
         sub.setForeground(MUTED);
         top.add(sub);
         this.status = new JLabel(" ");
@@ -243,7 +263,13 @@ final class MidiEditScreen {
     }
 
     void save() {
-        if (this.edit.changed) {
+        if (this.saver != null && this.edit.changed) {
+            try {
+                this.app.setNow("Saved \u00b7 " + this.saver.save(this.edit.toMidi()));
+            } catch (Exception ex) {
+                this.app.setNow("Could not save: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            }
+        } else if (this.edit.changed) {
             MidiHitEdit.saveToFileSet(this.key, this.edit.toMidi());
             this.app.fileSets.storeAudioDir();
             this.app.setNow("Saved · " + this.name);
