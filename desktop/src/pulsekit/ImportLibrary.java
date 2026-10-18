@@ -345,6 +345,7 @@ final class ImportLibrary {
             Engine.attachStagedMidi(set);
             if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
             madeSet = set;
+            this.lastPackedSet = stem;
             app.fileSets.rememberFileSetParts(stem, set.parts);
             this.loadFset(Engine.encodeFset(set), Engine.fsetFilename(set.name));
         } catch (Exception ex) {
@@ -355,7 +356,9 @@ final class ImportLibrary {
         // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
         List<Engine.Part> parts = new ArrayList<>(Engine.songFromFileSet(madeSet));
         // Midi2Wav's test makes the song without asking: CompareHits compares it.
-        if (!parts.isEmpty() && Midi2WavTest.makesSong()) {
+        if (this.quietSet) {
+            // Add to composer stack: the set's patterns go on the stack, no song asked about.
+        } else if (!parts.isEmpty() && Midi2WavTest.makesSong()) {
             app.songEditor.addImportedSong(stem, parts);
         } else if (!parts.isEmpty()) {
             int ans = JOptionPane.showConfirmDialog(
@@ -373,6 +376,10 @@ final class ImportLibrary {
 
     /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
     boolean openEditor;
+    /** Set while a MIDI becomes a file set for the Composer's stack: no Make a song question. */
+    boolean quietSet;
+    /** The file set the last MIDI import made (its source name). */
+    String lastPackedSet;
 
     String selectedFileSource() {
         for (Engine.Learned x : app.learned) {

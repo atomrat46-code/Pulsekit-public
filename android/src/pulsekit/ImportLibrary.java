@@ -800,6 +800,10 @@ final class ImportLibrary {
 
     /** Set while the Import screen imports a MIDI with "Open in MIDI editor" on. */
     boolean openEditor;
+    /** Set while a MIDI becomes a file set for the Composer's stack: no Make a song question. */
+    boolean quietSet;
+    /** The file set the last tryPackMidiFileSet made (its source name). */
+    java.lang.String lastPackedSet;
 
     boolean tryPackMidiFileSet(java.lang.String filename, pulsekit.Engine.MidiBars bars, boolean force) {
         if (bars == null || bars.bars == null || bars.bars.isEmpty()) return false;
@@ -822,12 +826,15 @@ final class ImportLibrary {
             pulsekit.Engine.attachStagedMidi(set);
             if (set.patterns.isEmpty() && set.fills.isEmpty()) return false;
             app.fileSets.storeFsetParts(stem, set.parts);
+            this.lastPackedSet = stem;
             byte[] packed = pulsekit.Engine.encodeFset(set);
             this.loadFset(packed, pulsekit.Engine.fsetFilename(set.name));
             // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
             java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             // Midi2Wav's test makes the song without asking: CompareHits compares it.
-            if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
+            if (this.quietSet) {
+                // Add to composer stack: the set's patterns go on the stack, no song asked about.
+            } else if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
                 app.songEditor.addImportedMidiSong(stem, song);
             } else if (!song.isEmpty()) {
                 new android.app.AlertDialog.Builder(app)

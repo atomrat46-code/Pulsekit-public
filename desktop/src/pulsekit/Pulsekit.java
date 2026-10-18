@@ -358,6 +358,7 @@ public final class Pulsekit extends UiKit {
         this.addTab(jPanel7, DRUM_TRACKS, "Drum Tracks");
         this.addTab(jPanel7, "pads", "Pads");
         this.addTab(jPanel7, "song", "Song");
+        this.addTab(jPanel7, "composer", "Composer");
         this.addTab(jPanel7, "py", "PyJav");
         this.addTab(jPanel7, "prompts", "Prompts");
         this.addFileTab(jPanel7);
@@ -526,6 +527,7 @@ public final class Pulsekit extends UiKit {
         this.pageHost.add((Component)this.gridHost, "grid");
         this.pageHost.add((Component)this.playback.buildPads(), "pads");
         this.pageHost.add((Component)this.songEditor.buildSongPage(), "song");
+        this.pageHost.add((Component)this.composerPage.buildComposerPage(), "composer");
         this.pageHost.add((Component)this.pyJav.buildPyPage(), "py");
         this.pageHost.add((Component)this.projectIo.buildImportPage(), "import");
         this.pageHost.add((Component)this.projectIo.buildExportPage(), "export");
@@ -703,6 +705,7 @@ public final class Pulsekit extends UiKit {
     final GridEditor gridEditor = new GridEditor(this);
     final Playback playback = new Playback(this);
     final SongEditor songEditor = new SongEditor(this);
+    final ComposerPage composerPage = new ComposerPage(this);
     final StyleLibrary styleLibrary = new StyleLibrary(this);
     final ImportLibrary importLibrary = new ImportLibrary(this);
     final FileSets fileSets = new FileSets(this);
@@ -724,7 +727,7 @@ public final class Pulsekit extends UiKit {
 
 
     /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
-    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "py", "prompts");
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "composer", "py", "prompts");
 
     static java.io.File lastTabFile() {
         return new java.io.File(PromptDb.dir(), "last-tab.txt");
@@ -763,8 +766,8 @@ public final class Pulsekit extends UiKit {
         boolean bl3 = "py".equals(string);
         this.nowPlaying.setVisible(!bl3 && this.nowPlaying.getText() != null && this.nowPlaying.getText().trim().length() > 0);
         boolean bl4 = "import".equals(string) || "export".equals(string) || "fsetinfo".equals(string) || "help".equals(string) || "midisettings".equals(string) || "comparehits".equals(string);
-        boolean prompts = "prompts".equals(string);
-        // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
+        boolean prompts = "prompts".equals(string) || "composer".equals(string);
+        // Prompts, Composer, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
         boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
             || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
         if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
@@ -784,7 +787,8 @@ public final class Pulsekit extends UiKit {
             this.songEditor.refreshSong();
         }
         // The prompt library may have changed (a run, an import): the Prompts page reads it again.
-        if (prompts) this.promptsPage.rebuild();
+        if ("prompts".equals(string)) this.promptsPage.rebuild();
+        if ("composer".equals(string)) this.composerPage.refresh();
         if (pattern) {
             this.fillLast = false;
             this.setNow(null);
@@ -828,7 +832,7 @@ public final class Pulsekit extends UiKit {
             this.setNow("Scripts on web");
         }
         if (prompts) {
-            this.setNow("Prompts");
+            this.setNow("composer".equals(string) ? "Composer" : "Prompts");
         }
         if ("help".equals(string)) {
             this.setNow("Help");

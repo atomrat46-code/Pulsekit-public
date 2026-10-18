@@ -828,6 +828,10 @@ final class MediaBrowser {
             playDefault(app, f, entry.name);
             return;
         }
+        if (MediaDir.TO_COMPOSER.equals(item)) {
+            toComposer(app, f, entry.name);
+            return;
+        }
         final File root = this.shownRoot;
         final File dir = this.shown;
         if (this.last != null) this.last.dispose();
@@ -838,6 +842,37 @@ final class MediaBrowser {
         app.pyJav.setReturn(() -> this.reopen(root, dir));
         SwingUtilities.invokeLater(() -> app.pyJav.openParams());
         app.setNow(item + ": " + entry.name);
+    }
+
+    /** Add to composer stack: the MIDI as a file set (no song asked about), its patterns and fills on the Composer's stack, the Composer shown. */
+    static void toComposer(Pulsekit app, File f, String name) {
+        try {
+            Engine.MidiBars bars = Engine.parseMidiBars(java.nio.file.Files.readAllBytes(f.toPath()));
+            if (bars == null) {
+                app.setNow(name + " has no drums for the stack");
+                return;
+            }
+            app.importLibrary.quietSet = true;
+            app.importLibrary.lastPackedSet = null;
+            boolean made;
+            try {
+                made = app.importLibrary.learnFromSongImport(name, bars, true) && app.importLibrary.lastPackedSet != null;
+            } finally {
+                app.importLibrary.quietSet = false;
+            }
+            String set = app.importLibrary.lastPackedSet;
+            if (!made) {
+                app.setNow("No patterns in " + name + " for the stack");
+                return;
+            }
+            Composer c = app.composerPage.composer();
+            int added = c.addFileSet(set, app.learned, app.learnedFills);
+            c.save(PromptDb.dir());
+            app.showView("composer");
+            app.setNow(name + " \u00b7 " + added + (added == 1 ? " block" : " blocks") + " on the Composer's stack");
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+        }
     }
 
     /** `data` as `name` in the file's own folder (a name taken gets " (1)"); returns its path. */

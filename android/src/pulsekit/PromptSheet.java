@@ -1940,6 +1940,10 @@ public final class PromptSheet {
         MediaBrowser.playDefault(host, in, name);
         return;
       }
+      if (MediaDir.TO_COMPOSER.equals(item)) {
+        MediaBrowser.toComposer(host, in, name);
+        return;
+      }
       focusId = versionId;
       focusWhich = which;
       host.openKitView("py");

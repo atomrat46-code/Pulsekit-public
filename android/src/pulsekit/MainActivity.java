@@ -412,6 +412,7 @@ public class MainActivity extends UiKit {
         this.addTab(linearLayout9, DRUM_TRACKS, "Drum Tracks");
         this.addTab(linearLayout9, "pads", "Pads");
         this.addTab(linearLayout9, "song", "Song");
+        this.addTab(linearLayout9, "composer", "Composer");
         LinearLayout linearLayout10 = this.row();
         linearLayout10.setPadding(0, this.dp(4), 0, 0);
         this.addTab(linearLayout10, "py", "PyJav");
@@ -492,6 +493,7 @@ public class MainActivity extends UiKit {
         this.gridEditor.buildGridPane(frameLayout);
         this.playback.buildPadsPane(frameLayout);
         this.songEditor.buildSongPane(frameLayout);
+        this.composerPage.build(frameLayout);
         this.pyJav.buildPyPane(frameLayout);
         this.projectIo.buildImportPane(frameLayout);
         this.projectIo.buildExportPane(frameLayout);
@@ -593,7 +595,7 @@ public class MainActivity extends UiKit {
     }
 
     /** The tabs Pulsekit opens on again after it closed on one (File's pages need what was open with them). */
-    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "py");
+    static final java.util.List<String> REMEMBERED_TABS = java.util.Arrays.asList("pattern", "combo", "fills", "pads", "song", "composer", "py");
     static final String UI_PREFS = "pulsekit-ui";
 
     void show(String string) {
@@ -1033,6 +1035,7 @@ public class MainActivity extends UiKit {
     final GridEditor gridEditor = new GridEditor(this);
     final Playback playback = new Playback(this);
     final SongEditor songEditor = new SongEditor(this);
+    final ComposerPage composerPage = new ComposerPage(this);
     final StyleLibrary styleLibrary = new StyleLibrary(this);
     final ImportLibrary importLibrary = new ImportLibrary(this);
     final FileSets fileSets = new FileSets(this);
@@ -1179,8 +1182,9 @@ public class MainActivity extends UiKit {
         boolean help = "help".equals(this.view);
         boolean midi = "midisettings".equals(this.view);
         boolean compare = "comparehits".equals(this.view);
+        boolean composer = "composer".equals(this.view);
         // Prompts, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
-        boolean noTransport = pr || help || midi || compare || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
+        boolean noTransport = pr || help || midi || compare || composer || "import".equals(this.view) || "export".equals(this.view) || "pads".equals(this.view)
             || "py".equals(this.view);
         if (this.transportBar != null) this.transportBar.setVisibility(noTransport ? 8 : 0);
         // Without the bar there is no Stop: a beat or song that was playing stops here.
@@ -1208,7 +1212,14 @@ public class MainActivity extends UiKit {
             this.promptsPane.setVisibility(pr ? 0 : 8);
             if (pr) this.promptsPane.bringToFront();
         }
-        if (info || pr || help || midi || compare) {
+        if (this.composerPage.pane != null) {
+            this.composerPage.pane.setVisibility(composer ? 0 : 8);
+            if (composer) {
+                this.composerPage.pane.bringToFront();
+                this.composerPage.refresh();
+            }
+        }
+        if (info || pr || help || midi || compare || composer) {
             this.gridScroll.setVisibility(8);
             if (this.lenBar != null) this.lenBar.setVisibility(8);
             if (this.importPane != null) this.importPane.setVisibility(8);
@@ -1221,7 +1232,9 @@ public class MainActivity extends UiKit {
             if (this.toolsRow != null) this.toolsRow.setVisibility(8);
             if (this.styleWrap != null) this.styleWrap.setVisibility(8);
             if (this.fillWrap != null) this.fillWrap.setVisibility(8);
-            if (compare) {
+            if (composer) {
+                this.setNow("Composer");
+            } else if (compare) {
                 this.setNow("Compare Hits");
             } else if (midi) {
                 this.setNow("Drum Midi Settings");

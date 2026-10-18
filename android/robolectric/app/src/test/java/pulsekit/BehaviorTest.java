@@ -3463,6 +3463,87 @@ public class BehaviorTest {
   }
 
   /**
+   * Composer: building blocks from the Song tab's picker, the AABA form making Verse and Bridge,
+   * blocks and a subpart in parts, To Song putting the form on the Song tab, the Song tab's From
+   * Composer, kept across a restart, and a MIDI's Add to composer stack.
+   */
+  @Test
+  public void s139_composer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "composer");
+    idle();
+    ComposerPage page = (ComposerPage) get("composerPage");
+    out.append("tab: ").append(get("view")).append(", page shown ").append(page.pane.getVisibility() == View.VISIBLE).append('\n');
+    root().findViewWithTag("composer-add-block").performClick();
+    idle();
+    AlertDialog pick = (AlertDialog) ShadowDialog.getLatestDialog();
+    int rock = -1;
+    for (int i = 0; i < pick.getListView().getAdapter().getCount(); i++) if ("Rock".equals(String.valueOf(pick.getListView().getAdapter().getItem(i)))) rock = i;
+    org.robolectric.Shadows.shadowOf(pick).clickOnItem(rock);
+    idle();
+    page.composer().addBlock(new Composer.Block(Composer.FILL, "toms", "Toms"));
+    page.changed();
+    out.append("stack: ");
+    for (Composer.Block b : page.composer().stack) out.append(b.label()).append(" | ");
+    out.append('\n');
+    root().findViewWithTag("composer-form:AABA").performClick();
+    idle();
+    out.append("AABA: ").append(page.composer().formLabel()).append('\n');
+    // Verse: Rock x2 and Toms; Bridge: Verse inside it.
+    root().findViewWithTag("composer-part-add:Verse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(0);
+    idle();
+    root().findViewWithTag("composer-part-add:Verse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(1);
+    idle();
+    page.composer().part("Verse").entries.get(0).repeats = 2;
+    root().findViewWithTag("composer-part-sub:Bridge").performClick();
+    idle();
+    out.append("parts for Bridge: ").append(listItems(ComposerPage.lastDialog)).append('\n');
+    org.robolectric.Shadows.shadowOf(ComposerPage.lastDialog).clickOnItem(0);
+    idle();
+    root().findViewWithTag("composer-part-sub:Verse").performClick();
+    idle();
+    out.append("a part inside Verse: ").append(String.valueOf(get("now") instanceof TextView ? ((TextView) get("now")).getText() : "")).append('\n');
+    out.append("Verse: ").append(page.composer().part("Verse").entries.get(0).label()).append(", ").append(page.composer().part("Verse").entries.get(1).label())
+        .append("; Bridge: ").append(page.composer().part("Bridge").entries.get(0).label()).append('\n');
+    root().findViewWithTag("composer-to-song").performClick();
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.Part> song = (List<Engine.Part>) get("song");
+    StringBuilder names = new StringBuilder();
+    for (Engine.Part p : song) names.append(p.name).append(" x").append(p.repeats).append(", ");
+    out.append("To Song: view ").append(get("view")).append(", ").append(song.size()).append(" parts: ").append(names).append('\n');
+    // Song tab: From Composer.
+    root().findViewWithTag("song-from-composer").performClick();
+    idle();
+    out.append("From Composer: ").append(listItems(SongEditor.lastFromComposer)).append('\n');
+    org.robolectric.Shadows.shadowOf(SongEditor.lastFromComposer).clickOnItem(1);
+    idle();
+    out.append("after adding Verse: ").append(song.size()).append(" parts").append('\n');
+    // Kept.
+    String kept = page.composer().encode();
+    MainActivity again = Robolectric.buildActivity(MainActivity.class).setup().get();
+    idle();
+    out.append("kept: ").append(again.composerPage.composer().encode().equals(kept)).append('\n');
+    // A MIDI's Add to composer stack.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("house")), 4));
+    File mid = new File(app.getCacheDir(), "Night Drive.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    int before = page.composer().stack.size();
+    MediaBrowser.toComposer(app, mid, "Night Drive.mid");
+    idle();
+    out.append("Add to composer stack: ").append(page.composer().stack.size() - before).append(" blocks, view ").append(get("view")).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    if (song.size() != 10 || !kept.contains("Verse") || page.composer().stack.size() <= before || !"composer".equals(get("view"))) throw new AssertionError(out.toString());
+    write("s139_composer", out.toString());
+  }
+
+  /**
    * SogniMusic --batchdir: after DrumMidi_CRT's run on the track, its MIDI joins the shared batch
    * folder with a row in batch.txt (base SogniMusic, in the folder's own columns); without --test
    * nothing else follows.

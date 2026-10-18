@@ -1155,6 +1155,10 @@ final class PromptDb {
                 MediaBrowser.playDefault(app, in, file.name);
                 return;
             }
+            if (MediaDir.TO_COMPOSER.equals(item)) {
+                MediaBrowser.toComposer(app, in, file.name);
+                return;
+            }
             java.awt.Window open = javax.swing.SwingUtilities.getWindowAncestor(this.lastFileMenu == null ? null : this.lastFileMenu.getInvoker());
             if (open instanceof JDialog) open.dispose();
             app.showView("py");

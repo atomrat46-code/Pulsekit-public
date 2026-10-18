@@ -165,6 +165,14 @@ final class SongEditor {
         this.songAdds.add(jButtonFillern);
         this.songAdds.add(jButton4);
         this.songAdds.add(jButton5);
+        // A part or the whole song form made on the Composer tab.
+        JButton fromComposer = app.chip("From Composer", false);
+        fromComposer.setName("song-from-composer");
+        fromComposer.addActionListener(actionEvent -> {
+            JPopupMenu m = this.fromComposerMenu();
+            if (m.getComponentCount() > 0) m.show(fromComposer, 0, fromComposer.getHeight());
+        });
+        this.songAdds.add(fromComposer);
         JButton saveToSet = app.chip("Save to set", false);
         saveToSet.addActionListener(actionEvent -> this.saveSongToFileSet(saveToSet));
         this.songAdds.add(saveToSet);
@@ -474,9 +482,122 @@ final class SongEditor {
         return this.songPickMenu(replaceAt, null);
     }
 
+    /** The Composer's + Add: the next pick goes on its stack instead of into the song (cleared once picked or closed). */
+    java.util.function.Consumer<Composer.Block> pickTarget;
+
+    /** The Song tab's picker under `anchor`, its pick handed to `target` as a building block. */
+    void pickInto(java.awt.Component anchor, java.util.function.Consumer<Composer.Block> target) {
+        this.pickTarget = target;
+        JPopupMenu m = this.songPickMenu(null);
+        m.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                // After the item picked (if one was): closed without a pick, the next one goes to the song again.
+                javax.swing.SwingUtilities.invokeLater(() -> SongEditor.this.pickTarget = null);
+            }
+
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+            }
+        });
+        this.lastPick = m;
+        if (m.getComponentCount() == 0) {
+            this.pickTarget = null;
+            return;
+        }
+        if (anchor != null && anchor.isShowing()) m.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** The picker pickInto showed last (for the tests). */
+    JPopupMenu lastPick;
+
+    /** A building block's name: the pattern's, the fill's, "pattern · fill" for a Fillern. */
+    String blockName(String kind, String key) {
+        if ("fill".equals(kind)) return app.styleLibrary.fillLabel(key);
+        if ("fillern".equals(kind)) return this.patternName(key) + " \u00b7 " + app.styleLibrary.fillLabel(app.styleLibrary.fillernFillKeyOf(key));
+        return this.patternName(key);
+    }
+
+    /** A building block as song parts, `repeats` times (a pattern's bars, a Fillern's pattern bars, a fill's, silence's). */
+    List<Engine.Part> partsFor(Composer.Block b, int repeats) {
+        List<Engine.Part> out = new java.util.ArrayList<Engine.Part>();
+        int times = Math.max(1, repeats);
+        if (Composer.SILENT.equals(b.kind)) {
+            out.add(Engine.rest(app.bpm(), times));
+        } else if (Composer.PATTERN.equals(b.kind)) {
+            out.add(Engine.groove(this.patternName(b.key), this.patternBpm(b.key), this.patternCellsFor(b.key), times));
+        } else if (Composer.FILL.equals(b.kind)) {
+            out.add(Engine.fill(app.styleLibrary.fillLabel(b.key), app.bpm(), this.songFillCells(b.key, app.cells), times));
+        } else {
+            int[][] cells = this.patternCellsFor(b.key);
+            String fk = app.fillernPairs.get(b.key);
+            if (fk == null) fk = b.key.equals(app.styleLibrary.currentPatternKey()) ? app.fillId : "toms";
+            String mode = app.styleLibrary.fillernModeOf(b.key);
+            if (!Engine.FILLERN_AFTER.equals(mode)) {
+                out.addAll(Engine.fillernParts(this.patternName(b.key), this.patternBpm(b.key), cells, Engine.usedSteps(cells), times,
+                    app.styleLibrary.fillLabel(fk), this.songFillCells(fk, cells), Engine.barSteps(app.tsNum, app.tsDen), mode));
+            } else {
+                out.add(Engine.groove(this.patternName(b.key), this.patternBpm(b.key), cells, times));
+                out.add(Engine.fill(app.styleLibrary.fillLabel(fk), this.patternBpm(b.key), this.songFillCells(fk, cells), 1));
+            }
+        }
+        // As the Song tab's own addPart() sets them.
+        for (Engine.Part p : out) {
+            p.tsNum = app.tsNum;
+            p.tsDen = app.tsDen;
+            p.steps = "groove".equals(p.kind) ? app.steps : Engine.barSteps(app.tsNum, app.tsDen);
+        }
+        return out;
+    }
+
+    /** Song tab's From Composer: the whole song form or one part, added after the song's parts. */
+    JPopupMenu fromComposerMenu() {
+        final Composer c = Composer.load(PromptDb.dir());
+        JPopupMenu m = new JPopupMenu();
+        m.setName("from-composer");
+        if (!c.form.isEmpty()) {
+            JMenuItem all = new JMenuItem("Whole song form (" + c.formLabel() + ")");
+            all.addActionListener(e -> this.addComposed(c.renderForm(this::partsFor), "the song form"));
+            m.add(all);
+        }
+        for (final Composer.Part p : c.parts) {
+            if (p.entries.isEmpty()) continue;
+            JMenuItem it = new JMenuItem(p.name);
+            it.addActionListener(e -> this.addComposed(c.renderPart(p.name, this::partsFor), p.name));
+            m.add(it);
+        }
+        if (m.getComponentCount() == 0) {
+            JMenuItem none = new JMenuItem("Nothing in Composer yet: make parts there");
+            none.setEnabled(false);
+            m.add(none);
+        }
+        return m;
+    }
+
+    void addComposed(List<Engine.Part> parts, String what) {
+        List<Engine.Part> cur = this.activeSong();
+        if ("imported".equals(app.songLane) && this.importedSong() == null) {
+            app.setNow("No imported song yet");
+            return;
+        }
+        int added = 0;
+        for (Engine.Part p : parts) {
+            if (cur.size() >= Engine.MAX_SONG) break;
+            cur.add(p);
+            added++;
+        }
+        if ("imported".equals(app.songLane)) app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("From Composer \u00b7 " + what + " \u00b7 " + added + (added == 1 ? " part" : " parts") + (added < parts.size() ? " (the song is full)" : ""));
+    }
+
     JPopupMenu songPickMenu(Integer replaceAt, String only) {
         JPopupMenu m = new JPopupMenu();
-        if (!"original".equals(app.songLane)) return m;
+        if (!"original".equals(app.songLane) && this.pickTarget == null) return m;
         boolean all = only == null || only.isEmpty();
         if (all || "pattern".equals(only)) {
             if (all) {
@@ -814,6 +935,13 @@ final class SongEditor {
     }
 
     void applySongPick(String kind, String key, Integer replaceAt) {
+        // The Composer's + Add: the pick is a building block, not a song part.
+        if (this.pickTarget != null) {
+            java.util.function.Consumer<Composer.Block> target = this.pickTarget;
+            this.pickTarget = null;
+            target.accept(new Composer.Block(kind, key, this.blockName(kind, key)));
+            return;
+        }
         if (!"original".equals(app.songLane)) return;
         List<Engine.Part> cur = this.activeSong();
         int idx = replaceAt == null ? -1 : replaceAt.intValue();

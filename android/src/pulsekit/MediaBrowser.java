@@ -1504,6 +1504,8 @@ final class MediaBrowser {
                     : writeBeside(file, edited, midi));
             } else if (MediaDir.PLAY_SF.equals(item)) {
                 playDefault(host, file, name);
+            } else if (MediaDir.TO_COMPOSER.equals(item)) {
+                toComposer(host, file, name);
             } else {
                 host.openKitView("py");
                 host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
@@ -1512,6 +1514,37 @@ final class MediaBrowser {
                 host.pyJav.pkOpenParams();
             }
         });
+    }
+
+    /** Add to composer stack: the MIDI as a file set (no song asked about), its patterns and fills on the Composer's stack, the Composer shown. */
+    static void toComposer(MainActivity app, File file, String name) {
+        try {
+            Engine.MidiBars bars = Engine.parseMidiBars(java.nio.file.Files.readAllBytes(file.toPath()));
+            if (bars == null) {
+                app.setNow(name + " has no drums for the stack");
+                return;
+            }
+            app.importLibrary.quietSet = true;
+            app.importLibrary.lastPackedSet = null;
+            boolean made;
+            try {
+                made = app.importLibrary.tryPackMidiFileSet(name, bars, true);
+            } finally {
+                app.importLibrary.quietSet = false;
+            }
+            String set = app.importLibrary.lastPackedSet;
+            if (!made || set == null) {
+                app.setNow("No patterns in " + name + " for the stack");
+                return;
+            }
+            Composer c = app.composerPage.composer();
+            int added = c.addFileSet(set, app.learned, app.learnedFills);
+            c.save(app.getFilesDir());
+            app.show("composer");
+            app.setNow(name + " \u00b7 " + added + (added == 1 ? " block" : " blocks") + " on the Composer's stack");
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+        }
     }
 
     /** `data` as `name` in the file's own folder (a name taken gets " (1)"); returns its path. */

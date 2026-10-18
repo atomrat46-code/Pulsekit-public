@@ -4921,6 +4921,75 @@ public final class DesktopBehavior {
         || !seen.toString().contains("[Convert drum hits into MIDI]")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Composer: building blocks from the Song tab's picker, the AABA form making Verse and Bridge,
+   * blocks and a subpart in parts, To Song putting the form on the Song tab, the Song tab's From
+   * Composer, kept, and a MIDI's Add to composer stack.
+   */
+  void s121_composer() throws Exception {
+    call("showView", "composer");
+    final ComposerPage page = (ComposerPage) get("composerPage");
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      seen.append("tab: ").append(((Pulsekit) frame).view).append(", page ").append(named(frame, "composer")).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-add-block")).doClick();
+      javax.swing.JPopupMenu pick = ((Pulsekit) frame).songEditor.lastPick;
+      for (Component c : pick.getComponents()) if (c instanceof javax.swing.JMenuItem && "Rock".equals(((javax.swing.JMenuItem) c).getText())) {
+        ((javax.swing.JMenuItem) c).doClick();
+        break;
+      }
+      pick.setVisible(false);
+    });
+    idle();
+    edt(() -> {
+      page.composer().addBlock(new Composer.Block(Composer.FILL, "toms", "Toms"));
+      page.changed();
+      seen.append("stack: ");
+      for (Composer.Block b : page.composer().stack) seen.append(b.label()).append(" | ");
+      seen.append('\n');
+      ((javax.swing.JButton) component(frame, "composer-form:AABA")).doClick();
+      seen.append("AABA: ").append(page.composer().formLabel()).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
+      ((javax.swing.JMenuItem) page.lastMenu.getComponent(0)).doClick();
+      ((javax.swing.JButton) component(frame, "composer-part-add:Verse")).doClick();
+      ((javax.swing.JMenuItem) page.lastMenu.getComponent(1)).doClick();
+      page.composer().part("Verse").entries.get(0).repeats = 2;
+      ((javax.swing.JButton) component(frame, "composer-part-sub:Bridge")).doClick();
+      ((javax.swing.JMenuItem) page.lastMenu.getComponent(0)).doClick();
+      seen.append("Verse: ").append(page.composer().part("Verse").entries.get(0).label()).append(", ").append(page.composer().part("Verse").entries.get(1).label())
+          .append("; Bridge: ").append(page.composer().part("Bridge").entries.get(0).label()).append('\n');
+      ((javax.swing.JButton) component(frame, "composer-to-song")).doClick();
+    });
+    idle();
+    @SuppressWarnings("unchecked")
+    final List<Engine.Part> song = (List<Engine.Part>) get("song");
+    edt(() -> {
+      StringBuilder names = new StringBuilder();
+      for (Engine.Part p : song) names.append(p.name).append(" x").append(p.repeats).append(", ");
+      seen.append("To Song: view ").append(((Pulsekit) frame).view).append(", ").append(song.size()).append(" parts: ").append(names).append('\n');
+      javax.swing.JPopupMenu from = ((Pulsekit) frame).songEditor.fromComposerMenu();
+      StringBuilder items = new StringBuilder();
+      for (Component c : from.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("From Composer: ").append(items).append('\n');
+      ((javax.swing.JMenuItem) from.getComponent(1)).doClick();
+      seen.append("after adding Verse: ").append(song.size()).append(" parts\n");
+    });
+    out.append(seen);
+    String kept = page.composer().encode();
+    out.append("kept: ").append(Composer.load(PromptDb.dir()).encode().equals(kept)).append('\n');
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 118, Engine.styleCells(Engine.styles().get("funk")), 4));
+    parts.add(Engine.fill("toms", 118, 1));
+    parts.add(Engine.groove("B", 118, Engine.styleCells(Engine.styles().get("house")), 4));
+    final File mid = new File(System.getProperty("user.home"), "Night Drive.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    final int before = page.composer().stack.size();
+    edt(() -> MediaBrowser.toComposer((Pulsekit) frame, mid, "Night Drive.mid"));
+    idle();
+    out.append("Add to composer stack: ").append(page.composer().stack.size() - before).append(" blocks, view ").append(get("view")).append(", ").append(((javax.swing.JLabel) get("nowPlaying")).getText()).append('\n');
+    if (song.size() != 10 || !kept.contains("Verse") || page.composer().stack.size() <= before || !"composer".equals(get("view"))) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

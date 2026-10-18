@@ -90,6 +90,10 @@ final class SongEditor {
         app.songAdds.addView((View)textView18);
         app.songAdds.addView((View)textView19);
         app.songAdds.addView((View)app.pill("Silent", false, view -> this.add(Engine.rest(app.bpm(), 2))));
+        // A part or the whole song form made on the Composer tab.
+        TextView fromComposer = app.pill("From Composer", false, view -> this.fromComposer());
+        fromComposer.setTag((Object)"song-from-composer");
+        app.songAdds.addView((View)fromComposer);
         TextView saveToSet = app.pill("Save to set", false, view -> this.saveSongToFileSet());
         saveToSet.setTag((Object)"song-save-set");
         app.songAdds.addView((View)saveToSet);
@@ -428,8 +432,99 @@ final class SongEditor {
         app.setNow(old.name + " \u2192 " + this.patternName(key) + " Fillern");
     }
 
+    /** The Composer's + Add: the next pick goes on its stack instead of into the song (cleared once picked or closed). */
+    java.util.function.Consumer<Composer.Block> pickTarget;
+
+    /** The Song tab's picker, its pick handed to `target` as a building block. */
+    void pickInto(java.util.function.Consumer<Composer.Block> target) {
+        this.pickTarget = target;
+        this.showSongPick(-1, null);
+    }
+
+    /** A building block's name: the pattern's, the fill's, "pattern · fill" for a Fillern. */
+    String blockName(String kind, String key) {
+        if ("fill".equals(kind)) return app.styleLibrary.fillLabel(key);
+        if ("fillern".equals(kind)) return this.patternName(key) + " \u00b7 " + app.styleLibrary.fillLabel(app.styleLibrary.fillernFillKeyOf(key));
+        return this.patternName(key);
+    }
+
+    /** A building block as song parts, `repeats` times (a pattern's bars, a Fillern's pattern bars, a fill's, silence's). */
+    List<Engine.Part> partsFor(Composer.Block b, int repeats) {
+        List<Engine.Part> out = new ArrayList<Engine.Part>();
+        int times = Math.max(1, repeats);
+        if (Composer.SILENT.equals(b.kind)) {
+            out.add(Engine.rest(app.bpm(), times));
+        } else if (Composer.PATTERN.equals(b.kind)) {
+            out.add(Engine.groove(this.patternName(b.key), this.patternBpm(b.key), this.patternCellsFor(b.key), times));
+        } else if (Composer.FILL.equals(b.kind)) {
+            out.add(Engine.fill(app.styleLibrary.fillLabel(b.key), app.bpm(), this.songFillCells(b.key, app.cells), times));
+        } else {
+            int[][] cells = this.patternCellsFor(b.key);
+            String fk = app.fillernPairs.get(b.key);
+            if (fk == null) fk = b.key.equals(app.styleLibrary.currentPatternKey()) ? app.fillId : "toms";
+            String mode = app.styleLibrary.fillernModeOf(b.key);
+            if (!Engine.FILLERN_AFTER.equals(mode)) {
+                out.addAll(Engine.fillernParts(this.patternName(b.key), this.patternBpm(b.key), cells, Engine.usedSteps(cells), times,
+                    app.styleLibrary.fillLabel(fk), this.songFillCells(fk, cells), Engine.barSteps(app.tsNum, app.tsDen), mode));
+            } else {
+                out.add(Engine.groove(this.patternName(b.key), this.patternBpm(b.key), cells, times));
+                out.add(Engine.fill(app.styleLibrary.fillLabel(fk), this.patternBpm(b.key), this.songFillCells(fk, cells), 1));
+            }
+        }
+        // As the Song tab's own add() sets them.
+        for (Engine.Part p : out) {
+            p.tsNum = app.tsNum;
+            p.tsDen = app.tsDen;
+            p.steps = "groove".equals(p.kind) ? app.steps : Engine.barSteps(app.tsNum, app.tsDen);
+        }
+        return out;
+    }
+
+    /** Song tab's From Composer: the whole song form or one part, added after the song's parts. */
+    void fromComposer() {
+        final Composer c = Composer.load(app.getFilesDir());
+        final ArrayList<String> labels = new ArrayList<String>();
+        final ArrayList<Runnable> runs = new ArrayList<Runnable>();
+        if (!c.form.isEmpty()) {
+            labels.add("Whole song form (" + c.formLabel() + ")");
+            runs.add(() -> this.addComposed(c.renderForm(this::partsFor), "the song form"));
+        }
+        for (final Composer.Part p : c.parts) {
+            if (p.entries.isEmpty()) continue;
+            labels.add(p.name);
+            runs.add(() -> this.addComposed(c.renderPart(p.name, this::partsFor), p.name));
+        }
+        if (labels.isEmpty()) {
+            Toast.makeText((Context)app, (CharSequence)"Nothing in Composer yet: make parts there", (int)1).show();
+            return;
+        }
+        lastFromComposer = new AlertDialog.Builder((Context)app).setTitle((CharSequence)"From Composer")
+            .setItems(labels.toArray(new CharSequence[0]), (d, which) -> runs.get(which).run())
+            .setNegativeButton((CharSequence)"Cancel", null).show();
+    }
+
+    /** From Composer's list shown last (for the tests). */
+    static AlertDialog lastFromComposer;
+
+    void addComposed(List<Engine.Part> parts, String what) {
+        List<Engine.Part> list = this.activeSong();
+        if ("imported".equals(app.songLane) && this.importedSong() == null) {
+            Toast.makeText((Context)app, (CharSequence)"No imported song yet", (int)0).show();
+            return;
+        }
+        int added = 0;
+        for (Engine.Part p : parts) {
+            if (list.size() >= Engine.MAX_SONG) break;
+            list.add(p);
+            added++;
+        }
+        if ("imported".equals(app.songLane)) app.persistence.persistLearned();
+        this.refreshSong();
+        app.setNow("From Composer \u00b7 " + what + " \u00b7 " + added + (added == 1 ? " part" : " parts") + (added < parts.size() ? " (the song is full)" : ""));
+    }
+
     void showSongPick(int n2, String string) {
-        if (!"original".equals(app.songLane)) {
+        if (!"original".equals(app.songLane) && this.pickTarget == null) {
             return;
         }
         boolean bl = string == null || string.isEmpty();
@@ -605,9 +700,10 @@ final class SongEditor {
             }
         }
         if (arrayList.isEmpty()) {
+            this.pickTarget = null;
             return;
         }
-        String string4 = n2 >= 0 ? "Replace part" : ("fillern".equals(string) ? "Fillern" : ("fill".equals(string) ? "Fill" : ("pattern".equals(string) ? "Pattern" : "Add to song")));
+        String string4 = this.pickTarget != null ? "Add a building block" : n2 >= 0 ? "Replace part" : ("fillern".equals(string) ? "Fillern" : ("fill".equals(string) ? "Fill" : ("pattern".equals(string) ? "Pattern" : "Add to song")));
         new AlertDialog.Builder((Context)app).setTitle((CharSequence)string4).setItems(arrayList.toArray(new CharSequence[0]), (dialogInterface, n) -> {
             if (n < 0 || n >= arrayList2.size()) {
                 return;
@@ -616,7 +712,7 @@ final class SongEditor {
             if (runnable != null) {
                 runnable.run();
             }
-        }).setNegativeButton((CharSequence)"Cancel", null).show();
+        }).setNegativeButton((CharSequence)"Cancel", null).setOnDismissListener(d -> this.pickTarget = null).show();
     }
 
     String songFileLabel(String string, boolean bl) {
@@ -737,6 +833,13 @@ final class SongEditor {
     }
 
     void applySongPick(String string, String string2, int n) {
+        // The Composer's + Add: the pick is a building block, not a song part.
+        if (this.pickTarget != null) {
+            java.util.function.Consumer<Composer.Block> target = this.pickTarget;
+            this.pickTarget = null;
+            target.accept(new Composer.Block(string, string2, this.blockName(string, string2)));
+            return;
+        }
         if (!"original".equals(app.songLane)) {
             return;
         }
