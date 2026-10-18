@@ -1773,6 +1773,10 @@ public final class PromptSheet {
     frame.addView(strip, flp);
   }
 
+  /** The prompt file whose view a full size picture was opened from: Back shows that view again. */
+  private static PromptVault.StoredFile backToPromptFile;
+  private static PromptVault.Version backToOwner;
+
   /** The prompt file preview shown last, for the tests. */
   static AlertDialog lastPromptFilePreview;
 
@@ -1802,6 +1806,9 @@ public final class PromptSheet {
           focusId = file.versionId;
           focusWhich = file.which;
           openPreview(activity, n, vault.fileBytes(owner.id, slot), 3);
+          // Back from full size: this prompt file's view again (its text and thumbnails).
+          backToPromptFile = file;
+          backToOwner = owner;
         };
         mini.setOnClickListener(big);
         mini.setOnLongClickListener(v -> {
@@ -2373,6 +2380,9 @@ public final class PromptSheet {
   }
 
   private static void openPreview(Activity activity, String name, byte[] bytes, int back) {
+    // Any other full size view goes back to its gallery (a prompt file's thumbnail sets this again after).
+    backToPromptFile = null;
+    backToOwner = null;
     if (bytes == null || bytes.length == 0) {
       toast(activity, "No file selected");
       return;
@@ -2403,6 +2413,12 @@ public final class PromptSheet {
       previewBack = 0;
       previewBytes = new byte[0];
       rebuild(activity);
+      // Opened from a prompt file's view: that view again, over its gallery.
+      PromptVault.StoredFile from = backToPromptFile;
+      PromptVault.Version owner = backToOwner;
+      backToPromptFile = null;
+      backToOwner = null;
+      if (from != null && promptFilesOpen) promptFilePreview(activity, from, owner);
     });
     col.addView(back, buttonLp(activity));
     col.addView(caption(activity, "PREVIEW"));

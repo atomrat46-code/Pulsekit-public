@@ -3931,6 +3931,47 @@ public class BehaviorTest {
     if (!fOk || !galleryOk || !"sky.png ".equals(kept.toString())) throw new AssertionError(out.toString());
   }
 
+  /** Prompt files: a prompt file's view, a thumbnail there in full size, and Back: the prompt file's view again (not the gallery). */
+  @Test
+  public void s144_prompt_file_back() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    long p = vault.addPrompt(vault.addCategory("Pictures"), "Sunset");
+    vault.addVersion(p, "Sunset", "", "a sunset", "", "sky.png", png.toByteArray(), "", null, "sunset.png", png.toByteArray(), "", "");
+    vault.addPromptFile("sunset.prompt", "A sunset over the sea\n".getBytes(StandardCharsets.UTF_8), "Sunset v1");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    ((View) findText(pane, "sunset.prompt").getParent()).performClick();
+    idle();
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog first = (AlertDialog) pv.get(null);
+    View thumb = first.getWindow().getDecorView().findViewWithTag("prompt-file-preview-thumb:1");
+    out.append("prompt file view: ").append(first.isShowing()).append(", Ref 1 thumbnail ").append(thumb != null).append('\n');
+    thumb.performLongClick();
+    idle();
+    out.append("full size: ").append(findText(pane, "PREVIEW") != null).append(", ").append(findText(pane, "sky.png") != null).append(", view ").append(first.isShowing() ? "still open" : "closed").append('\n');
+    // Back: the prompt file's view again, over the Prompt files gallery.
+    ((View) findText(pane, "Back")).performClick();
+    idle();
+    AlertDialog again = (AlertDialog) pv.get(null);
+    boolean back = again != null && again != first && again.isShowing() && again.getWindow().getDecorView().findViewWithTag("prompt-file-text") != null;
+    out.append("Back: prompt file view ").append(back).append(", gallery under it ").append(findText(pane, "PROMPT FILES") != null).append('\n');
+    if (again != null) again.dismiss();
+    idle();
+    write("s144_prompt_file_back", out.toString());
+    java.lang.reflect.Field open = PromptSheet.class.getDeclaredField("promptFilesOpen");
+    open.setAccessible(true);
+    open.set(null, false);
+    if (!back) throw new AssertionError(out.toString());
+  }
+
   private static List<Engine.Part> songPartsForStack() {
     List<Engine.Part> parts = new ArrayList<>();
     parts.add(Engine.groove("A", 110, Engine.styleCells(Engine.styles().get("hiphop")), 4));
