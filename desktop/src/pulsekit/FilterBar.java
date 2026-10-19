@@ -28,6 +28,8 @@ final class FilterBar {
         FileGroups.load(PromptDb.dir());
         FileFavourites.load(PromptDb.dir());
         MediaTags.load(PromptDb.dir());
+        // This screen's switches (each screen has its own): in use again whatever was shown since.
+        final String screen = FileFilter.using();
         for (final String t : new String[] {FileFilter.FAV, FileFilter.GROUP, FileFilter.CAT}) {
             boolean on = FileFilter.on(t) && (!FileFilter.GROUP.equals(t) || !FileGroups.shown.isEmpty())
                 && (!FileFilter.CAT.equals(t) || FileFilter.category.length() > 0);
@@ -35,10 +37,12 @@ final class FilterBar {
             b.setName(prefix + t);
             b.setToolTipText(FileFilter.label(t).replace("held", "right click"));
             final Runnable groupOn = () -> {
+                FileFilter.use(screen);
                 FileFilter.group = true;
                 again.run();
             };
             b.addActionListener(e -> {
+                FileFilter.use(screen);
                 if (FileFilter.FAV.equals(t)) {
                     FileFilter.fav = !FileFilter.fav;
                 } else if (FileFilter.GROUP.equals(t)) {
@@ -59,7 +63,10 @@ final class FilterBar {
                 again.run();
             });
             if (FileFilter.GROUP.equals(t)) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, groupOn));
-            if (FileFilter.CAT.equals(t)) GroupMenus.onRightClick(b, () -> categories(b, type, again));
+            if (FileFilter.CAT.equals(t)) GroupMenus.onRightClick(b, () -> {
+                FileFilter.use(screen);
+                categories(b, type, again);
+            });
             into.add(b);
         }
     }
@@ -73,9 +80,11 @@ final class FilterBar {
             vault = null;
         }
         JPopupMenu m = new JPopupMenu();
+        final String screen = FileFilter.using();
         JMenuItem none = new JMenuItem(FileFilter.NO_CATEGORY);
         none.setName("cat-none");
         none.addActionListener(e -> {
+            FileFilter.use(screen);
             FileFilter.pickCategory("");
             again.run();
         });
@@ -112,7 +121,9 @@ final class FilterBar {
     private static JMenuItem pick(String text, final String path, final Runnable again) {
         JMenuItem item = new JMenuItem(text + mark(path));
         item.setName("cat-pick:" + path);
+        final String screen = FileFilter.using();
         item.addActionListener(e -> {
+            FileFilter.use(screen);
             FileFilter.pickCategory(path);
             again.run();
         });
@@ -132,6 +143,7 @@ final class FilterBar {
             vault = null;
         }
         final String[] rows = FileFilter.tagRows(PromptSave.tagChoices(vault, PromptDb.dir()));
+        final String screen = FileFilter.using();
         for (int i = 0; i < FileFilter.tags.length; i++) {
             final int at = i;
             into.add(new javax.swing.JLabel("T" + (i + 1)));
@@ -142,6 +154,7 @@ final class FilterBar {
             box.setToolTipText("Files with this tag (or the other lists' tags)");
             box.addActionListener(e -> {
                 String picked = (String) box.getSelectedItem();
+                FileFilter.use(screen);
                 String now = FileFilter.tags[at].length() == 0 ? FileFilter.ALL : FileFilter.tags[at];
                 if (picked == null || picked.equals(now)) return;
                 FileFilter.pickTag(at, picked);

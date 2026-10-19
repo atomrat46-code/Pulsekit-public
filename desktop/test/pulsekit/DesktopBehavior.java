@@ -5534,6 +5534,158 @@ public final class DesktopBehavior {
     boolean readyOk = MediaTags.tags(key).contains("sunset") && "Image / Portraits".equals(MediaTags.category(key));
     if (!switchOk || !catOk || !tagOk || !saveOk || !readyOk) throw new AssertionError(out.toString());
   }
+  /**
+   * Each thumbnail screen has its own F G C switches and T lists: F on in Browse DB left the Media
+   * browser's folders "empty". When the switches do keep everything out, the browser says so. A
+   * full size video held: it plays, or pauses.
+   */
+  void s128_switches_per_screen() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    DbFilter.current = "A";
+    PromptDb.vault().addLibraryFile("beach.png", "xbeach".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog first = (JDialog) get("lastBrowse");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(first, "db-filter:F")).doClick());
+    for (int i = 0; i < 100 && get("lastBrowse") == first; i++) Thread.sleep(100);
+    idle();
+    final JDialog second = (JDialog) get("lastBrowse");
+    out.append("Browse DB: ").append(second.getTitle()).append('\n');
+    edt(() -> second.dispose());
+    File media = new File(System.getProperty("user.home"), "pics");
+    media.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(media, "sea.png"));
+    final JDialog[] dlg = new JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    idle();
+    boolean empty = component(dlg[0], "media-empty") != null;
+    out.append("Media browser: empty line ").append(empty).append(", F lit ").append(((javax.swing.AbstractButton) component(dlg[0], "media-filter:F")).isSelected()).append('\n');
+    // F on here: nothing in the folder is a favourite, and the line says why.
+    final javax.swing.AbstractButton f = (javax.swing.AbstractButton) component(dlg[0], "media-filter:F");
+    edt(() -> f.doClick());
+    idle();
+    javax.swing.JLabel line = (javax.swing.JLabel) component(dlg[0], "media-empty");
+    out.append("F on in the Media browser says: ").append(line == null ? "none" : line.getText()).append('\n');
+    boolean lineOk = line != null && line.getText().startsWith("Nothing here matches Favourites");
+    FileFilter.use(FileFilter.BROWSE);
+    boolean browseKept = FileFilter.fav;
+    out.append("Browse DB's F kept: ").append(browseKept).append('\n');
+    edt(() -> dlg[0].dispose());
+    if (empty || !lineOk || !browseKept) throw new AssertionError(out.toString());
+  }
+  /**
+   * Playlists: Add to playlist / Add to default playlist on a Browse DB card; File > Playlist
+   * viewer/editor: the Editor (thumbnails, ▲, the item menu's Start viewer) and the viewer (◀ ▶);
+   * Merge .pls runs PlayList.java on two lists; a .pls run from PyJav's code area plays it; the
+   * Media browser's folder playlist: Save pls.
+   */
+  void s129_playlists() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final File dir = PromptDb.dir();
+    DbFilter.current = "A";
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptDb.vault().addLibraryFile("beach.png", png.toByteArray(), "Imported", 1);
+    // Browse DB: a card's right click has Add to playlist and Add to default playlist.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog browse = (JDialog) get("lastBrowse");
+    edt(() -> {
+      java.awt.Component card = component(browse, "refs-pick:beach.png");
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : card.getMouseListeners()) l.mousePressed(press);
+    });
+    javax.swing.JMenu add = (javax.swing.JMenu) component(db.lastCardMenu, "add-to-playlist");
+    StringBuilder rows = new StringBuilder();
+    for (java.awt.Component c : add.getMenuComponents()) rows.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("card menu: Add to playlist ").append(rows).append("Add to default playlist ").append(component(db.lastCardMenu, "add-to-default-playlist") != null).append('\n');
+    edt(() -> ((javax.swing.JMenuItem) component(db.lastCardMenu, "add-to-default-playlist")).doClick());
+    out.append("added: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    edt(() -> browse.dispose());
+    boolean addOk = Playlist.load(dir, Playlist.DEFAULT).items.size() == 1;
+    File media = new File(System.getProperty("user.home"), "pics");
+    media.mkdirs();
+    File sky = new File(media, "sky.png");
+    javax.imageio.ImageIO.write(img, "png", sky);
+    Playlist.addTo(dir, Playlist.DEFAULT, sky.getAbsolutePath(), "sky.png");
+    // File > Playlist viewer/editor.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, Playlist.DEFAULT));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    Thread.sleep(500);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    JLabel thumb = (JLabel) component(w, "playlist-thumb:1");
+    out.append("editor: ").append(((JLabel) component(w, "playlist-info:0")).getText().replaceAll("<[^>]+>", " ").trim()).append(" | thumbnail ").append(thumb.getIcon() != null).append('\n');
+    boolean editorOk = thumb.getIcon() != null;
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-up:1")).doClick());
+    out.append("after ▲: ").append(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title).append('\n');
+    boolean moveOk = "sky.png".equals(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title);
+    // The item's menu: Start viewer; ▶ the next.
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-menu:0")).doClick());
+    StringBuilder menu = new StringBuilder();
+    for (java.awt.Component c : PlaylistWindow.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("item menu: ").append(menu).append('\n');
+    answers.add("(keep)");
+    final javax.swing.JMenuItem start = (javax.swing.JMenuItem) component(PlaylistWindow.lastMenu, "playlist-item-start");
+    edt(() -> PlaylistWindow.lastMenu.setVisible(false));
+    SwingUtilities.invokeLater(() -> start.doClick());
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    String first = ((JLabel) component(v, "viewer-where")).getText() + " (" + PlaylistWindow.viewerNote + ")";
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    String second = ((JLabel) component(v, "viewer-where")).getText() + " (" + PlaylistWindow.viewerNote + ")";
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-zoom-in")).doClick());
+    edt(() -> v.dispose());
+    out.append("viewer: ").append(first).append(" | ▶ ").append(second).append(" | zoom kept ").append(Playlist.settings(dir).zoom).append('\n');
+    boolean viewerOk = first.startsWith("1 / 2") && first.endsWith("(picture)") && second.startsWith("2 / 2") && Playlist.settings(dir).zoom > 1f;
+    // Merge .pls: PlayList.java on two lists, the merged one shown.
+    File a = new File(media, "a.pls");
+    File b = new File(media, "b.pls");
+    Files.write(a.toPath(), ("[playlist]\nFile1=" + sky.getAbsolutePath() + "\nFile2=/x/y.mp4\nNumberOfEntries=2\n").getBytes(StandardCharsets.UTF_8));
+    Files.write(b.toPath(), "[playlist]\nFile1=/x/y.mp4\nFile2=/x/z.mp3\nTitle2=Zed\n".getBytes(StandardCharsets.UTF_8));
+    PlaylistWindow.choose = new File[] {a, b};
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-merge")).doClick());
+    idle();
+    out.append("Merge .pls: ").append(w.getTitle()).append(", ").append(PlaylistWindow.shown.items.size()).append(" files, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean mergeOk = "a + b".equals(PlaylistWindow.shown.name) && PlaylistWindow.shown.items.size() == 3;
+    edt(() -> w.dispose());
+    // A .pls in PyJav's code area: Run plays it with PlayList.java.
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add("(keep)");
+    final JDialog before = PlaylistWindow.last;
+    pj.runPls("trip.pls", "[playlist]\nFile1=" + sky.getAbsolutePath() + "\nTitle1=Sky\n");
+    for (int i = 0; i < 300 && (PlaylistWindow.last == before || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    out.append("PyJav .pls Run: ").append(PlaylistWindow.last.getTitle()).append(", log ends ").append(pj.lastPlsRun == null ? "-" : pj.lastPlsRun.log.trim().replaceAll("(?s).*\n", "")).append('\n');
+    boolean runOk = "Playlist · trip".equals(PlaylistWindow.last.getTitle());
+    final JDialog shown = PlaylistWindow.last;
+    edt(() -> shown.dispose());
+    // The Media browser's folder playlist: Save pls.
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaPlaylist.add(dir, media.getAbsolutePath(), sky.getAbsolutePath(), "sky.png", sky.length());
+    String said = mb.savePls(media, "Folder list");
+    out.append("Save pls: ").append(said).append('\n');
+    boolean savePlsOk = Playlist.load(dir, "Folder list").items.size() == 1;
+    out.append("playlists: ").append(Playlist.names(dir)).append('\n');
+    if (!addOk || !editorOk || !moveOk || !viewerOk || !mergeOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
+  }
+
+
 
 
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */

@@ -249,6 +249,11 @@ final class VlcPlayer {
         volatile int panY;
         /** Called when the wheel changes the zoom (the window's zoom label). */
         Runnable zoomed;
+        /** A press held on the picture (as a long press on the phone): plays, or (playing) pauses. */
+        Runnable held;
+        private final javax.swing.Timer hold = new javax.swing.Timer(600, e -> {
+            if (this.held != null) this.held.run();
+        });
 
         Screen() {
             this.setBackground(Color.BLACK);
@@ -262,14 +267,26 @@ final class VlcPlayer {
                 int x;
                 int y;
 
+                int pressX;
+                int pressY;
+
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     this.x = e.getX() - Screen.this.panX;
                     this.y = e.getY() - Screen.this.panY;
+                    this.pressX = e.getX();
+                    this.pressY = e.getY();
+                    if (javax.swing.SwingUtilities.isLeftMouseButton(e)) Screen.this.hold.restart();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    Screen.this.hold.stop();
                 }
 
                 @Override
                 public void mouseDragged(java.awt.event.MouseEvent e) {
+                    if (Math.abs(e.getX() - this.pressX) > 5 || Math.abs(e.getY() - this.pressY) > 5) Screen.this.hold.stop();
                     if (Screen.this.zoom <= 1) return;
                     Screen.this.panX = e.getX() - this.x;
                     Screen.this.panY = e.getY() - this.y;
@@ -278,6 +295,7 @@ final class VlcPlayer {
             };
             this.addMouseListener(drag);
             this.addMouseMotionListener(drag);
+            this.hold.setRepeats(false);
         }
 
         void zoomTo(double z) {
@@ -311,6 +329,14 @@ final class VlcPlayer {
     }
 
     final Screen screen = new Screen();
+
+    {
+        // Held on the picture: play, or (playing) pause.
+        this.screen.held = () -> {
+            if (this.playing()) this.pause();
+            else this.play();
+        };
+    }
     private Pointer player;
     private Memory buffer;
     private int width;

@@ -8495,6 +8495,233 @@ public class BehaviorTest {
     if (!switchOk || !catOk || !tagOk || !mediaOk || !saveOk || !readyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Each thumbnail screen has its own F G C switches and T lists: F turned on in Browse DB left the
+   * Media browser showing only favourites, every folder "empty". When the switches do keep
+   * everything out, the Media browser says so. A full size video held: it plays, or pauses.
+   */
+  @Test
+  public void s151_switches_per_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    MediaDir.filter = "A";
+    DbImport.store(app, "beach.png", "xbeach".getBytes(StandardCharsets.UTF_8), false);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("db-filter:F").performClick();
+    idle();
+    out.append("Browse DB: ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    RefBrowser.last.dismiss();
+    File media = new File(app.getCacheDir(), "media-switches");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    Files.write(new File(media, "sea.png").toPath(), png.toByteArray());
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    idle();
+    out.append("Media browser: ").append(b.entries.size()).append(" shown, empty line ").append(findText(b.body, "No pictures, videos or sounds here") != null).append('\n');
+    boolean ownOk = b.entries.size() == 1;
+    // F on here: nothing here is a favourite, and the line says why.
+    FileFilter.use(FileFilter.MEDIA);
+    FileFilter.fav = true;
+    b.refilter();
+    idle();
+    View empty = b.body.findViewWithTag("media-empty");
+    String line = empty == null ? "none" : ((TextView) empty).getText().toString();
+    out.append("F on in the Media browser: ").append(b.entries.size()).append(" shown, says: ").append(line).append('\n');
+    boolean lineOk = b.entries.isEmpty() && line.startsWith("Nothing here matches Favourites");
+    // Browse DB kept its own F.
+    FileFilter.use(FileFilter.BROWSE);
+    boolean browseKept = FileFilter.fav;
+    FileFilter.use(FileFilter.GALLERY);
+    boolean galleryOff = !FileFilter.fav;
+    out.append("Browse DB's F kept: ").append(browseKept).append(", gallery's F off: ").append(galleryOff).append('\n');
+    write("s151_switches_per_screen", out.toString());
+    FileFavourites.reset();
+    if (!ownOk || !lineOk || !browseKept || !galleryOff) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Playlists: .pls read, written and merged; Add to playlist / Add to default playlist on a Browse DB
+   * card; File > Playlist viewer/editor: the Editor (thumbnails, ▲ ▼ ✕, a long press: Start viewer)
+   * and Viewer tabs (Repeat, Auto mode, Autoplay video, kept); the viewer (◀ ▶, Auto mode, a long
+   * press holds a picture); PlayList.java's run opens its playlist; the Media browser's folder
+   * playlist: Save pls.
+   */
+  @Test
+  public void s152_playlists() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    File dir = app.getFilesDir();
+    // The model: two lists merged, a file in both once; the .pls text back.
+    Playlist a = Playlist.parse("[playlist]\nFile1=/a/x.png\nTitle1=x.png\nFile2=/a/y.mp4\nNumberOfEntries=2\n", "a.pls");
+    Playlist b = Playlist.parse("[playlist]\nfile1=/a/y.mp4\nFile2=file:///b/z%20one.mp3\nTitle2=Zed\n", "b.pls");
+    Playlist m = Playlist.merge("a + b", java.util.Arrays.asList(a, b));
+    StringBuilder titles = new StringBuilder();
+    for (Playlist.Item it : m.items) titles.append(it.title).append(" (").append(it.file).append(") ");
+    out.append("merged: ").append(titles).append('\n');
+    Playlist back = Playlist.parse(m.toPls(), "again.pls");
+    boolean modelOk = m.items.size() == 3 && "Zed".equals(m.items.get(2).title) && "/b/z one.mp3".equals(m.items.get(2).file) && back.items.size() == 3 && "again".equals(back.name);
+    // Browse DB: a card's long press has Add to playlist and Add to default playlist.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 24, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(android.graphics.Color.BLUE);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "beach.png", png.toByteArray(), false);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-pick:beach.png").performLongClick();
+    idle();
+    out.append("card menu: ").append(listItems(RefBrowser.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(5);
+    idle();
+    out.append("Add to default playlist: ").append(((TextView) get("now")).getText()).append('\n');
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-pick:beach.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(4);
+    idle();
+    out.append("Add to playlist list: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(1);
+    idle();
+    ((android.widget.EditText) PlaylistScreen.lastAsk.getWindow().getDecorView().findViewWithTag("playlist-name-field")).setText("Trip");
+    PlaylistScreen.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("New playlist: ").append(((TextView) get("now")).getText()).append(", kept ").append(Playlist.names(dir)).append('\n');
+    RefBrowser.last.dismiss();
+    boolean addOk = Playlist.load(dir, "Trip").items.size() == 1 && Playlist.isDb(Playlist.load(dir, Playlist.DEFAULT).items.get(0).file);
+    // Two more files in Default: a picture on disk and a sound.
+    File media = new File(app.getCacheDir(), "playlist-media");
+    media.mkdirs();
+    File sky = new File(media, "sky.png");
+    Files.write(sky.toPath(), png.toByteArray());
+    Playlist.addTo(dir, Playlist.DEFAULT, sky.getAbsolutePath(), "sky.png");
+    Playlist.addTo(dir, Playlist.DEFAULT, new File(media, "gone.mp3").getAbsolutePath(), "gone.mp3");
+    // File > Playlist viewer/editor.
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, Playlist.DEFAULT);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    android.widget.ImageView thumb0 = (android.widget.ImageView) w.findViewWithTag("playlist-thumb:0");
+    out.append("editor: ").append(((TextView) w.findViewWithTag("playlist-info:0")).getText().toString().replace('\n', ' ')).append(" | thumbnail ").append(thumb0.getDrawable() != null)
+        .append(" | rows ").append(w.findViewWithTag("playlist-item:2") != null).append('\n');
+    boolean editorOk = thumb0.getDrawable() != null && w.findViewWithTag("playlist-item:2") != null;
+    // sky.png up to the top, then saved.
+    w.findViewWithTag("playlist-up:1").performClick();
+    idle();
+    out.append("after ▲: ").append(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title).append('\n');
+    boolean moveOk = "sky.png".equals(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title);
+    // A long press: the item's menu, Start viewer.
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-item:0").performLongClick();
+    idle();
+    out.append("item menu: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    out.append("viewer: ").append(((TextView) vw.findViewWithTag("viewer-where")).getText()).append(", shows ").append(PlaylistScreen.viewerNote).append('\n');
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String second = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString();
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String third = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString() + " (" + PlaylistScreen.viewerNote + ")";
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String atEnd = ((TextView) get("now")).getText().toString();
+    out.append("▶: ").append(second).append(" | ").append(third).append(" | at the end: ").append(atEnd).append('\n');
+    boolean viewerOk = second.startsWith("2 / 3") && third.startsWith("3 / 3") && atEnd.startsWith("The end of Default");
+    // Repeat and Auto mode (1 s a picture): the end goes back to the start by itself.
+    Playlist.Settings set = Playlist.settings(dir);
+    set.repeat = true;
+    set.auto = true;
+    set.seconds = 1;
+    Playlist.saveSettings(dir, set);
+    vw.findViewWithTag("viewer-prev").performClick();
+    vw.findViewWithTag("viewer-prev").performClick();
+    idle();
+    int before = PlaylistScreen.viewerAt;
+    PlaylistScreen.stageHold.run();
+    out.append("held: ").append(((TextView) get("now")).getText()).append('\n');
+    Thread.sleep(1100);
+    PlaylistScreen.autoTick.run();
+    int whileHeld = PlaylistScreen.viewerAt;
+    PlaylistScreen.stageHold.run();
+    Thread.sleep(1100);
+    PlaylistScreen.autoTick.run();
+    int afterAuto = PlaylistScreen.viewerAt;
+    out.append("Auto mode: at ").append(before).append(", held ").append(whileHeld).append(", then ").append(afterAuto).append('\n');
+    boolean autoOk = before == 0 && whileHeld == 0 && afterAuto == 1;
+    vw.findViewWithTag("viewer-zoom-in").performClick();
+    vw.findViewWithTag("viewer-speed").performClick();
+    vw.findViewWithTag("viewer-mute").performClick();
+    PlaylistScreen.lastViewer.dismiss();
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: zoom ").append(kept.zoom).append(", speed ").append(Playlist.speedText(kept.speed)).append(", mute ").append(kept.mute).append('\n');
+    boolean keptOk = kept.zoom > 1f && kept.speed > 1f && kept.mute;
+    // The Viewer tab's boxes.
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-tab:Viewer").performClick();
+    idle();
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-autoplay")).setChecked(false);
+    w.findViewWithTag("playlist-seconds-more").performClick();
+    out.append("Viewer tab: autoplay ").append(Playlist.settings(dir).autoplay).append(", ").append(((TextView) w.findViewWithTag("playlist-seconds")).getText()).append('\n');
+    boolean tabOk = !Playlist.settings(dir).autoplay && Playlist.settings(dir).seconds == 2;
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    // PlayList.java's run (as the program gives it): the merged list kept and opened.
+    app.pyName = "PlayList.java";
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<>();
+    made.add(new JavaRun.FileOut("a + b.pls", m.toPls().getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("a.pls: 2 files\nb.pls: 2 files (1 in an earlier list already)\nSucceeded: 2 playlists merged into a + b, 3 files\nPlaylist: a + b", made, 0));
+    for (int i = 0; i < 100 && (PlaylistScreen.last == null || !PlaylistScreen.last.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("PlayList.java run: ").append(PlaylistScreen.last != null && PlaylistScreen.last.isShowing() ? org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle() : "not shown").append(", kept ").append(Playlist.names(dir)).append('\n');
+    boolean runOk = PlaylistScreen.shown != null && "a + b".equals(PlaylistScreen.shown.name) && Playlist.file(dir, "a + b").isFile();
+    if (PlaylistScreen.last != null) PlaylistScreen.last.dismiss();
+    app.pyName = null;
+    // The Media browser: Add to playlist in a file's menu; the folder playlist's Save pls.
+    MediaDir.filter = "A";
+    MediaBrowser mb = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && mb.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry skyEntry = null;
+    for (MediaDir.Entry e : mb.allEntries) if (e.name.equals("sky.png")) skyEntry = e;
+    mb.menu(skyEntry);
+    out.append("media menu ends: ").append(listItems(MediaBrowser.lastMenu).replaceAll(".*\\| ", "")).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    MediaPlaylist.add(dir, mb.folderKey(), skyEntry.id, skyEntry.name, skyEntry.size);
+    mb.playlist();
+    idle();
+    MediaBrowser.lastPlaylist.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-playlist-pls-name")).setText("Folder list");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Save pls: ").append(((TextView) get("now")).getText()).append('\n');
+    boolean savePlsOk = Playlist.load(dir, "Folder list").items.size() == 1;
+    write("s152_playlists", out.toString());
+    if (!modelOk || !addOk || !editorOk || !moveOk || !viewerOk || !autoOk || !keptOk || !tabOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

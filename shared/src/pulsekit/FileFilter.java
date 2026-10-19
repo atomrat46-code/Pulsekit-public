@@ -32,13 +32,57 @@ public final class FileFilter {
   /** T1, T2, T3: "" is All. */
   public static final String[] tags = {"", "", ""};
 
-  /** Everything off (the tests start again). */
-  public static void reset() {
+  /** Everything off, on every screen (the tests start again). */
+  public static synchronized void reset() {
+    clear();
+    KEPT.clear();
+    using = "";
+  }
+
+  private static void clear() {
     fav = false;
     group = false;
     cat = false;
     category = "";
     for (int i = 0; i < tags.length; i++) tags[i] = "";
+  }
+
+  /** The screens with switches of their own: Browse DB, the Ref / Result / Prompt file galleries, the Media browser. */
+  public static final String BROWSE = "browse";
+  public static final String GALLERY = "gallery";
+  public static final String MEDIA = "media";
+
+  /**
+   * Each screen's switches (F on in Browse DB left the Media browser showing only favourites: its
+   * folders looked empty). The switches above are the screen's in use; the others are kept here.
+   */
+  private static final Map<String, Object[]> KEPT = new HashMap<String, Object[]>();
+  private static String using = "";
+
+  /** The screen whose switches are in use. */
+  public static synchronized String using() {
+    return using;
+  }
+
+  /** `screen`'s switches in use (those in use till now kept for their screen). */
+  public static synchronized void use(String screen) {
+    if (screen == null || screen.equals(using)) return;
+    KEPT.put(using, new Object[] {fav, group, cat, category, tags.clone()});
+    Object[] s = KEPT.get(screen);
+    clear();
+    if (s != null) {
+      fav = (Boolean) s[0];
+      group = (Boolean) s[1];
+      cat = (Boolean) s[2];
+      category = (String) s[3];
+      System.arraycopy((String[]) s[4], 0, tags, 0, tags.length);
+    }
+    using = screen;
+  }
+
+  /** The empty screen's line when the switches keep everything out: "Nothing here matches Favourites, Tags: beach: turn …". */
+  public static String nothing() {
+    return "Nothing here matches" + title().replace(" · ", ", ").replaceFirst("^,", "") + ": turn the lit F G C or the T lists off to see all";
   }
 
   /** F, G and C, by the type letters. */

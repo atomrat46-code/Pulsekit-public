@@ -754,8 +754,50 @@ final class PyJav {
         return why.length() > 100 ? why.substring(0, 100) + "\u2026" : why;
     }
 
+    /** A playlist opened into the code area: Run plays it. */
+    static final String PLS_HINT = "A playlist: Run plays it with PlayList.java (the Playlist window, Editor and Viewer).";
+
+    /**
+     * A .pls in the code area run: the text (as edited) handed to PlayList.java; what it wrote kept
+     * with the playlists and opened in the Playlist window.
+     */
+    void pkRunPls(final String name, final String text) {
+        if (this.pkPyLog != null) this.pkPyLog.setText("Running\u2026");
+        app.setNow("PlayList.java: Running\u2026");
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        new Thread(() -> {
+            pulsekit.JavaRun.Result r;
+            try {
+                java.io.File in = new java.io.File(new java.io.File(app.getCacheDir(), "pyjav-pls"), new java.io.File(name).getName());
+                in.getParentFile().mkdirs();
+                java.nio.file.Files.write(in.toPath(), text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                java.util.List<String> argv = new java.util.ArrayList<String>();
+                argv.add(in.getAbsolutePath());
+                String src = app.programMenus.bundledSource("PlayList.java");
+                if (src == null) throw new IllegalStateException("PlayList.java is not among the programs");
+                r = pulsekit.JavaRun.run("PlayList.java", src, null, argv);
+            } catch (Exception ex) {
+                r = new pulsekit.JavaRun.Result("Failed: " + ex.getMessage(), new java.util.ArrayList<pulsekit.JavaRun.FileOut>(), 1);
+            }
+            final pulsekit.JavaRun.Result done = r;
+            main.post(() -> {
+                lastPlsRun = done;
+                if (this.pkPyLog != null) this.pkPyLog.setText(done.log);
+                if (!PlaylistScreen.afterRun(app, done)) app.setNow("PlayList.java made no playlist");
+            });
+        }, "pulsekit-pls").start();
+    }
+
+    /** The last playlist Run handed to PlayList.java, for the tests. */
+    static pulsekit.JavaRun.Result lastPlsRun;
+
     public void pkRunPyJav() {
         if (this.pkMustWait(app.pyName, true)) return;
+        // A playlist: PlayList.java plays it.
+        if (app.pyName != null && app.pyName.toLowerCase().endsWith(".pls")) {
+            this.pkRunPls(app.pyName, app.pyEditor != null ? app.pyEditor.getText().toString() : "");
+            return;
+        }
         if (app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt")) {
             if (!this.pkOutputResume) {
                 this.pkLoadRefs(app.pkPromptSource);
@@ -1270,6 +1312,8 @@ final class PyJav {
             String browse = MediaDir.opened(madeLog);
             if (browse != null) MediaBrowser.open(app, browse);
         });
+        // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
+        this.pkOffer("the playlist", ok && "PlayList.java".equals(app.pyName), () -> PlaylistScreen.afterRun(app, made));
         // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
         if (batch != null && batch.takes(program)) {
             batch.done(status, this.pkBatchCopies(made));
@@ -1852,6 +1896,8 @@ final class PyJav {
             boolean jar = low.endsWith(".jar");
             boolean cls = low.endsWith(".class");
             boolean javaSrc = low.endsWith(".java");
+            // A playlist: its text in the code area; Run plays it with PlayList.java.
+            boolean pls = low.endsWith(".pls");
             boolean prompt = low.endsWith(".prompt") || low.endsWith(".prompt.txt") || low.contains(".prompt");
             if (!prompt && data != null && data.length >= 9) {
                 String head = new String(data, 0, Math.min(data.length, 12), java.nio.charset.StandardCharsets.UTF_8);
@@ -1860,8 +1906,8 @@ final class PyJav {
                     if (!low.endsWith(".prompt")) name = (low.endsWith(".txt") ? name.substring(0, name.length() - 4) : name) + ".prompt";
                 }
             }
-            if (!py && !prompt && !jar && !cls && !javaSrc) {
-                String why = "Pick a .py, .java, .class, .jar, or .prompt file.";
+            if (!py && !prompt && !jar && !cls && !javaSrc && !pls) {
+                String why = "Pick a .py, .java, .class, .jar, .prompt, or .pls file.";
                 if (this.pkPyLog != null) this.pkPyLog.setText(why);
                 android.widget.Toast.makeText(app, why, 1).show();
                 return;
@@ -1903,6 +1949,7 @@ final class PyJav {
             }
             String hint = prompt
                 ? (this.pkPromptReport == null ? "" : this.pkPromptReport)
+                : pls ? PLS_HINT
                 : pulsekit.PyJavHints.status(name, src, data);
             this.pkApplyHint(hint);
             if (prompt) this.pkLoadRefs(app.pkPromptSource);

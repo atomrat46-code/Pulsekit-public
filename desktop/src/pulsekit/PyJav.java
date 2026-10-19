@@ -225,7 +225,7 @@ final class PyJav {
     void browsePyFile() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Python, Java, or prompt");
-        chooser.setFileFilter(new FileNameExtensionFilter("Python, Java, JavaScript, or prompt", "py", "java", "class", "jar", "js", "mjs", "cjs", "ts", "tsx", "prompt"));
+        chooser.setFileFilter(new FileNameExtensionFilter("Python, Java, JavaScript, prompt, or playlist", "py", "java", "class", "jar", "js", "mjs", "cjs", "ts", "tsx", "prompt", "pls"));
         if (chooser.showOpenDialog(app) != 0) return;
         File file = chooser.getSelectedFile();
         if (file == null) return;
@@ -234,8 +234,8 @@ final class PyJav {
             String name = file.getName();
             String low = name.toLowerCase();
             boolean binary = low.endsWith(".jar") || low.endsWith(".class");
-            if (!(low.endsWith(".py") || low.endsWith(".java") || low.endsWith(".prompt") || low.endsWith(".js") || low.endsWith(".mjs") || low.endsWith(".cjs") || low.endsWith(".ts") || low.endsWith(".tsx") || binary)) {
-                if (app.pyLog != null) app.pyLog.setText("Pick a .py, .java, .js, .ts, .class, .jar, or .prompt file.");
+            if (!(low.endsWith(".py") || low.endsWith(".java") || low.endsWith(".prompt") || low.endsWith(".pls") || low.endsWith(".js") || low.endsWith(".mjs") || low.endsWith(".cjs") || low.endsWith(".ts") || low.endsWith(".tsx") || binary)) {
+                if (app.pyLog != null) app.pyLog.setText("Pick a .py, .java, .js, .ts, .class, .jar, .prompt, or .pls file.");
                 return;
             }
             if (low.endsWith(".jar") && JavaRun.zipEntry(data, "pattern.json") != null) {
@@ -248,6 +248,7 @@ final class PyJav {
             String src = binary ? "" : new String(data, StandardCharsets.UTF_8);
             String status = low.endsWith(".prompt")
                 ? "Run as bash, cmd, or AI."
+                : low.endsWith(".pls") ? PLS_HINT
                 : PyJavHints.status(name, src, data);
             PyJavRecent.remember(this.pyRecentDir(), name, "", src, binary ? data : null);
             this.reloadPyRecent(0);
@@ -373,11 +374,51 @@ final class PyJav {
         button.setForeground(on ? BG : FG);
     }
 
+    /** A playlist opened into the code area: Run plays it. */
+    static final String PLS_HINT = "A playlist: Run plays it with PlayList.java (the Playlist window, Editor and Viewer).";
+
+    /** The last playlist Run handed to PlayList.java, for the tests. */
+    JavaRun.Result lastPlsRun;
+
+    /**
+     * A .pls in the code area run: the text (as edited) handed to PlayList.java; what it wrote kept
+     * with the playlists and opened in the Playlist window.
+     */
+    void runPls(final String name, final String text) {
+        if (app.pyLog != null) app.pyLog.setText("Running\u2026");
+        app.setNow("PlayList.java: Running\u2026");
+        new Thread(() -> {
+            JavaRun.Result r;
+            try {
+                File in = new File(new File(PromptDb.dir(), "pyjav-in"), new File(name).getName());
+                in.getParentFile().mkdirs();
+                Files.write(in.toPath(), text.getBytes(StandardCharsets.UTF_8));
+                java.util.List<String> argv = new java.util.ArrayList<String>();
+                argv.add(in.getAbsolutePath());
+                r = JavaRun.run("PlayList.java", new String(ProgramFiles.read("Java", "PlayList.java"), StandardCharsets.UTF_8), null, argv);
+            } catch (Exception ex) {
+                r = new JavaRun.Result("Failed: " + ex.getMessage(), new java.util.ArrayList<JavaRun.FileOut>(), 1);
+            }
+            final JavaRun.Result done = r;
+            SwingUtilities.invokeLater(() -> {
+                this.lastPlsRun = done;
+                if (app.pyLog != null) app.pyLog.setText(done.log);
+                String list = PlaylistWindow.kept(app, done);
+                if (list != null) PlaylistWindow.open(app, list);
+            });
+        }, "pulsekit-pls").start();
+    }
+
     void runPython() {
         if (app.pyEditor == null) return;
         final String listed = app.programMenus.listedSourceToRun();
         final String src = listed != null ? listed : app.pyEditor.getText();
         final String name = app.pyName == null || app.pyName.isEmpty() ? "drum_midi.py" : app.pyName;
+        // A playlist: PlayList.java plays it.
+        if (name.toLowerCase().endsWith(".pls")) {
+            this.runPls(name, src);
+            return;
+        }
         // A batch's next run goes on without asking (the run before may still be storing).
         boolean batchStep = this.batchStep;
         this.batchStep = false;
@@ -723,6 +764,9 @@ final class PyJav {
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
+                // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
+                String list = "PlayList.java".equals(name) ? PlaylistWindow.kept(app, result) : null;
+                if (list != null) PlaylistWindow.open(app, list);
                 // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
                 if (batch != null && batch.takes(name)) {
                     java.util.List<String> paths = new java.util.ArrayList<String>();

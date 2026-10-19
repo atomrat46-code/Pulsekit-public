@@ -106,6 +106,7 @@ final class PromptDb {
         FileFavourites.load(dir());
         // C and the tags read the files' prompts.
         MediaTags.load(dir());
+        FileFilter.use(FileFilter.BROWSE);
         DbFilter.current = FileFilter.normal(DbFilter.current);
         PromptVault lib;
         try {
@@ -156,6 +157,7 @@ final class PromptDb {
 
     /** A grid of the library's files of the `only` kind; a click hands the picked one on. Ref files / Result files at the top. */
     void browse(boolean results, String only, Picked picked) {
+        FileFilter.use(FileFilter.BROWSE);
         final JDialog dialog = new JDialog(app, (results ? "Result files" : "Reference files") + FileFilter.title(), true);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
             // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
@@ -225,6 +227,9 @@ final class PromptDb {
             catItem.setName("refs-category");
             catItem.addActionListener(e -> TagDialogs.category(app, card, file.name, file.size, null));
             m.add(catItem);
+            // Add to playlist (a list picked, or a new one) and Add to default playlist.
+            m.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
+            m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
             this.lastCardMenu = m;
             m.show(card, 10, 10);
         }, "refs-pick:", true);
@@ -773,6 +778,7 @@ final class PromptDb {
 
     /** The galleries: 0 Ref files, 1 Result files, 2 Prompt files (the sheets runs saved with --saveprompt). */
     void gallery(final int kind) {
+        FileFilter.use(FileFilter.GALLERY);
         final boolean results = kind == 1;
         final JDialog dialog = new JDialog(app, (kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files") + FileFilter.title(), true);
         JPanel kinds = this.galleryTabs(kind, dialog);
@@ -1195,6 +1201,8 @@ final class PromptDb {
         });
         menu.add(favItem);
         menu.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, changed));
+        menu.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
+        menu.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
         // Tags… and Category…, as the Media browser has them (the file by its name and size).
         JMenuItem tagsItem = new JMenuItem(MediaTags.TAGS);
         tagsItem.setName("gallery-tags");

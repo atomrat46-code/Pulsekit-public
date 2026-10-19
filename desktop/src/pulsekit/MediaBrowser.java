@@ -195,6 +195,7 @@ final class MediaBrowser {
         MediaTags.load(PromptDb.dir());
         FileGroups.load(PromptDb.dir());
         FileFavourites.load(PromptDb.dir());
+        FileFilter.use(FileFilter.MEDIA);
         MediaDir.filter = FileFilter.normal(MediaDir.filter);
         final List<MediaDir.Entry> entries = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter));
         this.listed.clear();
@@ -310,7 +311,12 @@ final class MediaBrowser {
         north.add(rows, BorderLayout.SOUTH);
         body.add(north, BorderLayout.NORTH);
         JPanel grid = new JPanel(new GridLayout(0, 4, 8, 8));
-        if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
+        if (entries.isEmpty()) {
+            // The F G C switches or the T lists may be what keeps the files out: say so.
+            JLabel none = new JLabel(FileFilter.active() ? FileFilter.nothing() : "No pictures, videos or sounds here");
+            none.setName("media-empty");
+            grid.add(none);
+        }
         final List<JButton> waiting = new ArrayList<JButton>();
         final List<File> videos = new ArrayList<File>();
         JButton focusCard = null;
@@ -752,7 +758,26 @@ final class MediaBrowser {
         scroll.setPreferredSize(new Dimension(460, 320));
         JButton close = new JButton("Close");
         close.addActionListener(ev -> d.dispose());
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        // Save pls: this folder's playlist kept as a .pls with the playlists (File > Playlist viewer/editor).
+        JButton savePls = new JButton("Save pls");
+        savePls.setName("media-playlist-save-pls");
+        savePls.addActionListener(ev -> {
+            Object typed = answer != null ? answer.apply("Playlist name") : javax.swing.JOptionPane.showInputDialog(d, "Playlist name", "Save pls", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, folder.getName());
+            String name = typed == null ? "" : Playlist.clean(typed.toString());
+            if (name.length() == 0) return;
+            app.setNow(this.savePls(folder, name));
+        });
+        JButton openList = new JButton("Open in Playlist viewer");
+        openList.setName("media-playlist-open-viewer");
+        openList.addActionListener(ev -> {
+            String said = this.savePls(folder, Playlist.clean(folder.getName()));
+            app.setNow(said);
+            d.dispose();
+            PlaylistWindow.open(app, Playlist.clean(folder.getName()));
+        });
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        bottom.add(savePls);
+        bottom.add(openList);
         bottom.add(close);
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -767,6 +792,18 @@ final class MediaBrowser {
 
     /** The card menu shown last, for the tests. */
     javax.swing.JPopupMenu lastMenu;
+
+    /** Save pls: the folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    String savePls(File folder, String name) {
+        Playlist p = new Playlist(name);
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), folder.getAbsolutePath())) p.add(it.id, it.name);
+        try {
+            Playlist.save(PromptDb.dir(), p);
+            return "Saved " + p.name + Playlist.EXT + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)") + ": File > Playlist viewer/editor";
+        } catch (Exception ex) {
+            return "Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage();
+        }
+    }
 
     /** A file's menu (MediaDir.MENU): Add to DB as a reference or result file, Add to default playlist. */
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
@@ -837,6 +874,8 @@ final class MediaBrowser {
             });
             menu.add(item);
         }
+        // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
+        if (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO || entry.kind == MediaDir.SOUND) menu.add(PlaylistWindow.addMenu(app, f.getAbsolutePath(), entry.name));
         this.lastMenu = menu;
         if (card.isShowing()) menu.show(card, x, y);
     }

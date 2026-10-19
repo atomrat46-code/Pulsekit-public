@@ -168,6 +168,7 @@ final class RefBrowser {
         FileFavourites.load(activity.getFilesDir());
         // C and the tags read the files' prompts.
         MediaTags.load(activity.getFilesDir());
+        FileFilter.use(FileFilter.BROWSE);
         DbFilter.current = FileFilter.normal(DbFilter.current);
         PromptVault vault;
         try {
@@ -215,6 +216,7 @@ final class RefBrowser {
     }
 
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
+        FileFilter.use(FileFilter.BROWSE);
         final List<PromptVault.StoredFile> files = shown(activity, results, only);
         final PromptVault vault;
         try {
@@ -345,8 +347,13 @@ final class RefBrowser {
                 final boolean fav = FileFavourites.is(file);
                 menu = new AlertDialog.Builder(activity)
                     .setTitle(shownName)
-                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY}, (d, w) -> {
-                        if (w == 2 || w == 3) {
+                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT}, (d, w) -> {
+                        // Add to playlist (a list picked, or a new one), Add to default playlist.
+                        if (w == 4 || w == 5) {
+                            if (!(activity instanceof MainActivity)) return;
+                            if (w == 4) PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(file), shownName);
+                            else PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(file), shownName);
+                        } else if (w == 2 || w == 3) {
                             if (!(activity instanceof MainActivity)) return;
                             if (w == 2) TagDialogs.tags((MainActivity) activity, shownName, file.size, null);
                             else TagDialogs.category((MainActivity) activity, shownName, file.size, null);

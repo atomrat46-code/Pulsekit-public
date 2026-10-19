@@ -31,16 +31,20 @@ final class FilterRow {
         FileGroups.load(activity.getFilesDir());
         FileFavourites.load(activity.getFilesDir());
         MediaTags.load(activity.getFilesDir());
+        // This screen's switches (each screen has its own): in use again whatever was shown since.
+        final String screen = FileFilter.using();
         for (final String t : new String[] {FileFilter.FAV, FileFilter.GROUP, FileFilter.CAT}) {
             TextView b = pill.make(t, FileFilter.on(t) && (!FileFilter.GROUP.equals(t) || !FileGroups.shown.isEmpty())
                 && (!FileFilter.CAT.equals(t) || FileFilter.category.length() > 0));
             b.setTag(prefix + t);
             b.setContentDescription(FileFilter.label(t));
             final Runnable groupOn = () -> {
+                FileFilter.use(screen);
                 FileFilter.group = true;
                 again.run();
             };
             b.setOnClickListener(v -> {
+                FileFilter.use(screen);
                 if (FileFilter.FAV.equals(t)) {
                     FileFilter.fav = !FileFilter.fav;
                 } else if (FileFilter.GROUP.equals(t)) {
@@ -62,6 +66,7 @@ final class FilterRow {
                 return true;
             });
             if (FileFilter.CAT.equals(t)) b.setOnLongClickListener(v -> {
+                FileFilter.use(screen);
                 categories(activity, type, again);
                 return true;
             });
@@ -94,9 +99,11 @@ final class FilterRow {
         }
         if (parentId != 0) rows.add(FileFilter.UP);
         final int first = here.length() > 0 ? 2 : 1;
+        final String screen = FileFilter.using();
         last = new AlertDialog.Builder(activity)
             .setTitle(here.length() == 0 ? "Show category" : here)
             .setItems(rows.toArray(new String[0]), (d, w) -> {
+                FileFilter.use(screen);
                 if (w == 0) {
                     FileFilter.pickCategory("");
                 } else if (w < first) {
@@ -119,6 +126,7 @@ final class FilterRow {
             if (w < first || w - first >= under.size()) return false;
             PromptVault.Category c = under.get(w - first);
             shown.dismiss();
+            FileFilter.use(screen);
             if (vault.children(c.id).isEmpty()) {
                 FileFilter.pickCategory(vault.pathName(c.id));
                 again.run();
@@ -137,6 +145,7 @@ final class FilterRow {
     static LinearLayout tags(final Activity activity, String prefix, Pill pill, java.util.function.Supplier<LinearLayout.LayoutParams> lp, final Runnable again) {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
+        final String screen = FileFilter.using();
         for (int i = 0; i < FileFilter.tags.length; i++) {
             final int at = i;
             TextView b = pill.make(FileFilter.tagLabel(i) + " ▾", FileFilter.tags[i].length() > 0);
@@ -153,6 +162,7 @@ final class FilterRow {
                 final String[] rows = FileFilter.tagRows(PromptSave.tagChoices(vault, activity.getFilesDir()));
                 last = new AlertDialog.Builder(activity).setTitle("Tag " + (at + 1))
                     .setItems(rows, (d, w) -> {
+                        FileFilter.use(screen);
                         FileFilter.pickTag(at, rows[w]);
                         again.run();
                     })

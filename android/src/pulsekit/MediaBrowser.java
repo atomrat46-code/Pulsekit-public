@@ -768,10 +768,28 @@ final class MediaBrowser {
         }
         ScrollView scroll = new ScrollView(this.app);
         scroll.addView(list);
+        // Save pls: this folder's playlist kept as a .pls with the playlists; Open in viewer: that, in the Playlist window.
+        final String listName = Playlist.clean(this.label());
         lastPlaylist = new AlertDialog.Builder(this.app)
             .setTitle("Playlist \u00b7 " + this.label())
             .setView(scroll)
             .setPositiveButton("Close", null)
+            .setNeutralButton("Save pls", (d, w) -> {
+                final android.widget.EditText field = new android.widget.EditText(this.app);
+                field.setSingleLine(true);
+                field.setText(listName);
+                field.setTag("media-playlist-pls-name");
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("Save pls").setView(field)
+                    .setPositiveButton("Save", (d2, w2) -> {
+                        String n = Playlist.clean(field.getText().toString());
+                        if (n.length() > 0) this.app.setNow(this.savePls(n));
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Open in viewer", (d, w) -> {
+                this.app.setNow(this.savePls(listName));
+                PlaylistScreen.show(this.app, listName);
+            })
             .show();
     }
 
@@ -817,6 +835,29 @@ final class MediaBrowser {
     }
 
     /** A file's address for the players and decoders. */
+    /** A file's address in a playlist (.pls): its path, or its content:// address. */
+    String playlistAddress(MediaDir.Entry e) {
+        if (this.tree == null && !e.id.startsWith(MEDIA) && !e.id.startsWith(DL)) return e.id;
+        return this.uri(e).toString();
+    }
+
+    /** Save pls: this folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    String savePls(String name) {
+        Playlist p = new Playlist(name);
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) {
+            MediaDir.Entry e = new MediaDir.Entry();
+            e.id = it.id;
+            e.name = it.name;
+            p.add(this.playlistAddress(e), it.name);
+        }
+        try {
+            Playlist.save(this.app.getFilesDir(), p);
+            return "Saved " + p.name + Playlist.EXT + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)") + ": File > Playlist viewer/editor";
+        } catch (Exception ex) {
+            return "Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage();
+        }
+    }
+
     Uri uri(MediaDir.Entry e) {
         if (e.id.startsWith(MEDIA)) {
             String[] part = e.id.substring(MEDIA.length()).split(":");
@@ -914,6 +955,7 @@ final class MediaBrowser {
         FileGroups.load(this.app.getFilesDir());
         FileFavourites.load(this.app.getFilesDir());
         LinearLayout row = this.app.row();
+        FileFilter.use(FileFilter.MEDIA);
         MediaDir.filter = FileFilter.normal(MediaDir.filter);
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
@@ -969,6 +1011,7 @@ final class MediaBrowser {
         MediaTags.load(this.app.getFilesDir());
         FileGroups.load(this.app.getFilesDir());
         FileFavourites.load(this.app.getFilesDir());
+        FileFilter.use(FileFilter.MEDIA);
         return FileFilter.entries(MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter));
     }
 
@@ -1220,7 +1263,11 @@ final class MediaBrowser {
             return;
         }
         if (this.entries.isEmpty()) {
-            this.body.addView(this.app.text("No pictures, videos or sounds here", 14, false));
+            // The F G C switches or the T lists may be what keeps the files out: say so.
+            FileFilter.use(FileFilter.MEDIA);
+            TextView none = this.app.text(FileFilter.active() ? FileFilter.nothing() : "No pictures, videos or sounds here", 14, false);
+            none.setTag("media-empty");
+            this.body.addView(none);
             return;
         }
         int from = this.page * PAGE;
@@ -1430,7 +1477,11 @@ final class MediaBrowser {
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
-        final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        final String[] menuItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
+        boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
+        final String[] items = playable ? java.util.Arrays.copyOf(menuItems, menuItems.length + 1) : menuItems;
+        if (playable) items[items.length - 1] = Playlist.ADD;
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
@@ -1438,13 +1489,15 @@ final class MediaBrowser {
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
-                if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                if (Playlist.ADD.equals(items[which])) PlaylistScreen.addTo(this.app, this.playlistAddress(e), e.name);
+                else if (MediaTags.TAGS.equals(items[which])) this.tags(e);
                 else if (FileFavourites.ADD_SHORT.equals(items[which]) || FileFavourites.REMOVE_SHORT.equals(items[which])) {
                     boolean now = FileFavourites.toggleKey(MediaDir.groupKey(e));
                     this.app.setNow(e.name + (now ? " added to favourites" : " taken out of favourites"));
                     this.refilter();
                 }
                 else if (FileGroups.ADD.equals(items[which])) GroupDialogs.addTo(this.app, MediaDir.groupKey(e), e.name, () -> {
+                    FileFilter.use(FileFilter.MEDIA);
                     if (FileFilter.active()) this.refilter();
                 });
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
@@ -2261,12 +2314,15 @@ final class MediaBrowser {
 
         /** A long press: the video pauses and Mute and the volume come to the top (another long press hides them). */
         void hold() {
+            boolean wasPlaying = playing();
             try {
-                if (playing()) view.pause();
+                // Held: pauses, or (paused) plays.
+                if (wasPlaying) view.pause();
+                else view.start();
             } catch (RuntimeException ignored) {
                 // not ready
             }
-            if (sound != null) {
+            if (sound != null && wasPlaying) {
                 boolean show = sound.getVisibility() != View.VISIBLE;
                 sound.setVisibility(show ? View.VISIBLE : View.GONE);
                 if (show) sound.bringToFront();
@@ -2539,7 +2595,7 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[3];
-        // Holding a finger on the video pauses it and brings Mute and the volume to the top.
+        // Holding a finger on the video pauses it and brings Mute and the volume to the top; held again, it plays.
         final int slop = android.view.ViewConfiguration.get(this.app).getScaledTouchSlop();
         final float[] start = new float[2];
         final Runnable hold = () -> {

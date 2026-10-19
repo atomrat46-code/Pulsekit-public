@@ -643,6 +643,7 @@ public final class PromptSheet {
     // F: the favourites; G: a group's files (held: the list of groups).
     FileGroups.load(activity.getFilesDir());
     FileFavourites.load(activity.getFilesDir());
+    FileFilter.use(FileFilter.GALLERY);
     galleryFilter = FileFilter.normal(galleryFilter);
     for (String letter : RefBrowser.withGroup()) {
       if (FileFilter.isToggle(letter)) continue;
@@ -891,6 +892,7 @@ public final class PromptSheet {
   /** The files of the gallery open: Prompt files, Result files or Ref files, of the kind A I V S T picks. */
   private static List<PromptVault.StoredFile> galleryFiles() {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
+    FileFilter.use(FileFilter.GALLERY);
     if ("A".equals(galleryFilter) && !FileFilter.active()) return all;
     return FileFilter.keep(all, vault, galleryFilter);
   }
@@ -1924,6 +1926,10 @@ public final class PromptSheet {
     });
     items.add(FileGroups.ADD);
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(file), file.name, () -> rebuild(activity)));
+    items.add(Playlist.ADD);
+    runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(file), file.name));
+    items.add(Playlist.ADD_DEFAULT);
+    runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(file), file.name));
     items.add(MediaTags.TAGS);
     runs.add(() -> TagDialogs.tags((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add(MediaTags.CATEGORY);
@@ -2016,6 +2022,10 @@ public final class PromptSheet {
     });
     items.add(FileGroups.ADD);
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(stored), name, () -> rebuild(activity)));
+    items.add(Playlist.ADD);
+    runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(stored), name));
+    items.add(Playlist.ADD_DEFAULT);
+    runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(stored), name));
     items.add(MediaTags.TAGS);
     runs.add(() -> TagDialogs.tags((MainActivity) activity, name, stored.size, () -> rebuild(activity)));
     items.add(MediaTags.CATEGORY);
@@ -2652,6 +2662,50 @@ public final class PromptSheet {
     toast(activity, step > 0 ? "The last picture" : "The first picture");
   }
 
+  /** The full size video held: it plays, or (playing) pauses; two fingers zoom it as a picture. */
+  private static void attachVideoHold(Activity activity, View target) {
+    ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+      public boolean onScale(ScaleGestureDetector detector) {
+        setZoom(activity, previewZoom * detector.getScaleFactor());
+        return true;
+      }
+    });
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    final int slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+    final float[] start = new float[2];
+    final Runnable hold = () -> {
+      if (videoPlaying()) videoPause();
+      else videoPlay();
+    };
+    target.setOnTouchListener((v, event) -> {
+      if (event.getPointerCount() > 1 && v.getParent() != null) {
+        v.getParent().requestDisallowInterceptTouchEvent(true);
+        if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
+      }
+      pinch.onTouchEvent(event);
+      int act = event.getActionMasked();
+      if (act == android.view.MotionEvent.ACTION_DOWN) {
+        start[0] = event.getRawX();
+        start[1] = event.getRawY();
+        main.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
+      } else if (act == android.view.MotionEvent.ACTION_MOVE) {
+        if (Math.abs(event.getRawX() - start[0]) > slop || Math.abs(event.getRawY() - start[1]) > slop) main.removeCallbacks(hold);
+      } else {
+        main.removeCallbacks(hold);
+      }
+      return true;
+    });
+  }
+
+  private static boolean videoPlaying() {
+    VideoView view = previewVideo;
+    try {
+      return view != null && view.isPlaying();
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
   private static void attachPinch(Activity activity, View target) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
@@ -2683,6 +2737,7 @@ public final class PromptSheet {
       box.addView(view, new android.widget.FrameLayout.LayoutParams(previewBaseW, previewBaseH));
       previewBox = box;
       col.addView(scroller(activity, box));
+      attachVideoHold(activity, box);
       view.setVideoPath(previewFile.getAbsolutePath());
       view.setOnPreparedListener(mp -> {
         previewVideoPlayer = mp;
