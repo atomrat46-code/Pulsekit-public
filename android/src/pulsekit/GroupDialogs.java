@@ -22,14 +22,22 @@ final class GroupDialogs {
 
     /** As above, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
     static void addTo(final Activity activity, final String[] keys, final String name, final Runnable after) {
+        addTo(activity, keys, name, after, null);
+    }
+
+    /** As above; for Picture ready and Video ready (`ready`) the group used last for that kind is marked (last used). */
+    static void addTo(final Activity activity, final String[] keys, final String name, final Runnable after, final String ready) {
         FileGroups.load(activity.getFilesDir());
-        final String[] rows = FileGroups.menu(keys);
+        ReadyRecent.load(activity.getFilesDir());
+        final String[] rows = ReadyRecent.marked(ready, FileGroups.menu(keys), FileGroups.names());
         last = new AlertDialog.Builder(activity)
             .setTitle(FileGroups.ADD + " · " + name)
             .setItems(rows, (d, w) -> {
                 String group = FileGroups.groupAt(w);
                 if (group != null) {
-                    done(activity, name, group, FileGroups.toggle(group, keys), after);
+                    boolean in = FileGroups.toggle(group, keys);
+                    if (in) ReadyRecent.setGroup(ready, group);
+                    done(activity, name, group, in, after);
                     return;
                 }
                 final EditText field = new EditText(activity);
@@ -42,6 +50,7 @@ final class GroupDialogs {
                     .setPositiveButton("Add", (d2, w2) -> {
                         String made = FileGroups.clean(field.getText().toString());
                         if (made.isEmpty()) return;
+                        ReadyRecent.setGroup(ready, made);
                         done(activity, name, made, FileGroups.toggle(made, keys), after);
                     })
                     .setNegativeButton("Cancel", null)

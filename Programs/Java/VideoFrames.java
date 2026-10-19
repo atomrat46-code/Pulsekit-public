@@ -76,7 +76,7 @@ public final class VideoFrames {
     List<File> videos = new ArrayList<File>();
     if (dir != null && dir.trim().length() > 0) {
       File d = new File(dir.trim());
-      if (!d.isDirectory()) {
+      if (!d.isDirectory() && !isPls(d)) {
         System.out.println("Failed: " + dir + " is not a folder");
         return 1;
       }
@@ -262,9 +262,9 @@ public final class VideoFrames {
   }
 
   static void collect(File dir, boolean recursive, List<File> into) {
-    File[] kids = dir.listFiles();
+    File[] kids = listed(dir);
     if (kids == null) return;
-    java.util.Arrays.sort(kids);
+    if (!isPls(dir)) java.util.Arrays.sort(kids);
     for (File k : kids) {
       if (k.isDirectory()) {
         if (recursive) collect(k, true, into);
@@ -340,5 +340,31 @@ public final class VideoFrames {
       Thread.currentThread().interrupt();
     }
     return bos.toString("UTF-8");
+  }
+
+  /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+  static boolean isPls(File f) {
+    return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+  }
+
+  /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+  static File[] listed(File dir) {
+    if (!isPls(dir)) return dir.listFiles();
+    java.util.List<File> out = new java.util.ArrayList<File>();
+    try {
+      File beside = dir.getAbsoluteFile().getParentFile();
+      for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        String t = line.replace("\r", "").trim();
+        if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+        String name = t.substring(t.indexOf('=') + 1).trim();
+        File f = new File(name);
+        if (!f.isAbsolute()) f = new File(beside, name);
+        if (f.isFile()) out.add(f);
+        else System.out.println("Not found: " + name);
+      }
+    } catch (java.io.IOException ex) {
+      System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+    }
+    return out.toArray(new File[0]);
   }
 }

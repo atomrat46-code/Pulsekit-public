@@ -147,6 +147,7 @@ public final class PyJavParams {
           if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
         });
         row.addView(browse);
+        if (p.pls) row.addView(playlistButton(activity, p, values, index, chosen));
         if (p.flag) {
           // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.
           android.widget.Button clear = new android.widget.Button(activity);
@@ -193,6 +194,7 @@ public final class PyJavParams {
           });
           row.addView(db);
         }
+        if (p.pls) row.addView(playlistButton(activity, p, values, index, chosen));
         if (p.newChat) {
           // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
           android.widget.Button fresh = new android.widget.Button(activity);
@@ -497,6 +499,28 @@ public final class PyJavParams {
    * Choose file: the Media browser, on the Recent MB folder, Download or a favourite folder (its
    * tabs); the file tapped fills the row. "Other…" there opens the system's picker as before.
    */
+  /** The Playlist list shown last (for the tests). */
+  static AlertDialog lastPlaylists;
+
+  /** Playlist: one of Pulsekit's playlists (.pls) for a batch program's folder or list; its files are staged for the run. */
+  static android.widget.Button playlistButton(final Activity activity, ProgramParams.Param p, final String[] values, final int index, final TextView chosen) {
+    android.widget.Button b = new android.widget.Button(activity);
+    b.setText("Playlist");
+    b.setTag("params-pls:" + p.token);
+    b.setOnClickListener(v -> {
+      final java.io.File dir = activity.getFilesDir();
+      final List<String> names = Playlist.withFiles(dir);
+      AlertDialog.Builder ask = new AlertDialog.Builder(activity).setTitle("Playlist").setNegativeButton("Cancel", null);
+      if (names.isEmpty()) ask.setMessage("No playlists yet: Add to playlist on the thumbnails makes one");
+      else ask.setItems(names.toArray(new String[0]), (d, w) -> {
+        values[index] = Playlist.file(dir, names.get(w)).getAbsolutePath();
+        chosen.setText(names.get(w) + Playlist.EXT);
+      });
+      lastPlaylists = ask.show();
+    });
+    return b;
+  }
+
   static void pickFile(final Activity activity, final String[] values, final int index, final TextView label) {
     Runnable system = () -> {
       pendingPrompt = null;

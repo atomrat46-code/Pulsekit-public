@@ -145,15 +145,20 @@ public class BatchRun {
         List<File> pictures = new ArrayList<File>();
         if (dir != null && dir.length() > 0) {
             File d = new File(dir);
-            File[] in = d.listFiles();
+            File[] in = listed(d);
             if (in == null) {
                 System.out.println("Failed: no folder " + dir);
                 return 1;
             }
-            Arrays.sort(in);
+            if (!isPls(d)) Arrays.sort(in);
             for (File f : in) if (f.isFile() && !f.getName().startsWith(".") && (!pictureProgram || isPicture(f.getName()))) pictures.add(f.getAbsoluteFile());
         }
-        if (list != null && list.length() > 0) pictures.addAll(readList(new File(list)));
+        if (list != null && list.length() > 0) {
+            // A playlist (.pls): its files, only the pictures for a picture program.
+            if (isPls(new File(list))) {
+                for (File f : listed(new File(list))) if (!pictureProgram || isPicture(f.getName())) pictures.add(f.getAbsoluteFile());
+            } else pictures.addAll(readList(new File(list)));
+        }
         if (texts.isEmpty() && pictures.isEmpty()) {
             System.out.println("Failed: nothing to run: give a prompt sheet (--prompt_file), a folder of them (--prompts), or pictures (--dir, --list)");
             System.out.println(USAGE);
@@ -289,5 +294,31 @@ public class BatchRun {
         }
         if (any || cur.length() > 0) out.add(cur.toString());
         return out;
+    }
+
+    /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+    static boolean isPls(File f) {
+        return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+    }
+
+    /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+    static File[] listed(File dir) {
+        if (!isPls(dir)) return dir.listFiles();
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        try {
+            File beside = dir.getAbsoluteFile().getParentFile();
+            for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+                String t = line.replace("\r", "").trim();
+                if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+                String name = t.substring(t.indexOf('=') + 1).trim();
+                File f = new File(name);
+                if (!f.isAbsolute()) f = new File(beside, name);
+                if (f.isFile()) out.add(f);
+                else System.out.println("Not found: " + name);
+            }
+        } catch (java.io.IOException ex) {
+            System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+        }
+        return out.toArray(new File[0]);
     }
 }

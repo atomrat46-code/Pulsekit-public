@@ -108,7 +108,7 @@ final class PlaylistScreen {
         final File dir = app.getFilesDir();
         final Playlist p = shown;
         if (last != null) last.setTitle("Playlist · " + p.name);
-        // The playlist picked (a tap lists them), New, Rename, Delete, Import .pls, Merge .pls, Save pls as.
+        // The playlist picked (a tap lists them), New, Rename, Delete, Import .pls, Merge .pls, Save, Save as.
         HorizontalScrollView topScroll = new HorizontalScrollView(app);
         LinearLayout top = app.row();
         TextView pick = app.pill(p.name + " ▾", true, v -> {
@@ -159,17 +159,11 @@ final class PlaylistScreen {
         TextView merge = app.pill("Merge .pls…", false, v -> pick(app, PICK_MERGE, true));
         merge.setTag("playlist-merge");
         top.addView(merge);
-        TextView export = app.pill("Save pls as…", false, v -> {
-            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("audio/x-scpls");
-            intent.putExtra(Intent.EXTRA_TITLE, p.name + Playlist.EXT);
-            try {
-                app.startActivityForResult(intent, SAVE_PLS);
-            } catch (Exception ex) {
-                app.setNow("No app here saves files: " + ex.getMessage());
-            }
-        });
+        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
+        TextView saveIt = app.pill(Playlist.SAVE, false, v -> savePls(app, p));
+        saveIt.setTag("playlist-save");
+        top.addView(saveIt);
+        TextView export = app.pill(Playlist.SAVE_AS, false, v -> saveAs(app, p));
         export.setTag("playlist-export");
         top.addView(export);
         topScroll.addView(top);
@@ -525,6 +519,43 @@ final class PlaylistScreen {
 
     // ------------------------------------------------------------ Files
 
+    /** Save: the .pls where it was saved last; Save as… when it has not been (or that place is gone). */
+    static void savePls(MainActivity app, Playlist p) {
+        String at = Playlist.savedAt(app.getFilesDir(), p.name);
+        if (at == null || !write(app, p, uri(at))) saveAs(app, p);
+    }
+
+    /** Save as…: the system's picker makes the .pls; Save writes there from then on. */
+    static void saveAs(MainActivity app, Playlist p) {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("audio/x-scpls");
+        intent.putExtra(Intent.EXTRA_TITLE, p.name + Playlist.EXT);
+        try {
+            app.startActivityForResult(intent, SAVE_PLS);
+        } catch (Exception ex) {
+            app.setNow("No app here saves files: " + ex.getMessage());
+        }
+    }
+
+    /** The playlist written into `to` (replacing what was there); false when it cannot be. */
+    static boolean write(MainActivity app, Playlist p, Uri to) {
+        try {
+            java.io.OutputStream out = app.getContentResolver().openOutputStream(to, "wt");
+            if (out == null) return false;
+            try {
+                out.write(p.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } finally {
+                out.close();
+            }
+            app.setNow("Saved " + p.name + Playlist.EXT);
+            return true;
+        } catch (Exception ex) {
+            app.setNow("Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage());
+            return false;
+        }
+    }
+
     static PromptVault vault(MainActivity app) {
         try {
             return PromptVault.open(app.getFilesDir());
@@ -637,16 +668,12 @@ final class PlaylistScreen {
         File dir = app.getFilesDir();
         if (code == SAVE_PLS) {
             try {
-                java.io.OutputStream out = app.getContentResolver().openOutputStream(uris.get(0));
-                try {
-                    out.write(shown.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                } finally {
-                    out.close();
-                }
-                app.setNow("Saved " + shown.name + Playlist.EXT);
-            } catch (Exception ex) {
-                app.setNow("Could not save " + shown.name + Playlist.EXT + ": " + ex.getMessage());
+                app.getContentResolver().takePersistableUriPermission(uris.get(0), Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception ignored) {
+                // writable for now
             }
+            // Save writes here from then on.
+            if (write(app, shown, uris.get(0))) Playlist.setSavedAt(dir, shown.name, uris.get(0).toString());
             return;
         }
         if (code == PICK_FILES) {
@@ -896,6 +923,13 @@ final class PlaylistScreen {
         next.setTag("viewer-next");
         stage.addView(prev, new FrameLayout.LayoutParams(-2, -2, Gravity.START | Gravity.CENTER_VERTICAL));
         stage.addView(next, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL));
+        // First and Last: the playlist's first and last file (the stage's top corners).
+        TextView first = app.pill("⏮", false, null);
+        first.setTag("viewer-first");
+        TextView lastOne = app.pill("⏭", false, null);
+        lastOne.setTag("viewer-last");
+        stage.addView(first, new FrameLayout.LayoutParams(-2, -2, Gravity.START | Gravity.TOP));
+        stage.addView(lastOne, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         // The controls: Play, Pause, Stop, Mute, volume, speed, zoom.
         // The controls in three rows that fit the screen: playing (and Loop video, Auto mode);
@@ -1106,6 +1140,16 @@ final class PlaylistScreen {
             show[0].run();
         });
         next.setOnClickListener(x -> goNext.run());
+        first.setOnClickListener(x -> {
+            if (p.items.isEmpty()) return;
+            at[0] = 0;
+            show[0].run();
+        });
+        lastOne.setOnClickListener(x -> {
+            if (p.items.isEmpty()) return;
+            at[0] = p.items.size() - 1;
+            show[0].run();
+        });
         play.setOnClickListener(x -> {
             if (video.getVisibility() != View.VISIBLE) return;
             video.start();

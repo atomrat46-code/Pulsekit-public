@@ -31,7 +31,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   close the window, and its settings are saved (to --state, else
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
-  --dir           renders every MIDI file in the folder (the plugin loads once): <midi>-<plugin>.wav
+  --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
   --test          then runs DrumMidi_CRT on each WAV and compares its hits with the MIDI played, per
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
@@ -53,6 +53,7 @@ DAW once they are installed and activated on the computer.
 """
 import json
 import os
+import re
 import struct
 import sys
 import wave
@@ -594,6 +595,25 @@ def collect(folder, recursive):
     return found
 
 
+def pls_midis(path):
+    """A playlist's (.pls) MIDI files, in its order; a name without a folder is beside it."""
+    found = []
+    beside = os.path.dirname(os.path.abspath(path))
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            t = line.strip()
+            m = re.match(r"(?i)file\d+=(.+)", t)
+            if not m:
+                continue
+            name = m.group(1).strip()
+            full = name if os.path.isabs(name) else os.path.join(beside, name)
+            if not os.path.isfile(full):
+                print("Not found: %s" % name)
+            elif name.lower().endswith((".mid", ".midi")) and not name.lower().endswith("-dm.mid"):
+                found.append(full)
+    return found
+
+
 class Chain(object):
     """The plugin (and the effect) loaded once, with their settings, for every file of a run."""
 
@@ -714,12 +734,16 @@ def main(argv):
     if gizmo and stem(gizmo).lower() == "drumkit":
         name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
     folder = opts["--dir"]
+    # A playlist (.pls) for the folder: its MIDI files (PlayList --midi makes one).
+    pls = bool(folder) and folder.lower().endswith(".pls") and os.path.isfile(folder)
     if folder:
-        if not os.path.isdir(folder):
+        if not os.path.isdir(folder) and not pls:
             fail("no folder %s" % folder)
         if opts["--wav"]:
             fail("--dir plays MIDI files; --wav is for one WAV")
-        batch = collect(folder, "--recursive" in switches)
+        batch = pls_midis(folder) if pls else collect(folder, "--recursive" in switches)
+        if pls:
+            folder = os.path.dirname(os.path.abspath(folder))
         if not batch:
             fail("no MIDI files in %s" % folder)
     elif not midi and not opts["--wav"]:
@@ -804,7 +828,7 @@ def main(argv):
                 continue
             audio, note = finish(np, audio, volume)
             where = opts["--outdir"] or os.path.dirname(m)
-            if opts["--outdir"]:
+            if opts["--outdir"] and not pls:
                 # Subfolders are kept under --outdir.
                 where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
             if not os.path.isdir(where):

@@ -390,6 +390,8 @@ final class PyJav {
         this.pkApplyHint(hint);
         // The hint fills args from the program's usage; the recent item's own args win.
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        // Its run still going (another program looked at meanwhile): shown again.
+        this.pkShowRunning(item.name);
     }
 
     /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
@@ -698,7 +700,7 @@ final class PyJav {
     String pkReconnectNote;
     int pkReconnects;
     /** The run shown on the "Running…" line (its time and news), and that line as set last. */
-    pulsekit.JavaRun.Live pkLive;
+    pulsekit.JavaRun.Live pkLive, pkTicking;
     String pkLiveShown;
     /** The top line and the hint as the "Running…" tick set them last (left alone once something else is shown). */
     String pkTopShown, pkHintShown;
@@ -707,11 +709,16 @@ final class PyJav {
 
     /** Every second while the run goes: "Running… 2:05 · Status: processing", while the text below Run is still that line. */
     void pkTickLive(final pulsekit.JavaRun.Live live, final String head) {
-        if (this.pkPyLog == null) return;
+        // One tick a run (shown again after another program: the one going on carries on).
+        if (this.pkPyLog == null || this.pkTicking == live) return;
+        this.pkTicking = live;
         this.pkPyLog.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (pkLive != live || pkPyLog == null || live.done || live.aborted()) return;
+                if (pkLive != live || pkPyLog == null || live.done || live.aborted()) {
+                    if (pkTicking == live) pkTicking = null;
+                    return;
+                }
                 // DrumMidi without a hit for a while: asked whether to abort.
                 String noHits = pulsekit.JavaRun.noHitsQuestion(app.pyName, live, System.currentTimeMillis());
                 if (noHits != null) {
@@ -741,6 +748,36 @@ final class PyJav {
                 pkPyLog.postDelayed(this, 1000);
             }
         }, 1000);
+    }
+
+    /** The runs going on, by program: {its Live, the head of its "Running…" line}. */
+    static final java.util.Map<String, Object[]> PK_RUNNING = new java.util.concurrent.ConcurrentHashMap<String, Object[]>();
+
+    /** The program picked again while its run goes on: its "Running…" line (time and news) shown again and kept up. */
+    public boolean pkShowRunning(String name) {
+        Object[] r = name == null ? null : PK_RUNNING.get(name);
+        if (r == null) return false;
+        pulsekit.JavaRun.Live live = (pulsekit.JavaRun.Live) r[0];
+        if (live.done || live.aborted()) {
+            PK_RUNNING.remove(name, r);
+            return false;
+        }
+        String head = (String) r[1];
+        long now = System.currentTimeMillis();
+        this.pkLive = live;
+        if (this.pkPyLog != null) {
+            this.pkPyLog.setText(head + pulsekit.JavaRun.runningLine(live, now));
+            this.pkLiveShown = this.pkPyLog.getText().toString();
+        }
+        String top = pulsekit.JavaRun.runningTop(name, live, now);
+        app.setNow(top);
+        this.pkTopShown = app.now == null ? null : app.now.getText().toString();
+        if (this.pkPyHint != null) {
+            this.pkPyHint.setText(top);
+            this.pkHintShown = top;
+        }
+        this.pkTickLive(live, head);
+        return true;
     }
 
     /** Why a run is joined again: "timed out after 1200 s", or its failure. */
@@ -880,6 +917,8 @@ final class PyJav {
             pulsekit.MediaBrowser.load(app);
             argv = pulsekit.MediaDir.withLastRoot(argv);
         }
+        // PlayList --nogui without a list writes the Default playlist: its file given.
+        argv = pulsekit.Playlist.withDefault(name, argv, app.getFilesDir());
         // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
         this.pkSaveRun = false;
         while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
@@ -933,6 +972,8 @@ final class PyJav {
         if (note != null) live.add(note + "\n");
         String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";
         this.pkLive = live;
+        // Kept by the program: shown again when it is picked after another (SogniPedit's Params looked at meanwhile).
+        PK_RUNNING.put(name, new Object[] {live, head});
         if (this.pkPyLog != null) {
             this.pkPyLog.setText(head + "Running\u2026");
             this.pkLiveShown = this.pkPyLog.getText().toString();

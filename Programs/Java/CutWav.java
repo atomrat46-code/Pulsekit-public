@@ -77,7 +77,7 @@ public final class CutWav {
     }
     if (dir == null) return false;
     File folder = new File(dir);
-    if (!folder.isDirectory()) throw new IllegalArgumentException("No such folder: " + dir);
+    if (!folder.isDirectory() && !isPls(folder)) throw new IllegalArgumentException("No such folder: " + dir);
     if (outdir != null) {
       File o = new File(outdir);
       // In the app the run's work folder (pulsekit.work: Android keeps user.dir at "/", read-only).
@@ -123,9 +123,9 @@ public final class CutWav {
 
   /** The folder's .wav files (its subfolders' too with --recursive), by name; outputs of an earlier run are left out. */
   static void collect(File folder, boolean recursive, List<File> out) {
-    File[] kids = folder.listFiles();
+    File[] kids = listed(folder);
     if (kids == null) return;
-    java.util.Arrays.sort(kids);
+    if (!isPls(folder)) java.util.Arrays.sort(kids);
     for (File k : kids) {
       String low = k.getName().toLowerCase(Locale.ROOT);
       if (k.isDirectory()) {
@@ -593,5 +593,31 @@ public final class CutWav {
     d[i + 1] = (byte) (v >> 8);
     d[i + 2] = (byte) (v >> 16);
     d[i + 3] = (byte) (v >> 24);
+  }
+
+  /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+  static boolean isPls(File f) {
+    return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+  }
+
+  /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+  static File[] listed(File dir) {
+    if (!isPls(dir)) return dir.listFiles();
+    java.util.List<File> out = new java.util.ArrayList<File>();
+    try {
+      File beside = dir.getAbsoluteFile().getParentFile();
+      for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        String t = line.replace("\r", "").trim();
+        if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+        String name = t.substring(t.indexOf('=') + 1).trim();
+        File f = new File(name);
+        if (!f.isAbsolute()) f = new File(beside, name);
+        if (f.isFile()) out.add(f);
+        else System.out.println("Not found: " + name);
+      }
+    } catch (java.io.IOException ex) {
+      System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+    }
+    return out.toArray(new File[0]);
   }
 }

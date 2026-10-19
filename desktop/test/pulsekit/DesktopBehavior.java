@@ -5893,6 +5893,193 @@ public final class DesktopBehavior {
 
 
 
+  /**
+   * PlayList.java --nogui writes the Default playlist (or the lists merged) into --outfile, and
+   * --batchdir --midi / --midibatch list a folder's MIDI files; none of it opens the window. A
+   * playlist is the file list of the batch programs (Midi2HydroPattern --dir, MidiBatch --list),
+   * picked in Params with Playlist.
+   */
+  void s133_playlist_text_mode_and_pls_lists() throws Exception {
+    final File dir = PromptDb.dir();
+    File home = new File(System.getProperty("user.home"));
+    File mids = new File(home, "mids");
+    mids.mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    Files.write(new File(mids, "a.mid").toPath(), Engine.encodeMidi(cells, 100));
+    Files.write(new File(mids, "b.mid").toPath(), Engine.encodeMidi(cells, 90));
+    Files.write(new File(mids, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    Playlist.addTo(dir, Playlist.DEFAULT, new File(mids, "a.mid").getAbsolutePath(), "a.mid");
+    Playlist.addTo(dir, Playlist.DEFAULT, new File(mids, "notes.txt").getAbsolutePath(), "notes.txt");
+    String src = new String(ProgramFiles.read("Java", "PlayList.java"), StandardCharsets.UTF_8);
+    JavaRun.Result def = JavaRun.run("PlayList.java", src, null, Playlist.withDefault("PlayList.java", java.util.Arrays.asList("--nogui"), dir));
+    JavaRun.Result batch = JavaRun.run("PlayList.java", src, null, java.util.Arrays.asList("--batchdir", mids.getAbsolutePath(), "--midi", "--outfile", "mids.pls"));
+    JavaRun.Result mb = JavaRun.run("PlayList.java", src, null, java.util.Arrays.asList("--batchdir", mids.getAbsolutePath(), "--midibatch"));
+    java.util.function.Function<JavaRun.Result, String> made = r -> {
+      StringBuilder b = new StringBuilder();
+      for (JavaRun.FileOut f : r.files) b.append(f.name).append("(").append(new String(f.bytes, StandardCharsets.UTF_8).split("\n").length).append(" lines) ");
+      return b.toString().trim();
+    };
+    String keptDef = PlaylistWindow.kept((Pulsekit) frame, def);
+    out.append("--nogui: ").append(made.apply(def)).append(", kept ").append(keptDef).append(" | --batchdir --midi: ").append(made.apply(batch)).append(" | --midibatch: ").append(made.apply(mb)).append('\n');
+    for (String line : (def.log + batch.log + mb.log).split("\n")) if (line.startsWith("Succeeded") || line.startsWith("Failed")) out.append("  ").append(line).append('\n');
+    byte[] midsPls = null, outTxt = null;
+    for (JavaRun.FileOut f : batch.files) if (f.name.equals("mids.pls")) midsPls = f.bytes;
+    for (JavaRun.FileOut f : mb.files) if (f.name.equals("out.txt")) outTxt = f.bytes;
+    boolean runsOk = keptDef == null && def.log.contains("Default playlist: 2 files") && !def.log.contains("Playlist: ") && midsPls != null && outTxt != null
+        && Playlist.parse(new String(midsPls, StandardCharsets.UTF_8), "m").items.size() == 2 && new String(outTxt, StandardCharsets.UTF_8).contains("b.mid");
+    // The lists given to the batch programs.
+    File pls = new File(home, "mids.pls");
+    Files.write(pls.toPath(), midsPls);
+    File list = new File(home, "out.txt");
+    Files.write(list.toPath(), outTxt);
+    JavaRun.Result hydro = JavaRun.run("Midi2HydroPattern.java", new String(ProgramFiles.read("Java", "Midi2HydroPattern.java"), StandardCharsets.UTF_8), null,
+        java.util.Arrays.asList("--dir", pls.getAbsolutePath(), "--outdir", new File(home, "h2").getAbsolutePath()));
+    JavaRun.Result batchList = JavaRun.run("MidiBatch.java", new String(ProgramFiles.read("Java", "MidiBatch.java"), StandardCharsets.UTF_8), null,
+        java.util.Arrays.asList("--list", pls.getAbsolutePath(), "--outdir", new File(home, "mb").getAbsolutePath(), "--seed", "3"));
+    String[] h2 = new File(home, "h2").list();
+    out.append("Midi2HydroPattern --dir mids.pls: ").append(h2 == null ? 0 : h2.length).append(" patterns | MidiBatch --list mids.pls: ");
+    for (String line : batchList.log.split("\n")) if (line.startsWith("Listed")) out.append(line);
+    out.append('\n');
+    boolean programsOk = h2 != null && h2.length == 2 && batchList.log.contains("Listed 2 MIDI files in mids.pls");
+    // Params: Playlist on MidiBatch's --dir and --list (not --outdir); it fills the row.
+    StringBuilder rows = new StringBuilder();
+    ProgramParams.Param listRow = null;
+    for (ProgramParams.Param pr : ProgramParams.parse(new String(ProgramFiles.read("Java", "MidiBatch.java"), StandardCharsets.UTF_8))) {
+      if (pr.pls) rows.append(pr.token).append(' ');
+      if (pr.token.equals("--list")) listRow = pr;
+    }
+    Playlist.addTo(dir, "Grooves", new File(mids, "b.mid").getAbsolutePath(), "b.mid");
+    final String[] values = {""};
+    final JLabel chosen = new JLabel();
+    final ProgramParams.Param row = listRow;
+    final javax.swing.JButton[] b = new javax.swing.JButton[1];
+    edt(() -> b[0] = PyJav.playlistButton(row, values, 0, chosen));
+    edt(() -> b[0].doClick());
+    StringBuilder menu = new StringBuilder();
+    for (Component c : PyJav.lastPlaylistMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    for (Component c : PyJav.lastPlaylistMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "params-pls-pick:Grooves".equals(c.getName())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
+    out.append("Params rows with Playlist: ").append(rows.toString().trim()).append(" | menu ").append(menu).append("| picked ").append(chosen.getText()).append(" ").append(new File(values[0]).getName()).append('\n');
+    boolean paramsOk = rows.toString().trim().equals("--dir --list") && menu.toString().contains("Grooves") && "Grooves.pls".equals(chosen.getText()) && values[0].endsWith("Grooves.pls");
+    if (!runsOk || !programsOk || !paramsOk) throw new AssertionError(out.toString() + def.log + batch.log + mb.log + hydro.log + batchList.log);
+  }
+
+  /**
+   * A run going on is shown again when its program is picked after another. Picture ready's Add
+   * tag… has Select all / Clear all and ticks the tags used last (pictures and videos each their
+   * own); the group used last is marked. The playlist viewer has First and Last; the editor Save
+   * and Save as….
+   */
+  void s134_running_again_ready_recent_first_last_save() throws Exception {
+    final File dir = PromptDb.dir();
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    call("showView", "py");
+    JavaRun.Live live = new JavaRun.Live();
+    live.add("Status: processing\n");
+    PyJav.RUNNING.put("SogniVideo.java", new PyJav.Shown(live, "", new String[1], new String[1]));
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    edt(() -> log.setText("SogniPedit's Params saved"));
+    String other = log.getText();
+    call("selectListedProgram", "Java", "SogniVideo.java");
+    idle();
+    String back = log.getText();
+    String top = ((JLabel) get("nowPlaying")).getText();
+    out.append("SogniPedit shows: ").append(other).append(" | SogniVideo again: ").append(back).append(" | top ").append(top).append('\n');
+    boolean runningOk = back.startsWith("Running") && top.startsWith("SogniVideo") && top.contains("Running");
+    live.done = true;
+    PyJav.RUNNING.clear();
+    // Add tag…: Select all, then Clear all, then two ticked.
+    MediaTags.load(dir);
+    MediaTags.setTags(MediaTags.key("old.png", 10), java.util.Arrays.asList("beach", "night", "sun"));
+    final StringBuilder labels = new StringBuilder();
+    inspectNext = d -> {
+      javax.swing.AbstractButton all = (javax.swing.AbstractButton) component(d, "media-tag-all");
+      labels.append(all.getText());
+      all.doClick();
+      labels.append(" > ").append(all.getText());
+      all.doClick();
+      labels.append(" > ").append(all.getText());
+      ((javax.swing.AbstractButton) component(d, "media-tag:night")).doClick();
+      ((javax.swing.AbstractButton) component(d, "media-tag:sun")).doClick();
+    };
+    answers.add("OK");
+    edt(() -> TagDialogs.tags((Pulsekit) frame, frame, "made.png", 20, null, ReadyRecent.IMAGE));
+    idle();
+    java.util.List<String> made = MediaTags.tags(MediaTags.key("made.png", 20));
+    final StringBuilder ticked = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"beach", "night", "sun"}) if (((javax.swing.AbstractButton) component(d, "media-tag:" + t)).isSelected()) ticked.append(t).append(' ');
+    };
+    answers.add("OK");
+    edt(() -> TagDialogs.tags((Pulsekit) frame, frame, "next.png", 30, null, ReadyRecent.IMAGE));
+    idle();
+    final StringBuilder videoTicked = new StringBuilder();
+    inspectNext = d -> {
+      for (String t : new String[] {"beach", "night", "sun"}) if (((javax.swing.AbstractButton) component(d, "media-tag:" + t)).isSelected()) videoTicked.append(t).append(' ');
+    };
+    answers.add("Cancel");
+    edt(() -> TagDialogs.tags((Pulsekit) frame, frame, "clip.mp4", 40, null, ReadyRecent.VIDEO));
+    idle();
+    inspectNext = null;
+    out.append("Add tag: ").append(labels).append(" | saved ").append(made).append(" | next picture ticked ").append(ticked.toString().trim()).append(" | a video ticked [").append(videoTicked.toString().trim()).append("]\n");
+    boolean tagsOk = labels.toString().equals("Select all > Clear all > Select all") && made.toString().equals("[night, sun]") && ticked.toString().trim().equals("night sun") && videoTicked.length() == 0;
+    // The group used last: marked.
+    FileGroups.load(dir);
+    FileGroups.toggle("Trip", new String[] {"k-old"});
+    FileGroups.toggle("Work", new String[] {"k-old"});
+    ReadyRecent.load(dir);
+    ReadyRecent.setGroup(ReadyRecent.IMAGE, "Work");
+    String[] marked = ReadyRecent.marked(ReadyRecent.IMAGE, FileGroups.menu(new String[] {"k-new"}), FileGroups.names());
+    out.append("groups: ").append(String.join(" | ", marked)).append(" (videos: ").append(String.join(" | ", ReadyRecent.marked(ReadyRecent.VIDEO, FileGroups.menu(new String[] {"k-new"}), FileGroups.names()))).append(")\n");
+    boolean groupOk = String.join("|", marked).contains("Work" + ReadyRecent.LAST_USED) && !String.join("|", marked).contains("Trip" + ReadyRecent.LAST_USED);
+    // The viewer: First and Last.
+    File pics = new File(System.getProperty("user.home"), "first-last");
+    pics.mkdirs();
+    for (String n : new String[] {"a.png", "b.png", "c.png"}) {
+      File f = new File(pics, n);
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", f);
+      Playlist.addTo(dir, "Three", f.getAbsolutePath(), n);
+    }
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.viewer((Pulsekit) frame, frame, Playlist.load(dir, "Three"), 1));
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-last")).doClick());
+    String atLast = ((JLabel) component(v, "viewer-where")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-first")).doClick());
+    String atFirst = ((JLabel) component(v, "viewer-where")).getText();
+    edt(() -> v.dispose());
+    out.append("viewer: Last ").append(atLast).append(", First ").append(atFirst).append('\n');
+    boolean firstLastOk = atLast.contains("c.png") && atFirst.contains("a.png");
+    // The editor: Save asks where first (Save as…); then Save writes there.
+    File saved = new File(System.getProperty("user.home"), "saved-three.pls");
+    PlaylistWindow.saveAsAnswer = saved;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, "Three"));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-save")).doClick());
+    int firstSave = saved.isFile() ? Playlist.parse(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8), "x").items.size() : -1;
+    PlaylistWindow.saveAsAnswer = new File(System.getProperty("user.home"), "not-this.pls");
+    // An edit (as the editor's ✕ does): the same playlist, kept as it goes.
+    PlaylistWindow.shown.remove(0);
+    Playlist.save(dir, PlaylistWindow.shown);
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-save")).doClick());
+    int secondSave = Playlist.parse(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8), "x").items.size();
+    boolean notAsked = !PlaylistWindow.saveAsAnswer.isFile();
+    String saveAs = ((javax.swing.AbstractButton) component(w, "playlist-export")).getText();
+    PlaylistWindow.saveAsAnswer = null;
+    edt(() -> w.dispose());
+    out.append("editor: Save first saved ").append(firstSave).append(" files; Save again (not asked ").append(notAsked).append(") saved ").append(secondSave).append(" | ").append(saveAs).append('\n');
+    boolean saveOk = firstSave == 3 && secondSave == 2 && notAsked && Playlist.SAVE_AS.equals(saveAs);
+    if (!runningOk || !tagsOk || !groupOk || !firstLastOk || !saveOk) throw new AssertionError(out.toString());
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

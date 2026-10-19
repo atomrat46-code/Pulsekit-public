@@ -502,7 +502,8 @@ final class PyJav {
         while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
         this.saveRun = saving;
         final boolean savingRun = saving;
-        final java.util.List<String> argv = runArgs;
+        // PlayList --nogui without a list writes the Default playlist: its file given.
+        final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = Midi2WavTest.drumsWarning(name, argv);
         if (drums != null) {
@@ -543,6 +544,9 @@ final class PyJav {
         final String[] lastLine = new String[] {app.pyLog == null ? null : app.pyLog.getText()};
         app.setNow(name + ": Running\u2026");
         final String[] lastTop = new String[] {name + ": Running\u2026"};
+        // Kept by the program: shown again when it is picked after another (SogniPedit's Params looked at meanwhile).
+        final Shown runShown = new Shown(live, head, lastLine, lastTop);
+        RUNNING.put(name, runShown);
         tick.addActionListener(ev -> {
             // DrumMidi without a hit for a while: asked whether to abort.
             String noHits = JavaRun.noHitsQuestion(name, live, System.currentTimeMillis());
@@ -587,6 +591,7 @@ final class PyJav {
                     : PythonRun.run(src, name, argv);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
+                RUNNING.remove(name, runShown);
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
                 // The library work below runs on this same thread, before anything else can start.
                 PendingOps.done(pending);
@@ -1351,9 +1356,9 @@ final class PyJav {
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
-            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName());
-            else if (ans == 4) TagDialogs.tags(app, app, video.getName(), video.length(), null);
-            else if (ans == 5) TagDialogs.category(app, app, video.getName(), video.length(), null);
+            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
+            else if (ans == 4) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
+            else if (ans == 5) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
             else if (ans == 6) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
         }
@@ -1590,6 +1595,8 @@ final class PyJav {
         this.showPyHint(PyJavHints.status(item.name, source, item.bytes));
         // The hint fills args from the program's usage; the recent item's own args win.
         if (this.pyExtra != null) this.pyExtra.setText(item.extra);
+        // Its run still going (another program looked at meanwhile): shown again.
+        this.showRunning(item.name);
     }
 
     void showPyHint(String status) {
@@ -1822,7 +1829,13 @@ final class PyJav {
                     chosen.setText(MediaDir.label(values[index]));
                     if (!p.flag) app.mediaBrowser.open(picked);
                 });
-                row.add(browse, BorderLayout.WEST);
+                if (p.pls) {
+                    // A playlist (.pls) in place of the folder: one of Pulsekit's playlists.
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    picks.add(browse);
+                    picks.add(playlistButton(p, values, index, chosen));
+                    row.add(picks, BorderLayout.WEST);
+                } else row.add(browse, BorderLayout.WEST);
                 row.add(chosen, BorderLayout.CENTER);
                 if (p.flag) {
                     // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.
@@ -1857,7 +1870,8 @@ final class PyJav {
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
-                    String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"} : new String[] {p.ext};
+                    String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"}
+                        : p.pls ? new String[] {p.ext, "pls"} : new String[] {p.ext};
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     this.assignFile(ps, values, index, fileLabels, chooser.getSelectedFile().getAbsolutePath(), null);
@@ -1900,6 +1914,7 @@ final class PyJav {
                 } else {
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                     picks.add(pick);
+                    if (p.pls) picks.add(playlistButton(p, values, index, chosen));
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 }
@@ -2188,6 +2203,68 @@ final class PyJav {
     }
 
     /** Clear: a file picked by mistake leaves the row (a second reference image, say). */
+    /** A run going on: its live news and the "Running…" line and top line it set last. */
+    static final class Shown {
+        final JavaRun.Live live;
+        final String head;
+        final String[] lastLine, lastTop;
+
+        Shown(JavaRun.Live live, String head, String[] lastLine, String[] lastTop) {
+            this.live = live;
+            this.head = head;
+            this.lastLine = lastLine;
+            this.lastTop = lastTop;
+        }
+    }
+
+    /** The runs going on, by program. */
+    static final java.util.Map<String, Shown> RUNNING = new java.util.concurrent.ConcurrentHashMap<String, Shown>();
+
+    /** The program picked again while its run goes on: its "Running…" line (time and news) shown again and kept up. */
+    boolean showRunning(String name) {
+        Shown r = name == null ? null : RUNNING.get(name);
+        if (r == null || r.live.done || r.live.aborted()) return false;
+        long now = System.currentTimeMillis();
+        String line = r.head + JavaRun.runningLine(r.live, now);
+        if (app.pyLog != null) app.pyLog.setText(line);
+        r.lastLine[0] = line;
+        r.lastTop[0] = JavaRun.runningTop(name, r.live, now);
+        app.setNow(r.lastTop[0]);
+        return true;
+    }
+
+    /** The menu Playlist showed last (for the tests). */
+    static javax.swing.JPopupMenu lastPlaylistMenu;
+
+    /** Playlist: one of Pulsekit's playlists (.pls) for a batch program's folder or list. */
+    static JButton playlistButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {
+        final JButton b = new JButton("Playlist");
+        b.setName("params-pls:" + p.token);
+        b.setToolTipText("One of Pulsekit's playlists: its files are the ones used");
+        b.addActionListener(e -> {
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            java.util.List<String> names = Playlist.withFiles(PromptDb.dir());
+            if (names.isEmpty()) {
+                javax.swing.JMenuItem none = new javax.swing.JMenuItem("No playlists yet");
+                none.setEnabled(false);
+                m.add(none);
+            }
+            for (final String n : names) {
+                javax.swing.JMenuItem it = new javax.swing.JMenuItem(n);
+                it.setName("params-pls-pick:" + n);
+                it.addActionListener(ev -> {
+                    values[index] = Playlist.file(PromptDb.dir(), n).getAbsolutePath();
+                    chosen.setText(n + Playlist.EXT);
+                });
+                m.add(it);
+            }
+            MenuCancel.add(m);
+            lastPlaylistMenu = m;
+            if (b.isShowing()) m.show(b, 0, b.getHeight());
+        });
+        return b;
+    }
+
     private JButton clearButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {
         JButton clear = new JButton("Clear");
         clear.setName("params-clear:" + p.token);

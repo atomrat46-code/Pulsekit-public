@@ -333,7 +333,7 @@ public final class Playlist {
    * that name replaced), and its name; Default when it ran without a playlist; null when it failed.
    */
   public static String keep(File dir, JavaRun.Result r) throws Exception {
-    if (r == null) return null;
+    if (r == null || !announced(r.log)) return null;
     for (JavaRun.FileOut f : r.files) {
       if (!f.name.toLowerCase(Locale.ROOT).endsWith(EXT)) continue;
       Playlist p = parse(new String(f.bytes, StandardCharsets.UTF_8), f.name);
@@ -342,6 +342,65 @@ public final class Playlist {
     }
     if (r.code == 0 && r.log != null && r.log.contains("Playlist: " + DEFAULT)) return DEFAULT;
     return null;
+  }
+
+  /** The editor's Save: where each playlist was saved as a .pls last (a path or a picker's address), in saved-at.txt. */
+  static final String SAVED_AT = "saved-at.txt";
+
+  public static synchronized String savedAt(File dir, String name) {
+    File f = new File(folder(dir), SAVED_AT);
+    if (!f.isFile()) return null;
+    try {
+      for (String line : new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
+        int tab = line.indexOf('\t');
+        if (tab > 0 && line.substring(0, tab).equals(clean(name))) return line.substring(tab + 1).replace("\r", "");
+      }
+    } catch (Exception ignored) {
+      // not known
+    }
+    return null;
+  }
+
+  public static synchronized void setSavedAt(File dir, String name, String where) {
+    File f = new File(folder(dir), SAVED_AT);
+    StringBuilder sb = new StringBuilder();
+    try {
+      if (f.isFile()) {
+        for (String line : new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
+          int tab = line.indexOf('\t');
+          if (tab > 0 && !line.substring(0, tab).equals(clean(name))) sb.append(line.replace("\r", "")).append('\n');
+        }
+      }
+      if (where != null && where.length() > 0) sb.append(clean(name)).append('\t').append(where).append('\n');
+      folder(dir).mkdirs();
+      Files.write(f.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // Save asks again next time
+    }
+  }
+
+  public static final String SAVE = "Save";
+  public static final String SAVE_AS = "Save as\u2026";
+
+  /** The playlists kept that have a file (Default first when it has one). */
+  public static List<String> withFiles(File dir) {
+    List<String> out = new ArrayList<String>();
+    for (String n : names(dir)) if (file(dir, n).isFile()) out.add(n);
+    return out;
+  }
+
+  /** PlayList.java said "Playlist: <name>" (not --nogui, whose outfile is only a file it made). */
+  public static boolean announced(String log) {
+    return log != null && (log.startsWith("Playlist: ") || log.contains("\nPlaylist: "));
+  }
+
+  /** PlayList.java's arguments with --default_pls (the Default playlist's file) for --nogui without a list. */
+  public static List<String> withDefault(String program, List<String> argv, File dir) {
+    if (!"PlayList.java".equals(program) || argv == null || argv.contains("--default_pls")) return argv;
+    List<String> out = new ArrayList<String>(argv);
+    out.add("--default_pls");
+    out.add(file(dir, DEFAULT).getAbsolutePath());
+    return out;
   }
 
   /** The last part of an address: "beach.png" for "/sdcard/Pictures/beach.png" or "pulsekit-db:3:42/beach.png". */

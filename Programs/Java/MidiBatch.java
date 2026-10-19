@@ -91,7 +91,7 @@ public class MidiBatch {
         List<File> files = new ArrayList<File>();
         if (dir != null) {
             File d = new File(dir);
-            if (!d.isDirectory()) {
+            if (!d.isDirectory() && !isPls(d)) {
                 System.out.println("Failed: no folder " + dir);
                 return 2;
             }
@@ -206,7 +206,7 @@ public class MidiBatch {
     /** The folder's MIDI files (by name), then its subfolders' when `recursive`; never the batch folder itself. */
     static void collect(File dir, boolean recursive, File skip, List<File> into) {
         if (dir.getAbsoluteFile().equals(skip)) return;
-        File[] in = dir.listFiles();
+        File[] in = listed(dir);
         if (in == null) return;
         List<File> sorted = new ArrayList<File>();
         Collections.addAll(sorted, in);
@@ -222,6 +222,11 @@ public class MidiBatch {
     static List<File> readList(File list) throws IOException {
         if (!list.isFile()) throw new IOException("no list " + list.getPath());
         List<File> out = new ArrayList<File>();
+        // A playlist (.pls): its MIDI files.
+        if (isPls(list)) {
+            for (File f : listed(list)) if (isMidi(f.getName())) out.add(f.getAbsoluteFile());
+            return out;
+        }
         File beside = list.getAbsoluteFile().getParentFile();
         for (String line : new String(Files.readAllBytes(list.toPath()), StandardCharsets.UTF_8).split("\n")) {
             String t = line.replace("\r", "").trim();
@@ -484,5 +489,31 @@ public class MidiBatch {
             while ((n >>= 7) > 0 && k < 5) parts[k++] = (int) ((n & 0x7f) | 0x80);
             for (int i = k - 1; i >= 0; i--) out.write(parts[i]);
         }
+    }
+
+    /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+    static boolean isPls(File f) {
+        return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+    }
+
+    /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+    static File[] listed(File dir) {
+        if (!isPls(dir)) return dir.listFiles();
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        try {
+            File beside = dir.getAbsoluteFile().getParentFile();
+            for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+                String t = line.replace("\r", "").trim();
+                if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+                String name = t.substring(t.indexOf('=') + 1).trim();
+                File f = new File(name);
+                if (!f.isAbsolute()) f = new File(beside, name);
+                if (f.isFile()) out.add(f);
+                else System.out.println("Not found: " + name);
+            }
+        } catch (java.io.IOException ex) {
+            System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+        }
+        return out.toArray(new File[0]);
     }
 }

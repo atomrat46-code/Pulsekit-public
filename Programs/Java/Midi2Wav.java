@@ -141,7 +141,7 @@ public class Midi2Wav {
      * as <midi>-<kit>.wav beside it. A SoundFont is read once for all the files.
      */
     static int runDir(File dir, boolean recursive, String sf2, String kits, int rate, double volume) throws Exception {
-        if (!dir.isDirectory()) {
+        if (!dir.isDirectory() && !isPls(dir)) {
             System.out.println("Failed: no folder " + dir.getPath());
             return 1;
         }
@@ -196,9 +196,9 @@ public class Midi2Wav {
     }
 
     static void midisIn(File dir, boolean recursive, List<File> into) {
-        File[] in = dir.listFiles();
+        File[] in = listed(dir);
         if (in == null) return;
-        Arrays.sort(in);
+        if (!isPls(dir)) Arrays.sort(in);
         for (File f : in) {
             String low = f.getName().toLowerCase(Locale.ROOT);
             if (f.isFile() && (low.endsWith(".mid") || low.endsWith(".midi")) && !low.endsWith("-dm.mid")) into.add(f);
@@ -955,5 +955,31 @@ public class Midi2Wav {
         d[at + 1] = (byte) (v >> 8);
         d[at + 2] = (byte) (v >> 16);
         d[at + 3] = (byte) (v >> 24);
+    }
+
+    /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+    static boolean isPls(File f) {
+        return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+    }
+
+    /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+    static File[] listed(File dir) {
+        if (!isPls(dir)) return dir.listFiles();
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        try {
+            File beside = dir.getAbsoluteFile().getParentFile();
+            for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+                String t = line.replace("\r", "").trim();
+                if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+                String name = t.substring(t.indexOf('=') + 1).trim();
+                File f = new File(name);
+                if (!f.isAbsolute()) f = new File(beside, name);
+                if (f.isFile()) out.add(f);
+                else System.out.println("Not found: " + name);
+            }
+        } catch (java.io.IOException ex) {
+            System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+        }
+        return out.toArray(new File[0]);
     }
 }

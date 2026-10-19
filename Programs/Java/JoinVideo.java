@@ -144,6 +144,11 @@ public final class JoinVideo {
   /** --list's videos: one a line (# starts a comment; a name without a folder is beside the list); null (said why) when it cannot be read. */
   static List<String> readList(File list) {
     List<String> out = new ArrayList<String>();
+    // A playlist (.pls): its videos, in its order.
+    if (isPls(list)) {
+      for (File f : listed(list)) if (f.getName().toLowerCase(java.util.Locale.ROOT).matches(".+\\.(mp4|m4v|mov)")) out.add(f.getPath());
+      return out;
+    }
     try {
       File beside = list.getAbsoluteFile().getParentFile();
       for (String line : new String(java.nio.file.Files.readAllBytes(list.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
@@ -897,4 +902,30 @@ public final class JoinVideo {
     }
   }
   // --- Mp4Join end ---
+
+  /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+  static boolean isPls(File f) {
+    return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+  }
+
+  /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+  static File[] listed(File dir) {
+    if (!isPls(dir)) return dir.listFiles();
+    java.util.List<File> out = new java.util.ArrayList<File>();
+    try {
+      File beside = dir.getAbsoluteFile().getParentFile();
+      for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        String t = line.replace("\r", "").trim();
+        if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+        String name = t.substring(t.indexOf('=') + 1).trim();
+        File f = new File(name);
+        if (!f.isAbsolute()) f = new File(beside, name);
+        if (f.isFile()) out.add(f);
+        else System.out.println("Not found: " + name);
+      }
+    } catch (java.io.IOException ex) {
+      System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+    }
+    return out.toArray(new File[0]);
+  }
 }

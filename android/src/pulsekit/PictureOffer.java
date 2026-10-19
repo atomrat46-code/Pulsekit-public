@@ -53,9 +53,9 @@ final class PictureOffer {
                         MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, (d, w) -> {
                         if (w == 4) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
                         else if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
-                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null);
-                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null);
-                        else TagDialogs.category(app, pic.name, pic.bytes.length, null);
+                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
+                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
+                        else TagDialogs.category(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
                     })
                     .setNegativeButton("Cancel", null)
                     .show();

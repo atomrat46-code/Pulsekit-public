@@ -51,8 +51,14 @@ final class GroupMenus {
 
     /** Add to group as a question of its own (from a dialog's button): the groups, then New group…. */
     static void ask(final Pulsekit app, final String[] keys, final String name) {
+        ask(app, keys, name, null);
+    }
+
+    /** As above; for Picture ready and Video ready (`ready`) the group used last for that kind is marked (last used). */
+    static void ask(final Pulsekit app, final String[] keys, final String name, final String ready) {
         FileGroups.load(PromptDb.dir());
-        String[] rows = FileGroups.menu(keys);
+        ReadyRecent.load(PromptDb.dir());
+        String[] rows = ReadyRecent.marked(ready, FileGroups.menu(keys), FileGroups.names());
         Object picked = JOptionPane.showInputDialog(app, "Group for " + name, FileGroups.ADD, JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
         if (picked == null) return;
         int row = java.util.Arrays.asList(rows).indexOf(picked);
@@ -62,7 +68,9 @@ final class GroupMenus {
             to = FileGroups.clean(typed == null ? "" : typed.toString());
             if (to.isEmpty()) return;
         }
-        app.setNow(FileGroups.note(name, to, FileGroups.toggle(to, keys)));
+        boolean in = FileGroups.toggle(to, keys);
+        if (in) ReadyRecent.setGroup(ready, to);
+        app.setNow(FileGroups.note(name, to, in));
     }
 
     /** A run's file (Picture ready, Video ready): Add to favourites (Remove when it is one), Add to group, as a right click menu. */
@@ -77,17 +85,17 @@ final class GroupMenus {
         m.add(fav);
         JMenuItem group = new JMenuItem(FileGroups.ADD + "\u2026");
         group.setName("file-group");
-        group.addActionListener(e -> ask(app, keys(file), name));
+        group.addActionListener(e -> ask(app, keys(file), name, ReadyRecent.kind(name)));
         m.add(group);
         // Add to playlist: the file where it is saved.
         m.add(PlaylistWindow.addMenu(app, file.getAbsolutePath(), name));
         JMenuItem tag = new JMenuItem(MediaTags.ADD_TAG);
         tag.setName("file-tag");
-        tag.addActionListener(e -> TagDialogs.tags(app, app, name, size, null));
+        tag.addActionListener(e -> TagDialogs.tags(app, app, name, size, null, ReadyRecent.kind(name)));
         m.add(tag);
         JMenuItem cat = new JMenuItem(MediaTags.ADD_CATEGORY);
         cat.setName("file-category");
-        cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null));
+        cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null, ReadyRecent.kind(name)));
         m.add(cat);
         last = m;
         MenuCancel.add(m);

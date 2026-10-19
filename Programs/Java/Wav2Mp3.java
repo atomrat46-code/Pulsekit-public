@@ -73,7 +73,7 @@ public final class Wav2Mp3 {
     }
     if (dir == null) return false;
     File folder = new File(dir);
-    if (!folder.isDirectory()) throw new IllegalArgumentException("No such folder: " + dir);
+    if (!folder.isDirectory() && !isPls(folder)) throw new IllegalArgumentException("No such folder: " + dir);
     if (outdir != null) {
       File o = new File(outdir);
       // In the app the run's work folder (pulsekit.work: Android keeps user.dir at "/", read-only).
@@ -119,9 +119,9 @@ public final class Wav2Mp3 {
 
   /** The folder's .wav files (its subfolders' too with --recursive), by name. */
   static void collect(File folder, boolean recursive, List<File> out) {
-    File[] kids = folder.listFiles();
+    File[] kids = listed(folder);
     if (kids == null) return;
-    java.util.Arrays.sort(kids);
+    if (!isPls(folder)) java.util.Arrays.sort(kids);
     for (File k : kids) {
       String low = k.getName().toLowerCase(Locale.ROOT);
       if (k.isDirectory()) {
@@ -1201,5 +1201,31 @@ public final class Wav2Mp3 {
     HUFF[24] = "efedg2eh50i92j106j0f8k1b2k1aal29dl28dl289l26dl205m408j058eeecf15g26h47i82i7aj0d8j0d1j0c6k147k159k13fk129k117i2ag2ff16g29h4ah44i80i78j0ddj0cfj0c2j0b6k154k13bk127l21dh12h51g27h4bh46i86i7di74j0dcj0ccj0bej0b2k145k137k125k10fh10i93h48h45i87i7fi76i70j0d2j0c8j0bck160k143k132k11dl21ch0ej107h42i81i7ei77i72j0d6j0caj0c0j0b4k155k13dk12dk119k106h0cj0f9i7bi79i75i71j0d7j0cej0c3j0b9k15bk14ak134k123k110l208h0ak1b3i73i6fi6dj0d3j0cbj0c4j0bbk161k14ck139k12ak11bl213l17di11k1abj0d4j0d0j0cdj0c9j0c1j0baj0b1j0a9k140k12fk11ek10cl202l179i10k14fj0c7j0c5j0bfj0bdj0b5j0aek14dk141k131k121k113l209l17bl173i0bl29cj0b8j0b7j0b3j0afk158k14bk13ak130k122k115l212l17fl175l16ei0al28ck15aj0abj0a8j0a4k13ek135k12bk11fk114k107l201l177l170l16ai06l288k142k13ck138k133k12ek124k11ck10dk105l200l178l172l16cl167i04l26ck12ck128k126k120k11ak111k10al203l17cl176l171l16dl169l165i02m409k118k116k112k10bk108k103l17el17al174l16fl16bl168l166l164i00i2bh14h13h11h0fh0dh0bh09h07h06h04i07i05i03i01e3";
     HUFF[32] = "b1e5e4f05e6g05f04g04e7f03f06g00f07g02g03g01";
     HUFF[33] = "efeeedecebeae9e8e7e6e5e4e3e2e1e0";
+  }
+
+  /** A playlist (.pls) given instead of a folder (or list): its files are the ones used. */
+  static boolean isPls(File f) {
+    return f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".pls") && f.isFile();
+  }
+
+  /** The folder's files; for a playlist (.pls) its File= entries in order (a name without a folder is beside it). */
+  static File[] listed(File dir) {
+    if (!isPls(dir)) return dir.listFiles();
+    java.util.List<File> out = new java.util.ArrayList<File>();
+    try {
+      File beside = dir.getAbsoluteFile().getParentFile();
+      for (String line : new String(java.nio.file.Files.readAllBytes(dir.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        String t = line.replace("\r", "").trim();
+        if (!t.toLowerCase(java.util.Locale.ROOT).matches("file\\d+=.+")) continue;
+        String name = t.substring(t.indexOf('=') + 1).trim();
+        File f = new File(name);
+        if (!f.isAbsolute()) f = new File(beside, name);
+        if (f.isFile()) out.add(f);
+        else System.out.println("Not found: " + name);
+      }
+    } catch (java.io.IOException ex) {
+      System.out.println("Could not read " + dir.getName() + ": " + ex.getMessage());
+    }
+    return out.toArray(new File[0]);
   }
 }
