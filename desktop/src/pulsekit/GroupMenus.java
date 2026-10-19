@@ -126,8 +126,10 @@ final class GroupMenus {
             return;
         }
         JPopupMenu m = new JPopupMenu();
+        // Each with how many files it holds: "Trip (5)".
+        PromptVault vault = vault();
         for (final String g : names) {
-            JMenuItem item = new JMenuItem(g + (g.equals(FileGroups.shown) ? " ✓" : ""));
+            JMenuItem item = new JMenuItem(FileGroups.pickRow(g, vault));
             item.setName("group-show:" + g);
             item.addActionListener(e -> {
                 FileGroups.show(g);

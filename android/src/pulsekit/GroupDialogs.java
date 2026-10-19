@@ -67,7 +67,14 @@ final class GroupDialogs {
             return;
         }
         String[] rows = new String[names.size()];
-        for (int i = 0; i < rows.length; i++) rows[i] = names.get(i) + (names.get(i).equals(FileGroups.shown) ? " ✓" : "");
+        // Each with how many files it holds: "Trip (5)".
+        PromptVault vault = null;
+        try {
+            vault = PromptVault.open(activity.getFilesDir());
+        } catch (Exception ignored) {
+            // counted without the library's files
+        }
+        for (int i = 0; i < rows.length; i++) rows[i] = FileGroups.pickRow(names.get(i), vault);
         last = new AlertDialog.Builder(activity)
             .setTitle("Show group")
             .setItems(rows, (d, w) -> {

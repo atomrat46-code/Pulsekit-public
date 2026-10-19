@@ -4148,6 +4148,74 @@ public class BehaviorTest {
     if (!sizes.toString().contains("9000")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * ★ Favourite files with small thumbnails; G's list with each group's count (a file marked in
+   * Video ready and added again from its library card counts once); a group the file is in reads
+   * "Remove from Trip" (picked again to add, it used to take the file out); F and G in a gallery
+   * show their files whatever category tab was picked.
+   */
+  @Test
+  public void s148_favourite_thumbs_group_counts() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(android.graphics.Color.RED);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] pic = png.toByteArray();
+    DbImport.store(app, "beach.png", pic, false);
+    DbImport.store(app, "notes.txt", "x".getBytes(StandardCharsets.UTF_8), false);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    FileFavourites.load(app.getFilesDir());
+    FileGroups.load(app.getFilesDir());
+    PromptVault.StoredFile beach = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (f.name.equals("beach.png")) beach = f;
+    FileFavourites.toggle(beach);
+    // beach.png marked in Video ready / Picture ready into Trip (by name and size)...
+    FileGroups.toggle("Trip", new String[] {MarkFile.mediaKey("beach.png", pic.length)});
+    // ...and its library card's menu says so (Remove from Trip), not "Trip ✓".
+    out.append("card's groups: ").append(String.join(" | ", FileGroups.menu(FileGroups.keys(beach)))).append('\n');
+    out.append("G list: ").append(FileGroups.pickRow("Trip", vault)).append('\n');
+    boolean countOk = FileGroups.pickRow("Trip", vault).startsWith("Trip (1)");
+    // The Ref files gallery: ★ Favourite files with a thumbnail.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    pane.findViewWithTag("refs-favs").performClick();
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    android.widget.ListView list = PromptSheet.lastFavFiles.getListView();
+    View row = list.getAdapter().getView(0, null, list);
+    android.widget.ImageView thumb = (android.widget.ImageView) row.findViewWithTag("fav-thumb:0");
+    out.append("Favourite files: ").append(listItems(PromptSheet.lastFavFiles)).append(", thumbnail ").append(thumb != null && thumb.getDrawable() != null).append('\n');
+    boolean thumbOk = thumb != null && thumb.getDrawable() != null;
+    PromptSheet.lastFavFiles.dismiss();
+    // G with a category tab picked that beach.png is not in: still shown.
+    PromptSheet.galleryCategory = 999;
+    FileGroups.show("Trip");
+    pane.findViewWithTag("refs-filter:G").performClick();
+    idle();
+    out.append("gallery G (a category tab picked): beach.png ").append(findText(pane, "\u2605 beach.png") != null || findText(pane, "beach.png") != null).append('\n');
+    boolean tabOk = findText(pane, "\u2605 beach.png") != null || findText(pane, "beach.png") != null;
+    pane.findViewWithTag("refs-filter:A").performClick();
+    refsOpen.set(null, false);
+    PromptSheet.galleryCategory = FileFavourites.ALL;
+    write("s148_favourite_thumbs_group_counts", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!countOk || !thumbOk || !tabOk || !out.toString().contains("Remove from Trip")) throw new AssertionError(out.toString());
+  }
+
   private static String namesOf(List<PromptVault.StoredFile> files) {
     StringBuilder sb = new StringBuilder();
     for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);

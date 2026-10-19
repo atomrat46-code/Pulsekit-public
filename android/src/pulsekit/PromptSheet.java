@@ -677,7 +677,9 @@ public final class PromptSheet {
     boolean tabThere = false;
     for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
     if (!tabThere) galleryCategory = FileFavourites.ALL;
-    if (tabs.size() > 2 || galleryCategory != FileFavourites.ALL) {
+    // F and G show every favourite or group file, whatever its category: no category tabs then.
+    final boolean markLetter = FileFavourites.LETTER.equals(galleryFilter) || FileGroups.LETTER.equals(galleryFilter);
+    if (!markLetter && (tabs.size() > 2 || galleryCategory != FileFavourites.ALL)) {
       android.widget.HorizontalScrollView tabScroll = new android.widget.HorizontalScrollView(activity);
       tabScroll.setHorizontalScrollBarEnabled(false);
       LinearLayout tabRow = new LinearLayout(activity);
@@ -711,12 +713,47 @@ public final class PromptSheet {
       favs.setOnClickListener(v -> {
         CharSequence[] labels = new CharSequence[favFiles.size()];
         for (int i = 0; i < labels.length; i++) labels[i] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
+        // Each with a small thumbnail (read in the background, one after another).
+        final Bitmap[] small = new Bitmap[labels.length];
+        final int px = dp(activity, 44);
+        final android.widget.ArrayAdapter<CharSequence> rows = new android.widget.ArrayAdapter<CharSequence>(activity, android.R.layout.simple_list_item_1, labels) {
+          @Override
+          public View getView(int position, View convert, android.view.ViewGroup parent) {
+            LinearLayout row = new LinearLayout(activity);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(activity, 16), dp(activity, 6), dp(activity, 16), dp(activity, 6));
+            ImageView thumb = new ImageView(activity);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            thumb.setBackgroundColor(Color.parseColor("#1B1D1F"));
+            thumb.setTag("fav-thumb:" + position);
+            if (small[position] != null) thumb.setImageBitmap(small[position]);
+            row.addView(thumb, new LinearLayout.LayoutParams(px, px));
+            TextView t = label(activity, String.valueOf(getItem(position)), 14, "#ECEBE6", false);
+            t.setPadding(dp(activity, 12), 0, 0, 0);
+            t.setMaxLines(2);
+            row.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            return row;
+          }
+        };
         lastFavFiles = new AlertDialog.Builder(activity).setTitle("\u2605 Favourite files")
-            .setItems(labels, (d, which) -> galleryOpen(activity, favFiles.get(which), null)).setNegativeButton("Close", null).show();
+            .setAdapter(rows, (d, which) -> galleryOpen(activity, favFiles.get(which), null)).setNegativeButton("Close", null).show();
+        new Thread(() -> {
+          PromptVault.quiet(true);
+          try {
+            for (int i = 0; i < small.length; i++) {
+              PromptVault.StoredFile f = favFiles.get(i);
+              small[i] = refThumb(activity, f.name, vault.fileBytes(f.versionId, f.which), px);
+              if (small[i] != null) activity.runOnUiThread(rows::notifyDataSetChanged);
+            }
+          } catch (Throwable ex) {
+            // the names stay without their thumbnails
+          }
+        }, "pulsekit-fav-thumbs").start();
       });
       col.addView(favs, buttonLp(activity));
     }
-    List<PromptVault.StoredFile> files = FileSort.sorted(FileFavourites.onTab(vault, kindFiles, galleryCategory), FileSort.current, vault);
+    List<PromptVault.StoredFile> files = FileSort.sorted(FileFavourites.onTab(vault, kindFiles, markLetter ? FileFavourites.ALL : galleryCategory), FileSort.current, vault);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;

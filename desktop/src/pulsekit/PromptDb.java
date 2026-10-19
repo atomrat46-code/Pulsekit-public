@@ -411,6 +411,9 @@ final class PromptDb {
     /** The DB dialog shown last, for the tests. */
     JDialog lastPick;
 
+    /** The ★ Favourite files list's thumbnails, by row (for the tests). */
+    java.util.Map<Integer, javax.swing.Icon> favIcons;
+
     /** A Browse DB card's right click menu shown last, for the tests. */
     javax.swing.JPopupMenu lastCardMenu;
 
@@ -817,7 +820,9 @@ final class PromptDb {
         for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
         if (!tabThere) galleryCategory = FileFavourites.ALL;
         JPanel catRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        if (tabs.size() > 2) {
+        // F and G show every favourite or group file, whatever its category: no category tabs then.
+        final boolean marks = FileFavourites.LETTER.equals(galleryFilter) || FileGroups.LETTER.equals(galleryFilter);
+        if (tabs.size() > 2 && !marks) {
             for (long[] t : tabs) {
                 final long tab = t[0];
                 String tabName = FileFavourites.tabName(tabsLib, tab);
@@ -840,6 +845,39 @@ final class PromptDb {
             for (int i = 0; i < favFiles.size(); i++) labels[i + 1] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
             final javax.swing.JComboBox<String> favs = new javax.swing.JComboBox<String>(labels);
             favs.setName("gallery-favs");
+            // Each with a small thumbnail (read in the background).
+            final java.util.Map<Integer, javax.swing.Icon> icons = new java.util.concurrent.ConcurrentHashMap<Integer, javax.swing.Icon>();
+            favs.setRenderer(new javax.swing.DefaultListCellRenderer() {
+                @Override
+                public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                    JLabel l = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focus);
+                    javax.swing.Icon icon = index > 0 ? icons.get(index) : null;
+                    l.setIcon(icon);
+                    if (index > 0 && icon == null) l.setIconTextGap(4);
+                    return l;
+                }
+            });
+            this.favIcons = icons;
+            final PromptVault favLib = lib;
+            Thread small = new Thread(() -> {
+                PromptVault.quiet(true);
+                try {
+                    for (int i = 0; i < favFiles.size(); i++) {
+                        PromptVault.StoredFile f = favFiles.get(i);
+                        ImageIcon big = favLib == null ? null : thumb(f.name, favLib.fileBytes(f.versionId, f.which));
+                        if (big == null) continue;
+                        java.awt.Image img = big.getImage();
+                        int w = img.getWidth(null), h = img.getHeight(null);
+                        double k = 40.0 / Math.max(1, Math.max(w, h));
+                        icons.put(i + 1, new ImageIcon(img.getScaledInstance(Math.max(1, (int) (w * k)), Math.max(1, (int) (h * k)), java.awt.Image.SCALE_SMOOTH)));
+                        SwingUtilities.invokeLater(favs::repaint);
+                    }
+                } catch (Throwable ex) {
+                    // the names stay without their thumbnails
+                }
+            }, "pulsekit-fav-thumbs");
+            small.setDaemon(true);
+            small.start();
             favs.addActionListener(e -> {
                 int i = favs.getSelectedIndex();
                 if (i <= 0) return;
@@ -854,7 +892,7 @@ final class PromptDb {
         if (kinds != null) top.add(kinds);
         top.add(sortRow);
         if (third) top.add(catRow);
-        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, galleryCategory), FileSort.current, lib);
+        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, marks ? FileFavourites.ALL : galleryCategory), FileSort.current, lib);
         JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
