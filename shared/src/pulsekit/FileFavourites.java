@@ -30,7 +30,8 @@ public final class FileFavourites {
     try {
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String t = line.trim();
-        if (t.matches("\\d+:\\d+") && !KEYS.contains(t)) KEYS.add(t);
+        // A library file ("3:42"), or a Media browser file ("file:beach.png|1234").
+        if ((t.matches("\\d+:\\d+") || t.startsWith("file:")) && !KEYS.contains(t)) KEYS.add(t);
       }
     } catch (Exception ignored) {
       // none kept
@@ -58,15 +59,40 @@ public final class FileFavourites {
     return f.which + ":" + f.versionId;
   }
 
-  public static synchronized boolean is(PromptVault.StoredFile f) {
-    return f != null && KEYS.contains(key(f));
+  /** The key a file has as a file (its name and size): a run's file marked in Picture ready or Video ready is one by it. */
+  static String fileKey(PromptVault.StoredFile f) {
+    return MarkFile.mediaKey(f.name, f.size);
   }
 
-  /** Added, or taken off again; true when it is a favourite now. */
+  /** A favourite by its place in the library, or as the file it is (marked in Picture ready, Video ready or the Media browser). */
+  public static synchronized boolean is(PromptVault.StoredFile f) {
+    return f != null && (KEYS.contains(key(f)) || KEYS.contains(fileKey(f)));
+  }
+
+  /** Added, or taken off again (by either key); true when it is a favourite now. */
   public static synchronized boolean toggle(PromptVault.StoredFile f) {
-    String k = key(f);
-    boolean now = !KEYS.remove(k);
-    if (now) KEYS.add(k);
+    boolean now = !is(f);
+    KEYS.remove(key(f));
+    KEYS.remove(fileKey(f));
+    if (now) KEYS.add(key(f));
+    save();
+    return now;
+  }
+
+  /** F by the A I V S T letters: the favourites only. */
+  public static final String LETTER = "F";
+  /** A Media browser file's menu item (Remove from favourites when it is one). */
+  public static final String ADD_SHORT = "Add to favourites";
+  public static final String REMOVE_SHORT = "Remove from favourites";
+
+  /** A file outside the library (the Media browser's, by its MediaDir.groupKey) among the favourites. */
+  public static synchronized boolean isKey(String key) {
+    return key != null && KEYS.contains(key);
+  }
+
+  public static synchronized boolean toggleKey(String key) {
+    boolean now = !KEYS.remove(key);
+    if (now) KEYS.add(key);
     save();
     return now;
   }
@@ -74,10 +100,7 @@ public final class FileFavourites {
   /** The favourites among `files` (one gallery's), in the order they were added. */
   public static synchronized List<PromptVault.StoredFile> among(List<PromptVault.StoredFile> files) {
     List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-    for (String k : KEYS) for (PromptVault.StoredFile f : files) if (key(f).equals(k)) {
-      out.add(f);
-      break;
-    }
+    for (String k : KEYS) for (PromptVault.StoredFile f : files) if ((key(f).equals(k) || fileKey(f).equals(k)) && !out.contains(f)) out.add(f);
     return out;
   }
 

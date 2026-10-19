@@ -30,6 +30,9 @@ final class SavePromptDialog {
 
     private SavePromptDialog() {}
 
+    /** The subcategory or group list shown last (for the tests). */
+    static AlertDialog lastBrowse;
+
     static void show(final MainActivity app, final PromptVault vault, PromptRun.Sheet sheet, final Done done) {
         final PromptSave.Choice first = PromptSave.suggest(vault, sheet);
         LinearLayout col = new LinearLayout(app);
@@ -89,15 +92,25 @@ final class SavePromptDialog {
             long mainId = PromptSave.find(vault, main.getText().toString(), "");
             // Subcategories nest: each as its place under the main one ("Clips / Night").
             final List<String> kids = PromptSave.subPaths(vault, mainId);
-            if (kids.isEmpty()) {
-                app.setNow("No subcategories in " + main.getText().toString().trim() + ": type a name, it is made on OK");
-                return;
-            }
-            CharSequence[] names = new CharSequence[kids.size() + 1];
+            // Then a new one inside the one typed, or beside it (made on OK).
+            CharSequence[] names = new CharSequence[kids.size() + 3];
             names[0] = "(none)";
             for (int i = 0; i < kids.size(); i++) names[i + 1] = kids.get(i);
-            new AlertDialog.Builder(app).setTitle("Subcategory of " + main.getText().toString().trim()).setItems(names, (d, which) -> {
-                sub.setText(which == 0 ? "" : kids.get(which - 1));
+            names[kids.size() + 1] = PromptSave.ADD_LOWER;
+            names[kids.size() + 2] = PromptSave.ADD_SAME;
+            lastBrowse = new AlertDialog.Builder(app).setTitle("Subcategory of " + main.getText().toString().trim()).setItems(names, (d, which) -> {
+                if (which <= kids.size()) {
+                    sub.setText(which == 0 ? "" : kids.get(which - 1));
+                    return;
+                }
+                final boolean lower = which == kids.size() + 1;
+                final String now = sub.getText().toString();
+                final EditText typed = field(app, "", "save-prompt-new-sub");
+                typed.setHint(lower ? (now.trim().length() == 0 ? "inside " + main.getText().toString().trim() : "inside " + now.trim()) : "beside " + now.trim());
+                lastBrowse = new AlertDialog.Builder(app).setTitle(lower ? PromptSave.ADD_LOWER : PromptSave.ADD_SAME).setView(typed)
+                    .setPositiveButton("OK", (d2, w2) -> sub.setText(lower ? PromptSave.lowerLevel(now, typed.getText().toString())
+                        : PromptSave.sameLevel(now, typed.getText().toString())))
+                    .setNegativeButton("Cancel", null).show();
             }).setNegativeButton("Cancel", null).show();
         }));
         col.addView(label(app, "Name", 12, "#8A8B86"));
@@ -152,6 +165,35 @@ final class SavePromptDialog {
             col.addView(row);
         }
         col.addView(version);
+        // Group: the run's result file and the prompt file go in it ((none), a group, New group…).
+        FileGroups.load(app.getFilesDir());
+        final String[] group = {""};
+        col.addView(label(app, "Group (optional)", 12, "#8A8B86"));
+        final TextView groupPick = app.outline("(none) \u25be", false, null);
+        groupPick.setTag("save-prompt-group");
+        groupPick.setOnClickListener(v -> {
+            final List<String> groups = FileGroups.names();
+            CharSequence[] rows = new CharSequence[groups.size() + 2];
+            rows[0] = "(none)";
+            for (int i = 0; i < groups.size(); i++) rows[i + 1] = groups.get(i);
+            rows[groups.size() + 1] = FileGroups.NEW;
+            lastBrowse = new AlertDialog.Builder(app).setTitle("Group").setItems(rows, (d, which) -> {
+                if (which <= groups.size()) {
+                    group[0] = which == 0 ? "" : groups.get(which - 1);
+                    groupPick.setText((which == 0 ? "(none)" : group[0]) + " \u25be");
+                    return;
+                }
+                final EditText typed = field(app, "", "save-prompt-new-group");
+                lastBrowse = new AlertDialog.Builder(app).setTitle(FileGroups.NEW).setView(typed).setPositiveButton("OK", (d2, w2) -> {
+                    String g = FileGroups.clean(typed.getText().toString());
+                    if (g.isEmpty()) return;
+                    FileGroups.make(g);
+                    group[0] = g;
+                    groupPick.setText(g + " \u25be");
+                }).setNegativeButton("Cancel", null).show();
+            }).setNegativeButton("Cancel", null).show();
+        });
+        col.addView(groupPick);
         // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
         final android.widget.CheckBox favourite = new android.widget.CheckBox(app);
         favourite.setText("Add to favourites");
@@ -208,6 +250,7 @@ final class SavePromptDialog {
             c.name = name.getText().toString().trim();
             c.description = description.getText().toString().trim();
             c.favourite = favourite.isChecked();
+            c.group = group[0];
             for (String t : tags) if (t.length() > 0) c.tags.add(t);
             answered[0] = true;
             dialog.dismiss();

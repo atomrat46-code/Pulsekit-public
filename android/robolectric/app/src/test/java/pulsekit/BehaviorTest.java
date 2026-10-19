@@ -52,6 +52,8 @@ public class BehaviorTest {
     MidiImportSettings.reset();
     // The Prompts page's full size preview is static too: each scenario starts on the page itself.
     PromptSheet.closePreview();
+    // F G C and the tag lists are switches kept while the program runs.
+    FileFilter.reset();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
@@ -3799,6 +3801,22 @@ public class BehaviorTest {
     idle();
     out.append("G held: ").append(listItems(GroupDialogs.last)).append('\n');
     GroupDialogs.last.dismiss();
+    out.append("title: ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    // Result files, then Reference files again: G still shows Trip; a tap on G (a switch) turns it off.
+    inBrowser.apply("refs-kind:results").performClick();
+    idle();
+    inBrowser.apply("refs-kind:refs").performClick();
+    idle();
+    StringBuilder again = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) again.append(n).append(' ');
+    out.append("after the tabs: ").append(again).append('\n');
+    boolean tabsOk = "beach.png dune.png ".equals(again.toString()) && "G".contentEquals(((TextView) inBrowser.apply("db-filter:G")).getText());
+    inBrowser.apply("db-filter:G").performClick();
+    idle();
+    StringBuilder off = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) off.append(n).append(' ');
+    out.append("G tapped (off): ").append(off).append('\n');
+    tabsOk &= "beach.png notes.txt dune.png ".equals(off.toString());
     RefBrowser.last.dismiss();
     DbFilter.current = "A";
     idle();
@@ -3817,6 +3835,7 @@ public class BehaviorTest {
     idle();
     out.append(", shows beach.png ").append(findText(pane, "beach.png") != null).append(", notes.txt ").append(findText(pane, "notes.txt") != null || findText(pane, "\u2605 notes.txt") != null).append('\n');
     pane.findViewWithTag("refs-filter:A").performClick();
+    FileFilter.reset();
     refsOpen.set(null, false);
     rebuild.invoke(null, app);
     idle();
@@ -3842,7 +3861,443 @@ public class BehaviorTest {
     write("s142_file_groups", out.toString());
     FileGroups.reset();
     FileFavourites.reset();
-    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty()) throw new AssertionError(out.toString());
+    if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString()) || !FileGroups.names().isEmpty() || !tabsOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * F (favourites) before G on the thumbnail screens: Browse DB, the galleries (Prompt files too,
+   * which opens with many prompt files, its previews read one at a time) and the Media browser
+   * (Add to favourites in a file's menu).
+   */
+  @Test
+  public void s143_favourites_letter() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    long cat = vault.addCategory("Pictures");
+    for (int i = 0; i < 40; i++) {
+      long p = vault.addPrompt(cat, "Prompt " + i);
+      vault.addVersion(p, "v1", "", "a picture " + i, "", "ref" + i + ".png", png.toByteArray(), "", null, "out" + i + ".png", png.toByteArray(), "", "");
+      vault.addPromptFile("prompt-" + i + ".prompt", ("Prompt " + i + "\n").getBytes(StandardCharsets.UTF_8), "Prompt " + i);
+    }
+    for (String n : new String[] {"beach.png", "notes.txt"}) DbImport.store(app, n, ("x" + n).getBytes(StandardCharsets.UTF_8), false);
+    // Browse DB: notes.txt a favourite; F shows it only.
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    View dv = RefBrowser.last.getWindow().getDecorView();
+    StringBuilder letters = new StringBuilder();
+    for (String l : RefBrowser.withGroup()) letters.append(dv.findViewWithTag("db-filter:" + l) != null ? l : "-");
+    out.append("letters: ").append(letters).append('\n');
+    dv.findViewWithTag("refs-pick:notes.txt").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(0);
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("db-filter:F").performClick();
+    idle();
+    dv = RefBrowser.last.getWindow().getDecorView();
+    out.append("F: beach.png ").append(dv.findViewWithTag("refs-pick:beach.png") != null).append(", notes.txt ").append(dv.findViewWithTag("refs-pick:notes.txt") != null).append('\n');
+    boolean fOk = dv.findViewWithTag("refs-pick:notes.txt") != null && dv.findViewWithTag("refs-pick:beach.png") == null;
+    RefBrowser.last.dismiss();
+    DbFilter.current = "A";
+    FileFilter.reset();
+    // Prompts page: Prompt files opens with its 40 prompt files; F there too.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    for (int i = 0; i < 10; i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    out.append("Prompt files: shown ").append(findText(pane, "PROMPT FILES") != null).append(", cards ").append(findText(pane, "prompt-0.prompt") != null && findText(pane, "prompt-39.prompt") != null)
+        .append(", F ").append(pane.findViewWithTag("refs-filter:F") != null).append(", G ").append(pane.findViewWithTag("refs-filter:G") != null).append('\n');
+    pane.findViewWithTag("gallery-tab:0").performClick();
+    idle();
+    pane.findViewWithTag("refs-filter:F").performClick();
+    idle();
+    out.append("Ref files F: notes.txt ").append(findText(pane, "\u2605 notes.txt") != null).append(", beach.png ").append(findText(pane, "beach.png") != null).append('\n');
+    boolean galleryOk = findText(pane, "\u2605 notes.txt") != null && findText(pane, "beach.png") == null;
+    pane.findViewWithTag("refs-filter:A").performClick();
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    refsOpen.setAccessible(true);
+    refsOpen.set(null, false);
+    // The Media browser: Add to favourites; F keeps the favourites.
+    String[] items = MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false);
+    out.append("media menu has ").append(FileFavourites.ADD_SHORT).append(": ").append(java.util.Arrays.asList(items).contains(FileFavourites.ADD_SHORT)).append(", filters ").append(String.join(" ", MediaDir.FILTERS)).append('\n');
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "sky.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    FileFavourites.toggleKey(MediaDir.groupKey(all.get(1)));
+    StringBuilder kept = new StringBuilder();
+    for (MediaDir.Entry e : MediaDir.filtered(all, "F")) kept.append(e.name).append(' ');
+    out.append("media F: ").append(kept).append('\n');
+    FileFavourites.reset();
+    FileFavourites.load(app.getFilesDir());
+    out.append("kept after a restart: ").append(FileFavourites.isKey(MediaDir.groupKey(all.get(1)))).append('\n');
+    write("s143_favourites_letter", out.toString());
+    FileFavourites.reset();
+    FileGroups.reset();
+    if (!fOk || !galleryOk || !"sky.png ".equals(kept.toString())) throw new AssertionError(out.toString());
+  }
+
+  /** Prompt files: a prompt file's view, a thumbnail there in full size, and Back: the prompt file's view again (not the gallery). */
+  @Test
+  public void s144_prompt_file_back() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    long p = vault.addPrompt(vault.addCategory("Pictures"), "Sunset");
+    vault.addVersion(p, "Sunset", "", "a sunset", "", "sky.png", png.toByteArray(), "", null, "sunset.png", png.toByteArray(), "", "");
+    vault.addPromptFile("sunset.prompt", "A sunset over the sea\n".getBytes(StandardCharsets.UTF_8), "Sunset v1");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    ((View) findText(pane, "sunset.prompt").getParent()).performClick();
+    idle();
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog first = (AlertDialog) pv.get(null);
+    View thumb = first.getWindow().getDecorView().findViewWithTag("prompt-file-preview-thumb:1");
+    out.append("prompt file view: ").append(first.isShowing()).append(", Ref 1 thumbnail ").append(thumb != null).append('\n');
+    thumb.performLongClick();
+    idle();
+    out.append("full size: ").append(findText(pane, "PREVIEW") != null).append(", ").append(findText(pane, "sky.png") != null).append(", view ").append(first.isShowing() ? "still open" : "closed").append('\n');
+    // Back: the prompt file's view again, over the Prompt files gallery.
+    ((View) findText(pane, "Back")).performClick();
+    idle();
+    AlertDialog again = (AlertDialog) pv.get(null);
+    boolean back = again != null && again != first && again.isShowing() && again.getWindow().getDecorView().findViewWithTag("prompt-file-text") != null;
+    out.append("Back: prompt file view ").append(back).append(", gallery under it ").append(findText(pane, "PROMPT FILES") != null).append('\n');
+    if (again != null) again.dismiss();
+    idle();
+    write("s144_prompt_file_back", out.toString());
+    java.lang.reflect.Field open = PromptSheet.class.getDeclaredField("promptFilesOpen");
+    open.setAccessible(true);
+    open.set(null, false);
+    if (!back) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Picture ready (a picture's long press) and Video ready (the clip's long press): Add to favourites
+   * and Add to group. The run's file is marked as the Media browser knows it (name and size), and its
+   * copy in the prompt library with it.
+   */
+  @Test
+  public void s145_ready_favourites_groups() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] pic = png.toByteArray();
+    // The run kept it as a result file too.
+    DbImport.store(app, "look.png", pic, true);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", pic));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("Picture ready menu: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(0);
+    idle();
+    PromptVault.StoredFile stored = PromptVault.open(app.getFilesDir()).resultFiles().get(0);
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "look.png";
+    e.id = "/sdcard/Download/look.png";
+    e.kind = MediaDir.PICTURE;
+    e.size = pic.length;
+    List<MediaDir.Entry> one = new ArrayList<MediaDir.Entry>();
+    one.add(e);
+    out.append("favourite: Media browser F ").append(MediaDir.filtered(one, "F").size()).append(", library copy ").append(FileFavourites.is(stored)).append(", ").append(((TextView) get("now")).getText()).append('\n');
+    boolean favOk = MediaDir.filtered(one, "F").size() == 1 && FileFavourites.is(stored);
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("again: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(1);
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-new-name")).setText("Run");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    FileGroups.shown = "Run";
+    out.append("group Run: Media browser ").append(FileGroups.in("Run", MediaDir.groupKey(e))).append(", library copy ").append(DbFilter.fits(stored, "G")).append('\n');
+    boolean groupOk = FileGroups.in("Run", MediaDir.groupKey(e)) && DbFilter.fits(stored, "G");
+    PictureOffer.last.dismiss();
+    // Video ready: the clip's long press has them too.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    byte[] clip = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    clips.add(new JavaRun.FileOut("walk.mp4", clip));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player p = VideoOffer.last;
+    p.view.performLongClick();
+    idle();
+    out.append("Video ready menu: ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(2);
+    idle();
+    out.append("walk.mp4 favourite: ").append(MarkFile.isFavourite("walk.mp4", clip.length)).append('\n');
+    p.view.performLongClick();
+    idle();
+    out.append("then: ").append(listItems(p.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(3);
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    out.append("walk.mp4 in Run: ").append(FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length))).append('\n');
+    // The library keeps the clip only now (after it was marked): it is a favourite and in Run there too.
+    DbImport.store(app, "walk.mp4", clip, true);
+    PromptVault.StoredFile video = null;
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) if (f.name.equals("walk.mp4")) video = f;
+    out.append("walk.mp4 kept later: Result files F ").append(DbFilter.fits(video, "F")).append(", G ").append(DbFilter.fits(video, "G")).append(", in Favourite files ")
+        .append(namesOf(FileFavourites.among(PromptVault.open(app.getFilesDir()).resultFiles()))).append('\n');
+    boolean videoOk = MarkFile.isFavourite("walk.mp4", clip.length) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length))
+        && DbFilter.fits(video, "F") && DbFilter.fits(video, "G") && namesOf(FileFavourites.among(PromptVault.open(app.getFilesDir()).resultFiles())).contains("walk.mp4");
+    p.dialog.dismiss();
+    idle();
+    write("s145_ready_favourites_groups", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!favOk || !groupOk || !videoOk) throw new AssertionError(out.toString());
+  }
+
+  /** A run's video over the old 16 MB (20 MB here) is kept in the library as its result file, read back whole; F finds it once marked in Video ready. */
+  @Test
+  public void s146_big_video_in_library() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileFavourites.reset();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    byte[] video = new byte[20 * 1024 * 1024];
+    for (int i = 0; i < video.length; i += 4096) video[i] = (byte) i;
+    long p = vault.addPrompt(vault.addCategory("Video"), "Walk");
+    vault.addVersion(p, "Walk", "", "a walk", "", "first.png", new byte[] {1, 2, 3}, "", null, "walk.mp4", video, "", "");
+    PromptVault.StoredFile kept = null;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("walk.mp4")) kept = f;
+    byte[] back = kept == null ? null : vault.fileBytes(kept.versionId, kept.which);
+    out.append("Result files: ").append(kept == null ? "missing" : kept.name + ", " + (kept.size / (1024 * 1024)) + " MB").append(", read back ").append(back != null && java.util.Arrays.equals(back, video)).append('\n');
+    FileFavourites.load(app.getFilesDir());
+    MarkFile.toggleFavourite(vault, "walk.mp4", video.length);
+    out.append("marked in Video ready: F ").append(kept != null && DbFilter.fits(kept, "F")).append('\n');
+    write("s146_big_video_in_library", out.toString());
+    boolean ok = kept != null && back != null && java.util.Arrays.equals(back, video) && DbFilter.fits(kept, "F");
+    FileFavourites.reset();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The same SogniVideo prompt run again (as Process as a reference does) with a new clip: a new
+   * version with the new clip in Result files, not "unchanged, not saved again" (only the prompt,
+   * settings and file names were compared).
+   */
+  @Test
+  public void s147_rerun_new_clip_kept() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniVideo.java");
+    java.io.File in = new java.io.File(app.getCacheDir(), "process-ref");
+    in.mkdirs();
+    java.io.File pic = new java.io.File(in, "sogni-pedit-smile.png");
+    String sheet = "PKPROMPT1\nsogni-video-smile\n\n\nsogni-pedit-smile.png\n\nCategory: video\nModel: Sogni minimax-h3\n"
+        + "Reference file 1: sogni-pedit-smile.png\nReference file 2: \nType: ai\n---\nShe smiles\n\nResult file: sogni-video-smile.mp4\n";
+    for (int run = 1; run <= 3; run++) {
+      // Runs 1 and 2: the same picture and clip; run 3: a new picture (same name) and a new clip.
+      java.nio.file.Files.write(pic.toPath(), run < 3 ? new byte[] {1, 2, 3} : new byte[] {1, 2, 3, 4, 5});
+      byte[] clip = new byte[run < 3 ? 7000 : 9000];
+      clip[0] = 0; clip[1] = 0; clip[2] = 0; clip[3] = 24; clip[4] = 'f'; clip[5] = 't'; clip[6] = 'y'; clip[7] = 'p';
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("sogni-video-smile.prompt", sheet.getBytes("UTF-8")));
+      files.add(new JavaRun.FileOut("sogni-video-smile.mp4", clip));
+      app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "She smiles", "--image", pic.getAbsolutePath(), "--saveprompt"));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo\nSaved prompt sogni-video-smile.prompt\nWrote sogni-video-smile.mp4\nSucceeded: sogni-video-smile.mp4", files, 0));
+      idle();
+      for (int i = 0; i < 20; i++) {
+        AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+        if (d != null && d.isShowing()) d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+        Thread.sleep(50);
+        idle();
+      }
+      for (String line : ((TextView) get("pkPyLog")).getText().toString().split("\n")) {
+        if (line.startsWith("Prompt library")) out.append("run ").append(run).append(": ").append(line.replace(PromptSave.today(), "<today>")).append('\n');
+      }
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    StringBuilder sizes = new StringBuilder();
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("sogni-video-smile.mp4")) sizes.append(f.size).append(' ');
+    out.append("Result files: sogni-video-smile.mp4 ").append(sizes).append('\n');
+    write("s147_rerun_new_clip_kept", out.toString());
+    if (!sizes.toString().contains("9000")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * ★ Favourite files with small thumbnails; G's list with each group's count (a file marked in
+   * Video ready and added again from its library card counts once); a group the file is in reads
+   * "Remove from Trip" (picked again to add, it used to take the file out); F and G in a gallery
+   * show their files whatever category tab was picked.
+   */
+  @Test
+  public void s148_favourite_thumbs_group_counts() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(android.graphics.Color.RED);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] pic = png.toByteArray();
+    DbImport.store(app, "beach.png", pic, false);
+    DbImport.store(app, "notes.txt", "x".getBytes(StandardCharsets.UTF_8), false);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    FileFavourites.load(app.getFilesDir());
+    FileGroups.load(app.getFilesDir());
+    PromptVault.StoredFile beach = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (f.name.equals("beach.png")) beach = f;
+    FileFavourites.toggle(beach);
+    // beach.png marked in Video ready / Picture ready into Trip (by name and size)...
+    FileGroups.toggle("Trip", new String[] {MarkFile.mediaKey("beach.png", pic.length)});
+    // ...and its library card's menu says so (Remove from Trip), not "Trip ✓".
+    out.append("card's groups: ").append(String.join(" | ", FileGroups.menu(FileGroups.keys(beach)))).append('\n');
+    out.append("G list: ").append(FileGroups.pickRow("Trip", vault)).append('\n');
+    boolean countOk = FileGroups.pickRow("Trip", vault).startsWith("Trip (1)");
+    // The Ref files gallery: ★ Favourite files with a thumbnail.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    pane.findViewWithTag("refs-favs").performClick();
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    android.widget.ListView list = PromptSheet.lastFavFiles.getListView();
+    View row = list.getAdapter().getView(0, null, list);
+    android.widget.ImageView thumb = (android.widget.ImageView) row.findViewWithTag("fav-thumb:0");
+    out.append("Favourite files: ").append(listItems(PromptSheet.lastFavFiles)).append(", thumbnail ").append(thumb != null && thumb.getDrawable() != null).append('\n');
+    boolean thumbOk = thumb != null && thumb.getDrawable() != null;
+    PromptSheet.lastFavFiles.dismiss();
+    // G with a category tab picked that beach.png is not in: still shown.
+    PromptSheet.galleryCategory = 999;
+    FileGroups.show("Trip");
+    pane.findViewWithTag("refs-filter:G").performClick();
+    idle();
+    out.append("gallery G (a category tab picked): beach.png ").append(findText(pane, "\u2605 beach.png") != null || findText(pane, "beach.png") != null).append('\n');
+    boolean tabOk = findText(pane, "\u2605 beach.png") != null || findText(pane, "beach.png") != null;
+    pane.findViewWithTag("refs-filter:A").performClick();
+    refsOpen.set(null, false);
+    PromptSheet.galleryCategory = FileFavourites.ALL;
+    write("s148_favourite_thumbs_group_counts", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    if (!countOk || !thumbOk || !tabOk || !out.toString().contains("Remove from Trip")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A Ref files card's long press: Add to group puts the file where G finds it (its size was 0
+   * there, so it went in as another file), Tags… and Category… as in the Media browser. G's list:
+   * New group…, Rename a group…, Delete a group…. After Import / Add to DB: the group asked for
+   * (No group first).
+   */
+  @Test
+  public void s149_group_menus_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "beach.png", png.toByteArray(), false);
+    FileGroups.load(app.getFilesDir());
+    FileGroups.make("Trip");
+    // G's list: the group with its count, then New / Rename / Delete.
+    GroupDialogs.pick(app, () -> {});
+    idle();
+    out.append("G list: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(1);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-name-field")).setText("Night");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("after New group: ").append(FileGroups.names()).append(", list again ").append(listItems(GroupDialogs.last)).append('\n');
+    GroupDialogs.last.dismiss();
+    FileGroups.rename("Night", "Evening");
+    out.append("renamed: ").append(FileGroups.names()).append('\n');
+    // The Ref files gallery: the card's long press.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    ((View) findText(pane, "beach.png").getParent()).performLongClick();
+    idle();
+    AlertDialog menu = PromptSheet.lastFileMenu;
+    String items = listItems(menu);
+    out.append("card menu: ").append(items).append('\n');
+    java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(rows.indexOf(FileGroups.ADD));
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    FileGroups.show("Trip");
+    PromptVault.StoredFile beach = PromptVault.open(app.getFilesDir()).referenceFiles().get(0);
+    out.append("beach.png in Trip, as G finds it: ").append(FileGroups.fits(beach)).append('\n');
+    boolean groupOk = FileGroups.fits(beach);
+    ((View) findText(pane, "beach.png").getParent()).performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(rows.indexOf(MediaTags.TAGS));
+    idle();
+    out.append("Tags…: ").append(org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).getTitle()).append('\n');
+    MediaBrowser.lastAsk.dismiss();
+    refsOpen.set(null, false);
+    // After Import / Add to DB.
+    GroupDialogs.afterAdd(app, "sea.png", 10);
+    idle();
+    out.append("after Add to DB: ").append(org.robolectric.Shadows.shadowOf(GroupDialogs.last).getTitle()).append(": ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(2);
+    idle();
+    out.append("sea.png in Evening: ").append(FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10))).append('\n');
+    boolean addOk = FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10));
+    write("s149_group_menus_tags", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    if (!groupOk || !addOk || !items.contains(MediaTags.TAGS) || !items.contains(MediaTags.CATEGORY) || !out.toString().contains("Rename a group")) throw new AssertionError(out.toString());
+  }
+
+  private static String namesOf(List<PromptVault.StoredFile> files) {
+    StringBuilder sb = new StringBuilder();
+    for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);
+    return sb.toString();
   }
 
   private static List<Engine.Part> songPartsForStack() {
@@ -7846,6 +8301,425 @@ public class BehaviorTest {
       if (e.getCause() instanceof Exception) throw (Exception) e.getCause();
       throw e;
     }
+  }
+
+  /**
+   * F, G and C are switches with the type letter (V with F: the favourite videos); C held lists the
+   * categories under the letter's main one (I: Image), an item held opens its subcategories; T1 T2
+   * T3 keep the files with any tag picked. Save prompt: Add new lower level / same level
+   * subcategory and a Group. Picture ready: Add tag and Add to category.
+   */
+  @Test
+  public void s150_filter_switches_categories_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    DbFilter.current = "A";
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = 0, video = 0;
+    for (PromptVault.Category c : vault.mains()) {
+      if (c.name.equalsIgnoreCase("Image")) image = c.id;
+      if (c.name.equalsIgnoreCase("video")) video = c.id;
+    }
+    long portraits = vault.addSubcategory(image, "Portraits");
+    vault.addSubcategory(portraits, "Faces");
+    long p1 = vault.addPrompt(portraits, "Face");
+    vault.addVersion(p1, "Face", "", "a face", "", "face.png", "face".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p1, java.util.Arrays.asList("beach"));
+    long p2 = vault.addPrompt(video, "Walk");
+    vault.addVersion(p2, "Walk", "", "a walk", "", "walk.mp4", "walk".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p2, java.util.Arrays.asList("night"));
+    long p3 = vault.addPrompt(image, "Sky");
+    vault.addVersion(p3, "Sky", "", "a sky", "", "sky.png", "sky".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    FileFavourites.load(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (!f.name.equals("sky.png")) FileFavourites.toggle(f);
+    java.util.function.Function<String, View> in = tag -> RefBrowser.last.getWindow().getDecorView().findViewWithTag(tag);
+    java.util.function.Supplier<String> cards = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"face.png", "walk.mp4", "sky.png"}) if (in.apply("refs-pick:" + n) != null) sb.append(n).append(' ');
+      return sb.toString().trim();
+    };
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    StringBuilder letters = new StringBuilder();
+    for (String l : new String[] {"A", "I", "V", "S", "T", "F", "G", "C", "tag:1", "tag:2", "tag:3"}) letters.append(in.apply("db-filter:" + l) != null ? l : "-").append(' ');
+    out.append("letters: ").append(letters).append("| ").append(((TextView) in.apply("db-filter:tag:1")).getText()).append('\n');
+    out.append("A: ").append(cards.get()).append('\n');
+    in.apply("db-filter:F").performClick();
+    idle();
+    String favs = cards.get();
+    in.apply("db-filter:V").performClick();
+    idle();
+    String favVideos = cards.get();
+    out.append("F: ").append(favs).append(" | V with F: ").append(favVideos).append('\n');
+    boolean switchOk = "face.png walk.mp4".equals(favs) && "walk.mp4".equals(favVideos);
+    in.apply("db-filter:F").performClick();
+    idle();
+    in.apply("db-filter:I").performClick();
+    idle();
+    // C held with I: Image's subcategories; Portraits held: its own.
+    in.apply("db-filter:C").performLongClick();
+    idle();
+    out.append("C held (I): ").append(org.robolectric.Shadows.shadowOf(FilterRow.last).getTitle()).append(": ").append(listItems(FilterRow.last)).append('\n');
+    android.widget.ListView lv = FilterRow.last.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 2, 0);
+    idle();
+    out.append("Portraits held: ").append(listItems(FilterRow.last)).append('\n');
+    boolean catListOk = listItems(FilterRow.last).contains("Faces");
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(1);
+    idle();
+    String inPortraits = cards.get();
+    out.append("I with C (Image / Portraits): ").append(inPortraits).append(", title ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    in.apply("db-filter:C").performClick();
+    idle();
+    String cOff = cards.get();
+    out.append("C tapped (off): ").append(cOff).append('\n');
+    boolean catOk = catListOk && "face.png".equals(inPortraits) && "face.png sky.png".equals(cOff);
+    in.apply("db-filter:A").performClick();
+    idle();
+    // T1 beach; T2 night: either.
+    in.apply("db-filter:tag:1").performClick();
+    idle();
+    out.append("T1 list: ").append(listItems(FilterRow.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(1);
+    idle();
+    String t1 = cards.get();
+    in.apply("db-filter:tag:2").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(2);
+    idle();
+    String t12 = cards.get();
+    out.append("T1 beach: ").append(t1).append(" | T1 or T2 night: ").append(t12).append(" | ").append(((TextView) in.apply("db-filter:tag:2")).getText()).append('\n');
+    boolean tagOk = "face.png".equals(t1) && "face.png walk.mp4".equals(t12);
+    RefBrowser.last.dismiss();
+    FileFilter.reset();
+    // The Media browser's files: a file's own tags and category.
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "hill.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    MediaTags.load(app.getFilesDir());
+    MediaTags.setTags(MediaTags.key(all.get(0)), java.util.Arrays.asList("beach"));
+    MediaTags.setCategory(MediaTags.key(all.get(1)), "Image / Portraits / Faces");
+    FileFilter.pickTag(0, "beach");
+    String mediaTag = FileFilter.entries(all).size() + " " + FileFilter.entries(all).get(0).name;
+    FileFilter.reset();
+    FileFilter.pickCategory("Image / Portraits");
+    String mediaCat = FileFilter.entries(all).size() + " " + FileFilter.entries(all).get(0).name;
+    FileFilter.reset();
+    out.append("media T1 beach: ").append(mediaTag).append(", C Image / Portraits: ").append(mediaCat).append('\n');
+    boolean mediaOk = "1 sea.png".equals(mediaTag) && "1 hill.png".equals(mediaCat);
+    // Save prompt: a lower level, then a same level subcategory; a new group.
+    PromptRun.Sheet sheet = new PromptRun.Sheet();
+    sheet.name = "Walk";
+    final PromptSave.Choice[] got = new PromptSave.Choice[1];
+    SavePromptDialog.show(app, vault, sheet, c -> got[0] = c);
+    idle();
+    View sd = SavePromptDialog.last.getWindow().getDecorView();
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-main")).setText("Image");
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).setText("Portraits");
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-name")).setText("Walk");
+    sd.findViewWithTag("save-prompt-sub-browse").performClick();
+    idle();
+    String subRows = listItems(SavePromptDialog.lastBrowse);
+    int rows = SavePromptDialog.lastBrowse.getListView().getAdapter().getCount();
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(rows - 2);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-sub")).setText("Close");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String lower = ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).getText().toString();
+    sd.findViewWithTag("save-prompt-sub-browse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(SavePromptDialog.lastBrowse.getListView().getAdapter().getCount() - 1);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-sub")).setText("Wide");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String same = ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).getText().toString();
+    sd.findViewWithTag("save-prompt-group").performClick();
+    idle();
+    String groupRows = listItems(SavePromptDialog.lastBrowse);
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(SavePromptDialog.lastBrowse.getListView().getAdapter().getCount() - 1);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-group")).setText("Walks");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    SavePromptDialog.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Save prompt subcategories: ").append(subRows).append(" | lower: ").append(lower).append(" | same: ").append(same).append('\n');
+    out.append("groups: ").append(groupRows).append(" | chosen ").append(got[0] == null ? "none" : got[0].sub + ", group " + got[0].group).append('\n');
+    boolean saveOk = "Portraits / Close".equals(lower) && "Portraits / Wide".equals(same) && got[0] != null && "Walks".equals(got[0].group);
+    // Picture ready: Add tag (New tag…), Add to category.
+    byte[] look = "look".getBytes(StandardCharsets.UTF_8);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", look));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("Picture ready menu: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(2);
+    idle();
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-new-tag-field")).setText("sunset");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    MediaBrowser.lastAsk.dismiss();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(3);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    int at = MediaTags.categoryNames(vault).indexOf("Image / Portraits") + 1;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(at);
+    idle();
+    String key = MediaTags.key("look.png", look.length);
+    out.append("look.png: tags ").append(MediaTags.tags(key)).append(", category ").append(MediaTags.category(key)).append('\n');
+    boolean readyOk = MediaTags.tags(key).contains("sunset") && "Image / Portraits".equals(MediaTags.category(key));
+    PictureOffer.last.dismiss();
+    write("s150_filter_switches_categories_tags", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    if (!switchOk || !catOk || !tagOk || !mediaOk || !saveOk || !readyOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Each thumbnail screen has its own F G C switches and T lists: F turned on in Browse DB left the
+   * Media browser showing only favourites, every folder "empty". When the switches do keep
+   * everything out, the Media browser says so. A full size video held: it plays, or pauses.
+   */
+  @Test
+  public void s151_switches_per_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    MediaDir.filter = "A";
+    DbImport.store(app, "beach.png", "xbeach".getBytes(StandardCharsets.UTF_8), false);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("db-filter:F").performClick();
+    idle();
+    out.append("Browse DB: ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    RefBrowser.last.dismiss();
+    File media = new File(app.getCacheDir(), "media-switches");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    Files.write(new File(media, "sea.png").toPath(), png.toByteArray());
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && b.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    idle();
+    out.append("Media browser: ").append(b.entries.size()).append(" shown, empty line ").append(findText(b.body, "No pictures, videos or sounds here") != null).append('\n');
+    boolean ownOk = b.entries.size() == 1;
+    // F on here: nothing here is a favourite, and the line says why.
+    FileFilter.use(FileFilter.MEDIA);
+    FileFilter.fav = true;
+    b.refilter();
+    idle();
+    View empty = b.body.findViewWithTag("media-empty");
+    String line = empty == null ? "none" : ((TextView) empty).getText().toString();
+    out.append("F on in the Media browser: ").append(b.entries.size()).append(" shown, says: ").append(line).append('\n');
+    boolean lineOk = b.entries.isEmpty() && line.startsWith("Nothing here matches Favourites");
+    // Browse DB kept its own F.
+    FileFilter.use(FileFilter.BROWSE);
+    boolean browseKept = FileFilter.fav;
+    FileFilter.use(FileFilter.GALLERY);
+    boolean galleryOff = !FileFilter.fav;
+    out.append("Browse DB's F kept: ").append(browseKept).append(", gallery's F off: ").append(galleryOff).append('\n');
+    write("s151_switches_per_screen", out.toString());
+    FileFavourites.reset();
+    if (!ownOk || !lineOk || !browseKept || !galleryOff) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Playlists: .pls read, written and merged; Add to playlist / Add to default playlist on a Browse DB
+   * card; File > Playlist viewer/editor: the Editor (thumbnails, ▲ ▼ ✕, a long press: Start viewer)
+   * and Viewer tabs (Repeat, Auto mode, Autoplay video, kept); the viewer (◀ ▶, Auto mode, a long
+   * press holds a picture); PlayList.java's run opens its playlist; the Media browser's folder
+   * playlist: Save pls.
+   */
+  @Test
+  public void s152_playlists() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    File dir = app.getFilesDir();
+    // The model: two lists merged, a file in both once; the .pls text back.
+    Playlist a = Playlist.parse("[playlist]\nFile1=/a/x.png\nTitle1=x.png\nFile2=/a/y.mp4\nNumberOfEntries=2\n", "a.pls");
+    Playlist b = Playlist.parse("[playlist]\nfile1=/a/y.mp4\nFile2=file:///b/z%20one.mp3\nTitle2=Zed\n", "b.pls");
+    Playlist m = Playlist.merge("a + b", java.util.Arrays.asList(a, b));
+    StringBuilder titles = new StringBuilder();
+    for (Playlist.Item it : m.items) titles.append(it.title).append(" (").append(it.file).append(") ");
+    out.append("merged: ").append(titles).append('\n');
+    Playlist back = Playlist.parse(m.toPls(), "again.pls");
+    boolean modelOk = m.items.size() == 3 && "Zed".equals(m.items.get(2).title) && "/b/z one.mp3".equals(m.items.get(2).file) && back.items.size() == 3 && "again".equals(back.name);
+    // Browse DB: a card's long press has Add to playlist and Add to default playlist.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 24, android.graphics.Bitmap.Config.ARGB_8888);
+    bmp.eraseColor(android.graphics.Color.BLUE);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "beach.png", png.toByteArray(), false);
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-pick:beach.png").performLongClick();
+    idle();
+    out.append("card menu: ").append(listItems(RefBrowser.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(5);
+    idle();
+    out.append("Add to default playlist: ").append(((TextView) get("now")).getText()).append('\n');
+    RefBrowser.last.getWindow().getDecorView().findViewWithTag("refs-pick:beach.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(RefBrowser.menu).clickOnItem(4);
+    idle();
+    out.append("Add to playlist list: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(1);
+    idle();
+    ((android.widget.EditText) PlaylistScreen.lastAsk.getWindow().getDecorView().findViewWithTag("playlist-name-field")).setText("Trip");
+    PlaylistScreen.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("New playlist: ").append(((TextView) get("now")).getText()).append(", kept ").append(Playlist.names(dir)).append('\n');
+    RefBrowser.last.dismiss();
+    boolean addOk = Playlist.load(dir, "Trip").items.size() == 1 && Playlist.isDb(Playlist.load(dir, Playlist.DEFAULT).items.get(0).file);
+    // Two more files in Default: a picture on disk and a sound.
+    File media = new File(app.getCacheDir(), "playlist-media");
+    media.mkdirs();
+    File sky = new File(media, "sky.png");
+    Files.write(sky.toPath(), png.toByteArray());
+    Playlist.addTo(dir, Playlist.DEFAULT, sky.getAbsolutePath(), "sky.png");
+    Playlist.addTo(dir, Playlist.DEFAULT, new File(media, "gone.mp3").getAbsolutePath(), "gone.mp3");
+    // File > Playlist viewer/editor.
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, Playlist.DEFAULT);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    android.widget.ImageView thumb0 = (android.widget.ImageView) w.findViewWithTag("playlist-thumb:0");
+    out.append("editor: ").append(((TextView) w.findViewWithTag("playlist-info:0")).getText().toString().replace('\n', ' ')).append(" | thumbnail ").append(thumb0.getDrawable() != null)
+        .append(" | rows ").append(w.findViewWithTag("playlist-item:2") != null).append('\n');
+    boolean editorOk = thumb0.getDrawable() != null && w.findViewWithTag("playlist-item:2") != null;
+    // sky.png up to the top, then saved.
+    w.findViewWithTag("playlist-up:1").performClick();
+    idle();
+    out.append("after ▲: ").append(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title).append('\n');
+    boolean moveOk = "sky.png".equals(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title);
+    // A long press: the item's menu, Start viewer.
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-item:0").performLongClick();
+    idle();
+    out.append("item menu: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    out.append("viewer: ").append(((TextView) vw.findViewWithTag("viewer-where")).getText()).append(", shows ").append(PlaylistScreen.viewerNote).append('\n');
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String second = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString();
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String third = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString() + " (" + PlaylistScreen.viewerNote + ")";
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String atEnd = ((TextView) get("now")).getText().toString();
+    out.append("▶: ").append(second).append(" | ").append(third).append(" | at the end: ").append(atEnd).append('\n');
+    boolean viewerOk = second.startsWith("2 / 3") && third.startsWith("3 / 3") && atEnd.startsWith("The end of Default");
+    // Repeat and Auto mode (1 s a picture): the end goes back to the start by itself.
+    Playlist.Settings set = Playlist.settings(dir);
+    set.repeat = true;
+    set.auto = true;
+    set.seconds = 1;
+    Playlist.saveSettings(dir, set);
+    vw.findViewWithTag("viewer-prev").performClick();
+    vw.findViewWithTag("viewer-prev").performClick();
+    idle();
+    int before = PlaylistScreen.viewerAt;
+    PlaylistScreen.stageHold.run();
+    out.append("held: ").append(((TextView) get("now")).getText()).append('\n');
+    Thread.sleep(1100);
+    PlaylistScreen.autoTick.run();
+    int whileHeld = PlaylistScreen.viewerAt;
+    PlaylistScreen.stageHold.run();
+    Thread.sleep(1100);
+    PlaylistScreen.autoTick.run();
+    int afterAuto = PlaylistScreen.viewerAt;
+    out.append("Auto mode: at ").append(before).append(", held ").append(whileHeld).append(", then ").append(afterAuto).append('\n');
+    boolean autoOk = before == 0 && whileHeld == 0 && afterAuto == 1;
+    vw.findViewWithTag("viewer-zoom-in").performClick();
+    vw.findViewWithTag("viewer-speed").performClick();
+    vw.findViewWithTag("viewer-mute").performClick();
+    PlaylistScreen.lastViewer.dismiss();
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: zoom ").append(kept.zoom).append(", speed ").append(Playlist.speedText(kept.speed)).append(", mute ").append(kept.mute).append('\n');
+    boolean keptOk = kept.zoom > 1f && kept.speed > 1f && kept.mute;
+    // The Viewer tab's boxes.
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-tab:Viewer").performClick();
+    idle();
+    w = PlaylistScreen.last.getWindow().getDecorView();
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-autoplay")).setChecked(false);
+    w.findViewWithTag("playlist-seconds-more").performClick();
+    out.append("Viewer tab: autoplay ").append(Playlist.settings(dir).autoplay).append(", ").append(((TextView) w.findViewWithTag("playlist-seconds")).getText()).append('\n');
+    boolean tabOk = !Playlist.settings(dir).autoplay && Playlist.settings(dir).seconds == 2;
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    // PlayList.java's run (as the program gives it): the merged list kept and opened.
+    app.pyName = "PlayList.java";
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<>();
+    made.add(new JavaRun.FileOut("a + b.pls", m.toPls().getBytes(StandardCharsets.UTF_8)));
+    app.pyJav.pkShowPyResult(new JavaRun.Result("a.pls: 2 files\nb.pls: 2 files (1 in an earlier list already)\nSucceeded: 2 playlists merged into a + b, 3 files\nPlaylist: a + b", made, 0));
+    for (int i = 0; i < 100 && (PlaylistScreen.last == null || !PlaylistScreen.last.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("PlayList.java run: ").append(PlaylistScreen.last != null && PlaylistScreen.last.isShowing() ? org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle() : "not shown").append(", kept ").append(Playlist.names(dir)).append('\n');
+    boolean runOk = PlaylistScreen.shown != null && "a + b".equals(PlaylistScreen.shown.name) && Playlist.file(dir, "a + b").isFile();
+    if (PlaylistScreen.last != null) PlaylistScreen.last.dismiss();
+    app.pyName = null;
+    // The Media browser: Add to playlist in a file's menu; the folder playlist's Save pls.
+    MediaDir.filter = "A";
+    MediaBrowser mb = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 100 && mb.loading; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    MediaDir.Entry skyEntry = null;
+    for (MediaDir.Entry e : mb.allEntries) if (e.name.equals("sky.png")) skyEntry = e;
+    mb.menu(skyEntry);
+    out.append("media menu ends: ").append(listItems(MediaBrowser.lastMenu).replaceAll(".*\\| ", "")).append('\n');
+    MediaBrowser.lastMenu.dismiss();
+    MediaPlaylist.add(dir, mb.folderKey(), skyEntry.id, skyEntry.name, skyEntry.size);
+    mb.playlist();
+    idle();
+    MediaBrowser.lastPlaylist.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-playlist-pls-name")).setText("Folder list");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Save pls: ").append(((TextView) get("now")).getText()).append('\n');
+    boolean savePlsOk = Playlist.load(dir, "Folder list").items.size() == 1;
+    write("s152_playlists", out.toString());
+    if (!modelOk || !addOk || !editorOk || !moveOk || !viewerOk || !autoOk || !keptOk || !tabOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
   }
 
   @SuppressWarnings("unused")

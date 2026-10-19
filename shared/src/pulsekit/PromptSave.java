@@ -27,6 +27,31 @@ public final class PromptSave {
     public boolean favourite;
     /** Tag 1–3 (the prompt's tags; empty ones left out). */
     public List<String> tags = new ArrayList<String>();
+    /** The group the run's files go in (its result file and the prompt file); "" none. */
+    public String group = "";
+  }
+
+  /** The subcategory Browse's last rows. */
+  public static final String ADD_LOWER = "Add new lower level subcategory";
+  public static final String ADD_SAME = "Add same level subcategory";
+
+  /** A new subcategory inside the one typed ("Clips" + "Night": "Clips / Night"). */
+  public static String lowerLevel(String now, String name) {
+    String n = one(name).replace("/", "-");
+    String at = one(now);
+    if (n.length() == 0) return at;
+    return at.length() == 0 ? n : at + " / " + n;
+  }
+
+  /** A new subcategory beside the one typed ("Clips / Night" + "Day": "Clips / Day"; "Clips" + "Stills": "Stills"). */
+  public static String sameLevel(String now, String name) {
+    String n = one(name).replace("/", "-");
+    if (n.length() == 0) return one(now);
+    List<String> parts = subParts(now);
+    if (parts.size() <= 1) return n;
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < parts.size() - 1; i++) sb.append(parts.get(i)).append(" / ");
+    return sb.append(n).toString();
   }
 
   /** A sheet to save: its file, as the run wrote it, and the sheet read from it. */
@@ -261,6 +286,15 @@ public final class PromptSave {
    * files), as "Image › Portraits: Smile v2"; null when it has none (something changed).
    */
   public static String unchanged(PromptVault vault, PromptRun.Sheet sheet) {
+    return unchanged(vault, sheet, null, null);
+  }
+
+  /**
+   * As above, and the run's files the same too: its result file (by name and size) and the
+   * reference files it read (`argv`'s, by size). A new clip made with the same prompt and settings
+   * (Process as a reference reruns a program's prompt) is a new version, not "unchanged".
+   */
+  public static String unchanged(PromptVault vault, PromptRun.Sheet sheet, JavaRun.Result result, List<String> argv) {
     if (vault == null || sheet == null) return null;
     String body = sheet.body == null ? "" : sheet.body.trim();
     for (PromptVault.Category c : vault.categories()) {
@@ -270,6 +304,7 @@ public final class PromptSave {
           PromptVault.Version v = rows.get(i);
           String stored = PromptRun.withoutDescription(v.description, v.body == null ? "" : v.body).trim();
           if (!body.equals(stored) || !same(sheet.model, v.model) || !same(sheet.ref1, v.ref1Name) || !same(sheet.ref2, v.ref2Name)) continue;
+          if (result != null && !sameFiles(vault, v, sheet, result, argv)) continue;
           long main = vault.mainOf(c.id);
           PromptVault.Category m = vault.category(main);
           String place = main == c.id || m == null ? c.name : placeLabel(m.name, c.name);
@@ -278,6 +313,27 @@ public final class PromptSave {
       }
     }
     return null;
+  }
+
+  /** The run's result and reference files the same as the version's (by size; a file the run did not make or read counts as the same). */
+  private static boolean sameFiles(PromptVault vault, PromptVault.Version v, PromptRun.Sheet sheet, JavaRun.Result result, List<String> argv) {
+    String made = sheet.result == null ? "" : sheet.result.trim();
+    if (made.length() > 0 && result.files != null) {
+      for (JavaRun.FileOut f : result.files) {
+        if (!made.equals(f.name) || f.bytes == null) continue;
+        if (!made.equals(v.resultName) || vault.sizeOf(v, 3) != f.bytes.length) return false;
+      }
+    }
+    String[] refs = {sheet.ref1, sheet.ref2};
+    for (int i = 0; i < 2; i++) {
+      String n = refs[i] == null ? "" : refs[i].trim();
+      if (n.length() == 0 || argv == null) continue;
+      for (String a : argv) {
+        File f = new File(a == null ? "" : a);
+        if (f.isFile() && f.getName().equals(n) && vault.sizeOf(v, i + 1) != f.length()) return false;
+      }
+    }
+    return true;
   }
 
   /** The line for a sheet that was not saved again. */
@@ -389,6 +445,16 @@ public final class PromptSave {
       }
       out.bytes = rewrite(new String(pending.file.bytes, StandardCharsets.UTF_8), name, c, version, date).getBytes(StandardCharsets.UTF_8);
       out.fileName = fileName(pending.file.name, sheet, name);
+      // Group: the run's result file and the prompt file go in it (by name and size, as everywhere).
+      String group = FileGroups.clean(c.group);
+      if (group.length() > 0) {
+        FileGroups.load(dir);
+        if (sheet.result != null && result != null && result.files != null) {
+          for (JavaRun.FileOut f : result.files) if (sheet.result.trim().equals(f.name) && f.bytes != null) FileGroups.set(group, MarkFile.mediaKey(f.name, f.bytes.length), true);
+        }
+        FileGroups.set(group, MarkFile.mediaKey(out.fileName, out.bytes.length), true);
+        out.note = out.note + ", group " + group;
+      }
       // The sheet is kept in the library (Prompt files), not written to disk; to disk only when that fails.
       try {
         vault.addPromptFile(out.fileName, out.bytes, name + " v" + version);

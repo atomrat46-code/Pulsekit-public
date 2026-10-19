@@ -768,10 +768,28 @@ final class MediaBrowser {
         }
         ScrollView scroll = new ScrollView(this.app);
         scroll.addView(list);
+        // Save pls: this folder's playlist kept as a .pls with the playlists; Open in viewer: that, in the Playlist window.
+        final String listName = Playlist.clean(this.label());
         lastPlaylist = new AlertDialog.Builder(this.app)
             .setTitle("Playlist \u00b7 " + this.label())
             .setView(scroll)
             .setPositiveButton("Close", null)
+            .setNeutralButton("Save pls", (d, w) -> {
+                final android.widget.EditText field = new android.widget.EditText(this.app);
+                field.setSingleLine(true);
+                field.setText(listName);
+                field.setTag("media-playlist-pls-name");
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("Save pls").setView(field)
+                    .setPositiveButton("Save", (d2, w2) -> {
+                        String n = Playlist.clean(field.getText().toString());
+                        if (n.length() > 0) this.app.setNow(this.savePls(n));
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Open in viewer", (d, w) -> {
+                this.app.setNow(this.savePls(listName));
+                PlaylistScreen.show(this.app, listName);
+            })
             .show();
     }
 
@@ -817,6 +835,29 @@ final class MediaBrowser {
     }
 
     /** A file's address for the players and decoders. */
+    /** A file's address in a playlist (.pls): its path, or its content:// address. */
+    String playlistAddress(MediaDir.Entry e) {
+        if (this.tree == null && !e.id.startsWith(MEDIA) && !e.id.startsWith(DL)) return e.id;
+        return this.uri(e).toString();
+    }
+
+    /** Save pls: this folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    String savePls(String name) {
+        Playlist p = new Playlist(name);
+        for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) {
+            MediaDir.Entry e = new MediaDir.Entry();
+            e.id = it.id;
+            e.name = it.name;
+            p.add(this.playlistAddress(e), it.name);
+        }
+        try {
+            Playlist.save(this.app.getFilesDir(), p);
+            return "Saved " + p.name + Playlist.EXT + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)") + ": File > Playlist viewer/editor";
+        } catch (Exception ex) {
+            return "Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage();
+        }
+    }
+
     Uri uri(MediaDir.Entry e) {
         if (e.id.startsWith(MEDIA)) {
             String[] part = e.id.substring(MEDIA.length()).split(":");
@@ -912,24 +953,17 @@ final class MediaBrowser {
     /** The type selectors: A all, I pictures, V videos, S sounds, T text, O other files. */
     private void filters() {
         FileGroups.load(this.app.getFilesDir());
+        FileFavourites.load(this.app.getFilesDir());
         LinearLayout row = this.app.row();
+        FileFilter.use(FileFilter.MEDIA);
+        MediaDir.filter = FileFilter.normal(MediaDir.filter);
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
-            final boolean g = FileGroups.LETTER.equals(f);
+            if (FileFilter.isToggle(f)) continue;
             int n = MediaDir.count(this.allEntries, f);
-            // G: a group's files (held: the list of groups).
-            final Runnable toGroup = () -> {
-                MediaDir.filter = FileGroups.LETTER;
-                this.refilter();
-            };
-            TextView pill = this.app.pill(g ? FileGroups.label() : f, f.equals(MediaDir.filter), v -> {
-                if (g && !GroupDialogs.tap(this.app, toGroup)) return;
+            TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
                 MediaDir.filter = f;
                 this.refilter();
-            });
-            if (g) pill.setOnLongClickListener(v -> {
-                GroupDialogs.pick(this.app, toGroup);
-                return true;
             });
             pill.setTag("media-filter:" + f);
             pill.setContentDescription(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
@@ -938,7 +972,14 @@ final class MediaBrowser {
             lp.rightMargin = this.app.dp(6);
             row.addView(pill, lp);
         }
-        TextView legend = this.app.text(MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)], 12, false);
+        // F G C: switches with the letter (held: G the groups, C the categories).
+        FilterRow.toggles(this.app, row, "media-filter:", MediaDir.filter, (text, on) -> this.app.pill(text, on, null), () -> {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            return lp;
+        }, this::refilter);
+        TextView legend = this.app.text(MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]
+            + FileFilter.title().replace(" \u00b7 Group: ", " \u00b7 group ").replace(" \u00b7 ", ", "), 12, false);
         legend.setTextColor(UiKit.MUTED);
         legend.setTag("media-filter-name");
         row.addView(legend);
@@ -950,6 +991,12 @@ final class MediaBrowser {
         row.addView(tagged, tlp);
         row.setPadding(0, 0, 0, this.app.dp(6));
         this.body.addView(row);
+        // T1 T2 T3: the files with any of the tags picked.
+        this.body.addView(FilterRow.tags(this.app, "media-filter:", (text, on) -> this.app.pill(text, on, null), () -> {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(6);
+            return lp;
+        }, this::refilter));
     }
 
     /** The type selector (or G's group) picked: the folder shown again with what it keeps. */
@@ -963,7 +1010,9 @@ final class MediaBrowser {
     List<MediaDir.Entry> shownEntries() {
         MediaTags.load(this.app.getFilesDir());
         FileGroups.load(this.app.getFilesDir());
-        return MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter);
+        FileFavourites.load(this.app.getFilesDir());
+        FileFilter.use(FileFilter.MEDIA);
+        return FileFilter.entries(MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter));
     }
 
     /** The tag filter's choices for this folder: All files, each tag and category its files have. */
@@ -982,76 +1031,20 @@ final class MediaBrowser {
             .setNegativeButton("Cancel", null).show();
     }
 
-    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one. */
+    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one (TagDialogs). */
     void tags(final MediaDir.Entry e) {
-        MediaTags.load(this.app.getFilesDir());
-        final String key = MediaTags.key(e);
-        final List<String> known = MediaTags.known();
-        final List<String> has = MediaTags.tags(key);
-        final String[] names = known.toArray(new String[0]);
-        final boolean[] on = new boolean[names.length];
-        for (int i = 0; i < names.length; i++) on[i] = has.contains(names[i]);
-        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle("Tags for " + e.name);
-        if (names.length > 0) b.setMultiChoiceItems(names, on, (d, which, checked) -> on[which] = checked);
-        else b.setMessage("No tags yet: add one with New tag.");
-        lastAsk = b.setPositiveButton("Save", (d, w) -> {
-                List<String> chosen = new ArrayList<String>();
-                for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
-                this.tagged(e, key, chosen);
-            })
-            .setNeutralButton("New tag\u2026", (d, w) -> {
-                final android.widget.EditText field = new android.widget.EditText(this.app);
-                field.setSingleLine(true);
-                field.setHint("beach, night (a comma between)");
-                field.setTag("media-new-tag-field");
-                lastAsk = new AlertDialog.Builder(this.app).setTitle("New tag").setView(field)
-                    .setPositiveButton("Add new tag", (d2, w2) -> {
-                        List<String> chosen = new ArrayList<String>();
-                        for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
-                        for (String t : field.getText().toString().split(",")) chosen.add(t);
-                        this.tagged(e, key, chosen);
-                        // The list again, the new tag ticked.
-                        this.tags(e);
-                    })
-                    .setNegativeButton("Cancel", null).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+        TagDialogs.tags(this.app, e.name, e.size, () -> {
+            this.entries = this.shownEntries();
+            this.paint();
+        });
     }
 
-    private void tagged(MediaDir.Entry e, String key, List<String> chosen) {
-        MediaTags.setTags(key, chosen);
-        String line = MediaTags.line(key);
-        this.app.setNow(line.length() == 0 ? e.name + ": no tags" : e.name + ": " + line);
-        this.entries = this.shownEntries();
-        this.paint();
-    }
-
-    /** Category…: one of the prompt library's categories for the file, or none (read off the main thread). */
+    /** Category…: one of the prompt library's categories for the file, or none (TagDialogs). */
     void category(final MediaDir.Entry e) {
-        MediaTags.load(this.app.getFilesDir());
-        final String key = MediaTags.key(e);
-        new Thread(() -> {
-            final List<String> names = new ArrayList<String>();
-            names.add("(none)");
-            try {
-                names.addAll(MediaTags.categoryNames(PromptVault.open(this.app.getFilesDir())));
-            } catch (Throwable ex) {
-                // no library: none only
-            }
-            this.main.post(() -> {
-                int now = Math.max(0, names.indexOf(MediaTags.category(key)));
-                lastAsk = new AlertDialog.Builder(this.app).setTitle("Category for " + e.name)
-                    .setSingleChoiceItems(names.toArray(new String[0]), now, (d, which) -> {
-                        String picked = names.get(which);
-                        MediaTags.setCategory(key, which == 0 ? "" : picked);
-                        this.app.setNow(e.name + (which == 0 ? ": no category" : " is in " + picked));
-                        d.dismiss();
-                        this.entries = this.shownEntries();
-                        this.paint();
-                    })
-                    .setNegativeButton("Cancel", null).show();
-            });
-        }, "pulsekit-media-categories").start();
+        TagDialogs.category(this.app, e.name, e.size, () -> {
+            this.entries = this.shownEntries();
+            this.paint();
+        });
     }
 
     /** The file being dragged onto a folder card (press, hold and move), or null. */
@@ -1270,7 +1263,11 @@ final class MediaBrowser {
             return;
         }
         if (this.entries.isEmpty()) {
-            this.body.addView(this.app.text("No pictures, videos or sounds here", 14, false));
+            // The F G C switches or the T lists may be what keeps the files out: say so.
+            FileFilter.use(FileFilter.MEDIA);
+            TextView none = this.app.text(FileFilter.active() ? FileFilter.nothing() : "No pictures, videos or sounds here", 14, false);
+            none.setTag("media-empty");
+            this.body.addView(none);
             return;
         }
         int from = this.page * PAGE;
@@ -1480,13 +1477,28 @@ final class MediaBrowser {
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
-        final String[] items = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        final String[] menuItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
+        boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
+        final String[] items = playable ? java.util.Arrays.copyOf(menuItems, menuItems.length + 1) : menuItems;
+        if (playable) items[items.length - 1] = Playlist.ADD;
+        // A favourite already: Remove from favourites.
+        FileFavourites.load(this.app.getFilesDir());
+        final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
+        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
-                if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                if (Playlist.ADD.equals(items[which])) PlaylistScreen.addTo(this.app, this.playlistAddress(e), e.name);
+                else if (MediaTags.TAGS.equals(items[which])) this.tags(e);
+                else if (FileFavourites.ADD_SHORT.equals(items[which]) || FileFavourites.REMOVE_SHORT.equals(items[which])) {
+                    boolean now = FileFavourites.toggleKey(MediaDir.groupKey(e));
+                    this.app.setNow(e.name + (now ? " added to favourites" : " taken out of favourites"));
+                    this.refilter();
+                }
                 else if (FileGroups.ADD.equals(items[which])) GroupDialogs.addTo(this.app, MediaDir.groupKey(e), e.name, () -> {
-                    if (FileGroups.LETTER.equals(MediaDir.filter)) this.refilter();
+                    FileFilter.use(FileFilter.MEDIA);
+                    if (FileFilter.active()) this.refilter();
                 });
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
@@ -1848,6 +1860,8 @@ final class MediaBrowser {
             this.main.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
                 this.app.setNow(shown);
+                // In the DB: then which group it goes in (No group: none).
+                if ((which == 0 || which == 1) && shown.contains(" is in the DB as a ")) GroupDialogs.afterAdd(this.app, e.name, e.size);
             });
         }, "pulsekit-add-to-db").start();
     }
@@ -1871,7 +1885,7 @@ final class MediaBrowser {
             if (box != null) this.badge(box, e);
             return said;
         }
-        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 16 MB, so it is not in the DB";
+        if (MediaDir.tooBig(e.size)) return e.name + " is over the library's 128 MB, so it is not in the DB";
         byte[] bytes;
         try {
             bytes = this.read(e);
@@ -1881,7 +1895,7 @@ final class MediaBrowser {
         return MediaDir.addToDb(this.app.getFilesDir(), e.name, bytes, which == 1);
     }
 
-    /** The file's bytes (up to the library's 16 MB, plus one to tell). */
+    /** The file's bytes (up to the library's 128 MB, plus one to tell). */
     private byte[] read(MediaDir.Entry e) throws Exception {
         InputStream in = this.app.getContentResolver().openInputStream(this.uri(e));
         try {
@@ -1890,7 +1904,7 @@ final class MediaBrowser {
             int n;
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
-                if (out.size() > 16 * 1024 * 1024) break;
+                if (out.size() > 128 * 1024 * 1024) break;
             }
             return out.toByteArray();
         } finally {
@@ -2300,12 +2314,15 @@ final class MediaBrowser {
 
         /** A long press: the video pauses and Mute and the volume come to the top (another long press hides them). */
         void hold() {
+            boolean wasPlaying = playing();
             try {
-                if (playing()) view.pause();
+                // Held: pauses, or (paused) plays.
+                if (wasPlaying) view.pause();
+                else view.start();
             } catch (RuntimeException ignored) {
                 // not ready
             }
-            if (sound != null) {
+            if (sound != null && wasPlaying) {
                 boolean show = sound.getVisibility() != View.VISIBLE;
                 sound.setVisibility(show ? View.VISIBLE : View.GONE);
                 if (show) sound.bringToFront();
@@ -2578,7 +2595,7 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[3];
-        // Holding a finger on the video pauses it and brings Mute and the volume to the top.
+        // Holding a finger on the video pauses it and brings Mute and the volume to the top; held again, it plays.
         final int slop = android.view.ViewConfiguration.get(this.app).getScaledTouchSlop();
         final float[] start = new float[2];
         final Runnable hold = () -> {

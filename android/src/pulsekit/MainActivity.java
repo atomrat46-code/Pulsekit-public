@@ -311,9 +311,10 @@ public class MainActivity extends UiKit {
     final Runnable dbWatch = new Runnable() {
         public void run() {
             String what = PromptVault.busy(600);
-            long now = System.currentTimeMillis();
-            if (what != null && now - MainActivity.this.dbToastAt > 2500) {
-                MainActivity.this.dbToastAt = now;
+            // Once for each time the library is busy (it kept coming back every 2.5 s while it lasted).
+            long since = PromptVault.busySince();
+            if (what != null && since != MainActivity.this.dbToastAt) {
+                MainActivity.this.dbToastAt = since;
                 if (MainActivity.this.dbToast != null) MainActivity.this.dbToast.cancel();
                 MainActivity.this.dbToast = android.widget.Toast.makeText(MainActivity.this, "Processing DB, please wait\u2026\n" + what, android.widget.Toast.LENGTH_SHORT);
                 MainActivity.this.dbToast.show();
@@ -780,6 +781,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) this.compareHits.takeWav(intent.getData());
             return;
         }
+        if (n == PlaylistScreen.PICK_FILES || n == PlaylistScreen.PICK_PLS || n == PlaylistScreen.PICK_MERGE || n == PlaylistScreen.SAVE_PLS) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null) PlaylistScreen.picked(this, n, intent);
+            return;
+        }
         if (n == 28) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptExport(intent.getData());
@@ -1093,6 +1099,11 @@ public class MainActivity extends UiKit {
         downloads.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         downloads.setTextColor(FG);
         downloads.setTag("file-downloads");
+        // Playlists (.pls): the Editor and Viewer tabs.
+        android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
+        playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        playlists.setTextColor(FG);
+        playlists.setTag("file-playlists");
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
@@ -1106,6 +1117,7 @@ public class MainActivity extends UiKit {
         menu.addView(importRef);
         menu.addView(importResult);
         menu.addView(downloads);
+        menu.addView(playlists);
         menu.addView(general);
         menu.addView(midi);
         menu.addView(compare);
@@ -1142,6 +1154,10 @@ public class MainActivity extends UiKit {
         downloads.setOnClickListener(v -> {
             pop.dismiss();
             DownloadsScreen.show(this);
+        });
+        playlists.setOnClickListener(v -> {
+            pop.dismiss();
+            PlaylistScreen.show(this, null);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

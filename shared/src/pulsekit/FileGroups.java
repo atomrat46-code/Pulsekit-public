@@ -21,6 +21,8 @@ public final class FileGroups {
   public static final String LETTER = "G";
   public static final String ADD = "Add to group";
   public static final String NEW = "New group…";
+  /** A group the file is in already: picking it takes the file out (it read "Trip ✓", and picked again to add, it took the file out). */
+  public static final String REMOVE = "Remove from ";
 
   private static File dir;
   private static final Map<String, List<String>> GROUPS = new LinkedHashMap<String, List<String>>();
@@ -123,10 +125,123 @@ public final class FileGroups {
     return now;
   }
 
+  /** The file in the group (made when it is new), or out of it. */
+  public static synchronized void set(String group, String key, boolean in) {
+    String name = clean(group);
+    if (name.isEmpty() || key == null || key.isEmpty()) return;
+    List<String> g = GROUPS.get(name);
+    if (g == null) {
+      if (!in) return;
+      g = new ArrayList<String>();
+      GROUPS.put(name, g);
+    }
+    if (in && !g.contains(key)) g.add(key);
+    if (!in) g.remove(key);
+    save();
+  }
+
+  /** As toggle, for a file known by several keys (a run's file and its copies in the library): all go in, or all out. */
+  public static synchronized boolean toggle(String group, String[] keys) {
+    // In by any key: out by every one. Not in: in by the first (the file's own), so it counts once.
+    boolean now = !in(group, keys);
+    if (now) set(group, keys[0], true);
+    else for (String k : keys) set(group, k, false);
+    return now;
+  }
+
+  /** A new, empty group (from G's list); false when the name is empty or taken. */
+  public static synchronized boolean make(String group) {
+    String name = clean(group);
+    if (name.isEmpty() || GROUPS.containsKey(name)) return false;
+    GROUPS.put(name, new ArrayList<String>());
+    save();
+    return true;
+  }
+
+  /** A group renamed (its files stay in it); false when the new name is empty or taken. */
+  public static synchronized boolean rename(String group, String to) {
+    String name = clean(to);
+    if (name.isEmpty() || !GROUPS.containsKey(group) || GROUPS.containsKey(name)) return false;
+    Map<String, List<String>> kept = new LinkedHashMap<String, List<String>>();
+    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) kept.put(g.getKey().equals(group) ? name : g.getKey(), g.getValue());
+    GROUPS.clear();
+    GROUPS.putAll(kept);
+    if (shown.equals(group)) shown = name;
+    save();
+    return true;
+  }
+
+  /** A group deleted (its files stay where they are, in no group by it). */
+  public static synchronized void delete(String group) {
+    GROUPS.remove(group);
+    if (shown.equals(group)) shown = "";
+    save();
+  }
+
+  /** After Import or Add to DB: "No group", the groups, New group…. */
+  public static final String NONE = "No group";
+
+  public static synchronized String[] afterAdd() {
+    List<String> out = new ArrayList<String>();
+    out.add(NONE);
+    out.addAll(GROUPS.keySet());
+    out.add(NEW);
+    return out.toArray(new String[0]);
+  }
+
+  /** The G list's own rows after the groups. */
+  public static final String RENAME = "Rename a group\u2026";
+  public static final String DELETE = "Delete a group\u2026";
+
+  /** How many files a group holds: a library file and the same file marked elsewhere (its name and size) count once. */
+  public static synchronized int count(String group, PromptVault vault) {
+    List<String> g = GROUPS.get(group);
+    if (g == null) return 0;
+    Map<String, String> asFile = new java.util.HashMap<String, String>();
+    if (vault != null) {
+      List<PromptVault.StoredFile> all = new ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+      all.addAll(vault.resultFiles());
+      all.addAll(vault.promptFiles());
+      for (PromptVault.StoredFile f : all) asFile.put(key(f), MarkFile.mediaKey(f.name, f.size));
+    }
+    java.util.Set<String> files = new java.util.HashSet<String>();
+    for (String k : g) files.add(asFile.containsKey(k) ? asFile.get(k) : k);
+    return files.size();
+  }
+
+  /** The G list's row for a group: "Trip (5)", ✓ for the one G shows. */
+  public static synchronized String pickRow(String group, PromptVault vault) {
+    return group + " (" + count(group, vault) + ")" + (group.equals(shown) ? " \u2713" : "");
+  }
+
+  /** In the group by any of its keys. */
+  public static synchronized boolean in(String group, String[] keys) {
+    for (String k : keys) if (in(group, k)) return true;
+    return false;
+  }
+
+  /** A library file's keys: its place in the library, and the file it is (name and size), as a run's file is marked. */
+  public static String[] keys(PromptVault.StoredFile f) {
+    return new String[] {MarkFile.mediaKey(f.name, f.size), key(f)};
+  }
+
+  /** As menu(key), ✓ where the file is in by any of its keys. */
+  public static synchronized String[] menu(String[] keys) {
+    List<String> out = new ArrayList<String>();
+    for (String g : GROUPS.keySet()) out.add(in(g, keys) ? REMOVE + g : g);
+    out.add(NEW);
+    return out.toArray(new String[0]);
+  }
+
+  /** Whether a library file shows under G: in the group G shows by either key. */
+  public static synchronized boolean fits(PromptVault.StoredFile f) {
+    return !shown.isEmpty() && in(shown, keys(f));
+  }
+
   /** The Add to group list: each group (✓ when the file is in it), then New group…. */
   public static synchronized String[] menu(String key) {
     List<String> out = new ArrayList<String>();
-    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) out.add(g.getKey() + (g.getValue().contains(key) ? " ✓" : ""));
+    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) out.add(g.getValue().contains(key) ? REMOVE + g.getKey() : g.getKey());
     out.add(NEW);
     return out.toArray(new String[0]);
   }
@@ -148,9 +263,14 @@ public final class FileGroups {
     save();
   }
 
-  /** G's label: "G", or "G · Trip" when a group is picked. */
+  /** G's label: just G (with the group's name, cut to fit, it read as "G E"); the group shown goes in the title (title()). */
   public static String label() {
-    return shown.isEmpty() ? LETTER : LETTER + " · " + shown;
+    return LETTER;
+  }
+
+  /** While G shows a group: " · Group: Trip" for the screen's title; "" otherwise. */
+  public static String title(String letter) {
+    return LETTER.equals(letter) && !shown.isEmpty() ? " \u00b7 Group: " + shown : "";
   }
 
   /** Whether a file shows under G: it is in the group G shows. */

@@ -37,7 +37,7 @@ import java.util.Locale;
 
 /** Prompts tab. Prompts, categories, reference files, and versions live in an encrypted database. */
 public final class PromptSheet {
-  private static final int MAX = 16 * 1024 * 1024;
+  private static final int MAX = 128 * 1024 * 1024;
   private static LinearLayout host;
   private static PromptVault vault;
   private static long categoryId;
@@ -177,7 +177,7 @@ public final class PromptSheet {
         while ((n = in.read(buf)) > 0) {
           total += n;
           if (total > MAX) {
-            toast(activity, label + " is too large (max 16 MB)");
+            toast(activity, label + " is too large (max 128 MB)");
             return;
           }
           bos.write(buf, 0, n);
@@ -365,7 +365,7 @@ public final class PromptSheet {
           else picked.put(name, bytes);
         }
         said = PromptImport.importAll(PromptVault.open(app.getFilesDir()), picked);
-        if (!big.isEmpty()) said = said + "\nOver 16 MB, not read: " + String.join(", ", big);
+        if (!big.isEmpty()) said = said + "\nOver 128 MB, not read: " + String.join(", ", big);
       } catch (Throwable ex) {
         said = "Could not import: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
       }
@@ -605,7 +605,7 @@ public final class PromptSheet {
     });
     col.addView(back, buttonLp(activity));
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
-    col.addView(caption(activity, promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES"));
+    col.addView(caption(activity, (promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES") + FileFilter.title().toUpperCase()));
     // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
     FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
     LinearLayout sortRow = new LinearLayout(activity);
@@ -640,42 +640,40 @@ public final class PromptSheet {
     // A I V S T: all files, or only pictures, videos, sound files or text files.
     LinearLayout kinds = new LinearLayout(activity);
     kinds.setOrientation(LinearLayout.HORIZONTAL);
-    // G: a group's files (held: the list of groups).
+    // F: the favourites; G: a group's files (held: the list of groups).
     FileGroups.load(activity.getFilesDir());
-    final Runnable toGroup = () -> {
-      galleryFilter = FileGroups.LETTER;
-      rebuild(activity);
-    };
+    FileFavourites.load(activity.getFilesDir());
+    FileFilter.use(FileFilter.GALLERY);
+    galleryFilter = FileFilter.normal(galleryFilter);
     for (String letter : RefBrowser.withGroup()) {
-      final boolean g = FileGroups.LETTER.equals(letter);
+      if (FileFilter.isToggle(letter)) continue;
       boolean on = letter.equals(galleryFilter);
-      TextView pill = button(activity, g ? FileGroups.label() : letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      TextView pill = button(activity, letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
       pill.setTag("refs-filter:" + letter);
-      pill.setSingleLine(true);
-      pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
       pill.setOnClickListener(v -> {
-        if (g && !GroupDialogs.tap(activity, toGroup)) return;
         galleryFilter = letter;
         rebuild(activity);
       });
-      if (g) pill.setOnLongClickListener(v -> {
-        GroupDialogs.pick(activity, toGroup);
-        return true;
-      });
-      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), g ? 2f : 1f);
-      plp.rightMargin = dp(activity, 6);
-      kinds.addView(pill, plp);
+      kinds.addView(pill, galleryLp(activity));
     }
+    // F G C: switches with the letter (held: G the groups, C the categories).
+    FilterRow.toggles(activity, kinds, "refs-filter:", galleryFilter, (text, on) -> galleryPill(activity, text, on), () -> galleryLp(activity), () -> rebuild(activity));
     LinearLayout.LayoutParams kindsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     kindsLp.bottomMargin = dp(activity, 8);
     col.addView(kinds, kindsLp);
+    // T1 T2 T3: the files with any of the tags picked.
+    LinearLayout.LayoutParams tagsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+    tagsLp.bottomMargin = dp(activity, 8);
+    col.addView(FilterRow.tags(activity, "refs-filter:", (text, on) -> galleryPill(activity, text, on), () -> galleryLp(activity), () -> rebuild(activity)), tagsLp);
     // Category tabs: All, the main categories the files' prompts are in, No category.
     List<PromptVault.StoredFile> kindFiles = galleryFiles();
     List<long[]> tabs = FileFavourites.tabs(vault, kindFiles);
     boolean tabThere = false;
     for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
     if (!tabThere) galleryCategory = FileFavourites.ALL;
-    if (tabs.size() > 2 || galleryCategory != FileFavourites.ALL) {
+    // F and G show every favourite or group file, whatever its category: no category tabs then.
+    final boolean markLetter = FileFilter.active() || FileFilter.isToggle(galleryFilter);
+    if (!markLetter && (tabs.size() > 2 || galleryCategory != FileFavourites.ALL)) {
       android.widget.HorizontalScrollView tabScroll = new android.widget.HorizontalScrollView(activity);
       tabScroll.setHorizontalScrollBarEnabled(false);
       LinearLayout tabRow = new LinearLayout(activity);
@@ -709,12 +707,47 @@ public final class PromptSheet {
       favs.setOnClickListener(v -> {
         CharSequence[] labels = new CharSequence[favFiles.size()];
         for (int i = 0; i < labels.length; i++) labels[i] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
+        // Each with a small thumbnail (read in the background, one after another).
+        final Bitmap[] small = new Bitmap[labels.length];
+        final int px = dp(activity, 44);
+        final android.widget.ArrayAdapter<CharSequence> rows = new android.widget.ArrayAdapter<CharSequence>(activity, android.R.layout.simple_list_item_1, labels) {
+          @Override
+          public View getView(int position, View convert, android.view.ViewGroup parent) {
+            LinearLayout row = new LinearLayout(activity);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(activity, 16), dp(activity, 6), dp(activity, 16), dp(activity, 6));
+            ImageView thumb = new ImageView(activity);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            thumb.setBackgroundColor(Color.parseColor("#1B1D1F"));
+            thumb.setTag("fav-thumb:" + position);
+            if (small[position] != null) thumb.setImageBitmap(small[position]);
+            row.addView(thumb, new LinearLayout.LayoutParams(px, px));
+            TextView t = label(activity, String.valueOf(getItem(position)), 14, "#ECEBE6", false);
+            t.setPadding(dp(activity, 12), 0, 0, 0);
+            t.setMaxLines(2);
+            row.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            return row;
+          }
+        };
         lastFavFiles = new AlertDialog.Builder(activity).setTitle("\u2605 Favourite files")
-            .setItems(labels, (d, which) -> galleryOpen(activity, favFiles.get(which), null)).setNegativeButton("Close", null).show();
+            .setAdapter(rows, (d, which) -> galleryOpen(activity, favFiles.get(which), null)).setNegativeButton("Close", null).show();
+        new Thread(() -> {
+          PromptVault.quiet(true);
+          try {
+            for (int i = 0; i < small.length; i++) {
+              PromptVault.StoredFile f = favFiles.get(i);
+              small[i] = refThumb(activity, f.name, vault.fileBytes(f.versionId, f.which), px);
+              if (small[i] != null) activity.runOnUiThread(rows::notifyDataSetChanged);
+            }
+          } catch (Throwable ex) {
+            // the names stay without their thumbnails
+          }
+        }, "pulsekit-fav-thumbs").start();
       });
       col.addView(favs, buttonLp(activity));
     }
-    List<PromptVault.StoredFile> files = FileSort.sorted(FileFavourites.onTab(vault, kindFiles, galleryCategory), FileSort.current, vault);
+    List<PromptVault.StoredFile> files = FileSort.sorted(FileFavourites.onTab(vault, kindFiles, markLetter ? FileFavourites.ALL : galleryCategory), FileSort.current, vault);
     if (files.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
       return;
@@ -811,6 +844,20 @@ public final class PromptSheet {
     watchGallery(activity, token);
   }
 
+  /** A gallery letter's (a switch's, a tag list's) pill: lit when on. */
+  private static TextView galleryPill(Activity activity, String text, boolean on) {
+    TextView pill = button(activity, text, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+    pill.setSingleLine(true);
+    pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    return pill;
+  }
+
+  private static LinearLayout.LayoutParams galleryLp(Activity activity) {
+    LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), 1f);
+    plp.rightMargin = dp(activity, 6);
+    return plp;
+  }
+
   /** The gallery's A I V S T choice (all files at first), and its category tab (FileFavourites.ALL at first). */
   private static String galleryFilter = "A";
   static long galleryCategory = FileFavourites.ALL;
@@ -845,11 +892,9 @@ public final class PromptSheet {
   /** The files of the gallery open: Prompt files, Result files or Ref files, of the kind A I V S T picks. */
   private static List<PromptVault.StoredFile> galleryFiles() {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
-    if ("A".equals(galleryFilter)) return all;
-    List<PromptVault.StoredFile> out = new java.util.ArrayList<PromptVault.StoredFile>();
-    boolean group = FileGroups.LETTER.equals(galleryFilter);
-    for (PromptVault.StoredFile f : all) if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) out.add(f);
-    return out;
+    FileFilter.use(FileFilter.GALLERY);
+    if ("A".equals(galleryFilter) && !FileFilter.active()) return all;
+    return FileFilter.keep(all, vault, galleryFilter);
   }
 
   /** The library's change count (PromptVault.changes) the gallery shown was built at. */
@@ -884,7 +929,26 @@ public final class PromptSheet {
   }
 
   private static void loadRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
+    final List<Runnable> slotJobs = new java.util.ArrayList<Runnable>(SLOT_JOBS);
+    SLOT_JOBS.clear();
     new Thread(() -> {
+      // The previews' reads are no "Processing DB" (one after another, the notice kept coming back).
+      PromptVault.quiet(true);
+      try {
+        readRefThumbs(activity, token, views, marks, subs, ids, slots, names, px);
+        // Then the prompt files' small thumbnails, one at a time.
+        for (Runnable job : slotJobs) {
+          if (token != refsToken) return;
+          job.run();
+        }
+      } catch (Throwable ex) {
+        // A file too big to read (out of memory): the gallery stays, without the rest of its previews.
+      }
+    }, "pulsekit-gallery-previews").start();
+  }
+
+  private static void readRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
+    {
       for (int i = 0; i < views.length; i++) {
         if (token != refsToken) return;
         Bitmap bitmap = refThumb(activity, names[i], vault.fileBytes(ids[i], slots[i]), px);
@@ -917,7 +981,7 @@ public final class PromptSheet {
           mark.setVisibility(View.GONE);
         });
       }
-    }).start();
+    }
   }
 
   /** The size of the picture or video refThumb read last on this thread ({width, height}; 0 when not known). */
@@ -1723,6 +1787,9 @@ public final class PromptSheet {
   }
 
   /** Up to three small thumbnails (reference 1, reference 2, result) along the bottom of a prompt file's card. */
+  /** The prompt files' small thumbnails still to read: loadRefThumbs reads them after the previews. */
+  private static final List<Runnable> SLOT_JOBS = new java.util.ArrayList<Runnable>();
+
   private static void slotThumbs(Activity activity, android.widget.FrameLayout frame, PromptVault.Version v, int cell) {
     LinearLayout strip = new LinearLayout(activity);
     strip.setOrientation(LinearLayout.HORIZONTAL);
@@ -1738,12 +1805,13 @@ public final class PromptSheet {
       LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px, px);
       lp.rightMargin = dp(activity, 4);
       strip.addView(mini, lp);
+      // Read later, one after another with the gallery's own previews (a thread each ran out of memory with many prompt files).
       final long vid = v.id;
       final int slot = which;
-      new Thread(() -> {
+      SLOT_JOBS.add(() -> {
         Bitmap b = refThumb(activity, n, vault.fileBytes(vid, slot), px);
         if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
-      }, "pulsekit-prompt-file-thumb").start();
+      });
     }
     if (strip.getChildCount() == 0) return;
     android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
@@ -1751,6 +1819,10 @@ public final class PromptSheet {
     flp.bottomMargin = dp(activity, 4);
     frame.addView(strip, flp);
   }
+
+  /** The prompt file whose view a full size picture was opened from: Back shows that view again. */
+  private static PromptVault.StoredFile backToPromptFile;
+  private static PromptVault.Version backToOwner;
 
   /** The prompt file preview shown last, for the tests. */
   static AlertDialog lastPromptFilePreview;
@@ -1781,6 +1853,9 @@ public final class PromptSheet {
           focusId = file.versionId;
           focusWhich = file.which;
           openPreview(activity, n, vault.fileBytes(owner.id, slot), 3);
+          // Back from full size: this prompt file's view again (its text and thumbnails).
+          backToPromptFile = file;
+          backToOwner = owner;
         };
         mini.setOnClickListener(big);
         mini.setOnLongClickListener(v -> {
@@ -1791,6 +1866,7 @@ public final class PromptSheet {
         lp.rightMargin = dp(activity, 8);
         thumbs.addView(box, lp);
         new Thread(() -> {
+          PromptVault.quiet(true);
           Bitmap b = refThumb(activity, n, vault.fileBytes(owner.id, slot), px);
           if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
         }, "pulsekit-prompt-file-thumb").start();
@@ -1849,7 +1925,15 @@ public final class PromptSheet {
       rebuild(activity);
     });
     items.add(FileGroups.ADD);
-    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(file), file.name, () -> rebuild(activity)));
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(file), file.name, () -> rebuild(activity)));
+    items.add(Playlist.ADD);
+    runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(file), file.name));
+    items.add(Playlist.ADD_DEFAULT);
+    runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(file), file.name));
+    items.add(MediaTags.TAGS);
+    runs.add(() -> TagDialogs.tags((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
+    items.add(MediaTags.CATEGORY);
+    runs.add(() -> TagDialogs.category((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -1870,6 +1954,16 @@ public final class PromptSheet {
     }));
     lastFileMenu = new AlertDialog.Builder(activity).setTitle(file.name)
         .setItems(items.toArray(new CharSequence[0]), (d, pick) -> runs.get(pick).run()).show();
+  }
+
+  /** A stored file's size, by its place in the library (0 when it is not there). */
+  private static long storedSize(long versionId, int which) {
+    if (vault == null) return 0;
+    List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    all.addAll(vault.promptFiles());
+    for (PromptVault.StoredFile f : all) if (f.versionId == versionId && f.which == which) return f.size;
+    return 0;
   }
 
   private static void thumbMenu(Activity activity, long versionId, int which, String name) {
@@ -1916,6 +2010,8 @@ public final class PromptSheet {
     stored.versionId = versionId;
     stored.which = which;
     stored.name = name;
+    // Its size too: favourites and groups know a file by its name and size (0 here, it went in as another file).
+    stored.size = (int) storedSize(versionId, which);
     FileFavourites.load(activity.getFilesDir());
     final boolean favFile = FileFavourites.is(stored);
     items.add(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
@@ -1925,7 +2021,15 @@ public final class PromptSheet {
       rebuild(activity);
     });
     items.add(FileGroups.ADD);
-    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.key(stored), name, () -> rebuild(activity)));
+    runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(stored), name, () -> rebuild(activity)));
+    items.add(Playlist.ADD);
+    runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(stored), name));
+    items.add(Playlist.ADD_DEFAULT);
+    runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(stored), name));
+    items.add(MediaTags.TAGS);
+    runs.add(() -> TagDialogs.tags((MainActivity) activity, name, stored.size, () -> rebuild(activity)));
+    items.add(MediaTags.CATEGORY);
+    runs.add(() -> TagDialogs.category((MainActivity) activity, name, stored.size, () -> rebuild(activity)));
     if (fullSize) {
       items.add("Open in full size");
       runs.add(() -> {
@@ -2352,6 +2456,9 @@ public final class PromptSheet {
   }
 
   private static void openPreview(Activity activity, String name, byte[] bytes, int back) {
+    // Any other full size view goes back to its gallery (a prompt file's thumbnail sets this again after).
+    backToPromptFile = null;
+    backToOwner = null;
     if (bytes == null || bytes.length == 0) {
       toast(activity, "No file selected");
       return;
@@ -2382,6 +2489,12 @@ public final class PromptSheet {
       previewBack = 0;
       previewBytes = new byte[0];
       rebuild(activity);
+      // Opened from a prompt file's view: that view again, over its gallery.
+      PromptVault.StoredFile from = backToPromptFile;
+      PromptVault.Version owner = backToOwner;
+      backToPromptFile = null;
+      backToOwner = null;
+      if (from != null && promptFilesOpen) promptFilePreview(activity, from, owner);
     });
     col.addView(back, buttonLp(activity));
     col.addView(caption(activity, "PREVIEW"));
@@ -2549,6 +2662,50 @@ public final class PromptSheet {
     toast(activity, step > 0 ? "The last picture" : "The first picture");
   }
 
+  /** The full size video held: it plays, or (playing) pauses; two fingers zoom it as a picture. */
+  private static void attachVideoHold(Activity activity, View target) {
+    ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+      public boolean onScale(ScaleGestureDetector detector) {
+        setZoom(activity, previewZoom * detector.getScaleFactor());
+        return true;
+      }
+    });
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    final int slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
+    final float[] start = new float[2];
+    final Runnable hold = () -> {
+      if (videoPlaying()) videoPause();
+      else videoPlay();
+    };
+    target.setOnTouchListener((v, event) -> {
+      if (event.getPointerCount() > 1 && v.getParent() != null) {
+        v.getParent().requestDisallowInterceptTouchEvent(true);
+        if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
+      }
+      pinch.onTouchEvent(event);
+      int act = event.getActionMasked();
+      if (act == android.view.MotionEvent.ACTION_DOWN) {
+        start[0] = event.getRawX();
+        start[1] = event.getRawY();
+        main.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
+      } else if (act == android.view.MotionEvent.ACTION_MOVE) {
+        if (Math.abs(event.getRawX() - start[0]) > slop || Math.abs(event.getRawY() - start[1]) > slop) main.removeCallbacks(hold);
+      } else {
+        main.removeCallbacks(hold);
+      }
+      return true;
+    });
+  }
+
+  private static boolean videoPlaying() {
+    VideoView view = previewVideo;
+    try {
+      return view != null && view.isPlaying();
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
   private static void attachPinch(Activity activity, View target) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
@@ -2580,6 +2737,7 @@ public final class PromptSheet {
       box.addView(view, new android.widget.FrameLayout.LayoutParams(previewBaseW, previewBaseH));
       previewBox = box;
       col.addView(scroller(activity, box));
+      attachVideoHold(activity, box);
       view.setVideoPath(previewFile.getAbsolutePath());
       view.setOnPreparedListener(mp -> {
         previewVideoPlayer = mp;

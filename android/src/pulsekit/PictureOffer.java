@@ -45,6 +45,21 @@ final class PictureOffer {
             col.addView(view, new LinearLayout.LayoutParams(-1, -2));
             // The picture into another program, as its Reference file 1 or 2.
             final JavaRun.FileOut pic = f;
+            // Long press: Add to favourites, Add to group.
+            view.setOnLongClickListener(v -> {
+                menu = new AlertDialog.Builder(app)
+                    .setTitle(pic.name)
+                    .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY}, (d, w) -> {
+                        if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
+                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null);
+                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null);
+                        else TagDialogs.category(app, pic.name, pic.bytes.length, null);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+                return true;
+            });
             TextView process = app.outline("Process as a reference", false, v -> {
                 if (last != null) last.dismiss();
                 ProcessRefDialog.open(app, pic.name, pic.bytes);
@@ -64,8 +79,34 @@ final class PictureOffer {
         return true;
     }
 
-    /** The dialog shown last (closed when a picture goes on to Process as a reference). */
+    /** The dialog shown last (closed when a picture goes on to Process as a reference), and a picture's long press menu. */
     static AlertDialog last;
+    static AlertDialog menu;
+
+    private static PromptVault vault(MainActivity app) {
+        try {
+            return PromptVault.open(app.getFilesDir());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** A run's file among the favourites (by its name and size). */
+    static boolean isFavourite(MainActivity app, String name, long size) {
+        FileFavourites.load(app.getFilesDir());
+        return MarkFile.isFavourite(name, size);
+    }
+
+    static void toggleFavourite(MainActivity app, String name, long size) {
+        FileFavourites.load(app.getFilesDir());
+        boolean now = MarkFile.toggleFavourite(vault(app), name, size);
+        app.setNow(name + (now ? " added to favourites" : " taken out of favourites"));
+    }
+
+    static String[] groupKeys(MainActivity app, String name, long size) {
+        FileGroups.load(app.getFilesDir());
+        return MarkFile.groupKeys(vault(app), name, size);
+    }
 
     /** The picture at about `max` pixels wide at most, read at a smaller size first when it is big. */
     static Bitmap decode(byte[] data, int max) {

@@ -67,7 +67,7 @@ public final class PromptVault {
 
   private static final int MAGIC = 0x504B4442;
   private static final byte[] FILE_MAGIC = new byte[] {'P', 'K', 'V', '1'};
-  private static final int MAX_BYTES = 16 * 1024 * 1024;
+  private static final int MAX_BYTES = 128 * 1024 * 1024;
 
   private final File file;
   private final List<Category> categories = new ArrayList<Category>();
@@ -134,6 +134,26 @@ public final class PromptVault {
   private static final java.util.concurrent.atomic.AtomicInteger BUSY = new java.util.concurrent.atomic.AtomicInteger();
   private static volatile long busySince;
   private static volatile String busyWhat = "";
+
+  /**
+   * Set on a thread that reads files for thumbnails in the background (the galleries, Browse DB):
+   * its reads are not "Processing DB" (one after another for minutes, the notice kept coming back).
+   */
+  private static final ThreadLocal<Boolean> QUIET = new ThreadLocal<Boolean>();
+
+  public static void quiet(boolean on) {
+    if (on) QUIET.set(Boolean.TRUE);
+    else QUIET.remove();
+  }
+
+  /** When the library became busy (0: it is not), so a notice is given once for each time. */
+  public static long busySince() {
+    return busySince;
+  }
+
+  private static boolean quietRead() {
+    return QUIET.get() != null;
+  }
 
   private static void begin(String what) {
     if (BUSY.getAndIncrement() == 0) {
@@ -400,7 +420,7 @@ public final class PromptVault {
    */
   public synchronized long addPromptFile(String name, byte[] bytes, String note) throws Exception {
     if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That prompt file is empty");
-    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
+    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 128 MB)");
     String clean = fileTitle(name);
     if (clean.length() == 0) clean = "prompt.prompt";
     String label = note == null ? "" : note.replace('\n', ' ').replace('\r', ' ').trim();
@@ -474,7 +494,7 @@ public final class PromptVault {
   /** A still image kept in the encrypted database so it can be picked as a reference file. */
   public synchronized long addReferenceImage(String name, byte[] bytes, String note, int which) throws Exception {
     if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That frame is empty");
-    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("Frame is too large (max 16 MB)");
+    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("Frame is too large (max 128 MB)");
     String clean = fileTitle(name);
     if (clean.length() == 0) clean = "frame.jpg";
     String lower = clean.toLowerCase(java.util.Locale.US);
@@ -511,7 +531,7 @@ public final class PromptVault {
    */
   public synchronized long addLibraryFile(String name, byte[] bytes, String note, int which) throws Exception {
     if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("That file is empty");
-    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
+    if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 128 MB)");
     String clean = fileTitle(name);
     if (clean.length() == 0) clean = "file";
     int kind = which == 3 ? 3 : 1;
@@ -724,9 +744,9 @@ public final class PromptVault {
     if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
     String clean = clean(title);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the prompt");
-    if (ref1 != null && ref1.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 1 is too large (max 16 MB)");
-    if (ref2 != null && ref2.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 2 is too large (max 16 MB)");
-    if (result != null && result.length > MAX_BYTES) throw new IllegalArgumentException("Result file is too large (max 16 MB)");
+    if (ref1 != null && ref1.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 1 is too large (max 128 MB)");
+    if (ref2 != null && ref2.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 2 is too large (max 128 MB)");
+    if (result != null && result.length > MAX_BYTES) throw new IllegalArgumentException("Result file is too large (max 128 MB)");
     prompt.title = clean;
     Version version = new Version();
     version.id = nextId++;
@@ -760,9 +780,9 @@ public final class PromptVault {
     if (prompt == null) throw new IllegalArgumentException("That prompt is gone");
     String clean = clean(title);
     if (clean.length() == 0) throw new IllegalArgumentException("Name the prompt");
-    if (ref1 != null && ref1.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 1 is too large (max 16 MB)");
-    if (ref2 != null && ref2.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 2 is too large (max 16 MB)");
-    if (result != null && result.length > MAX_BYTES) throw new IllegalArgumentException("Result file is too large (max 16 MB)");
+    if (ref1 != null && ref1.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 1 is too large (max 128 MB)");
+    if (ref2 != null && ref2.length > MAX_BYTES) throw new IllegalArgumentException("Reference file 2 is too large (max 128 MB)");
+    if (result != null && result.length > MAX_BYTES) throw new IllegalArgumentException("Result file is too large (max 128 MB)");
     prompt.title = clean;
     version.description = description == null ? "" : description;
     version.body = body == null ? "" : body;
@@ -817,7 +837,7 @@ public final class PromptVault {
   public synchronized void putFile(long versionId, int which, String name, byte[] bytes) throws Exception {
     Version version = version(versionId);
     if (version == null) throw new IllegalArgumentException("Open a prompt first");
-    if (bytes != null && bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 16 MB)");
+    if (bytes != null && bytes.length > MAX_BYTES) throw new IllegalArgumentException("File is too large (max 128 MB)");
     byte[] stored = copy(bytes);
     String clean = name == null ? "" : name;
     if (which == 1) {
@@ -1377,7 +1397,8 @@ public final class PromptVault {
     if (name.equals(lastBlob) && lastBlobBytes != null) return copy(lastBlobBytes);
     File blob = new File(file.getParentFile(), name);
     if (!blob.isFile()) return new byte[0];
-    begin("Reading a file from the encrypted database");
+    boolean quiet = quietRead();
+    if (!quiet) begin("Reading a file from the encrypted database");
     try {
       byte[] raw = new byte[(int) blob.length()];
       DataInputStream fin = new DataInputStream(new FileInputStream(blob));
@@ -1387,13 +1408,19 @@ public final class PromptVault {
         fin.close();
       }
       byte[] bytes = unseal(raw);
-      lastBlob = name;
-      lastBlobBytes = bytes;
-      return copy(bytes);
+      // Kept for the next ask only when small: a big video held twice ran the phone low on memory.
+      if (bytes.length <= 32 * 1024 * 1024) {
+        lastBlob = name;
+        lastBlobBytes = bytes;
+        return copy(bytes);
+      }
+      lastBlob = null;
+      lastBlobBytes = null;
+      return bytes;
     } catch (Exception ex) {
       return new byte[0];
     } finally {
-      end();
+      if (!quiet) end();
     }
   }
 

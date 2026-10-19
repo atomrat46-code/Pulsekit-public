@@ -9,6 +9,16 @@ public final class DbFilter {
   public static final String[] LETTERS = {"A", "I", "V", "S", "T"};
   public static final String[] NAMES = {"All files", "Images", "Videos", "Sound files", "Text files"};
 
+  /** The thumbnail screens' letters: A I V S T, then F (favourites) and G (a group). */
+  public static final String[] WITH_FAV_GROUP = {"A", "I", "V", "S", "T", FileFavourites.LETTER, FileGroups.LETTER};
+
+  /** Whether a library file shows under `letter`: F its favourites, G the group G shows, else by its name. */
+  public static boolean fits(PromptVault.StoredFile f, String letter) {
+    if (FileFavourites.LETTER.equals(letter)) return FileFavourites.is(f);
+    if (FileGroups.LETTER.equals(letter)) return FileGroups.fits(f);
+    return fits(f.name, letter);
+  }
+
   /** The letter picked last ("A" at first). */
   public static volatile String current = "A";
 
@@ -32,6 +42,8 @@ public final class DbFilter {
 
   /** What the letter shows ("All files" for A), for the button's description. */
   public static String label(String letter) {
+    if (FileFavourites.LETTER.equals(letter)) return "Favourites";
+    if (FileGroups.LETTER.equals(letter)) return "A group";
     for (int i = 0; i < LETTERS.length; i++) if (LETTERS[i].equals(letter)) return NAMES[i];
     return letter;
   }

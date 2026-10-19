@@ -455,8 +455,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File cut = new File(home, "take one_cutted.wav");
@@ -480,8 +480,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Read") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File mp3 = new File(home, "take three.mp3");
@@ -500,8 +500,8 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--dir " + folder.getAbsolutePath() + " --outdir " + mp3s.getAbsolutePath() + " --bitrate 128 --mode mono"));
     edt(() -> log.setText(""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wav2Mp3:") || line.startsWith("Wrote") || line.startsWith("Resampled") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     String[] made = mp3s.list();
@@ -524,8 +524,8 @@ public final class DesktopBehavior {
     out.append("args: ").append(((JTextField) get("pyExtra")).getText().replace(home.getAbsolutePath(), "~")).append('\n');
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Split") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line).append('\n');
     }
     // Three seconds in parts of one: three parts (more than two parts' length gives as many as needed).
@@ -632,8 +632,8 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText("--prompt \"funk groove\" --drums_only --duration 10 --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (int i = 0; i < 600 && !(log.getText().contains("Saved") || log.getText().contains("Failed") || log.getText().contains("Could not")); i++) Thread.sleep(50);
-      for (String line : log.getText().split("\n")) {
+      for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Saved") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("Could not")); i++) Thread.sleep(50);
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("Saved") || line.startsWith("Status") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed")
             || line.startsWith("Model") || line.startsWith("Import") || line.startsWith("Music") || line.startsWith("Workflow")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -682,8 +682,8 @@ public final class DesktopBehavior {
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     // Pulsekit's own "Saved ..." line comes after the program's output, so wait for it.
-    for (int i = 0; i < 400 && !(log.getText().contains("Saved " + home.getAbsolutePath()) || log.getText().contains("Could not save")); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) {
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Saved " + home.getAbsolutePath()) || String.valueOf(log.getText()).contains("Could not save")); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Saved") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
     }
     File sheet = new File(home, ".pulsekit/sogni-House.prompt");
@@ -877,10 +877,10 @@ public final class DesktopBehavior {
         // A run that makes a picture shows it; Close the dialog.
         if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -1024,10 +1024,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -1078,9 +1078,9 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Hard Rock\" --bars 4"));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Wrote") || line.startsWith("Import") || line.startsWith("$ java") || line.contains("rror")) out.append("log: ").append(line).append('\n');
     }
     // A tempo outside the style's range in the style database is moved into it.
@@ -1090,9 +1090,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Techno --tempo 90 --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
     // The app's time signature (here 3/4) goes to MidiDrumGen as --timesig; 4/4 is not passed.
@@ -1106,9 +1106,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("$ java") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
     set("tsNum", 4);
@@ -1119,9 +1119,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style \"Ballad 6/8\" --bars 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !(log.getText().contains("Wrote") || log.getText().contains("rror")); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Wrote") || String.valueOf(log.getText()).contains("rror")); i++) Thread.sleep(50);
     Thread.sleep(500);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("Tempo") || line.startsWith("Wrote")) out.append("log: ").append(line).append('\n');
     }
   }
@@ -1261,9 +1261,9 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 600 && !log.getText().contains("Prompt library") && !log.getText().contains("rror"); i++) Thread.sleep(50);
+      for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Prompt library") && !String.valueOf(log.getText()).contains("rror"); i++) Thread.sleep(50);
       Thread.sleep(500);
-      for (String line : log.getText().split("\n")) if (line.startsWith("Prompt library") || line.contains("rror")) out.append(extra).append(": ").append(line).append('\n');
+      for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Prompt library") || line.contains("rror")) out.append(extra).append(": ").append(line).append('\n');
     }
     PromptVault vault = PromptDb.vault();
     for (PromptVault.Category c : vault.categories()) {
@@ -3025,10 +3025,10 @@ public final class DesktopBehavior {
         edt(() -> log.setText(""));
         edt(() -> ((JTextField) get("pyExtra")).setText(extra + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
         edt(() -> call("runPython"));
-        for (int i = 0; i < 600 && !(log.getText().contains("Prompt library") || log.getText().contains("Failed") || (!extra.contains("--saveprompt") && log.getText().contains("Succeeded"))); i++) Thread.sleep(50);
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Prompt library") || String.valueOf(log.getText()).contains("Failed") || (!extra.contains("--saveprompt") && String.valueOf(log.getText()).contains("Succeeded"))); i++) Thread.sleep(50);
         Thread.sleep(500);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-        for (String line : log.getText().split("\n")) {
+        for (String line : String.valueOf(log.getText()).split("\n")) {
           if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
@@ -3453,10 +3453,10 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((javax.swing.JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 300 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(300);
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("$ ") || line.startsWith("Picked up") || line.trim().isEmpty()) continue;
         out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -3985,11 +3985,11 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --towav"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !"Midi2Wav.java".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded: "); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded: "); i++) Thread.sleep(50);
     Thread.sleep(800);
     idle();
     out.append("--towav: program now ").append((String) get("pyName")).append('\n');
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       String t = line.trim();
       if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
     }
@@ -4104,11 +4104,11 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       answers.add("Close");
       edt(() -> call("runPython"));
-      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(400);
       idle();
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.contains(".h2pattern") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.contains("pattern")) out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
       }
@@ -4163,8 +4163,8 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("\"" + midi.getPath() + "\""));
     edt(() -> call("runPython"));
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-    for (int i = 0; i < 400 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
-    for (String line : log.getText().split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
+    for (int i = 0; i < 400 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Failed")) out.append("run: ").append(line).append('\n');
     // --test: Pulsekit's DrumMidi_CRT.jar and Java are handed on (not twice, not without --test).
     File jar = new File(System.getProperty("user.home"), "tools/DrumMidi_CRT.jar");
     java.util.List<String> args = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("song.mid", "--test"), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
@@ -4201,8 +4201,8 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(run[1]));
       edt(() -> call("runPython"));
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (int i = 0; i < 400 && !(log.getText().contains(" WAV files done") || log.getText().startsWith("Failed")); i++) Thread.sleep(50);
-      for (String line : log.getText().split("\n")) {
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains(" WAV files done") || log.getText().startsWith("Failed")); i++) Thread.sleep(50);
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         if (line.startsWith("SplitWav:") || line.startsWith("CutWav:") || line.startsWith("Succeeded: ") && line.contains("WAV files") || line.startsWith("Failed")) {
           out.append(run[0]).append(": ").append(line.replace(home.getPath(), "~")).append('\n');
         }
@@ -4321,11 +4321,11 @@ public final class DesktopBehavior {
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       answers.add("Close");
       edt(() -> call("runPython"));
-      for (int i = 0; i < 400 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(600);
       idle();
       out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.startsWith("MIDI:") || t.startsWith("SoundFont:") || t.startsWith("Wrote") || t.startsWith("Succeeded") || t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Saved") || t.startsWith("Prompt library"))
           out.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
@@ -4379,7 +4379,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--drums_only --saveprompt --key_file \"" + new File(home, "none.txt").getAbsolutePath() + "\""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 300 && !log.getText().contains("Prompt library"); i++) Thread.sleep(50);
+    for (int i = 0; i < 300 && !String.valueOf(log.getText()).contains("Prompt library"); i++) Thread.sleep(50);
     Thread.sleep(300);
     idle();
     // A finished run: its picture and answer in Downloads, its sheet stored in the library.
@@ -4453,11 +4453,11 @@ public final class DesktopBehavior {
       edt(() -> log.setText(""));
       edt(() -> ((JTextField) get("pyExtra")).setText(extra));
       edt(() -> call("runPython"));
-      for (int i = 0; i < 300 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed")); i++) Thread.sleep(50);
+      for (int i = 0; i < 300 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
       Thread.sleep(300);
       idle();
       out.append("== ").append(extra.replace(none, "")).append('\n');
-      for (String line : log.getText().split("\n")) {
+      for (String line : String.valueOf(log.getText()).split("\n")) {
         String t = line.trim();
         if (t.startsWith("Image analyze") || t.startsWith("Tools mode") || t.startsWith("Note:")) out.append("  ").append(t).append('\n');
       }
@@ -4582,7 +4582,7 @@ public final class DesktopBehavior {
           if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
         }
       }
-      for (int i = 0; i < 200 && !(log.getText().contains("Succeeded") || log.getText().contains("Failed") || log.getText().contains("exit")); i++) Thread.sleep(50);
+      for (int i = 0; i < 200 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("exit")); i++) Thread.sleep(50);
       Thread.sleep(300);
       idle();
       out.append(pick[0]).append(' ').append(pick[1]).append(": ").append((String) get("pyName")).append(", args [").append(((JTextField) get("pyExtra")).getText()).append("], ran ").append(!log.getText().equals("")).append('\n');
@@ -5254,7 +5254,7 @@ public final class DesktopBehavior {
       for (Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
       return sb.toString();
     };
-    out.append("G button: ").append(((javax.swing.JButton) component(d[0], "db-filter:G")).getText()).append('\n');
+    out.append("G button: ").append(((javax.swing.AbstractButton) component(d[0], "db-filter:G")).getText()).append('\n');
     // beach.png into a new group, Trip.
     rightClick.accept("beach.png");
     out.append("card menu: ").append(items.apply(db.lastCardMenu)).append('\n');
@@ -5282,13 +5282,13 @@ public final class DesktopBehavior {
     out.append("favourite: ").append(((javax.swing.JButton) component(d[0], "refs-pick:notes.txt")).getText().contains("\u2605") ? "starred" : "no star").append('\n');
     // G: no group picked yet, so the list; Trip shows its two files.
     final JDialog atG = d[0];
-    edt(() -> ((javax.swing.JButton) component(atG, "db-filter:G")).doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(atG, "db-filter:G")).doClick());
     out.append("G list: ").append(items.apply(GroupMenus.last)).append('\n');
     final javax.swing.JPopupMenu list = GroupMenus.last;
     d[0] = opened.apply(() -> ((javax.swing.JMenuItem) component(list, "group-show:Trip")).doClick());
     StringBuilder shown = new StringBuilder();
     for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (component(d[0], "refs-pick:" + n) != null) shown.append(n).append(' ');
-    out.append("G \u00b7 Trip: ").append(shown).append("| button ").append(((javax.swing.JButton) component(d[0], "db-filter:G")).getText()).append('\n');
+    out.append("G \u00b7 Trip: ").append(shown).append("| button ").append(((javax.swing.AbstractButton) component(d[0], "db-filter:G")).getText()).append('\n');
     final JDialog last = d[0];
     edt(() -> last.dispose());
     DbFilter.current = "A";
@@ -5313,6 +5313,380 @@ public final class DesktopBehavior {
     out.append("kept: ").append(new String(Files.readAllBytes(new File(PromptDb.dir(), "file-groups.txt").toPath()), StandardCharsets.UTF_8).split("\n").length).append(" lines\n");
     if (!"beach.png dune.png ".equals(shown.toString()) || !"sea.png ".equals(kept.toString())) throw new AssertionError(out.toString());
   }
+
+  /** F (favourites) before G: Browse DB and the galleries (Prompt files too) show only the favourites; the Media browser's Add to favourites and F. */
+  void s125_favourites_letter() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    for (String n : new String[] {"beach.png", "notes.txt"}) PromptDb.vault().addLibraryFile(n, ("x" + n).getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    for (int i = 0; i < 30; i++) PromptDb.vault().addPromptFile("prompt-" + i + ".prompt", ("Prompt " + i + "\n").getBytes(StandardCharsets.UTF_8), "Prompt " + i);
+    FileFavourites.load(PromptDb.dir());
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) if (f.name.equals("notes.txt")) FileFavourites.toggle(f);
+    DbFilter.current = "F";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog d = (JDialog) get("lastBrowse");
+    out.append("Browse DB F: notes.txt ").append(component(d, "refs-pick:notes.txt") != null).append(", beach.png ").append(component(d, "refs-pick:beach.png") != null)
+        .append(", F button ").append(component(d, "db-filter:F") != null).append('\n');
+    boolean ok = component(d, "refs-pick:notes.txt") != null && component(d, "refs-pick:beach.png") == null;
+    edt(() -> d.dispose());
+    DbFilter.current = "A";
+    // F is a switch kept while the program runs: off for the gallery.
+    FileFilter.reset();
+    // Prompt files: its 30 cards, the three tabs and A I V S T F G.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(2));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog g = (JDialog) get("lastGallery");
+    out.append("Prompt files: ").append(g.getTitle()).append(", cards ").append(component(g, "gallery:prompt-0.prompt") != null && component(g, "gallery:prompt-29.prompt") != null)
+        .append(", tabs ").append(component(g, "gallery-tab:0") != null).append(", F ").append(component(g, "gallery-filter:F") != null).append(", G ").append(component(g, "gallery-filter:G") != null).append('\n');
+    ok &= component(g, "gallery:prompt-29.prompt") != null && component(g, "gallery-filter:F") != null;
+    edt(() -> g.dispose());
+    out.append("media filters: ").append(String.join(" ", MediaDir.FILTERS)).append(", menu has ").append(java.util.Arrays.asList(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", true)).contains(FileFavourites.ADD_SHORT)).append('\n');
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** Video ready: Add to favourites and Add to group (the question comes back); Picture ready's right click menu has them too. */
+  void s126_ready_favourites_groups() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    File runs = new File(System.getProperty("user.home"), "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    FileGroups.load(PromptDb.dir());
+    FileGroups.toggle("Run", "file:other.png|1");
+    answers.add("Add to favourites");
+    answers.add("Add to group");
+    answers.add("OK");
+    answers.add("Close");
+    edt(() -> pj.offerVideo(clip, 1));
+    idle();
+    out.append("walk.mp4: favourite ").append(MarkFile.isFavourite("walk.mp4", clip.length())).append(", in Run ").append(FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length()))).append('\n');
+    boolean ok = MarkFile.isFavourite("walk.mp4", clip.length()) && FileGroups.in("Run", MarkFile.mediaKey("walk.mp4", clip.length()));
+    // Picture ready: the picture's right click.
+    final File pic = new File(runs, "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final javax.swing.JPopupMenu[] m = new javax.swing.JPopupMenu[1];
+    edt(() -> m[0] = GroupMenus.fileMenu((Pulsekit) frame, pic));
+    StringBuilder items = new StringBuilder();
+    for (Component c : m[0].getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("Picture ready menu: ").append(items).append('\n');
+    edt(() -> ((javax.swing.JMenuItem) component(m[0], "file-favourite")).doClick());
+    out.append("look.png favourite: ").append(MarkFile.isFavourite("look.png", pic.length())).append('\n');
+    ok &= MarkFile.isFavourite("look.png", pic.length());
+    if (!ok) throw new AssertionError(out.toString());
+  }
+  /**
+   * F, G and C are switches with the type letter (V with F: the favourite videos); a right click on
+   * C lists the categories under the letter's main one (I: Image), a category's submenu holding its
+   * subcategories; T1 T2 T3 keep the files with any tag picked. Save prompt: the subcategory
+   * Browse… has Add new lower level / same level subcategory, and a Group list. Picture ready's
+   * menu: Add tag and Add to category.
+   */
+  void s127_filter_switches_categories_tags() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    DbFilter.current = "A";
+    PromptVault vault = PromptDb.vault();
+    long image = 0, video = 0;
+    for (PromptVault.Category c : vault.mains()) {
+      if (c.name.equalsIgnoreCase("Image")) image = c.id;
+      if (c.name.equalsIgnoreCase("video")) video = c.id;
+    }
+    long portraits = vault.addSubcategory(image, "Portraits");
+    vault.addSubcategory(portraits, "Faces");
+    long p1 = vault.addPrompt(portraits, "Face");
+    vault.addVersion(p1, "Face", "", "a face", "", "face.png", "face".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p1, java.util.Arrays.asList("beach"));
+    long p2 = vault.addPrompt(video, "Walk");
+    vault.addVersion(p2, "Walk", "", "a walk", "", "walk.mp4", "walk".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p2, java.util.Arrays.asList("night"));
+    long p3 = vault.addPrompt(image, "Sky");
+    vault.addVersion(p3, "Sky", "", "a sky", "", "sky.png", "sky".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    FileFavourites.load(PromptDb.dir());
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) if (!f.name.equals("sky.png")) FileFavourites.toggle(f);
+    java.util.function.Function<Action, JDialog> opened = a -> {
+      try {
+        final Object before = get("lastBrowse");
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            a.run();
+          } catch (Exception ex) {
+            throw new RuntimeException(ex);
+          }
+        });
+        for (int i = 0; i < 100 && get("lastBrowse") == before; i++) Thread.sleep(100);
+        idle();
+        return (JDialog) get("lastBrowse");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    final JDialog[] d = {opened.apply(() -> db.browse(false, null, (name, file) -> {}))};
+    java.util.function.Supplier<String> cards = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"face.png", "walk.mp4", "sky.png"}) if (component(d[0], "refs-pick:" + n) != null) sb.append(n).append(' ');
+      return sb.toString().trim();
+    };
+    java.util.function.Function<String, javax.swing.AbstractButton> button = n -> (javax.swing.AbstractButton) component(d[0], "db-filter:" + n);
+    StringBuilder letters = new StringBuilder();
+    for (String l : new String[] {"A", "I", "V", "S", "T", "F", "G", "C", "tag:1", "tag:2", "tag:3"}) letters.append(component(d[0], "db-filter:" + l) != null ? l : "-").append(' ');
+    out.append("letters: ").append(letters).append('\n');
+    out.append("A: ").append(cards.get()).append('\n');
+    d[0] = opened.apply(() -> button.apply("F").doClick());
+    String favs = cards.get();
+    d[0] = opened.apply(() -> button.apply("V").doClick());
+    String favVideos = cards.get();
+    out.append("F: ").append(favs).append(" | V with F: ").append(favVideos).append('\n');
+    boolean switchOk = "face.png walk.mp4".equals(favs) && "walk.mp4".equals(favVideos);
+    d[0] = opened.apply(() -> button.apply("F").doClick());
+    d[0] = opened.apply(() -> button.apply("I").doClick());
+    // C right-clicked with I: Image's subcategories, Portraits a submenu of its own.
+    edt(() -> {
+      java.awt.Component c = button.apply("C");
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(c, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 5, 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : c.getMouseListeners()) l.mousePressed(press);
+    });
+    idle();
+    StringBuilder catMenu = new StringBuilder();
+    for (Component c : FilterBar.last.getComponents()) if (c instanceof javax.swing.JMenuItem) catMenu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    javax.swing.JMenu sub = (javax.swing.JMenu) component(FilterBar.last, "cat-menu:Image / Portraits");
+    StringBuilder subMenu = new StringBuilder();
+    javax.swing.JMenuItem allPortraits = null;
+    for (Component c : sub == null ? new Component[0] : sub.getMenuComponents()) {
+      if (!(c instanceof javax.swing.JMenuItem)) continue;
+      subMenu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      if ("cat-pick:Image / Portraits".equals(c.getName())) allPortraits = (javax.swing.JMenuItem) c;
+    }
+    out.append("C right click (I): ").append(catMenu).append('\n').append("Portraits: ").append(subMenu).append('\n');
+    final javax.swing.JMenuItem pick = allPortraits;
+    edt(() -> FilterBar.last.setVisible(false));
+    d[0] = opened.apply(() -> pick.doClick());
+    String inPortraits = cards.get();
+    out.append("I with C (Image / Portraits): ").append(inPortraits).append(", title ").append(d[0].getTitle()).append('\n');
+    d[0] = opened.apply(() -> button.apply("C").doClick());
+    String cOff = cards.get();
+    out.append("C clicked (off): ").append(cOff).append('\n');
+    boolean catOk = subMenu.indexOf("Faces") >= 0 && "face.png".equals(inPortraits) && "face.png sky.png".equals(cOff);
+    d[0] = opened.apply(() -> button.apply("A").doClick());
+    // T1 beach; T2 night: either.
+    d[0] = opened.apply(() -> ((javax.swing.JComboBox<?>) component(d[0], "db-filter:tag:1")).setSelectedItem("beach"));
+    String t1 = cards.get();
+    d[0] = opened.apply(() -> ((javax.swing.JComboBox<?>) component(d[0], "db-filter:tag:2")).setSelectedItem("night"));
+    String t12 = cards.get();
+    StringBuilder rows = new StringBuilder();
+    javax.swing.JComboBox<?> box = (javax.swing.JComboBox<?>) component(d[0], "db-filter:tag:3");
+    for (int i = 0; i < box.getItemCount(); i++) rows.append(box.getItemAt(i)).append(' ');
+    out.append("T list: ").append(rows).append("| T1 beach: ").append(t1).append(" | T1 or T2 night: ").append(t12).append('\n');
+    boolean tagOk = "face.png".equals(t1) && "face.png walk.mp4".equals(t12);
+    final JDialog shut = d[0];
+    edt(() -> shut.dispose());
+    FileFilter.reset();
+    // Save prompt: Browse… lists the subcategories, then a lower and a same level one; Group with a group made before.
+    FileGroups.load(PromptDb.dir());
+    FileGroups.make("Walks");
+    final StringBuilder seen = new StringBuilder();
+    inspectNext = dlg -> {
+      ((javax.swing.JComboBox<?>) component(dlg, "save-prompt-main")).getEditor().setItem("Image");
+      ((JTextField) component(dlg, "save-prompt-name")).setText("Walk");
+      ((javax.swing.AbstractButton) component(dlg, "save-prompt-sub-browse")).doClick();
+      for (Component c : SavePromptDialog.lastBrowse.getComponents()) if (c instanceof javax.swing.JMenuItem) seen.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      SavePromptDialog.lastBrowse.setVisible(false);
+      javax.swing.JComboBox<?> group = (javax.swing.JComboBox<?>) component(dlg, "save-prompt-group");
+      seen.append("groups: ");
+      for (int i = 0; i < group.getItemCount(); i++) seen.append(group.getItemAt(i)).append(" | ");
+      group.setSelectedItem("Walks");
+    };
+    answers.add("OK");
+    final PromptSave.Choice[] got = new PromptSave.Choice[1];
+    final boolean[] done = new boolean[1];
+    final PromptVault lib = vault;
+    SwingUtilities.invokeLater(() -> {
+      PromptRun.Sheet sheet = new PromptRun.Sheet();
+      sheet.name = "Walk";
+      got[0] = SavePromptDialog.ask((Pulsekit) frame, lib, sheet);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    inspectNext = null;
+    out.append("Save prompt Browse: ").append(seen).append('\n').append("chosen: ").append(got[0] == null ? "none" : got[0].main + ", group " + got[0].group).append('\n');
+    boolean saveOk = seen.indexOf(PromptSave.ADD_LOWER) >= 0 && seen.indexOf(PromptSave.ADD_SAME) >= 0 && got[0] != null && "Walks".equals(got[0].group);
+    // Picture ready's right click menu: Add tag, Add to category.
+    File runs = new File(System.getProperty("user.home"), "runs");
+    runs.mkdirs();
+    final File look = new File(runs, "look.png");
+    Files.write(look.toPath(), "look".getBytes(StandardCharsets.UTF_8));
+    MediaBrowser.answer = q -> q.startsWith("Tags") ? "sunset" : "Image / Portraits";
+    final javax.swing.JPopupMenu[] menu = new javax.swing.JPopupMenu[1];
+    edt(() -> menu[0] = GroupMenus.fileMenu((Pulsekit) frame, look));
+    StringBuilder items = new StringBuilder();
+    for (Component c : menu[0].getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    edt(() -> ((javax.swing.JMenuItem) component(menu[0], "file-tag")).doClick());
+    edt(() -> ((javax.swing.JMenuItem) component(menu[0], "file-category")).doClick());
+    idle();
+    MediaBrowser.answer = null;
+    String key = MediaTags.key("look.png", look.length());
+    out.append("Picture ready menu: ").append(items).append('\n').append("look.png: tags ").append(MediaTags.tags(key)).append(", category ").append(MediaTags.category(key)).append('\n');
+    boolean readyOk = MediaTags.tags(key).contains("sunset") && "Image / Portraits".equals(MediaTags.category(key));
+    if (!switchOk || !catOk || !tagOk || !saveOk || !readyOk) throw new AssertionError(out.toString());
+  }
+  /**
+   * Each thumbnail screen has its own F G C switches and T lists: F on in Browse DB left the Media
+   * browser's folders "empty". When the switches do keep everything out, the browser says so. A
+   * full size video held: it plays, or pauses.
+   */
+  void s128_switches_per_screen() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    DbFilter.current = "A";
+    PromptDb.vault().addLibraryFile("beach.png", "xbeach".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog first = (JDialog) get("lastBrowse");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(first, "db-filter:F")).doClick());
+    for (int i = 0; i < 100 && get("lastBrowse") == first; i++) Thread.sleep(100);
+    idle();
+    final JDialog second = (JDialog) get("lastBrowse");
+    out.append("Browse DB: ").append(second.getTitle()).append('\n');
+    edt(() -> second.dispose());
+    File media = new File(System.getProperty("user.home"), "pics");
+    media.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    javax.imageio.ImageIO.write(img, "png", new File(media, "sea.png"));
+    final JDialog[] dlg = new JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    idle();
+    boolean empty = component(dlg[0], "media-empty") != null;
+    out.append("Media browser: empty line ").append(empty).append(", F lit ").append(((javax.swing.AbstractButton) component(dlg[0], "media-filter:F")).isSelected()).append('\n');
+    // F on here: nothing in the folder is a favourite, and the line says why.
+    final javax.swing.AbstractButton f = (javax.swing.AbstractButton) component(dlg[0], "media-filter:F");
+    edt(() -> f.doClick());
+    idle();
+    javax.swing.JLabel line = (javax.swing.JLabel) component(dlg[0], "media-empty");
+    out.append("F on in the Media browser says: ").append(line == null ? "none" : line.getText()).append('\n');
+    boolean lineOk = line != null && line.getText().startsWith("Nothing here matches Favourites");
+    FileFilter.use(FileFilter.BROWSE);
+    boolean browseKept = FileFilter.fav;
+    out.append("Browse DB's F kept: ").append(browseKept).append('\n');
+    edt(() -> dlg[0].dispose());
+    if (empty || !lineOk || !browseKept) throw new AssertionError(out.toString());
+  }
+  /**
+   * Playlists: Add to playlist / Add to default playlist on a Browse DB card; File > Playlist
+   * viewer/editor: the Editor (thumbnails, ▲, the item menu's Start viewer) and the viewer (◀ ▶);
+   * Merge .pls runs PlayList.java on two lists; a .pls run from PyJav's code area plays it; the
+   * Media browser's folder playlist: Save pls.
+   */
+  void s129_playlists() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final File dir = PromptDb.dir();
+    DbFilter.current = "A";
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    PromptDb.vault().addLibraryFile("beach.png", png.toByteArray(), "Imported", 1);
+    // Browse DB: a card's right click has Add to playlist and Add to default playlist.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.browse(false, null, (name, file) -> {}));
+    for (int i = 0; i < 100 && get("lastBrowse") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog browse = (JDialog) get("lastBrowse");
+    edt(() -> {
+      java.awt.Component card = component(browse, "refs-pick:beach.png");
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(card, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+          java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : card.getMouseListeners()) l.mousePressed(press);
+    });
+    javax.swing.JMenu add = (javax.swing.JMenu) component(db.lastCardMenu, "add-to-playlist");
+    StringBuilder rows = new StringBuilder();
+    for (java.awt.Component c : add.getMenuComponents()) rows.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("card menu: Add to playlist ").append(rows).append("Add to default playlist ").append(component(db.lastCardMenu, "add-to-default-playlist") != null).append('\n');
+    edt(() -> ((javax.swing.JMenuItem) component(db.lastCardMenu, "add-to-default-playlist")).doClick());
+    out.append("added: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    edt(() -> browse.dispose());
+    boolean addOk = Playlist.load(dir, Playlist.DEFAULT).items.size() == 1;
+    File media = new File(System.getProperty("user.home"), "pics");
+    media.mkdirs();
+    File sky = new File(media, "sky.png");
+    javax.imageio.ImageIO.write(img, "png", sky);
+    Playlist.addTo(dir, Playlist.DEFAULT, sky.getAbsolutePath(), "sky.png");
+    // File > Playlist viewer/editor.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, Playlist.DEFAULT));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    Thread.sleep(500);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    JLabel thumb = (JLabel) component(w, "playlist-thumb:1");
+    out.append("editor: ").append(((JLabel) component(w, "playlist-info:0")).getText().replaceAll("<[^>]+>", " ").trim()).append(" | thumbnail ").append(thumb.getIcon() != null).append('\n');
+    boolean editorOk = thumb.getIcon() != null;
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-up:1")).doClick());
+    out.append("after ▲: ").append(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title).append('\n');
+    boolean moveOk = "sky.png".equals(Playlist.load(dir, Playlist.DEFAULT).items.get(0).title);
+    // The item's menu: Start viewer; ▶ the next.
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-menu:0")).doClick());
+    StringBuilder menu = new StringBuilder();
+    for (java.awt.Component c : PlaylistWindow.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("item menu: ").append(menu).append('\n');
+    answers.add("(keep)");
+    final javax.swing.JMenuItem start = (javax.swing.JMenuItem) component(PlaylistWindow.lastMenu, "playlist-item-start");
+    edt(() -> PlaylistWindow.lastMenu.setVisible(false));
+    SwingUtilities.invokeLater(() -> start.doClick());
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    String first = ((JLabel) component(v, "viewer-where")).getText() + " (" + PlaylistWindow.viewerNote + ")";
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    String second = ((JLabel) component(v, "viewer-where")).getText() + " (" + PlaylistWindow.viewerNote + ")";
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-zoom-in")).doClick());
+    edt(() -> v.dispose());
+    out.append("viewer: ").append(first).append(" | ▶ ").append(second).append(" | zoom kept ").append(Playlist.settings(dir).zoom).append('\n');
+    boolean viewerOk = first.startsWith("1 / 2") && first.endsWith("(picture)") && second.startsWith("2 / 2") && Playlist.settings(dir).zoom > 1f;
+    // Merge .pls: PlayList.java on two lists, the merged one shown.
+    File a = new File(media, "a.pls");
+    File b = new File(media, "b.pls");
+    Files.write(a.toPath(), ("[playlist]\nFile1=" + sky.getAbsolutePath() + "\nFile2=/x/y.mp4\nNumberOfEntries=2\n").getBytes(StandardCharsets.UTF_8));
+    Files.write(b.toPath(), "[playlist]\nFile1=/x/y.mp4\nFile2=/x/z.mp3\nTitle2=Zed\n".getBytes(StandardCharsets.UTF_8));
+    PlaylistWindow.choose = new File[] {a, b};
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-merge")).doClick());
+    idle();
+    out.append("Merge .pls: ").append(w.getTitle()).append(", ").append(PlaylistWindow.shown.items.size()).append(" files, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean mergeOk = "a + b".equals(PlaylistWindow.shown.name) && PlaylistWindow.shown.items.size() == 3;
+    edt(() -> w.dispose());
+    // A .pls in PyJav's code area: Run plays it with PlayList.java.
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add("(keep)");
+    final JDialog before = PlaylistWindow.last;
+    pj.runPls("trip.pls", "[playlist]\nFile1=" + sky.getAbsolutePath() + "\nTitle1=Sky\n");
+    for (int i = 0; i < 300 && (PlaylistWindow.last == before || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    out.append("PyJav .pls Run: ").append(PlaylistWindow.last.getTitle()).append(", log ends ").append(pj.lastPlsRun == null ? "-" : pj.lastPlsRun.log.trim().replaceAll("(?s).*\n", "")).append('\n');
+    boolean runOk = "Playlist · trip".equals(PlaylistWindow.last.getTitle());
+    final JDialog shown = PlaylistWindow.last;
+    edt(() -> shown.dispose());
+    // The Media browser's folder playlist: Save pls.
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaPlaylist.add(dir, media.getAbsolutePath(), sky.getAbsolutePath(), "sky.png", sky.length());
+    String said = mb.savePls(media, "Folder list");
+    out.append("Save pls: ").append(said).append('\n');
+    boolean savePlsOk = Playlist.load(dir, "Folder list").items.size() == 1;
+    out.append("playlists: ").append(Playlist.names(dir)).append('\n');
+    if (!addOk || !editorOk || !moveOk || !viewerOk || !mergeOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
+  }
+
+
+
 
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
@@ -5348,13 +5722,13 @@ public final class DesktopBehavior {
     edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
     idle();
     out.append("after DrumMidi: ").append(new File(dir, "sogni-neo_soul-92bpm.mid").isFile()).append(", test over ").append(Midi2WavTest.current() == null).append('\n');
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch folder:")) out.append("log: ").append(line).append('\n');
     // MidiDrumGen into the same folder: its grooves follow, numbered on.
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--count 2 --outdir \"" + dir.getAbsolutePath() + "\" --seed 4"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
     StringBuilder files = new StringBuilder();
     for (String line : list.split("\n")) if (!line.startsWith("#") && !line.startsWith("file\t") && line.trim().length() > 0) files.append('[').append(line.split("\t")[0]).append(" ").append(line.split("\t")[2]).append(']');
@@ -5665,7 +6039,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--program VideoFrames --list \"" + list.getAbsolutePath() + "\" --slot input --args --first"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 1200 && !log.getText().contains("Batch done") && !log.getText().contains("Batch stopped"); i++) Thread.sleep(50);
+    for (int i = 0; i < 1200 && !String.valueOf(log.getText()).contains("Batch done") && !String.valueOf(log.getText()).contains("Batch stopped"); i++) Thread.sleep(50);
     Thread.sleep(300);
     java.util.List<String> pics = new java.util.ArrayList<String>();
     for (String d : new String[] {"Downloads", ".pulsekit"}) {
@@ -5674,7 +6048,7 @@ public final class DesktopBehavior {
     }
     java.util.Collections.sort(pics);
     String summary = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch")) summary = line;
     out.append("batch: ").append(summary).append(", program now ").append(get("pyName")).append(", pictures ").append(pics).append(", Stop batch shown ").append(pj.pyBatchStop.isVisible()).append('\n');
     if (!summary.equals("Batch done: 2 of 2 runs succeeded") || !pics.contains("clip-a-first.png") || !pics.contains("clip-b-first.png") || pj.pyBatchStop.isVisible() || BatchQueue.current() != null)
       throw new AssertionError(out.toString() + log.getText());
@@ -5689,7 +6063,7 @@ public final class DesktopBehavior {
     for (int i = 0; i < 1200 && BatchQueue.current() != null; i++) Thread.sleep(50);
     Thread.sleep(300);
     summary = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Batch")) summary = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Batch")) summary = line;
     out.append("stopped: ").append(summary).append('\n');
     if (!summary.equals("Batch stopped: 1 of 2 runs succeeded, 1 not run")) throw new AssertionError(out.toString() + log.getText());
     // JoinVideo --list: the clips of a list, in order.
@@ -5697,9 +6071,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + list.getAbsolutePath() + "\""));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     String joined = "";
-    for (String line : log.getText().split("\n")) if (line.startsWith("Joined")) joined = line;
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("Joined")) joined = line;
     out.append("JoinVideo --list: ").append(joined).append('\n');
     if (!joined.startsWith("Joined clip-a.mp4 and then clip-b.mp4")) throw new AssertionError(out.toString() + log.getText());
   }
@@ -5728,7 +6102,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--dir \"" + src.getAbsolutePath() + "\" --recursive --outdir \"" + mix.getAbsolutePath() + "\" --seed 7"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
     String[] made = mix.list();
     java.util.Arrays.sort(made == null ? new String[0] : made);
@@ -5742,10 +6116,10 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--list \"" + new File(mix, "list.txt").getAbsolutePath() + "\" --combine 2 --count 3 --cut 1 --outdir \"" + joined.getAbsolutePath() + "\" --seed 7"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
     javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(new File(joined, "mix-001-2-parts.mid"));
-    out.append("joined: ").append(log.getText().contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
+    out.append("joined: ").append(String.valueOf(log.getText()).contains("Succeeded: 3 MIDI files")).append(", first file ").append(seq.getTickLength()).append(" ticks (2 bars of 480)\n");
     if (seq.getTickLength() != 3840) throw new AssertionError(out.toString() + log.getText());
     // Midi2Wav --dir --test with Pulsekit's kit: the WAVs, DrumMidi on each, CompareHits --batch, the report.
     final StringBuilder report = new StringBuilder();
@@ -5791,9 +6165,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("No VST render"); i++) Thread.sleep(50);
-    out.append("no plugin saved: ").append(log.getText().contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
-    if (!log.getText().contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("No VST render"); i++) Thread.sleep(50);
+    out.append("no plugin saved: ").append(String.valueOf(log.getText()).contains("No VST render: pick the plugin")).append(", program ").append(get("pyName")).append('\n');
+    if (!String.valueOf(log.getText()).contains("No VST render") || !"MidiDrumGen.java".equals(get("pyName"))) throw new AssertionError(out.toString() + log.getText());
     // vst_render.py's Params saved: its plugin, settings and format are used, not its folder or Edit.
     File plugin = new File(home, "Anarchy.vst3");
     edt(() -> pj.saveParams("vst_render.py", "--plugin \"" + plugin.getAbsolutePath() + "\" --state \"" + new File(home, "kit 1.state").getAbsolutePath() + "\" --rate 48000 --dir beats --edit --no-toms"));
@@ -5818,10 +6192,10 @@ public final class DesktopBehavior {
     edt(() -> ((JTextField) get("pyExtra")).setText("--style Rock --bars 2 --vst --test"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
     Thread.sleep(300);
     String ran = "";
-    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
     out.append("MidiDrumGen --vst --test: program ").append(get("pyName")).append(", ran ").append(ran.contains("--plugin") && ran.contains("Anarchy.vst3") && ran.contains("--test") && ran.contains("--drummidi") && !ran.contains("--dir")).append('\n');
     if (!"vst_render.py".equals(get("pyName")) || !ran.contains("Anarchy.vst3") || !ran.contains("--drummidi")) throw new AssertionError(out.toString() + log.getText());
     // SogniMusic --vst (no --test): after DrumMidi_CRT's MIDI of the track, vst_render.py without its test.
@@ -5835,10 +6209,10 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> pj.testStep("DrumMidi_CRT.jar", new java.util.ArrayList<String>(), "Succeeded: track.mid", drums, null, ""));
     for (int i = 0; i < 600 && !"vst_render.py".equals(get("pyName")); i++) Thread.sleep(50);
-    for (int i = 0; i < 600 && !log.getText().contains("Failed") && !log.getText().contains("Succeeded"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Failed") && !String.valueOf(log.getText()).contains("Succeeded"); i++) Thread.sleep(50);
     Thread.sleep(300);
     ran = "";
-    for (String line : log.getText().split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
+    for (String line : String.valueOf(log.getText()).split("\n")) if (line.trim().startsWith("$ ")) ran = line.trim();
     out.append("then: ").append(get("pyName")).append(" on track-drums.mid ").append(ran.contains("track-drums.mid")).append(", its test ").append(ran.contains("--test")).append('\n');
     if (t.testing || !t.vst || !ran.contains("track-drums.mid") || ran.contains("--test") || Midi2WavTest.current() != null) throw new AssertionError(out.toString() + log.getText());
   }
@@ -5885,7 +6259,7 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("\"" + clip.getAbsolutePath() + "\" --first --last --at 0:01.5 --upscale"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 1200 && !"ImageUpscaler.java".equals(get("pyName")) && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(500);
     // The pictures, kept in the program files folder (~/Downloads, or ~/.pulsekit without one).
     File home = new File(System.getProperty("user.home"));
@@ -5997,9 +6371,9 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("MidiDrumGen batch") || line.startsWith("Wrote") || line.startsWith("Succeeded") || line.startsWith("Failed") || line.startsWith("$ java"))
         out.append("run: ").append(line.replace(home.getAbsolutePath(), "~").replaceAll("--seed \\d+", "--seed N")).append('\n');
     }
@@ -6022,14 +6396,14 @@ public final class DesktopBehavior {
     edt(() -> log.setText(""));
     edt(() -> ((JTextField) get("pyExtra")).setText("--batch gen3"));
     edt(() -> call("runPython"));
-    for (int i = 0; i < 600 && !log.getText().contains("Succeeded") && !log.getText().contains("Failed"); i++) Thread.sleep(50);
+    for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
-    for (String line : log.getText().split("\n")) {
+    for (String line : String.valueOf(log.getText()).split("\n")) {
       if (line.startsWith("CompareHits --batch") || line.startsWith("== ") || line.startsWith("All:") || line.startsWith("Succeeded") || line.startsWith("Failed"))
         out.append("summary: ").append(line).append('\n');
     }
     out.append("batch-summary.txt: ").append(new File(dir, "batch-summary.txt").isFile()).append('\n');
-    if (!log.getText().contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
+    if (!String.valueOf(log.getText()).contains("Succeeded: 3 renders of 3 grooves") || !new File(dir, "batch-summary.txt").isFile()) throw new AssertionError(out.toString());
   }
 
   /**

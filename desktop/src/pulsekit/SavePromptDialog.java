@@ -25,6 +25,9 @@ import javax.swing.JTextField;
 final class SavePromptDialog {
     private SavePromptDialog() {}
 
+    /** The subcategory Browse… menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastBrowse;
+
     /** The place and names chosen; null when cancelled. */
     static PromptSave.Choice ask(Pulsekit app, final PromptVault vault, PromptRun.Sheet sheet) {
         PromptSave.Choice first = PromptSave.suggest(vault, sheet);
@@ -106,7 +109,46 @@ final class SavePromptDialog {
             add(form, g, row++, "Recent", places);
         }
         add(form, g, row++, "Main category", main);
-        add(form, g, row++, "Subcategory (optional; Clips / Night nests)", sub);
+        // Browse…: the subcategories, then a new one inside the one typed or beside it (made on OK).
+        JButton browse = new JButton("Browse\u2026");
+        browse.setName("save-prompt-sub-browse");
+        browse.addActionListener(e -> {
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            long mainId = vault == null ? 0 : PromptSave.find(vault, text(main), "");
+            java.util.List<String> paths = new java.util.ArrayList<String>();
+            paths.add("");
+            paths.addAll(PromptSave.subPaths(vault, mainId));
+            for (final String p : paths) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(p.length() == 0 ? "(none)" : p);
+                item.addActionListener(ev -> {
+                    sub.setSelectedItem(p);
+                    paintVersion.run();
+                });
+                m.add(item);
+            }
+            m.addSeparator();
+            for (final boolean lower : new boolean[] {true, false}) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(lower ? PromptSave.ADD_LOWER : PromptSave.ADD_SAME);
+                item.setName(lower ? "save-prompt-add-lower" : "save-prompt-add-same");
+                item.addActionListener(ev -> {
+                    String now = text(sub);
+                    Object typed = JOptionPane.showInputDialog(browse, lower ? "Inside " + (now.length() == 0 ? text(main) : now) : "Beside " + now,
+                        lower ? PromptSave.ADD_LOWER : PromptSave.ADD_SAME, JOptionPane.PLAIN_MESSAGE, null, null, "");
+                    if (typed == null) return;
+                    String made = lower ? PromptSave.lowerLevel(now, typed.toString()) : PromptSave.sameLevel(now, typed.toString());
+                    sub.addItem(made);
+                    sub.setSelectedItem(made);
+                    paintVersion.run();
+                });
+                m.add(item);
+            }
+            lastBrowse = m;
+            m.show(browse, 0, browse.getHeight());
+        });
+        JPanel subRow = new JPanel(new BorderLayout(6, 0));
+        subRow.add(sub, BorderLayout.CENTER);
+        subRow.add(browse, BorderLayout.EAST);
+        add(form, g, row++, "Subcategory (optional; Clips / Night nests)", subRow);
         add(form, g, row++, "Name", name);
         add(form, g, row++, "Description (optional)", new JScrollPane(description));
         // Tag 1–3: each from the tag list (the prompts' and the Media browser's), or Add new tag.
@@ -141,6 +183,26 @@ final class SavePromptDialog {
             tagRow.add(add, BorderLayout.EAST);
             add(form, g, row++, "Tag " + (i + 1), tagRow);
         }
+        // Group: the run's result file and the prompt file go in it ((none), a group, New group…).
+        FileGroups.load(PromptDb.dir());
+        final JComboBox<String> group = new JComboBox<String>();
+        group.setName("save-prompt-group");
+        group.addItem("(none)");
+        for (String gr : FileGroups.names()) group.addItem(gr);
+        group.addItem(FileGroups.NEW);
+        group.addActionListener(e -> {
+            if (!FileGroups.NEW.equals(group.getSelectedItem())) return;
+            Object typed = JOptionPane.showInputDialog(group, "Group name", FileGroups.NEW, JOptionPane.PLAIN_MESSAGE, null, null, "");
+            String made = FileGroups.clean(typed == null ? "" : typed.toString());
+            if (made.isEmpty()) {
+                group.setSelectedIndex(0);
+                return;
+            }
+            FileGroups.make(made);
+            group.insertItemAt(made, group.getItemCount() - 1);
+            group.setSelectedItem(made);
+        });
+        add(form, g, row++, "Group (optional)", group);
         add(form, g, row++, "", version);
         // Add to favourites: the version stored goes into the favourite prompts (Browse prompts, Prompts page).
         javax.swing.JCheckBox favourite = new javax.swing.JCheckBox("Add to favourites");
@@ -159,6 +221,8 @@ final class SavePromptDialog {
         c.name = name.getText().trim().length() == 0 ? first.name : name.getText().trim();
         c.description = description.getText().trim();
         c.favourite = favourite.isSelected();
+        Object gr = group.getSelectedItem();
+        c.group = gr == null || "(none)".equals(gr) || FileGroups.NEW.equals(gr) ? "" : gr.toString();
         for (JComboBox<String> b : tagBoxes) {
             Object t = b.getSelectedItem();
             if (t != null && !"(none)".equals(t.toString())) c.tags.add(t.toString());

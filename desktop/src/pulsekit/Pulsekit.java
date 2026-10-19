@@ -636,6 +636,10 @@ public final class Pulsekit extends UiKit {
             // The Sogni runs' downloads: pending, in progress, finished / failed.
             JMenuItem downloads = new JMenuItem("Downloads");
             downloads.addActionListener(e -> DownloadsScreen.show(this));
+            // Playlists (.pls): the Editor and Viewer tabs.
+            JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
+            playlists.setName("file-playlists");
+            playlists.addActionListener(e -> PlaylistWindow.open(this, null));
             JMenuItem general = new JMenuItem("General settings");
             general.addActionListener(e -> GeneralSettings.show(this));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
@@ -651,6 +655,7 @@ public final class Pulsekit extends UiKit {
             menu.add(saveCode);
             menu.add(saveCodeAs);
             menu.add(downloads);
+            menu.add(playlists);
             menu.add(general);
             menu.add(midi);
             menu.add(compare);

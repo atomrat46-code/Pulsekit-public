@@ -163,12 +163,20 @@ final class RefBrowser {
     /** The `only` kind's files, then only those the A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(Activity activity, boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        // G: only the files of the group G shows.
-        boolean group = FileGroups.LETTER.equals(DbFilter.current);
-        if (group) FileGroups.load(activity.getFilesDir());
-        for (PromptVault.StoredFile f : files(activity, results, only)) {
-            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        // F: only the favourites; G: only the files of the group G shows.
+        FileGroups.load(activity.getFilesDir());
+        FileFavourites.load(activity.getFilesDir());
+        // C and the tags read the files' prompts.
+        MediaTags.load(activity.getFilesDir());
+        FileFilter.use(FileFilter.BROWSE);
+        DbFilter.current = FileFilter.normal(DbFilter.current);
+        PromptVault vault;
+        try {
+            vault = PromptVault.open(activity.getFilesDir());
+        } catch (Exception ex) {
+            vault = null;
         }
+        out.addAll(FileFilter.keep(files(activity, results, only), vault, DbFilter.current));
         return out;
     }
 
@@ -180,14 +188,35 @@ final class RefBrowser {
     static AlertDialog last;
     static AlertDialog menu;
 
-    /** A I V S T and G (a group). */
+    /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
-        out[out.length - 1] = FileGroups.LETTER;
-        return out;
+        return DbFilter.WITH_FAV_GROUP.clone();
+    }
+
+    /** A letter's (or a switch's, or a tag list's) pill: lit when on. */
+    private static TextView letterPill(Activity activity, String text, boolean on, float density) {
+        TextView b = new TextView(activity);
+        b.setText(text);
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        b.setGravity(Gravity.CENTER);
+        b.setTextSize(16);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(8 * density);
+        bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
+        b.setBackground(bg);
+        b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
+        return b;
+    }
+
+    private static LinearLayout.LayoutParams letterLp(float density, int gap) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
+        lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
+        return lp;
     }
 
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
+        FileFilter.use(FileFilter.BROWSE);
         final List<PromptVault.StoredFile> files = shown(activity, results, only);
         final PromptVault vault;
         try {
@@ -237,41 +266,24 @@ final class RefBrowser {
             browse(activity, results, only, picked);
         };
         for (final String letter : withGroup()) {
-            final boolean g = FileGroups.LETTER.equals(letter);
+            if (FileFilter.isToggle(letter)) continue;
             boolean on = letter.equals(DbFilter.current);
-            TextView b = new TextView(activity);
-            b.setText(g ? FileGroups.label() : letter);
-            b.setSingleLine(true);
-            b.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            b.setGravity(Gravity.CENTER);
-            b.setTextSize(16);
+            TextView b = letterPill(activity, letter, on, density);
             b.setTag("db-filter:" + letter);
             b.setContentDescription(DbFilter.label(letter));
-            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setCornerRadius(8 * density);
-            bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
-            b.setBackground(bg);
-            b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
-            // G: the group picked before (the list when there is none); held, the list of groups.
-            final Runnable toGroup = () -> {
-                DbFilter.current = FileGroups.LETTER;
-                again.run();
-            };
             b.setOnClickListener(v -> {
                 if (letter.equals(DbFilter.current)) return;
-                if (g && !GroupDialogs.tap(activity, toGroup)) return;
                 DbFilter.current = letter;
                 again.run();
             });
-            if (g) b.setOnLongClickListener(v -> {
-                GroupDialogs.pick(activity, toGroup);
-                return true;
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), g ? 2f : 1f);
-            lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
-            letters.addView(b, lp);
+            letters.addView(b, letterLp(density, gap));
         }
+        // F G C: switches with the letter (held: G the groups, C the categories).
+        FilterRow.toggles(activity, letters, "db-filter:", DbFilter.current, (text, on) -> letterPill(activity, text, on, density),
+            () -> letterLp(density, gap), again);
         top.addView(letters);
+        // T1 T2 T3: the files with any of the tags picked.
+        top.addView(FilterRow.tags(activity, "db-filter:", (text, on) -> letterPill(activity, text, on, density), () -> letterLp(density, gap), again));
         if (files.isEmpty()) {
             TextView none = new TextView(activity);
             none.setText("none");
@@ -335,13 +347,22 @@ final class RefBrowser {
                 final boolean fav = FileFavourites.is(file);
                 menu = new AlertDialog.Builder(activity)
                     .setTitle(shownName)
-                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD}, (d, w) -> {
-                        if (w == 0) {
+                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT}, (d, w) -> {
+                        // Add to playlist (a list picked, or a new one), Add to default playlist.
+                        if (w == 4 || w == 5) {
+                            if (!(activity instanceof MainActivity)) return;
+                            if (w == 4) PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(file), shownName);
+                            else PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(file), shownName);
+                        } else if (w == 2 || w == 3) {
+                            if (!(activity instanceof MainActivity)) return;
+                            if (w == 2) TagDialogs.tags((MainActivity) activity, shownName, file.size, null);
+                            else TagDialogs.category((MainActivity) activity, shownName, file.size, null);
+                        } else if (w == 0) {
                             boolean now = FileFavourites.toggle(file);
                             if (activity instanceof MainActivity) ((MainActivity) activity).setNow(shownName + (now ? " added to favourites" : " taken out of favourites"));
                             again.run();
                         } else {
-                            GroupDialogs.addTo(activity, FileGroups.key(file), shownName, FileGroups.LETTER.equals(DbFilter.current) ? again : null);
+                            GroupDialogs.addTo(activity, FileGroups.keys(file), shownName, FileFilter.active() ? again : null);
                         }
                     })
                     .setNegativeButton("Cancel", null)
@@ -379,13 +400,14 @@ final class RefBrowser {
         page.addView(top);
         page.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
-            .setTitle(results ? "Result files" : "Reference files")
+            .setTitle((results ? "Result files" : "Reference files") + FileFilter.title())
             .setView(page)
             .setNegativeButton("Cancel", null)
             .show();
         last = dialog[0];
-        // Previews come in the background, as on the Prompts page.
+        // Previews come in the background, as on the Prompts page (no "Processing DB" for them).
         new Thread(() -> {
+            PromptVault.quiet(true);
             for (int i = 0; i < files.size(); i++) {
                 if (dialog[0] == null || !dialog[0].isShowing()) return;
                 PromptVault.StoredFile f = files.get(i);

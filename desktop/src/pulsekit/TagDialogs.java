@@ -1,0 +1,84 @@
+package pulsekit;
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.GridLayout;
+import java.util.ArrayList;
+import java.util.List;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+
+/**
+ * Tags… and Category… for a file by its name and size (MediaTags), as the Media browser has them:
+ * also on the Reference, Result and Prompt files' menus and Browse DB's. MediaBrowser.answer, when
+ * set (the tests), answers in place of the dialog.
+ */
+final class TagDialogs {
+    private TagDialogs() {}
+
+    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between). `after` runs once saved. */
+    static void tags(Pulsekit app, Component parent, String name, long size, Runnable after) {
+        MediaTags.load(PromptDb.dir());
+        String key = MediaTags.key(name, size);
+        List<String> chosen;
+        if (MediaBrowser.answer != null) {
+            String a = MediaBrowser.answer.apply("Tags for " + name);
+            if (a == null) return;
+            chosen = new ArrayList<String>(java.util.Arrays.asList(a.split(",")));
+        } else {
+            List<String> known = MediaTags.known();
+            List<String> has = MediaTags.tags(key);
+            JPanel boxes = new JPanel(new GridLayout(0, 3, 6, 2));
+            List<javax.swing.JCheckBox> checks = new ArrayList<javax.swing.JCheckBox>();
+            for (String t : known) {
+                javax.swing.JCheckBox c = new javax.swing.JCheckBox(t, has.contains(t));
+                c.setName("media-tag:" + t);
+                checks.add(c);
+                boxes.add(c);
+            }
+            javax.swing.JTextField more = new javax.swing.JTextField(24);
+            more.setName("media-new-tags");
+            JPanel panel = new JPanel(new BorderLayout(0, 8));
+            if (!known.isEmpty()) panel.add(boxes, BorderLayout.CENTER);
+            JPanel add = new JPanel(new BorderLayout(6, 0));
+            add.add(new JLabel("New tags (a comma between):"), BorderLayout.WEST);
+            add.add(more, BorderLayout.CENTER);
+            panel.add(add, BorderLayout.SOUTH);
+            if (javax.swing.JOptionPane.showConfirmDialog(parent, panel, "Tags for " + name, javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return;
+            chosen = new ArrayList<String>();
+            for (javax.swing.JCheckBox c : checks) if (c.isSelected()) chosen.add(c.getText());
+            chosen.addAll(java.util.Arrays.asList(more.getText().split(",")));
+        }
+        MediaTags.setTags(key, chosen);
+        String line = MediaTags.line(key);
+        app.setNow(line.length() == 0 ? name + ": no tags" : name + ": " + line);
+        if (after != null) after.run();
+    }
+
+    /** Category…: one of the prompt library's categories for the file, or none. `after` runs once picked. */
+    static void category(Pulsekit app, Component parent, String name, long size, Runnable after) {
+        MediaTags.load(PromptDb.dir());
+        String key = MediaTags.key(name, size);
+        List<String> names = new ArrayList<String>();
+        names.add("(none)");
+        try {
+            names.addAll(MediaTags.categoryNames(PromptDb.vault()));
+        } catch (Exception ex) {
+            // no library: none only
+        }
+        String picked;
+        if (MediaBrowser.answer != null) {
+            picked = MediaBrowser.answer.apply("Category for " + name);
+        } else {
+            String now = MediaTags.category(key);
+            Object a = javax.swing.JOptionPane.showInputDialog(parent, "Category for " + name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
+                names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
+            picked = a == null ? null : a.toString();
+        }
+        if (picked == null) return;
+        MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
+        app.setNow(name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
+        if (after != null) after.run();
+    }
+}

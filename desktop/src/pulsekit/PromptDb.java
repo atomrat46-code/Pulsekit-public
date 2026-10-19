@@ -43,7 +43,7 @@ final class PromptDb {
     static final String VIDEOS = "videos";
     /** Text files (a prompt field's Browse DB: an Answer Prompt 1.txt). */
     static final String TEXTS = "texts";
-    private static final long MAX_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_BYTES = 128L * 1024 * 1024;
     private static final int CELL = 150;
 
     final Pulsekit app;
@@ -101,12 +101,20 @@ final class PromptDb {
     /** The `only` kind's files, then only those Browse DB's A / I / V / S / T button picked last shows. */
     static List<PromptVault.StoredFile> shown(boolean results, String only) {
         List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>();
-        // G: only the files of the group G shows.
-        boolean group = FileGroups.LETTER.equals(DbFilter.current);
-        if (group) FileGroups.load(dir());
-        for (PromptVault.StoredFile f : files(results, only)) {
-            if (group ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, DbFilter.current)) out.add(f);
+        // F: only the favourites; G: only the files of the group G shows.
+        FileGroups.load(dir());
+        FileFavourites.load(dir());
+        // C and the tags read the files' prompts.
+        MediaTags.load(dir());
+        FileFilter.use(FileFilter.BROWSE);
+        DbFilter.current = FileFilter.normal(DbFilter.current);
+        PromptVault lib;
+        try {
+            lib = vault();
+        } catch (Exception ex) {
+            lib = null;
         }
+        out.addAll(FileFilter.keep(files(results, only), lib, DbFilter.current));
         return out;
     }
 
@@ -149,7 +157,8 @@ final class PromptDb {
 
     /** A grid of the library's files of the `only` kind; a click hands the picked one on. Ref files / Result files at the top. */
     void browse(boolean results, String only, Picked picked) {
-        final JDialog dialog = new JDialog(app, results ? "Result files" : "Reference files", true);
+        FileFilter.use(FileFilter.BROWSE);
+        final JDialog dialog = new JDialog(app, (results ? "Result files" : "Reference files") + FileFilter.title(), true);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
             // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
             browseScroll[results ? 1 : 0] = this.scrolledTo();
@@ -159,34 +168,33 @@ final class PromptDb {
         });
         // A / I / V / S / T: all files, images, videos, sound files, text files; the one shown is greyed.
         // G: a group's files (a right click on G picks the group).
-        JPanel letters = new JPanel(new GridLayout(1, DbFilter.LETTERS.length + 1, 6, 0));
+        JPanel letters = new JPanel(new GridLayout(1, DbFilter.LETTERS.length + 3, 6, 0));
         final Runnable again = () -> {
             dialog.dispose();
             this.browse(results, only, picked);
         };
-        final Runnable toGroup = () -> {
-            DbFilter.current = FileGroups.LETTER;
-            again.run();
-        };
-        FileGroups.load(dir());
         for (String letter : withGroup()) {
-            final boolean g = FileGroups.LETTER.equals(letter);
-            final JButton b = new JButton(g ? FileGroups.label() : letter);
+            if (FileFilter.isToggle(letter)) continue;
+            final JButton b = new JButton(letter);
             b.setName("db-filter:" + letter);
-            b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
-            b.setEnabled(!letter.equals(DbFilter.current) || g);
+            b.setToolTipText(DbFilter.label(letter));
+            b.setEnabled(!letter.equals(DbFilter.current));
             b.addActionListener(e -> {
                 if (letter.equals(DbFilter.current)) return;
-                if (g && !GroupMenus.tap(app, b, toGroup)) return;
                 DbFilter.current = letter;
                 again.run();
             });
-            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             letters.add(b);
         }
-        JPanel top = new JPanel(new GridLayout(2, 1, 0, 6));
+        // F G C: switches with the letter (a right click: G the groups, C the categories).
+        FilterBar.toggles(app, letters, "db-filter:", DbFilter.current, again);
+        // T1 T2 T3: the files with any of the tags picked.
+        JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        FilterBar.tags(tagRow, "db-filter:", again);
+        JPanel top = new JPanel(new GridLayout(3, 1, 0, 6));
         top.add(kinds);
         top.add(letters);
+        top.add(tagRow);
         List<PromptVault.StoredFile> list = shown(results, only);
         JPanel grid = this.grid(list, (file, card) -> {
             File copy = this.copyOut(file);
@@ -210,7 +218,18 @@ final class PromptDb {
                 again.run();
             });
             m.add(favItem);
-            m.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, FileGroups.LETTER.equals(DbFilter.current) ? again : null));
+            m.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, FileFilter.active() ? again : null));
+            JMenuItem tagsItem = new JMenuItem(MediaTags.TAGS);
+            tagsItem.setName("refs-tags");
+            tagsItem.addActionListener(e -> TagDialogs.tags(app, card, file.name, file.size, null));
+            m.add(tagsItem);
+            JMenuItem catItem = new JMenuItem(MediaTags.CATEGORY);
+            catItem.setName("refs-category");
+            catItem.addActionListener(e -> TagDialogs.category(app, card, file.name, file.size, null));
+            m.add(catItem);
+            // Add to playlist (a list picked, or a new one) and Add to default playlist.
+            m.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
+            m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
             this.lastCardMenu = m;
             m.show(card, 10, 10);
         }, "refs-pick:", true);
@@ -412,14 +431,15 @@ final class PromptDb {
     /** The DB dialog shown last, for the tests. */
     JDialog lastPick;
 
+    /** The ★ Favourite files list's thumbnails, by row (for the tests). */
+    java.util.Map<Integer, javax.swing.Icon> favIcons;
+
     /** A Browse DB card's right click menu shown last, for the tests. */
     javax.swing.JPopupMenu lastCardMenu;
 
-    /** A I V S T and G (a group). */
+    /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        String[] out = java.util.Arrays.copyOf(DbFilter.LETTERS, DbFilter.LETTERS.length + 1);
-        out[out.length - 1] = FileGroups.LETTER;
-        return out;
+        return DbFilter.WITH_FAV_GROUP.clone();
     }
 
     /** The Browse DB dialog shown last, for the tests. */
@@ -458,6 +478,16 @@ final class PromptDb {
         } catch (Exception ex) {
             vault = null;
         }
+        // The cards' previews: their reads are no "Processing DB" (one after another, the notice kept coming back).
+        PromptVault.quiet(true);
+        try {
+            return this.cards(grid, vault, list, click, menu, tag, play);
+        } finally {
+            PromptVault.quiet(false);
+        }
+    }
+
+    private JPanel cards(JPanel grid, PromptVault vault, List<PromptVault.StoredFile> list, CardAction click, CardAction menu, String tag, boolean play) {
         for (final PromptVault.StoredFile file : list) {
             String name = file.name == null ? "file" : file.name;
             JButton card = new JButton();
@@ -748,8 +778,9 @@ final class PromptDb {
 
     /** The galleries: 0 Ref files, 1 Result files, 2 Prompt files (the sheets runs saved with --saveprompt). */
     void gallery(final int kind) {
+        FileFilter.use(FileFilter.GALLERY);
         final boolean results = kind == 1;
-        final JDialog dialog = new JDialog(app, kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files", true);
+        final JDialog dialog = new JDialog(app, (kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files") + FileFilter.title(), true);
         JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
         FileSort.current = FileSort.valid(readSort());
@@ -769,30 +800,27 @@ final class PromptDb {
         sortRow.add(sort);
         // A I V S T: all files, or only pictures, videos, sound files or text files.
         sortRow.add(javax.swing.Box.createHorizontalStrut(12));
-        // G: a group's files (a right click on G picks the group).
-        FileGroups.load(dir());
-        final Runnable toGroup = () -> {
-            galleryFilter = FileGroups.LETTER;
+        galleryFilter = FileFilter.normal(galleryFilter);
+        final Runnable againGallery = () -> {
             dialog.dispose();
             this.gallery(kind);
         };
         for (final String letter : withGroup()) {
-            final boolean g = FileGroups.LETTER.equals(letter);
-            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(g ? FileGroups.label() : letter, letter.equals(galleryFilter));
+            if (FileFilter.isToggle(letter)) continue;
+            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(letter, letter.equals(galleryFilter));
             b.setName("gallery-filter:" + letter);
-            b.setToolTipText(g ? "A group's files (right click: pick the group)" : DbFilter.label(letter));
+            b.setToolTipText(DbFilter.label(letter));
             b.addActionListener(e -> {
-                if (g && !GroupMenus.tap(app, b, toGroup)) {
-                    b.setSelected(false);
-                    return;
-                }
                 galleryFilter = letter;
-                dialog.dispose();
-                this.gallery(kind);
+                againGallery.run();
             });
-            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             sortRow.add(b);
         }
+        // F G C: switches with the letter (a right click: G the groups, C the categories).
+        FilterBar.toggles(app, sortRow, "gallery-filter:", galleryFilter, againGallery);
+        // T1 T2 T3: the files with any of the tags picked.
+        final JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        FilterBar.tags(tagRow, "gallery-filter:", againGallery);
         PromptVault lib = null;
         try {
             lib = vault();
@@ -801,8 +829,9 @@ final class PromptDb {
         }
         List<PromptVault.StoredFile> every = kind == 2 ? promptFiles() : stored(results);
         List<PromptVault.StoredFile> kept = new ArrayList<PromptVault.StoredFile>();
-        boolean inGroup = FileGroups.LETTER.equals(galleryFilter);
-        for (PromptVault.StoredFile f : every) if (inGroup ? FileGroups.fits(FileGroups.key(f)) : DbFilter.fits(f.name, galleryFilter)) kept.add(f);
+        FileFavourites.load(dir());
+        MediaTags.load(dir());
+        kept.addAll(FileFilter.keep(every, lib, galleryFilter));
         // Category tabs: All, the main categories the files' prompts are in, No category.
         final PromptVault tabsLib = lib;
         List<long[]> tabs = FileFavourites.tabs(lib, kept);
@@ -810,7 +839,9 @@ final class PromptDb {
         for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
         if (!tabThere) galleryCategory = FileFavourites.ALL;
         JPanel catRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        if (tabs.size() > 2) {
+        // F and G show every favourite or group file, whatever its category: no category tabs then.
+        final boolean marks = FileFilter.active() || FileFilter.isToggle(galleryFilter);
+        if (tabs.size() > 2 && !marks) {
             for (long[] t : tabs) {
                 final long tab = t[0];
                 String tabName = FileFavourites.tabName(tabsLib, tab);
@@ -833,6 +864,39 @@ final class PromptDb {
             for (int i = 0; i < favFiles.size(); i++) labels[i + 1] = favFiles.get(i).name + " \u00b7 " + favFiles.get(i).shownTitle();
             final javax.swing.JComboBox<String> favs = new javax.swing.JComboBox<String>(labels);
             favs.setName("gallery-favs");
+            // Each with a small thumbnail (read in the background).
+            final java.util.Map<Integer, javax.swing.Icon> icons = new java.util.concurrent.ConcurrentHashMap<Integer, javax.swing.Icon>();
+            favs.setRenderer(new javax.swing.DefaultListCellRenderer() {
+                @Override
+                public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                    JLabel l = (JLabel) super.getListCellRendererComponent(list, value, index, selected, focus);
+                    javax.swing.Icon icon = index > 0 ? icons.get(index) : null;
+                    l.setIcon(icon);
+                    if (index > 0 && icon == null) l.setIconTextGap(4);
+                    return l;
+                }
+            });
+            this.favIcons = icons;
+            final PromptVault favLib = lib;
+            Thread small = new Thread(() -> {
+                PromptVault.quiet(true);
+                try {
+                    for (int i = 0; i < favFiles.size(); i++) {
+                        PromptVault.StoredFile f = favFiles.get(i);
+                        ImageIcon big = favLib == null ? null : thumb(f.name, favLib.fileBytes(f.versionId, f.which));
+                        if (big == null) continue;
+                        java.awt.Image img = big.getImage();
+                        int w = img.getWidth(null), h = img.getHeight(null);
+                        double k = 40.0 / Math.max(1, Math.max(w, h));
+                        icons.put(i + 1, new ImageIcon(img.getScaledInstance(Math.max(1, (int) (w * k)), Math.max(1, (int) (h * k)), java.awt.Image.SCALE_SMOOTH)));
+                        SwingUtilities.invokeLater(favs::repaint);
+                    }
+                } catch (Throwable ex) {
+                    // the names stay without their thumbnails
+                }
+            }, "pulsekit-fav-thumbs");
+            small.setDaemon(true);
+            small.start();
             favs.addActionListener(e -> {
                 int i = favs.getSelectedIndex();
                 if (i <= 0) return;
@@ -843,11 +907,12 @@ final class PromptDb {
             catRow.add(favs);
         }
         boolean third = catRow.getComponentCount() > 0;
-        JPanel top = new JPanel(new GridLayout((kinds == null ? 1 : 2) + (third ? 1 : 0), 1, 0, 6));
+        JPanel top = new JPanel(new GridLayout((kinds == null ? 2 : 3) + (third ? 1 : 0), 1, 0, 6));
         if (kinds != null) top.add(kinds);
         top.add(sortRow);
+        top.add(tagRow);
         if (third) top.add(catRow);
-        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, galleryCategory), FileSort.current, lib);
+        List<PromptVault.StoredFile> list = FileSort.sorted(FileFavourites.onTab(lib, kept, marks ? FileFavourites.ALL : galleryCategory), FileSort.current, lib);
         JPanel grid = this.grid(list, (file, card) -> this.preview(file, card),
             (file, card) -> this.menu(file, card, () -> {
                 dialog.dispose();
@@ -1135,7 +1200,18 @@ final class PromptDb {
             changed.run();
         });
         menu.add(favItem);
-        menu.add(GroupMenus.item(app, card, FileGroups.key(file), file.name, changed));
+        menu.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, changed));
+        menu.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
+        menu.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
+        // Tags… and Category…, as the Media browser has them (the file by its name and size).
+        JMenuItem tagsItem = new JMenuItem(MediaTags.TAGS);
+        tagsItem.setName("gallery-tags");
+        tagsItem.addActionListener(e -> TagDialogs.tags(app, card, file.name, file.size, null));
+        menu.add(tagsItem);
+        JMenuItem catItem = new JMenuItem(MediaTags.CATEGORY);
+        catItem.setName("gallery-category");
+        catItem.addActionListener(e -> TagDialogs.category(app, card, file.name, file.size, null));
+        menu.add(catItem);
         menu.add(open);
         menu.add(save);
         boolean extractable = false;
@@ -1768,6 +1844,8 @@ final class PromptDb {
                     SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
                 });
                 m.add(process);
+                // The video among the favourites, or in a group.
+                for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem) m.add((JMenuItem) c);
                 PromptDb.this.lastFrameMenu = m;
                 m.show(player.screen, e.getX(), e.getY());
             }
@@ -2193,7 +2271,7 @@ final class PromptDb {
     void importPicked(File file, boolean result) {
         String name = file.getName();
         if (file.length() > MAX_BYTES) {
-            app.setNow(name + " is over the library's 16 MB");
+            app.setNow(name + " is over the library's 128 MB");
             return;
         }
         byte[] bytes;
@@ -2212,6 +2290,8 @@ final class PromptDb {
         try {
             vault().addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
             app.setNow("Imported " + name + " as a " + kind);
+            // Then which group it goes in (No group: none).
+            GroupMenus.afterAdd(app, name, bytes.length);
         } catch (Exception ex) {
             app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
         }

@@ -194,7 +194,10 @@ final class MediaBrowser {
         // The type selector (A I V S T O), then the tag filter: what of the folder is shown.
         MediaTags.load(PromptDb.dir());
         FileGroups.load(PromptDb.dir());
-        final List<MediaDir.Entry> entries = MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter);
+        FileFavourites.load(PromptDb.dir());
+        FileFilter.use(FileFilter.MEDIA);
+        MediaDir.filter = FileFilter.normal(MediaDir.filter);
+        final List<MediaDir.Entry> entries = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter));
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -250,33 +253,31 @@ final class MediaBrowser {
         loopRow.add(fav, 0);
         // A all, I pictures, V videos, S sounds, T text, O other files.
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        final Runnable again = () -> {
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        };
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
+            if (FileFilter.isToggle(f)) continue;
             int n = MediaDir.count(allEntries, f);
-            final boolean g = FileGroups.LETTER.equals(f);
-            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(g ? FileGroups.label() : f, f.equals(MediaDir.filter));
+            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
             b.setName("media-filter:" + f);
-            b.setToolTipText(g ? "A group's files (" + n + " here; right click: pick the group)" : MediaDir.FILTER_NAMES[i] + " (" + n + ")");
-            b.setEnabled(n > 0 || f.equals("A") || g || f.equals(MediaDir.filter));
-            // G: a group's files (a right click on G picks the group).
-            final Runnable toGroup = () -> {
-                MediaDir.filter = FileGroups.LETTER;
-                gone.set(true);
-                this.fill(dialog, root, dir);
-            };
+            b.setToolTipText(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
+            b.setEnabled(n > 0 || f.equals("A") || f.equals(MediaDir.filter));
             b.addActionListener(e -> {
-                if (g && !GroupMenus.tap(app, b, toGroup)) {
-                    b.setSelected(f.equals(MediaDir.filter));
-                    return;
-                }
                 MediaDir.filter = f;
-                gone.set(true);
-                this.fill(dialog, root, dir);
+                again.run();
             });
-            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             filters.add(b);
         }
-        filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]));
+        // F G C: switches with the letter (a right click: G the groups, C the categories).
+        FilterBar.toggles(app, filters, "media-filter:", MediaDir.filter, again);
+        filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]
+            + FileFilter.title().replace(" \u00b7 Group: ", " \u00b7 group ").replace(" \u00b7 ", ", ")));
+        // T1 T2 T3: the files with any of the tags picked (a row of their own).
+        final JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        FilterBar.tags(tagRow, "media-filter:", again);
         // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
         final List<String[]> tagChoices = MediaTags.choices(allEntries);
         boolean known = false;
@@ -304,10 +305,18 @@ final class MediaBrowser {
         JPanel north = new JPanel(new BorderLayout(0, 6));
         if (this.chooser != null) north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
         north.add(top, BorderLayout.CENTER);
-        north.add(filters, BorderLayout.SOUTH);
+        JPanel rows = new JPanel(new GridLayout(2, 1, 0, 4));
+        rows.add(filters);
+        rows.add(tagRow);
+        north.add(rows, BorderLayout.SOUTH);
         body.add(north, BorderLayout.NORTH);
         JPanel grid = new JPanel(new GridLayout(0, 4, 8, 8));
-        if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
+        if (entries.isEmpty()) {
+            // The F G C switches or the T lists may be what keeps the files out: say so.
+            JLabel none = new JLabel(FileFilter.active() ? FileFilter.nothing() : "No pictures, videos or sounds here");
+            none.setName("media-empty");
+            grid.add(none);
+        }
         final List<JButton> waiting = new ArrayList<JButton>();
         final List<File> videos = new ArrayList<File>();
         JButton focusCard = null;
@@ -749,7 +758,26 @@ final class MediaBrowser {
         scroll.setPreferredSize(new Dimension(460, 320));
         JButton close = new JButton("Close");
         close.addActionListener(ev -> d.dispose());
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        // Save pls: this folder's playlist kept as a .pls with the playlists (File > Playlist viewer/editor).
+        JButton savePls = new JButton("Save pls");
+        savePls.setName("media-playlist-save-pls");
+        savePls.addActionListener(ev -> {
+            Object typed = answer != null ? answer.apply("Playlist name") : javax.swing.JOptionPane.showInputDialog(d, "Playlist name", "Save pls", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, folder.getName());
+            String name = typed == null ? "" : Playlist.clean(typed.toString());
+            if (name.length() == 0) return;
+            app.setNow(this.savePls(folder, name));
+        });
+        JButton openList = new JButton("Open in Playlist viewer");
+        openList.setName("media-playlist-open-viewer");
+        openList.addActionListener(ev -> {
+            String said = this.savePls(folder, Playlist.clean(folder.getName()));
+            app.setNow(said);
+            d.dispose();
+            PlaylistWindow.open(app, Playlist.clean(folder.getName()));
+        });
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        bottom.add(savePls);
+        bottom.add(openList);
         bottom.add(close);
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -765,16 +793,41 @@ final class MediaBrowser {
     /** The card menu shown last, for the tests. */
     javax.swing.JPopupMenu lastMenu;
 
+    /** Save pls: the folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    String savePls(File folder, String name) {
+        Playlist p = new Playlist(name);
+        for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), folder.getAbsolutePath())) p.add(it.id, it.name);
+        try {
+            Playlist.save(PromptDb.dir(), p);
+            return "Saved " + p.name + Playlist.EXT + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)") + ": File > Playlist viewer/editor";
+        } catch (Exception ex) {
+            return "Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage();
+        }
+    }
+
     /** A file's menu (MediaDir.MENU): Add to DB as a reference or result file, Add to default playlist. */
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
         final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true);
+        // A favourite already: Remove from favourites.
+        FileFavourites.load(PromptDb.dir());
+        final boolean fav = FileFavourites.isKey(MediaDir.groupKey(entry));
+        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + i);
+            if (FileFavourites.ADD_SHORT.equals(items[i]) || FileFavourites.REMOVE_SHORT.equals(items[i])) {
+                item.setName("media-menu:favourite");
+                item.addActionListener(e -> {
+                    boolean now = FileFavourites.toggleKey(MediaDir.groupKey(entry));
+                    app.setNow(entry.name + (now ? " added to favourites" : " taken out of favourites"));
+                });
+                menu.add(item);
+                continue;
+            }
             if (FileGroups.ADD.equals(items[i])) {
                 // Add to group: the groups' list where the menu was.
                 item.setName("media-menu:" + items[i]);
@@ -809,7 +862,10 @@ final class MediaBrowser {
                 continue;
             }
             item.addActionListener(e -> {
-                app.setNow(this.menuPicked(entry, f, which));
+                String said = this.menuPicked(entry, f, which);
+                app.setNow(said);
+                // In the DB: then which group it goes in (No group: none).
+                if ((which == 0 || which == 1) && said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, entry.name, f.length());
                 // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
                 if (which == 2 && card instanceof JButton) {
                     JButton b = (JButton) card;
@@ -818,6 +874,8 @@ final class MediaBrowser {
             });
             menu.add(item);
         }
+        // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
+        if (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO || entry.kind == MediaDir.SOUND) menu.add(PlaylistWindow.addMenu(app, f.getAbsolutePath(), entry.name));
         this.lastMenu = menu;
         if (card.isShowing()) menu.show(card, x, y);
     }
@@ -1032,69 +1090,18 @@ final class MediaBrowser {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
-    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between). */
+    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between) (TagDialogs). */
     void tags(MediaDir.Entry entry) {
-        MediaTags.load(PromptDb.dir());
-        String key = MediaTags.key(entry);
-        java.util.List<String> chosen;
-        if (answer != null) {
-            String a = answer.apply("Tags for " + entry.name);
-            if (a == null) return;
-            chosen = new ArrayList<String>(java.util.Arrays.asList(a.split(",")));
-        } else {
-            java.util.List<String> known = MediaTags.known();
-            java.util.List<String> has = MediaTags.tags(key);
-            JPanel boxes = new JPanel(new GridLayout(0, 3, 6, 2));
-            java.util.List<javax.swing.JCheckBox> checks = new ArrayList<javax.swing.JCheckBox>();
-            for (String t : known) {
-                javax.swing.JCheckBox c = new javax.swing.JCheckBox(t, has.contains(t));
-                c.setName("media-tag:" + t);
-                checks.add(c);
-                boxes.add(c);
-            }
-            javax.swing.JTextField more = new javax.swing.JTextField(24);
-            more.setName("media-new-tags");
-            JPanel panel = new JPanel(new BorderLayout(0, 8));
-            if (!known.isEmpty()) panel.add(boxes, BorderLayout.CENTER);
-            JPanel add = new JPanel(new BorderLayout(6, 0));
-            add.add(new JLabel("New tags (a comma between):"), BorderLayout.WEST);
-            add.add(more, BorderLayout.CENTER);
-            panel.add(add, BorderLayout.SOUTH);
-            if (javax.swing.JOptionPane.showConfirmDialog(this.last, panel, "Tags for " + entry.name, javax.swing.JOptionPane.OK_CANCEL_OPTION,
-                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return;
-            chosen = new ArrayList<String>();
-            for (javax.swing.JCheckBox c : checks) if (c.isSelected()) chosen.add(c.getText());
-            chosen.addAll(java.util.Arrays.asList(more.getText().split(",")));
-        }
-        MediaTags.setTags(key, chosen);
-        String line = MediaTags.line(key);
-        app.setNow(line.length() == 0 ? entry.name + ": no tags" : entry.name + ": " + line);
-        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+        TagDialogs.tags(app, this.last, entry.name, entry.size, this::refill);
     }
 
-    /** Category…: one of the prompt library's categories for the file, or none. */
+    /** Category…: one of the prompt library's categories for the file, or none (TagDialogs). */
     void category(MediaDir.Entry entry) {
-        MediaTags.load(PromptDb.dir());
-        String key = MediaTags.key(entry);
-        java.util.List<String> names = new ArrayList<String>();
-        names.add("(none)");
-        try {
-            names.addAll(MediaTags.categoryNames(PromptDb.vault()));
-        } catch (Exception ex) {
-            // no library: none only
-        }
-        String picked;
-        if (answer != null) {
-            picked = answer.apply("Category for " + entry.name);
-        } else {
-            String now = MediaTags.category(key);
-            Object a = javax.swing.JOptionPane.showInputDialog(this.last, "Category for " + entry.name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
-                names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
-            picked = a == null ? null : a.toString();
-        }
-        if (picked == null) return;
-        MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
-        app.setNow(entry.name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
+        TagDialogs.category(app, this.last, entry.name, entry.size, this::refill);
+    }
+
+    /** The folder shown again. */
+    private void refill() {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
@@ -1194,7 +1201,7 @@ final class MediaBrowser {
             this.paintPlaylist();
             return said;
         }
-        if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 16 MB, so it is not in the DB";
+        if (MediaDir.tooBig(f.length())) return entry.name + " is over the library's 128 MB, so it is not in the DB";
         try {
             return MediaDir.addToDb(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()), which == 1);
         } catch (Exception ex) {
