@@ -362,6 +362,8 @@ public final class Playlist {
     public boolean repeat;
     public boolean auto;
     public boolean autoplay = true;
+    /** Loop video: the video shown plays again at its end until an arrow is pressed (Auto mode is off with it). */
+    public boolean loop;
     public int seconds = 5;
     public int volume = 100;
     public boolean mute;
@@ -369,6 +371,18 @@ public final class Playlist {
     public float zoom = 1f;
     /** The playlist open last. */
     public String last = DEFAULT;
+
+    /** Loop video on (Auto mode off then) or off. */
+    public void loop(boolean on) {
+      this.loop = on;
+      if (on) this.auto = false;
+    }
+
+    /** Auto mode on (Loop video off then) or off. */
+    public void auto(boolean on) {
+      this.auto = on;
+      if (on) this.loop = false;
+    }
   }
 
   static final String SETTINGS = "playlist-settings.txt";
@@ -388,6 +402,7 @@ public final class Playlist {
           if (k.equals("repeat")) s.repeat = Boolean.parseBoolean(v);
           else if (k.equals("auto")) s.auto = Boolean.parseBoolean(v);
           else if (k.equals("autoplay")) s.autoplay = Boolean.parseBoolean(v);
+          else if (k.equals("loop")) s.loop = Boolean.parseBoolean(v);
           else if (k.equals("seconds")) s.seconds = Math.max(1, Math.min(600, Integer.parseInt(v)));
           else if (k.equals("volume")) s.volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
           else if (k.equals("mute")) s.mute = Boolean.parseBoolean(v);
@@ -401,11 +416,13 @@ public final class Playlist {
     } catch (Exception ignored) {
       // the defaults
     }
+    // Both kept on by hand in the file: Loop video wins (Auto mode is off with it).
+    if (s.loop) s.auto = false;
     return s;
   }
 
   public static void saveSettings(File dir, Settings s) {
-    String text = "repeat=" + s.repeat + "\nauto=" + s.auto + "\nautoplay=" + s.autoplay + "\nseconds=" + s.seconds + "\nvolume=" + s.volume
+    String text = "repeat=" + s.repeat + "\nauto=" + s.auto + "\nautoplay=" + s.autoplay + "\nloop=" + s.loop + "\nseconds=" + s.seconds + "\nvolume=" + s.volume
         + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nlast=" + s.last + "\n";
     try {
       if (!dir.isDirectory()) dir.mkdirs();

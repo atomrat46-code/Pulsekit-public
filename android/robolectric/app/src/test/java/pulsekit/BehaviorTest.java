@@ -8790,6 +8790,72 @@ public class BehaviorTest {
     if (!galleryOk || !mediaOk || !readyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The Playlist window's Viewer tab: Loop video (it turns Auto mode off, and Auto mode it), volume,
+   * Mute, speed and zoom, kept for the viewer. The viewer's own controls in rows that fit (no
+   * sideways scrolling): Loop video and Auto there too.
+   */
+  @Test
+  public void s154_playlist_loop_controls() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    File media = new File(app.getCacheDir(), "playlist-loop");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 12, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File sky = new File(media, "sky.png");
+    Files.write(sky.toPath(), png.toByteArray());
+    Playlist.addTo(dir, "Loops", sky.getAbsolutePath(), "sky.png");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(true);
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.tab = 1;
+    PlaylistScreen.show(app, "Loops");
+    idle();
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    StringBuilder there = new StringBuilder();
+    for (String t : new String[] {"playlist-loop", "playlist-auto", "playlist-volume", "playlist-mute", "playlist-speed", "playlist-zoom-in", "playlist-zoom-out", "playlist-fit"}) there.append(w.findViewWithTag(t) != null ? "" : t + " missing ");
+    out.append("Viewer tab controls: ").append(there.length() == 0 ? "all there" : there).append('\n');
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-loop")).setChecked(true);
+    out.append("Loop video ticked: Auto mode ").append(((android.widget.CheckBox) w.findViewWithTag("playlist-auto")).isChecked()).append(", kept loop ").append(Playlist.settings(dir).loop).append(" auto ").append(Playlist.settings(dir).auto).append('\n');
+    boolean loopOk = Playlist.settings(dir).loop && !Playlist.settings(dir).auto && !((android.widget.CheckBox) w.findViewWithTag("playlist-auto")).isChecked();
+    ((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).setProgress(40);
+    org.robolectric.Shadows.shadowOf((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).getOnSeekBarChangeListener().onStopTrackingTouch((android.widget.SeekBar) w.findViewWithTag("playlist-volume"));
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-mute")).setChecked(true);
+    w.findViewWithTag("playlist-speed").performClick();
+    w.findViewWithTag("playlist-zoom-in").performClick();
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
+    boolean keptOk = kept.volume == 40 && kept.mute && kept.speed > 1f && kept.zoom > 1f && kept.loop;
+    // The viewer: every control on screen, none in a sideways scroll; Loop video / Auto there.
+    w.findViewWithTag("playlist-start").performClick();
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    StringBuilder controls = new StringBuilder();
+    boolean fits = true;
+    for (String t : new String[] {"viewer-play", "viewer-pause", "viewer-stop", "viewer-loop", "viewer-auto", "viewer-mute", "viewer-volume", "viewer-speed", "viewer-zoom-out", "viewer-zoom-in", "viewer-fit"}) {
+      View c = vw.findViewWithTag(t);
+      if (c == null) {
+        controls.append(t).append(" missing ");
+        fits = false;
+        continue;
+      }
+      for (android.view.ViewParent up = c.getParent(); up != null; up = up.getParent()) if (up instanceof android.widget.HorizontalScrollView) fits = false;
+    }
+    out.append("viewer controls: ").append(controls.length() == 0 ? "all there" : controls).append(", fit without scrolling ").append(fits).append(", speed ").append(((TextView) vw.findViewWithTag("viewer-speed")).getText()).append(", zoom ").append(((TextView) vw.findViewWithTag("viewer-zoom")).getText()).append('\n');
+    vw.findViewWithTag("viewer-auto").performClick();
+    boolean autoOn = Playlist.settings(dir).auto && !Playlist.settings(dir).loop;
+    vw.findViewWithTag("viewer-loop").performClick();
+    boolean loopOn = Playlist.settings(dir).loop && !Playlist.settings(dir).auto;
+    out.append("viewer Auto: auto ").append(autoOn).append(", then Loop video: loop ").append(loopOn).append('\n');
+    PlaylistScreen.lastViewer.dismiss();
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    write("s154_playlist_loop_controls", out.toString());
+    if (there.length() > 0 || !loopOk || !keptOk || !fits || !autoOn || !loopOn) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

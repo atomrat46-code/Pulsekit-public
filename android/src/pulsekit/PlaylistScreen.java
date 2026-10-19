@@ -342,45 +342,143 @@ final class PlaylistScreen {
         final File dir = app.getFilesDir();
         final Playlist.Settings s = Playlist.settings(dir);
         final CheckBox repeat = box(app, "Repeat: from the end back to the beginning", s.repeat, "playlist-repeat");
-        final CheckBox auto = box(app, "Auto mode: the next file shows by itself (else tap ▶)", s.auto, "playlist-auto");
+        final CheckBox auto = box(app, "Auto mode: the next file shows by itself (else tap \u25b6)", s.auto, "playlist-auto");
+        final CheckBox loop = box(app, "Loop video: the video plays again and again until an arrow is tapped (Auto mode off)", s.loop, "playlist-loop");
         final CheckBox autoplay = box(app, "Autoplay video (else a long press, or Play, starts it)", s.autoplay, "playlist-autoplay");
+        final CheckBox mute = box(app, "Mute", s.mute, "playlist-mute");
         final int[] seconds = {s.seconds};
+        final float[] speed = {s.speed};
+        final float[] zoom = {s.zoom};
         final TextView secs = app.text("", 14, false);
         secs.setTag("playlist-seconds");
+        final TextView level = app.text("", 14, false);
+        level.setTag("playlist-volume-level");
+        final SeekBar volume = new SeekBar(app);
+        volume.setMax(100);
+        volume.setProgress(s.volume);
+        volume.setTag("playlist-volume");
+        final TextView speedPill = app.pill("", false, null);
+        speedPill.setTag("playlist-speed");
+        final TextView zoomLevel = app.text("", 14, false);
+        zoomLevel.setTag("playlist-zoom");
+        final boolean[] filling = {true};
         final Runnable keep = () -> {
+            if (filling[0]) return;
             Playlist.Settings now = Playlist.settings(dir);
             now.repeat = repeat.isChecked();
             now.auto = auto.isChecked();
+            now.loop = loop.isChecked();
             now.autoplay = autoplay.isChecked();
             now.seconds = seconds[0];
+            now.volume = volume.getProgress();
+            now.mute = mute.isChecked();
+            now.speed = speed[0];
+            now.zoom = zoom[0];
             Playlist.saveSettings(dir, now);
-            secs.setText("In Auto mode a picture shows for " + seconds[0] + " s");
         };
-        keep.run();
-        for (CheckBox c : new CheckBox[] {repeat, auto, autoplay}) {
-            c.setOnCheckedChangeListener((b, on) -> keep.run());
-            col.addView(c);
-        }
+        final Runnable paint = () -> {
+            secs.setText("In Auto mode a picture shows for " + seconds[0] + " s");
+            level.setText("Volume " + (mute.isChecked() ? "(muted)" : volume.getProgress() + "%"));
+            speedPill.setText("Speed " + Playlist.speedText(speed[0]));
+            zoomLevel.setText("Zoom " + MediaDir.zoomLabel(zoom[0]));
+        };
+        paint.run();
+        // Loop video and Auto mode go one at a time.
+        loop.setOnCheckedChangeListener((b, on) -> {
+            if (on && auto.isChecked()) auto.setChecked(false);
+            keep.run();
+        });
+        auto.setOnCheckedChangeListener((b, on) -> {
+            if (on && loop.isChecked()) loop.setChecked(false);
+            keep.run();
+        });
+        for (CheckBox c : new CheckBox[] {repeat, autoplay, mute}) c.setOnCheckedChangeListener((b, on) -> {
+            keep.run();
+            paint.run();
+        });
+        for (CheckBox c : new CheckBox[] {repeat, auto, loop, autoplay}) col.addView(c);
         LinearLayout row = app.row();
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(secs);
-        TextView less = app.pill("−", false, v -> {
+        TextView less = app.pill("\u2212", false, v -> {
             seconds[0] = Math.max(1, seconds[0] - 1);
             keep.run();
+            paint.run();
         });
         less.setTag("playlist-seconds-less");
         TextView more = app.pill("+", false, v -> {
             seconds[0] = Math.min(600, seconds[0] + 1);
             keep.run();
+            paint.run();
         });
         more.setTag("playlist-seconds-more");
         row.addView(less);
         row.addView(more);
         col.addView(row);
+        // The player's own, as the viewer starts with them (and keeps what is changed there).
+        col.addView(level);
+        LinearLayout sound = app.row();
+        sound.setGravity(Gravity.CENTER_VERTICAL);
+        sound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
+        sound.addView(mute);
+        col.addView(sound);
+        volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar b, int value, boolean fromUser) {
+                paint.run();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar b) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar b) {
+                keep.run();
+            }
+        });
+        LinearLayout look = app.row();
+        look.setGravity(Gravity.CENTER_VERTICAL);
+        speedPill.setOnClickListener(v -> {
+            speed[0] = nextSpeed(speed[0]);
+            keep.run();
+            paint.run();
+        });
+        look.addView(speedPill);
+        look.addView(zoomLevel);
+        TextView zoomOut = app.pill("\u2212", false, v -> {
+            zoom[0] = (float) MediaDir.zoom(zoom[0], false);
+            keep.run();
+            paint.run();
+        });
+        zoomOut.setTag("playlist-zoom-out");
+        TextView zoomIn = app.pill("+", false, v -> {
+            zoom[0] = (float) MediaDir.zoom(zoom[0], true);
+            keep.run();
+            paint.run();
+        });
+        zoomIn.setTag("playlist-zoom-in");
+        TextView fit = app.pill("Fit", false, v -> {
+            zoom[0] = 1f;
+            keep.run();
+            paint.run();
+        });
+        fit.setTag("playlist-fit");
+        look.addView(zoomOut);
+        look.addView(zoomIn);
+        look.addView(fit);
+        col.addView(look);
+        filling[0] = false;
         TextView start = app.pill("Start viewer", true, v -> viewer(app, p, 0));
         start.setTag("playlist-start");
         start.setEnabled(!p.items.isEmpty());
         col.addView(start);
+    }
+
+    /** The speed after `now` (½× … 2×, then ½× again). */
+    static float nextSpeed(float now) {
+        int i = 0;
+        for (int k = 0; k < Playlist.SPEEDS.length; k++) if (Math.abs(Playlist.SPEEDS[k] - now) < 0.01f) i = k;
+        return Playlist.SPEEDS[(i + 1) % Playlist.SPEEDS.length];
     }
 
     private static CheckBox box(MainActivity app, String text, boolean on, String tag) {
@@ -726,41 +824,56 @@ final class PlaylistScreen {
         stage.addView(next, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL));
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
         // The controls: Play, Pause, Stop, Mute, volume, speed, zoom.
-        HorizontalScrollView barScroll = new HorizontalScrollView(app);
-        LinearLayout bar = app.row();
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(app.dp(6), app.dp(4), app.dp(6), app.dp(6));
-        final TextView play = app.pill("▶ Play", false, null);
+        // The controls in three rows that fit the screen: playing (and Loop video, Auto mode);
+        // Mute and the volume; speed and zoom.
+        final TextView play = app.pill("\u25b6 Play", false, null);
         play.setTag("viewer-play");
-        final TextView pause = app.pill("❚❚ Pause", false, null);
+        final TextView pause = app.pill("\u275a\u275a Pause", false, null);
         pause.setTag("viewer-pause");
-        final TextView stop = app.pill("■ Stop", false, null);
+        final TextView stop = app.pill("\u25a0 Stop", false, null);
         stop.setTag("viewer-stop");
+        final TextView loopPill = app.pill("Loop video", s.loop, null);
+        loopPill.setTag("viewer-loop");
+        final TextView autoPill = app.pill("Auto", s.auto, null);
+        autoPill.setTag("viewer-auto");
         final TextView mute = app.pill(s.mute ? "Unmute" : "Mute", s.mute, null);
         mute.setTag("viewer-mute");
         final SeekBar volume = new SeekBar(app);
         volume.setMax(100);
         volume.setProgress(s.volume);
         volume.setTag("viewer-volume");
-        final TextView speed = app.pill(Playlist.speedText(s.speed), false, null);
+        final TextView volumeLevel = app.text(s.volume + "%", 13, false);
+        volumeLevel.setTag("viewer-volume-level");
+        volumeLevel.setTextColor(Color.parseColor("#ECEBE6"));
+        volumeLevel.setMinWidth(app.dp(44));
+        final TextView speed = app.pill("Speed " + Playlist.speedText(s.speed), false, null);
         speed.setTag("viewer-speed");
-        final TextView zoomOut = app.pill("−", false, null);
+        final TextView zoomOut = app.pill("Zoom \u2212", false, null);
         zoomOut.setTag("viewer-zoom-out");
-        final TextView zoomIn = app.pill("+", false, null);
+        final TextView zoomIn = app.pill("Zoom +", false, null);
         zoomIn.setTag("viewer-zoom-in");
         final TextView fit = app.pill("Fit", false, null);
         fit.setTag("viewer-fit");
-        bar.addView(play);
-        bar.addView(pause);
-        bar.addView(stop);
-        bar.addView(mute);
-        bar.addView(volume, new LinearLayout.LayoutParams(app.dp(120), -2));
-        bar.addView(speed);
-        bar.addView(zoomOut);
-        bar.addView(zoomIn);
-        bar.addView(fit);
-        barScroll.addView(bar);
-        root.addView(barScroll);
+        final TextView zoomText = app.text(MediaDir.zoomLabel(s.zoom), 13, false);
+        zoomText.setTag("viewer-zoom");
+        zoomText.setTextColor(Color.parseColor("#ECEBE6"));
+        LinearLayout rowPlay = app.row();
+        rowPlay.setGravity(Gravity.CENTER_VERTICAL);
+        rowPlay.setPadding(app.dp(6), app.dp(4), app.dp(6), 0);
+        for (View x : new View[] {play, pause, stop, loopPill, autoPill}) rowPlay.addView(x);
+        LinearLayout rowSound = app.row();
+        rowSound.setGravity(Gravity.CENTER_VERTICAL);
+        rowSound.setPadding(app.dp(6), 0, app.dp(6), 0);
+        rowSound.addView(mute);
+        rowSound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
+        rowSound.addView(volumeLevel);
+        LinearLayout rowLook = app.row();
+        rowLook.setGravity(Gravity.CENTER_VERTICAL);
+        rowLook.setPadding(app.dp(6), 0, app.dp(6), app.dp(6));
+        for (View x : new View[] {speed, zoomOut, zoomIn, fit, zoomText}) rowLook.addView(x);
+        root.addView(rowPlay);
+        root.addView(rowSound);
+        root.addView(rowLook);
         v.setContentView(root);
         final int[] at = {Math.max(0, Math.min(start, p.items.size() - 1))};
         final float[] zoom = {(float) MediaDir.clampZoom(s.zoom)};
@@ -780,6 +893,7 @@ final class PlaylistScreen {
             Playlist.saveSettings(dir, now);
         };
         final Runnable applyZoom = () -> {
+            zoomText.setText(MediaDir.zoomLabel(zoom[0]));
             for (View x : new View[] {picture, video}) {
                 x.setScaleX(zoom[0]);
                 x.setScaleY(zoom[0]);
@@ -866,6 +980,12 @@ final class PlaylistScreen {
         video.setOnPreparedListener(mp -> {
             player[0] = mp;
             applySound.run();
+            // Loop video: it plays again at its end until an arrow is tapped.
+            try {
+                mp.setLooping(Playlist.settings(dir).loop);
+            } catch (Exception ignored) {
+                // released
+            }
             Playlist.Item it = p.items.get(at[0]);
             if (Playlist.settings(dir).autoplay || it.kind() == MediaDir.SOUND) {
                 video.start();
@@ -915,6 +1035,39 @@ final class PlaylistScreen {
             video.pause();
             video.seekTo(0);
         });
+        // Loop video and Auto mode (one at a time), kept as the Viewer tab's.
+        loopPill.setOnClickListener(x -> {
+            Playlist.Settings now = Playlist.settings(dir);
+            now.loop(!now.loop);
+            Playlist.saveSettings(dir, now);
+            app.paintChip(loopPill, now.loop);
+            app.paintChip(autoPill, now.auto);
+            shownAt[0] = System.currentTimeMillis();
+            android.media.MediaPlayer mp = player[0];
+            if (mp != null) {
+                try {
+                    mp.setLooping(now.loop);
+                } catch (Exception ignored) {
+                    // released
+                }
+            }
+        });
+        autoPill.setOnClickListener(x -> {
+            Playlist.Settings now = Playlist.settings(dir);
+            now.auto(!now.auto);
+            Playlist.saveSettings(dir, now);
+            app.paintChip(loopPill, now.loop);
+            app.paintChip(autoPill, now.auto);
+            shownAt[0] = System.currentTimeMillis();
+            android.media.MediaPlayer mp = player[0];
+            if (mp != null) {
+                try {
+                    mp.setLooping(now.loop);
+                } catch (Exception ignored) {
+                    // released
+                }
+            }
+        });
         mute.setOnClickListener(x -> {
             muted[0] = !muted[0];
             mute.setText(muted[0] ? "Unmute" : "Mute");
@@ -925,6 +1078,7 @@ final class PlaylistScreen {
         volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar b, int value, boolean fromUser) {
+                volumeLevel.setText(value + "%");
                 applySound.run();
             }
 
@@ -941,7 +1095,7 @@ final class PlaylistScreen {
             int i = 0;
             for (int k = 0; k < Playlist.SPEEDS.length; k++) if (Math.abs(Playlist.SPEEDS[k] - rate[0]) < 0.01f) i = k;
             rate[0] = Playlist.SPEEDS[(i + 1) % Playlist.SPEEDS.length];
-            speed.setText(Playlist.speedText(rate[0]));
+            speed.setText("Speed " + Playlist.speedText(rate[0]));
             applySpeed.run();
             keep.run();
         });

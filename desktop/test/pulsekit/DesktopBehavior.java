@@ -5752,6 +5752,67 @@ public final class DesktopBehavior {
     boolean videoOk = def2.items.size() == 1 && clip.getAbsolutePath().equals(def2.items.get(0).file);
     if (!galleryOk || !mediaOk || !readyOk || !videoOk) throw new AssertionError(out.toString());
   }
+  /**
+   * The Playlist window's Viewer tab: Loop video (it turns Auto mode off), volume, Mute, speed and
+   * zoom, kept for the viewer; the viewer's controls all on screen (none cut off), Loop video and
+   * Auto there too.
+   */
+  void s131_playlist_loop_controls() throws Exception {
+    final File dir = PromptDb.dir();
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    File sky = new File(pics, "sky.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(16, 12, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sky);
+    Playlist.addTo(dir, "Loops", sky.getAbsolutePath(), "sky.png");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(true);
+    Playlist.saveSettings(dir, set);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, "Loops"));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    edt(() -> ((javax.swing.JTabbedPane) component(w, "playlist-tabs")).setSelectedIndex(1));
+    StringBuilder there = new StringBuilder();
+    for (String n : new String[] {"playlist-loop", "playlist-auto", "playlist-volume", "playlist-mute", "playlist-speed", "playlist-zoom-in", "playlist-zoom-out", "playlist-fit"}) there.append(component(w, n) != null ? "" : n + " missing ");
+    out.append("Viewer tab controls: ").append(there.length() == 0 ? "all there" : there).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-loop")).doClick());
+    boolean loopOk = Playlist.settings(dir).loop && !Playlist.settings(dir).auto && !((javax.swing.AbstractButton) component(w, "playlist-auto")).isSelected();
+    out.append("Loop video ticked: loop ").append(Playlist.settings(dir).loop).append(", auto ").append(Playlist.settings(dir).auto).append('\n');
+    edt(() -> ((javax.swing.JSlider) component(w, "playlist-volume")).setValue(40));
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-mute")).doClick());
+    edt(() -> ((javax.swing.JComboBox<?>) component(w, "playlist-speed")).setSelectedIndex(4));
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-zoom-in")).doClick());
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
+    boolean keptOk = kept.volume == 40 && kept.mute && kept.speed == 1.5f && kept.zoom > 1f && kept.loop;
+    // The viewer: every control inside the window (none cut off).
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(w, "playlist-start")).doClick());
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    StringBuilder cut = new StringBuilder();
+    for (String n : new String[] {"viewer-play", "viewer-pause", "viewer-stop", "viewer-loop", "viewer-auto", "viewer-mute", "viewer-volume", "viewer-speed", "viewer-zoom-out", "viewer-zoom-in", "viewer-fit", "viewer-close"}) {
+      Component c = component(v, n);
+      if (c == null) {
+        cut.append(n).append(" missing ");
+        continue;
+      }
+      java.awt.Rectangle r = SwingUtilities.convertRectangle(c.getParent(), c.getBounds(), v.getContentPane());
+      if (!c.isShowing() || r.x + r.width > v.getContentPane().getWidth() || r.y + r.height > v.getContentPane().getHeight() || c.getParent().getHeight() < c.getY() + c.getHeight()) cut.append(n).append(" cut off ");
+    }
+    out.append("viewer controls: ").append(cut.length() == 0 ? "all on screen" : cut).append(", Loop video ").append(((javax.swing.AbstractButton) component(v, "viewer-loop")).isSelected()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-auto")).doClick());
+    boolean autoOn = Playlist.settings(dir).auto && !Playlist.settings(dir).loop && !((javax.swing.AbstractButton) component(v, "viewer-loop")).isSelected();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-loop")).doClick());
+    boolean loopOn = Playlist.settings(dir).loop && !Playlist.settings(dir).auto;
+    out.append("viewer Auto: ").append(autoOn).append(", then Loop video: ").append(loopOn).append('\n');
+    edt(() -> v.dispose());
+    edt(() -> w.dispose());
+    if (there.length() > 0 || !loopOk || !keptOk || cut.length() > 0 || !autoOn || !loopOn) throw new AssertionError(out.toString());
+  }
+
 
 
 

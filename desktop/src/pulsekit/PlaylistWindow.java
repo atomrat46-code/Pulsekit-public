@@ -583,32 +583,102 @@ final class PlaylistWindow {
         col.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         final JCheckBox repeat = new JCheckBox("Repeat: from the end back to the beginning", s.repeat);
         repeat.setName("playlist-repeat");
-        final JCheckBox auto = new JCheckBox("Auto mode: the next file shows by itself (else press ▶)", s.auto);
+        final JCheckBox auto = new JCheckBox("Auto mode: the next file shows by itself (else press \u25b6)", s.auto);
         auto.setName("playlist-auto");
+        final JCheckBox loop = new JCheckBox("Loop video: the video plays again and again until an arrow is pressed (Auto mode off)", s.loop);
+        loop.setName("playlist-loop");
         final JCheckBox autoplay = new JCheckBox("Autoplay video (else hold the video, or press Play, to start it)", s.autoplay);
         autoplay.setName("playlist-autoplay");
         final JSpinner seconds = new JSpinner(new SpinnerNumberModel(s.seconds, 1, 600, 1));
         seconds.setName("playlist-seconds");
-        Runnable keep = () -> {
+        // The player's own, as the viewer starts with them (and keeps what is changed there).
+        final JSlider volume = new JSlider(0, 100, s.volume);
+        volume.setName("playlist-volume");
+        final JLabel level = new JLabel(s.volume + "%");
+        final JCheckBox mute = new JCheckBox("Mute", s.mute);
+        mute.setName("playlist-mute");
+        String[] speeds = new String[Playlist.SPEEDS.length];
+        for (int i = 0; i < speeds.length; i++) speeds[i] = Playlist.speedText(Playlist.SPEEDS[i]);
+        final JComboBox<String> speed = new JComboBox<String>(speeds);
+        speed.setName("playlist-speed");
+        speed.setSelectedItem(Playlist.speedText(s.speed));
+        final float[] zoom = {s.zoom};
+        final JLabel zoomLevel = new JLabel(MediaDir.zoomLabel(zoom[0]));
+        zoomLevel.setName("playlist-zoom");
+        final Runnable keep = () -> {
             Playlist.Settings now = Playlist.settings(dir);
             now.repeat = repeat.isSelected();
             now.auto = auto.isSelected();
+            now.loop = loop.isSelected();
             now.autoplay = autoplay.isSelected();
             now.seconds = (Integer) seconds.getValue();
+            now.volume = volume.getValue();
+            now.mute = mute.isSelected();
+            now.speed = Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())];
+            now.zoom = zoom[0];
             Playlist.saveSettings(dir, now);
+            level.setText(now.mute ? "muted" : now.volume + "%");
+            zoomLevel.setText(MediaDir.zoomLabel(now.zoom));
         };
+        // Loop video and Auto mode go one at a time.
+        loop.addActionListener(e -> {
+            if (loop.isSelected()) auto.setSelected(false);
+            keep.run();
+        });
+        auto.addActionListener(e -> {
+            if (auto.isSelected()) loop.setSelected(false);
+            keep.run();
+        });
         repeat.addActionListener(e -> keep.run());
-        auto.addActionListener(e -> keep.run());
         autoplay.addActionListener(e -> keep.run());
         seconds.addChangeListener(e -> keep.run());
+        volume.addChangeListener(e -> {
+            if (!volume.getValueIsAdjusting()) keep.run();
+        });
+        mute.addActionListener(e -> keep.run());
+        speed.addActionListener(e -> keep.run());
+        JButton zoomOut = new JButton("Zoom \u2212");
+        zoomOut.setName("playlist-zoom-out");
+        zoomOut.addActionListener(e -> {
+            zoom[0] = (float) MediaDir.zoom(zoom[0], false);
+            keep.run();
+        });
+        JButton zoomIn = new JButton("Zoom +");
+        zoomIn.setName("playlist-zoom-in");
+        zoomIn.addActionListener(e -> {
+            zoom[0] = (float) MediaDir.zoom(zoom[0], true);
+            keep.run();
+        });
+        JButton fit = new JButton("Fit");
+        fit.setName("playlist-fit");
+        fit.addActionListener(e -> {
+            zoom[0] = 1f;
+            keep.run();
+        });
         col.add(repeat);
         col.add(auto);
+        col.add(loop);
         col.add(autoplay);
         JPanel secs = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         secs.add(new JLabel("In Auto mode a picture shows for"));
         secs.add(seconds);
         secs.add(new JLabel("seconds"));
         col.add(secs);
+        JPanel sound = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        sound.add(new JLabel("Volume"));
+        sound.add(volume);
+        sound.add(level);
+        sound.add(mute);
+        col.add(sound);
+        JPanel look = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        look.add(new JLabel("Speed"));
+        look.add(speed);
+        look.add(new JLabel("   Zoom"));
+        look.add(zoomOut);
+        look.add(zoomIn);
+        look.add(fit);
+        look.add(zoomLevel);
+        col.add(look);
         JButton start = new JButton("Start viewer");
         start.setName("playlist-start");
         start.setEnabled(!p.items.isEmpty());
@@ -903,6 +973,12 @@ final class PlaylistWindow {
         // Auto mode: a picture for its seconds, a video or a sound to its end, then the next.
         final javax.swing.Timer tick = new javax.swing.Timer(250, e -> {
             Playlist.Settings now = Playlist.settings(dir);
+            // Loop video: at its end the video starts again (an arrow goes on).
+            if (now.loop && player[0] != null && player[0].state() == VlcPlayer.ENDED) {
+                player[0].play();
+                player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
+                return;
+            }
             if (!now.auto || held[0]) return;
             if (player[0] != null) {
                 if (player[0].state() == VlcPlayer.ENDED) goNext.run();
@@ -918,19 +994,42 @@ final class PlaylistWindow {
                 release.run();
             }
         });
-        JPanel controls = new JPanel(new GridLayout(2, 1, 0, 4));
+        // Loop video and Auto mode here too (one at a time), kept as the Viewer tab's.
+        final JCheckBox loopBox = new JCheckBox("Loop video", s.loop);
+        loopBox.setName("viewer-loop");
+        final JCheckBox autoBox = new JCheckBox("Auto mode", s.auto);
+        autoBox.setName("viewer-auto");
+        loopBox.addActionListener(e -> {
+            Playlist.Settings now = Playlist.settings(dir);
+            now.loop(loopBox.isSelected());
+            Playlist.saveSettings(dir, now);
+            autoBox.setSelected(now.auto);
+            shownAt[0] = System.currentTimeMillis();
+        });
+        autoBox.addActionListener(e -> {
+            Playlist.Settings now = Playlist.settings(dir);
+            now.auto(autoBox.isSelected());
+            Playlist.saveSettings(dir, now);
+            loopBox.setSelected(now.loop);
+            shownAt[0] = System.currentTimeMillis();
+        });
+        // Three rows, each wide enough for its controls: where and Close; playing; sound, speed and zoom.
+        JPanel controls = new JPanel(new GridLayout(3, 1, 0, 4));
         JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         row1.add(prev);
         row1.add(next);
         row1.add(where);
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        for (java.awt.Component c : new java.awt.Component[] {play, pause, stop, mute, volume, new JLabel("Speed"), speed, zoomOut, zoomIn, fit, zoomLevel}) row2.add(c);
+        for (java.awt.Component c : new java.awt.Component[] {play, pause, stop, loopBox, autoBox}) row2.add(c);
         JButton close = new JButton("Close");
         close.setName("viewer-close");
         close.addActionListener(e -> v.dispose());
         row2.add(close);
+        JPanel row3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        for (java.awt.Component c : new java.awt.Component[] {new JLabel("Volume"), volume, mute, new JLabel("  Speed"), speed, new JLabel("  Zoom"), zoomOut, zoomIn, fit, zoomLevel}) row3.add(c);
         controls.add(row1);
         controls.add(row2);
+        controls.add(row3);
         JPanel body = new JPanel(new BorderLayout(0, 6));
         body.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         body.add(stage, BorderLayout.CENTER);
