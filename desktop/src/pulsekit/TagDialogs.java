@@ -18,7 +18,17 @@ final class TagDialogs {
 
     /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between). `after` runs once saved. */
     static void tags(Pulsekit app, Component parent, String name, long size, Runnable after) {
+        tags(app, parent, name, size, after, null);
+    }
+
+    /**
+     * As above; for Picture ready and Video ready (`ready`: ReadyRecent.IMAGE or VIDEO) Select all
+     * (Clear all when every tag is ticked) above the tags, and a file without tags has the tags used
+     * last for that kind ticked.
+     */
+    static void tags(Pulsekit app, Component parent, String name, long size, Runnable after, String ready) {
         MediaTags.load(PromptDb.dir());
+        ReadyRecent.load(PromptDb.dir());
         String key = MediaTags.key(name, size);
         List<String> chosen;
         if (MediaBrowser.answer != null) {
@@ -27,7 +37,7 @@ final class TagDialogs {
             chosen = new ArrayList<String>(java.util.Arrays.asList(a.split(",")));
         } else {
             List<String> known = MediaTags.known();
-            List<String> has = MediaTags.tags(key);
+            List<String> has = ReadyRecent.ticked(ready, MediaTags.tags(key), known);
             JPanel boxes = new JPanel(new GridLayout(0, 3, 6, 2));
             List<javax.swing.JCheckBox> checks = new ArrayList<javax.swing.JCheckBox>();
             for (String t : known) {
@@ -40,6 +50,7 @@ final class TagDialogs {
             more.setName("media-new-tags");
             JPanel panel = new JPanel(new BorderLayout(0, 8));
             if (!known.isEmpty()) panel.add(boxes, BorderLayout.CENTER);
+            if (ready != null && known.size() > 1) panel.add(allButton(checks), BorderLayout.NORTH);
             JPanel add = new JPanel(new BorderLayout(6, 0));
             add.add(new JLabel("New tags (a comma between):"), BorderLayout.WEST);
             add.add(more, BorderLayout.CENTER);
@@ -51,6 +62,7 @@ final class TagDialogs {
             chosen.addAll(java.util.Arrays.asList(more.getText().split(",")));
         }
         MediaTags.setTags(key, chosen);
+        ReadyRecent.setTags(ready, MediaTags.tags(key));
         String line = MediaTags.line(key);
         app.setNow(line.length() == 0 ? name + ": no tags" : name + ": " + line);
         if (after != null) after.run();
@@ -58,7 +70,13 @@ final class TagDialogs {
 
     /** Category…: one of the prompt library's categories for the file, or none. `after` runs once picked. */
     static void category(Pulsekit app, Component parent, String name, long size, Runnable after) {
+        category(app, parent, name, size, after, null);
+    }
+
+    /** As above; for Picture ready and Video ready (`ready`) the category used last for that kind is picked first. */
+    static void category(Pulsekit app, Component parent, String name, long size, Runnable after, String ready) {
         MediaTags.load(PromptDb.dir());
+        ReadyRecent.load(PromptDb.dir());
         String key = MediaTags.key(name, size);
         List<String> names = new ArrayList<String>();
         names.add("(none)");
@@ -71,14 +89,34 @@ final class TagDialogs {
         if (MediaBrowser.answer != null) {
             picked = MediaBrowser.answer.apply("Category for " + name);
         } else {
-            String now = MediaTags.category(key);
+            String now = ReadyRecent.picked(ready, MediaTags.category(key));
             Object a = javax.swing.JOptionPane.showInputDialog(parent, "Category for " + name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
                 names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
             picked = a == null ? null : a.toString();
         }
         if (picked == null) return;
         MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
+        if (!picked.equals("(none)")) ReadyRecent.setCategory(ready, picked);
         app.setNow(name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
         if (after != null) after.run();
+    }
+
+    /** Select all, Clear all when every tag is ticked; the label follows the boxes. */
+    static javax.swing.JButton allButton(final List<javax.swing.JCheckBox> checks) {
+        final javax.swing.JButton all = new javax.swing.JButton();
+        all.setName("media-tag-all");
+        final Runnable label = () -> {
+            boolean[] on = new boolean[checks.size()];
+            for (int i = 0; i < on.length; i++) on[i] = checks.get(i).isSelected();
+            all.setText(ReadyRecent.allLabel(on));
+        };
+        label.run();
+        all.addActionListener(e -> {
+            boolean to = !ReadyRecent.CLEAR_ALL.equals(all.getText());
+            for (javax.swing.JCheckBox c : checks) c.setSelected(to);
+            label.run();
+        });
+        for (javax.swing.JCheckBox c : checks) c.addActionListener(e -> label.run());
+        return all;
     }
 }

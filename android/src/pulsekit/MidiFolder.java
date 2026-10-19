@@ -90,6 +90,7 @@ final class MidiFolder {
      * cannot be written by the program).
      */
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
+        argv = withPls(ctx, program, argv, work, note);
         boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program) || "Wav2Mp3.java".equals(program);
         if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);
@@ -97,6 +98,7 @@ final class MidiFolder {
         boolean staged = false;
         for (int i = 0; i + 1 < out.size(); i++) {
             String a = out.get(i), v = out.get(i + 1);
+            if (a.equals("--dir") && v.startsWith(new File(work, PLS_FILES).getAbsolutePath())) staged = true;
             if (a.equals("--dir") && v.startsWith("content://")) {
                 Uri tree = Uri.parse(v);
                 File dest = new File(work, wav ? "wav-folder" : "midi-folder");
@@ -119,6 +121,69 @@ final class MidiFolder {
         if (staged) {
             out.add("--outdir");
             out.add(".");
+        }
+        return out;
+    }
+
+    static final String PLS_FILES = "pls-files";
+    static final List<String> TAKES_PLS = java.util.Arrays.asList("Midi2HydroPattern.java", "SplitWav.java", "CutWav.java", "Wav2Mp3.java",
+        "VideoFrames.java", "MidiBatch.java", "JoinVideo.java", "BatchRun.java");
+
+    /**
+     * A playlist (.pls) given for a batch program's folder or list (--dir, --list): its files (picker
+     * addresses, library files, paths) copied into the work folder's pls-files, and a playlist of the
+     * copies given instead, as the program cannot read the picker's or the library's files itself.
+     */
+    static List<String> withPls(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
+        if (argv == null || !TAKES_PLS.contains(program) || !(ctx instanceof MainActivity)) return argv;
+        List<String> out = new ArrayList<String>(argv);
+        for (int i = 0; i + 1 < out.size(); i++) {
+            String a = out.get(i), v = out.get(i + 1);
+            if (!(a.equals("--dir") || a.equals("--list")) || !v.toLowerCase(Locale.ROOT).endsWith(Playlist.EXT) || !new File(v).isFile()) continue;
+            MainActivity app = (MainActivity) ctx;
+            File dest = new File(work, PLS_FILES);
+            deleteAll(dest);
+            dest.mkdirs();
+            Playlist list;
+            try {
+                list = Playlist.parse(new String(java.nio.file.Files.readAllBytes(new File(v).toPath()), java.nio.charset.StandardCharsets.UTF_8), new File(v).getName());
+            } catch (Exception ex) {
+                continue;
+            }
+            PromptVault vault = PlaylistScreen.vault(app);
+            Playlist copies = new Playlist(list.name);
+            int n = 0;
+            for (Playlist.Item it : list.items) {
+                byte[] b = PlaylistScreen.bytes(app, it, vault);
+                if (b == null) continue;
+                n++;
+                String name = String.format(Locale.ROOT, "%03d-", n) + safe(Playlist.shortName(it.file));
+                try {
+                    FileOutputStream w = new FileOutputStream(new File(dest, name));
+                    try {
+                        w.write(b);
+                    } finally {
+                        w.close();
+                    }
+                    copies.items.add(new Playlist.Item(name, it.title));
+                } catch (Exception ignored) {
+                    n--;
+                }
+            }
+            File pls = new File(dest, "playlist" + Playlist.EXT);
+            try {
+                FileOutputStream w = new FileOutputStream(pls);
+                try {
+                    w.write(copies.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } finally {
+                    w.close();
+                }
+            } catch (Exception ex) {
+                continue;
+            }
+            if (note.length() > 0) note.append(", ");
+            note.append(n).append(n == 1 ? " file" : " files").append(" from the playlist ").append(list.name);
+            out.set(i + 1, pls.getAbsolutePath());
         }
         return out;
     }

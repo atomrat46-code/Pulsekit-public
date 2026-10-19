@@ -70,6 +70,8 @@ public final class ProgramParams {
      * starts in the computer's VST folders and also takes a .vst3 bundle folder.
      */
     public boolean plugin;
+    /** A folder or list row (--dir, --list) that also takes a playlist (.pls): the row has Playlist, which picks one of Pulsekit's. */
+    public boolean pls;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -149,6 +151,10 @@ public final class ProgramParams {
         p.label = "Batch folder: sum vst_render's DrumMidi results per style (instead of the files above)";
         p.hint = "the folder MidiDrumGen --count made; empty: the files above";
       }
+      // The batch programs' folder (or list) can be a playlist (.pls) too: its files are the ones used.
+      if ((midi2wav || midi2hydro || vstRender || splitWav || cutWav || wav2mp3 || videoFrames || midiBatch || batchRun) && p.flag && p.takesValue && p.token.equals("--dir")) p.pls = true;
+      if ((midiBatch || batchRun || joinVideo) && p.flag && p.takesValue && p.token.equals("--list")) p.pls = true;
+      if (p.pls) p.hint = (p.hint == null || p.hint.length() == 0 ? "" : p.hint + "; ") + "or a playlist (.pls): Playlist";
       if (pic) knownPedit(p);
       if (padd) knownPadd(p);
       if (textVideo) knownTextVideo(p);

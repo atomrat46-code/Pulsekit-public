@@ -8960,6 +8960,194 @@ public class BehaviorTest {
     if (!threadOk || !keptOk || !resumeOk || !againOk || !viewerOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * PlayList.java's --nogui outfile is not kept as a playlist (no "Playlist:" line), and PyJav gives
+   * it the Default playlist's file. The batch programs' folder and list rows take one of Pulsekit's
+   * playlists (Playlist); on the phone its files are copied into the work folder first.
+   */
+  @Test
+  public void s156_playlist_text_mode_and_pls_lists() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    // --nogui's result: a file the run made, no window.
+    JavaRun.Result nogui = new JavaRun.Result("Default playlist: 2 files\nSucceeded: 2 files into out.pls\n",
+        java.util.Arrays.asList(new JavaRun.FileOut("out.pls", "[playlist]\nFile1=/x/a.mid\n".getBytes(StandardCharsets.UTF_8))), 0);
+    JavaRun.Result gui = new JavaRun.Result("Succeeded: Trip, 1 file\nPlaylist: Trip\n",
+        java.util.Arrays.asList(new JavaRun.FileOut("Trip.pls", "[playlist]\nFile1=/x/a.mid\n".getBytes(StandardCharsets.UTF_8))), 0);
+    String keptNogui = Playlist.keep(dir, nogui);
+    String keptGui = Playlist.keep(dir, gui);
+    java.util.List<String> argv = Playlist.withDefault("PlayList.java", java.util.Arrays.asList("--nogui"), dir);
+    java.util.List<String> other = Playlist.withDefault("MidiBatch.java", java.util.Arrays.asList("--dir", "x"), dir);
+    out.append("kept: --nogui ").append(keptNogui).append(", window run ").append(keptGui).append(" | PlayList argv ").append(argv.subList(0, 2)).append(" ").append(new File(argv.get(2)).getName())
+        .append(" | MidiBatch argv ").append(other).append('\n');
+    boolean keepOk = keptNogui == null && "Trip".equals(keptGui) && argv.size() == 3 && argv.get(2).endsWith("Default.pls") && other.size() == 2;
+    // The Params rows: Playlist on MidiBatch's --dir and --list, not on its --outdir.
+    String src = app.programMenus.bundledSource("MidiBatch.java");
+    StringBuilder rows = new StringBuilder();
+    ProgramParams.Param listRow = null;
+    for (ProgramParams.Param pr : ProgramParams.parse(src)) {
+      if (pr.pls) rows.append(pr.token).append(' ');
+      if (pr.token.equals("--list")) listRow = pr;
+      if (pr.token.equals("--outdir") && pr.pls) rows.append("(outdir!) ");
+    }
+    // A playlist of a MIDI file (beside the playlist) and a picture.
+    File media = new File(app.getCacheDir(), "pls-list");
+    media.mkdirs();
+    File mid = new File(media, "groove.mid");
+    Files.write(mid.toPath(), new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96});
+    Playlist.addTo(dir, "Grooves", mid.getAbsolutePath(), "groove.mid");
+    String[] values = {""};
+    TextView chosen = new TextView(app);
+    android.widget.Button pick = PyJavParams.playlistButton(app, listRow, values, 0, chosen);
+    pick.performClick();
+    idle();
+    String listed = listItems(PyJavParams.lastPlaylists);
+    int at = Playlist.withFiles(dir).indexOf("Grooves");
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastPlaylists).clickOnItem(at);
+    idle();
+    out.append("Params rows with Playlist: ").append(rows.toString().trim()).append(" | listed ").append(listed).append(" | picked ").append(chosen.getText()).append(" ").append(new File(values[0]).getName()).append('\n');
+    boolean rowsOk = rows.toString().trim().equals("--dir --list") && listed.contains("Grooves") && "Grooves.pls".contentEquals(chosen.getText()) && values[0].endsWith("Grooves.pls");
+    // On the phone: its files copied into the work folder, a playlist of the copies given instead.
+    File work = new File(app.getCacheDir(), "pls-work");
+    work.mkdirs();
+    StringBuilder note = new StringBuilder();
+    java.util.List<String> staged = MidiFolder.forProgram(app, "Midi2HydroPattern.java", java.util.Arrays.asList("--dir", values[0]), work, note);
+    File copy = new File(staged.get(1));
+    String copied = copy.isFile() ? new String(Files.readAllBytes(copy.toPath()), StandardCharsets.UTF_8) : "";
+    out.append("staged: ").append(note).append(" | argv ").append(staged.get(0)).append(" ").append(copy.getParentFile().getName()).append("/").append(copy.getName())
+        .append(" ").append(staged.subList(2, staged.size())).append(" | ").append(copied.contains("File1=001-groove.mid")).append('\n');
+    boolean stagedOk = note.toString().contains("1 file from the playlist Grooves") && copy.isFile() && copied.contains("File1=001-groove.mid")
+        && new File(copy.getParentFile(), "001-groove.mid").isFile() && staged.contains("--outdir");
+    write("s156_playlist_text_mode_and_pls_lists", out.toString());
+    if (!keepOk || !rowsOk || !stagedOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A run going on is shown again when its program is picked after another. Picture ready's Add
+   * tag… has Select all / Clear all and ticks the tags used last; Add to group… marks the group used
+   * last. The playlist viewer has First and Last; the editor Save and Save as….
+   */
+  @Test
+  public void s157_running_again_ready_recent_first_last_save() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    // SogniVideo running; SogniPedit picked (its Params looked at); SogniVideo again.
+    JavaRun.Live live = new JavaRun.Live();
+    live.add("Status: processing\n");
+    PyJav.PK_RUNNING.put("SogniVideo.java", new Object[] {live, ""});
+    app.programMenus.selectProgram("Java", "SogniPedit.java");
+    idle();
+    app.pyJav.pkPyLog.setText("SogniPedit's Params saved");
+    String other = app.pyJav.pkPyLog.getText().toString();
+    app.programMenus.selectProgram("Java", "SogniVideo.java");
+    idle();
+    String back = app.pyJav.pkPyLog.getText().toString();
+    String top = ((TextView) get("now")).getText().toString();
+    out.append("SogniPedit shows: ").append(other).append(" | SogniVideo again: ").append(back).append(" | top ").append(top).append('\n');
+    boolean runningOk = back.startsWith("Running") && top.startsWith("SogniVideo") && top.contains("Running");
+    live.done = true;
+    PyJav.PK_RUNNING.clear();
+    // Picture ready's Add tag…: Select all, then Clear all.
+    MediaTags.load(dir);
+    MediaTags.setTags(MediaTags.key("old.png", 10), java.util.Arrays.asList("beach", "night", "sun"));
+    TagDialogs.tags(app, "made.png", 20, null, ReadyRecent.IMAGE);
+    idle();
+    AlertDialog tags = MediaBrowser.lastAsk;
+    android.widget.ListView lv = tags.getListView();
+    String first = String.valueOf(lv.getAdapter().getItem(0));
+    org.robolectric.Shadows.shadowOf(tags).clickOnItem(0);
+    idle();
+    String after = String.valueOf(lv.getAdapter().getItem(0));
+    org.robolectric.Shadows.shadowOf(tags).clickOnItem(0);
+    idle();
+    String cleared = String.valueOf(lv.getAdapter().getItem(0));
+    org.robolectric.Shadows.shadowOf(tags).clickOnItem(2);
+    org.robolectric.Shadows.shadowOf(tags).clickOnItem(3);
+    idle();
+    tags.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    java.util.List<String> made = MediaTags.tags(MediaTags.key("made.png", 20));
+    out.append("Add tag: first row ").append(first).append(", after it ").append(after).append(", again ").append(cleared).append(" | saved ").append(made).append('\n');
+    boolean allOk = ReadyRecent.SELECT_ALL.equals(first) && ReadyRecent.CLEAR_ALL.equals(after) && ReadyRecent.SELECT_ALL.equals(cleared) && made.toString().equals("[night, sun]");
+    // The next picture: the tags used last ticked; a video has its own.
+    TagDialogs.tags(app, "next.png", 30, null, ReadyRecent.IMAGE);
+    idle();
+    tags = MediaBrowser.lastAsk;
+    tags.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    java.util.List<String> next = MediaTags.tags(MediaTags.key("next.png", 30));
+    ReadyRecent.load(dir);
+    out.append("next picture: ").append(next).append(" | video's last tags ").append(ReadyRecent.tags(ReadyRecent.VIDEO)).append('\n');
+    boolean recentOk = next.toString().equals("[night, sun]") && ReadyRecent.tags(ReadyRecent.VIDEO).isEmpty();
+    // Add to group…: the group used last marked.
+    FileGroups.load(dir);
+    FileGroups.toggle("Trip", new String[] {"k-old"});
+    FileGroups.toggle("Work", new String[] {"k-old"});
+    GroupDialogs.addTo(app, new String[] {"k-made"}, "made.png", null, ReadyRecent.IMAGE);
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(FileGroups.names().indexOf("Work"));
+    idle();
+    GroupDialogs.addTo(app, new String[] {"k-next"}, "next.png", null, ReadyRecent.IMAGE);
+    idle();
+    String groups = listItems(GroupDialogs.last);
+    GroupDialogs.last.dismiss();
+    out.append("groups the next time: ").append(groups).append('\n');
+    boolean groupOk = groups.contains("Work" + ReadyRecent.LAST_USED) && !groups.contains("Trip" + ReadyRecent.LAST_USED);
+    // The viewer: First and Last.
+    File media = new File(app.getCacheDir(), "first-last");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    for (String n : new String[] {"a.png", "b.png", "c.png"}) {
+      java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+      bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+      File f = new File(media, n);
+      Files.write(f.toPath(), png.toByteArray());
+      Playlist.addTo(dir, "Three", f.getAbsolutePath(), n);
+    }
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.viewer(app, Playlist.load(dir, "Three"), 1);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    vw.findViewWithTag("viewer-last").performClick();
+    idle();
+    String atLast = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString();
+    vw.findViewWithTag("viewer-first").performClick();
+    idle();
+    String atFirst = ((TextView) vw.findViewWithTag("viewer-where")).getText().toString();
+    PlaylistScreen.lastViewer.dismiss();
+    out.append("viewer: Last ").append(atLast).append(", First ").append(atFirst).append('\n');
+    boolean firstLastOk = atLast.contains("3") && atLast.contains("c.png") && atFirst.contains("a.png");
+    // The editor: Save asks where first (Save as…); then Save writes there.
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, "Three");
+    idle();
+    View ew = PlaylistScreen.last.getWindow().getDecorView();
+    ew.findViewWithTag("playlist-save").performClick();
+    idle();
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    File saved = new File(app.getCacheDir(), "saved-three.pls");
+    PlaylistScreen.picked(app, PlaylistScreen.SAVE_PLS, new android.content.Intent().setData(android.net.Uri.fromFile(saved)));
+    idle();
+    int firstSave = saved.isFile() ? Playlist.parse(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8), "x").items.size() : -1;
+    // An edit (as the editor's ✕ does): the same playlist, kept as it goes.
+    Playlist three = PlaylistScreen.shown;
+    three.remove(0);
+    Playlist.save(dir, three);
+    ew.findViewWithTag("playlist-save").performClick();
+    idle();
+    android.content.Intent again = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    int secondSave = Playlist.parse(new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8), "x").items.size();
+    String saveAs = ((TextView) ew.findViewWithTag("playlist-export")).getText().toString();
+    PlaylistScreen.last.dismiss();
+    out.append("editor: Save first asks ").append(asked == null ? "nothing" : asked.getAction()).append(", saved ").append(firstSave).append(" files; Save again asks ").append(again == null ? "nothing" : again.getAction())
+        .append(", saved ").append(secondSave).append(" | ").append(saveAs).append('\n');
+    boolean saveOk = asked != null && android.content.Intent.ACTION_CREATE_DOCUMENT.equals(asked.getAction()) && firstSave == 3 && again == null && secondSave == 2 && Playlist.SAVE_AS.equals(saveAs);
+    write("s157_running_again_ready_recent_first_last_save", out.toString());
+    if (!runningOk || !allOk || !recentOk || !groupOk || !firstLastOk || !saveOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

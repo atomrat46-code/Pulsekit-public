@@ -2,7 +2,7 @@
  * PlayList: plays a playlist (.pls) in Pulsekit's playlist viewer / editor. Given two or three
  * playlists it merges them into one (in order; a file in more than one comes once).
  *
- *   java PlayList [list.pls] [list2.pls] [list3.pls] [--name <name>]
+ *   java PlayList [list.pls] [list2.pls] [list3.pls] [--name <name>] [--nogui] [--outfile <file>] [--batchdir <folder>] [--midi] [--midibatch]
  *
  * list.pls   The playlist: File1=, Title1=, Length1= lines as any .pls has them. None: the
  *            Default playlist (Add to default playlist on the thumbnails fills it).
@@ -10,8 +10,18 @@
  * --name     The name the playlist (or the merged one) is kept by; else the file's name, or
  *            "a + b" for a merge.
  *
- * The playlist is written into the run's folder as <name>.pls; Pulsekit keeps it with its
- * playlists and opens it in the Playlist window (Editor and Viewer tabs).
+ * --nogui    text mode: no Playlist window; the playlist (the lists merged, or the Default
+ *            playlist when none is given) is written into --outfile only.
+ * --outfile  the file --nogui writes (default out.pls; out.txt with --midibatch).
+ * --batchdir every file in the folder listed into --outfile (--nogui goes with it).
+ * --midi     only the MIDI files (*.mid, *.midi), of --batchdir or the lists. The list can be given
+ *            to Midi2Wav --dir (SoundFont), vst_render.py --dir (VST, or Carla / DrumGizmo on Linux).
+ * --midibatch --outfile written as a MidiBatch list (one file a line) for MidiBatch --list;
+ *            --midi goes with it.
+ *
+ * Without --nogui the playlist is written into the run's folder as <name>.pls; Pulsekit keeps it
+ * with its playlists and opens it in the Playlist window (Editor and Viewer tabs). Pulsekit gives
+ * --default_pls <file> (the Default playlist's file) for --nogui without a list.
  *
  * Plain Java 8, so PyJav can compile it on a phone.
  */
@@ -33,7 +43,7 @@ public final class PlayList {
   }
 
   static void usage() {
-    System.out.println("Usage: java PlayList [list.pls] [list2.pls] [list3.pls] [--name <name>]");
+    System.out.println("Usage: java PlayList [list.pls] [list2.pls] [list3.pls] [--name <name>] [--nogui] [--outfile <file>] [--batchdir <folder>] [--midi] [--midibatch]");
   }
 
   /** One file of a list: its address and title. */
@@ -46,6 +56,12 @@ public final class PlayList {
   static int run(String[] args) {
     List<String> lists = new ArrayList<String>();
     String name = null;
+    boolean nogui = false;
+    boolean midi = false;
+    boolean midibatch = false;
+    String outfile = null;
+    String batchdir = null;
+    String defaultPls = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i] == null ? "" : args[i].trim();
       if (a.length() == 0) continue;
@@ -57,11 +73,22 @@ public final class PlayList {
         name = args[++i].trim();
         continue;
       }
+      if (a.equals("--nogui")) nogui = true;
+      else if (a.equals("--midi")) midi = true;
+      else if (a.equals("--midibatch")) midibatch = true;
+      else if (a.equals("--outfile") && i + 1 < args.length) outfile = args[++i].trim();
+      else if (a.equals("--batchdir") && i + 1 < args.length) batchdir = args[++i].trim();
+      else if (a.equals("--default_pls") && i + 1 < args.length) defaultPls = args[++i].trim();
       if (a.startsWith("--")) continue;
       // PyJav's placeholders ("<input>") and anything that is not a playlist are left out.
       if (a.startsWith("<") || !a.toLowerCase().endsWith(".pls")) continue;
       lists.add(a);
     }
+    if (batchdir != null && (batchdir.length() == 0 || batchdir.startsWith("<"))) batchdir = null;
+    if (outfile != null && (outfile.length() == 0 || outfile.startsWith("<"))) outfile = null;
+    if (midibatch) midi = true;
+    if (batchdir != null) nogui = true;
+    if (nogui) return text(lists, batchdir, outfile, defaultPls, midi, midibatch);
     if (lists.isEmpty()) {
       System.out.println("Succeeded: the Default playlist");
       System.out.println("Playlist: Default");
@@ -109,6 +136,107 @@ public final class PlayList {
     System.out.println("Succeeded: " + (lists.size() > 1 ? lists.size() + " playlists merged into " : "") + name + ", " + all.size() + " file" + (all.size() == 1 ? "" : "s"));
     System.out.println("Playlist: " + name);
     return 0;
+  }
+
+  /**
+   * --nogui: the lists merged (or --batchdir's files, or the Default playlist) written into the
+   * outfile, as a playlist or (--midibatch) a MidiBatch list; no "Playlist:" line, so Pulsekit opens
+   * no window.
+   */
+  static int text(List<String> lists, String batchdir, String outfile, String defaultPls, boolean midi, boolean midibatch) {
+    List<Item> all = new ArrayList<Item>();
+    Map<String, Boolean> seen = new LinkedHashMap<String, Boolean>();
+    List<String> from = new ArrayList<String>(lists);
+    if (batchdir == null && from.isEmpty()) {
+      if (defaultPls == null || defaultPls.length() == 0) {
+        System.out.println("Failed: no playlist given (and no Default playlist: run it in Pulsekit)");
+        return 2;
+      }
+      from.add(defaultPls);
+    }
+    if (batchdir != null) {
+      File d = new File(batchdir);
+      if (!d.isDirectory()) {
+        System.out.println("Failed: no folder " + batchdir);
+        return 2;
+      }
+      File[] files = d.listFiles();
+      List<File> sorted = new ArrayList<File>();
+      if (files != null) for (File f : files) if (f.isFile() && !f.getName().startsWith(".")) sorted.add(f);
+      java.util.Collections.sort(sorted, new java.util.Comparator<File>() {
+        public int compare(File x, File y) {
+          return x.getName().compareToIgnoreCase(y.getName());
+        }
+      });
+      int added = 0;
+      for (File f : sorted) {
+        if (midi && !isMidi(f.getName())) continue;
+        Item it = new Item();
+        it.file = f.getAbsolutePath();
+        it.title = f.getName();
+        if (seen.containsKey(it.file)) continue;
+        seen.put(it.file, Boolean.TRUE);
+        all.add(it);
+        added++;
+      }
+      System.out.println(d.getName() + ": " + added + (midi ? " MIDI" : "") + " file" + (added == 1 ? "" : "s"));
+    }
+    for (String path : from) {
+      File f = new File(path);
+      if (path.equals(defaultPls) && !f.isFile()) {
+        System.out.println("Default playlist: 0 files (Add to default playlist on the thumbnails fills it)");
+        continue;
+      }
+      if (!f.isFile()) {
+        System.out.println("Failed: no such playlist " + path);
+        return 2;
+      }
+      List<Item> items;
+      try {
+        items = parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+      } catch (Exception ex) {
+        System.out.println("Failed: could not read " + f.getName() + ": " + ex.getMessage());
+        return 2;
+      }
+      int added = 0;
+      for (Item it : items) {
+        // A name without a folder is beside the list.
+        File beside = new File(f.getAbsoluteFile().getParentFile(), it.file);
+        if (!new File(it.file).isAbsolute() && it.file.indexOf(':') < 0 && beside.isFile()) it.file = beside.getPath();
+        if (midi && !isMidi(it.file)) continue;
+        if (seen.containsKey(it.file)) continue;
+        seen.put(it.file, Boolean.TRUE);
+        all.add(it);
+        added++;
+      }
+      String label = path.equals(defaultPls) ? "Default playlist" : f.getName();
+      System.out.println(label + ": " + added + (midi ? " MIDI" : "") + " file" + (added == 1 ? "" : "s"));
+    }
+    String name = outfile != null ? outfile : midibatch ? "out.txt" : "out.pls";
+    File out = new File(name);
+    if (!out.isAbsolute()) out = new File(workDir(), name);
+    StringBuilder text = new StringBuilder();
+    if (midibatch) {
+      text.append("# PlayList: the MIDI files (give to MidiBatch --list)\n");
+      for (Item it : all) text.append(it.file).append('\n');
+    }
+    try {
+      if (out.getParentFile() != null) out.getParentFile().mkdirs();
+      Files.write(out.toPath(), (midibatch ? text.toString() : pls(all)).getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ex) {
+      System.out.println("Failed: could not write " + out.getName() + ": " + ex.getMessage());
+      return 2;
+    }
+    for (int i = 0; i < all.size(); i++) System.out.println("  " + (i + 1) + ". " + all.get(i).title);
+    System.out.println("Succeeded: " + all.size() + (midi ? " MIDI" : "") + " file" + (all.size() == 1 ? "" : "s") + " into " + out.getName());
+    if (midibatch) System.out.println("Next: MidiBatch --list \"" + out.getPath() + "\"");
+    else if (midi) System.out.println("Next: Midi2Wav --dir \"" + out.getPath() + "\" (SoundFont) or vst_render.py --dir \"" + out.getPath() + "\" (VST, Carla, DrumGizmo)");
+    return 0;
+  }
+
+  static boolean isMidi(String name) {
+    String n = name.toLowerCase();
+    return n.endsWith(".mid") || n.endsWith(".midi");
   }
 
   /** The run's folder in the app (pulsekit.work), else user.dir. */

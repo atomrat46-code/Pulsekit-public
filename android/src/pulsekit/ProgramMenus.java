@@ -162,6 +162,8 @@ final class ProgramMenus {
             app.pyJav.pkApplyHint(PyJavHints.status(name, src, data));
             this.paint();
             app.setNow("Run · " + name);
+            // Its run still going (another program looked at meanwhile): shown again.
+            app.pyJav.pkShowRunning(name);
         } catch (Exception e) {
             app.setNow("Could not open " + name);
         }

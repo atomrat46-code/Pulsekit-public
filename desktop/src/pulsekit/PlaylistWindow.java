@@ -91,7 +91,7 @@ final class PlaylistWindow {
         final File dir = PromptDb.dir();
         final Playlist p = shown;
         d.setTitle("Playlist · " + p.name);
-        // The playlists, and New, Rename, Delete, Import .pls, Merge .pls, Save pls as.
+        // The playlists, and New, Rename, Delete, Import .pls, Merge .pls, Save, Save as.
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         final JComboBox<String> pick = new JComboBox<String>(Playlist.names(dir).toArray(new String[0]));
         pick.setName("playlist-pick");
@@ -164,21 +164,19 @@ final class PlaylistWindow {
             again.run();
         });
         top.add(merge);
-        JButton export = new JButton("Save pls as…");
-        export.setName("playlist-export");
-        export.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setSelectedFile(new File(p.name + Playlist.EXT));
-            if (chooser.showSaveDialog(d) != JFileChooser.APPROVE_OPTION) return;
-            File to = chooser.getSelectedFile();
-            if (!to.getName().toLowerCase().endsWith(Playlist.EXT)) to = new File(to.getParentFile(), to.getName() + Playlist.EXT);
-            try {
-                Files.write(to.toPath(), p.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                app.setNow("Saved " + to.getPath());
-            } catch (Exception ex) {
-                app.setNow("Could not save " + to.getName() + ": " + ex.getMessage());
-            }
+        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
+        JButton saveIt = new JButton(Playlist.SAVE);
+        saveIt.setName("playlist-save");
+        saveIt.setToolTipText("The playlist as a .pls where it was saved last (the editor keeps it in Pulsekit as you go)");
+        saveIt.addActionListener(e -> {
+            String at = Playlist.savedAt(dir, p.name);
+            if (at != null && new File(at).getParentFile() != null && new File(at).getParentFile().isDirectory()) savePls(app, p, new File(at));
+            else saveAs(app, d, p);
         });
+        top.add(saveIt);
+        JButton export = new JButton(Playlist.SAVE_AS);
+        export.setName("playlist-export");
+        export.addActionListener(e -> saveAs(app, d, p));
         top.add(export);
         body.add(top, BorderLayout.NORTH);
         final JTabbedPane tabs = new JTabbedPane();
@@ -194,6 +192,34 @@ final class PlaylistWindow {
         body.add(south, BorderLayout.SOUTH);
         body.revalidate();
         body.repaint();
+    }
+
+    /** The test's answer to Save as…'s chooser (null: the chooser). */
+    static File saveAsAnswer;
+
+    /** Save as…: a .pls file picked; it is where Save writes from then on. */
+    static void saveAs(Pulsekit app, java.awt.Component d, Playlist p) {
+        File to = saveAsAnswer;
+        if (to == null) {
+            String at = Playlist.savedAt(PromptDb.dir(), p.name);
+            JFileChooser chooser = new JFileChooser(at == null ? null : new File(at).getParentFile());
+            chooser.setSelectedFile(at == null ? new File(p.name + Playlist.EXT) : new File(at));
+            if (chooser.showSaveDialog(d) != JFileChooser.APPROVE_OPTION) return;
+            to = chooser.getSelectedFile();
+        }
+        if (!to.getName().toLowerCase().endsWith(Playlist.EXT)) to = new File(to.getParentFile(), to.getName() + Playlist.EXT);
+        if (savePls(app, p, to)) Playlist.setSavedAt(PromptDb.dir(), p.name, to.getAbsolutePath());
+    }
+
+    static boolean savePls(Pulsekit app, Playlist p, File to) {
+        try {
+            Files.write(to.toPath(), p.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            app.setNow("Saved " + to.getPath());
+            return true;
+        } catch (Exception ex) {
+            app.setNow("Could not save " + to.getName() + ": " + ex.getMessage());
+            return false;
+        }
     }
 
     private static void switchTo(File dir, String name) {
@@ -283,6 +309,8 @@ final class PlaylistWindow {
     }
 
     private static String kept(Pulsekit app, String log, int code, List<String> names, List<byte[]> bytes) {
+        // --nogui: the outfile is a file the run made, not a playlist to keep and open.
+        if (!Playlist.announced(log)) return null;
         for (int i = 0; i < names.size(); i++) {
             if (!names.get(i).toLowerCase().endsWith(Playlist.EXT)) continue;
             Playlist p = Playlist.parse(new String(bytes.get(i), java.nio.charset.StandardCharsets.UTF_8), names.get(i));
@@ -855,6 +883,13 @@ final class PlaylistWindow {
         prev.setName("viewer-prev");
         JButton next = new JButton("▶");
         next.setName("viewer-next");
+        // First and Last: the playlist's first and last file.
+        JButton first = new JButton("⏮");
+        first.setName("viewer-first");
+        first.setToolTipText("The first file");
+        JButton lastOne = new JButton("⏭");
+        lastOne.setName("viewer-last");
+        lastOne.setToolTipText("The last file");
         JButton play = new JButton("Play");
         play.setName("viewer-play");
         JButton pause = new JButton("Pause");
@@ -988,6 +1023,16 @@ final class PlaylistWindow {
             show[0].run();
         });
         next.addActionListener(e -> goNext.run());
+        first.addActionListener(e -> {
+            if (p.items.isEmpty()) return;
+            at[0] = 0;
+            show[0].run();
+        });
+        lastOne.addActionListener(e -> {
+            if (p.items.isEmpty()) return;
+            at[0] = p.items.size() - 1;
+            show[0].run();
+        });
         play.addActionListener(e -> {
             if (player[0] == null) return;
             player[0].play();
@@ -1085,8 +1130,10 @@ final class PlaylistWindow {
         // Three rows, each wide enough for its controls: where and Close; playing; sound, speed and zoom.
         JPanel controls = new JPanel(new GridLayout(3, 1, 0, 4));
         JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row1.add(first);
         row1.add(prev);
         row1.add(next);
+        row1.add(lastOne);
         row1.add(where);
         row1.add(timeText);
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));

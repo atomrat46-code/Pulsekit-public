@@ -110,9 +110,9 @@ final class VideoOffer {
                     if (w == 6) PlaylistScreen.addReady(app, clipName, null, new java.io.File(path));
                     else if (w < 2) extractFrame(app, path, clipName, ms, w == 1);
                     else if (w == 2) PictureOffer.toggleFavourite(app, clipName, clipSize);
-                    else if (w == 3) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null);
-                    else if (w == 4) TagDialogs.tags(app, clipName, clipSize, null);
-                    else TagDialogs.category(app, clipName, clipSize, null);
+                    else if (w == 3) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null, ReadyRecent.VIDEO);
+                    else if (w == 4) TagDialogs.tags(app, clipName, clipSize, null, ReadyRecent.VIDEO);
+                    else TagDialogs.category(app, clipName, clipSize, null, ReadyRecent.VIDEO);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
