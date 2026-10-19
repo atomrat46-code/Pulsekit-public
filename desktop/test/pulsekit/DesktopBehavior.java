@@ -5332,6 +5332,8 @@ public final class DesktopBehavior {
     boolean ok = component(d, "refs-pick:notes.txt") != null && component(d, "refs-pick:beach.png") == null;
     edt(() -> d.dispose());
     DbFilter.current = "A";
+    // F is a switch kept while the program runs: off for the gallery.
+    FileFilter.reset();
     // Prompt files: its 30 cards, the three tabs and A I V S T F G.
     answers.add("(keep)");
     SwingUtilities.invokeLater(() -> db.gallery(2));
