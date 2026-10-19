@@ -605,7 +605,7 @@ public final class PromptSheet {
     });
     col.addView(back, buttonLp(activity));
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
-    col.addView(caption(activity, (promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES") + FileGroups.title(galleryFilter).toUpperCase()));
+    col.addView(caption(activity, (promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES") + FileFilter.title().toUpperCase()));
     // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
     FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
     LinearLayout sortRow = new LinearLayout(activity);
@@ -643,34 +643,27 @@ public final class PromptSheet {
     // F: the favourites; G: a group's files (held: the list of groups).
     FileGroups.load(activity.getFilesDir());
     FileFavourites.load(activity.getFilesDir());
-    final Runnable toGroup = () -> {
-      galleryFilter = FileGroups.LETTER;
-      rebuild(activity);
-    };
+    galleryFilter = FileFilter.normal(galleryFilter);
     for (String letter : RefBrowser.withGroup()) {
-      final boolean g = FileGroups.LETTER.equals(letter);
+      if (FileFilter.isToggle(letter)) continue;
       boolean on = letter.equals(galleryFilter);
-      TextView pill = button(activity, g ? FileGroups.label() : letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      TextView pill = button(activity, letter, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
       pill.setTag("refs-filter:" + letter);
-      pill.setSingleLine(true);
-      pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
       pill.setOnClickListener(v -> {
-        // G on already: a tap picks another group.
-        if (g && !GroupDialogs.tap(activity, toGroup, letter.equals(galleryFilter))) return;
         galleryFilter = letter;
         rebuild(activity);
       });
-      if (g) pill.setOnLongClickListener(v -> {
-        GroupDialogs.pick(activity, toGroup);
-        return true;
-      });
-      LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), 1f);
-      plp.rightMargin = dp(activity, 6);
-      kinds.addView(pill, plp);
+      kinds.addView(pill, galleryLp(activity));
     }
+    // F G C: switches with the letter (held: G the groups, C the categories).
+    FilterRow.toggles(activity, kinds, "refs-filter:", galleryFilter, (text, on) -> galleryPill(activity, text, on), () -> galleryLp(activity), () -> rebuild(activity));
     LinearLayout.LayoutParams kindsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     kindsLp.bottomMargin = dp(activity, 8);
     col.addView(kinds, kindsLp);
+    // T1 T2 T3: the files with any of the tags picked.
+    LinearLayout.LayoutParams tagsLp = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
+    tagsLp.bottomMargin = dp(activity, 8);
+    col.addView(FilterRow.tags(activity, "refs-filter:", (text, on) -> galleryPill(activity, text, on), () -> galleryLp(activity), () -> rebuild(activity)), tagsLp);
     // Category tabs: All, the main categories the files' prompts are in, No category.
     List<PromptVault.StoredFile> kindFiles = galleryFiles();
     List<long[]> tabs = FileFavourites.tabs(vault, kindFiles);
@@ -678,7 +671,7 @@ public final class PromptSheet {
     for (long[] t : tabs) tabThere |= t[0] == galleryCategory;
     if (!tabThere) galleryCategory = FileFavourites.ALL;
     // F and G show every favourite or group file, whatever its category: no category tabs then.
-    final boolean markLetter = FileFavourites.LETTER.equals(galleryFilter) || FileGroups.LETTER.equals(galleryFilter);
+    final boolean markLetter = FileFilter.active() || FileFilter.isToggle(galleryFilter);
     if (!markLetter && (tabs.size() > 2 || galleryCategory != FileFavourites.ALL)) {
       android.widget.HorizontalScrollView tabScroll = new android.widget.HorizontalScrollView(activity);
       tabScroll.setHorizontalScrollBarEnabled(false);
@@ -850,6 +843,20 @@ public final class PromptSheet {
     watchGallery(activity, token);
   }
 
+  /** A gallery letter's (a switch's, a tag list's) pill: lit when on. */
+  private static TextView galleryPill(Activity activity, String text, boolean on) {
+    TextView pill = button(activity, text, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+    pill.setSingleLine(true);
+    pill.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    return pill;
+  }
+
+  private static LinearLayout.LayoutParams galleryLp(Activity activity) {
+    LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(activity, 40), 1f);
+    plp.rightMargin = dp(activity, 6);
+    return plp;
+  }
+
   /** The gallery's A I V S T choice (all files at first), and its category tab (FileFavourites.ALL at first). */
   private static String galleryFilter = "A";
   static long galleryCategory = FileFavourites.ALL;
@@ -884,10 +891,8 @@ public final class PromptSheet {
   /** The files of the gallery open: Prompt files, Result files or Ref files, of the kind A I V S T picks. */
   private static List<PromptVault.StoredFile> galleryFiles() {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
-    if ("A".equals(galleryFilter)) return all;
-    List<PromptVault.StoredFile> out = new java.util.ArrayList<PromptVault.StoredFile>();
-    for (PromptVault.StoredFile f : all) if (DbFilter.fits(f, galleryFilter)) out.add(f);
-    return out;
+    if ("A".equals(galleryFilter) && !FileFilter.active()) return all;
+    return FileFilter.keep(all, vault, galleryFilter);
   }
 
   /** The library's change count (PromptVault.changes) the gallery shown was built at. */

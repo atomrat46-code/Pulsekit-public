@@ -49,9 +49,12 @@ final class PictureOffer {
             view.setOnLongClickListener(v -> {
                 menu = new AlertDialog.Builder(app)
                     .setTitle(pic.name)
-                    .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD}, (d, w) -> {
+                    .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY}, (d, w) -> {
                         if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
-                        else GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null);
+                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null);
+                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null);
+                        else TagDialogs.category(app, pic.name, pic.bytes.length, null);
                     })
                     .setNegativeButton("Cancel", null)
                     .show();

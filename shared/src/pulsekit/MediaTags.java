@@ -229,6 +229,10 @@ public final class MediaTags {
     return out;
   }
 
+  /** Picture ready's and Video ready's: the same, worded for a file just made. */
+  public static final String ADD_TAG = "Add tag\u2026";
+  public static final String ADD_CATEGORY = "Add to category\u2026";
+
   /** The menu items Tags… and Category… */
   public static final String TAGS = "Tags…";
   public static final String CATEGORY = "Category…";

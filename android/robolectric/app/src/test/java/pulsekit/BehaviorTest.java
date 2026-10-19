@@ -52,6 +52,8 @@ public class BehaviorTest {
     MidiImportSettings.reset();
     // The Prompts page's full size preview is static too: each scenario starts on the page itself.
     PromptSheet.closePreview();
+    // F G C and the tag lists are switches kept while the program runs.
+    FileFilter.reset();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
@@ -3800,24 +3802,21 @@ public class BehaviorTest {
     out.append("G held: ").append(listItems(GroupDialogs.last)).append('\n');
     GroupDialogs.last.dismiss();
     out.append("title: ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
-    // Result files, then Reference files again: G still works (a tap on G, on already, lists the groups).
+    // Result files, then Reference files again: G still shows Trip; a tap on G (a switch) turns it off.
     inBrowser.apply("refs-kind:results").performClick();
     idle();
     inBrowser.apply("refs-kind:refs").performClick();
     idle();
-    GroupDialogs.last = null;
-    inBrowser.apply("db-filter:G").performClick();
-    idle();
-    out.append("after the tabs, G tapped: ").append(GroupDialogs.last == null ? "nothing" : listItems(GroupDialogs.last)).append('\n');
-    boolean tabsOk = GroupDialogs.last != null;
-    if (tabsOk) {
-      org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
-      idle();
-    }
     StringBuilder again = new StringBuilder();
     for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) again.append(n).append(' ');
-    out.append("then: ").append(again).append('\n');
-    tabsOk &= "beach.png dune.png ".equals(again.toString()) && "G".contentEquals(((TextView) inBrowser.apply("db-filter:G")).getText());
+    out.append("after the tabs: ").append(again).append('\n');
+    boolean tabsOk = "beach.png dune.png ".equals(again.toString()) && "G".contentEquals(((TextView) inBrowser.apply("db-filter:G")).getText());
+    inBrowser.apply("db-filter:G").performClick();
+    idle();
+    StringBuilder off = new StringBuilder();
+    for (String n : new String[] {"beach.png", "notes.txt", "dune.png"}) if (inBrowser.apply("refs-pick:" + n) != null) off.append(n).append(' ');
+    out.append("G tapped (off): ").append(off).append('\n');
+    tabsOk &= "beach.png notes.txt dune.png ".equals(off.toString());
     RefBrowser.last.dismiss();
     DbFilter.current = "A";
     idle();
@@ -3836,6 +3835,7 @@ public class BehaviorTest {
     idle();
     out.append(", shows beach.png ").append(findText(pane, "beach.png") != null).append(", notes.txt ").append(findText(pane, "notes.txt") != null || findText(pane, "\u2605 notes.txt") != null).append('\n');
     pane.findViewWithTag("refs-filter:A").performClick();
+    FileFilter.reset();
     refsOpen.set(null, false);
     rebuild.invoke(null, app);
     idle();
@@ -3905,6 +3905,7 @@ public class BehaviorTest {
     boolean fOk = dv.findViewWithTag("refs-pick:notes.txt") != null && dv.findViewWithTag("refs-pick:beach.png") == null;
     RefBrowser.last.dismiss();
     DbFilter.current = "A";
+    FileFilter.reset();
     // Prompts page: Prompt files opens with its 40 prompt files; F there too.
     android.widget.LinearLayout pane = PromptSheet.create(app);
     idle();
@@ -8300,6 +8301,198 @@ public class BehaviorTest {
       if (e.getCause() instanceof Exception) throw (Exception) e.getCause();
       throw e;
     }
+  }
+
+  /**
+   * F, G and C are switches with the type letter (V with F: the favourite videos); C held lists the
+   * categories under the letter's main one (I: Image), an item held opens its subcategories; T1 T2
+   * T3 keep the files with any tag picked. Save prompt: Add new lower level / same level
+   * subcategory and a Group. Picture ready: Add tag and Add to category.
+   */
+  @Test
+  public void s150_filter_switches_categories_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    DbFilter.current = "A";
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long image = 0, video = 0;
+    for (PromptVault.Category c : vault.mains()) {
+      if (c.name.equalsIgnoreCase("Image")) image = c.id;
+      if (c.name.equalsIgnoreCase("video")) video = c.id;
+    }
+    long portraits = vault.addSubcategory(image, "Portraits");
+    vault.addSubcategory(portraits, "Faces");
+    long p1 = vault.addPrompt(portraits, "Face");
+    vault.addVersion(p1, "Face", "", "a face", "", "face.png", "face".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p1, java.util.Arrays.asList("beach"));
+    long p2 = vault.addPrompt(video, "Walk");
+    vault.addVersion(p2, "Walk", "", "a walk", "", "walk.mp4", "walk".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    vault.setTags(p2, java.util.Arrays.asList("night"));
+    long p3 = vault.addPrompt(image, "Sky");
+    vault.addVersion(p3, "Sky", "", "a sky", "", "sky.png", "sky".getBytes(StandardCharsets.UTF_8), "", null, "", null, "", "");
+    FileFavourites.load(app.getFilesDir());
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (!f.name.equals("sky.png")) FileFavourites.toggle(f);
+    java.util.function.Function<String, View> in = tag -> RefBrowser.last.getWindow().getDecorView().findViewWithTag(tag);
+    java.util.function.Supplier<String> cards = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (String n : new String[] {"face.png", "walk.mp4", "sky.png"}) if (in.apply("refs-pick:" + n) != null) sb.append(n).append(' ');
+      return sb.toString().trim();
+    };
+    RefBrowser.browse(app, false, null, (name, file) -> {});
+    idle();
+    StringBuilder letters = new StringBuilder();
+    for (String l : new String[] {"A", "I", "V", "S", "T", "F", "G", "C", "tag:1", "tag:2", "tag:3"}) letters.append(in.apply("db-filter:" + l) != null ? l : "-").append(' ');
+    out.append("letters: ").append(letters).append("| ").append(((TextView) in.apply("db-filter:tag:1")).getText()).append('\n');
+    out.append("A: ").append(cards.get()).append('\n');
+    in.apply("db-filter:F").performClick();
+    idle();
+    String favs = cards.get();
+    in.apply("db-filter:V").performClick();
+    idle();
+    String favVideos = cards.get();
+    out.append("F: ").append(favs).append(" | V with F: ").append(favVideos).append('\n');
+    boolean switchOk = "face.png walk.mp4".equals(favs) && "walk.mp4".equals(favVideos);
+    in.apply("db-filter:F").performClick();
+    idle();
+    in.apply("db-filter:I").performClick();
+    idle();
+    // C held with I: Image's subcategories; Portraits held: its own.
+    in.apply("db-filter:C").performLongClick();
+    idle();
+    out.append("C held (I): ").append(org.robolectric.Shadows.shadowOf(FilterRow.last).getTitle()).append(": ").append(listItems(FilterRow.last)).append('\n');
+    android.widget.ListView lv = FilterRow.last.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 2, 0);
+    idle();
+    out.append("Portraits held: ").append(listItems(FilterRow.last)).append('\n');
+    boolean catListOk = listItems(FilterRow.last).contains("Faces");
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(1);
+    idle();
+    String inPortraits = cards.get();
+    out.append("I with C (Image / Portraits): ").append(inPortraits).append(", title ").append(org.robolectric.Shadows.shadowOf(RefBrowser.last).getTitle()).append('\n');
+    in.apply("db-filter:C").performClick();
+    idle();
+    String cOff = cards.get();
+    out.append("C tapped (off): ").append(cOff).append('\n');
+    boolean catOk = catListOk && "face.png".equals(inPortraits) && "face.png sky.png".equals(cOff);
+    in.apply("db-filter:A").performClick();
+    idle();
+    // T1 beach; T2 night: either.
+    in.apply("db-filter:tag:1").performClick();
+    idle();
+    out.append("T1 list: ").append(listItems(FilterRow.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(1);
+    idle();
+    String t1 = cards.get();
+    in.apply("db-filter:tag:2").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(FilterRow.last).clickOnItem(2);
+    idle();
+    String t12 = cards.get();
+    out.append("T1 beach: ").append(t1).append(" | T1 or T2 night: ").append(t12).append(" | ").append(((TextView) in.apply("db-filter:tag:2")).getText()).append('\n');
+    boolean tagOk = "face.png".equals(t1) && "face.png walk.mp4".equals(t12);
+    RefBrowser.last.dismiss();
+    FileFilter.reset();
+    // The Media browser's files: a file's own tags and category.
+    List<MediaDir.Entry> all = new ArrayList<MediaDir.Entry>();
+    for (String n : new String[] {"sea.png", "hill.png"}) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = n;
+      e.id = "/sdcard/Pictures/" + n;
+      e.kind = MediaDir.PICTURE;
+      e.size = 10;
+      all.add(e);
+    }
+    MediaTags.load(app.getFilesDir());
+    MediaTags.setTags(MediaTags.key(all.get(0)), java.util.Arrays.asList("beach"));
+    MediaTags.setCategory(MediaTags.key(all.get(1)), "Image / Portraits / Faces");
+    FileFilter.pickTag(0, "beach");
+    String mediaTag = FileFilter.entries(all).size() + " " + FileFilter.entries(all).get(0).name;
+    FileFilter.reset();
+    FileFilter.pickCategory("Image / Portraits");
+    String mediaCat = FileFilter.entries(all).size() + " " + FileFilter.entries(all).get(0).name;
+    FileFilter.reset();
+    out.append("media T1 beach: ").append(mediaTag).append(", C Image / Portraits: ").append(mediaCat).append('\n');
+    boolean mediaOk = "1 sea.png".equals(mediaTag) && "1 hill.png".equals(mediaCat);
+    // Save prompt: a lower level, then a same level subcategory; a new group.
+    PromptRun.Sheet sheet = new PromptRun.Sheet();
+    sheet.name = "Walk";
+    final PromptSave.Choice[] got = new PromptSave.Choice[1];
+    SavePromptDialog.show(app, vault, sheet, c -> got[0] = c);
+    idle();
+    View sd = SavePromptDialog.last.getWindow().getDecorView();
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-main")).setText("Image");
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).setText("Portraits");
+    ((android.widget.EditText) sd.findViewWithTag("save-prompt-name")).setText("Walk");
+    sd.findViewWithTag("save-prompt-sub-browse").performClick();
+    idle();
+    String subRows = listItems(SavePromptDialog.lastBrowse);
+    int rows = SavePromptDialog.lastBrowse.getListView().getAdapter().getCount();
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(rows - 2);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-sub")).setText("Close");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String lower = ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).getText().toString();
+    sd.findViewWithTag("save-prompt-sub-browse").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(SavePromptDialog.lastBrowse.getListView().getAdapter().getCount() - 1);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-sub")).setText("Wide");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String same = ((android.widget.EditText) sd.findViewWithTag("save-prompt-sub")).getText().toString();
+    sd.findViewWithTag("save-prompt-group").performClick();
+    idle();
+    String groupRows = listItems(SavePromptDialog.lastBrowse);
+    org.robolectric.Shadows.shadowOf(SavePromptDialog.lastBrowse).clickOnItem(SavePromptDialog.lastBrowse.getListView().getAdapter().getCount() - 1);
+    idle();
+    ((android.widget.EditText) SavePromptDialog.lastBrowse.getWindow().getDecorView().findViewWithTag("save-prompt-new-group")).setText("Walks");
+    SavePromptDialog.lastBrowse.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    SavePromptDialog.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Save prompt subcategories: ").append(subRows).append(" | lower: ").append(lower).append(" | same: ").append(same).append('\n');
+    out.append("groups: ").append(groupRows).append(" | chosen ").append(got[0] == null ? "none" : got[0].sub + ", group " + got[0].group).append('\n');
+    boolean saveOk = "Portraits / Close".equals(lower) && "Portraits / Wide".equals(same) && got[0] != null && "Walks".equals(got[0].group);
+    // Picture ready: Add tag (New tag…), Add to category.
+    byte[] look = "look".getBytes(StandardCharsets.UTF_8);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", look));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    out.append("Picture ready menu: ").append(listItems(PictureOffer.menu)).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(2);
+    idle();
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-new-tag-field")).setText("sunset");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    MediaBrowser.lastAsk.dismiss();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(3);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    int at = MediaTags.categoryNames(vault).indexOf("Image / Portraits") + 1;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(at);
+    idle();
+    String key = MediaTags.key("look.png", look.length);
+    out.append("look.png: tags ").append(MediaTags.tags(key)).append(", category ").append(MediaTags.category(key)).append('\n');
+    boolean readyOk = MediaTags.tags(key).contains("sunset") && "Image / Portraits".equals(MediaTags.category(key));
+    PictureOffer.last.dismiss();
+    write("s150_filter_switches_categories_tags", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    if (!switchOk || !catOk || !tagOk || !mediaOk || !saveOk || !readyOk) throw new AssertionError(out.toString());
   }
 
   @SuppressWarnings("unused")

@@ -1295,13 +1295,16 @@ final class PyJav {
         // Add to favourites and Add to group come back to the question.
         while (true) {
             FileFavourites.load(PromptDb.dir());
-            Object[] options = new Object[] {"Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD, "Close"};
+            Object[] options = new Object[] {"Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, "Close"};
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
             else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName());
+            else if (ans == 4) TagDialogs.tags(app, app, video.getName(), video.length(), null);
+            else if (ans == 5) TagDialogs.category(app, app, video.getName(), video.length(), null);
             else break;
         }
         try {

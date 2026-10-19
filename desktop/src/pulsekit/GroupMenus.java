@@ -78,6 +78,14 @@ final class GroupMenus {
         group.setName("file-group");
         group.addActionListener(e -> ask(app, keys(file), name));
         m.add(group);
+        JMenuItem tag = new JMenuItem(MediaTags.ADD_TAG);
+        tag.setName("file-tag");
+        tag.addActionListener(e -> TagDialogs.tags(app, app, name, size, null));
+        m.add(tag);
+        JMenuItem cat = new JMenuItem(MediaTags.ADD_CATEGORY);
+        cat.setName("file-category");
+        cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null));
+        m.add(cat);
         last = m;
         return m;
     }

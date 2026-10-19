@@ -105,10 +105,13 @@ final class VideoOffer {
             final int ms = Math.max(0, view.getCurrentPosition());
             menu = new AlertDialog.Builder(app)
                 .setTitle("Frame at " + FileSets.mixTime(ms))
-                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD}, (d, w) -> {
+                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY}, (d, w) -> {
                     if (w < 2) extractFrame(app, path, clipName, ms, w == 1);
                     else if (w == 2) PictureOffer.toggleFavourite(app, clipName, clipSize);
-                    else GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null);
+                    else if (w == 3) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null);
+                    else if (w == 4) TagDialogs.tags(app, clipName, clipSize, null);
+                    else TagDialogs.category(app, clipName, clipSize, null);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

@@ -166,7 +166,16 @@ final class RefBrowser {
         // F: only the favourites; G: only the files of the group G shows.
         FileGroups.load(activity.getFilesDir());
         FileFavourites.load(activity.getFilesDir());
-        for (PromptVault.StoredFile f : files(activity, results, only)) if (DbFilter.fits(f, DbFilter.current)) out.add(f);
+        // C and the tags read the files' prompts.
+        MediaTags.load(activity.getFilesDir());
+        DbFilter.current = FileFilter.normal(DbFilter.current);
+        PromptVault vault;
+        try {
+            vault = PromptVault.open(activity.getFilesDir());
+        } catch (Exception ex) {
+            vault = null;
+        }
+        out.addAll(FileFilter.keep(files(activity, results, only), vault, DbFilter.current));
         return out;
     }
 
@@ -181,6 +190,28 @@ final class RefBrowser {
     /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
         return DbFilter.WITH_FAV_GROUP.clone();
+    }
+
+    /** A letter's (or a switch's, or a tag list's) pill: lit when on. */
+    private static TextView letterPill(Activity activity, String text, boolean on, float density) {
+        TextView b = new TextView(activity);
+        b.setText(text);
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        b.setGravity(Gravity.CENTER);
+        b.setTextSize(16);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(8 * density);
+        bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
+        b.setBackground(bg);
+        b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
+        return b;
+    }
+
+    private static LinearLayout.LayoutParams letterLp(float density, int gap) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
+        lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
+        return lp;
     }
 
     static void browse(final Activity activity, final boolean results, final String only, final Picked picked) {
@@ -233,42 +264,24 @@ final class RefBrowser {
             browse(activity, results, only, picked);
         };
         for (final String letter : withGroup()) {
-            final boolean g = FileGroups.LETTER.equals(letter);
+            if (FileFilter.isToggle(letter)) continue;
             boolean on = letter.equals(DbFilter.current);
-            TextView b = new TextView(activity);
-            b.setText(g ? FileGroups.label() : letter);
-            b.setSingleLine(true);
-            b.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            b.setGravity(Gravity.CENTER);
-            b.setTextSize(16);
+            TextView b = letterPill(activity, letter, on, density);
             b.setTag("db-filter:" + letter);
             b.setContentDescription(DbFilter.label(letter));
-            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setCornerRadius(8 * density);
-            bg.setColor(Color.parseColor(on ? "#ECEBE6" : "#1B1D1F"));
-            b.setBackground(bg);
-            b.setTextColor(Color.parseColor(on ? "#0A0B0C" : "#ECEBE6"));
-            // G: the group picked before (the list when there is none); held, the list of groups.
-            final Runnable toGroup = () -> {
-                DbFilter.current = FileGroups.LETTER;
-                again.run();
-            };
             b.setOnClickListener(v -> {
-                // G on already: a tap picks another group.
-                if (g && !GroupDialogs.tap(activity, toGroup, letter.equals(DbFilter.current))) return;
                 if (letter.equals(DbFilter.current)) return;
                 DbFilter.current = letter;
                 again.run();
             });
-            if (g) b.setOnLongClickListener(v -> {
-                GroupDialogs.pick(activity, toGroup);
-                return true;
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int) (40 * density), 1f);
-            lp.setMargins(gap / 4, gap / 2, gap / 4, gap / 2);
-            letters.addView(b, lp);
+            letters.addView(b, letterLp(density, gap));
         }
+        // F G C: switches with the letter (held: G the groups, C the categories).
+        FilterRow.toggles(activity, letters, "db-filter:", DbFilter.current, (text, on) -> letterPill(activity, text, on, density),
+            () -> letterLp(density, gap), again);
         top.addView(letters);
+        // T1 T2 T3: the files with any of the tags picked.
+        top.addView(FilterRow.tags(activity, "db-filter:", (text, on) -> letterPill(activity, text, on, density), () -> letterLp(density, gap), again));
         if (files.isEmpty()) {
             TextView none = new TextView(activity);
             none.setText("none");
@@ -342,7 +355,7 @@ final class RefBrowser {
                             if (activity instanceof MainActivity) ((MainActivity) activity).setNow(shownName + (now ? " added to favourites" : " taken out of favourites"));
                             again.run();
                         } else {
-                            GroupDialogs.addTo(activity, FileGroups.keys(file), shownName, FileGroups.LETTER.equals(DbFilter.current) ? again : null);
+                            GroupDialogs.addTo(activity, FileGroups.keys(file), shownName, FileFilter.active() ? again : null);
                         }
                     })
                     .setNegativeButton("Cancel", null)
@@ -380,7 +393,7 @@ final class RefBrowser {
         page.addView(top);
         page.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         dialog[0] = new AlertDialog.Builder(activity)
-            .setTitle((results ? "Result files" : "Reference files") + FileGroups.title(DbFilter.current))
+            .setTitle((results ? "Result files" : "Reference files") + FileFilter.title())
             .setView(page)
             .setNegativeButton("Cancel", null)
             .show();

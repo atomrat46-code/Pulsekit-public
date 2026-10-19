@@ -195,7 +195,8 @@ final class MediaBrowser {
         MediaTags.load(PromptDb.dir());
         FileGroups.load(PromptDb.dir());
         FileFavourites.load(PromptDb.dir());
-        final List<MediaDir.Entry> entries = MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter);
+        MediaDir.filter = FileFilter.normal(MediaDir.filter);
+        final List<MediaDir.Entry> entries = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter));
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -251,34 +252,31 @@ final class MediaBrowser {
         loopRow.add(fav, 0);
         // A all, I pictures, V videos, S sounds, T text, O other files.
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        final Runnable again = () -> {
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        };
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
+            if (FileFilter.isToggle(f)) continue;
             int n = MediaDir.count(allEntries, f);
-            final boolean g = FileGroups.LETTER.equals(f);
-            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(g ? FileGroups.label() : f, f.equals(MediaDir.filter));
+            final javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
             b.setName("media-filter:" + f);
-            b.setToolTipText(g ? "A group's files (" + n + " here; right click: pick the group)" : MediaDir.FILTER_NAMES[i] + " (" + n + ")");
-            b.setEnabled(n > 0 || f.equals("A") || g || f.equals(MediaDir.filter));
-            // G: a group's files (a right click on G picks the group).
-            final Runnable toGroup = () -> {
-                MediaDir.filter = FileGroups.LETTER;
-                gone.set(true);
-                this.fill(dialog, root, dir);
-            };
+            b.setToolTipText(MediaDir.FILTER_NAMES[i] + " (" + n + ")");
+            b.setEnabled(n > 0 || f.equals("A") || f.equals(MediaDir.filter));
             b.addActionListener(e -> {
-                if (g && !GroupMenus.tap(app, b, toGroup, f.equals(MediaDir.filter))) {
-                    b.setSelected(f.equals(MediaDir.filter));
-                    return;
-                }
                 MediaDir.filter = f;
-                gone.set(true);
-                this.fill(dialog, root, dir);
+                again.run();
             });
-            if (g) GroupMenus.onRightClick(b, () -> GroupMenus.pick(app, b, toGroup));
             filters.add(b);
         }
-        filters.add(new JLabel(" " + (FileGroups.LETTER.equals(MediaDir.filter) && !FileGroups.shown.isEmpty() ? "group " + FileGroups.shown
-            : MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)])));
+        // F G C: switches with the letter (a right click: G the groups, C the categories).
+        FilterBar.toggles(app, filters, "media-filter:", MediaDir.filter, again);
+        filters.add(new JLabel(" " + MediaDir.FILTER_NAMES[java.util.Arrays.asList(MediaDir.FILTERS).indexOf(MediaDir.filter)]
+            + FileFilter.title().replace(" \u00b7 Group: ", " \u00b7 group ").replace(" \u00b7 ", ", ")));
+        // T1 T2 T3: the files with any of the tags picked (a row of their own).
+        final JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        FilterBar.tags(tagRow, "media-filter:", again);
         // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
         final List<String[]> tagChoices = MediaTags.choices(allEntries);
         boolean known = false;
@@ -306,7 +304,10 @@ final class MediaBrowser {
         JPanel north = new JPanel(new BorderLayout(0, 6));
         if (this.chooser != null) north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
         north.add(top, BorderLayout.CENTER);
-        north.add(filters, BorderLayout.SOUTH);
+        JPanel rows = new JPanel(new GridLayout(2, 1, 0, 4));
+        rows.add(filters);
+        rows.add(tagRow);
+        north.add(rows, BorderLayout.SOUTH);
         body.add(north, BorderLayout.NORTH);
         JPanel grid = new JPanel(new GridLayout(0, 4, 8, 8));
         if (entries.isEmpty()) grid.add(new JLabel("No pictures, videos or sounds here"));
