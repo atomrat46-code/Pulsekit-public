@@ -532,6 +532,11 @@ final class PyJav {
         if (download != 0) SogniDownloads.args(download, filled);
         // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
         final JavaRun.Live live = new JavaRun.Live();
+        // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
+        if (download != 0) {
+            SogniDownloads.argv(download, argv);
+            live.download(download);
+        }
         if (note != null) live.add(note + "\n");
         final String head = note == null ? "" : note + "\n";
         final javax.swing.Timer tick = new javax.swing.Timer(1000, null);

@@ -25,6 +25,7 @@ public final class RunKeeper extends Service {
 
   /** A run started: the notification shows it. */
   public static void start(Context context, String program) {
+    stopWanted = false;
     String text = "Pulsekit · " + (program == null || program.isEmpty() ? "a program" : program) + " running";
     mark(context, program);
     try {
@@ -39,12 +40,23 @@ public final class RunKeeper extends Service {
   /** Every run is over: the notification goes. */
   public static void stop(Context context) {
     unmark(context);
+    // Stopped before it showed its notification (a run over at once, the app in the background):
+    // Android ends the app when a service started that way never calls startForeground. It stops
+    // itself once it has.
+    if (!foreground) {
+      stopWanted = true;
+      return;
+    }
     try {
       context.stopService(new Intent(context, RunKeeper.class));
     } catch (Throwable ignored) {
       // not running
     }
   }
+
+  /** The notification is shown (startForeground was called); a stop asked for before then. */
+  static volatile boolean foreground;
+  static volatile boolean stopWanted;
 
   /** A run marked in this process: running.txt is this process's own, not one Android ended. */
   static volatile boolean markedHere;
@@ -95,7 +107,20 @@ public final class RunKeeper extends Service {
       b.setContentIntent(android.app.PendingIntent.getActivity(this, 0, open, Build.VERSION.SDK_INT >= 23 ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
     }
     startForeground(1, b.build());
+    foreground = true;
+    if (stopWanted) {
+      stopWanted = false;
+      foreground = false;
+      stopForeground(true);
+      stopSelf();
+    }
     return START_NOT_STICKY;
+  }
+
+  @Override
+  public void onDestroy() {
+    foreground = false;
+    super.onDestroy();
   }
 
   @Override

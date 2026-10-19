@@ -309,14 +309,14 @@ final class PlaylistWindow {
         for (final String n : Playlist.names(PromptDb.dir())) {
             JMenuItem item = new JMenuItem(n);
             item.setName("playlist-add:" + n);
-            item.addActionListener(e -> app.setNow(Playlist.addTo(PromptDb.dir(), n, file, title)));
+            item.addActionListener(e -> confirmAdd(app, n, file, title));
             m.add(item);
         }
         JMenuItem make = new JMenuItem(Playlist.NEW);
         make.setName("playlist-add-new");
         make.addActionListener(e -> {
             String typed = ask(app, Playlist.NEW, "");
-            if (typed != null) app.setNow(Playlist.addTo(PromptDb.dir(), typed, file, title));
+            if (typed != null) confirmAdd(app, typed, file, title);
         });
         m.add(make);
         return m;
@@ -332,14 +332,32 @@ final class PlaylistWindow {
             name = ask(app, Playlist.NEW, "");
             if (name == null) return;
         }
-        app.setNow(Playlist.addTo(PromptDb.dir(), name, file, title));
+        confirmAdd(app, name, file, title);
+    }
+
+    /** The file into the named list; when it is there already, asked first ("Add it a second time?"). */
+    static void confirmAdd(Pulsekit app, String list, String file, String title) {
+        File dir = PromptDb.dir();
+        if (!Playlist.inList(dir, list, file)) {
+            app.setNow(Playlist.addTo(dir, list, file, title));
+            return;
+        }
+        if (askAgain(app, Playlist.againQuestion(title, Playlist.clean(list).length() == 0 ? Playlist.DEFAULT : Playlist.clean(list)))) {
+            app.setNow(Playlist.addTo(dir, list, file, title, true));
+        }
+    }
+
+    /** "… is in … already. Add it a second time?": true for Add again. */
+    static boolean askAgain(Pulsekit app, String question) {
+        Object[] options = {"Add again", "Cancel"};
+        return JOptionPane.showOptionDialog(app, question, "In the playlist already", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]) == 0;
     }
 
     /** "Add to default playlist": at the end of Default. */
     static JMenuItem addDefaultItem(final Pulsekit app, final String file, final String title) {
         JMenuItem item = new JMenuItem(Playlist.ADD_DEFAULT);
         item.setName("add-to-default-playlist");
-        item.addActionListener(e -> app.setNow(Playlist.addTo(PromptDb.dir(), Playlist.DEFAULT, file, title)));
+        item.addActionListener(e -> confirmAdd(app, Playlist.DEFAULT, file, title));
         return item;
     }
 
@@ -431,7 +449,15 @@ final class PlaylistWindow {
                 app.setNow("Could not find " + picked + " in the prompt library");
                 return;
             }
-            app.setNow(p.add(Playlist.dbAddress(f), f.name) ? f.name + " added to " + p.name : f.name + " is in " + p.name + " already");
+            String file = Playlist.dbAddress(f);
+            // In the list already: asked before it goes in a second time.
+            if (p.has(file)) {
+                if (!askAgain(app, Playlist.againQuestion(f.name, p.name))) return;
+                p.addAgain(file, f.name);
+            } else {
+                p.add(file, f.name);
+            }
+            app.setNow(f.name + " added to " + p.name);
             save(app, p);
             again.run();
         }));
@@ -440,8 +466,18 @@ final class PlaylistWindow {
         files.addActionListener(e -> {
             File[] picked = chooseMedia(d);
             int added = 0;
-            for (File f : picked) if (p.add(f.getAbsolutePath(), f.getName())) added++;
+            List<File> twice = new ArrayList<File>();
+            for (File f : picked) {
+                if (p.add(f.getAbsolutePath(), f.getName())) added++;
+                else twice.add(f);
+            }
             if (picked.length == 0) return;
+            // Those in the list already: asked before they go in a second time.
+            if (!twice.isEmpty() && askAgain(app, twice.size() == 1 ? Playlist.againQuestion(twice.get(0).getName(), p.name)
+                : twice.size() + " of the files are in " + p.name + " already. Add them a second time?")) {
+                for (File f : twice) p.addAgain(f.getAbsolutePath(), f.getName());
+                added += twice.size();
+            }
             save(app, p);
             app.setNow(added + (added == 1 ? " file" : " files") + " added to " + p.name);
             again.run();
@@ -603,8 +639,11 @@ final class PlaylistWindow {
         speed.setName("playlist-speed");
         speed.setSelectedItem(Playlist.speedText(s.speed));
         final float[] zoom = {s.zoom};
+        final float[] zoomVideo = {s.zoomVideo};
         final JLabel zoomLevel = new JLabel(MediaDir.zoomLabel(zoom[0]));
         zoomLevel.setName("playlist-zoom");
+        final JLabel videoZoomLevel = new JLabel(MediaDir.zoomLabel(zoomVideo[0]));
+        videoZoomLevel.setName("playlist-video-zoom");
         final Runnable keep = () -> {
             Playlist.Settings now = Playlist.settings(dir);
             now.repeat = repeat.isSelected();
@@ -616,9 +655,11 @@ final class PlaylistWindow {
             now.mute = mute.isSelected();
             now.speed = Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())];
             now.zoom = zoom[0];
+            now.zoomVideo = zoomVideo[0];
             Playlist.saveSettings(dir, now);
             level.setText(now.mute ? "muted" : now.volume + "%");
             zoomLevel.setText(MediaDir.zoomLabel(now.zoom));
+            videoZoomLevel.setText(MediaDir.zoomLabel(now.zoomVideo));
         };
         // Loop video and Auto mode go one at a time.
         loop.addActionListener(e -> {
@@ -673,12 +714,28 @@ final class PlaylistWindow {
         JPanel look = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         look.add(new JLabel("Speed"));
         look.add(speed);
-        look.add(new JLabel("   Zoom"));
+        look.add(new JLabel("   Picture zoom"));
         look.add(zoomOut);
         look.add(zoomIn);
         look.add(fit);
         look.add(zoomLevel);
         col.add(look);
+        // A video's zoom, kept apart from a picture's.
+        JPanel lookVideo = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        lookVideo.add(new JLabel("Video zoom"));
+        String[][] vz = {{"Zoom \u2212", "playlist-video-zoom-out"}, {"Zoom +", "playlist-video-zoom-in"}, {"Fit", "playlist-video-fit"}};
+        for (int i = 0; i < vz.length; i++) {
+            final int which = i;
+            JButton b = new JButton(vz[i][0]);
+            b.setName(vz[i][1]);
+            b.addActionListener(e -> {
+                zoomVideo[0] = which == 2 ? 1f : (float) MediaDir.zoom(zoomVideo[0], which == 1);
+                keep.run();
+            });
+            lookVideo.add(b);
+        }
+        lookVideo.add(videoZoomLevel);
+        col.add(lookVideo);
         JButton start = new JButton("Start viewer");
         start.setName("playlist-start");
         start.setEnabled(!p.items.isEmpty());
@@ -823,12 +880,18 @@ final class PlaylistWindow {
         final JLabel zoomLevel = new JLabel(MediaDir.zoomLabel(s.zoom));
         zoomLevel.setName("viewer-zoom");
         picture.zoom = MediaDir.clampZoom(s.zoom);
+        // Pictures and videos each keep a zoom of their own (picture.zoom holds the one shown).
+        final boolean[] videoShown = new boolean[1];
+        // A video's place: "00:12 / 01:30".
+        final JLabel timeText = new JLabel("");
+        timeText.setName("viewer-time");
         final Runnable keep = () -> {
             Playlist.Settings now = Playlist.settings(dir);
             now.volume = volume.getValue();
             now.mute = "Unmute".equals(mute.getText());
             now.speed = Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())];
-            now.zoom = (float) picture.zoom;
+            if (videoShown[0]) now.zoomVideo = (float) picture.zoom;
+            else now.zoom = (float) picture.zoom;
             Playlist.saveSettings(dir, now);
         };
         final Runnable release = () -> {
@@ -849,6 +912,11 @@ final class PlaylistWindow {
             v.setTitle("Playlist viewer · " + p.name + " · " + it.title);
             File f = local(it);
             int k = it.kind();
+            videoShown[0] = k == MediaDir.VIDEO || k == MediaDir.SOUND;
+            Playlist.Settings kept = Playlist.settings(dir);
+            picture.zoom = MediaDir.clampZoom(videoShown[0] ? kept.zoomVideo : kept.zoom);
+            zoomLevel.setText(MediaDir.zoomLabel(picture.zoom));
+            timeText.setText(videoShown[0] ? Playlist.time(0, -1) : "");
             if (f == null) {
                 message.setText(it.title + " is not there any more");
                 viewerNote = "missing";
@@ -972,6 +1040,7 @@ final class PlaylistWindow {
         };
         // Auto mode: a picture for its seconds, a video or a sound to its end, then the next.
         final javax.swing.Timer tick = new javax.swing.Timer(250, e -> {
+            if (player[0] != null) timeText.setText(Playlist.time(player[0].timeMs(), player[0].lengthMs()));
             Playlist.Settings now = Playlist.settings(dir);
             // Loop video: at its end the video starts again (an arrow goes on).
             if (now.loop && player[0] != null && player[0].state() == VlcPlayer.ENDED) {
@@ -995,7 +1064,7 @@ final class PlaylistWindow {
             }
         });
         // Loop video and Auto mode here too (one at a time), kept as the Viewer tab's.
-        final JCheckBox loopBox = new JCheckBox("Loop video", s.loop);
+        final JCheckBox loopBox = new JCheckBox("\u27f3 Loop this video", s.loop);
         loopBox.setName("viewer-loop");
         final JCheckBox autoBox = new JCheckBox("Auto mode", s.auto);
         autoBox.setName("viewer-auto");
@@ -1019,6 +1088,7 @@ final class PlaylistWindow {
         row1.add(prev);
         row1.add(next);
         row1.add(where);
+        row1.add(timeText);
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         for (java.awt.Component c : new java.awt.Component[] {play, pause, stop, loopBox, autoBox}) row2.add(c);
         JButton close = new JButton("Close");

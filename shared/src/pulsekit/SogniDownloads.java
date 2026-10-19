@@ -52,6 +52,10 @@ public final class SogniDownloads {
     public long versionId;
     /** The arguments it ran with (Create again loads the program with them). */
     public String args = "";
+    /** Its Sogni workflow ("Workflow: <id>" in the run's log), kept as soon as it is known: Resume download joins it again. */
+    public String workflow = "";
+    /** The exact arguments it ran with (Resume download runs it with them and --workflow). */
+    public final List<String> argv = new ArrayList<String>();
 
     /** "SogniPedit" for SogniPedit.java. */
     public String programName() {
@@ -90,7 +94,9 @@ public final class SogniDownloads {
         if (r == null) continue;
         if (PROGRESS.equals(r.state) || PENDING.equals(r.state)) {
           r.state = FAILED;
-          if (r.status.length() == 0 || r.status.startsWith("Running")) r.status = "Failed: the app was stopped during the run";
+          if (r.status.length() == 0 || r.status.startsWith("Running") || r.status.startsWith("Reconnecting") || r.status.startsWith("Resuming") || r.status.startsWith("Queued")) {
+            r.status = "Failed: Pulsekit was closed during the run" + (r.workflow.length() > 0 ? " (Resume download fetches it)" : "");
+          }
           stopped = true;
         }
         RUNS.add(r);
@@ -128,6 +134,68 @@ public final class SogniDownloads {
     r.state = PROGRESS;
     r.status = note == null ? "" : note;
     write();
+  }
+
+  /** The run's Sogni workflow, from its log as it runs ("Workflow: <id>"); kept at once, so a run the app lost can be resumed. */
+  public static synchronized void workflow(long id, String workflow) {
+    Run r = run(id);
+    if (r == null || workflow == null || workflow.trim().length() == 0 || workflow.trim().equals(r.workflow)) return;
+    r.workflow = workflow.trim();
+    write();
+  }
+
+  /** The exact arguments the run started with (Resume download). */
+  public static synchronized void argv(long id, List<String> argv) {
+    Run r = run(id);
+    if (r == null || argv == null) return;
+    r.argv.clear();
+    for (String a : argv) r.argv.add(a == null ? "" : a);
+    write();
+  }
+
+  /** The workflow id in a run's log so far ("Workflow: <id>"), or null. */
+  public static String workflowIn(String log) {
+    if (log == null) return null;
+    int at = log.lastIndexOf("Workflow: ");
+    if (at < 0) return null;
+    int end = log.indexOf('\n', at);
+    String id = (end < 0 ? log.substring(at + 10) : log.substring(at + 10, end)).trim();
+    return id.length() == 0 || id.indexOf(' ') >= 0 ? null : id;
+  }
+
+  /** Resume download is offered: a failed run with its workflow known and nothing downloaded. */
+  public static boolean canResume(Run r) {
+    return r != null && FAILED.equals(r.state) && r.workflow.length() > 0 && r.items.isEmpty();
+  }
+
+  /** Resume download's arguments: the run's own, with --workflow <its workflow> (so the prompt and its sheet stay the same). */
+  public static List<String> resumeArgs(Run r) {
+    List<String> out = new ArrayList<String>();
+    for (int i = 0; i < r.argv.size(); i++) {
+      String a = r.argv.get(i);
+      if ("--workflow".equals(a)) {
+        i++;
+        continue;
+      }
+      out.add(a);
+    }
+    out.add("--workflow");
+    out.add(r.workflow);
+    return out;
+  }
+
+  public static final String RESUME = "Resume download";
+
+  /** Resume download pressed: the run is in progress again, saying so; the note. */
+  public static synchronized String resuming(long id) {
+    Run r = run(id);
+    if (r == null) return "";
+    String note = "Resuming workflow " + r.workflow + "\u2026";
+    r.state = PROGRESS;
+    r.status = note;
+    r.started = r.started <= 0 ? System.currentTimeMillis() : r.started;
+    write();
+    return note;
   }
 
   /** Mark as ready: a pending or in-progress run the app lost track of is let go (finished, or failed with nothing saved). */
@@ -387,6 +455,8 @@ public final class SogniDownloads {
     }
     // After the items (a list from before has none).
     sb.append(F).append(clean(r.args));
+    sb.append(F).append(clean(r.workflow)).append(F);
+    for (int i = 0; i < r.argv.size(); i++) sb.append(i == 0 ? "" : String.valueOf(I)).append(clean(r.argv.get(i)));
     return sb.toString();
   }
 
@@ -419,6 +489,8 @@ public final class SogniDownloads {
       }
     }
     if (f.length > 10) r.args = f[10];
+    if (f.length > 11) r.workflow = f[11];
+    if (f.length > 12 && f[12].length() > 0) for (String a : f[12].split(String.valueOf(I), -1)) r.argv.add(a);
     return r;
   }
 

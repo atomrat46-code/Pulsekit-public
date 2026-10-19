@@ -167,6 +167,22 @@ public final class Playlist {
     return true;
   }
 
+  /** Whether the file is in the list (Add to playlist asks before adding it a second time). */
+  public boolean has(String file) {
+    return file != null && this.indexOf(file.trim()) >= 0;
+  }
+
+  /** Added at the end even when it is in the list already (asked first: "Add it a second time?"). */
+  public void addAgain(String file, String title) {
+    if (file == null || file.trim().length() == 0) return;
+    this.items.add(new Item(file, title));
+  }
+
+  /** The question before adding a file that is in the list already. */
+  public static String againQuestion(String title, String list) {
+    return title + " is in " + list + " already. Add it a second time?";
+  }
+
   /** The list's index of the file, or -1. */
   public int indexOf(String file) {
     for (int i = 0; i < this.items.size(); i++) if (this.items.get(i).file.equals(file)) return i;
@@ -232,16 +248,27 @@ public final class Playlist {
 
   /** Add to playlist: the file at the end of the named list (made when new), saved; the status line. */
   public static String addTo(File dir, String name, String file, String title) {
+    return addTo(dir, name, file, title, false);
+  }
+
+  /** As above; `again`: added even when it is in the list already (asked first). */
+  public static String addTo(File dir, String name, String file, String title, boolean again) {
     String n = clean(name).length() == 0 ? DEFAULT : clean(name);
     Playlist p = load(dir, n);
     String shown = title == null || title.trim().length() == 0 ? shortName(file) : title.trim();
-    if (!p.add(file, title)) return shown + " is in " + n + " already";
+    if (again) p.addAgain(file, title);
+    else if (!p.add(file, title)) return shown + " is in " + n + " already";
     try {
       save(dir, p);
     } catch (Exception ex) {
       return "Could not add " + shown + " to " + n + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
     }
-    return shown + " added to playlist " + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
+    return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
+  }
+
+  /** Whether the file is in the named list already. */
+  public static boolean inList(File dir, String name, String file) {
+    return load(dir, clean(name).length() == 0 ? DEFAULT : clean(name)).has(file);
   }
 
   /** The Add to playlist list: the playlists, then New playlist…. */
@@ -368,7 +395,9 @@ public final class Playlist {
     public int volume = 100;
     public boolean mute;
     public float speed = 1f;
+    /** A picture's zoom (zoom) and a video's (zoomVideo): each kept on its own. */
     public float zoom = 1f;
+    public float zoomVideo = 1f;
     /** The playlist open last. */
     public String last = DEFAULT;
 
@@ -390,6 +419,7 @@ public final class Playlist {
 
   public static Settings settings(File dir) {
     Settings s = new Settings();
+    boolean videoZoomKept = false;
     try {
       File f = new File(dir, SETTINGS);
       if (!f.isFile()) return s;
@@ -408,6 +438,10 @@ public final class Playlist {
           else if (k.equals("mute")) s.mute = Boolean.parseBoolean(v);
           else if (k.equals("speed")) s.speed = Math.max(0.25f, Math.min(4f, Float.parseFloat(v)));
           else if (k.equals("zoom")) s.zoom = (float) MediaDir.clampZoom(Float.parseFloat(v));
+          else if (k.equals("zoomVideo")) {
+            s.zoomVideo = (float) MediaDir.clampZoom(Float.parseFloat(v));
+            videoZoomKept = true;
+          }
           else if (k.equals("last")) s.last = clean(v).length() == 0 ? DEFAULT : clean(v);
         } catch (NumberFormatException ignored) {
           // that one stays as it was
@@ -418,12 +452,14 @@ public final class Playlist {
     }
     // Both kept on by hand in the file: Loop video wins (Auto mode is off with it).
     if (s.loop) s.auto = false;
+    // From before videos had a zoom of their own: the one zoom for both.
+    if (!videoZoomKept) s.zoomVideo = s.zoom;
     return s;
   }
 
   public static void saveSettings(File dir, Settings s) {
     String text = "repeat=" + s.repeat + "\nauto=" + s.auto + "\nautoplay=" + s.autoplay + "\nloop=" + s.loop + "\nseconds=" + s.seconds + "\nvolume=" + s.volume
-        + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nlast=" + s.last + "\n";
+        + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nzoomVideo=" + s.zoomVideo + "\nlast=" + s.last + "\n";
     try {
       if (!dir.isDirectory()) dir.mkdirs();
       Files.write(new File(dir, SETTINGS).toPath(), text.getBytes(StandardCharsets.UTF_8));
@@ -444,6 +480,18 @@ public final class Playlist {
     if (size <= 0) return -1;
     if (at - 1 >= 0) return at - 1;
     return repeat ? size - 1 : -1;
+  }
+
+  /** A time as mm:ss ("01:05"); h:mm:ss past an hour. */
+  public static String clock(long ms) {
+    long s = Math.max(0, ms) / 1000;
+    if (s >= 3600) return String.format(Locale.ROOT, "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60);
+    return String.format(Locale.ROOT, "%02d:%02d", s / 60, s % 60);
+  }
+
+  /** A video's place: "00:12 / 01:30" (the length "--:--" until it is known). */
+  public static String time(long at, long length) {
+    return clock(at) + " / " + (length > 0 ? clock(length) : "--:--");
   }
 
   /** "1.25×". */

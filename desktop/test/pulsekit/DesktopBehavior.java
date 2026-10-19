@@ -5812,6 +5812,81 @@ public final class DesktopBehavior {
     edt(() -> w.dispose());
     if (there.length() > 0 || !loopOk || !keptOk || cut.length() > 0 || !autoOn || !loopOn) throw new AssertionError(out.toString());
   }
+  /**
+   * A run's workflow id is kept as soon as it is printed; when Pulsekit was closed during the run,
+   * File > Downloads offers Resume download (a button, and in the run's right-click menu) with
+   * --workflow. Adding a file a playlist has already asks first. The viewer shows mm:ss / mm:ss for
+   * a video, and pictures and videos keep their own zoom.
+   */
+  void s132_downloads_resume_playlist_again() throws Exception {
+    final File dir = PromptDb.dir();
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniVideo.java", System.currentTimeMillis());
+    SogniDownloads.argv(id, java.util.Arrays.asList("--prompt", "a walk", "--duration", "5"));
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_abc123\n");
+    SogniDownloads.init(null);
+    SogniDownloads.init(dir);
+    final SogniDownloads.Run r = SogniDownloads.run(id);
+    out.append("after a restart: ").append(SogniDownloads.runLabel(r).replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>")).append(", args ").append(SogniDownloads.resumeArgs(r)).append('\n');
+    boolean keptOk = SogniDownloads.canResume(r) && SogniDownloads.resumeArgs(r).contains("wf_abc123");
+    DownloadsScreen.tab = SogniDownloads.FINISHED;
+    final JDialog[] dlg = new JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    idle();
+    inspectNext = null;
+    boolean button = component(dlg[0], "downloads-resume:" + id) != null;
+    edt(() -> DownloadsScreen.runMenu((Pulsekit) frame, new javax.swing.JPanel(), r, null, 0, 0));
+    StringBuilder menu = new StringBuilder();
+    for (Component c : DownloadsScreen.lastRunMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("Downloads: Resume download button ").append(button).append(", the run's menu ").append(menu).append('\n');
+    edt(() -> dlg[0].dispose());
+    boolean downloadsOk = button && menu.toString().startsWith(SogniDownloads.RESUME);
+    // A playlist: the same file again is asked about (Add again).
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    File sky = new File(pics, "sky.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(16, 12, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sky);
+    File clip = new File(pics, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    edt(() -> PlaylistWindow.confirmAdd((Pulsekit) frame, "Again", sky.getAbsolutePath(), "sky.png"));
+    final StringBuilder asked = new StringBuilder();
+    inspectNext = d -> asked.append(d.getTitle());
+    answers.add("Add again");
+    edt(() -> PlaylistWindow.confirmAdd((Pulsekit) frame, "Again", sky.getAbsolutePath(), "sky.png"));
+    idle();
+    inspectNext = null;
+    out.append("again: asked \"").append(asked).append("\", then ").append(Playlist.load(dir, "Again").items.size()).append(" items, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean againOk = asked.toString().contains("already") && Playlist.load(dir, "Again").items.size() == 2;
+    // The viewer: a picture at its zoom, a video at its own (and its mm:ss / mm:ss).
+    Playlist.addTo(dir, "Again", clip.getAbsolutePath(), "walk.mp4");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.zoom = 1.5f;
+    set.zoomVideo = 1f;
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.viewer((Pulsekit) frame, frame, Playlist.load(dir, "Again"), 0));
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    String pictureZoom = ((JLabel) component(v, "viewer-zoom")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    String videoZoom = ((JLabel) component(v, "viewer-zoom")).getText();
+    String time = ((JLabel) component(v, "viewer-time")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-zoom-in")).doClick());
+    Playlist.Settings kept = Playlist.settings(dir);
+    edt(() -> v.dispose());
+    out.append("viewer: picture ").append(pictureZoom).append(", video ").append(videoZoom).append(", time ").append(time).append(" | after Zoom + on the video: picture ").append(kept.zoom).append(", video ").append(kept.zoomVideo).append('\n');
+    boolean viewerOk = "150%".equals(pictureZoom) && "100%".equals(videoZoom) && time.matches("\\d\\d:\\d\\d / .*") && kept.zoom == 1.5f && kept.zoomVideo > 1f;
+    if (!keptOk || !downloadsOk || !againOk || !viewerOk) throw new AssertionError(out.toString());
+  }
+
 
 
 

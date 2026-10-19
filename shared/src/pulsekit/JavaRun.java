@@ -52,10 +52,34 @@ public final class JavaRun {
     public final long started = System.currentTimeMillis();
     private final StringBuffer text = new StringBuffer();
 
+    /** Its File > Downloads run (0: none): the workflow id is kept there the moment the program prints it. */
+    public volatile long download;
+    private volatile boolean workflowKept;
+
+    /** The run's File > Downloads run: its workflow id kept there (now, when it was printed already). */
+    public void download(long id) {
+      this.download = id;
+      if (id != 0 && !this.workflowKept) {
+        String wf = SogniDownloads.workflowIn(this.text.toString());
+        if (wf != null) {
+          this.workflowKept = true;
+          SogniDownloads.workflow(id, wf);
+        }
+      }
+    }
+
     public void add(String s) {
       if (s == null) return;
       this.text.append(s);
       if (this.text.length() > 200000) this.text.delete(0, this.text.length() - 100000);
+      // "Workflow: <id>": kept with the download at once (Android may close the app before the run ends).
+      if (this.download != 0 && !this.workflowKept && s.indexOf("Workflow: ") >= 0) {
+        String id = SogniDownloads.workflowIn(this.text.toString());
+        if (id != null) {
+          this.workflowKept = true;
+          SogniDownloads.workflow(this.download, id);
+        }
+      }
     }
 
     public String text() {

@@ -932,6 +932,13 @@ public class MainActivity extends UiKit {
     }
 
     void setNow(String string) {
+        // From a background thread (a thumbnail read, a run's worker) it goes to the screen's thread:
+        // a view touched off it crashed the app (File > Downloads with a file that was gone).
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            final String later = string;
+            this.runOnUiThread(() -> this.setNow(later));
+            return;
+        }
         if (this.now == null) {
             return;
         }

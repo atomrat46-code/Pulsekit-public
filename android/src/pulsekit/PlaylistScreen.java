@@ -302,9 +302,18 @@ final class PlaylistScreen {
                 app.setNow("Could not find " + picked + " in the prompt library");
                 return;
             }
-            app.setNow(p.add(Playlist.dbAddress(f), f.name) ? f.name + " added to " + p.name : f.name + " is in " + p.name + " already");
-            save(app, p);
-            show(app, p.name);
+            final String file = Playlist.dbAddress(f);
+            final String title = f.name;
+            // In the list already: asked before it goes in a second time.
+            Runnable put = () -> {
+                if (p.has(file)) p.addAgain(file, title);
+                else p.add(file, title);
+                save(app, p);
+                app.setNow(title + " added to " + p.name);
+                show(app, p.name);
+            };
+            if (p.has(file)) askAgain(app, Playlist.againQuestion(title, p.name), put);
+            else put.run();
         }));
         fromDb.setTag("playlist-add-db");
         TextView files = app.pill("Add files…", false, v -> pick(app, PICK_FILES, true));
@@ -349,6 +358,7 @@ final class PlaylistScreen {
         final int[] seconds = {s.seconds};
         final float[] speed = {s.speed};
         final float[] zoom = {s.zoom};
+        final float[] zoomVideo = {s.zoomVideo};
         final TextView secs = app.text("", 14, false);
         secs.setTag("playlist-seconds");
         final TextView level = app.text("", 14, false);
@@ -361,6 +371,8 @@ final class PlaylistScreen {
         speedPill.setTag("playlist-speed");
         final TextView zoomLevel = app.text("", 14, false);
         zoomLevel.setTag("playlist-zoom");
+        final TextView videoZoomLevel = app.text("", 14, false);
+        videoZoomLevel.setTag("playlist-video-zoom");
         final boolean[] filling = {true};
         final Runnable keep = () -> {
             if (filling[0]) return;
@@ -374,13 +386,15 @@ final class PlaylistScreen {
             now.mute = mute.isChecked();
             now.speed = speed[0];
             now.zoom = zoom[0];
+            now.zoomVideo = zoomVideo[0];
             Playlist.saveSettings(dir, now);
         };
         final Runnable paint = () -> {
             secs.setText("In Auto mode a picture shows for " + seconds[0] + " s");
             level.setText("Volume " + (mute.isChecked() ? "(muted)" : volume.getProgress() + "%"));
             speedPill.setText("Speed " + Playlist.speedText(speed[0]));
-            zoomLevel.setText("Zoom " + MediaDir.zoomLabel(zoom[0]));
+            zoomLevel.setText("Picture zoom " + MediaDir.zoomLabel(zoom[0]));
+            videoZoomLevel.setText("Video zoom " + MediaDir.zoomLabel(zoomVideo[0]));
         };
         paint.run();
         // Loop video and Auto mode go one at a time.
@@ -444,6 +458,9 @@ final class PlaylistScreen {
             paint.run();
         });
         look.addView(speedPill);
+        col.addView(look);
+        look = app.row();
+        look.setGravity(Gravity.CENTER_VERTICAL);
         look.addView(zoomLevel);
         TextView zoomOut = app.pill("\u2212", false, v -> {
             zoom[0] = (float) MediaDir.zoom(zoom[0], false);
@@ -467,6 +484,22 @@ final class PlaylistScreen {
         look.addView(zoomIn);
         look.addView(fit);
         col.addView(look);
+        // A video's zoom, kept apart from a picture's.
+        LinearLayout lookVideo = app.row();
+        lookVideo.setGravity(Gravity.CENTER_VERTICAL);
+        lookVideo.addView(videoZoomLevel);
+        String[][] vz = {{"\u2212", "playlist-video-zoom-out"}, {"+", "playlist-video-zoom-in"}, {"Fit", "playlist-video-fit"}};
+        for (int i = 0; i < vz.length; i++) {
+            final int which = i;
+            TextView b = app.pill(vz[i][0], false, v -> {
+                zoomVideo[0] = which == 2 ? 1f : (float) MediaDir.zoom(zoomVideo[0], which == 1);
+                keep.run();
+                paint.run();
+            });
+            b.setTag(vz[i][1]);
+            lookVideo.addView(b);
+        }
+        col.addView(lookVideo);
         filling[0] = false;
         TextView start = app.pill("Start viewer", true, v -> viewer(app, p, 0));
         start.setTag("playlist-start");
@@ -618,6 +651,7 @@ final class PlaylistScreen {
         }
         if (code == PICK_FILES) {
             int added = 0;
+            final List<String[]> again = new ArrayList<String[]>();
             for (Uri u : uris) {
                 try {
                     app.getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -625,10 +659,22 @@ final class PlaylistScreen {
                     // readable for now
                 }
                 if (shown.add(u.toString(), name(app, u))) added++;
+                else again.add(new String[] {u.toString(), name(app, u)});
             }
             save(app, shown);
             app.setNow(added + (added == 1 ? " file" : " files") + " added to " + shown.name);
             show(app, shown.name);
+            // Those in the list already: asked before they go in a second time.
+            if (!again.isEmpty()) {
+                String q = again.size() == 1 ? Playlist.againQuestion(again.get(0)[1], shown.name)
+                    : again.size() + " of the files are in " + shown.name + " already. Add them a second time?";
+                askAgain(app, q, () -> {
+                    for (String[] f : again) shown.addAgain(f[0], f[1]);
+                    save(app, shown);
+                    app.setNow(again.size() + (again.size() == 1 ? " file" : " files") + " added again to " + shown.name);
+                    show(app, shown.name);
+                });
+            }
             return;
         }
         if (code == PICK_PLS) {
@@ -729,13 +775,34 @@ final class PlaylistScreen {
 
     // ------------------------------------------------------------ Add to playlist (the thumbnails' menus)
 
+    /** The file into the named list; when it is there already, asked first ("Add it a second time?"). */
+    static void confirmAdd(final MainActivity app, final String list, final String file, final String title) {
+        final File dir = app.getFilesDir();
+        if (!Playlist.inList(dir, list, file)) {
+            app.setNow(Playlist.addTo(dir, list, file, title));
+            return;
+        }
+        askAgain(app, Playlist.againQuestion(title, Playlist.clean(list).length() == 0 ? Playlist.DEFAULT : Playlist.clean(list)),
+            () -> app.setNow(Playlist.addTo(dir, list, file, title, true)));
+    }
+
+    /** "… is in … already. Add it a second time?": Add again, or Cancel (nothing added). */
+    static void askAgain(MainActivity app, String question, final Runnable again) {
+        lastAgain = new AlertDialog.Builder(app).setTitle("In the playlist already").setMessage(question)
+            .setPositiveButton("Add again", (d, w) -> again.run())
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** The "Add it a second time?" question shown last (for the tests). */
+    static AlertDialog lastAgain;
+
     /** "Add to playlist…": the playlists (Default first), then New playlist…; the file goes at the end of the one picked. */
     static void addTo(final MainActivity app, final String file, final String title) {
         final File dir = app.getFilesDir();
         final String[] rows = Playlist.menu(dir);
         lastAsk = new AlertDialog.Builder(app).setTitle(Playlist.ADD.replace("…", "") + " · " + title).setItems(rows, (d, w) -> {
-            if (w < rows.length - 1) app.setNow(Playlist.addTo(dir, rows[w], file, title));
-            else named(app, Playlist.NEW, "", typed -> app.setNow(Playlist.addTo(dir, typed, file, title)));
+            if (w < rows.length - 1) confirmAdd(app, rows[w], file, title);
+            else named(app, Playlist.NEW, "", typed -> confirmAdd(app, typed, file, title));
         }).setNegativeButton("Cancel", null).show();
     }
 
@@ -771,7 +838,7 @@ final class PlaylistScreen {
     }
 
     static void addToDefault(MainActivity app, String file, String title) {
-        app.setNow(Playlist.addTo(app.getFilesDir(), Playlist.DEFAULT, file, title));
+        confirmAdd(app, Playlist.DEFAULT, file, title);
     }
 
     // ------------------------------------------------------------ The viewer
@@ -797,6 +864,13 @@ final class PlaylistScreen {
         where.setTag("viewer-where");
         where.setTextColor(Color.parseColor("#ECEBE6"));
         head.addView(where, new LinearLayout.LayoutParams(0, -2, 1f));
+        // A video's place: "00:12 / 01:30".
+        final TextView timeText = app.text("", 14, true);
+        timeText.setTag("viewer-time");
+        timeText.setTextColor(Color.parseColor("#ECEBE6"));
+        timeText.setPadding(app.dp(8), 0, app.dp(8), 0);
+        timeText.setVisibility(View.GONE);
+        head.addView(timeText);
         TextView close = app.pill("Close", true, x -> v.dismiss());
         close.setTag("viewer-close");
         head.addView(close);
@@ -832,9 +906,9 @@ final class PlaylistScreen {
         pause.setTag("viewer-pause");
         final TextView stop = app.pill("\u25a0 Stop", false, null);
         stop.setTag("viewer-stop");
-        final TextView loopPill = app.pill("Loop video", s.loop, null);
+        final TextView loopPill = app.pill("\u27f3 Loop this video", s.loop, null);
         loopPill.setTag("viewer-loop");
-        final TextView autoPill = app.pill("Auto", s.auto, null);
+        final TextView autoPill = app.pill("Auto mode", s.auto, null);
         autoPill.setTag("viewer-auto");
         final TextView mute = app.pill(s.mute ? "Unmute" : "Mute", s.mute, null);
         mute.setTag("viewer-mute");
@@ -848,35 +922,38 @@ final class PlaylistScreen {
         volumeLevel.setMinWidth(app.dp(44));
         final TextView speed = app.pill("Speed " + Playlist.speedText(s.speed), false, null);
         speed.setTag("viewer-speed");
-        final TextView zoomOut = app.pill("Zoom \u2212", false, null);
+        final TextView zoomOut = app.pill("\u2212", false, null);
         zoomOut.setTag("viewer-zoom-out");
-        final TextView zoomIn = app.pill("Zoom +", false, null);
+        final TextView zoomIn = app.pill("+", false, null);
         zoomIn.setTag("viewer-zoom-in");
         final TextView fit = app.pill("Fit", false, null);
         fit.setTag("viewer-fit");
         final TextView zoomText = app.text(MediaDir.zoomLabel(s.zoom), 13, false);
         zoomText.setTag("viewer-zoom");
         zoomText.setTextColor(Color.parseColor("#ECEBE6"));
-        LinearLayout rowPlay = app.row();
-        rowPlay.setGravity(Gravity.CENTER_VERTICAL);
+        // Each row shares the screen's width (a row wider than the phone cut Loop video off).
+        zoomText.setGravity(Gravity.CENTER);
+        LinearLayout rowPlay = shared(app, play, pause, stop);
         rowPlay.setPadding(app.dp(6), app.dp(4), app.dp(6), 0);
-        for (View x : new View[] {play, pause, stop, loopPill, autoPill}) rowPlay.addView(x);
+        LinearLayout rowLoop = shared(app, loopPill, autoPill);
+        rowLoop.setPadding(app.dp(6), 0, app.dp(6), 0);
         LinearLayout rowSound = app.row();
         rowSound.setGravity(Gravity.CENTER_VERTICAL);
         rowSound.setPadding(app.dp(6), 0, app.dp(6), 0);
         rowSound.addView(mute);
         rowSound.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
         rowSound.addView(volumeLevel);
-        LinearLayout rowLook = app.row();
-        rowLook.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout rowLook = shared(app, speed, zoomOut, zoomIn, fit, zoomText);
         rowLook.setPadding(app.dp(6), 0, app.dp(6), app.dp(6));
-        for (View x : new View[] {speed, zoomOut, zoomIn, fit, zoomText}) rowLook.addView(x);
         root.addView(rowPlay);
+        root.addView(rowLoop);
         root.addView(rowSound);
         root.addView(rowLook);
         v.setContentView(root);
         final int[] at = {Math.max(0, Math.min(start, p.items.size() - 1))};
         final float[] zoom = {(float) MediaDir.clampZoom(s.zoom)};
+        // Pictures and videos each keep a zoom of their own.
+        final boolean[] videoShown = new boolean[1];
         final float[] rate = {s.speed};
         final boolean[] muted = {s.mute};
         final boolean[] held = new boolean[1];
@@ -889,11 +966,12 @@ final class PlaylistScreen {
             now.volume = volume.getProgress();
             now.mute = muted[0];
             now.speed = rate[0];
-            now.zoom = zoom[0];
+            if (videoShown[0]) now.zoomVideo = zoom[0];
+            else now.zoom = zoom[0];
             Playlist.saveSettings(dir, now);
         };
         final Runnable applyZoom = () -> {
-            zoomText.setText(MediaDir.zoomLabel(zoom[0]));
+            zoomText.setText("Zoom " + MediaDir.zoomLabel(zoom[0]));
             for (View x : new View[] {picture, video}) {
                 x.setScaleX(zoom[0]);
                 x.setScaleY(zoom[0]);
@@ -938,6 +1016,14 @@ final class PlaylistScreen {
             Playlist.Item it = p.items.get(at[0]);
             viewerAt = at[0];
             where.setText((at[0] + 1) + " / " + p.items.size() + "  ·  " + it.title);
+            // A video (or a sound) at its own zoom, a picture at its own.
+            int kindShown = it.kind();
+            videoShown[0] = kindShown == MediaDir.VIDEO || kindShown == MediaDir.SOUND;
+            Playlist.Settings kept = Playlist.settings(dir);
+            zoom[0] = (float) MediaDir.clampZoom(videoShown[0] ? kept.zoomVideo : kept.zoom);
+            zoomText.setText("Zoom " + MediaDir.zoomLabel(zoom[0]));
+            timeText.setText(videoShown[0] ? Playlist.time(0, -1) : "");
+            timeText.setVisibility(videoShown[0] ? View.VISIBLE : View.GONE);
             picture.setImageBitmap(null);
             picture.setVisibility(View.GONE);
             video.setVisibility(View.GONE);
@@ -1163,6 +1249,14 @@ final class PlaylistScreen {
             @Override
             public void run() {
                 if (!v.isShowing()) return;
+                // The video's place: mm:ss / mm:ss.
+                if (video.getVisibility() == View.VISIBLE) {
+                    try {
+                        timeText.setText(Playlist.time(video.getCurrentPosition(), player[0] == null ? -1 : video.getDuration()));
+                    } catch (Exception ignored) {
+                        // not ready
+                    }
+                }
                 Playlist.Settings now = Playlist.settings(dir);
                 if (now.auto && !held[0]) {
                     boolean playable = video.getVisibility() == View.VISIBLE;
@@ -1184,6 +1278,22 @@ final class PlaylistScreen {
         v.show();
         main.postDelayed(tick, 250);
         autoTick = tick;
+    }
+
+    /** A row whose views share its width equally (it never runs past the screen's edge). */
+    private static LinearLayout shared(MainActivity app, View... views) {
+        LinearLayout row = app.row();
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (View x : views) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.setMargins(app.dp(2), app.dp(3), app.dp(2), app.dp(3));
+            if (x instanceof TextView) {
+                ((TextView) x).setSingleLine(true);
+                ((TextView) x).setEllipsize(android.text.TextUtils.TruncateAt.END);
+            }
+            row.addView(x, lp);
+        }
+        return row;
     }
 
     /** The viewer's long press and Auto mode tick, for the tests. */
