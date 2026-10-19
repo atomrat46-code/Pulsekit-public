@@ -986,76 +986,20 @@ final class MediaBrowser {
             .setNegativeButton("Cancel", null).show();
     }
 
-    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one. */
+    /** Tags…: the file's tags, ticked from those made so far; New tag… adds one (TagDialogs). */
     void tags(final MediaDir.Entry e) {
-        MediaTags.load(this.app.getFilesDir());
-        final String key = MediaTags.key(e);
-        final List<String> known = MediaTags.known();
-        final List<String> has = MediaTags.tags(key);
-        final String[] names = known.toArray(new String[0]);
-        final boolean[] on = new boolean[names.length];
-        for (int i = 0; i < names.length; i++) on[i] = has.contains(names[i]);
-        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle("Tags for " + e.name);
-        if (names.length > 0) b.setMultiChoiceItems(names, on, (d, which, checked) -> on[which] = checked);
-        else b.setMessage("No tags yet: add one with New tag.");
-        lastAsk = b.setPositiveButton("Save", (d, w) -> {
-                List<String> chosen = new ArrayList<String>();
-                for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
-                this.tagged(e, key, chosen);
-            })
-            .setNeutralButton("New tag\u2026", (d, w) -> {
-                final android.widget.EditText field = new android.widget.EditText(this.app);
-                field.setSingleLine(true);
-                field.setHint("beach, night (a comma between)");
-                field.setTag("media-new-tag-field");
-                lastAsk = new AlertDialog.Builder(this.app).setTitle("New tag").setView(field)
-                    .setPositiveButton("Add new tag", (d2, w2) -> {
-                        List<String> chosen = new ArrayList<String>();
-                        for (int i = 0; i < names.length; i++) if (on[i]) chosen.add(names[i]);
-                        for (String t : field.getText().toString().split(",")) chosen.add(t);
-                        this.tagged(e, key, chosen);
-                        // The list again, the new tag ticked.
-                        this.tags(e);
-                    })
-                    .setNegativeButton("Cancel", null).show();
-            })
-            .setNegativeButton("Cancel", null).show();
+        TagDialogs.tags(this.app, e.name, e.size, () -> {
+            this.entries = this.shownEntries();
+            this.paint();
+        });
     }
 
-    private void tagged(MediaDir.Entry e, String key, List<String> chosen) {
-        MediaTags.setTags(key, chosen);
-        String line = MediaTags.line(key);
-        this.app.setNow(line.length() == 0 ? e.name + ": no tags" : e.name + ": " + line);
-        this.entries = this.shownEntries();
-        this.paint();
-    }
-
-    /** Category…: one of the prompt library's categories for the file, or none (read off the main thread). */
+    /** Category…: one of the prompt library's categories for the file, or none (TagDialogs). */
     void category(final MediaDir.Entry e) {
-        MediaTags.load(this.app.getFilesDir());
-        final String key = MediaTags.key(e);
-        new Thread(() -> {
-            final List<String> names = new ArrayList<String>();
-            names.add("(none)");
-            try {
-                names.addAll(MediaTags.categoryNames(PromptVault.open(this.app.getFilesDir())));
-            } catch (Throwable ex) {
-                // no library: none only
-            }
-            this.main.post(() -> {
-                int now = Math.max(0, names.indexOf(MediaTags.category(key)));
-                lastAsk = new AlertDialog.Builder(this.app).setTitle("Category for " + e.name)
-                    .setSingleChoiceItems(names.toArray(new String[0]), now, (d, which) -> {
-                        String picked = names.get(which);
-                        MediaTags.setCategory(key, which == 0 ? "" : picked);
-                        this.app.setNow(e.name + (which == 0 ? ": no category" : " is in " + picked));
-                        d.dismiss();
-                        this.entries = this.shownEntries();
-                        this.paint();
-                    })
-                    .setNegativeButton("Cancel", null).show();
-            });
-        }, "pulsekit-media-categories").start();
+        TagDialogs.category(this.app, e.name, e.size, () -> {
+            this.entries = this.shownEntries();
+            this.paint();
+        });
     }
 
     /** The file being dragged onto a folder card (press, hold and move), or null. */
@@ -1861,6 +1805,8 @@ final class MediaBrowser {
             this.main.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
                 this.app.setNow(shown);
+                // In the DB: then which group it goes in (No group: none).
+                if ((which == 0 || which == 1) && shown.contains(" is in the DB as a ")) GroupDialogs.afterAdd(this.app, e.name, e.size);
             });
         }, "pulsekit-add-to-db").start();
     }

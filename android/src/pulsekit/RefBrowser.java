@@ -332,8 +332,12 @@ final class RefBrowser {
                 final boolean fav = FileFavourites.is(file);
                 menu = new AlertDialog.Builder(activity)
                     .setTitle(shownName)
-                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD}, (d, w) -> {
-                        if (w == 0) {
+                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY}, (d, w) -> {
+                        if (w == 2 || w == 3) {
+                            if (!(activity instanceof MainActivity)) return;
+                            if (w == 2) TagDialogs.tags((MainActivity) activity, shownName, file.size, null);
+                            else TagDialogs.category((MainActivity) activity, shownName, file.size, null);
+                        } else if (w == 0) {
                             boolean now = FileFavourites.toggle(file);
                             if (activity instanceof MainActivity) ((MainActivity) activity).setNow(shownName + (now ? " added to favourites" : " taken out of favourites"));
                             again.run();

@@ -210,6 +210,14 @@ final class PromptDb {
             });
             m.add(favItem);
             m.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, FileGroups.LETTER.equals(DbFilter.current) ? again : null));
+            JMenuItem tagsItem = new JMenuItem(MediaTags.TAGS);
+            tagsItem.setName("refs-tags");
+            tagsItem.addActionListener(e -> TagDialogs.tags(app, card, file.name, file.size, null));
+            m.add(tagsItem);
+            JMenuItem catItem = new JMenuItem(MediaTags.CATEGORY);
+            catItem.setName("refs-category");
+            catItem.addActionListener(e -> TagDialogs.category(app, card, file.name, file.size, null));
+            m.add(catItem);
             this.lastCardMenu = m;
             m.show(card, 10, 10);
         }, "refs-pick:", true);
@@ -1181,6 +1189,15 @@ final class PromptDb {
         });
         menu.add(favItem);
         menu.add(GroupMenus.item(app, card, FileGroups.keys(file), file.name, changed));
+        // Tags… and Category…, as the Media browser has them (the file by its name and size).
+        JMenuItem tagsItem = new JMenuItem(MediaTags.TAGS);
+        tagsItem.setName("gallery-tags");
+        tagsItem.addActionListener(e -> TagDialogs.tags(app, card, file.name, file.size, null));
+        menu.add(tagsItem);
+        JMenuItem catItem = new JMenuItem(MediaTags.CATEGORY);
+        catItem.setName("gallery-category");
+        catItem.addActionListener(e -> TagDialogs.category(app, card, file.name, file.size, null));
+        menu.add(catItem);
         menu.add(open);
         menu.add(save);
         boolean extractable = false;
@@ -2259,6 +2276,8 @@ final class PromptDb {
         try {
             vault().addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
             app.setNow("Imported " + name + " as a " + kind);
+            // Then which group it goes in (No group: none).
+            GroupMenus.afterAdd(app, name, bytes.length);
         } catch (Exception ex) {
             app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
         }

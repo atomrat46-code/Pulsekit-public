@@ -1919,6 +1919,10 @@ public final class PromptSheet {
     });
     items.add(FileGroups.ADD);
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(file), file.name, () -> rebuild(activity)));
+    items.add(MediaTags.TAGS);
+    runs.add(() -> TagDialogs.tags((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
+    items.add(MediaTags.CATEGORY);
+    runs.add(() -> TagDialogs.category((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -1939,6 +1943,16 @@ public final class PromptSheet {
     }));
     lastFileMenu = new AlertDialog.Builder(activity).setTitle(file.name)
         .setItems(items.toArray(new CharSequence[0]), (d, pick) -> runs.get(pick).run()).show();
+  }
+
+  /** A stored file's size, by its place in the library (0 when it is not there). */
+  private static long storedSize(long versionId, int which) {
+    if (vault == null) return 0;
+    List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    all.addAll(vault.promptFiles());
+    for (PromptVault.StoredFile f : all) if (f.versionId == versionId && f.which == which) return f.size;
+    return 0;
   }
 
   private static void thumbMenu(Activity activity, long versionId, int which, String name) {
@@ -1985,6 +1999,8 @@ public final class PromptSheet {
     stored.versionId = versionId;
     stored.which = which;
     stored.name = name;
+    // Its size too: favourites and groups know a file by its name and size (0 here, it went in as another file).
+    stored.size = (int) storedSize(versionId, which);
     FileFavourites.load(activity.getFilesDir());
     final boolean favFile = FileFavourites.is(stored);
     items.add(favFile ? FileFavourites.REMOVE : FileFavourites.ADD);
@@ -1995,6 +2011,10 @@ public final class PromptSheet {
     });
     items.add(FileGroups.ADD);
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(stored), name, () -> rebuild(activity)));
+    items.add(MediaTags.TAGS);
+    runs.add(() -> TagDialogs.tags((MainActivity) activity, name, stored.size, () -> rebuild(activity)));
+    items.add(MediaTags.CATEGORY);
+    runs.add(() -> TagDialogs.category((MainActivity) activity, name, stored.size, () -> rebuild(activity)));
     if (fullSize) {
       items.add("Open in full size");
       runs.add(() -> {

@@ -42,18 +42,23 @@ final class DbImport {
             .setTitle(result ? "Import as Result file" : "Import as Ref file")
             .setMessage("Add " + name + " (" + Math.max(1, bytes.length / 1024) + " KB) to the prompt library as a " + kind + "?\n\n"
                 + (result ? "It shows in Result files on the Prompts page." : "It shows in Ref files on the Prompts page and in Browse DB."))
-            .setPositiveButton("OK", (d, w) -> store(app, name, bytes, result))
+            .setPositiveButton("OK", (d, w) -> {
+                // Then which group it goes in (No group: none).
+                if (store(app, name, bytes, result)) GroupDialogs.afterAdd(app, name, bytes.length);
+            })
             .setNegativeButton("Cancel", null)
             .show();
     }
 
     /** Adds the file; says what happened on the status line. */
-    static void store(MainActivity app, String name, byte[] bytes, boolean result) {
+    static boolean store(MainActivity app, String name, byte[] bytes, boolean result) {
         try {
             PromptVault.open(app.getFilesDir()).addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
             app.setNow("Imported " + name + " as a " + (result ? "result file" : "reference file"));
+            return true;
         } catch (Exception ex) {
             app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return false;
         }
     }
 

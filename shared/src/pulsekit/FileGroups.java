@@ -149,6 +149,50 @@ public final class FileGroups {
     return now;
   }
 
+  /** A new, empty group (from G's list); false when the name is empty or taken. */
+  public static synchronized boolean make(String group) {
+    String name = clean(group);
+    if (name.isEmpty() || GROUPS.containsKey(name)) return false;
+    GROUPS.put(name, new ArrayList<String>());
+    save();
+    return true;
+  }
+
+  /** A group renamed (its files stay in it); false when the new name is empty or taken. */
+  public static synchronized boolean rename(String group, String to) {
+    String name = clean(to);
+    if (name.isEmpty() || !GROUPS.containsKey(group) || GROUPS.containsKey(name)) return false;
+    Map<String, List<String>> kept = new LinkedHashMap<String, List<String>>();
+    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) kept.put(g.getKey().equals(group) ? name : g.getKey(), g.getValue());
+    GROUPS.clear();
+    GROUPS.putAll(kept);
+    if (shown.equals(group)) shown = name;
+    save();
+    return true;
+  }
+
+  /** A group deleted (its files stay where they are, in no group by it). */
+  public static synchronized void delete(String group) {
+    GROUPS.remove(group);
+    if (shown.equals(group)) shown = "";
+    save();
+  }
+
+  /** After Import or Add to DB: "No group", the groups, New group…. */
+  public static final String NONE = "No group";
+
+  public static synchronized String[] afterAdd() {
+    List<String> out = new ArrayList<String>();
+    out.add(NONE);
+    out.addAll(GROUPS.keySet());
+    out.add(NEW);
+    return out.toArray(new String[0]);
+  }
+
+  /** The G list's own rows after the groups. */
+  public static final String RENAME = "Rename a group\u2026";
+  public static final String DELETE = "Delete a group\u2026";
+
   /** How many files a group holds: a library file and the same file marked elsewhere (its name and size) count once. */
   public static synchronized int count(String group, PromptVault vault) {
     List<String> g = GROUPS.get(group);

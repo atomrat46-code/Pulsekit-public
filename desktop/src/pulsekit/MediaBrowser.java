@@ -824,7 +824,10 @@ final class MediaBrowser {
                 continue;
             }
             item.addActionListener(e -> {
-                app.setNow(this.menuPicked(entry, f, which));
+                String said = this.menuPicked(entry, f, which);
+                app.setNow(said);
+                // In the DB: then which group it goes in (No group: none).
+                if ((which == 0 || which == 1) && said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, entry.name, f.length());
                 // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
                 if (which == 2 && card instanceof JButton) {
                     JButton b = (JButton) card;
@@ -1047,69 +1050,18 @@ final class MediaBrowser {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
-    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between). */
+    /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between) (TagDialogs). */
     void tags(MediaDir.Entry entry) {
-        MediaTags.load(PromptDb.dir());
-        String key = MediaTags.key(entry);
-        java.util.List<String> chosen;
-        if (answer != null) {
-            String a = answer.apply("Tags for " + entry.name);
-            if (a == null) return;
-            chosen = new ArrayList<String>(java.util.Arrays.asList(a.split(",")));
-        } else {
-            java.util.List<String> known = MediaTags.known();
-            java.util.List<String> has = MediaTags.tags(key);
-            JPanel boxes = new JPanel(new GridLayout(0, 3, 6, 2));
-            java.util.List<javax.swing.JCheckBox> checks = new ArrayList<javax.swing.JCheckBox>();
-            for (String t : known) {
-                javax.swing.JCheckBox c = new javax.swing.JCheckBox(t, has.contains(t));
-                c.setName("media-tag:" + t);
-                checks.add(c);
-                boxes.add(c);
-            }
-            javax.swing.JTextField more = new javax.swing.JTextField(24);
-            more.setName("media-new-tags");
-            JPanel panel = new JPanel(new BorderLayout(0, 8));
-            if (!known.isEmpty()) panel.add(boxes, BorderLayout.CENTER);
-            JPanel add = new JPanel(new BorderLayout(6, 0));
-            add.add(new JLabel("New tags (a comma between):"), BorderLayout.WEST);
-            add.add(more, BorderLayout.CENTER);
-            panel.add(add, BorderLayout.SOUTH);
-            if (javax.swing.JOptionPane.showConfirmDialog(this.last, panel, "Tags for " + entry.name, javax.swing.JOptionPane.OK_CANCEL_OPTION,
-                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return;
-            chosen = new ArrayList<String>();
-            for (javax.swing.JCheckBox c : checks) if (c.isSelected()) chosen.add(c.getText());
-            chosen.addAll(java.util.Arrays.asList(more.getText().split(",")));
-        }
-        MediaTags.setTags(key, chosen);
-        String line = MediaTags.line(key);
-        app.setNow(line.length() == 0 ? entry.name + ": no tags" : entry.name + ": " + line);
-        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+        TagDialogs.tags(app, this.last, entry.name, entry.size, this::refill);
     }
 
-    /** Category…: one of the prompt library's categories for the file, or none. */
+    /** Category…: one of the prompt library's categories for the file, or none (TagDialogs). */
     void category(MediaDir.Entry entry) {
-        MediaTags.load(PromptDb.dir());
-        String key = MediaTags.key(entry);
-        java.util.List<String> names = new ArrayList<String>();
-        names.add("(none)");
-        try {
-            names.addAll(MediaTags.categoryNames(PromptDb.vault()));
-        } catch (Exception ex) {
-            // no library: none only
-        }
-        String picked;
-        if (answer != null) {
-            picked = answer.apply("Category for " + entry.name);
-        } else {
-            String now = MediaTags.category(key);
-            Object a = javax.swing.JOptionPane.showInputDialog(this.last, "Category for " + entry.name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
-                names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
-            picked = a == null ? null : a.toString();
-        }
-        if (picked == null) return;
-        MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
-        app.setNow(entry.name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
+        TagDialogs.category(app, this.last, entry.name, entry.size, this::refill);
+    }
+
+    /** The folder shown again. */
+    private void refill() {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 

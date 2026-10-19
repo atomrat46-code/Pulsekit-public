@@ -116,17 +116,14 @@ final class GroupMenus {
         return add;
     }
 
-    /** G right-clicked: the groups; the one picked is what G shows, and `picked` runs. */
+    /**
+     * G right-clicked: the groups with how many files each holds ("Trip (5)"); the one picked is
+     * what G shows, and `picked` runs. Then New group…, Rename a group… and Delete a group….
+     */
     static void pick(final Pulsekit app, final Component at, final Runnable picked) {
         FileGroups.load(PromptDb.dir());
         final List<String> names = FileGroups.names();
-        if (names.isEmpty()) {
-            last = null;
-            JOptionPane.showMessageDialog(app, "No groups yet. Right click a thumbnail and pick " + FileGroups.ADD + ".", "Groups", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
         JPopupMenu m = new JPopupMenu();
-        // Each with how many files it holds: "Trip (5)".
         PromptVault vault = vault();
         for (final String g : names) {
             JMenuItem item = new JMenuItem(FileGroups.pickRow(g, vault));
@@ -137,8 +134,67 @@ final class GroupMenus {
             });
             m.add(item);
         }
+        if (!names.isEmpty()) m.addSeparator();
+        JMenuItem make = new JMenuItem(FileGroups.NEW);
+        make.setName("group-make");
+        make.addActionListener(e -> {
+            String typed = typed(app, FileGroups.NEW, "");
+            if (typed == null) return;
+            app.setNow(FileGroups.make(typed) ? "New group " + FileGroups.clean(typed) + ": add files to it with " + FileGroups.ADD
+                : "There is a group " + FileGroups.clean(typed) + " already");
+        });
+        m.add(make);
+        if (!names.isEmpty()) {
+            JMenuItem rename = new JMenuItem(FileGroups.RENAME);
+            rename.setName("group-rename");
+            rename.addActionListener(e -> {
+                Object g = JOptionPane.showInputDialog(app, "Which group?", FileGroups.RENAME, JOptionPane.PLAIN_MESSAGE, null, names.toArray(), names.get(0));
+                if (g == null) return;
+                String typed = typed(app, "Rename " + g, g.toString());
+                if (typed == null) return;
+                app.setNow(FileGroups.rename(g.toString(), typed) ? g + " is " + FileGroups.clean(typed) + " now" : "Could not rename " + g + " (the name is empty or taken)");
+                if (FileGroups.LETTER.equals(DbFilter.current) || !FileGroups.shown.isEmpty()) picked.run();
+            });
+            m.add(rename);
+            JMenuItem delete = new JMenuItem(FileGroups.DELETE);
+            delete.setName("group-delete");
+            delete.addActionListener(e -> {
+                Object g = JOptionPane.showInputDialog(app, "Which group?", FileGroups.DELETE, JOptionPane.PLAIN_MESSAGE, null, names.toArray(), names.get(0));
+                if (g == null) return;
+                if (JOptionPane.showConfirmDialog(app, "Delete " + g + "? Its files stay where they are.", FileGroups.DELETE, JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+                FileGroups.delete(g.toString());
+                app.setNow("Group " + g + " deleted");
+                picked.run();
+            });
+            m.add(delete);
+        }
         last = m;
         if (at != null && at.isShowing()) m.show(at, 0, at.getHeight());
+    }
+
+    /** A name asked for (`now` filled in); null when cancelled. */
+    private static String typed(Pulsekit app, String title, String now) {
+        Object typed = JOptionPane.showInputDialog(app, "Group name", title, JOptionPane.PLAIN_MESSAGE, null, null, now);
+        return typed == null ? null : typed.toString();
+    }
+
+    /**
+     * After Import as Ref / Result file or the Media browser's Add to DB: which group the file goes
+     * in (No group, a group, or New group…); nothing picked, no group.
+     */
+    static void afterAdd(Pulsekit app, String name, long size) {
+        FileGroups.load(PromptDb.dir());
+        String[] rows = FileGroups.afterAdd();
+        Object picked = JOptionPane.showInputDialog(app, "Group for " + name + "?", FileGroups.ADD, JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
+        if (picked == null || FileGroups.NONE.equals(picked)) return;
+        String g = picked.toString();
+        if (FileGroups.NEW.equals(g)) {
+            String typed = typed(app, FileGroups.NEW, "");
+            g = FileGroups.clean(typed == null ? "" : typed);
+            if (g.isEmpty()) return;
+        }
+        FileGroups.set(g, MarkFile.mediaKey(name, size), true);
+        app.setNow(FileGroups.note(name, g, true));
     }
 
     /** A click on G: the group picked before, or the list when none is. True when G shows a group now. */

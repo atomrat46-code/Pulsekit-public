@@ -4216,6 +4216,83 @@ public class BehaviorTest {
     if (!countOk || !thumbOk || !tabOk || !out.toString().contains("Remove from Trip")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A Ref files card's long press: Add to group puts the file where G finds it (its size was 0
+   * there, so it went in as another file), Tags… and Category… as in the Media browser. G's list:
+   * New group…, Rename a group…, Delete a group…. After Import / Add to DB: the group asked for
+   * (No group first).
+   */
+  @Test
+  public void s149_group_menus_tags() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "beach.png", png.toByteArray(), false);
+    FileGroups.load(app.getFilesDir());
+    FileGroups.make("Trip");
+    // G's list: the group with its count, then New / Rename / Delete.
+    GroupDialogs.pick(app, () -> {});
+    idle();
+    out.append("G list: ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(1);
+    idle();
+    ((android.widget.EditText) GroupDialogs.last.getWindow().getDecorView().findViewWithTag("group-name-field")).setText("Night");
+    GroupDialogs.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("after New group: ").append(FileGroups.names()).append(", list again ").append(listItems(GroupDialogs.last)).append('\n');
+    GroupDialogs.last.dismiss();
+    FileGroups.rename("Night", "Evening");
+    out.append("renamed: ").append(FileGroups.names()).append('\n');
+    // The Ref files gallery: the card's long press.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    ((View) findText(pane, "beach.png").getParent()).performLongClick();
+    idle();
+    AlertDialog menu = PromptSheet.lastFileMenu;
+    String items = listItems(menu);
+    out.append("card menu: ").append(items).append('\n');
+    java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(rows.indexOf(FileGroups.ADD));
+    idle();
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    idle();
+    FileGroups.show("Trip");
+    PromptVault.StoredFile beach = PromptVault.open(app.getFilesDir()).referenceFiles().get(0);
+    out.append("beach.png in Trip, as G finds it: ").append(FileGroups.fits(beach)).append('\n');
+    boolean groupOk = FileGroups.fits(beach);
+    ((View) findText(pane, "beach.png").getParent()).performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(rows.indexOf(MediaTags.TAGS));
+    idle();
+    out.append("Tags…: ").append(org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).getTitle()).append('\n');
+    MediaBrowser.lastAsk.dismiss();
+    refsOpen.set(null, false);
+    // After Import / Add to DB.
+    GroupDialogs.afterAdd(app, "sea.png", 10);
+    idle();
+    out.append("after Add to DB: ").append(org.robolectric.Shadows.shadowOf(GroupDialogs.last).getTitle()).append(": ").append(listItems(GroupDialogs.last)).append('\n');
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(2);
+    idle();
+    out.append("sea.png in Evening: ").append(FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10))).append('\n');
+    boolean addOk = FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10));
+    write("s149_group_menus_tags", out.toString());
+    FileGroups.reset();
+    FileFavourites.reset();
+    MediaTags.reset();
+    if (!groupOk || !addOk || !items.contains(MediaTags.TAGS) || !items.contains(MediaTags.CATEGORY) || !out.toString().contains("Rename a group")) throw new AssertionError(out.toString());
+  }
+
   private static String namesOf(List<PromptVault.StoredFile> files) {
     StringBuilder sb = new StringBuilder();
     for (PromptVault.StoredFile f : files) sb.append(sb.length() == 0 ? "" : " ").append(f.name);
