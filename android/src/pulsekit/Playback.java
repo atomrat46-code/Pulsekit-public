@@ -586,7 +586,7 @@ final class Playback {
                             this.refreshPadLabels();
                             Toast.makeText((Context)app, (CharSequence)"Drum set removed", (int)0).show();
                         }
-                    }).show();
+                    }).setNegativeButton("Cancel", null).show();
                     return true;
                 });
             }
@@ -654,7 +654,7 @@ final class Playback {
             }
         }
         CharSequence[] charSequenceArray = arrayList.toArray(new String[0]);
-        new AlertDialog.Builder((Context)app).setItems(charSequenceArray, (arg_0, arg_1) -> this.showPadMenuAction147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).show();
+        new AlertDialog.Builder((Context)app).setItems(charSequenceArray, (arg_0, arg_1) -> this.showPadMenuAction147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).setNegativeButton("Cancel", null).show();
     }
 
     /*

@@ -194,17 +194,26 @@ final class DownloadsScreen {
                 continue;
             }
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
-                line.setToolTipText("A right click takes it off the list");
+                line.setToolTipText(SogniDownloads.canResume(r) ? "A right click: Resume download, Clear" : "A right click: Clear (off the list)");
                 line.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         if (!SwingUtilities.isRightMouseButton(e)) return;
-                        SogniDownloads.clear(r.id, null);
-                        fill(app, body);
+                        runMenu(app, body, r, line, e.getX(), e.getY());
                     }
                 });
             }
             body.add(line);
+            if (SogniDownloads.canResume(r)) {
+                // Pulsekit was closed (or the run failed) while the workflow went on on Sogni: fetch it.
+                JButton resume = new JButton(SogniDownloads.RESUME);
+                resume.setName("downloads-resume:" + r.id);
+                resume.addActionListener(e -> resume(app, r));
+                JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+                row.add(resume);
+                row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+                body.add(row);
+            }
             for (final SogniDownloads.Item item : r.items) body.add(itemButton(app, body, r, item));
         }
         body.revalidate();
@@ -275,6 +284,54 @@ final class DownloadsScreen {
 
     static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…", "Create again", "Add to favourites"};
 
+    /** A failed run's right-click menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastRunMenu;
+
+    /** A failed run's menu: Resume download when its workflow is known, Clear. */
+    static void runMenu(final Pulsekit app, final JPanel body, final SogniDownloads.Run r, java.awt.Component at, int x, int y) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        if (SogniDownloads.canResume(r)) {
+            javax.swing.JMenuItem resume = new javax.swing.JMenuItem(SogniDownloads.RESUME);
+            resume.setName("downloads-run-resume");
+            resume.addActionListener(e -> resume(app, r));
+            m.add(resume);
+        }
+        javax.swing.JMenuItem clear = new javax.swing.JMenuItem("Clear");
+        clear.setName("downloads-run-clear");
+        clear.addActionListener(e -> {
+            SogniDownloads.clear(r.id, null);
+            fill(app, body);
+        });
+        m.add(clear);
+        MenuCancel.add(m);
+        lastRunMenu = m;
+        if (at != null && at.isShowing()) m.show(at, x, y);
+    }
+
+    /**
+     * Resume download: the program that ran on PyJav, run again with the arguments it ran with and
+     * --workflow <its workflow>: it waits for that workflow (or fetches what it made) instead of
+     * starting (and paying for) a new run. The same Downloads entry goes on.
+     */
+    static void resume(Pulsekit app, SogniDownloads.Run r) {
+        if (!SogniDownloads.canResume(r)) return;
+        String kind = r.program.toLowerCase(java.util.Locale.ROOT).endsWith(".py") ? "Python" : "Java";
+        for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof javax.swing.JDialog && "downloads".equals(w.getName())) w.dispose();
+        app.showView("py");
+        app.programMenus.selectListedProgram(kind, r.program);
+        if (!r.program.equals(app.pyName)) {
+            app.setNow("Could not open " + r.program);
+            return;
+        }
+        if (r.args.length() > 0 && app.pyJav.pyExtra != null) app.pyJav.pyExtra.setText(r.args);
+        String note = SogniDownloads.resuming(r.id);
+        app.pyJav.forcedArgs = SogniDownloads.resumeArgs(r);
+        app.pyJav.reconnectDownload = r.id;
+        app.pyJav.reconnectNote = note;
+        app.setNow(note);
+        app.pyJav.runPython();
+    }
+
     /** Create again: the program that made the download on PyJav, with the arguments it ran with, its Params open. */
     static void createAgain(Pulsekit app, SogniDownloads.Run r) {
         String kind = r.program.toLowerCase(java.util.Locale.ROOT).endsWith(".py") ? "Python" : "Java";
@@ -339,6 +396,7 @@ final class DownloadsScreen {
             });
             m.add(it);
         }
+        MenuCancel.add(m);
         return m;
     }
 

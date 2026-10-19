@@ -8722,6 +8722,244 @@ public class BehaviorTest {
     if (!modelOk || !addOk || !editorOk || !moveOk || !viewerOk || !autoOk || !keptOk || !tabOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A video in the Ref files gallery: its long press has the whole menu (Add to playlist, Add to
+   * default playlist), with Cancel. The Media browser's Add to playlist is right under Add to default
+   * playlist. Picture ready's long press: Add to playlist (the picture kept beside the playlists).
+   */
+  @Test
+  public void s153_playlist_menus_cancel() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    File dir = app.getFilesDir();
+    DbImport.store(app, "walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, false);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    for (int i = 0; i < 10; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    View caption = pane.findViewWithTag("refs-name:walk.mp4");
+    ((View) caption.getParent()).performLongClick();
+    idle();
+    String videoMenu = listItems(PromptSheet.lastFileMenu);
+    boolean cancel = PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE) != null && "Cancel".contentEquals(PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE).getText());
+    out.append("video's menu: ").append(videoMenu).append(" | Cancel ").append(cancel).append('\n');
+    int add = java.util.Arrays.asList(videoMenu.split(" \\| ")).indexOf(Playlist.ADD);
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(add + 1);
+    idle();
+    out.append("Add to default playlist: ").append(((TextView) get("now")).getText()).append('\n');
+    boolean galleryOk = videoMenu.contains(Playlist.ADD) && videoMenu.contains(Playlist.ADD_DEFAULT) && cancel && Playlist.load(dir, Playlist.DEFAULT).items.size() == 1;
+    refsOpen.set(null, false);
+    // The Media browser: Add to playlist right under Add to default playlist.
+    String[] media = MediaDir.withPlaylistItem(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false), Playlist.ADD);
+    int def = java.util.Arrays.asList(media).indexOf(MediaDir.MENU[2]);
+    out.append("Media browser menu: ").append(String.join(" | ", media)).append('\n');
+    boolean mediaOk = def >= 0 && Playlist.ADD.equals(media[def + 1]);
+    // Picture ready: Add to playlist.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    String readyMenu = listItems(PictureOffer.menu);
+    out.append("Picture ready menu: ").append(readyMenu).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(4);
+    idle();
+    out.append("its list: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
+    String kept = def2.items.get(def2.items.size() - 1).file;
+    out.append("added: ").append(((TextView) get("now")).getText()).append(", kept ").append(kept.replace(dir.getAbsolutePath(), "<files>")).append(", there ").append(new File(kept).isFile()).append('\n');
+    boolean readyOk = readyMenu.endsWith(Playlist.ADD) && def2.items.size() == 2 && new File(kept).isFile();
+    PictureOffer.last.dismiss();
+    write("s153_playlist_menus_cancel", out.toString());
+    if (!galleryOk || !mediaOk || !readyOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Playlist window's Viewer tab: Loop video (it turns Auto mode off, and Auto mode it), volume,
+   * Mute, speed and zoom, kept for the viewer. The viewer's own controls in rows that fit (no
+   * sideways scrolling): Loop video and Auto there too.
+   */
+  @Test
+  public void s154_playlist_loop_controls() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    File media = new File(app.getCacheDir(), "playlist-loop");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 12, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File sky = new File(media, "sky.png");
+    Files.write(sky.toPath(), png.toByteArray());
+    Playlist.addTo(dir, "Loops", sky.getAbsolutePath(), "sky.png");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(true);
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.tab = 1;
+    PlaylistScreen.show(app, "Loops");
+    idle();
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    StringBuilder there = new StringBuilder();
+    for (String t : new String[] {"playlist-loop", "playlist-auto", "playlist-volume", "playlist-mute", "playlist-speed", "playlist-zoom-in", "playlist-zoom-out", "playlist-fit"}) there.append(w.findViewWithTag(t) != null ? "" : t + " missing ");
+    out.append("Viewer tab controls: ").append(there.length() == 0 ? "all there" : there).append('\n');
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-loop")).setChecked(true);
+    out.append("Loop video ticked: Auto mode ").append(((android.widget.CheckBox) w.findViewWithTag("playlist-auto")).isChecked()).append(", kept loop ").append(Playlist.settings(dir).loop).append(" auto ").append(Playlist.settings(dir).auto).append('\n');
+    boolean loopOk = Playlist.settings(dir).loop && !Playlist.settings(dir).auto && !((android.widget.CheckBox) w.findViewWithTag("playlist-auto")).isChecked();
+    ((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).setProgress(40);
+    org.robolectric.Shadows.shadowOf((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).getOnSeekBarChangeListener().onStopTrackingTouch((android.widget.SeekBar) w.findViewWithTag("playlist-volume"));
+    ((android.widget.CheckBox) w.findViewWithTag("playlist-mute")).setChecked(true);
+    w.findViewWithTag("playlist-speed").performClick();
+    w.findViewWithTag("playlist-zoom-in").performClick();
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
+    boolean keptOk = kept.volume == 40 && kept.mute && kept.speed > 1f && kept.zoom > 1f && kept.loop;
+    // The viewer: every control on screen, none in a sideways scroll; Loop video / Auto there.
+    w.findViewWithTag("playlist-start").performClick();
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    StringBuilder controls = new StringBuilder();
+    boolean fits = true;
+    for (String t : new String[] {"viewer-play", "viewer-pause", "viewer-stop", "viewer-loop", "viewer-auto", "viewer-mute", "viewer-volume", "viewer-speed", "viewer-zoom-out", "viewer-zoom-in", "viewer-fit"}) {
+      View c = vw.findViewWithTag(t);
+      if (c == null) {
+        controls.append(t).append(" missing ");
+        fits = false;
+        continue;
+      }
+      for (android.view.ViewParent up = c.getParent(); up != null; up = up.getParent()) if (up instanceof android.widget.HorizontalScrollView) fits = false;
+    }
+    out.append("viewer controls: ").append(controls.length() == 0 ? "all there" : controls).append(", fit without scrolling ").append(fits).append(", speed ").append(((TextView) vw.findViewWithTag("viewer-speed")).getText()).append(", zoom ").append(((TextView) vw.findViewWithTag("viewer-zoom")).getText()).append('\n');
+    vw.findViewWithTag("viewer-auto").performClick();
+    boolean autoOn = Playlist.settings(dir).auto && !Playlist.settings(dir).loop;
+    vw.findViewWithTag("viewer-loop").performClick();
+    boolean loopOn = Playlist.settings(dir).loop && !Playlist.settings(dir).auto;
+    out.append("viewer Auto: auto ").append(autoOn).append(", then Loop video: loop ").append(loopOn).append('\n');
+    PlaylistScreen.lastViewer.dismiss();
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    write("s154_playlist_loop_controls", out.toString());
+    if (there.length() > 0 || !loopOk || !keptOk || !fits || !autoOn || !loopOn) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The status line set from a background thread (File > Downloads' thumbnail reader when a file
+   * was gone) no longer crashes the app. A run's workflow id is kept as soon as it is printed; when
+   * Pulsekit was closed during the run, File > Downloads offers Resume download, which runs the
+   * program again with --workflow. Adding a file a playlist has already asks first. The viewer's
+   * rows share the screen's width; a video shows mm:ss / mm:ss; pictures and videos keep their own zoom.
+   */
+  @Test
+  public void s155_downloads_resume_playlist_again() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    // setNow off the screen's thread.
+    Thread t = new Thread(() -> app.setNow("from a background thread"));
+    t.start();
+    t.join();
+    idle();
+    out.append("setNow from a thread: ").append(((TextView) get("now")).getText()).append('\n');
+    boolean threadOk = "from a background thread".contentEquals(((TextView) get("now")).getText());
+    // A Sogni run: its workflow kept as soon as printed; then Pulsekit is closed.
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniVideo.java", System.currentTimeMillis());
+    SogniDownloads.args(id, "--prompt \"a walk\" --duration 5");
+    SogniDownloads.argv(id, java.util.Arrays.asList("--prompt", "a walk", "--duration", "5"));
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Queued\n");
+    live.add("Workflow: wf_abc123\n");
+    out.append("workflow kept while running: ").append(SogniDownloads.run(id).workflow).append('\n');
+    SogniDownloads.init(null);
+    SogniDownloads.init(dir);
+    SogniDownloads.Run r = SogniDownloads.run(id);
+    out.append("after a restart: ").append(SogniDownloads.runLabel(r)).append(", resume ").append(SogniDownloads.canResume(r)).append(", args ").append(SogniDownloads.resumeArgs(r)).append('\n');
+    boolean keptOk = "wf_abc123".equals(r.workflow) && SogniDownloads.canResume(r) && SogniDownloads.resumeArgs(r).toString().equals("[--prompt, a walk, --duration, 5, --workflow, wf_abc123]");
+    DownloadsScreen.tab = SogniDownloads.FINISHED;
+    DownloadsScreen.show(app);
+    idle();
+    View dw = DownloadsScreen.last.getWindow().getDecorView();
+    View resume = dw.findViewWithTag("downloads-resume:" + id);
+    dw.findViewWithTag("downloads-run:" + id).performLongClick();
+    idle();
+    out.append("Downloads: Resume download ").append(resume != null).append(", the run's menu ").append(listItems(DownloadsScreen.lastMenu)).append('\n');
+    DownloadsScreen.lastMenu.dismiss();
+    resume.performClick();
+    for (int i = 0; i < 50; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.List<?> ran = (java.util.List<?>) app.pyJav.pkLastArgv;
+    out.append("resumed: ").append(app.pyName).append(" ").append(ran).append('\n');
+    boolean resumeOk = resume != null && "SogniVideo.java".equals(app.pyName) && ran != null && ran.contains("--workflow") && ran.contains("wf_abc123") && ran.contains("a walk");
+    if (DownloadsScreen.last != null) DownloadsScreen.last.dismiss();
+    // A playlist: the same file again is asked about.
+    File media = new File(app.getCacheDir(), "playlist-again");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 12, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File sky = new File(media, "sky.png");
+    Files.write(sky.toPath(), png.toByteArray());
+    File clip = new File(media, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    PlaylistScreen.confirmAdd(app, "Again", sky.getAbsolutePath(), "sky.png");
+    PlaylistScreen.lastAgain = null;
+    PlaylistScreen.confirmAdd(app, "Again", sky.getAbsolutePath(), "sky.png");
+    idle();
+    String question = PlaylistScreen.lastAgain == null ? "not asked" : org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAgain).getMessage().toString();
+    PlaylistScreen.lastAgain.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("again: ").append(question).append(" | then ").append(Playlist.load(dir, "Again").items.size()).append(" items, ").append(((TextView) get("now")).getText()).append('\n');
+    boolean againOk = question.contains("Add it a second time?") && Playlist.load(dir, "Again").items.size() == 2;
+    // The viewer: a picture at its zoom, a video at its own, mm:ss / mm:ss for the video.
+    Playlist.addTo(dir, "Again", clip.getAbsolutePath(), "walk.mp4");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.zoom = 1.5f;
+    set.zoomVideo = 1f;
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.viewer(app, Playlist.load(dir, "Again"), 0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    String pictureZoom = ((TextView) vw.findViewWithTag("viewer-zoom")).getText().toString();
+    boolean timeHidden = vw.findViewWithTag("viewer-time").getVisibility() != View.VISIBLE;
+    vw.findViewWithTag("viewer-next").performClick();
+    vw.findViewWithTag("viewer-next").performClick();
+    idle();
+    String videoZoom = ((TextView) vw.findViewWithTag("viewer-zoom")).getText().toString();
+    TextView time = (TextView) vw.findViewWithTag("viewer-time");
+    vw.findViewWithTag("viewer-zoom-in").performClick();
+    Playlist.Settings kept = Playlist.settings(dir);
+    boolean shared = true;
+    for (String tag : new String[] {"viewer-play", "viewer-loop", "viewer-auto", "viewer-speed", "viewer-zoom-in", "viewer-fit"}) {
+      View c = vw.findViewWithTag(tag);
+      shared &= c != null && ((android.widget.LinearLayout.LayoutParams) c.getLayoutParams()).weight > 0;
+    }
+    out.append("viewer: picture ").append(pictureZoom).append(" (time hidden ").append(timeHidden).append("), video ").append(videoZoom).append(", time ").append(time.getText()).append(" shown ").append(time.getVisibility() == View.VISIBLE)
+        .append(" | after Zoom + on the video: picture ").append(kept.zoom).append(", video ").append(kept.zoomVideo).append(" | rows share the width ").append(shared).append(" | loop ").append(((TextView) vw.findViewWithTag("viewer-loop")).getText()).append('\n');
+    boolean viewerOk = pictureZoom.endsWith("150%") && videoZoom.endsWith("100%") && timeHidden && time.getVisibility() == View.VISIBLE && time.getText().toString().matches("\\d\\d:\\d\\d / .*")
+        && kept.zoom == 1.5f && kept.zoomVideo > 1f && shared;
+    PlaylistScreen.lastViewer.dismiss();
+    write("s155_downloads_resume_playlist_again", out.toString());
+    if (!threadOk || !keptOk || !resumeOk || !againOk || !viewerOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

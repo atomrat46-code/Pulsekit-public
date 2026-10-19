@@ -255,6 +255,7 @@ final class ComposerPage {
             m.add(it);
         }
         this.lastComposerMenu = m;
+        MenuCancel.add(m);
         if (anchor != null && anchor.isShowing()) m.show(anchor, 0, anchor.getHeight());
         return m;
     }

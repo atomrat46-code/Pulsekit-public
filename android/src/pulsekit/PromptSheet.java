@@ -1953,7 +1953,7 @@ public final class PromptSheet {
       }
     }));
     lastFileMenu = new AlertDialog.Builder(activity).setTitle(file.name)
-        .setItems(items.toArray(new CharSequence[0]), (d, pick) -> runs.get(pick).run()).show();
+        .setItems(items.toArray(new CharSequence[0]), (d, pick) -> runs.get(pick).run()).setNegativeButton("Cancel", null).show();
   }
 
   /** A stored file's size, by its place in the library (0 when it is not there). */
@@ -2066,14 +2066,11 @@ public final class PromptSheet {
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    if (!fullSize && !extract && !strip && !picture && kinds.length == 0) {
-      itemMenu(activity, name, rename, delete);
-      return;
-    }
+    // Every file (a video too) gets the whole list: favourites, group, playlists, tags, category.
     lastFileMenu = new AlertDialog.Builder(activity)
         .setTitle(name)
         .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
-        .show();
+        .setNegativeButton("Cancel", null).show();
   }
 
   /** Upscale/Resize image: the stored picture copied into PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
@@ -2212,7 +2209,7 @@ public final class PromptSheet {
           else if (which == skip) rename.run();
           else delete.run();
         })
-        .show();
+        .setNegativeButton("Cancel", null).show();
   }
 
   private static void confirm(Activity activity, String title, String message, Runnable ok) {

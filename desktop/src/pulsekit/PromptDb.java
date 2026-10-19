@@ -231,6 +231,7 @@ final class PromptDb {
             m.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
             m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
             this.lastCardMenu = m;
+            MenuCancel.add(m);
             m.show(card, 10, 10);
         }, "refs-pick:", true);
         // The file picked last: outlined, and scrolled to (unless a tab switch brings back that tab's place).
@@ -1271,6 +1272,7 @@ final class PromptDb {
         menu.add(rename);
         menu.add(delete);
         this.lastFileMenu = menu;
+        MenuCancel.add(menu);
         menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
     }
 
@@ -1845,8 +1847,9 @@ final class PromptDb {
                 });
                 m.add(process);
                 // The video among the favourites, or in a group.
-                for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem) m.add((JMenuItem) c);
+                for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem && !MenuCancel.is(c)) m.add((JMenuItem) c);
                 PromptDb.this.lastFrameMenu = m;
+                MenuCancel.add(m);
                 m.show(player.screen, e.getX(), e.getY());
             }
         });

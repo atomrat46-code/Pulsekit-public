@@ -875,8 +875,15 @@ final class MediaBrowser {
             menu.add(item);
         }
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
-        if (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO || entry.kind == MediaDir.SOUND) menu.add(PlaylistWindow.addMenu(app, f.getAbsolutePath(), entry.name));
+        if (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO || entry.kind == MediaDir.SOUND) {
+            // Right under Add to (or Remove from) default playlist.
+            int under = java.util.Arrays.asList(MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true)).indexOf(this.listed.contains(f.getAbsolutePath()) ? MediaDir.MENU_LISTED[2] : MediaDir.MENU[2]);
+            javax.swing.JMenu add = PlaylistWindow.addMenu(app, f.getAbsolutePath(), entry.name);
+            if (under >= 0 && under + 1 <= menu.getComponentCount()) menu.insert(add, under + 1);
+            else menu.add(add);
+        }
         this.lastMenu = menu;
+        MenuCancel.add(menu);
         if (card.isShowing()) menu.show(card, x, y);
     }
 
@@ -1030,6 +1037,7 @@ final class MediaBrowser {
             menu.add(item);
         }
         this.lastMenu = menu;
+        MenuCancel.add(menu);
         if (card.isShowing()) menu.show(card, x, y);
     }
 

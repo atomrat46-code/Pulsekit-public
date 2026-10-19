@@ -40,6 +40,7 @@ final class SaveText {
                 JMenuItem save = new JMenuItem("Save as " + file);
                 save.addActionListener(a -> save(app, file, view.getText()));
                 menu.add(save);
+                MenuCancel.add(menu);
                 menu.show(view, e.getX(), e.getY());
             }
         });

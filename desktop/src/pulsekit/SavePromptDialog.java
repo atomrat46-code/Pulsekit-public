@@ -143,6 +143,7 @@ final class SavePromptDialog {
                 m.add(item);
             }
             lastBrowse = m;
+            MenuCancel.add(m);
             m.show(browse, 0, browse.getHeight());
         });
         JPanel subRow = new JPanel(new BorderLayout(6, 0));

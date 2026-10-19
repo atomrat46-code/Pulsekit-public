@@ -1107,7 +1107,7 @@ final class SongEditor {
                 else if ("Duplicate song".equals(item)) this.duplicateSong(song);
                 else this.confirmDeleteSong(song);
             })
-            .show();
+            .setNegativeButton("Cancel", null).show();
     }
 
     /** Song menu > Info: length, bars, patterns, fills, Fillerns, tempo, file set and style. */

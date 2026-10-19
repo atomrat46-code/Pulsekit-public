@@ -924,6 +924,12 @@ final class PyJav {
         // Kept running (a notification) until the run is over: switching apps does not lose it.
         pulsekit.RunKeeper.start(app, name);
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
+        // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
+        Long downloadRun = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
+        if (downloadRun != null) {
+            pulsekit.SogniDownloads.argv(downloadRun.longValue(), argv);
+            live.download(downloadRun.longValue());
+        }
         if (note != null) live.add(note + "\n");
         String head = note == null ? (this.pkPromptReport != null && this.pkPromptReport.length() > 0 ? this.pkPromptReport + "\n" : "") : note + "\n";
         this.pkLive = live;

@@ -64,6 +64,7 @@ final class FavouriteMenu {
         menu.addSeparator();
         menu.add(remove);
         last = menu;
+        MenuCancel.add(menu);
         return menu;
     }
 

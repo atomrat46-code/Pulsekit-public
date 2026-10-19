@@ -45,6 +45,7 @@ final class GroupMenus {
             m.add(item);
         }
         last = m;
+        MenuCancel.add(m);
         return m;
     }
 
@@ -78,6 +79,8 @@ final class GroupMenus {
         group.setName("file-group");
         group.addActionListener(e -> ask(app, keys(file), name));
         m.add(group);
+        // Add to playlist: the file where it is saved.
+        m.add(PlaylistWindow.addMenu(app, file.getAbsolutePath(), name));
         JMenuItem tag = new JMenuItem(MediaTags.ADD_TAG);
         tag.setName("file-tag");
         tag.addActionListener(e -> TagDialogs.tags(app, app, name, size, null));
@@ -87,6 +90,7 @@ final class GroupMenus {
         cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null));
         m.add(cat);
         last = m;
+        MenuCancel.add(m);
         return m;
     }
 
@@ -119,6 +123,7 @@ final class GroupMenus {
         add.setName("add-to-group");
         add.addActionListener(e -> {
             JPopupMenu m = addTo(app, key, name, after);
+            MenuCancel.add(m);
             if (at != null && at.isShowing()) m.show(at, 10, 10);
         });
         return add;
@@ -177,6 +182,7 @@ final class GroupMenus {
             m.add(delete);
         }
         last = m;
+        MenuCancel.add(m);
         if (at != null && at.isShowing()) m.show(at, 0, at.getHeight());
     }
 

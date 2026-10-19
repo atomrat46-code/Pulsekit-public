@@ -493,6 +493,7 @@ final class Playback {
 
     JPopupMenu drumSetMenu(int idx) {
         JPopupMenu m = new JPopupMenu();
+        MenuCancel.add(m);
         if (idx <= 0 || idx >= app.drumSets.size()) return m;
         JMenuItem matchAll = new JMenuItem("Match Original");
         matchAll.addActionListener(e -> {
@@ -562,6 +563,7 @@ final class Playback {
                 m.add(clear);
             }
         }
+        MenuCancel.add(m);
         return m;
     }
 

@@ -490,7 +490,7 @@ public final class PyJavParams {
             app.setNow("Could not copy that file set's MIDI");
           }
         })
-        .show();
+        .setNegativeButton("Cancel", null).show();
   }
 
   /**

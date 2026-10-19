@@ -298,7 +298,7 @@ final class ImportLibrary {
                 if (which >= 0 && which < arrayList2.size()) {
                     ((Runnable)arrayList2.get(which)).run();
                 }
-            }).show();
+            }).setNegativeButton("Cancel", null).show();
             return true;
         });
         linearLayout.addView((View)textView);

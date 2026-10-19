@@ -1480,8 +1480,7 @@ final class MediaBrowser {
         final String[] menuItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
         boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
-        final String[] items = playable ? java.util.Arrays.copyOf(menuItems, menuItems.length + 1) : menuItems;
-        if (playable) items[items.length - 1] = Playlist.ADD;
+        final String[] items = playable ? MediaDir.withPlaylistItem(menuItems, Playlist.ADD) : menuItems;
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));

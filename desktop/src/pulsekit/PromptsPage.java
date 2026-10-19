@@ -585,6 +585,7 @@ final class PromptsPage {
         d.addActionListener(e -> delete.run());
         menu.add(r);
         menu.add(d);
+        MenuCancel.add(menu);
         return menu;
     }
 

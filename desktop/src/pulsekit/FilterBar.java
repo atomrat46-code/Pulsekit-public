@@ -102,6 +102,7 @@ final class FilterBar {
             for (PromptVault.Category c : FileFilter.level(vault, 0)) m.add(node(vault, c, again));
         }
         last = m;
+        MenuCancel.add(m);
         if (at != null && at.isShowing()) m.show(at, 0, at.getHeight());
         return m;
     }

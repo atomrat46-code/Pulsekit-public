@@ -172,13 +172,22 @@ final class DownloadsScreen {
             line.setTag("downloads-run:" + r.id);
             line.setPadding(app.dp(8), app.dp(4), 0, app.dp(2));
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
+                // Held: Resume download (a failed run whose workflow is known), Clear.
                 line.setOnLongClickListener(v -> {
-                    SogniDownloads.clear(r.id, null);
-                    fill(app, col);
+                    runMenu(app, col, r);
                     return true;
                 });
             }
             col.addView(line);
+            if (SogniDownloads.canResume(r)) {
+                // Pulsekit was closed (or the run failed) while the workflow went on on Sogni: fetch it.
+                TextView resume = app.pill(SogniDownloads.RESUME, true, v -> resume(app, r));
+                resume.setTag("downloads-resume:" + r.id);
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-2, -2);
+                rp.leftMargin = app.dp(8);
+                rp.bottomMargin = app.dp(4);
+                col.addView(resume, rp);
+            }
             if (SogniDownloads.PROGRESS.equals(r.state) || SogniDownloads.PENDING.equals(r.state)) {
                 // Mark as ready: a run the app lost track of (it never says it is over) is let go.
                 TextView ready = app.pill("Mark as ready", false, v -> {
@@ -221,34 +230,55 @@ final class DownloadsScreen {
     /** Thumbnails made this session, by where the file is. */
     private static final java.util.Map<String, android.graphics.Bitmap> THUMBS = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
 
+    /** One thread makes the thumbnails, one at a time (a thread each read whole videos at once, and the app ran out of memory). */
+    private static final java.util.concurrent.ExecutorService THUMB_WORK = java.util.concurrent.Executors.newSingleThreadExecutor();
+
     private static void thumb(final MainActivity app, final TextView row, final SogniDownloads.Item item) {
         final int px = app.dp(56);
+        if (item.where == null || item.where.length() == 0) return;
         android.graphics.Bitmap have = THUMBS.get(item.where);
         if (have != null) {
             put(app, row, have, px);
             return;
         }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                android.graphics.Bitmap made = null;
-                try {
-                    byte[] data = bytes(app, item);
-                    if (data != null) made = PromptSheet.refThumb(app, item.name, data, px);
-                } catch (Throwable ex) {
-                    made = null;
-                }
-                if (made == null) return;
-                THUMBS.put(item.where, made);
-                final android.graphics.Bitmap shown = made;
-                app.runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        put(app, row, shown, px);
-                    }
-                });
+        THUMB_WORK.execute(() -> {
+            android.graphics.Bitmap made = null;
+            try {
+                made = "video".equals(item.kind()) ? videoThumb(app, item, px) : pictureThumb(app, item, px);
+            } catch (Throwable ex) {
+                made = null;
             }
-        }, "pulsekit-download-thumb").start();
+            if (made == null) return;
+            THUMBS.put(item.where, made);
+            final android.graphics.Bitmap shown = made;
+            app.runOnUiThread(() -> put(app, row, shown, px));
+        });
+    }
+
+    /** A picture's thumbnail (read whole: a picture is small). */
+    private static android.graphics.Bitmap pictureThumb(MainActivity app, SogniDownloads.Item item, int px) {
+        byte[] data = bytes(app, item);
+        return data == null ? null : PromptSheet.refThumb(app, item.name, data, px);
+    }
+
+    /** A video's first frame, read from the file where it is (not loaded whole). */
+    private static android.graphics.Bitmap videoThumb(MainActivity app, SogniDownloads.Item item, int px) throws Exception {
+        android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+        try {
+            Uri uri = uriFor(app, item.where);
+            if (uri != null) media.setDataSource(app, uri);
+            else media.setDataSource(fileFor(item.where).getAbsolutePath());
+            android.graphics.Bitmap frame = media.getFrameAtTime(0);
+            if (frame == null) return null;
+            float sc = Math.min(1f, px * 2f / Math.max(frame.getWidth(), frame.getHeight()));
+            return sc >= 1f ? frame : android.graphics.Bitmap.createScaledBitmap(frame, Math.max(1, Math.round(frame.getWidth() * sc)), Math.max(1, Math.round(frame.getHeight() * sc)), true);
+        } finally {
+            try {
+                media.release();
+            } catch (Exception ignored) {
+                // released
+            }
+        }
     }
 
     private static void put(MainActivity app, TextView row, android.graphics.Bitmap b, int px) {
@@ -280,6 +310,47 @@ final class DownloadsScreen {
             else if (which == 3) delete(app, col, r, item);
             else places(app, col, r, item, which == 4);
         }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** A failed run's menu (held): Resume download when its workflow is known, Clear. */
+    static void runMenu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r) {
+        final java.util.List<String> rows = new java.util.ArrayList<String>();
+        if (SogniDownloads.canResume(r)) rows.add(SogniDownloads.RESUME);
+        rows.add("Clear");
+        lastMenu = new AlertDialog.Builder(app).setTitle(r.programName() + " \u00b7 " + r.when()).setItems(rows.toArray(new String[0]), (d, which) -> {
+            if (SogniDownloads.RESUME.equals(rows.get(which))) {
+                resume(app, r);
+                return;
+            }
+            SogniDownloads.clear(r.id, null);
+            fill(app, col);
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    /**
+     * Resume download: the program that ran on PyJav, run again with the arguments it ran with and
+     * --workflow <its workflow>: it waits for that workflow (or fetches what it made) instead of
+     * starting (and paying for) a new run. The same Downloads entry goes on.
+     */
+    static void resume(MainActivity app, SogniDownloads.Run r) {
+        if (!SogniDownloads.canResume(r)) return;
+        String kind = r.program.toLowerCase(java.util.Locale.ROOT).endsWith(".py") ? "Python" : "Java";
+        if (last != null) last.dismiss();
+        app.openKitView("py");
+        app.programMenus.selectProgram(kind, r.program);
+        if (!r.program.equals(app.pyName)) {
+            app.setNow("Could not open " + r.program);
+            return;
+        }
+        if (r.args.length() > 0 && app.pyJav.pkPyArgs != null) app.pyJav.pkPyArgs.setText(r.args);
+        String note = SogniDownloads.resuming(r.id);
+        app.pyJav.pkForcedArgs = SogniDownloads.resumeArgs(r);
+        app.pyJav.pkReconnectDownload = Long.valueOf(r.id);
+        app.pyJav.pkReconnectNote = note;
+        app.pyJav.pkRunConfirmed = true;
+        app.pyJav.pkDrumsWarned = true;
+        app.setNow(note);
+        app.pyJav.pkRunPyJav();
     }
 
     /** Create again: the program that made the download on PyJav, with the arguments it ran with, its Params open. */

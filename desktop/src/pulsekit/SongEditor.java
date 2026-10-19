@@ -356,6 +356,7 @@ final class SongEditor {
             it.addActionListener(e -> this.saveSongInto(src, songName, imported));
             m.add(it);
         }
+        MenuCancel.add(m);
         m.show(anchor, 0, anchor.getHeight());
     }
 
@@ -575,6 +576,7 @@ final class SongEditor {
             none.setEnabled(false);
             m.add(none);
         }
+        MenuCancel.add(m);
         return m;
     }
 
@@ -597,6 +599,7 @@ final class SongEditor {
 
     JPopupMenu songPickMenu(Integer replaceAt, String only) {
         JPopupMenu m = new JPopupMenu();
+        MenuCancel.add(m);
         if (!"original".equals(app.songLane) && this.pickTarget == null) return m;
         boolean all = only == null || only.isEmpty();
         if (all || "pattern".equals(only)) {
@@ -890,6 +893,7 @@ final class SongEditor {
             sub.add(none);
         }
         m.add(sub);
+        MenuCancel.add(m);
         return m;
     }
 
@@ -1158,6 +1162,7 @@ final class SongEditor {
         del.addActionListener(e -> this.confirmDeleteSong(song));
         menu.add(dup);
         menu.add(del);
+        MenuCancel.add(menu);
         menu.show(at, x, y);
     }
 

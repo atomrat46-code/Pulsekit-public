@@ -1872,6 +1872,7 @@ public final class DesktopBehavior {
           ((javax.swing.JMenuItem) m.getComponent(0)).doClick();
           seen.append("\nafter Select all: \"").append(prompt.getSelectedText()).append("\"; menu now ");
           for (java.awt.Component c : TextMenu.menu(prompt).getComponents()) {
+            if (!(c instanceof javax.swing.JMenuItem)) continue;
             seen.append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)").append(", ");
           }
           ((javax.swing.JMenuItem) TextMenu.menu(prompt).getComponent(2)).doClick();
@@ -2130,7 +2131,7 @@ public final class DesktopBehavior {
               java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
           javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
           StringBuilder items = new StringBuilder();
-          for (Component c : menu.getComponents()) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
           if (pick == picks[0]) seen.append("menu: ").append(items).append(", shown ").append(menu.isVisible()).append('\n');
           String label = ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).getText();
           ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).doClick();
@@ -4563,7 +4564,7 @@ public final class DesktopBehavior {
     call("showView", "py");
     javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) call("recentMenu");
     StringBuilder rows = new StringBuilder();
-    for (Component c : menu.getComponents()) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
     out.append("menu: ").append(rows).append('\n');
     javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
     StringBuilder labels = new StringBuilder();
@@ -4579,7 +4580,7 @@ public final class DesktopBehavior {
       } else {
         javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("recentMenu");
         for (Component c : m.getComponents()) {
-          if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
+          if (c instanceof javax.swing.JMenuItem && pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
         }
       }
       for (int i = 0; i < 200 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("exit")); i++) Thread.sleep(50);
@@ -5684,6 +5685,210 @@ public final class DesktopBehavior {
     out.append("playlists: ").append(Playlist.names(dir)).append('\n');
     if (!addOk || !editorOk || !moveOk || !viewerOk || !mergeOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
   }
+  /**
+   * A video's gallery menu has Add to playlist and Add to default playlist, then Cancel; the Media
+   * browser's Add to playlist is right under Add to default playlist; Picture ready's right click and
+   * Video ready have Add to playlist.
+   */
+  void s130_playlist_menus_cancel() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final File dir = PromptDb.dir();
+    PromptDb.vault().addLibraryFile("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, "Imported", 1);
+    PromptVault.StoredFile walk = null;
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) if (f.name.equals("walk.mp4")) walk = f;
+    final PromptVault.StoredFile video = walk;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(0));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog gallery = (JDialog) get("lastGallery");
+    final javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:walk.mp4");
+    edt(() -> db.menu(video, card, () -> {}));
+    edt(() -> db.lastFileMenu.setVisible(false));
+    edt(() -> gallery.dispose());
+    java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      return sb.toString();
+    };
+    Component[] cs = db.lastFileMenu.getComponents();
+    out.append("video's gallery menu: ").append(items.apply(db.lastFileMenu)).append('\n');
+    boolean galleryOk = component(db.lastFileMenu, "add-to-playlist") != null && component(db.lastFileMenu, "add-to-default-playlist") != null && MenuCancel.NAME.equals(cs[cs.length - 1].getName());
+    // The Media browser's file menu.
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    final File sea = new File(pics, "sea.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sea);
+    final MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "sea.png";
+    e.id = sea.getAbsolutePath();
+    e.kind = MediaDir.PICTURE;
+    e.size = sea.length();
+    edt(() -> mb.menu(e, sea, new javax.swing.JButton(), 0, 0));
+    Component[] mc = mb.lastMenu.getComponents();
+    int def = -1;
+    for (int i = 0; i < mc.length; i++) if (mc[i] instanceof javax.swing.JMenuItem && MediaDir.MENU[2].equals(((javax.swing.JMenuItem) mc[i]).getText())) def = i;
+    out.append("Media browser menu: ").append(items.apply(mb.lastMenu)).append('\n');
+    boolean mediaOk = def >= 0 && "add-to-playlist".equals(mc[def + 1].getName()) && MenuCancel.NAME.equals(mc[mc.length - 1].getName());
+    // Picture ready's right click menu (a run's file).
+    final javax.swing.JPopupMenu[] ready = new javax.swing.JPopupMenu[1];
+    edt(() -> ready[0] = GroupMenus.fileMenu((Pulsekit) frame, sea));
+    out.append("Picture ready menu: ").append(items.apply(ready[0])).append('\n');
+    boolean readyOk = component(ready[0], "add-to-playlist") != null;
+    // Video ready: Add to playlist, Default (OK), then Close.
+    File runs = new File(System.getProperty("user.home"), "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add(Playlist.ADD);
+    answers.add("OK");
+    answers.add("Close");
+    edt(() -> pj.offerVideo(clip, 1));
+    idle();
+    Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
+    out.append("Video ready: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean videoOk = def2.items.size() == 1 && clip.getAbsolutePath().equals(def2.items.get(0).file);
+    if (!galleryOk || !mediaOk || !readyOk || !videoOk) throw new AssertionError(out.toString());
+  }
+  /**
+   * The Playlist window's Viewer tab: Loop video (it turns Auto mode off), volume, Mute, speed and
+   * zoom, kept for the viewer; the viewer's controls all on screen (none cut off), Loop video and
+   * Auto there too.
+   */
+  void s131_playlist_loop_controls() throws Exception {
+    final File dir = PromptDb.dir();
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    File sky = new File(pics, "sky.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(16, 12, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sky);
+    Playlist.addTo(dir, "Loops", sky.getAbsolutePath(), "sky.png");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(true);
+    Playlist.saveSettings(dir, set);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, "Loops"));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    edt(() -> ((javax.swing.JTabbedPane) component(w, "playlist-tabs")).setSelectedIndex(1));
+    StringBuilder there = new StringBuilder();
+    for (String n : new String[] {"playlist-loop", "playlist-auto", "playlist-volume", "playlist-mute", "playlist-speed", "playlist-zoom-in", "playlist-zoom-out", "playlist-fit"}) there.append(component(w, n) != null ? "" : n + " missing ");
+    out.append("Viewer tab controls: ").append(there.length() == 0 ? "all there" : there).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-loop")).doClick());
+    boolean loopOk = Playlist.settings(dir).loop && !Playlist.settings(dir).auto && !((javax.swing.AbstractButton) component(w, "playlist-auto")).isSelected();
+    out.append("Loop video ticked: loop ").append(Playlist.settings(dir).loop).append(", auto ").append(Playlist.settings(dir).auto).append('\n');
+    edt(() -> ((javax.swing.JSlider) component(w, "playlist-volume")).setValue(40));
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-mute")).doClick());
+    edt(() -> ((javax.swing.JComboBox<?>) component(w, "playlist-speed")).setSelectedIndex(4));
+    edt(() -> ((javax.swing.AbstractButton) component(w, "playlist-zoom-in")).doClick());
+    Playlist.Settings kept = Playlist.settings(dir);
+    out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
+    boolean keptOk = kept.volume == 40 && kept.mute && kept.speed == 1.5f && kept.zoom > 1f && kept.loop;
+    // The viewer: every control inside the window (none cut off).
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(w, "playlist-start")).doClick());
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    StringBuilder cut = new StringBuilder();
+    for (String n : new String[] {"viewer-play", "viewer-pause", "viewer-stop", "viewer-loop", "viewer-auto", "viewer-mute", "viewer-volume", "viewer-speed", "viewer-zoom-out", "viewer-zoom-in", "viewer-fit", "viewer-close"}) {
+      Component c = component(v, n);
+      if (c == null) {
+        cut.append(n).append(" missing ");
+        continue;
+      }
+      java.awt.Rectangle r = SwingUtilities.convertRectangle(c.getParent(), c.getBounds(), v.getContentPane());
+      if (!c.isShowing() || r.x + r.width > v.getContentPane().getWidth() || r.y + r.height > v.getContentPane().getHeight() || c.getParent().getHeight() < c.getY() + c.getHeight()) cut.append(n).append(" cut off ");
+    }
+    out.append("viewer controls: ").append(cut.length() == 0 ? "all on screen" : cut).append(", Loop video ").append(((javax.swing.AbstractButton) component(v, "viewer-loop")).isSelected()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-auto")).doClick());
+    boolean autoOn = Playlist.settings(dir).auto && !Playlist.settings(dir).loop && !((javax.swing.AbstractButton) component(v, "viewer-loop")).isSelected();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-loop")).doClick());
+    boolean loopOn = Playlist.settings(dir).loop && !Playlist.settings(dir).auto;
+    out.append("viewer Auto: ").append(autoOn).append(", then Loop video: ").append(loopOn).append('\n');
+    edt(() -> v.dispose());
+    edt(() -> w.dispose());
+    if (there.length() > 0 || !loopOk || !keptOk || cut.length() > 0 || !autoOn || !loopOn) throw new AssertionError(out.toString());
+  }
+  /**
+   * A run's workflow id is kept as soon as it is printed; when Pulsekit was closed during the run,
+   * File > Downloads offers Resume download (a button, and in the run's right-click menu) with
+   * --workflow. Adding a file a playlist has already asks first. The viewer shows mm:ss / mm:ss for
+   * a video, and pictures and videos keep their own zoom.
+   */
+  void s132_downloads_resume_playlist_again() throws Exception {
+    final File dir = PromptDb.dir();
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniVideo.java", System.currentTimeMillis());
+    SogniDownloads.argv(id, java.util.Arrays.asList("--prompt", "a walk", "--duration", "5"));
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_abc123\n");
+    SogniDownloads.init(null);
+    SogniDownloads.init(dir);
+    final SogniDownloads.Run r = SogniDownloads.run(id);
+    out.append("after a restart: ").append(SogniDownloads.runLabel(r).replaceAll("\\d\\d-\\d\\d \\d\\d:\\d\\d", "<when>")).append(", args ").append(SogniDownloads.resumeArgs(r)).append('\n');
+    boolean keptOk = SogniDownloads.canResume(r) && SogniDownloads.resumeArgs(r).contains("wf_abc123");
+    DownloadsScreen.tab = SogniDownloads.FINISHED;
+    final JDialog[] dlg = new JDialog[1];
+    answers.add("(keep)");
+    inspectNext = d -> dlg[0] = d;
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && dlg[0] == null; i++) Thread.sleep(50);
+    idle();
+    inspectNext = null;
+    boolean button = component(dlg[0], "downloads-resume:" + id) != null;
+    edt(() -> DownloadsScreen.runMenu((Pulsekit) frame, new javax.swing.JPanel(), r, null, 0, 0));
+    StringBuilder menu = new StringBuilder();
+    for (Component c : DownloadsScreen.lastRunMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    out.append("Downloads: Resume download button ").append(button).append(", the run's menu ").append(menu).append('\n');
+    edt(() -> dlg[0].dispose());
+    boolean downloadsOk = button && menu.toString().startsWith(SogniDownloads.RESUME);
+    // A playlist: the same file again is asked about (Add again).
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    File sky = new File(pics, "sky.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(16, 12, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sky);
+    File clip = new File(pics, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    edt(() -> PlaylistWindow.confirmAdd((Pulsekit) frame, "Again", sky.getAbsolutePath(), "sky.png"));
+    final StringBuilder asked = new StringBuilder();
+    inspectNext = d -> asked.append(d.getTitle());
+    answers.add("Add again");
+    edt(() -> PlaylistWindow.confirmAdd((Pulsekit) frame, "Again", sky.getAbsolutePath(), "sky.png"));
+    idle();
+    inspectNext = null;
+    out.append("again: asked \"").append(asked).append("\", then ").append(Playlist.load(dir, "Again").items.size()).append(" items, ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean againOk = asked.toString().contains("already") && Playlist.load(dir, "Again").items.size() == 2;
+    // The viewer: a picture at its zoom, a video at its own (and its mm:ss / mm:ss).
+    Playlist.addTo(dir, "Again", clip.getAbsolutePath(), "walk.mp4");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.zoom = 1.5f;
+    set.zoomVideo = 1f;
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.viewer((Pulsekit) frame, frame, Playlist.load(dir, "Again"), 0));
+    for (int i = 0; i < 100 && (PlaylistWindow.lastViewer == null || !PlaylistWindow.lastViewer.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog v = PlaylistWindow.lastViewer;
+    String pictureZoom = ((JLabel) component(v, "viewer-zoom")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-next")).doClick());
+    String videoZoom = ((JLabel) component(v, "viewer-zoom")).getText();
+    String time = ((JLabel) component(v, "viewer-time")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(v, "viewer-zoom-in")).doClick());
+    Playlist.Settings kept = Playlist.settings(dir);
+    edt(() -> v.dispose());
+    out.append("viewer: picture ").append(pictureZoom).append(", video ").append(videoZoom).append(", time ").append(time).append(" | after Zoom + on the video: picture ").append(kept.zoom).append(", video ").append(kept.zoomVideo).append('\n');
+    boolean viewerOk = "150%".equals(pictureZoom) && "100%".equals(videoZoom) && time.matches("\\d\\d:\\d\\d / .*") && kept.zoom == 1.5f && kept.zoomVideo > 1f;
+    if (!keptOk || !downloadsOk || !againOk || !viewerOk) throw new AssertionError(out.toString());
+  }
+
+
+
 
 
 

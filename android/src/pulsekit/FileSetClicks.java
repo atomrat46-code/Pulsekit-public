@@ -95,7 +95,7 @@ public final class FileSetClicks {
                 }
               }
             })
-            .show();
+            .setNegativeButton("Cancel", null).show();
         return true;
       }
     };
