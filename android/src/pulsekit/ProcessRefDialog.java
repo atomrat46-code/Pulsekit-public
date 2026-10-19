@@ -133,7 +133,7 @@ final class ProcessRefDialog {
 
     void pickProgram() {
         new AlertDialog.Builder(this.app).setTitle("Program")
-            .setItems(this.programs.toArray(new CharSequence[0]), (d, w) -> this.setProgram(this.programs.get(w), false)).show();
+            .setItems(this.programs.toArray(new CharSequence[0]), (d, w) -> this.setProgram(this.programs.get(w), false)).setNegativeButton("Cancel", null).show();
     }
 
     void pickPrompt() {
@@ -144,7 +144,7 @@ final class ProcessRefDialog {
             .setItems(labels, (d, w) -> {
                 this.run = w;
                 this.showPrompt();
-            }).show();
+            }).setNegativeButton("Cancel", null).show();
     }
 
     /** Open: PyJav with the program, the run's settings and the picture in its slot. */

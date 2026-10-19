@@ -339,6 +339,7 @@ final class DownloadsScreen {
             });
             m.add(it);
         }
+        MenuCancel.add(m);
         return m;
     }
 

@@ -465,7 +465,7 @@ public class MainActivity extends UiKit {
                 } else {
                     this.styleLibrary.variatePattern("random-fill");
                 }
-            }).show();
+            }).setNegativeButton("Cancel", null).show();
             return true;
         });
         this.toolsRow.addView((View)textView13);

@@ -29,7 +29,7 @@ final class SaveText {
             if (file == null) return false;
             new AlertDialog.Builder(app)
                 .setItems(new String[] {"Save as " + file}, (d, which) -> save(app, file, text))
-                .show();
+                .setNegativeButton("Cancel", null).show();
             return true;
         });
     }

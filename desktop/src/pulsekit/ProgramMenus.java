@@ -70,6 +70,7 @@ final class ProgramMenus {
             });
             menu.add(item);
         }
+        MenuCancel.add(menu);
         menu.show(anchor, 0, anchor.getHeight());
     }
 

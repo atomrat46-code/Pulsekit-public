@@ -1872,6 +1872,7 @@ public final class DesktopBehavior {
           ((javax.swing.JMenuItem) m.getComponent(0)).doClick();
           seen.append("\nafter Select all: \"").append(prompt.getSelectedText()).append("\"; menu now ");
           for (java.awt.Component c : TextMenu.menu(prompt).getComponents()) {
+            if (!(c instanceof javax.swing.JMenuItem)) continue;
             seen.append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)").append(", ");
           }
           ((javax.swing.JMenuItem) TextMenu.menu(prompt).getComponent(2)).doClick();
@@ -2130,7 +2131,7 @@ public final class DesktopBehavior {
               java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3));
           javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) get("lastMenu");
           StringBuilder items = new StringBuilder();
-          for (Component c : menu.getComponents()) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+          for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
           if (pick == picks[0]) seen.append("menu: ").append(items).append(", shown ").append(menu.isVisible()).append('\n');
           String label = ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).getText();
           ((javax.swing.JMenuItem) menu.getComponent(Integer.parseInt(pick[1]))).doClick();
@@ -4563,7 +4564,7 @@ public final class DesktopBehavior {
     call("showView", "py");
     javax.swing.JPopupMenu menu = (javax.swing.JPopupMenu) call("recentMenu");
     StringBuilder rows = new StringBuilder();
-    for (Component c : menu.getComponents()) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
+    for (Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) rows.append('[').append(((javax.swing.JMenuItem) c).getText()).append(']');
     out.append("menu: ").append(rows).append('\n');
     javax.swing.JPopupMenu runs = (javax.swing.JPopupMenu) call("runsMenu", "CompareHits.java");
     StringBuilder labels = new StringBuilder();
@@ -4579,7 +4580,7 @@ public final class DesktopBehavior {
       } else {
         javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("recentMenu");
         for (Component c : m.getComponents()) {
-          if (pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
+          if (c instanceof javax.swing.JMenuItem && pick[1].equals(((javax.swing.JMenuItem) c).getText())) edt(() -> ((javax.swing.JMenuItem) c).doClick());
         }
       }
       for (int i = 0; i < 200 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("exit")); i++) Thread.sleep(50);
@@ -5684,6 +5685,74 @@ public final class DesktopBehavior {
     out.append("playlists: ").append(Playlist.names(dir)).append('\n');
     if (!addOk || !editorOk || !moveOk || !viewerOk || !mergeOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
   }
+  /**
+   * A video's gallery menu has Add to playlist and Add to default playlist, then Cancel; the Media
+   * browser's Add to playlist is right under Add to default playlist; Picture ready's right click and
+   * Video ready have Add to playlist.
+   */
+  void s130_playlist_menus_cancel() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    final File dir = PromptDb.dir();
+    PromptDb.vault().addLibraryFile("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, "Imported", 1);
+    PromptVault.StoredFile walk = null;
+    for (PromptVault.StoredFile f : PromptDb.files(false, null)) if (f.name.equals("walk.mp4")) walk = f;
+    final PromptVault.StoredFile video = walk;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(0));
+    for (int i = 0; i < 100 && get("lastGallery") == null; i++) Thread.sleep(100);
+    idle();
+    final JDialog gallery = (JDialog) get("lastGallery");
+    final javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:walk.mp4");
+    edt(() -> db.menu(video, card, () -> {}));
+    edt(() -> db.lastFileMenu.setVisible(false));
+    edt(() -> gallery.dispose());
+    java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      return sb.toString();
+    };
+    Component[] cs = db.lastFileMenu.getComponents();
+    out.append("video's gallery menu: ").append(items.apply(db.lastFileMenu)).append('\n');
+    boolean galleryOk = component(db.lastFileMenu, "add-to-playlist") != null && component(db.lastFileMenu, "add-to-default-playlist") != null && MenuCancel.NAME.equals(cs[cs.length - 1].getName());
+    // The Media browser's file menu.
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    File pics = new File(System.getProperty("user.home"), "pics");
+    pics.mkdirs();
+    final File sea = new File(pics, "sea.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", sea);
+    final MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "sea.png";
+    e.id = sea.getAbsolutePath();
+    e.kind = MediaDir.PICTURE;
+    e.size = sea.length();
+    edt(() -> mb.menu(e, sea, new javax.swing.JButton(), 0, 0));
+    Component[] mc = mb.lastMenu.getComponents();
+    int def = -1;
+    for (int i = 0; i < mc.length; i++) if (mc[i] instanceof javax.swing.JMenuItem && MediaDir.MENU[2].equals(((javax.swing.JMenuItem) mc[i]).getText())) def = i;
+    out.append("Media browser menu: ").append(items.apply(mb.lastMenu)).append('\n');
+    boolean mediaOk = def >= 0 && "add-to-playlist".equals(mc[def + 1].getName()) && MenuCancel.NAME.equals(mc[mc.length - 1].getName());
+    // Picture ready's right click menu (a run's file).
+    final javax.swing.JPopupMenu[] ready = new javax.swing.JPopupMenu[1];
+    edt(() -> ready[0] = GroupMenus.fileMenu((Pulsekit) frame, sea));
+    out.append("Picture ready menu: ").append(items.apply(ready[0])).append('\n');
+    boolean readyOk = component(ready[0], "add-to-playlist") != null;
+    // Video ready: Add to playlist, Default (OK), then Close.
+    File runs = new File(System.getProperty("user.home"), "runs");
+    runs.mkdirs();
+    final File clip = new File(runs, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    final PyJav pj = (PyJav) get("pyJav");
+    answers.add(Playlist.ADD);
+    answers.add("OK");
+    answers.add("Close");
+    edt(() -> pj.offerVideo(clip, 1));
+    idle();
+    Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
+    out.append("Video ready: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    boolean videoOk = def2.items.size() == 1 && clip.getAbsolutePath().equals(def2.items.get(0).file);
+    if (!galleryOk || !mediaOk || !readyOk || !videoOk) throw new AssertionError(out.toString());
+  }
+
 
 
 

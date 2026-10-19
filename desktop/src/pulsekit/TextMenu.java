@@ -73,6 +73,7 @@ final class TextMenu {
         if (field.isEditable()) menu.add(cut);
         menu.add(copy);
         if (field.isEditable()) menu.add(paste);
+        MenuCancel.add(menu);
         return menu;
     }
 

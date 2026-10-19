@@ -512,6 +512,15 @@ public final class MediaDir {
   private static final int DB_MAX = 128 * 1024 * 1024;
 
   /** The menu a file's card has (a long press, or a right click on the desktop). */
+  /** A file's menu with `item` (Add to playlist…) right under Add to (or Remove from) default playlist; at the end when that is not there. */
+  public static String[] withPlaylistItem(String[] menu, String item) {
+    List<String> out = new ArrayList<String>(java.util.Arrays.asList(menu));
+    int at = out.indexOf(MENU[2]);
+    if (at < 0) at = out.indexOf(MENU_LISTED[2]);
+    out.add(at < 0 ? out.size() : at + 1, item);
+    return out.toArray(new String[0]);
+  }
+
   public static final String[] MENU = {"Add to DB Reference files", "Add to DB result files", "Add to default playlist"};
 
   /** The menu for a file already in the playlist: its third item takes it out. */

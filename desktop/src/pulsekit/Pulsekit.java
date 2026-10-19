@@ -660,6 +660,7 @@ public final class Pulsekit extends UiKit {
             menu.add(midi);
             menu.add(compare);
             menu.add(help);
+            MenuCancel.add(menu);
             menu.show(jButton, 0, jButton.getHeight());
         });
         jPanel.add(jButton);

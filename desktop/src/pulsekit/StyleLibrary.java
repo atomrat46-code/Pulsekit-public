@@ -204,6 +204,7 @@ final class StyleLibrary {
         m.add(a);
         m.add(b);
         m.add(c);
+        MenuCancel.add(m);
         return m;
     }
 
@@ -306,6 +307,7 @@ final class StyleLibrary {
             this.addFillernItems(sub.getPopupMenu(), () -> this.loadLearned(it.id), this.patternKeyFor(it.id));
             m.add(sub);
         }
+        MenuCancel.add(m);
         m.show(anchor, 0, anchor.getHeight());
     }
 
@@ -453,6 +455,7 @@ final class StyleLibrary {
         m.add(dup);
         m.add(hide);
         this.addFillernAfterEdit(m, () -> this.loadStyle(sid, false), this.patternKeyFor(sid));
+        MenuCancel.add(m);
         return m;
     }
 
@@ -469,6 +472,7 @@ final class StyleLibrary {
         m.add(ren);
         m.add(del);
         this.addFillernAfterEdit(m, () -> this.loadLearned(item.id), this.patternKeyFor(item.id));
+        MenuCancel.add(m);
         return m;
     }
 
@@ -481,6 +485,7 @@ final class StyleLibrary {
         del.addActionListener(e -> this.removeLearnedFill(item.id));
         m.add(ren);
         m.add(del);
+        MenuCancel.add(m);
         return m;
     }
 
@@ -596,6 +601,7 @@ final class StyleLibrary {
                 m.add(ren);
                 m.add(del);
                 this.addFillernAfterEdit(m, () -> this.loadStyle(it.id, false), this.patternKeyFor(it.id));
+                MenuCancel.add(m);
                 return m;
             });
             app.variatedPatternBar.add(b);
@@ -686,6 +692,7 @@ final class StyleLibrary {
                     app.setNow("Variation deleted");
                 });
                 m.add(del);
+                MenuCancel.add(m);
                 return m;
             });
             app.variatedFillBar.add(b);
@@ -834,6 +841,7 @@ final class StyleLibrary {
             JMenuItem del = new JMenuItem(deleteLabel);
             del.addActionListener(ev -> onDelete.run());
             m.add(del);
+            MenuCancel.add(m);
             return m;
         });
         pack.add(head);
@@ -941,6 +949,7 @@ final class StyleLibrary {
         JMenuItem hide = new JMenuItem("Hide");
         hide.addActionListener(e -> this.hideFill(fillId));
         m.add(hide);
+        MenuCancel.add(m);
         m.show(anchor, 0, anchor.getHeight());
     }
 
@@ -955,6 +964,7 @@ final class StyleLibrary {
             it.addActionListener(e -> this.copyFillToFileSet(fid, source, false));
             m.add(it);
         }
+        MenuCancel.add(m);
         m.show(anchor, 0, anchor.getHeight());
     }
 

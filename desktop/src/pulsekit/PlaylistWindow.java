@@ -322,6 +322,19 @@ final class PlaylistWindow {
         return m;
     }
 
+    /** Add to playlist as a question of its own (Video ready): the playlists, then New playlist…. */
+    static void askAdd(Pulsekit app, String file, String title) {
+        String[] rows = Playlist.menu(PromptDb.dir());
+        Object picked = JOptionPane.showInputDialog(app, "Playlist for " + title, Playlist.ADD.replace("\u2026", ""), JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
+        if (picked == null) return;
+        String name = picked.toString();
+        if (Playlist.NEW.equals(name)) {
+            name = ask(app, Playlist.NEW, "");
+            if (name == null) return;
+        }
+        app.setNow(Playlist.addTo(PromptDb.dir(), name, file, title));
+    }
+
     /** "Add to default playlist": at the end of Default. */
     static JMenuItem addDefaultItem(final Pulsekit app, final String file, final String title) {
         JMenuItem item = new JMenuItem(Playlist.ADD_DEFAULT);
@@ -488,6 +501,7 @@ final class PlaylistWindow {
         });
         m.add(remove);
         lastMenu = m;
+        MenuCancel.add(m);
         if (where != null && where.isShowing()) m.show(where, 0, where.getHeight());
     }
 

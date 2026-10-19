@@ -8722,6 +8722,74 @@ public class BehaviorTest {
     if (!modelOk || !addOk || !editorOk || !moveOk || !viewerOk || !autoOk || !keptOk || !tabOk || !runOk || !savePlsOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A video in the Ref files gallery: its long press has the whole menu (Add to playlist, Add to
+   * default playlist), with Cancel. The Media browser's Add to playlist is right under Add to default
+   * playlist. Picture ready's long press: Add to playlist (the picture kept beside the playlists).
+   */
+  @Test
+  public void s153_playlist_menus_cancel() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileGroups.reset();
+    FileFavourites.reset();
+    DbFilter.current = "A";
+    File dir = app.getFilesDir();
+    DbImport.store(app, "walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, false);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    for (int i = 0; i < 10; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    View caption = pane.findViewWithTag("refs-name:walk.mp4");
+    ((View) caption.getParent()).performLongClick();
+    idle();
+    String videoMenu = listItems(PromptSheet.lastFileMenu);
+    boolean cancel = PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE) != null && "Cancel".contentEquals(PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE).getText());
+    out.append("video's menu: ").append(videoMenu).append(" | Cancel ").append(cancel).append('\n');
+    int add = java.util.Arrays.asList(videoMenu.split(" \\| ")).indexOf(Playlist.ADD);
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(add + 1);
+    idle();
+    out.append("Add to default playlist: ").append(((TextView) get("now")).getText()).append('\n');
+    boolean galleryOk = videoMenu.contains(Playlist.ADD) && videoMenu.contains(Playlist.ADD_DEFAULT) && cancel && Playlist.load(dir, Playlist.DEFAULT).items.size() == 1;
+    refsOpen.set(null, false);
+    // The Media browser: Add to playlist right under Add to default playlist.
+    String[] media = MediaDir.withPlaylistItem(MediaDir.menu(false, MediaDir.PICTURE, true, "sea.png", false), Playlist.ADD);
+    int def = java.util.Arrays.asList(media).indexOf(MediaDir.MENU[2]);
+    out.append("Media browser menu: ").append(String.join(" | ", media)).append('\n');
+    boolean mediaOk = def >= 0 && Playlist.ADD.equals(media[def + 1]);
+    // Picture ready: Add to playlist.
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("look.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: look.png", files, 0));
+    idle();
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
+    idle();
+    String readyMenu = listItems(PictureOffer.menu);
+    out.append("Picture ready menu: ").append(readyMenu).append('\n');
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(4);
+    idle();
+    out.append("its list: ").append(listItems(PlaylistScreen.lastAsk)).append('\n');
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
+    String kept = def2.items.get(def2.items.size() - 1).file;
+    out.append("added: ").append(((TextView) get("now")).getText()).append(", kept ").append(kept.replace(dir.getAbsolutePath(), "<files>")).append(", there ").append(new File(kept).isFile()).append('\n');
+    boolean readyOk = readyMenu.endsWith(Playlist.ADD) && def2.items.size() == 2 && new File(kept).isFile();
+    PictureOffer.last.dismiss();
+    write("s153_playlist_menus_cancel", out.toString());
+    if (!galleryOk || !mediaOk || !readyOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

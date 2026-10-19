@@ -308,6 +308,7 @@ final class GridEditor {
             } catch (Exception ignored) { /* */ }
         });
         menu.add(custom);
+        MenuCancel.add(menu);
         menu.show(btn, 0, btn.getHeight());
     }
 

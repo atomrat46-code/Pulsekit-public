@@ -1336,11 +1336,11 @@ final class PyJav {
         // With VLC the video plays here (right click: Extract frame); without it, in the browser.
         boolean vlc = VlcPlayer.available();
         int ans;
-        // Add to favourites and Add to group come back to the question.
+        // Add to favourites, Add to group, the tags, the category and Add to playlist come back to the question.
         while (true) {
             FileFavourites.load(PromptDb.dir());
             Object[] options = new Object[] {"Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, "Close"};
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, "Close"};
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
@@ -1349,6 +1349,7 @@ final class PyJav {
             else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName());
             else if (ans == 4) TagDialogs.tags(app, app, video.getName(), video.length(), null);
             else if (ans == 5) TagDialogs.category(app, app, video.getName(), video.length(), null);
+            else if (ans == 6) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
         }
         try {
@@ -1536,6 +1537,7 @@ final class PyJav {
             });
             menu.add(item);
         }
+        MenuCancel.add(menu);
         return menu;
     }
 
@@ -1558,6 +1560,7 @@ final class PyJav {
         star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
         menu.addSeparator();
         menu.add(star);
+        MenuCancel.add(menu);
         return menu;
     }
 

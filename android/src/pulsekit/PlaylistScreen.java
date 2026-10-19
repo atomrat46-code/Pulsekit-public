@@ -641,6 +641,37 @@ final class PlaylistScreen {
         }).setNegativeButton("Cancel", null).show();
     }
 
+    /**
+     * A run's file (Picture ready, Video ready: it may be a temporary copy) kept beside the playlists
+     * (playlists/files), so a playlist finds it later; its path, or null when it cannot be kept. The
+     * same file (name and size) kept before is used again.
+     */
+    static String keep(MainActivity app, String name, byte[] bytes, File from) {
+        try {
+            File dir = new File(Playlist.folder(app.getFilesDir()), "files");
+            dir.mkdirs();
+            long size = bytes != null ? bytes.length : from == null ? -1 : from.length();
+            String base = Playlist.shortName(name);
+            File to = new File(dir, base);
+            int dot = base.lastIndexOf('.');
+            for (int n = 2; to.exists() && to.length() != size; n++) to = new File(dir, (dot > 0 ? base.substring(0, dot) : base) + " (" + n + ")" + (dot > 0 ? base.substring(dot) : ""));
+            if (!to.exists()) {
+                if (bytes != null) java.nio.file.Files.write(to.toPath(), bytes);
+                else java.nio.file.Files.copy(from.toPath(), to.toPath());
+            }
+            return to.getAbsolutePath();
+        } catch (Exception ex) {
+            app.setNow("Could not keep " + name + " for a playlist: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    /** Add to playlist for a run's file (Picture ready, Video ready): kept beside the playlists, then the list of playlists. */
+    static void addReady(MainActivity app, String name, byte[] bytes, File from) {
+        String path = keep(app, name, bytes, from);
+        if (path != null) addTo(app, path, name);
+    }
+
     static void addToDefault(MainActivity app, String file, String title) {
         app.setNow(Playlist.addTo(app.getFilesDir(), Playlist.DEFAULT, file, title));
     }

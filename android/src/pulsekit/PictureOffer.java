@@ -50,8 +50,9 @@ final class PictureOffer {
                 menu = new AlertDialog.Builder(app)
                     .setTitle(pic.name)
                     .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY}, (d, w) -> {
-                        if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
+                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, (d, w) -> {
+                        if (w == 4) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
+                        else if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
                         else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null);
                         else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null);
                         else TagDialogs.category(app, pic.name, pic.bytes.length, null);

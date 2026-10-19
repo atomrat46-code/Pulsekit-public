@@ -608,7 +608,7 @@ final class StyleLibrary {
                 app.persistence.persistLearned();
                 this.syncVariatedEmpty();
                 app.setNow("Variation deleted");
-            }).show();
+            }).setNegativeButton("Cancel", null).show();
             return true;
         });
         app.variatedFillBar.addView((View)textView);
@@ -911,7 +911,7 @@ final class StyleLibrary {
                     app.importLibrary.rebuildImportedFills();
                     app.setNow("Fill deleted");
                 }
-            }).show();
+            }).setNegativeButton("Cancel", null).show();
             return true;
         });
     }
