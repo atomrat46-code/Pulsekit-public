@@ -8,7 +8,9 @@ OUT=build/snapshots
 JAR=../build/Pulsekit.jar
 rm -rf build/classes "$OUT"
 mkdir -p build/classes "$OUT"
-javac -nowarn -cp "$JAR" -d build/classes pulsekit/DesktopBehavior.java
+# Java 8 class files: the suite runs on Java 8 too (JAVA=/path/to/java8/bin/java).
+javac --release 8 -nowarn -cp "$JAR" -d build/classes pulsekit/DesktopBehavior.java
+JAVA="${JAVA:-java}"
 if [ -z "$DISPLAY" ]; then
   # Start Xvfb unless one is running on :93 (a lock file alone may be left from a stopped one).
   if ! { [ -e /tmp/.X93-lock ] && kill -0 "$(tr -d ' ' < /tmp/.X93-lock)" 2>/dev/null; }; then
@@ -27,7 +29,7 @@ for s in $SCENARIOS; do
     *) home="build/home-$s"; rm -rf "$home";;
   esac
   mkdir -p "$home"
-  if timeout 120 java -Djava.awt.headless=false -Duser.home="$PWD/$home" -Dpulsekit.test.dir="$PWD" -cp "$JAR:build/classes" pulsekit.DesktopBehavior "$s" "$OUT" >/dev/null 2>&1; then
+  if timeout 120 "$JAVA" -Djava.awt.headless=false -Duser.home="$PWD/$home" -Dpulsekit.test.dir="$PWD" -cp "$JAR:build/classes" pulsekit.DesktopBehavior "$s" "$OUT" >/dev/null 2>&1; then
     echo "ok   $s"
   else
     echo "FAIL $s"; fail=1

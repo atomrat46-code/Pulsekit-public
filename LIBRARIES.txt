@@ -7,7 +7,7 @@ Hashes are SHA-256 of the jars in this workspace.
 PLATFORM (not third-party jars)
 -------------------------------
 Desktop JAR
-  JDK 17. Compile: javac --release 17, classpath adds JLayer and JNA.
+  JDK 11+. Compile: javac --release 8 (the jar runs on Java 8 and newer), classpath adds JLayer and JNA.
   UI: javax.swing.* and java.awt.* imported by desktop/src/pulsekit/Pulsekit.java
   MIDI playback: javax.sound.midi.* from the JDK (Pulsekit.java lines 39–48).
   Entry: desktop/MANIFEST.MF  Main-Class: pulsekit.Pulsekit

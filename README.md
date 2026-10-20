@@ -17,7 +17,7 @@ See `LIBRARIES.txt` for the third-party pieces and where they are used.
 
 ## Building
 
-Desktop (JDK 17+):
+Desktop (build with JDK 11+; the jar runs on Java 8 or newer):
 
     desktop/build.sh              # -> desktop/build/Pulsekit.jar
     java -jar desktop/build/Pulsekit.jar

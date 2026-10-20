@@ -601,7 +601,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
       byte[] reply;
       String type = "application/json";
@@ -714,7 +714,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
               : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+", "data:image/$1;base64,...")));
@@ -943,7 +943,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
               : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB")));
@@ -1402,11 +1402,11 @@ public final class DesktopBehavior {
     out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
     String base = opened.get(0).toString().replace("/page", "/");
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "page").openConnection();
-    String page = new String(c.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    String page = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
     out.append("page: ").append(c.getResponseCode()).append(", title ").append(page.contains("<title>Frames \u00b7 My clip.mp4</title>")).append('\n');
     c = (java.net.HttpURLConnection) new java.net.URL(base + "video").openConnection();
     c.setRequestProperty("Range", "bytes=100-199");
-    byte[] part = c.getInputStream().readAllBytes();
+    byte[] part = readAll(c.getInputStream());
     out.append("range: ").append(c.getResponseCode()).append(' ').append(c.getHeaderField("Content-Range")).append(", ").append(part.length)
         .append(" bytes, first ").append(part[0] & 0xff).append(", type ").append(c.getContentType()).append('\n');
     c = (java.net.HttpURLConnection) new java.net.URL(base.replaceAll("/[0-9a-f]{32}/", "/0123/") + "page").openConnection();
@@ -1455,7 +1455,7 @@ public final class DesktopBehavior {
     out.append("opened: ").append(opened.size()).append(", status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
     String base = opened.get(0).toString().replace("/page", "/");
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "video/0").openConnection();
-    out.append("video 0: ").append(c.getResponseCode()).append(' ').append(c.getContentType()).append(", ").append(c.getInputStream().readAllBytes().length).append(" bytes\n");
+    out.append("video 0: ").append(c.getResponseCode()).append(' ').append(c.getContentType()).append(", ").append(readAll(c.getInputStream()).length).append(" bytes\n");
     c = (java.net.HttpURLConnection) new java.net.URL(base + "video/1").openConnection();
     out.append("video 1: ").append(c.getResponseCode()).append('\n');
     java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB);
@@ -1767,7 +1767,7 @@ public final class DesktopBehavior {
     final boolean[] filterOff = new boolean[1];
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       String reply;
       if (path.equals("/v1/creative-agent/workflows")) {
         bodies.add(body);
@@ -1926,7 +1926,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2588,7 +2588,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2680,7 +2680,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2775,7 +2775,7 @@ public final class DesktopBehavior {
     final byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath());
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2998,7 +2998,7 @@ public final class DesktopBehavior {
     com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] bytes = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Try a snare roll into the crash.\"}}]}".getBytes(StandardCharsets.UTF_8);
       ex.getResponseHeaders().set("Content-Type", "application/json");
       ex.sendResponseHeaders(200, bytes.length);
@@ -3504,7 +3504,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -3814,7 +3814,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] reply;
       String type = "application/json";
       if (path.endsWith("/events/stream")) {
@@ -6664,6 +6664,14 @@ public final class DesktopBehavior {
         .append(" | unticked off ").append(off).append('\n');
     boolean rest = tabGone && tabBack && on && locked && refused && greyed && stillLocked && open && off && !AppSettings.locked();
     if (!typesOk || !rest) throw new AssertionError(out.toString());
+  }
+
+  /** A stream read whole (InputStream.readAllBytes is newer than Java 8, which the suite also runs on). */
+  private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    byte[] buf = new byte[8192];
+    for (int k; (k = in.read(buf)) > 0; ) out.write(buf, 0, k);
+    return out.toByteArray();
   }
 
   private static MediaDir.Entry entryOf(File f) {
