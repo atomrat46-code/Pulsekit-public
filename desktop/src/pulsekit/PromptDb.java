@@ -660,7 +660,8 @@ final class PromptDb {
         java.util.List<java.awt.Image> parts = new java.util.ArrayList<java.awt.Image>();
         for (int which = 1; which <= 3; which++) {
             String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
-            if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0) continue;
+            // A type General settings leaves out: no thumbnail.
+            if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0 || !AppSettings.showsFile(n)) continue;
             ImageIcon one = thumb(n, vault.fileBytes(v.id, which));
             if (one == null) continue;
             int w = one.getIconWidth(), h = one.getIconHeight();
@@ -695,7 +696,7 @@ final class PromptDb {
         if (owner != null) {
             for (int which = 1; which <= 3; which++) {
                 final String n = which == 1 ? owner.ref1Name : which == 2 ? owner.ref2Name : owner.resultName;
-                if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0) continue;
+                if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0 || !AppSettings.showsFile(n)) continue;
                 final byte[] b = vault.fileBytes(owner.id, which);
                 ImageIcon icon = thumb(n, b);
                 JButton t = new JButton((which == 3 ? "Result" : "Ref " + which) + ": " + n, icon);
@@ -874,7 +875,7 @@ final class PromptDb {
         sortRow.add(sort);
         // A I V S T: all files, or only pictures, videos, sound files or text files.
         sortRow.add(javax.swing.Box.createHorizontalStrut(12));
-        galleryFilter = FileFilter.normal(galleryFilter);
+        galleryFilter = AppSettings.letter(FileFilter.normal(galleryFilter));
         final Runnable againGallery = () -> {
             dialog.dispose();
             this.gallery(kind);

@@ -95,7 +95,57 @@ final class GeneralSettings {
         }
         more.add(note("A type unticked is not shown in the thumbnail screens (Browse DB, the Reference, Result and Prompt files, the\n"
             + "Media browser), its letter is not there either, and a playlist with files of that type shows the others only."));
+        // Tabs: the DB/Prompts tab shown or not.
+        more.add(headline("Tabs"));
+        final JCheckBox promptsTab = new JCheckBox(AppSettings.SHOW_PROMPTS_TAB, AppSettings.showPromptsTab());
+        promptsTab.setName("settings-show-prompts-tab");
+        promptsTab.addActionListener(e -> {
+            AppSettings.setShowPromptsTab(promptsTab.isSelected());
+            if (!promptsTab.isSelected() && "prompts".equals(app.view)) app.showView("py");
+            app.refreshTabs();
+            app.setNow(promptsTab.isSelected() ? "The DB/Prompts tab is shown" : "No DB/Prompts tab (File > Import as Ref file and the galleries still reach the DB)");
+        });
+        more.add(promptsTab);
+        // Security: the settings master password.
+        more.add(headline("Security"));
+        final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());
+        master.setName("settings-master");
+        master.addActionListener(e -> {
+            if (master.isSelected() == AppSettings.masterOn()) return;
+            if (!master.isSelected()) {
+                AppSettings.clearMaster();
+                app.setNow("Settings master password off: the settings are open");
+                return;
+            }
+            char[] pw = askMaster(dialog);
+            if (pw == null) {
+                master.setSelected(false);
+                return;
+            }
+            try {
+                AppSettings.setMaster(pw);
+                app.setNow("Settings master password on: the settings are locked when they close");
+            } catch (Exception ex) {
+                master.setSelected(false);
+                app.setNow(ex.getMessage());
+            }
+        });
+        more.add(master);
+        more.add(note(AppSettings.MASTER_NOTE.replace("; unticked", ";\nunticked")));
         for (java.awt.Component c : more.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
+        // Settings master password: everything greyed until Unlock settings is given the password.
+        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, master);
+        final java.util.List<javax.swing.JComponent> all2 = new java.util.ArrayList<javax.swing.JComponent>(controls);
+        for (java.awt.Component c : more.getComponents()) if (c instanceof JCheckBox && !all2.contains(c)) all2.add((JCheckBox) c);
+        JPanel lockRow = unlockRow(app, dialog, () -> lock(all2));
+        if (lockRow != null) middle.add(lockRow, BorderLayout.NORTH);
+        lock(all2);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                AppSettings.relock();
+            }
+        });
         JPanel all = new JPanel(new BorderLayout(0, 8));
         all.add(middle, BorderLayout.NORTH);
         all.add(more, BorderLayout.CENTER);
@@ -109,6 +159,66 @@ final class GeneralSettings {
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         dialog.setVisible(true);
+    }
+
+    /** The answers the tests give to the master password questions (null: ask). */
+    static java.util.function.Function<String, String> answer;
+
+    /** The settings' controls greyed while the master password locks them (Show only music and chat also needs the Sogni tools). */
+    static void lock(java.util.List<javax.swing.JComponent> controls) {
+        boolean open = !AppSettings.locked();
+        for (javax.swing.JComponent c : controls) c.setEnabled(open && (!"settings-sogni-music-only".equals(c.getName()) || AppSettings.showSogni()));
+    }
+
+    /** With a master password: a note and Unlock settings…, which asks it and (given right) runs `unlocked`; null without one. */
+    static JPanel unlockRow(final Pulsekit app, final java.awt.Component parent, final Runnable unlocked) {
+        if (!AppSettings.masterOn()) return null;
+        final JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.add(new javax.swing.JLabel(AppSettings.LOCKED_NOTE), BorderLayout.CENTER);
+        final JButton unlock = new JButton(AppSettings.UNLOCK);
+        unlock.setName("settings-unlock");
+        unlock.addActionListener(e -> {
+            String typed;
+            if (answer != null) typed = answer.apply(AppSettings.UNLOCK);
+            else {
+                javax.swing.JPasswordField pw = new javax.swing.JPasswordField(20);
+                pw.setName("settings-master-password");
+                typed = javax.swing.JOptionPane.showConfirmDialog(parent, pw, "Master password", javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                    javax.swing.JOptionPane.PLAIN_MESSAGE) == javax.swing.JOptionPane.OK_OPTION ? new String(pw.getPassword()) : null;
+            }
+            if (typed == null) return;
+            if (!AppSettings.unlock(typed.toCharArray())) {
+                app.setNow("Wrong master password: the settings stay locked");
+                return;
+            }
+            app.setNow("Settings unlocked");
+            unlock.setEnabled(false);
+            unlocked.run();
+        });
+        row.add(unlock, BorderLayout.EAST);
+        return row;
+    }
+
+    /** Settings master password ticked: the password twice; null when cancelled or not the same. */
+    static char[] askMaster(java.awt.Component parent) {
+        if (answer != null) {
+            String a = answer.apply(AppSettings.MASTER);
+            return a == null ? null : a.toCharArray();
+        }
+        while (true) {
+            javax.swing.JPasswordField pw = new javax.swing.JPasswordField(20);
+            pw.setName("settings-master-new");
+            javax.swing.JPasswordField again = new javax.swing.JPasswordField(20);
+            again.setName("settings-master-again");
+            JPanel panel = new JPanel(new java.awt.GridLayout(0, 1, 0, 4));
+            panel.add(new javax.swing.JLabel("The settings are changed only after this password is given. At least " + AppSettings.MASTER_MIN + " characters."));
+            panel.add(pw);
+            panel.add(again);
+            if (javax.swing.JOptionPane.showConfirmDialog(parent, panel, AppSettings.MASTER, javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return null;
+            if (java.util.Arrays.equals(pw.getPassword(), again.getPassword())) return pw.getPassword();
+            javax.swing.JOptionPane.showMessageDialog(parent, "The passwords are not the same");
+        }
     }
 
     /** A section's headline ("Sogni", "File types"). */

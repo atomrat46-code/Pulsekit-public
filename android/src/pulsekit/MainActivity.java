@@ -1214,6 +1214,8 @@ public class MainActivity extends UiKit {
             boolean on = this.view.equals(tag)
                     || (DRUM_TRACKS.equals(tag) && drumView(this.view))
                     || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
+            // General settings > Show DB/Prompts tab.
+            if ("prompts".equals(tag)) tab.setVisibility(AppSettings.showPromptsTab() ? android.view.View.VISIBLE : android.view.View.GONE);
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }

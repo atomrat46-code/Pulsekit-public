@@ -50,6 +50,7 @@ public final class AppSettings {
   public static synchronized void reset() {
     VALUES.clear();
     at = null;
+    unlocked = false;
   }
 
   private static synchronized boolean flag(String key, boolean otherwise) {
@@ -58,7 +59,14 @@ public final class AppSettings {
   }
 
   private static synchronized void set(String key, boolean on) {
-    VALUES.put(key, String.valueOf(on));
+    // Settings master password on: nothing is changed until it is given (unlock).
+    if (locked()) return;
+    put(key, String.valueOf(on));
+  }
+
+  private static synchronized void put(String key, String value) {
+    if (value == null) VALUES.remove(key);
+    else VALUES.put(key, value);
     if (at == null) return;
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, String> e : VALUES.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
@@ -68,6 +76,92 @@ public final class AppSettings {
     } catch (Exception ignored) {
       // kept while the program runs
     }
+  }
+
+  // ------------------------------------------------------------ Show DB/Prompts tab
+
+  public static final String SHOW_PROMPTS_TAB = "Show DB/Prompts tab";
+
+  public static boolean showPromptsTab() {
+    return flag("promptsTab", true);
+  }
+
+  public static void setShowPromptsTab(boolean on) {
+    set("promptsTab", on);
+  }
+
+  // ------------------------------------------------------------ Settings master password
+
+  public static final String MASTER = "Settings master password";
+  public static final String MASTER_NOTE = "Ticked, the settings (General settings, Database settings) are changed only after the master password "
+      + "is given (Unlock settings); unticked again with the password known, they are open again.";
+  public static final String UNLOCK = "Unlock settings\u2026";
+  public static final String LOCKED_NOTE = "The settings are locked with the master password: Unlock settings to change them.";
+  public static final int MASTER_MIN = 4;
+  /** The master password was given while the settings are open (they lock again when closed). */
+  private static volatile boolean unlocked;
+
+  /** Whether a master password is set. */
+  public static synchronized boolean masterOn() {
+    String h = VALUES.get("masterHash");
+    return h != null && h.length() > 0;
+  }
+
+  /** A master password is set and was not given yet: the settings are not changed. */
+  public static boolean locked() {
+    return masterOn() && !unlocked;
+  }
+
+  /** The settings closed: locked again. */
+  public static void relock() {
+    unlocked = false;
+  }
+
+  /** Whether `pw` is the master password; given right, the settings are unlocked. */
+  public static synchronized boolean unlock(char[] pw) {
+    if (!masterOn()) return true;
+    try {
+      byte[] salt = hex(VALUES.get("masterSalt"));
+      boolean ok = java.security.MessageDigest.isEqual(hex(VALUES.get("masterHash")), hash(pw, salt));
+      if (ok) unlocked = true;
+      return ok;
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
+  /** Settings master password ticked: the password (only its salted hash is kept); unlocked while the settings stay open. */
+  public static synchronized void setMaster(char[] pw) throws Exception {
+    if (pw == null || pw.length < MASTER_MIN) throw new IllegalArgumentException("The master password needs at least " + MASTER_MIN + " characters");
+    if (locked()) throw new IllegalStateException(LOCKED_NOTE);
+    byte[] salt = new byte[16];
+    new java.security.SecureRandom().nextBytes(salt);
+    VALUES.put("masterSalt", hexOf(salt));
+    put("masterHash", hexOf(hash(pw, salt)));
+    unlocked = true;
+  }
+
+  /** Settings master password unticked (the password given): the settings are open again. */
+  public static synchronized void clearMaster() {
+    if (locked()) return;
+    VALUES.remove("masterSalt");
+    put("masterHash", null);
+  }
+
+  private static byte[] hash(char[] pw, byte[] salt) throws Exception {
+    return ZipPack.pbkdf2(new String(pw).getBytes(StandardCharsets.UTF_8), salt, 20000, 32);
+  }
+
+  private static String hexOf(byte[] b) {
+    StringBuilder sb = new StringBuilder();
+    for (byte x : b) sb.append(String.format("%02x", x & 0xff));
+    return sb.toString();
+  }
+
+  private static byte[] hex(String h) {
+    byte[] b = new byte[h.length() / 2];
+    for (int i = 0; i < b.length; i++) b[i] = (byte) Integer.parseInt(h.substring(2 * i, 2 * i + 2), 16);
+    return b;
   }
 
   public static boolean showSogni() {

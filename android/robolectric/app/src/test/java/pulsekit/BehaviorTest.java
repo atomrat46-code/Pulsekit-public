@@ -9891,6 +9891,122 @@ public class BehaviorTest {
     if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Notes 20102026_6: Show images and Show videos unticked keep pictures and videos out of the Ref
+   * files gallery and a prompt's Reference file thumbnail; Show DB/Prompts tab; the settings
+   * master password (set twice, the settings locked when closed, Unlock settings, off again).
+   */
+  @Test
+  public void s164_hidden_types_prompts_tab_master_password() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    AppSettings.load(dir);
+    AppSettings.setShows("I", false);
+    AppSettings.setShows("V", false);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "face.png", png.toByteArray(), false);
+    DbImport.store(app, "walk.mp4", new byte[2000], false);
+    DbImport.store(app, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8), false);
+    android.widget.LinearLayout gallery = PromptSheet.create(app);
+    idle();
+    findText(gallery, "Ref files").performClick();
+    idle();
+    View root = gallery;
+    String cards = (root.findViewWithTag("refs-name:face.png") != null ? "face.png " : "") + (root.findViewWithTag("refs-name:walk.mp4") != null ? "walk.mp4 " : "")
+        + (root.findViewWithTag("refs-name:notes.txt") != null ? "notes.txt" : "");
+    // A prompt's Reference file 1 (a picture): no thumbnail.
+    PromptVault vault = PromptVault.open(dir);
+    long id = vault.addPrompt(vault.categories().get(0).id, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    android.widget.ImageView t1 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:1");
+    boolean thumbHidden = t1 == null || t1.getVisibility() != View.VISIBLE;
+    pid.set(null, 0L);
+    out.append("Ref files with images and videos off: ").append(cards.trim()).append(" | Reference file 1 thumbnail hidden ").append(thumbHidden).append('\n');
+    boolean typesOk = cards.trim().equals("notes.txt") && thumbHidden;
+    AppSettings.setShows("I", true);
+    AppSettings.setShows("V", true);
+    // Show DB/Prompts tab.
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-prompts-tab")).setChecked(false);
+    idle();
+    View tab = null;
+    for (TextView t : app.tabs) if ("prompts".equals(t.getTag())) tab = t;
+    boolean tabGone = tab != null && tab.getVisibility() == View.GONE;
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-prompts-tab")).setChecked(true);
+    idle();
+    boolean tabBack = tab != null && tab.getVisibility() == View.VISIBLE;
+    out.append("DB/Prompts tab: unticked gone ").append(tabGone).append(", ticked shown ").append(tabBack).append('\n');
+    boolean tabOk = tabGone && tabBack;
+    // Settings master password: set twice (not the same first), then the settings close locked.
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-master")).setChecked(true);
+    idle();
+    View mv = GeneralSettings.lastUnlock.getWindow().getDecorView();
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-new")).setText("open sesame");
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-again")).setText("open sesam");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String notSame = ((TextView) get("now")).getText().toString();
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-again")).setText("open sesame");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean on = AppSettings.masterOn();
+    GeneralSettings.last.dismiss();
+    idle();
+    boolean locked = AppSettings.locked();
+    AppSettings.setShows("V", false);
+    boolean refused = AppSettings.shows("V");
+    GeneralSettings.show(app);
+    idle();
+    gv = GeneralSettings.last.getWindow().getDecorView();
+    boolean greyed = !gv.findViewWithTag("settings-show-sogni").isEnabled() && !gv.findViewWithTag("settings-master").isEnabled();
+    DbSettings.show(app);
+    idle();
+    boolean dbGreyed = !DbSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted").isEnabled();
+    DbSettings.last.dismiss();
+    idle();
+    // Unlock settings: a wrong password first.
+    gv.findViewWithTag("settings-unlock").performClick();
+    idle();
+    ((android.widget.EditText) GeneralSettings.lastUnlock.getWindow().getDecorView().findViewWithTag("settings-master-password")).setText("wrong");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean stillLocked = AppSettings.locked() && !gv.findViewWithTag("settings-show-sogni").isEnabled();
+    gv.findViewWithTag("settings-unlock").performClick();
+    idle();
+    ((android.widget.EditText) GeneralSettings.lastUnlock.getWindow().getDecorView().findViewWithTag("settings-master-password")).setText("open sesame");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean open = !AppSettings.locked() && gv.findViewWithTag("settings-show-sogni").isEnabled();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-master")).setChecked(false);
+    idle();
+    boolean off = !AppSettings.masterOn();
+    GeneralSettings.last.dismiss();
+    idle();
+    out.append("master: not the same -> ").append(notSame).append(" | on ").append(on).append(", closed locked ").append(locked).append(", a change refused ").append(refused)
+        .append(", greyed ").append(greyed).append(" (Database settings ").append(dbGreyed).append(") | wrong password still locked ").append(stillLocked)
+        .append(" | unlocked ").append(open).append(" | unticked off ").append(off).append(", locked after ").append(AppSettings.locked()).append('\n');
+    boolean masterOk = notSame.contains("not the same") && on && locked && refused && greyed && dbGreyed && stillLocked && open && off && !AppSettings.locked();
+    write("s164_hidden_types_prompts_tab_master_password", out.toString());
+    if (!typesOk || !tabOk || !masterOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

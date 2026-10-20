@@ -893,6 +893,8 @@ public final class Pulsekit extends UiKit {
                 || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
+            // General settings > Show DB/Prompts tab.
+            if ("prompts".equals(tab)) jButton.setVisible(AppSettings.showPromptsTab());
         }
     }
 

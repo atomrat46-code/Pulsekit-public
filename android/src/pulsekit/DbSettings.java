@@ -40,6 +40,10 @@ final class DbSettings {
         final File dir = app.getFilesDir();
         LinearLayout col = app.col();
         col.setPadding(app.dp(20), app.dp(12), app.dp(20), app.dp(4));
+        // Settings master password: greyed until Unlock settings is given the password.
+        AppSettings.load(dir);
+        final java.util.List<android.view.View> controls = new java.util.ArrayList<android.view.View>();
+        GeneralSettings.unlockRow(app, col, () -> GeneralSettings.lock(controls));
         // Use encrypted DB (moved here from General settings).
         final CheckBox box = new CheckBox(app);
         box.setText("Use encrypted DB");
@@ -47,6 +51,7 @@ final class DbSettings {
         box.setChecked(PromptVault.encrypted(dir));
         box.setOnCheckedChangeListener((b, on) -> GeneralSettings.change(app, box, on));
         col.addView(box);
+        controls.add(box);
         TextView note = app.text("The DB in use is kept encrypted with the phone's keystore. Unticked, it is copied into an unencrypted DB "
             + "and used from then on: opening and saving are quicker. Ticked again, the encrypted DB is brought up to date and the unencrypted one is deleted.", 12, false);
         note.setPadding(0, app.dp(4), 0, 0);
@@ -72,6 +77,7 @@ final class DbSettings {
             group.addView(r);
         }
         col.addView(group);
+        for (int i = 0; i < group.getChildCount(); i++) controls.add(group.getChildAt(i));
         LinearLayout row = app.row();
         TextView use = app.pill(DbSlots.USE, true, v -> use(app, picked));
         use.setTag("db-use");
@@ -81,6 +87,8 @@ final class DbSettings {
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2);
         gap.leftMargin = app.dp(8);
         row.addView(delete, gap);
+        controls.add(use);
+        controls.add(delete);
         col.addView(row);
         // Send db to zip, Import db zip.
         col.addView(GeneralSettings.headline(app, "Export and import"));
@@ -92,6 +100,8 @@ final class DbSettings {
         lp.topMargin = app.dp(6);
         col.addView(send, lp);
         col.addView(imp, new LinearLayout.LayoutParams(lp));
+        controls.add(send);
+        controls.add(imp);
         TextView how = app.text("Send db to zip: the DB in use, unencrypted, into a zip with a password (at least 4 characters). "
             + "Import db zip: a DB zip as a new secondary DB, or as the main DB; what it links to that is not on this phone is left out.", 12, false);
         how.setPadding(0, app.dp(6), 0, 0);
@@ -100,6 +110,9 @@ final class DbSettings {
         scroll.addView(col);
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app).setTitle(DbSlots.TITLE).setView(scroll).setPositiveButton("Close", null).show();
+        // Closed: locked again.
+        last.setOnDismissListener(d -> AppSettings.relock());
+        GeneralSettings.lock(controls);
     }
 
     /** The dialog again (sizes and the list as they are now). */

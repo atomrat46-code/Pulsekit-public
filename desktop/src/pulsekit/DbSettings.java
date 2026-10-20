@@ -116,6 +116,18 @@ final class DbSettings {
         col.add(row2);
         col.add(GeneralSettings.note("Send db to zip: the DB in use, unencrypted, into a zip with a password (at least 4 characters).\n"
             + "Import db zip: a DB zip as a new secondary DB, or as the main DB; what it links to that is not on this computer is left out."));
+        // Settings master password: greyed until Unlock settings is given the password.
+        AppSettings.load(dir);
+        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(box, list, use, delete, send, imp);
+        JPanel lockRow = GeneralSettings.unlockRow(app, dialog, () -> GeneralSettings.lock(controls));
+        if (lockRow != null) col.add(lockRow, 0);
+        GeneralSettings.lock(controls);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                AppSettings.relock();
+            }
+        });
         for (java.awt.Component c : col.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());

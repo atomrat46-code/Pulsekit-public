@@ -970,7 +970,9 @@ public final class PromptSheet {
   private static List<PromptVault.StoredFile> galleryFiles() {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
     FileFilter.use(FileFilter.GALLERY);
-    if ("A".equals(galleryFilter) && !FileFilter.active()) return all;
+    // A type General settings leaves out is never in the gallery (its letter is gone too).
+    galleryFilter = AppSettings.letter(galleryFilter);
+    if ("A".equals(galleryFilter) && !FileFilter.active() && AppSettings.showsAll()) return all;
     return FileFilter.keep(all, vault, galleryFilter);
   }
 
@@ -1897,7 +1899,8 @@ public final class PromptSheet {
     final int px = Math.max(dp(activity, 24), cell / 3 - dp(activity, 6));
     for (int which = 1; which <= 3; which++) {
       final String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
-      if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0) continue;
+      // A type General settings leaves out: no thumbnail.
+      if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0 || !AppSettings.showsFile(n)) continue;
       final ImageView mini = new ImageView(activity);
       mini.setScaleType(ImageView.ScaleType.CENTER_CROP);
       mini.setBackgroundColor(Color.parseColor("#1B1D1F"));
@@ -1938,7 +1941,7 @@ public final class PromptSheet {
       final int px = dp(activity, 84);
       for (int which = 1; which <= 3; which++) {
         final String n = which == 1 ? owner.ref1Name : which == 2 ? owner.ref2Name : owner.resultName;
-        if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0) continue;
+        if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0 || !AppSettings.showsFile(n)) continue;
         final int slot = which;
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -2479,7 +2482,8 @@ public final class PromptSheet {
     final byte[] bytes = which == 1 ? ref1Bytes : which == 2 ? ref2Bytes : resultBytes;
     final Object key = bytes;
     thumb.setTag(R_THUMB_KEY, key);
-    if (bytes == null || bytes.length == 0) {
+    // No thumbnail for a type General settings leaves out (Show images, Show videos).
+    if (bytes == null || bytes.length == 0 || !AppSettings.showsFile(name)) {
       thumb.setImageDrawable(null);
       thumb.setVisibility(View.GONE);
       return;

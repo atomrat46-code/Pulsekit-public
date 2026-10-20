@@ -6594,6 +6594,78 @@ public final class DesktopBehavior {
     if (!dialogOk || !sendOk || !importOk || !keyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Notes 20102026_6 on the desktop: images and videos off keep them out of the galleries and a
+   * prompt's thumbnails; Show DB/Prompts tab; the settings master password.
+   */
+  void s141_hidden_types_prompts_tab_master_password() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    AppSettings.load(dir);
+    AppSettings.setShows("I", false);
+    AppSettings.setShows("V", false);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptVault v = PromptDb.vault();
+    v.addLibraryFile("face.png", png.toByteArray(), "Imported", 1);
+    v.addLibraryFile("walk.mp4", new byte[2000], "Imported", 1);
+    v.addLibraryFile("notes.txt", "hello".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    StringBuilder kept = new StringBuilder();
+    for (PromptVault.StoredFile f : FileFilter.keep(v.referenceFiles(), v, "A")) kept.append(f.name).append(' ');
+    long id = v.addPrompt(v.categories().get(0).id, "Sky");
+    long vid = v.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    boolean noStrip = PromptDb.slotStrip(v, v.version(vid), 40) == null;
+    AppSettings.setShows("I", true);
+    boolean stripBack = PromptDb.slotStrip(v, v.version(vid), 40) != null;
+    AppSettings.setShows("V", true);
+    out.append("Ref files with images and videos off: ").append(kept.toString().trim()).append(" | prompt thumbnails hidden ").append(noStrip).append(", back with images ").append(stripBack).append('\n');
+    boolean typesOk = kept.toString().trim().equals("notes.txt") && noStrip && stripBack;
+    // Show DB/Prompts tab; the master password.
+    GeneralSettings.answer = q -> "open sesame";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog gs = null;
+    for (int i = 0; i < 100 && gs == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) gs = (JDialog) w;
+    }
+    final JDialog d = gs;
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-show-prompts-tab")).doClick());
+    boolean tabGone = !component(app, "tab:prompts").isVisible();
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-show-prompts-tab")).doClick());
+    boolean tabBack = component(app, "tab:prompts").isVisible();
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-master")).doClick());
+    boolean on = AppSettings.masterOn();
+    edt(() -> d.dispose());
+    boolean locked = AppSettings.locked();
+    AppSettings.setShows("V", false);
+    boolean refused = AppSettings.shows("V");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog gs2 = null;
+    for (int i = 0; i < 100 && gs2 == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && w != d && "General settings".equals(((JDialog) w).getTitle())) gs2 = (JDialog) w;
+    }
+    final JDialog d2 = gs2;
+    boolean greyed = !component(d2, "settings-show-sogni").isEnabled() && !component(d2, "settings-master").isEnabled();
+    GeneralSettings.answer = q -> "wrong";
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-unlock")).doClick());
+    boolean stillLocked = AppSettings.locked() && !component(d2, "settings-show-sogni").isEnabled();
+    GeneralSettings.answer = q -> "open sesame";
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-unlock")).doClick());
+    boolean open = !AppSettings.locked() && component(d2, "settings-show-sogni").isEnabled();
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-master")).doClick());
+    boolean off = !AppSettings.masterOn();
+    edt(() -> d2.dispose());
+    GeneralSettings.answer = null;
+    out.append("DB/Prompts tab: unticked gone ").append(tabGone).append(", ticked shown ").append(tabBack).append(" | master on ").append(on).append(", closed locked ").append(locked)
+        .append(", a change refused ").append(refused).append(", greyed ").append(greyed).append(" | wrong password still locked ").append(stillLocked).append(" | unlocked ").append(open)
+        .append(" | unticked off ").append(off).append('\n');
+    boolean rest = tabGone && tabBack && on && locked && refused && greyed && stillLocked && open && off && !AppSettings.locked();
+    if (!typesOk || !rest) throw new AssertionError(out.toString());
+  }
+
   private static MediaDir.Entry entryOf(File f) {
     MediaDir.Entry e = new MediaDir.Entry();
     e.name = f.getName();
