@@ -291,9 +291,11 @@ final class MediaBrowser {
             gone.set(true);
             this.fill(dialog, root, dir);
         };
+        MediaDir.filter = AppSettings.letter(MediaDir.filter);
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
-            if (FileFilter.isToggle(f)) continue;
+            // F G C come after; a type General settings leaves out has no letter.
+            if (FileFilter.isToggle(f) || !AppSettings.shows(f)) continue;
             int n = MediaDir.count(allEntries, f);
             final javax.swing.JToggleButton b = new javax.swing.JToggleButton(f, f.equals(MediaDir.filter));
             b.setName("media-filter:" + f);
@@ -1273,7 +1275,12 @@ final class MediaBrowser {
     void fileAction(MediaDir.Entry entry, File f, String action) {
         String said;
         try {
-            if (MediaDir.RENAME.equals(action)) {
+            if (MediaDir.SEND_ZIP.equals(action)) {
+                // The file, or the folder with its folders, into <name>.zip beside it.
+                said = ZipFlow.sendFile(this.app, f);
+                if (said == null) return;
+                ZipFlow.lastSaid = said;
+            } else if (MediaDir.RENAME.equals(action)) {
                 String typed = this.ask("New name for " + f.getName(), f.getName());
                 if (typed == null) return;
                 String name = f.isDirectory() ? MediaDir.cleanName(typed) : MediaDir.keepEnding(f.getName(), typed);

@@ -47,14 +47,17 @@ final class PictureOffer {
             final JavaRun.FileOut pic = f;
             // Long press: Add to favourites, Add to group.
             view.setOnLongClickListener(v -> {
+                final String[] picItems = TagDialogs.withUseLast(app, new String[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, ReadyRecent.IMAGE);
                 menu = new AlertDialog.Builder(app)
                     .setTitle(pic.name)
-                    .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, (d, w) -> {
-                        if (w == 4) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
+                    .setItems(picItems, (d, w) -> {
+                        String it = picItems[w];
+                        if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
                         else if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
-                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
-                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
+                        else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
+                        else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
+                        else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, pic.name, pic.bytes.length, ReadyRecent.IMAGE);
                         else TagDialogs.category(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
                     })
                     .setNegativeButton("Cancel", null)

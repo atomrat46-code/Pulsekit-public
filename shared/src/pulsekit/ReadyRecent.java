@@ -21,8 +21,14 @@ public final class ReadyRecent {
 
   public static final String IMAGE = "image";
   public static final String VIDEO = "video";
-  /** MP3 ready's (SogniMusic's track): its own last tags, category and group. */
+  /** Other sounds (FLAC, M4A, OGG), and what WAV, MP3 and MIDI fall back on before they have their own. */
   public static final String SOUND = "sound";
+  /** WAV ready's, MP3 ready's (SogniMusic's track) and MIDI ready's: each its own last tags, category and group. */
+  public static final String WAV = "wav";
+  public static final String MP3 = "mp3";
+  public static final String MIDI = "midi";
+  /** The ready screens' item that puts the tags used last for that kind on the file in one go. */
+  public static final String USE_LAST = "Use last tags";
   static final String FILE = "ready-recent.txt";
 
   /** Add tag…'s first row: every tag ticked, or (when they all are) none. */
@@ -61,15 +67,20 @@ public final class ReadyRecent {
     }
   }
 
-  /** VIDEO for a video's name, else IMAGE. */
+  /** VIDEO for a video's name, MP3, WAV or MIDI for those, SOUND for other sounds, else IMAGE. */
   public static String kind(String name) {
     String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
-    if (n.matches(".+\\.(mp3|wav|wave|flac|m4a|ogg|mid|midi)")) return SOUND;
+    if (n.endsWith(".mp3")) return MP3;
+    if (n.matches(".+\\.(wav|wave)")) return WAV;
+    if (n.matches(".+\\.(mid|midi)")) return MIDI;
+    if (n.matches(".+\\.(flac|m4a|ogg)")) return SOUND;
     return n.matches(".+\\.(mp4|m4v|webm|mkv|3gp|mov)") ? VIDEO : IMAGE;
   }
 
   private static synchronized String get(String kind, String what) {
     String v = VALUES.get(kind + "." + what);
+    // WAV, MP3 and MIDI shared one set (SOUND) before: that one until they have their own.
+    if (v == null && (WAV.equals(kind) || MP3.equals(kind) || MIDI.equals(kind))) v = VALUES.get(SOUND + "." + what);
     return v == null ? "" : v;
   }
 
@@ -90,6 +101,22 @@ public final class ReadyRecent {
     List<String> kept = new ArrayList<String>();
     for (String t : tags) if (t != null && t.trim().length() > 0 && !kept.contains(t.trim())) kept.add(t.trim());
     if (!kept.isEmpty()) put(kind, "tags", String.join(",", kept));
+  }
+
+  /** "Use last tags: beach, night", or null when none were used for this kind yet. */
+  public static String useLastLabel(String kind) {
+    List<String> last = tags(kind);
+    return last.isEmpty() ? null : USE_LAST + ": " + String.join(", ", last);
+  }
+
+  /** Use last tags: the tags used last for this kind added to the file's own; the file's tags after, or null when none were used yet. */
+  public static List<String> useLast(String kind, String key) {
+    List<String> last = tags(kind);
+    if (last.isEmpty()) return null;
+    List<String> now = new ArrayList<String>(MediaTags.tags(key));
+    for (String t : last) if (!now.contains(t)) now.add(t);
+    MediaTags.setTags(key, now);
+    return MediaTags.tags(key);
   }
 
   /** The tags ticked first: the file's own, or (when it has none) those used last that are still known. */

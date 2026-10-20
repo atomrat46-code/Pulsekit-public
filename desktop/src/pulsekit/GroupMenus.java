@@ -93,6 +93,15 @@ final class GroupMenus {
         tag.setName("file-tag");
         tag.addActionListener(e -> TagDialogs.tags(app, app, name, size, null, ReadyRecent.kind(name)));
         m.add(tag);
+        // Use last tags: those used last for this kind of file, at once.
+        ReadyRecent.load(PromptDb.dir());
+        String useLast = ReadyRecent.useLastLabel(ReadyRecent.kind(name));
+        if (useLast != null) {
+            JMenuItem again = new JMenuItem(useLast);
+            again.setName("file-use-last-tags");
+            again.addActionListener(e -> TagDialogs.useLast(app, name, size, ReadyRecent.kind(name)));
+            m.add(again);
+        }
         JMenuItem cat = new JMenuItem(MediaTags.ADD_CATEGORY);
         cat.setName("file-category");
         cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null, ReadyRecent.kind(name)));

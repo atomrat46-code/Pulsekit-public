@@ -221,6 +221,8 @@ public final class Pulsekit extends UiKit {
 
     Pulsekit() {
         super("Pulsekit");
+        // General settings' Sogni tools and file types.
+        AppSettings.load(PromptDb.dir());
         this.drumSets.add(Engine.DrumSet.originalSet());
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;

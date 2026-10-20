@@ -103,15 +103,18 @@ final class VideoOffer {
         void frameMenu(final MainActivity app, final String path, final String clipName) {
             if (playing) playPause();
             final int ms = Math.max(0, view.getCurrentPosition());
+            final String[] frameItems = TagDialogs.withUseLast(app, new String[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, ReadyRecent.VIDEO);
             menu = new AlertDialog.Builder(app)
                 .setTitle("Frame at " + FileSets.mixTime(ms))
-                .setItems(new CharSequence[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, (d, w) -> {
-                    if (w == 6) PlaylistScreen.addReady(app, clipName, null, new java.io.File(path));
+                .setItems(frameItems, (d, w) -> {
+                    String it = frameItems[w];
+                    if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, clipName, null, new java.io.File(path));
                     else if (w < 2) extractFrame(app, path, clipName, ms, w == 1);
                     else if (w == 2) PictureOffer.toggleFavourite(app, clipName, clipSize);
-                    else if (w == 3) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null, ReadyRecent.VIDEO);
-                    else if (w == 4) TagDialogs.tags(app, clipName, clipSize, null, ReadyRecent.VIDEO);
+                    else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null, ReadyRecent.VIDEO);
+                    else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, clipName, clipSize, null, ReadyRecent.VIDEO);
+                    else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, clipName, clipSize, ReadyRecent.VIDEO);
                     else TagDialogs.category(app, clipName, clipSize, null, ReadyRecent.VIDEO);
                 })
                 .setNegativeButton("Cancel", null)

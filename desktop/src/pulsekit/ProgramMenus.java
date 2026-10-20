@@ -52,7 +52,8 @@ final class ProgramMenus {
     }
 
     void showProgramMenu(String kind, JButton anchor) {
-        String[] names = ProgramFiles.list(kind);
+        // Without the Sogni tools General settings leaves out.
+        String[] names = AppSettings.programs(java.util.Arrays.asList(ProgramFiles.list(kind))).toArray(new String[0]);
         JPopupMenu menu = new JPopupMenu();
         if (names.length == 0) {
             JMenuItem none = new JMenuItem("No programs in Programs/" + kind);

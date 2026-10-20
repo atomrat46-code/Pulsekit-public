@@ -831,8 +831,10 @@ final class PlaylistScreen {
     /** "Add to playlist…": the playlists (Default first), then New playlist…; the file goes at the end of the one picked. */
     static void addTo(final MainActivity app, final String file, final String title) {
         final File dir = app.getFilesDir();
-        final String[] rows = Playlist.menu(dir);
-        lastAsk = new AlertDialog.Builder(app).setTitle(Playlist.ADD.replace("…", "") + " · " + title).setItems(rows, (d, w) -> {
+        // The playlist used last for this kind of file first; each with the kinds it has.
+        final String[][] menu = Playlist.menuFor(dir, title);
+        final String[] rows = menu[1];
+        lastAsk = new AlertDialog.Builder(app).setTitle(Playlist.ADD.replace("…", "") + " · " + title).setItems(menu[0], (d, w) -> {
             if (w < rows.length - 1) confirmAdd(app, rows[w], file, title);
             else named(app, Playlist.NEW, "", typed -> confirmAdd(app, typed, file, title));
         }).setNegativeButton("Cancel", null).show();
@@ -877,6 +879,18 @@ final class PlaylistScreen {
 
     /** The viewer on the list from item `start`. */
     static void viewer(final MainActivity app, final Playlist p, int start) {
+        // The types General settings leaves out are not shown (the list itself keeps them).
+        if (!AppSettings.showsAll()) {
+            Playlist shown = AppSettings.shownPlaylist(p);
+            if (shown.items.isEmpty() && !p.items.isEmpty()) {
+                app.setNow(AppSettings.nothingShown(p.name));
+                return;
+            }
+            if (shown.items.size() != p.items.size()) {
+                viewer(app, shown, AppSettings.shownStart(p, start));
+                return;
+            }
+        }
         if (p.items.isEmpty()) {
             app.setNow(p.name + " has no files yet");
             return;

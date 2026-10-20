@@ -46,11 +46,69 @@ final class GeneralSettings {
             + "Unticked, it goes into the category its sheet names.", 12, false);
         askNote.setPadding(0, app.dp(4), 0, 0);
         col.addView(askNote);
+        // Sogni: which Sogni tools PyJav lists.
+        AppSettings.load(app.getFilesDir());
+        col.addView(headline(app, "Sogni"));
+        final CheckBox sogni = new CheckBox(app);
+        final CheckBox music = new CheckBox(app);
+        sogni.setText(AppSettings.SHOW_SOGNI);
+        sogni.setTag("settings-show-sogni");
+        sogni.setChecked(AppSettings.showSogni());
+        music.setText(AppSettings.MUSIC_ONLY);
+        music.setTag("settings-sogni-music-only");
+        music.setChecked(AppSettings.musicOnly());
+        music.setEnabled(AppSettings.showSogni());
+        sogni.setOnCheckedChangeListener((b, on) -> {
+            AppSettings.setShowSogni(on);
+            if (!on && music.isChecked()) {
+                music.setChecked(false);
+                AppSettings.setMusicOnly(false);
+            }
+            music.setEnabled(on);
+            app.setNow(on ? "Sogni tools are listed in PyJav" : "No Sogni tools in PyJav's list");
+        });
+        music.setOnCheckedChangeListener((b, on) -> {
+            AppSettings.setMusicOnly(on);
+            app.setNow(on ? "Only SogniMusic and SogniChat are listed of the Sogni tools" : "All Sogni tools are listed in PyJav");
+        });
+        col.addView(sogni);
+        col.addView(music);
+        TextView sogniNote = app.text("Unticked, no Sogni program is in PyJav's list (Select program). Only music tools and chat: SogniMusic and SogniChat "
+            + "are listed, the image and video tools are not.", 12, false);
+        sogniNote.setPadding(0, app.dp(4), 0, 0);
+        col.addView(sogniNote);
+        // File types: a type unticked is left out of the thumbnails (its letter too) and of the playlists shown.
+        col.addView(headline(app, "File types"));
+        for (int i = 0; i < AppSettings.TYPE_LETTERS.length; i++) {
+            final String letter = AppSettings.TYPE_LETTERS[i];
+            final CheckBox type = new CheckBox(app);
+            type.setText(AppSettings.TYPE_LABELS[i] + " (" + letter + ")");
+            type.setTag("settings-show:" + letter);
+            type.setChecked(AppSettings.shows(letter));
+            type.setOnCheckedChangeListener((b, on) -> {
+                AppSettings.setShows(letter, on);
+                app.setNow(DbFilter.label(letter) + (on ? " are shown again" : " are left out of the thumbnails and playlists"));
+            });
+            col.addView(type);
+        }
+        TextView typesNote = app.text("A type unticked is not shown in the thumbnail screens (Browse DB, the Reference, Result and Prompt files, the Media browser), "
+            + "its letter is not there either, and a playlist with files of that type shows the others only.", 12, false);
+        typesNote.setPadding(0, app.dp(4), 0, 0);
+        col.addView(typesNote);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(col);
         last = new AlertDialog.Builder(app)
             .setTitle("General settings")
-            .setView(col)
+            .setView(scroll)
             .setPositiveButton("Close", null)
             .show();
+    }
+
+    /** A section's headline ("Sogni", "File types"). */
+    static TextView headline(MainActivity app, String text) {
+        TextView t = app.text(text, 15, true);
+        t.setPadding(0, app.dp(16), 0, app.dp(2));
+        return t;
     }
 
     /** Copies the library over in the background; the box is greyed until it is done, and set back if it fails. */

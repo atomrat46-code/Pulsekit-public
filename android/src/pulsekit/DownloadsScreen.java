@@ -312,14 +312,22 @@ final class DownloadsScreen {
         }).setNegativeButton("Cancel", null).show();
     }
 
-    /** A failed run's menu (held): Resume download when its workflow is known, Clear. */
+    static final String COPY_WORKFLOW = "Copy workflow id";
+
+    /** A failed run's menu (held): Resume download when its workflow is known, Copy workflow id, Clear. */
     static void runMenu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r) {
         final java.util.List<String> rows = new java.util.ArrayList<String>();
         if (SogniDownloads.canResume(r)) rows.add(SogniDownloads.RESUME);
+        if (r.workflow.length() > 0) rows.add(COPY_WORKFLOW);
         rows.add("Clear");
         lastMenu = new AlertDialog.Builder(app).setTitle(r.programName() + " \u00b7 " + r.when()).setItems(rows.toArray(new String[0]), (d, which) -> {
             if (SogniDownloads.RESUME.equals(rows.get(which))) {
                 resume(app, r);
+                return;
+            }
+            if (COPY_WORKFLOW.equals(rows.get(which))) {
+                app.pyJav.pkWorkflowId = r.workflow;
+                app.pyJav.pkCopyWorkflow();
                 return;
             }
             SogniDownloads.clear(r.id, null);

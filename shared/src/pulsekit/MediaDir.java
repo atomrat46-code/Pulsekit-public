@@ -144,6 +144,12 @@ public final class MediaDir {
   /** The entries under selector `f` ("A" keeps the folder's all; folders stay; the library's prompt files only under T). */
   public static List<Entry> filtered(List<Entry> all, String f) {
     if (all == null) return new ArrayList<Entry>();
+    // The types General settings leaves out are never shown.
+    if (!AppSettings.showsAll()) {
+      List<Entry> kept = new ArrayList<Entry>();
+      for (Entry e : all) if (e.folder || AppSettings.showsFile(e.name)) kept.add(e);
+      all = kept;
+    }
     List<Entry> out = new ArrayList<Entry>();
     if (f == null || "A".equals(f)) {
       // The library's prompt files show under T only.
@@ -543,9 +549,11 @@ public final class MediaDir {
   public static final String COPY_TO = "Copy to folder\u2026";
   public static final String MOVE_TO = "Move to folder\u2026";
   public static final String DELETE = "Delete";
-  public static final String[] FILE_ACTIONS = {RENAME, COPY_TO, MOVE_TO, DELETE};
+  /** The file (or the folder, with its folders) into a zip beside it, with a password when one is given. */
+  public static final String SEND_ZIP = ZipPack.SEND;
+  public static final String[] FILE_ACTIONS = {RENAME, COPY_TO, MOVE_TO, DELETE, SEND_ZIP};
   /** A folder's long-press menu. */
-  public static final String[] FOLDER_MENU = {RENAME, DELETE};
+  public static final String[] FOLDER_MENU = {RENAME, DELETE, SEND_ZIP};
 
   /** The menu for a file: MENU or MENU_LISTED, and Upscale/resize image for a picture. */
   public static String[] menu(boolean listed, int kind) {

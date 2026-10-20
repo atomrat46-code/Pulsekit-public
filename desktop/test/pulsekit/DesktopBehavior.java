@@ -6384,6 +6384,136 @@ public final class DesktopBehavior {
     if (!favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Notes 20102026_4 on the desktop: tags by kind (WAV, MP3, MIDI apart) and Use last tags; WAV ready
+   * with Convert hits into MIDI; a Sogni workflow in Params' list as soon as it is printed, Copy
+   * workflow id; playlists' kinds and the last one per kind; General settings' Sogni tools and file
+   * types; Send to zip with a password, and File > Import of the zip (into the DB, or kept as it is).
+   */
+  void s139_ready_tags_sogni_ids_playlists_settings_zip() throws Exception {
+    File dir = PromptDb.dir();
+    final File home = new File(System.getProperty("user.home"));
+    MediaTags.load(dir);
+    ReadyRecent.load(dir);
+    ReadyRecent.setTags(ReadyRecent.IMAGE, java.util.Arrays.asList("beach"));
+    ReadyRecent.setTags(ReadyRecent.WAV, java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.MIDI, java.util.Arrays.asList("groove"));
+    final File pic = new File(home, "sea.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final Pulsekit app = frame instanceof Pulsekit ? (Pulsekit) frame : null;
+    final javax.swing.JPopupMenu[] menu = new javax.swing.JPopupMenu[1];
+    edt(() -> menu[0] = GroupMenus.fileMenu(app, pic));
+    javax.swing.JMenuItem useLast = null;
+    for (Component c : menu[0].getComponents()) if ("file-use-last-tags".equals(c.getName())) useLast = (javax.swing.JMenuItem) c;
+    final javax.swing.JMenuItem use = useLast;
+    if (use != null) edt(() -> use.doClick());
+    MediaTags.load(dir);
+    String seaTags = MediaTags.line(MediaTags.key("sea.png", pic.length()));
+    // WAV ready: its title and Convert hits into MIDI.
+    final File wav = new File(home, "beat.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    final StringBuilder ready = new StringBuilder();
+    inspectNext = d -> {
+      ready.append(d.getTitle()).append(": ");
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.LinkedList<Component> todo = new java.util.LinkedList<Component>(java.util.Arrays.asList(d.getContentPane().getComponents()));
+      while (!todo.isEmpty()) {
+        Component c = todo.removeFirst();
+        if (c instanceof javax.swing.AbstractButton) ready.append(((javax.swing.AbstractButton) c).getText()).append(" | ");
+        if (c instanceof Container) todo.addAll(java.util.Arrays.asList(((Container) c).getComponents()));
+      }
+    };
+    answers.add("Close");
+    final PyJav pj = (PyJav) get("pyJav");
+    edt(() -> pj.offerAudio(wav));
+    idle();
+    inspectNext = null;
+    out.append("Use last tags on a picture: ").append(use == null ? "no item" : use.getText()).append(" -> ").append(seaTags).append(" | ").append(ready).append('\n');
+    boolean tagsOk = use != null && use.getText().equals("Use last tags: beach") && seaTags.contains("beach") && ready.toString().startsWith("WAV ready:")
+        && ready.toString().contains(PyJav.HITS_TO_MIDI) && ready.toString().contains("Use last tags: drums, loop") && !ready.toString().contains(PyJav.TO_WAV);
+    // A Sogni run's workflow: in Params' list at once; Copy workflow id.
+    SogniHistory.init(new File(home, ".pulsekit"));
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniPedit.java", System.currentTimeMillis());
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_desk7\n");
+    String during = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    edt(() -> {
+      pj.showWorkflow("wf_desk7");
+      pj.copyWorkflowId();
+    });
+    String copied = (String) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+    out.append("Params' list while running: ").append(during).append(" | ").append(pj.copyWorkflow.getText()).append(" -> clipboard ").append(copied).append('\n');
+    boolean idsOk = during.contains(SogniHistory.DOWNLOADING) && during.contains("SogniPedit") && "wf_desk7".equals(copied) && pj.copyWorkflow.isVisible();
+    // Playlists: kinds and the last one per kind.
+    Playlist.addTo(dir, "Pics", "/x/a.png", "a.png");
+    Playlist.addTo(dir, "Clips", "/x/b.mp4", "b.mp4");
+    final javax.swing.JMenu[] add = new javax.swing.JMenu[1];
+    edt(() -> add[0] = PlaylistWindow.addMenu(app, "/x/c.mp4", "c.mp4"));
+    String first = add[0].getItem(0).getText();
+    out.append("Add to playlist for a video: ").append(first).append('\n');
+    boolean plOk = first.equals("Clips (video)" + Playlist.LAST_FOR + "videos");
+    // General settings: Sogni tools and file types.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog settings = null;
+    for (int i = 0; i < 100 && settings == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) settings = (JDialog) w;
+    }
+    final JDialog gs = settings;
+    boolean boxes = gs != null && component(gs, "settings-show-sogni") != null && component(gs, "settings-show:V") != null;
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-sogni-music-only")).doClick());
+    java.util.List<String> progs = java.util.Arrays.asList("DrumMidi_CRT.jar", "SogniChat.java", "SogniMusic.java", "SogniVideo.java");
+    String musicOnly = AppSettings.programs(progs).toString();
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show-sogni")).doClick());
+    String noSogni = AppSettings.programs(progs).toString();
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show-sogni")).doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show:V")).doClick());
+    edt(() -> gs.dispose());
+    String letters = String.join(" ", PromptDb.withGroup());
+    boolean hidden = !DbFilter.fits("b.mp4", "A");
+    AppSettings.setShows("V", true);
+    out.append("settings boxes ").append(boxes).append(" | only music and chat ").append(musicOnly).append(" | no Sogni ").append(noSogni).append(" | videos off: ").append(letters).append(", b.mp4 hidden ").append(hidden).append('\n');
+    boolean setOk = boxes && musicOnly.equals("[DrumMidi_CRT.jar, SogniChat.java, SogniMusic.java]") && noSogni.equals("[DrumMidi_CRT.jar]") && !letters.contains("V") && hidden;
+    // Send to zip: a folder, with a password; then File > Import of it.
+    File pulse = new File(home, "Zips/Pulse");
+    new File(pulse, "sub").mkdirs();
+    Files.copy(wav.toPath(), new File(pulse, "beat.wav").toPath());
+    Files.write(new File(pulse, "sub/note.txt").toPath(), "hello".getBytes(StandardCharsets.UTF_8));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    ZipFlow.answer = q -> "pw42";
+    final MediaDir.Entry folder = entryOf(pulse);
+    folder.folder = true;
+    edt(() -> mb.fileAction(folder, pulse, MediaDir.SEND_ZIP));
+    File zip = new File(home, "Zips/Pulse.zip");
+    java.util.List<ZipPack.Entry> es = zip.isFile() ? ZipPack.list(zip) : new java.util.ArrayList<ZipPack.Entry>();
+    out.append("Send to zip: ").append(ZipFlow.lastSaid).append(" | ").append(es.size()).append(" files, encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = ZipFlow.lastSaid != null && ZipFlow.lastSaid.startsWith("Zipped Pulse (2 files, with a password)") && es.size() == 2 && ZipPack.encrypted(es);
+    answers.add("Yes");
+    answers.add(ZipImport.WHERE[ZipImport.DB]);
+    answers.add(ZipImport.GALLERY[0]);
+    final File z = zip;
+    edt(() -> ZipFlow.importZip(app, z));
+    idle();
+    String imported = ZipFlow.lastSaid;
+    String refs = PromptDb.vault().referenceFiles().toString();
+    int refCount = PromptDb.vault().referenceFiles().size();
+    answers.add("No");
+    edt(() -> ZipFlow.importZip(app, z));
+    idle();
+    String kept = ZipFlow.lastSaid;
+    ZipFlow.answer = q -> "wrong";
+    edt(() -> ZipFlow.importZip(app, z));
+    String wrong = ZipFlow.lastSaid;
+    ZipFlow.answer = null;
+    out.append("Import: ").append(imported).append(" | refs ").append(refCount).append(" | not extracted: ").append(kept).append(" | wrong password: ").append(wrong).append('\n');
+    boolean importOk = imported != null && imported.startsWith("Imported 2 files into Ref files") && refCount >= 2 && kept != null && kept.equals("Pulse.zip is in the DB as a reference file")
+        && wrong != null && wrong.startsWith(ZipPack.WRONG_PASSWORD);
+    if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString() + refs);
+  }
+
   private static MediaDir.Entry entryOf(File f) {
     MediaDir.Entry e = new MediaDir.Entry();
     e.name = f.getName();

@@ -68,6 +68,25 @@ final class TagDialogs {
         if (after != null) after.run();
     }
 
+    /** Use last tags: the tags used last for `ready`'s kind put on the file at once. */
+    static void useLast(Pulsekit app, String name, long size, String ready) {
+        MediaTags.load(PromptDb.dir());
+        ReadyRecent.load(PromptDb.dir());
+        List<String> now = ReadyRecent.useLast(ready, MediaTags.key(name, size));
+        app.setNow(now == null ? "No tags used yet for this kind of file" : name + ": " + String.join(", ", now));
+    }
+
+    /** The ready screens' items with Use last tags: … after Add tag… when tags were used for `ready`'s kind. */
+    static List<String> withUseLast(List<String> items, String ready) {
+        ReadyRecent.load(PromptDb.dir());
+        String label = ReadyRecent.useLastLabel(ready);
+        List<String> out = new ArrayList<String>(items);
+        if (label == null) return out;
+        int at = out.indexOf(MediaTags.ADD_TAG);
+        out.add(at < 0 ? out.size() : at + 1, label);
+        return out;
+    }
+
     /** Category…: one of the prompt library's categories for the file, or none. `after` runs once picked. */
     static void category(Pulsekit app, Component parent, String name, long size, Runnable after) {
         category(app, parent, name, size, after, null);

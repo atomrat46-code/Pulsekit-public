@@ -270,6 +270,8 @@ public class MainActivity extends UiKit {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
+        // General settings' Sogni tools and file types.
+        AppSettings.load(this.getFilesDir());
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -766,6 +768,12 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null) MediaBrowser.imported(this, n, intent);
             return;
         }
+        if (n == ZipFlow.PICK_FOLDER) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) ZipFlow.folderPicked(this, intent.getData());
+            else if (ZipFlow.zip != null) this.setNow("Not extracted: " + ZipFlow.zipName);
+            return;
+        }
         if (n == DownloadsScreen.PICK_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) DownloadsScreen.folderPicked(this, intent.getData());
@@ -828,6 +836,11 @@ public class MainActivity extends UiKit {
                 }
                 this.playback.refreshPadLabels();
                 Toast.makeText((Context)this, (CharSequence)(Engine.TRACK_LABEL[n3] + " sample loaded"), (int)0).show();
+                return;
+            }
+            if (n == 7 && ZipImport.isZip(DbImport.displayName(this, uri))) {
+                // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
+                ZipFlow.importZip(this, uri, DbImport.displayName(this, uri));
                 return;
             }
             if (n == 7) {

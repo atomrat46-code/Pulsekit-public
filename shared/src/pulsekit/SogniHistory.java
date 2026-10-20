@@ -47,10 +47,58 @@ public final class SogniHistory {
   /** Where the list lives: the app's private folder (Android) or ~/.pulsekit (desktop). */
   public static void init(File dir) {
     file = dir == null ? null : new File(dir, "sogni_workflows.txt");
+    List<String> closed;
+    synchronized (CLOSED) {
+      closed = new ArrayList<String>(CLOSED);
+      CLOSED.clear();
+    }
+    for (String id : closed) closed(id, "");
+  }
+
+  /** A download's status while it goes, and after Pulsekit was closed during it. */
+  public static final String DOWNLOADING = "downloading";
+  public static final String CLOSED_STATUS = "Pulsekit was closed during the download: Resume download fetches it";
+  /** Runs found closed before the list's folder was known. */
+  private static final List<String> CLOSED = new ArrayList<String>();
+
+  /**
+   * The workflow a run printed, kept the moment it is known (Android may close Pulsekit before the
+   * run ends, and its id was lost): "downloading", with the program's name in place of a prompt.
+   */
+  public static synchronized void started(String id, String program, long now) {
+    if (file == null || id == null || id.trim().length() == 0 || id.indexOf('\t') >= 0) return;
+    List<Entry> list = entries();
+    for (Entry e : list) if (e.id.equals(id.trim())) return;
+    list.add(0, new Entry(id.trim(), now, DOWNLOADING, program == null ? "" : program.replaceAll("\\.(java|py|jar|class)$", "")));
+    while (list.size() > MAX) list.remove(list.size() - 1);
+    write(list);
+  }
+
+  /** A run Pulsekit was closed during: its workflow says so (and is listed, if it was not). */
+  public static synchronized void closed(String id, String program) {
+    if (id == null || id.trim().length() == 0 || id.indexOf('\t') >= 0) return;
+    if (file == null) {
+      synchronized (CLOSED) {
+        if (!CLOSED.contains(id.trim())) CLOSED.add(id.trim());
+      }
+      return;
+    }
+    List<Entry> list = entries();
+    for (int i = 0; i < list.size(); i++) {
+      Entry e = list.get(i);
+      if (!e.id.equals(id.trim())) continue;
+      if (e.status.length() > 0 && !DOWNLOADING.equals(e.status)) return;
+      list.set(i, new Entry(e.id, e.time, CLOSED_STATUS, e.prompt));
+      write(list);
+      return;
+    }
+    list.add(0, new Entry(id.trim(), System.currentTimeMillis(), CLOSED_STATUS, program == null ? "" : program.replaceAll("\\.(java|py|jar|class)$", "")));
+    while (list.size() > MAX) list.remove(list.size() - 1);
+    write(list);
   }
 
   /** Remembers the workflow a run's log names, if any. A run of the same id again updates it. */
-  public static void record(String log, long now) {
+  public static synchronized void record(String log, long now) {
     if (file == null || log == null) return;
     String id = null;
     String status = "";

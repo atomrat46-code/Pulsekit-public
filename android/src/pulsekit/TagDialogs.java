@@ -85,6 +85,25 @@ final class TagDialogs {
             .setNegativeButton("Cancel", null).show();
     }
 
+    /** Use last tags: the tags used last for `ready`'s kind put on the file at once. */
+    static void useLast(MainActivity app, String name, long size, String ready) {
+        MediaTags.load(app.getFilesDir());
+        ReadyRecent.load(app.getFilesDir());
+        List<String> now = ReadyRecent.useLast(ready, MediaTags.key(name, size));
+        app.setNow(now == null ? "No tags used yet for this kind of file" : name + ": " + String.join(", ", now));
+    }
+
+    /** The ready screens' items with Use last tags: … after Add tag… when tags were used for `ready`'s kind. */
+    static String[] withUseLast(MainActivity app, String[] items, String ready) {
+        ReadyRecent.load(app.getFilesDir());
+        String label = ReadyRecent.useLastLabel(ready);
+        if (label == null) return items;
+        java.util.List<String> out = new ArrayList<String>(java.util.Arrays.asList(items));
+        int at = out.indexOf(MediaTags.ADD_TAG);
+        out.add(at < 0 ? out.size() : at + 1, label);
+        return out.toArray(new String[0]);
+    }
+
     private static void tagged(MainActivity app, String name, String key, List<String> chosen, Runnable after, String ready) {
         MediaTags.setTags(key, chosen);
         ReadyRecent.setTags(ready, MediaTags.tags(key));

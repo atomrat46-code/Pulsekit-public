@@ -509,6 +509,12 @@ final class PyJav {
         outAt.topMargin = app.dp(18);
         app.pyPane.addView(outHead, slot, outAt);
         slot = slot + 1;
+        // A Sogni run's workflow id, copied with one tap as soon as the run prints it.
+        this.pkCopyWorkflowBtn = app.action("Copy workflow id", ELEV, FG, v -> this.pkCopyWorkflow());
+        this.pkCopyWorkflowBtn.setTag("pyjav-copy-workflow");
+        this.pkCopyWorkflowBtn.setVisibility(this.pkWorkflowId == null ? 8 : 0);
+        app.pyPane.addView(this.pkCopyWorkflowBtn, slot);
+        slot = slot + 1;
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
@@ -709,6 +715,30 @@ final class PyJav {
     /** DrumMidi's "no hits yet, abort?" question shown last, for the tests. */
     android.app.AlertDialog pkAskAbort;
 
+    /** Copy workflow id: shown once the run going on (or the last one) has printed "Workflow: <id>". */
+    android.widget.TextView pkCopyWorkflowBtn;
+    String pkWorkflowId;
+
+    /** The workflow id the run printed, shown on the button (null: hidden). */
+    void pkShowWorkflow(String id) {
+        this.pkWorkflowId = id;
+        if (this.pkCopyWorkflowBtn == null) return;
+        this.pkCopyWorkflowBtn.setVisibility(id == null ? 8 : 0);
+        if (id != null) this.pkCopyWorkflowBtn.setText("Copy workflow id (" + (id.length() > 14 ? id.substring(0, 14) + "\u2026" : id) + ")");
+    }
+
+    /** The workflow id onto the clipboard. */
+    void pkCopyWorkflow() {
+        if (this.pkWorkflowId == null) return;
+        try {
+            android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            clips.setPrimaryClip(android.content.ClipData.newPlainText("Sogni workflow", this.pkWorkflowId));
+            app.setNow("Copied workflow id " + this.pkWorkflowId);
+        } catch (Throwable ex) {
+            app.setNow("Workflow id: " + this.pkWorkflowId);
+        }
+    }
+
     /** Every second while the run goes: "Running… 2:05 · Status: processing", while the text below Run is still that line. */
     void pkTickLive(final pulsekit.JavaRun.Live live, final String head) {
         // One tick a run (shown again after another program: the one going on carries on).
@@ -721,6 +751,9 @@ final class PyJav {
                     if (pkTicking == live) pkTicking = null;
                     return;
                 }
+                // Its workflow id, once printed: Copy workflow id.
+                String wf = pulsekit.SogniDownloads.workflowIn(live.text());
+                if (wf != null && !wf.equals(pkWorkflowId)) pkShowWorkflow(wf);
                 // DrumMidi without a hit for a while: asked whether to abort.
                 String noHits = pulsekit.JavaRun.noHitsQuestion(app.pyName, live, System.currentTimeMillis());
                 if (noHits != null) {
@@ -964,6 +997,7 @@ final class PyJav {
         RUNS.incrementAndGet();
         // Kept running (a notification) until the run is over: switching apps does not lose it.
         pulsekit.RunKeeper.start(app, name);
+        this.pkShowWorkflow(null);
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         Long downloadRun = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
@@ -1243,6 +1277,7 @@ final class PyJav {
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
+        if (pulsekit.SogniDownloads.workflowIn(log) != null) this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
         // The prompt library work runs in the background: storing a large result (a 10 s video)
         // re-encrypts the whole library, which on the main thread froze the app ("not responding").
         final pulsekit.JavaRun.Result kept0 = result;
@@ -1357,6 +1392,9 @@ final class PyJav {
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
         // (Not after a batch, --count: its grooves go to the batch folder.)
         this.pkOffer("the groove", ok && !toWav && "MidiDrumGen.java".equals(app.pyName) && !(argv != null && argv.contains("--count")), () -> MidiOffer.offer(app, made));
+        // WAV ready's Convert hits into MIDI: MIDI ready on what DrumMidi_CRT made.
+        this.pkOffer("the MIDI", ok && "DrumMidi_CRT.jar".equals(program) && MidiOffer.hitsAsked, () -> MidiOffer.offerHits(app, made, this.pkPyOutputPath));
+        MidiOffer.hitsAsked = false;
         // MediaBrowser: its folder in the Media browser.
         this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
             String browse = MediaDir.opened(madeLog);

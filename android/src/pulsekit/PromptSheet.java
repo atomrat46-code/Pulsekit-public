@@ -2023,6 +2023,8 @@ public final class PromptSheet {
     runs.add(() -> TagDialogs.category((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, file.versionId, file.which, file.name));
+    items.add(ZipPack.SEND);
+    runs.add(() -> ZipFlow.sendLibraryFile(activity, vault, file.versionId, file.which, file.name));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -2155,6 +2157,8 @@ public final class PromptSheet {
     // Export to disk: a copy in Download, to work on with another app.
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, versionId, which, name));
+    items.add(ZipPack.SEND);
+    runs.add(() -> ZipFlow.sendLibraryFile(activity, vault, versionId, which, name));
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");

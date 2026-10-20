@@ -21,6 +21,11 @@ final class AudioOffer {
         byte[] data = null;
         for (JavaRun.FileOut f : result.files) if (name.equals(f.name)) data = f.bytes;
         if (data == null) return false;
+        return offer(app, name, data);
+    }
+
+    /** MP3 ready or WAV ready on one file's bytes (WAV ready after Convert into WAV, with Convert hits into MIDI). */
+    static boolean offer(final MainActivity app, String name, byte[] data) {
         final String path = useAsInput(app, name, data);
         if (path == null) return false;
         // What it is, then its items: favourites, group, tags, category, playlist, Convert into WAV.
@@ -32,17 +37,22 @@ final class AudioOffer {
         android.widget.TextView said = app.text(name + " (" + (data.length / 1024) + " KB) is in Downloads and is now PyJav's input.\n\n"
             + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", 14, false);
         col.addView(said);
-        final String[] items = {PictureOffer.isFavourite(app, name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-            MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, TO_WAV};
+        final boolean isWav = !name.toLowerCase().endsWith(".mp3");
+        final String kind = ReadyRecent.kind(name);
+        final String[] items = TagDialogs.withUseLast(app, new String[] {PictureOffer.isFavourite(app, name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+            MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, isWav ? HITS_TO_MIDI : TO_WAV}, kind);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
+            final String it = items[i];
             android.widget.TextView item = app.pill(items[i], false, v -> {
                 if (which == 0) PictureOffer.toggleFavourite(app, shownName, size);
-                else if (which == 1) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, ReadyRecent.SOUND);
-                else if (which == 2) TagDialogs.tags(app, shownName, size, null, ReadyRecent.SOUND);
-                else if (which == 3) TagDialogs.category(app, shownName, size, null, ReadyRecent.SOUND);
-                else if (which == 4) PlaylistScreen.addReady(app, shownName, null, new java.io.File(path));
-                else convert(app, new java.io.File(path));
+                else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, kind);
+                else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, shownName, size, null, kind);
+                else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, shownName, size, kind);
+                else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, shownName, size, null, kind);
+                else if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, shownName, null, new java.io.File(path));
+                else if (it.equals(HITS_TO_MIDI)) hitsToMidi(app, path);
+                else convert(app, new java.io.File(path), true);
             });
             item.setTag("audio-item:" + items[i]);
             android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
@@ -52,7 +62,7 @@ final class AudioOffer {
         android.widget.ScrollView scroll = new android.widget.ScrollView(app);
         scroll.addView(col);
         final AlertDialog dialog = new AlertDialog.Builder(app)
-            .setTitle(name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : "Audio ready")
+            .setTitle(name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : name.toLowerCase().matches(".+\\.(wav|wave)") ? "WAV ready" : "Audio ready")
             .setView(scroll)
             .setNeutralButton("Play", null)
             .setPositiveButton("Make drum MIDI", new DialogInterface.OnClickListener() {
@@ -131,12 +141,31 @@ final class AudioOffer {
     }
 
     static final String TO_WAV = "Convert into WAV";
+    /** WAV ready's: DrumMidi_CRT on the WAV, then MIDI ready on the MIDI it made. */
+    static final String HITS_TO_MIDI = "Convert hits into MIDI";
+
+    /** Convert hits into MIDI: the WAV as DrumMidi_CRT's input, run; MIDI ready follows (MidiOffer.hitsAsked). */
+    static void hitsToMidi(MainActivity app, String wav) {
+        stop();
+        if (last != null) last.dismiss();
+        app.pyJav.pkAudioInputPath = wav;
+        MidiOffer.hitsAsked = true;
+        app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+        // This WAV, whatever input the program had before.
+        app.pyJav.pkUseInputPath(wav);
+        app.pyJav.pkRunPyJav();
+    }
 
     /** The offer shown last (for the tests). */
     static AlertDialog last;
 
     /** Convert into WAV: the MP3 decoded to a WAV, kept in Downloads beside it. */
     static void convert(final MainActivity app, java.io.File audio) {
+        convert(app, audio, false);
+    }
+
+    /** As above; with `ready` (MP3 ready's item), WAV ready follows on the WAV. */
+    static void convert(final MainActivity app, java.io.File audio, final boolean ready) {
         if (!audio.getName().toLowerCase().endsWith(".mp3")) {
             app.setNow(audio.getName() + " is a WAV already");
             return;
@@ -154,6 +183,13 @@ final class AudioOffer {
                 where = null;
             }
             app.setNow(where == null ? "Made " + wav.getName() + " (not in Downloads)" : "Saved " + where);
+            if (!ready) return;
+            if (last != null) last.dismiss();
+            try {
+                offer(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()));
+            } catch (Exception ex) {
+                app.setNow("Could not open " + wav.getName());
+            }
         });
     }
 

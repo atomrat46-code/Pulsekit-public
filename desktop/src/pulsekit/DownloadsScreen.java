@@ -296,6 +296,15 @@ final class DownloadsScreen {
             resume.addActionListener(e -> resume(app, r));
             m.add(resume);
         }
+        if (r.workflow.length() > 0) {
+            javax.swing.JMenuItem copy = new javax.swing.JMenuItem("Copy workflow id");
+            copy.setName("downloads-run-copy-workflow");
+            copy.addActionListener(e -> {
+                app.pyJav.workflowId = r.workflow;
+                app.pyJav.copyWorkflowId();
+            });
+            m.add(copy);
+        }
         javax.swing.JMenuItem clear = new javax.swing.JMenuItem("Clear");
         clear.setName("downloads-run-clear");
         clear.addActionListener(e -> {

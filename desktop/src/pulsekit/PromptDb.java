@@ -440,7 +440,9 @@ final class PromptDb {
 
     /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        return DbFilter.WITH_FAV_GROUP.clone();
+        // Without the types General settings leaves out (A when the one shown is).
+        DbFilter.current = AppSettings.letter(DbFilter.current);
+        return AppSettings.letters(DbFilter.WITH_FAV_GROUP);
     }
 
     /** The Browse DB dialog shown last, for the tests. */
@@ -1293,6 +1295,17 @@ final class PromptDb {
         menu.add(catItem);
         menu.add(open);
         menu.add(save);
+        // Send to zip: the file into a zip (a password recommended), saved where the save dialog says.
+        JMenuItem zip = new JMenuItem(ZipPack.SEND);
+        zip.setName("gallery-send-zip");
+        zip.addActionListener(e -> {
+            try {
+                ZipFlow.sendLibraryFile(app, vault(), file);
+            } catch (Exception ex) {
+                app.setNow("Could not zip " + file.name);
+            }
+        });
+        menu.add(zip);
         boolean extractable = false;
         try {
             extractable = PromptExtract.offered(vault(), file.versionId, file.which, file.name);

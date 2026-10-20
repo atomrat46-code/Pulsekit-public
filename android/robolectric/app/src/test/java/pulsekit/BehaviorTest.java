@@ -56,6 +56,8 @@ public class BehaviorTest {
     PromptSheet.resetGallery();
     // F G C and the tag lists are switches kept while the program runs.
     FileFilter.reset();
+    // General settings' Sogni tools and file types: as at first.
+    AppSettings.reset();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
@@ -9572,6 +9574,166 @@ public class BehaviorTest {
     write("s161_media_favourites_playlists_import_upscale_check", out.toString());
     FileFavourites.reset();
     if (!dlOk || !favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_4: each ready screen's tags remembered by kind (WAV, MP3, MIDI apart), Use last
+   * tags; WAV ready with Convert hits into MIDI; a Sogni workflow kept in Params' list as soon as it
+   * is printed (and said closed after a crash), Copy workflow id; playlists' types and the last one
+   * per kind; General settings' Sogni tools and file types; Send to zip (a password) and File >
+   * Import of a zip (its password, extract into the DB, or the zip itself kept).
+   */
+  @Test
+  public void s162_ready_tags_sogni_ids_playlists_settings_zip() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    // Tags by kind: WAV, MP3 and MIDI each their own.
+    MediaTags.load(dir);
+    ReadyRecent.load(dir);
+    MediaTags.setTags(MediaTags.key("a.wav", 10), java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.WAV, java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.MP3, java.util.Arrays.asList("song"));
+    ReadyRecent.setTags(ReadyRecent.MIDI, java.util.Arrays.asList("groove"));
+    String kinds = ReadyRecent.kind("x.wav") + "," + ReadyRecent.kind("x.mp3") + "," + ReadyRecent.kind("x.mid") + "," + ReadyRecent.kind("x.png") + "," + ReadyRecent.kind("x.mp4");
+    String wavLast = ReadyRecent.useLastLabel(ReadyRecent.WAV);
+    String mp3Last = ReadyRecent.useLastLabel(ReadyRecent.MP3);
+    // WAV ready: its items (Use last tags, Convert hits into MIDI); Use last tags puts them on the file.
+    byte[] wav = AudioIo.encodeWav(new short[4410], 22050);
+    AudioOffer.offer(app, "beat.wav", wav);
+    idle();
+    String wavTitle = org.robolectric.Shadows.shadowOf(AudioOffer.last).getTitle().toString();
+    View wv = AudioOffer.last.getWindow().getDecorView();
+    boolean hits = wv.findViewWithTag("audio-item:" + AudioOffer.HITS_TO_MIDI) != null;
+    View use = wv.findViewWithTag("audio-item:" + wavLast);
+    if (use != null) use.performClick();
+    idle();
+    MediaTags.load(dir);
+    String beatTags = MediaTags.line(MediaTags.key("beat.wav", wav.length));
+    AudioOffer.last.dismiss();
+    out.append("kinds ").append(kinds).append(" | WAV: ").append(wavLast).append(" | MP3: ").append(mp3Last).append(" | ").append(wavTitle)
+        .append(" hits item ").append(hits).append(" | Use last tags -> ").append(beatTags).append('\n');
+    boolean tagsOk = kinds.equals("wav,mp3,midi,image,video") && "Use last tags: drums, loop".equals(wavLast) && "Use last tags: song".equals(mp3Last)
+        && wavTitle.equals("WAV ready") && hits && use != null && beatTags.contains("drums") && beatTags.contains("loop");
+    // A Sogni run's workflow: in Params' list at once, said closed after Pulsekit was closed; Copy workflow id.
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniVideo.java", System.currentTimeMillis());
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_crash42\n");
+    String during = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    SogniDownloads.init(null);
+    SogniDownloads.init(dir);
+    String after = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    app.pyJav.pkShowWorkflow("wf_crash42");
+    app.pyJav.pkCopyWorkflow();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    String copied = clips.getPrimaryClip() == null ? "" : clips.getPrimaryClip().getItemAt(0).getText().toString();
+    String button = app.pyJav.pkCopyWorkflowBtn == null ? "no button" : app.pyJav.pkCopyWorkflowBtn.getText().toString() + (app.pyJav.pkCopyWorkflowBtn.getVisibility() == View.VISIBLE ? " (shown)" : " (hidden)");
+    out.append("Params' list while running: ").append(during).append(" | after a restart: ").append(after).append(" | ").append(button).append(" -> clipboard ").append(copied).append('\n');
+    boolean idsOk = during.contains(SogniHistory.DOWNLOADING) && during.contains("SogniVideo") && after.contains("closed during the download") && copied.equals("wf_crash42") && button.endsWith("(shown)");
+    // Playlists: the kinds they have, the one used last per kind.
+    Playlist.addTo(dir, "Pics", "/sdcard/a.png", "a.png");
+    Playlist.addTo(dir, "Clips", "/sdcard/b.mp4", "b.mp4");
+    Playlist.addTo(dir, "Pics", "/sdcard/c.mp4", "c.mp4");
+    String pls = new String(Files.readAllBytes(Playlist.file(dir, "Pics").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    String[][] picMenu = Playlist.menuFor(dir, "d.png");
+    String[][] vidMenu = Playlist.menuFor(dir, "e.mp4");
+    out.append("Pics.pls: ").append(pls.contains("Types=image,video")).append(" | Add to playlist for a picture: ").append(picMenu[0][0]).append(" | for a video: ").append(vidMenu[0][0]).append('\n');
+    boolean plOk = pls.contains("Types=image,video") && picMenu[0][0].equals("Pics (image, video)" + Playlist.LAST_FOR + "images") && picMenu[1][0].equals("Pics")
+        && vidMenu[0][0].equals("Pics (image, video)" + Playlist.LAST_FOR + "videos");
+    // General settings: Sogni tools, only music and chat; file types.
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    boolean boxes = gv.findViewWithTag("settings-show-sogni") != null && gv.findViewWithTag("settings-sogni-music-only") != null && gv.findViewWithTag("settings-show:V") != null;
+    java.util.List<String> progs = java.util.Arrays.asList("DrumMidi_CRT.jar", "SogniChat.java", "SogniMusic.java", "SogniPedit.java", "SogniVideo.java");
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-sogni-music-only")).setChecked(true);
+    String musicOnly = AppSettings.programs(progs).toString();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-sogni")).setChecked(false);
+    String noSogni = AppSettings.programs(progs).toString();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-sogni")).setChecked(true);
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show:V")).setChecked(false);
+    GeneralSettings.last.dismiss();
+    String letters = String.join(" ", RefBrowser.withGroup());
+    Playlist shown = AppSettings.shownPlaylist(Playlist.load(dir, "Pics"));
+    boolean videoHidden = !DbFilter.fits("b.mp4", "A") && DbFilter.fits("a.png", "A");
+    out.append("boxes ").append(boxes).append(" | only music and chat: ").append(musicOnly).append(" | no Sogni: ").append(noSogni).append(" | videos off: letters ").append(letters)
+        .append(", Pics shows ").append(shown.items.size()).append(" of 2, b.mp4 hidden ").append(videoHidden).append('\n');
+    boolean setOk = boxes && musicOnly.equals("[DrumMidi_CRT.jar, SogniChat.java, SogniMusic.java]") && noSogni.equals("[DrumMidi_CRT.jar]")
+        && !letters.contains("V") && letters.startsWith("A I S T") && shown.items.size() == 1 && videoHidden;
+    AppSettings.setShows("V", true);
+    // Send to zip in the Media browser: a folder, with a password.
+    File media = new File(app.getCacheDir(), "Zips");
+    File inner = new File(media, "Pulse");
+    new File(inner, "sub").mkdirs();
+    Files.write(new File(inner, "beat.wav").toPath(), wav);
+    Files.write(new File(new File(inner, "sub"), "note.txt").toPath(), "hello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.fileAction(MediaBrowser.last.allEntries.get(0), MediaDir.SEND_ZIP);
+    idle();
+    View zv = ZipFlow.last.getWindow().getDecorView();
+    ((android.widget.EditText) zv.findViewWithTag("zip-password")).setText("pw42");
+    ((android.widget.EditText) zv.findViewWithTag("zip-password-again")).setText("pw42");
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String zipped = ZipFlow.lastSaid;
+    File made = new File(media, "Pulse.zip");
+    java.util.List<ZipPack.Entry> es = made.isFile() ? ZipPack.list(made) : new java.util.ArrayList<ZipPack.Entry>();
+    b.dialog.dismiss();
+    out.append("Send to zip: ").append(zipped).append(" | ").append(es.size()).append(" files, encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = zipped != null && zipped.startsWith("Zipped Pulse (2 files, with a password)") && es.size() == 2 && ZipPack.encrypted(es);
+    // File > Import of that zip: its password (a wrong one first), Extract: into the DB, Ref files.
+    ZipFlow.opened(app, made, "Pulse.zip", es);
+    idle();
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("wrong");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String wrong = ZipFlow.lastSaid;
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("pw42");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String extractQ = org.robolectric.Shadows.shadowOf(ZipFlow.last).getMessage().toString();
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String where = listItems(ZipFlow.last);
+    org.robolectric.Shadows.shadowOf(ZipFlow.last).clickOnItem(ZipImport.DB);
+    idle();
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String imported = ZipFlow.lastSaid;
+    PromptVault vault = PromptVault.open(dir);
+    String refs = namesOf(vault.referenceFiles());
+    // Not extracted: the zip itself into the DB.
+    ZipFlow.opened(app, made, "Pulse.zip", es);
+    idle();
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("pw42");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String kept = ZipFlow.lastSaid;
+    out.append("Import: wrong password -> ").append(wrong).append(" | ").append(extractQ.split("\n")[0]).append(" | where: ").append(where).append(" | ").append(imported)
+        .append(" | refs ").append(PromptVault.open(dir).referenceFiles().size()).append(" | not extracted: ").append(kept).append('\n');
+    boolean importOk = wrong != null && wrong.startsWith(ZipPack.WRONG_PASSWORD) && extractQ.startsWith("Pulse.zip has 2 files") && where.equals(String.join(" | ", ZipImport.WHERE))
+        && imported != null && imported.startsWith("Imported 2 files into Ref files") && refs.contains("beat.wav") && refs.contains("note.txt")
+        && kept != null && kept.equals("Pulse.zip is in the DB as a reference file");
+    write("s162_ready_tags_sogni_ids_playlists_settings_zip", out.toString());
+    if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString());
   }
 
   @SuppressWarnings("unused")

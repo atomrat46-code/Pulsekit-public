@@ -26,6 +26,29 @@ final class MidiOffer {
             if ((low.endsWith(".mid") || low.endsWith(".midi")) && f.bytes != null && f.bytes.length >= 4 && f.bytes[0] == 'M' && f.bytes[1] == 'T') midi = f;
         }
         if (midi == null) return false;
+        return offer(app, midi);
+    }
+
+    /** WAV ready's Convert hits into MIDI asked: MIDI ready follows the DrumMidi_CRT run. */
+    static boolean hitsAsked;
+
+    /** Convert hits into MIDI's run: MIDI ready on the MIDI DrumMidi_CRT made (in its files, or at `outputPath`). */
+    static boolean offerHits(final MainActivity app, JavaRun.Result result, String outputPath) {
+        hitsAsked = false;
+        if (offer(app, result)) return true;
+        if (outputPath == null || app.playback == null) return false;
+        java.io.File out = new java.io.File(outputPath);
+        try {
+            byte[] b = out.isFile() ? java.nio.file.Files.readAllBytes(out.toPath()) : null;
+            if (b == null || b.length < 4 || b[0] != 'M' || b[1] != 'T') return false;
+            return offer(app, new JavaRun.FileOut(out.getName(), b));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /** MIDI ready on one MIDI; false when it has no drums for the kit. */
+    static boolean offer(final MainActivity app, JavaRun.FileOut midi) {
         short[] pcm;
         try {
             pcm = AudioIo.renderMidiDrums(midi.bytes, app.playback.mixVoices(), 22050);
@@ -60,7 +83,7 @@ final class MidiOffer {
         col.setPadding(app.dp(20), app.dp(8), app.dp(20), 0);
         col.addView(app.text(midi.name + " (" + (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60)
             + ") is imported as a file set.\n\nPlay sounds it with Pulsekit's kit (your imported SoundFont, if any).", 14, false));
-        for (final String item : items(PictureOffer.isFavourite(app, midi.name, size), false)) {
+        for (final String item : TagDialogs.withUseLast(app, items(PictureOffer.isFavourite(app, midi.name, size), false).toArray(new String[0]), ReadyRecent.MIDI)) {
             android.widget.TextView b = app.pill(item, false, v -> run(app, file, midiName, size, item));
             b.setTag("midi-offer-item:" + item);
             android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
@@ -137,10 +160,11 @@ final class MidiOffer {
 
     /** One of MIDI ready's items on the run's MIDI. */
     static void run(MainActivity app, java.io.File file, String name, long size, String item) {
-        String kind = ReadyRecent.SOUND;
+        String kind = ReadyRecent.MIDI;
         if (item.equals(FileFavourites.ADD_SHORT) || item.equals(FileFavourites.REMOVE_SHORT)) PictureOffer.toggleFavourite(app, name, size);
         else if (item.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, name, size), name, null, kind);
         else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, name, size, null, kind);
+        else if (item.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, size, kind);
         else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, name, size, null, kind);
         else if (item.equals(Playlist.ADD)) PlaylistScreen.addReady(app, name, null, file);
         else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);

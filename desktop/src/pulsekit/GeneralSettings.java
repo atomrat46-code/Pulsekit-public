@@ -61,7 +61,52 @@ final class GeneralSettings {
         JPanel middle = new JPanel(new BorderLayout(0, 8));
         middle.add(note, BorderLayout.NORTH);
         middle.add(askBox, BorderLayout.CENTER);
-        col.add(middle, BorderLayout.CENTER);
+        // Sogni: which Sogni tools PyJav lists. File types: a type unticked is left out of the thumbnails (its letter too) and of the playlists shown.
+        AppSettings.load(PromptDb.dir());
+        JPanel more = new JPanel();
+        more.setLayout(new javax.swing.BoxLayout(more, javax.swing.BoxLayout.Y_AXIS));
+        more.add(headline("Sogni"));
+        final JCheckBox sogni = new JCheckBox(AppSettings.SHOW_SOGNI, AppSettings.showSogni());
+        sogni.setName("settings-show-sogni");
+        final JCheckBox music = new JCheckBox(AppSettings.MUSIC_ONLY, AppSettings.musicOnly());
+        music.setName("settings-sogni-music-only");
+        music.setEnabled(AppSettings.showSogni());
+        sogni.addActionListener(e -> {
+            boolean on = sogni.isSelected();
+            AppSettings.setShowSogni(on);
+            if (!on && music.isSelected()) {
+                music.setSelected(false);
+                AppSettings.setMusicOnly(false);
+            }
+            music.setEnabled(on);
+            app.setNow(on ? "Sogni tools are listed in PyJav" : "No Sogni tools in PyJav's list");
+        });
+        music.addActionListener(e -> {
+            AppSettings.setMusicOnly(music.isSelected());
+            app.setNow(music.isSelected() ? "Only SogniMusic and SogniChat are listed of the Sogni tools" : "All Sogni tools are listed in PyJav");
+        });
+        more.add(sogni);
+        more.add(music);
+        more.add(note("Unticked, no Sogni program is in PyJav's list (Select program). Only music tools and chat: SogniMusic and\n"
+            + "SogniChat are listed, the image and video tools are not."));
+        more.add(headline("File types"));
+        for (int i = 0; i < AppSettings.TYPE_LETTERS.length; i++) {
+            final String letter = AppSettings.TYPE_LETTERS[i];
+            final JCheckBox type = new JCheckBox(AppSettings.TYPE_LABELS[i] + " (" + letter + ")", AppSettings.shows(letter));
+            type.setName("settings-show:" + letter);
+            type.addActionListener(e -> {
+                AppSettings.setShows(letter, type.isSelected());
+                app.setNow(DbFilter.label(letter) + (type.isSelected() ? " are shown again" : " are left out of the thumbnails and playlists"));
+            });
+            more.add(type);
+        }
+        more.add(note("A type unticked is not shown in the thumbnail screens (Browse DB, the Reference, Result and Prompt files, the\n"
+            + "Media browser), its letter is not there either, and a playlist with files of that type shows the others only."));
+        for (java.awt.Component c : more.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
+        JPanel all = new JPanel(new BorderLayout(0, 8));
+        all.add(middle, BorderLayout.NORTH);
+        all.add(more, BorderLayout.CENTER);
+        col.add(all, BorderLayout.CENTER);
         JButton close = new JButton("Close");
         close.addActionListener(e -> dialog.dispose());
         JPanel south = new JPanel(new BorderLayout());
@@ -72,6 +117,21 @@ final class GeneralSettings {
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         dialog.setVisible(true);
+    }
+
+    /** A section's headline ("Sogni", "File types"). */
+    static javax.swing.JLabel headline(String text) {
+        javax.swing.JLabel l = new javax.swing.JLabel(text);
+        l.setFont(l.getFont().deriveFont(java.awt.Font.BOLD, l.getFont().getSize2D() + 1f));
+        l.setBorder(BorderFactory.createEmptyBorder(12, 0, 2, 0));
+        return l;
+    }
+
+    static JTextArea note(String text) {
+        JTextArea a = new JTextArea(text);
+        a.setEditable(false);
+        a.setOpaque(false);
+        return a;
     }
 
     /** Copies the library over on its own thread; the box is greyed until it is done, and set back if it fails. */
