@@ -52,6 +52,8 @@ public class BehaviorTest {
     MidiImportSettings.reset();
     // The Prompts page's full size preview is static too: each scenario starts on the page itself.
     PromptSheet.closePreview();
+    // An import opens Ref files (on S for a sound): each scenario starts with the galleries closed.
+    PromptSheet.resetGallery();
     // F G C and the tag lists are switches kept while the program runs.
     FileFilter.reset();
     Engine.fileSetSongs.clear();
@@ -9264,6 +9266,13 @@ public class BehaviorTest {
     boolean catOk = cats.contains(MediaTags.NEW_CATEGORY) && cats.contains(MediaTags.NEW_SUBCATEGORY) && cats.contains(MediaTags.INTO_NEW)
         && third.contains("Beats") && third.contains("Beats / Drums") && "Songs".equals(MediaTags.category(MediaTags.key("song.mp3", 4000)));
     write("s158_linked_import_cards_categories", out.toString());
+    // The gallery as the other tests find it: closed, on A.
+    filter.set(null, "A");
+    for (String f : new String[] {"refsOpen", "resultsOpen"}) {
+      java.lang.reflect.Field open = PromptSheet.class.getDeclaredField(f);
+      open.setAccessible(true);
+      open.set(null, false);
+    }
     MediaTags.reset();
     FileGroups.reset();
     if (!linkOk || !importOk || !cardsOk || !menusOk || !catOk) throw new AssertionError(out.toString());

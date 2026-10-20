@@ -388,6 +388,14 @@ public final class PromptSheet {
   private static int focusWhich;
   private static View focusCard;
 
+  /** The galleries closed and on A again (as at start; for the tests). */
+  static void resetGallery() {
+    galleryFilter = "A";
+    refsOpen = false;
+    resultsOpen = false;
+    promptFilesOpen = false;
+  }
+
   /** After an import: the Prompts page's Ref files (or Result files) shown. */
   static void openFiles(MainActivity app, boolean results, String letter) {
     if (letter != null) galleryFilter = letter;
