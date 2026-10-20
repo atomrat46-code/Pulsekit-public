@@ -153,21 +153,26 @@ final class PlaylistScreen {
         });
         delete.setTag("playlist-delete");
         top.addView(delete);
-        TextView imp = app.pill("Import .pls…", false, v -> pick(app, PICK_PLS, false));
-        imp.setTag("playlist-import");
-        top.addView(imp);
-        TextView merge = app.pill("Merge .pls…", false, v -> pick(app, PICK_MERGE, true));
-        merge.setTag("playlist-merge");
-        top.addView(merge);
-        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
-        TextView saveIt = app.pill(Playlist.SAVE, false, v -> savePls(app, p));
-        saveIt.setTag("playlist-save");
-        top.addView(saveIt);
-        TextView export = app.pill(Playlist.SAVE_AS, false, v -> saveAs(app, p));
-        export.setTag("playlist-export");
-        top.addView(export);
         topScroll.addView(top);
         col.addView(topScroll);
+        // A second row (the first ran off the phone's screen): Save, Save as…, Import .pls, Merge .pls.
+        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
+        HorizontalScrollView fileScroll = new HorizontalScrollView(app);
+        LinearLayout files = app.row();
+        TextView saveIt = app.pill(Playlist.SAVE, false, v -> savePls(app, p));
+        saveIt.setTag("playlist-save");
+        files.addView(saveIt);
+        TextView export = app.pill(Playlist.SAVE_AS, false, v -> saveAs(app, p));
+        export.setTag("playlist-export");
+        files.addView(export);
+        TextView imp = app.pill("Import .pls…", false, v -> pick(app, PICK_PLS, false));
+        imp.setTag("playlist-import");
+        files.addView(imp);
+        TextView merge = app.pill("Merge .pls…", false, v -> pick(app, PICK_MERGE, true));
+        merge.setTag("playlist-merge");
+        files.addView(merge);
+        fileScroll.addView(files);
+        col.addView(fileScroll);
         // Editor | Viewer.
         LinearLayout tabs = app.row();
         String[] names = {"Editor", "Viewer"};

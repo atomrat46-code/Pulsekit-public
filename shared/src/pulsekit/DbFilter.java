@@ -40,9 +40,13 @@ public final class DbFilter {
     return low.matches(".+\\.(txt|text|md|json|csv|tsv|srt|vtt|lrc|xml|html?|log|prompt|py|java|js|ts|sh|ya?ml|ini|cfg|conf|rtf)");
   }
 
-  /** After an import: S for a sound or MIDI file (the gallery opens on it); null to leave the letter as it is. */
+  /** After an import: the gallery opens on its letter, S for a sound or MIDI file, V a video, I a picture, T a text; null to leave it. */
   public static String afterImport(String name) {
-    return MediaDir.kind(name) == MediaDir.SOUND ? "S" : null;
+    int kind = MediaDir.kind(name);
+    if (kind == MediaDir.SOUND) return "S";
+    if (kind == MediaDir.VIDEO) return "V";
+    if (kind == MediaDir.PICTURE) return "I";
+    return isText(name) ? "T" : null;
   }
 
   /** A file of this size goes into separate storage (PromptVault.LINK_MIN or more): what the import asks. */

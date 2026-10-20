@@ -340,7 +340,8 @@ public final class Playlist {
       save(dir, p);
       return p.name;
     }
-    if (r.code == 0 && r.log != null && r.log.contains("Playlist: " + DEFAULT)) return DEFAULT;
+    // Run without a playlist: the one used last ("" opens it).
+    if (r.code == 0 && r.log != null && r.log.contains("Playlist: " + DEFAULT)) return "";
     return null;
   }
 

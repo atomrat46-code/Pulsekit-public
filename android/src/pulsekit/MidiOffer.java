@@ -45,10 +45,33 @@ final class MidiOffer {
             return false;
         }
         int seconds = Math.round(pcm.length / 22050f);
+        // The MIDI as a file for its items (the MIDI editor, Midi2Wav, the default SoundFont).
+        final java.io.File file = new java.io.File(new java.io.File(app.getCacheDir(), "pyjav-in"), midi.name.replace('/', '_').replace(' ', '_'));
+        try {
+            file.getParentFile().mkdirs();
+            java.nio.file.Files.write(file.toPath(), midi.bytes);
+        } catch (Exception ex) {
+            return false;
+        }
+        final String midiName = midi.name;
+        final long size = midi.bytes.length;
+        android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+        col.setOrientation(android.widget.LinearLayout.VERTICAL);
+        col.setPadding(app.dp(20), app.dp(8), app.dp(20), 0);
+        col.addView(app.text(midi.name + " (" + (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60)
+            + ") is imported as a file set.\n\nPlay sounds it with Pulsekit's kit (your imported SoundFont, if any).", 14, false));
+        for (final String item : items(PictureOffer.isFavourite(app, midi.name, size), false)) {
+            android.widget.TextView b = app.pill(item, false, v -> run(app, file, midiName, size, item));
+            b.setTag("midi-offer-item:" + item);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+            lp.topMargin = app.dp(6);
+            col.addView(b, lp);
+        }
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(col);
         final AlertDialog dialog = new AlertDialog.Builder(app)
             .setTitle("MIDI ready")
-            .setMessage(midi.name + " (" + (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60)
-                + ") is imported as a file set.\n\nPlay sounds it with Pulsekit's kit (your imported SoundFont, if any).")
+            .setView(scroll)
             .setNeutralButton("Play", null)
             .setNegativeButton("Add to composer stack", null)
             .setPositiveButton("Close", null)
@@ -98,6 +121,48 @@ final class MidiOffer {
         last = dialog;
         dialog.show();
         return true;
+    }
+
+    /** MIDI ready's items: favourites, group, tags, category, playlist, then the MIDI's own (MediaDir.kindItems; Add to composer stack is its button). */
+    static java.util.List<String> items(boolean favourite, boolean plugins) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        out.add(favourite ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT);
+        out.add(FileGroups.ADD);
+        out.add(MediaTags.ADD_TAG);
+        out.add(MediaTags.ADD_CATEGORY);
+        out.add(Playlist.ADD);
+        for (String k : MediaDir.kindItems("x.mid", plugins)) if (!MediaDir.TO_COMPOSER.equals(k)) out.add(k);
+        return out;
+    }
+
+    /** One of MIDI ready's items on the run's MIDI. */
+    static void run(MainActivity app, java.io.File file, String name, long size, String item) {
+        String kind = ReadyRecent.SOUND;
+        if (item.equals(FileFavourites.ADD_SHORT) || item.equals(FileFavourites.REMOVE_SHORT)) PictureOffer.toggleFavourite(app, name, size);
+        else if (item.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, name, size), name, null, kind);
+        else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, name, size, null, kind);
+        else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, name, size, null, kind);
+        else if (item.equals(Playlist.ADD)) PlaylistScreen.addReady(app, name, null, file);
+        else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);
+        else if (item.equals(MediaDir.TO_FILE_SET)) MediaBrowser.toFileSet(app, file, name);
+        else if (item.equals(MediaDir.MIDI_EDIT)) {
+            // Save keeps the edited MIDI in Download as <name>-edited.mid.
+            final String edited = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+            try {
+                MidiEditScreen.openFile(app, name, java.nio.file.Files.readAllBytes(file.toPath()), midi -> {
+                    String where = ArtJava.publish(app, edited, midi);
+                    return where == null ? edited : where;
+                });
+            } catch (Exception ex) {
+                app.setNow("Could not read " + name);
+            }
+        } else if (item.equals(MediaDir.RENDER_SF2)) {
+            if (last != null) last.dismiss();
+            app.openKitView("py");
+            app.programMenus.selectProgram("Java", "Midi2Wav.java");
+            app.pyJav.pkUseInputPath(file.getAbsolutePath());
+            app.pyJav.pkOpenParams();
+        }
     }
 
     static boolean playing() {

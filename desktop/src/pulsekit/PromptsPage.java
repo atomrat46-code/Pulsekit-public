@@ -114,7 +114,7 @@ final class PromptsPage {
             this.vault = null;
         }
         this.col.removeAll();
-        JLabel title = new JLabel(this.resultTextOpen && this.promptId != 0 ? "Result text" : "Prompts");
+        JLabel title = new JLabel(this.resultTextOpen && this.promptId != 0 ? "Result text" : "File storage database and prompts");
         title.setFont(new Font("SansSerif", Font.BOLD, 20));
         title.setForeground(FG);
         title.setAlignmentX(0.0f);
@@ -127,7 +127,7 @@ final class PromptsPage {
         } else if (this.promptId == 0) {
             this.resultTextOpen = false;
             this.col.add(Box.createVerticalStrut(6));
-            this.col.add(this.note("Encrypted library on this computer. Each save keeps a version. One version can be final."));
+            this.col.add(this.note("Encrypted library on this computer. Each prompt save keeps a version. One version can be final."));
             this.buildList();
         } else {
             this.buildEditor();

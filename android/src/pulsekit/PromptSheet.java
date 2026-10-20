@@ -296,8 +296,8 @@ public final class PromptSheet {
     LinearLayout col = new LinearLayout(activity);
     col.setOrientation(LinearLayout.VERTICAL);
     col.setPadding(pad, dp(activity, 12), pad, pad);
-    col.addView(label(activity, "Prompts", 20, "#ECEBE6", true));
-    TextView lead = label(activity, "Encrypted database on this phone. Each save keeps a version. One version can be final.", 14, "#8A8B86", false);
+    col.addView(label(activity, "File storage database and prompts", 20, "#ECEBE6", true));
+    TextView lead = label(activity, "Encrypted database on this phone. Each prompt save keeps a version. One version can be final.", 14, "#8A8B86", false);
     lead.setPadding(0, dp(activity, 4), 0, dp(activity, 12));
     col.addView(lead);
     if (vault == null && opening) {
@@ -2021,6 +2021,8 @@ public final class PromptSheet {
     runs.add(() -> TagDialogs.tags((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add(MediaTags.CATEGORY);
     runs.add(() -> TagDialogs.category((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
+    items.add(MediaDir.EXPORT);
+    runs.add(() -> exportToDisk(activity, file.versionId, file.which, file.name));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -2150,6 +2152,9 @@ public final class PromptSheet {
       items.add(kindItem);
       runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
     }
+    // Export to disk: a copy in Download, to work on with another app.
+    items.add(MediaDir.EXPORT);
+    runs.add(() -> exportToDisk(activity, versionId, which, name));
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
@@ -2195,6 +2200,25 @@ public final class PromptSheet {
       }
       if (MediaDir.TO_FILE_SET.equals(item)) {
         MediaBrowser.toFileSet(host, in, name);
+        return;
+      }
+      if (MediaDir.TO_WAV.equals(item)) {
+        // The WAV a new file of the same gallery.
+        toast(activity, "Converting " + name + " to WAV\u2026");
+        AudioOffer.toWav(host, in, (wav, error) -> {
+          if (wav == null) {
+            toast(activity, "Could not convert " + name + (error == null ? "" : ": " + error));
+            return;
+          }
+          try {
+            String made = PromptVault.fileTitle(name).replaceAll("(?i)\\.mp3$", "") + ".wav";
+            vault.addLibraryFile(made, java.nio.file.Files.readAllBytes(wav.toPath()), "Converted", which == 3 ? 3 : 1);
+            toast(activity, made + " in " + (which == 3 ? "Result files" : "Ref files"));
+            rebuild(activity);
+          } catch (Exception ex) {
+            toast(activity, ex);
+          }
+        });
         return;
       }
       if (MediaDir.TO_COMPOSER.equals(item)) {
@@ -2762,9 +2786,12 @@ public final class PromptSheet {
     final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     final int slop = android.view.ViewConfiguration.get(activity).getScaledTouchSlop();
     final float[] start = new float[2];
+    // A long press: paused, and Save frame offered; a tap: play / pause.
+    final boolean[] held = new boolean[1];
     final Runnable hold = () -> {
+      held[0] = true;
       if (videoPlaying()) videoPause();
-      else videoPlay();
+      frameMenu(activity);
     };
     target.setOnTouchListener((v, event) -> {
       if (event.getPointerCount() > 1 && v.getParent() != null) {
@@ -2776,14 +2803,88 @@ public final class PromptSheet {
       if (act == android.view.MotionEvent.ACTION_DOWN) {
         start[0] = event.getRawX();
         start[1] = event.getRawY();
+        held[0] = false;
         main.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout());
       } else if (act == android.view.MotionEvent.ACTION_MOVE) {
-        if (Math.abs(event.getRawX() - start[0]) > slop || Math.abs(event.getRawY() - start[1]) > slop) main.removeCallbacks(hold);
+        if (Math.abs(event.getRawX() - start[0]) > slop || Math.abs(event.getRawY() - start[1]) > slop) {
+          main.removeCallbacks(hold);
+          held[0] = true;
+        }
       } else {
         main.removeCallbacks(hold);
+        // A tap (not a hold, a drag or two fingers): play / pause.
+        if (act == android.view.MotionEvent.ACTION_UP && !held[0] && event.getPointerCount() == 1) {
+          if (videoPlaying()) videoPause();
+          else videoPlay();
+        }
+        held[0] = true;
       }
       return true;
     });
+  }
+
+  /** Export to disk: the library file copied into Download (read off the main thread). */
+  static void exportToDisk(Activity activity, long versionId, int which, String name) {
+    toast(activity, "Exporting " + name + "\u2026");
+    new Thread(() -> {
+      byte[] bytes = vault == null ? null : vault.fileBytes(versionId, which);
+      String where = bytes == null || bytes.length == 0 ? null : ArtJava.publish(activity, PromptVault.fileTitle(name), bytes);
+      lastExport = where;
+      activity.runOnUiThread(() -> toast(activity, where == null ? "Could not export " + name : "Exported to " + where));
+    }, "pulsekit-export-file").start();
+  }
+
+  /** Where Export to disk wrote last (for the tests). */
+  static volatile String lastExport;
+
+  /** The full-size video's long press menu shown last (for the tests). */
+  static AlertDialog lastFrameMenu;
+
+  /** The video paused: Save frame keeps the picture where it stopped as a reference file in the library. */
+  static void frameMenu(Activity activity) {
+    lastFrameMenu = new AlertDialog.Builder(activity).setTitle(previewName)
+      .setItems(new CharSequence[] {"Save frame"}, (d, w) -> saveFrame(activity))
+      .setNegativeButton("Cancel", null).show();
+  }
+
+  /** The frame at the video's place, kept in the library as a reference file (<video>-1m02s345.jpg; a linked video's too). */
+  static void saveFrame(Activity activity) {
+    File file = previewFile;
+    if (file == null || !file.isFile() || vault == null) {
+      toast(activity, "This video can't give a frame.");
+      return;
+    }
+    long ms;
+    try {
+      ms = previewVideo == null ? 0 : previewVideo.getCurrentPosition();
+    } catch (Exception ex) {
+      ms = 0;
+    }
+    final long at = Math.max(0, ms);
+    final String stem = frameStem(previewName);
+    new Thread(() -> {
+      String said;
+      try {
+        android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+        Bitmap frame;
+        try {
+          media.setDataSource(file.getAbsolutePath());
+          frame = media.getFrameAtTime(at * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST);
+        } finally {
+          media.release();
+        }
+        if (frame == null) throw new IllegalArgumentException("No frame at " + FileSets.mixTime((int) at));
+        java.io.ByteArrayOutputStream jpg = new java.io.ByteArrayOutputStream();
+        frame.compress(Bitmap.CompressFormat.JPEG, 92, jpg);
+        String name = MediaDir.frameName(previewName, at).replaceAll("\\.png$", ".jpg");
+        vault.addReferenceImage(name, jpg.toByteArray(), stem, 1);
+        said = "Saved " + name + " in Ref files";
+      } catch (Exception ex) {
+        said = ex.getMessage() == null ? "Could not save the frame" : ex.getMessage();
+      }
+      final String note = said;
+      activity.runOnUiThread(() -> toast(activity, note));
+    }, "pulsekit-save-frame").start();
   }
 
   private static boolean videoPlaying() {

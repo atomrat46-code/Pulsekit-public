@@ -6228,6 +6228,79 @@ public final class DesktopBehavior {
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The playlist editor's Save and Save as… on a row of their own; DB/Prompts; PlayList.java
+   * without a playlist opens the one used last; MidiDrumGen's MIDI ready has the file's items
+   * (Render with SF2 and with plugin among them); library cards have Export to disk, an MP3
+   * Convert to WAV, which makes a WAV in the same gallery.
+   */
+  void s137_editor_row_ready_items_export() throws Exception {
+    final File dir = PromptDb.dir();
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> PlaylistWindow.open((Pulsekit) frame, "Mp3"));
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog w = PlaylistWindow.last;
+    boolean ownRow = component(w, "playlist-save").getParent() != component(w, "playlist-pick").getParent() && component(w, "playlist-save").getParent() == component(w, "playlist-export").getParent()
+        && component(w, "playlist-save").isShowing();
+    edt(() -> w.dispose());
+    Playlist.Settings set = Playlist.settings(dir);
+    set.last = "Mp3";
+    Playlist.saveSettings(dir, set);
+    String kept = PlaylistWindow.kept((Pulsekit) frame, new JavaRun.Result("Succeeded: the playlist used last\nPlaylist: Default\n", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    String tab = ((javax.swing.JButton) component(frame, "tab:prompts")).getText();
+    out.append("editor: Save and Save as on their own row ").append(ownRow).append(" | run without a playlist opens \"").append(kept).append("\" (the last used) | tab ").append(tab).append('\n');
+    boolean quickOk = ownRow && "".equals(kept) && "DB/Prompts".equals(tab);
+    // MIDI ready's options.
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    final byte[] groove = Engine.encodeMidi(cells, 100);
+    final StringBuilder options = new StringBuilder();
+    inspectNext = d -> {
+      for (String it : PyJav.midiItems(false)) options.append(find(d.getContentPane(), it) == null ? it + " missing " : "");
+      options.insert(0, d.getTitle() + ": ");
+    };
+    answers.add("Close");
+    final PyJav pj = (PyJav) get("pyJav");
+    edt(() -> pj.offerMidi("groove.mid", groove));
+    idle();
+    inspectNext = null;
+    out.append("MIDI ready: ").append(options.length() == 0 ? "not shown (no kit sounds here)" : options.toString().trim()).append(" | items ").append(PyJav.midiItems(false)).append('\n');
+    boolean midiOk = PyJav.midiItems(false).contains(MediaDir.RENDER_SF2) && PyJav.midiItems(false).contains(MediaDir.RENDER_PLUGIN) && !options.toString().contains("missing");
+    // Library cards: Export to disk; an MP3's Convert to WAV.
+    short[] tone = new short[22050 * 2];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.05));
+    File wav = new File(System.getProperty("user.home"), "tone.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
+    File mp3 = new File(System.getProperty("user.home"), "tone.mp3");
+    JavaRun.Result enc = JavaRun.run("Wav2Mp3.java", new String(ProgramFiles.read("Java", "Wav2Mp3.java"), StandardCharsets.UTF_8), null, java.util.Arrays.asList(wav.getAbsolutePath(), mp3.getAbsolutePath()));
+    byte[] mp3Bytes = mp3.isFile() ? Files.readAllBytes(mp3.toPath()) : null;
+    for (JavaRun.FileOut f : enc.files) if (f.name.endsWith(".mp3")) mp3Bytes = f.bytes;
+    PromptDb.vault().addLibraryFile("tone.mp3", mp3Bytes, "Imported", 1);
+    final PromptDb db = (PromptDb) get("promptDb");
+    PromptVault.StoredFile stored = null;
+    for (PromptVault.StoredFile f : PromptDb.vault().referenceFiles()) if (f.name.equals("tone.mp3")) stored = f;
+    final PromptVault.StoredFile tone3 = stored;
+    edt(() -> db.menu(tone3, new javax.swing.JButton(), () -> {}));
+    StringBuilder items = new StringBuilder();
+    javax.swing.JMenuItem toWav = null;
+    for (Component c : db.lastFileMenu.getComponents()) {
+      if (!(c instanceof javax.swing.JMenuItem)) continue;
+      String text = ((javax.swing.JMenuItem) c).getText();
+      if (text.equals(MediaDir.EXPORT) || text.equals(MediaDir.TO_WAV)) items.append(text).append(" | ");
+      if (text.equals(MediaDir.TO_WAV)) toWav = (javax.swing.JMenuItem) c;
+    }
+    final javax.swing.JMenuItem convert = toWav;
+    edt(() -> db.lastFileMenu.setVisible(false));
+    if (convert != null) edt(() -> convert.doClick());
+    idle();
+    boolean made = false;
+    for (PromptVault.StoredFile f : PromptDb.vault().referenceFiles()) if (f.name.equals("tone.wav")) made = true;
+    out.append("MP3 card menu: ").append(items).append("Convert to WAV made tone.wav in Ref files ").append(made).append(" (").append(((JLabel) get("nowPlaying")).getText()).append(")\n");
+    boolean libOk = items.toString().contains(MediaDir.EXPORT) && items.toString().contains(MediaDir.TO_WAV) && made;
+    if (!quickOk || !midiOk || !libOk) throw new AssertionError(out.toString() + enc.log);
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

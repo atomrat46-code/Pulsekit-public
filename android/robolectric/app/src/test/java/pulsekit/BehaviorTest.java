@@ -9352,6 +9352,99 @@ public class BehaviorTest {
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The playlist editor's Save and Save as… on a row of their own (the first ran off the screen);
+   * DB/Prompts; an import opens on its letter; PlayList.java without a playlist opens the one used
+   * last. MidiDrumGen's MIDI ready has the file's items; library files have Export to disk, an MP3
+   * Convert to WAV; the Media browser's sound player has volume and Mute, a drum MIDI played with
+   * Pulsekit's kit.
+   */
+  @Test
+  public void s160_editor_row_ready_items_export_volume() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    // The editor: Save and Save as on the second row.
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, "Mp3");
+    idle();
+    View ew = PlaylistScreen.last.getWindow().getDecorView();
+    View save = ew.findViewWithTag("playlist-save");
+    View pick = ew.findViewWithTag("playlist-pick");
+    boolean ownRow = save != null && save.getParent() != pick.getParent() && save.getParent() == ew.findViewWithTag("playlist-export").getParent();
+    PlaylistScreen.last.dismiss();
+    // PlayList.java without a playlist: the one used last.
+    Playlist.Settings set = Playlist.settings(dir);
+    set.last = "Mp3";
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.afterRun(app, new JavaRun.Result("Succeeded: the playlist used last\nPlaylist: Default\n", new java.util.ArrayList<JavaRun.FileOut>(), 0));
+    idle();
+    String opened = org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle().toString();
+    PlaylistScreen.last.dismiss();
+    String tab = ((TextView) app.getWindow().getDecorView().findViewWithTag("prompts")).getText().toString();
+    out.append("editor: Save and Save as on their own row ").append(ownRow).append(" | run without a playlist opens ").append(opened).append(" | tab ").append(tab)
+        .append(" | import letters ").append(DbFilter.afterImport("a.mp4")).append(DbFilter.afterImport("a.png")).append(DbFilter.afterImport("a.wav")).append('\n');
+    boolean quickOk = ownRow && opened.endsWith("Mp3") && "DB/Prompts".equals(tab) && "VIS".equals(DbFilter.afterImport("a.mp4") + DbFilter.afterImport("a.png") + DbFilter.afterImport("a.wav"));
+    // MIDI ready.
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    byte[] groove = Engine.encodeMidi(cells, 100);
+    JavaRun.Result r = new JavaRun.Result("Succeeded: groove.mid\n", java.util.Arrays.asList(new JavaRun.FileOut("groove.mid", groove)), 0);
+    boolean shown = MidiOffer.offer(app, r);
+    idle();
+    StringBuilder missing = new StringBuilder();
+    if (shown) {
+      View mw = MidiOffer.last.getWindow().getDecorView();
+      for (String it : MidiOffer.items(false, false)) if (mw.findViewWithTag("midi-offer-item:" + it) == null) missing.append(it).append(' ');
+      MidiOffer.last.dismiss();
+    }
+    out.append("MIDI ready: shown ").append(shown).append(", items ").append(MidiOffer.items(false, false)).append(missing.length() == 0 ? "" : " missing " + missing).append('\n');
+    boolean midiOk = !shown || missing.length() == 0 && MidiOffer.items(false, false).contains(MediaDir.RENDER_SF2) && MidiOffer.items(false, false).contains(MediaDir.PLAY_SF);
+    // Library files: Export to disk; an MP3: Convert to WAV.
+    byte[] mp3 = new byte[3000];
+    mp3[0] = 'I'; mp3[1] = 'D'; mp3[2] = '3';
+    DbImport.store(app, "track.mp3", mp3, false);
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Field refsOpen = PromptSheet.class.getDeclaredField("refsOpen");
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    refsOpen.setAccessible(true);
+    rebuild.setAccessible(true);
+    refsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    ((View) findText(pane, "track.mp3").getParent()).performLongClick();
+    idle();
+    java.util.List<String> rows = java.util.Arrays.asList(listItems(PromptSheet.lastFileMenu).split(" \\| "));
+    PromptSheet.lastExport = null;
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(rows.indexOf(MediaDir.EXPORT));
+    for (int i = 0; i < 40 && PromptSheet.lastExport == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    out.append("MP3 card menu: ").append(rows.contains(MediaDir.TO_WAV)).append(" Convert to WAV, ").append(rows.contains(MediaDir.EXPORT)).append(" Export to disk -> ").append(PromptSheet.lastExport).append('\n');
+    boolean libOk = rows.contains(MediaDir.TO_WAV) && rows.contains(MediaDir.EXPORT) && PromptSheet.lastExport != null && PromptSheet.lastExport.endsWith("track.mp3");
+    // The Media browser's sound player.
+    File media = new File(app.getCacheDir(), "sounds-volume");
+    media.mkdirs();
+    Files.write(new File(media, "groove.mid").toPath(), groove);
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:groove.mid").performClick();
+    idle();
+    View sv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    boolean volume = sv.findViewWithTag("media-sound-volume") != null && sv.findViewWithTag("media-sound-mute") != null;
+    String kit = findText(sv, "MIDI, played with Pulsekit's kit (the imported SoundFont)") != null ? "the kit" : findText(sv, "MIDI, played with the phone's own instruments") != null ? "the phone's instruments" : "?";
+    sv.findViewWithTag("media-sound-mute").performClick();
+    String muted = ((TextView) sv.findViewWithTag("media-sound-level")).getText().toString();
+    ShadowDialog.getLatestDialog().dismiss();
+    b.dialog.dismiss();
+    out.append("sound player: volume and Mute ").append(volume).append(", muted shows ").append(muted).append(", a drum MIDI with ").append(kit).append('\n');
+    boolean soundOk = volume && "muted".equals(muted) && !"?".equals(kit);
+    write("s160_editor_row_ready_items_export_volume", out.toString());
+    if (!quickOk || !midiOk || !libOk || !soundOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

@@ -141,6 +141,8 @@ final class PlaylistWindow {
             again.run();
         });
         top.add(delete);
+        // A second row: Save, Save as…, Import .pls, Merge .pls.
+        JPanel files = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton imp = new JButton("Import .pls…");
         imp.setName("playlist-import");
         imp.addActionListener(e -> {
@@ -151,7 +153,7 @@ final class PlaylistWindow {
             switchTo(dir, name);
             again.run();
         });
-        top.add(imp);
+        files.add(imp);
         JButton merge = new JButton("Merge .pls…");
         merge.setName("playlist-merge");
         merge.setToolTipText("Two or three playlists as one (PlayList.java)");
@@ -163,7 +165,7 @@ final class PlaylistWindow {
             switchTo(dir, name);
             again.run();
         });
-        top.add(merge);
+        files.add(merge);
         // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
         JButton saveIt = new JButton(Playlist.SAVE);
         saveIt.setName("playlist-save");
@@ -173,12 +175,15 @@ final class PlaylistWindow {
             if (at != null && new File(at).getParentFile() != null && new File(at).getParentFile().isDirectory()) savePls(app, p, new File(at));
             else saveAs(app, d, p);
         });
-        top.add(saveIt);
+        files.add(saveIt, 0);
         JButton export = new JButton(Playlist.SAVE_AS);
         export.setName("playlist-export");
         export.addActionListener(e -> saveAs(app, d, p));
-        top.add(export);
-        body.add(top, BorderLayout.NORTH);
+        files.add(export, 1);
+        JPanel bars = new JPanel(new java.awt.GridLayout(2, 1, 0, 4));
+        bars.add(top);
+        bars.add(files);
+        body.add(bars, BorderLayout.NORTH);
         final JTabbedPane tabs = new JTabbedPane();
         tabs.setName("playlist-tabs");
         tabs.addTab("Editor", editor(app, d, p, again));
@@ -318,7 +323,8 @@ final class PlaylistWindow {
             app.setNow("Playlist " + p.name + ": " + p.items.size() + (p.items.size() == 1 ? " file" : " files"));
             return p.name;
         }
-        if (code == 0 && log != null && log.contains("Playlist: " + Playlist.DEFAULT)) return Playlist.DEFAULT;
+        // Run without a playlist: the one used last ("" opens it).
+        if (code == 0 && log != null && log.contains("Playlist: " + Playlist.DEFAULT)) return "";
         app.setNow(log == null ? "PlayList.java failed" : lastLine(log));
         return null;
     }

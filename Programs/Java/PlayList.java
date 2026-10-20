@@ -5,7 +5,8 @@
  *   java PlayList [list.pls] [list2.pls] [list3.pls] [--name <name>] [--nogui] [--outfile <file>] [--batchdir <folder>] [--midi] [--midibatch]
  *
  * list.pls   The playlist: File1=, Title1=, Length1= lines as any .pls has them. None: the
- *            Default playlist (Add to default playlist on the thumbnails fills it).
+ *            playlist used last (the Default playlist at first; Add to default playlist on the
+ *            thumbnails fills it).
  * list2.pls  A second (and list3.pls a third) playlist: merged into the first, in order.
  * --name     The name the playlist (or the merged one) is kept by; else the file's name, or
  *            "a + b" for a merge.
@@ -90,7 +91,7 @@ public final class PlayList {
     if (batchdir != null) nogui = true;
     if (nogui) return text(lists, batchdir, outfile, defaultPls, midi, midibatch);
     if (lists.isEmpty()) {
-      System.out.println("Succeeded: the Default playlist");
+      System.out.println("Succeeded: the playlist used last (Default at first)");
       System.out.println("Playlist: Default");
       return 0;
     }

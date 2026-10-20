@@ -251,7 +251,12 @@ final class VlcPlayer {
         Runnable zoomed;
         /** A press held on the picture (as a long press on the phone): plays, or (playing) pauses. */
         Runnable held;
+        /** A click (pressed and let go before a hold, without a drag); none: nothing. */
+        Runnable clicked;
+        private boolean fired;
+        private boolean moved;
         private final javax.swing.Timer hold = new javax.swing.Timer(600, e -> {
+            this.fired = true;
             if (this.held != null) this.held.run();
         });
 
@@ -276,17 +281,23 @@ final class VlcPlayer {
                     this.y = e.getY() - Screen.this.panY;
                     this.pressX = e.getX();
                     this.pressY = e.getY();
+                    Screen.this.fired = false;
+                    Screen.this.moved = false;
                     if (javax.swing.SwingUtilities.isLeftMouseButton(e)) Screen.this.hold.restart();
                 }
 
                 @Override
                 public void mouseReleased(java.awt.event.MouseEvent e) {
                     Screen.this.hold.stop();
+                    if (javax.swing.SwingUtilities.isLeftMouseButton(e) && !Screen.this.fired && !Screen.this.moved && Screen.this.clicked != null) Screen.this.clicked.run();
                 }
 
                 @Override
                 public void mouseDragged(java.awt.event.MouseEvent e) {
-                    if (Math.abs(e.getX() - this.pressX) > 5 || Math.abs(e.getY() - this.pressY) > 5) Screen.this.hold.stop();
+                    if (Math.abs(e.getX() - this.pressX) > 5 || Math.abs(e.getY() - this.pressY) > 5) {
+                        Screen.this.hold.stop();
+                        Screen.this.moved = true;
+                    }
                     if (Screen.this.zoom <= 1) return;
                     Screen.this.panX = e.getX() - this.x;
                     Screen.this.panY = e.getY() - this.y;

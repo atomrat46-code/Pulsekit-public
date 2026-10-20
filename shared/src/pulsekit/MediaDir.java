@@ -554,6 +554,9 @@ public final class MediaDir {
     return low.matches(".+\\.(wav|wave|mp3|ogg|m4a|aac|flac|mid|midi|txt|md|json|prompt|csv|xml|pls)");
   }
 
+  /** A library file's (Ref, Result and Prompt files) copy on disk, to work on with another program. */
+  public static final String EXPORT = "Export to disk\u2026";
+
   /** A MIDI file's items: the MIDI editor, Midi2Wav (a SoundFont), vst_render (a plugin; computer only), played with the system's own SoundFont. */
   public static final String MIDI_EDIT = "Open in MIDI editor";
   public static final String RENDER_SF2 = "Render with SF2";
@@ -565,17 +568,20 @@ public final class MediaDir {
   public static final String TO_FILE_SET = "Add into file set";
   /** A WAV or MP3's item: DrumMidi_CRT on it, its drum hits as a MIDI. */
   public static final String TO_MIDI = "Convert drum hits into MIDI";
+  /** An MP3's item: decoded to a WAV (beside it; in the library, a new file of the same gallery). */
+  public static final String TO_WAV = "Convert to WAV";
 
   /** The items `name` has for what it is: a MIDI's (with Render with plugin when `plugins`), a sound's. */
   public static String[] kindItems(String name, boolean plugins) {
     if (isMidi(name)) return plugins ? new String[] {MIDI_EDIT, RENDER_SF2, RENDER_PLUGIN, PLAY_SF, TO_COMPOSER, TO_FILE_SET} : new String[] {MIDI_EDIT, RENDER_SF2, PLAY_SF, TO_COMPOSER, TO_FILE_SET};
+    if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".mp3")) return new String[] {TO_MIDI, TO_WAV};
     if (name != null && kind(name) == SOUND) return new String[] {TO_MIDI};
     return new String[0];
   }
 
   /** True for the items kindItems gives. */
   public static boolean isKindItem(String item) {
-    return MIDI_EDIT.equals(item) || RENDER_SF2.equals(item) || RENDER_PLUGIN.equals(item) || PLAY_SF.equals(item) || TO_MIDI.equals(item) || TO_COMPOSER.equals(item) || TO_FILE_SET.equals(item);
+    return MIDI_EDIT.equals(item) || RENDER_SF2.equals(item) || RENDER_PLUGIN.equals(item) || PLAY_SF.equals(item) || TO_MIDI.equals(item) || TO_COMPOSER.equals(item) || TO_FILE_SET.equals(item) || TO_WAV.equals(item);
   }
 
   /** As menu(listed, kind, files), with `name`'s own items (kindItems) before Tags…. */

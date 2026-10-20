@@ -21,11 +21,11 @@ public final class PyJavParams {
   static final int PICK_FILE = 30;
 
   /** The file row waiting for the picker. */
-  private static String[] pendingValues;
+  static String[] pendingValues;
   private static int pendingIndex = -1;
   private static TextView pendingLabel;
   /** The folder picked is MediaBrowser's (opened on it), not a program's folder switch. */
-  private static boolean pendingOpensMedia = true;
+  static boolean pendingOpensMedia = true;
   /** The prompt field waiting for the picker's text file (Select file under --prompt). */
   private static EditText pendingPrompt;
 

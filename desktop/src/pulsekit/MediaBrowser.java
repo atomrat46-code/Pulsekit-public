@@ -924,6 +924,13 @@ final class MediaBrowser {
             toFileSet(app, f, entry.name);
             return;
         }
+        if (MediaDir.TO_WAV.equals(item)) {
+            // The WAV beside the MP3; listed at once.
+            File wav = app.pyJav.asWav(f);
+            if (wav != f) app.setNow("Saved " + wav.getName() + " beside " + entry.name);
+            if (this.last != null && this.last.isShowing() && this.shown != null) this.open(this.shown);
+            return;
+        }
         final File root = this.shownRoot;
         final File dir = this.shown;
         if (this.last != null) this.last.dispose();
