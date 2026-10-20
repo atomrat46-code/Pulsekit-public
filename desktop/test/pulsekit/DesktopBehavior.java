@@ -7772,8 +7772,8 @@ public final class DesktopBehavior {
 
   private void start() throws Exception {
     Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
-      errors.add(e);
       e.printStackTrace();
+      if (!jdk8PushedQueue(e)) errors.add(e);
     });
     Thread watcher = new Thread(this::watchDialogs, "dialog-watcher");
     watcher.setDaemon(true);
