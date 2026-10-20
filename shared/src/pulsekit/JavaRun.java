@@ -162,10 +162,14 @@ public final class JavaRun {
       if (t.length() == 0) continue;
       if (progress == null && t.startsWith("Progress: ")) progress = t.substring(10);
       if (status == null && (t.startsWith("Status: ") || t.startsWith("Queued") || t.startsWith("Reconnecting") || t.startsWith("Uploaded ")
-          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks") || t.startsWith("Downloading: "))) status = t;
+          || t.startsWith("Workflow: ") || t.startsWith("Sogni asks") || t.startsWith("Downloading: ") || t.startsWith("Wrote ") || t.startsWith("Joined "))) status = t;
       if (status != null && progress != null) break;
     }
     if (status == null && progress == null) return null;
+    // Done on Sogni, but the run goes on: it is downloading (or saving) the result, so the clock still runs.
+    if (status != null && status.matches("Status: (completed|partial_failure)")) return status + ", downloading the result\u2026";
+    if (status != null && status.startsWith("Downloading: 100%")) return "Downloaded" + status.substring(17) + ", saving\u2026";
+    if (status != null && (status.startsWith("Wrote ") || status.startsWith("Joined "))) return status + ", finishing\u2026";
     if (status == null) return progress;
     if (progress == null || status.startsWith("Reconnecting") || status.startsWith("Queued")) return status;
     return status + " " + progress;

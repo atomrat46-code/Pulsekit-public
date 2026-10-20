@@ -649,6 +649,10 @@ public final class Pulsekit extends UiKit {
             playlists.addActionListener(e -> PlaylistWindow.open(this, null));
             JMenuItem general = new JMenuItem("General settings");
             general.addActionListener(e -> GeneralSettings.show(this));
+            // Use encrypted DB, the DBs and their space, Send db to zip, Import db zip.
+            JMenuItem dbSettings = new JMenuItem(DbSlots.TITLE);
+            dbSettings.setName("file-db-settings");
+            dbSettings.addActionListener(e -> DbSettings.show(this));
             JMenuItem midi = new JMenuItem("Drum Midi Settings");
             midi.addActionListener(e -> this.showView("midisettings"));
             JMenuItem compare = new JMenuItem("Compare Hits");
@@ -664,6 +668,7 @@ public final class Pulsekit extends UiKit {
             menu.add(downloads);
             menu.add(playlists);
             menu.add(general);
+            menu.add(dbSettings);
             menu.add(midi);
             menu.add(compare);
             menu.add(help);

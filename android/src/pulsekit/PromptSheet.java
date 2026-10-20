@@ -397,6 +397,19 @@ public final class PromptSheet {
   }
 
   /** After an import: the Prompts page's Ref files (or Result files) shown. */
+  /** Database settings changed the DB in use: read from it from now on. */
+  static void reopen(MainActivity app) {
+    try {
+      vault = PromptVault.open(app.getFilesDir());
+    } catch (Exception ex) {
+      vault = null;
+      toast(app, ex);
+    }
+    categoryId = 0;
+    if (vault != null && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
+    rebuild(app);
+  }
+
   static void openFiles(MainActivity app, boolean results, String letter) {
     if (letter != null) galleryFilter = letter;
     previewBack = 0;

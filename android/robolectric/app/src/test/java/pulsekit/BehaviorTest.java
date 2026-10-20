@@ -5484,9 +5484,10 @@ public class BehaviorTest {
       for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
       return sb.toString().trim();
     };
-    GeneralSettings.show(app);
+    // Use encrypted DB is in Database settings now.
+    DbSettings.show(app);
     idle();
-    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
+    android.widget.CheckBox box = (android.widget.CheckBox) DbSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
     out.append("Use encrypted DB: ").append(box.isChecked()).append("; files: ").append(files.get()).append('\n');
     box.setChecked(false);
     idle();
@@ -9735,6 +9736,159 @@ public class BehaviorTest {
         && kept != null && kept.equals("Pulse.zip is in the DB as a reference file");
     write("s162_ready_tags_sogni_ids_playlists_settings_zip", out.toString());
     if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_5: File > Database settings (Use encrypted DB moved there, the DBs' space, the
+   * list and Use); Send db to zip (a password of at least 4 characters); Import db zip as a
+   * secondary DB, as the main DB (links to files not here left out), and a DB encrypted with
+   * another key (its key typed); the running line says the download goes on after "completed".
+   */
+  @Test
+  public void s163_db_settings_export_import() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    String running = JavaRun.news("Workflow: wf_1\nStatus: completed\n");
+    String saving = JavaRun.news("Status: completed\nDownloading: 100% (30.1 of 30.1 MB)\n");
+    out.append("running line: ").append(running).append(" | ").append(saving).append('\n');
+    boolean newsOk = running.contains("downloading the result") && saving.startsWith("Downloaded (30.1 of 30.1 MB), saving");
+    PromptVault v = PromptVault.open(dir);
+    long cat = v.addCategory("Walks");
+    long pid = v.addPrompt(cat, "Beach walk");
+    byte[] big = new byte[150 * 1024];
+    new java.util.Random(5).nextBytes(big);
+    v.addVersion(pid, "Beach walk", "", "a walk on the beach", "", "beach.png", big, "", new byte[0], "", new byte[0], "", "");
+    DbImport.store(app, "note.txt", "hello".getBytes(StandardCharsets.UTF_8), false);
+    v.addLinkedFile("long.mp4", new java.io.ByteArrayInputStream(big), "Imported", 3);
+    String before = v.summary();
+    // The dialog: Use encrypted DB, the space, the list.
+    DbSettings.show(app);
+    idle();
+    View dv = DbSettings.last.getWindow().getDecorView();
+    String sizes = ((TextView) dv.findViewWithTag("db-sizes")).getText().toString();
+    boolean parts = dv.findViewWithTag("settings-encrypted") != null && dv.findViewWithTag("db-pick:Main") != null && dv.findViewWithTag("db-send-zip") != null && dv.findViewWithTag("db-import-zip") != null;
+    GeneralSettings.show(app);
+    idle();
+    boolean movedOut = GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted") == null;
+    GeneralSettings.last.dismiss();
+    out.append("Database settings: parts ").append(parts).append(", not in General settings ").append(movedOut).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
+    boolean dialogOk = parts && movedOut && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)") && sizes.contains("All DBs: ");
+    // Send db to zip: a short password is refused; then into a file.
+    dv.findViewWithTag("db-send-zip").performClick();
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("abc");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String shortSaid = DbSettings.lastSaid;
+    DbSettings.lastAsk.dismiss();
+    File zip = new File(app.getCacheDir(), "out/pulsekit-db-Main.zip");
+    zip.getParentFile().mkdirs();
+    zip.createNewFile();
+    DbSettings.exportPassword = "pw42".toCharArray();
+    DbSettings.lastSaid = null;
+    DbSettings.export(app, android.net.Uri.fromFile(zip));
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String sent = DbSettings.lastSaid;
+    java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
+    out.append("short password: ").append(shortSaid).append(" | ").append(sent).append(" | encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(es);
+    // Import db zip: the DB in use is not empty, so: as a new secondary DB (first).
+    File copy = new File(app.getCacheDir(), "in/pulsekit-db-Main.zip");
+    copy.getParentFile().mkdirs();
+    Files.copy(zip.toPath(), copy.toPath());
+    DbSettings.opened(app, copy, "pulsekit-db-Pulse-20261020-1400.zip");
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pw42");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asRows = listItems(DbSettings.lastAsk);
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asSecondary = DbSettings.lastSaid;
+    String names = DbSlots.names(dir).toString();
+    DbSettings.use(app, "Pulse");
+    idle();
+    String inUse = DbSlots.active(dir) + ": " + PromptVault.open(dir).summary() + ", encrypted " + PromptVault.encrypted(dir);
+    DbSettings.use(app, DbSlots.MAIN);
+    idle();
+    out.append("Import as: ").append(asRows).append(" | ").append(asSecondary).append(" | DBs ").append(names).append(" | Use Pulse -> ").append(inUse).append('\n');
+    boolean secondaryOk = asRows.startsWith(DbSlots.AS[0]) && asSecondary != null && asSecondary.startsWith("Imported the DB as Pulse") && names.equals("[Main, Pulse]")
+        && inUse.equals("Pulse: " + before + ", encrypted true");
+    // As the main DB, from a zip without its linked file: that link is left out, the main DB before kept.
+    File plain = new File(app.getCacheDir(), "plain");
+    PromptVault.exportPlain(dir, plain);
+    java.util.List<ZipPack.Source> src = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : plain.listFiles()) if (!f.getName().startsWith("prompts-linked-")) src.add(new ZipPack.Source(DbSlots.ZIP_FOLDER + "/" + f.getName(), f));
+    File noLink = new File(app.getCacheDir(), "in/nolink.zip");
+    ZipPack.write(noLink, src, "pw42".toCharArray());
+    DbSettings.opened(app, noLink, "nolink.zip");
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pw42");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).clickOnItem(1);
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asMain = DbSettings.lastSaid;
+    String mainNow = PromptVault.open(dir).summary();
+    out.append("As the main DB: ").append(asMain).append(" | main now ").append(mainNow).append(" | DBs ").append(DbSlots.names(dir)).append('\n');
+    boolean mainOk = asMain != null && asMain.startsWith("The imported DB is the main DB now (the one before is kept as Main before ") && asMain.endsWith("1 link to files that are not here left out")
+        && mainNow.equals("1 prompt, 1 version, 1 file") && DbSlots.names(dir).size() == 3 && PromptVault.encrypted(dir);
+    // A DB encrypted with another computer's key: that key typed.
+    PromptVault.Keys own = PromptVault.keys;
+    final byte[] other = new byte[32];
+    other[0] = 7;
+    File elsewhere = new File(app.getCacheDir(), "elsewhere");
+    elsewhere.mkdirs();
+    PromptVault.keys = () -> new javax.crypto.spec.SecretKeySpec(other, "AES");
+    PromptVault ev = PromptVault.open(elsewhere);
+    ev.addPrompt(ev.addCategory("Far"), "From elsewhere");
+    PromptVault.keys = own;
+    PromptVault.forget();
+    java.util.List<ZipPack.Source> raw = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : elsewhere.listFiles()) if (PromptVault.isDbFile(f.getName())) raw.add(new ZipPack.Source(f.getName(), f));
+    File rawZip = new File(app.getCacheDir(), "in/raw.zip");
+    ZipPack.write(rawZip, raw, null);
+    DbSettings.opened(app, rawZip, "Laptop.zip");
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-key") == null); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    StringBuilder hex = new StringBuilder();
+    for (byte b : other) hex.append(String.format("%02x", b & 0xff));
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-key")).setText(hex.toString());
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String keyed = DbSettings.lastSaid;
+    out.append("Another computer's DB (key typed): ").append(keyed).append(" | DBs ").append(DbSlots.names(dir)).append('\n');
+    boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && PromptVault.openAt(DbSlots.homeOf(dir, "Laptop")).summary().startsWith("1 prompt");
+    if (DbSettings.last != null) DbSettings.last.dismiss();
+    write("s163_db_settings_export_import", out.toString());
+    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
   }
 
   @SuppressWarnings("unused")

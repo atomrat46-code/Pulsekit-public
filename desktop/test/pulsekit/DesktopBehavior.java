@@ -3346,7 +3346,8 @@ public final class DesktopBehavior {
     final javax.swing.JCheckBox[] box = new javax.swing.JCheckBox[1];
     inspectNext = d -> box[0] = (javax.swing.JCheckBox) component(d, "settings-encrypted");
     answers.add("Close");
-    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    // Use encrypted DB is in Database settings now.
+    SwingUtilities.invokeLater(() -> DbSettings.show((Pulsekit) frame));
     for (int i = 0; i < 100 && box[0] == null; i++) Thread.sleep(100);
     idle();
     out.append("Use encrypted DB: ").append(box[0] != null && box[0].isSelected()).append("; files: ").append(files.get()).append('\n');
@@ -6511,6 +6512,86 @@ public final class DesktopBehavior {
     boolean importOk = imported != null && imported.startsWith("Imported 2 files into Ref files") && refCount >= 2 && kept != null && kept.equals("Pulse.zip is in the DB as a reference file")
         && wrong != null && wrong.startsWith(ZipPack.WRONG_PASSWORD);
     if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString() + refs);
+  }
+
+  /**
+   * Notes 20102026_5 on the desktop: File > Database settings (Use encrypted DB, the DBs' space, the
+   * list and Use); Send db to zip (a password of at least 4 characters); Import db zip as a
+   * secondary DB, and a DB encrypted with another computer's key (its key typed).
+   */
+  void s140_db_settings_export_import() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    File home = new File(System.getProperty("user.home"));
+    PromptVault v = PromptDb.vault();
+    long pid = v.addPrompt(v.addCategory("Walks"), "Beach walk");
+    byte[] big = new byte[150 * 1024];
+    new java.util.Random(5).nextBytes(big);
+    v.addVersion(pid, "Beach walk", "", "a walk on the beach", "", "beach.png", big, "", new byte[0], "", new byte[0], "", "");
+    v.addLibraryFile("note.txt", "hello".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    String before = v.summary();
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> DbSettings.show(app));
+    for (int i = 0; i < 100 && (DbSettings.last == null || !DbSettings.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog d = DbSettings.last;
+    boolean parts = component(d, "settings-encrypted") != null && component(d, "db-list") != null && component(d, "db-send-zip") != null && component(d, "db-import-zip") != null;
+    String sizes = ((javax.swing.JTextArea) component(d, "db-sizes")).getText();
+    out.append("Database settings: parts ").append(parts).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
+    boolean dialogOk = parts && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)");
+    // Send db to zip: a short password refused, then into the file picked.
+    DbSettings.answer = q -> "abc";
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-send-zip")).doClick());
+    String shortSaid = DbSettings.lastSaid;
+    DbSettings.answer = q -> "pw42";
+    File zip = new File(home, "pulsekit-db-Pulse-20261020-1400.zip");
+    chooseNext = zip;
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-send-zip")).doClick());
+    String sent = DbSettings.lastSaid;
+    out.append("short password: ").append(shortSaid).append(" | ").append(sent).append('\n');
+    boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(ZipPack.list(zip));
+    // Import db zip: as a new secondary DB; Use it.
+    chooseNext = zip;
+    answers.add(DbSlots.AS[0]);
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-import-zip")).doClick());
+    String imported = DbSettings.lastSaid;
+    @SuppressWarnings("unchecked")
+    final javax.swing.JComboBox<String> list = (javax.swing.JComboBox<String>) component(d, "db-list");
+    edt(() -> list.setSelectedItem("Pulse"));
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
+    String inUse = DbSlots.active(dir) + ": " + PromptDb.vault().summary() + ", encrypted " + PromptVault.encrypted(dir);
+    edt(() -> list.setSelectedItem(DbSlots.MAIN));
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
+    out.append("Import: ").append(imported).append(" | DBs ").append(DbSlots.names(dir)).append(" | Use Pulse -> ").append(inUse).append('\n');
+    boolean importOk = imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
+    // Another computer's DB: its key typed.
+    PromptVault.Keys own = PromptVault.keys;
+    final byte[] other = new byte[32];
+    other[0] = 9;
+    File elsewhere = new File(home, "elsewhere-db");
+    elsewhere.mkdirs();
+    PromptVault.keys = () -> new javax.crypto.spec.SecretKeySpec(other, "AES");
+    PromptVault ev = PromptVault.open(elsewhere);
+    ev.addPrompt(ev.addCategory("Far"), "From elsewhere");
+    PromptVault.keys = own;
+    PromptVault.forget();
+    java.util.List<ZipPack.Source> raw = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : elsewhere.listFiles()) if (PromptVault.isDbFile(f.getName())) raw.add(new ZipPack.Source(f.getName(), f));
+    File rawZip = new File(home, "Laptop.zip");
+    ZipPack.write(rawZip, raw, null);
+    StringBuilder hex = new StringBuilder();
+    for (byte b : other) hex.append(String.format("%02x", b & 0xff));
+    DbSettings.answer = q -> q.equals(DbSlots.KEY_NOTE) ? hex.toString() : null;
+    chooseNext = rawZip;
+    answers.add(DbSlots.AS[0]);
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-import-zip")).doClick());
+    String keyed = DbSettings.lastSaid;
+    DbSettings.answer = null;
+    String sizesAfter = ((javax.swing.JTextArea) component(d, "db-sizes")).getText();
+    edt(() -> d.dispose());
+    out.append("Another computer's DB: ").append(keyed).append(" | ").append(sizesAfter.replace('\n', ' ')).append('\n');
+    boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && sizesAfter.contains("Laptop: ") && sizesAfter.contains("All DBs: ");
+    if (!dialogOk || !sendOk || !importOk || !keyOk) throw new AssertionError(out.toString());
   }
 
   private static MediaDir.Entry entryOf(File f) {

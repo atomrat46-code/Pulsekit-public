@@ -6,7 +6,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * File > General settings: "Use encrypted DB". Unticked, the prompt library is copied into an
+ * File > General settings: Ask where to save a prompt, Sogni and File types. Use encrypted DB is
+ * in Database settings now (DbSettings), its change made here (change): unticked, the prompt library is copied into an
  * unencrypted one, which is used from then on (quicker on a slow phone); ticked again, the
  * encrypted one is brought up to date and the unencrypted one deleted. The copy runs in the
  * background ("Processing DB, please wait"); the setting is kept by which library is there.
@@ -20,17 +21,6 @@ final class GeneralSettings {
     static void show(final MainActivity app) {
         LinearLayout col = app.col();
         col.setPadding(app.dp(20), app.dp(12), app.dp(20), app.dp(4));
-        final CheckBox box = new CheckBox(app);
-        box.setText("Use encrypted DB");
-        box.setTag("settings-encrypted");
-        box.setChecked(PromptVault.encrypted(app.getFilesDir()));
-        col.addView(box);
-        TextView note = app.text("The prompt library is kept encrypted with the phone's keystore. Unticked, it is copied into an unencrypted library "
-            + "in the app's own storage and used from then on: opening and saving are quicker. Ticked again, the encrypted library is brought up to date "
-            + "and the unencrypted one is deleted.", 12, false);
-        note.setPadding(0, app.dp(8), 0, 0);
-        col.addView(note);
-        box.setOnCheckedChangeListener((b, on) -> change(app, box, on));
         // After a run with --saveprompt: ask where the prompt goes (Save prompt), or store it where its sheet says.
         PromptSave.load(app.getFilesDir());
         final CheckBox ask = new CheckBox(app);
@@ -38,9 +28,7 @@ final class GeneralSettings {
         ask.setTag("settings-ask-save");
         ask.setChecked(PromptSave.ask());
         ask.setOnCheckedChangeListener((b, on) -> PromptSave.setAsk(on));
-        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
-        alp.topMargin = app.dp(12);
-        col.addView(ask, alp);
+        col.addView(ask);
         TextView askNote = app.text("A run with --saveprompt (Save the prompt into DB) shows Save prompt: main category, subcategory, name and description; "
             + "the prompt is saved as its next version, with the date. A prompt the same as one in the library already is not saved again. "
             + "Unticked, it goes into the category its sheet names.", 12, false);

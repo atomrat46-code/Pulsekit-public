@@ -768,6 +768,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null) MediaBrowser.imported(this, n, intent);
             return;
         }
+        if (n == DbSettings.PASSWORD_FILE || n == DbSettings.SAVE_ZIP || n == DbSettings.OPEN_ZIP || n == DbSettings.KEY_FILE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) DbSettings.picked(this, n, intent.getData());
+            return;
+        }
         if (n == ZipFlow.PICK_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) ZipFlow.folderPicked(this, intent.getData());
@@ -1115,6 +1120,11 @@ public class MainActivity extends UiKit {
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
+        // Use encrypted DB, the DBs and their space, Send db to zip, Import db zip.
+        android.widget.TextView dbSettings = this.text(DbSlots.TITLE, 14, true);
+        dbSettings.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        dbSettings.setTextColor(FG);
+        dbSettings.setTag("file-db-settings");
         android.widget.TextView general = this.text("General settings", 14, true);
         general.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         general.setTextColor(FG);
@@ -1144,6 +1154,7 @@ public class MainActivity extends UiKit {
         menu.addView(downloads);
         menu.addView(playlists);
         menu.addView(general);
+        menu.addView(dbSettings);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -1171,6 +1182,10 @@ public class MainActivity extends UiKit {
         importResult.setOnClickListener(v -> {
             pop.dismiss();
             DbImport.pick(this, true);
+        });
+        dbSettings.setOnClickListener(v -> {
+            pop.dismiss();
+            DbSettings.show(this);
         });
         general.setOnClickListener(v -> {
             pop.dismiss();

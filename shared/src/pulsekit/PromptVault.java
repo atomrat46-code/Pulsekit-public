@@ -1345,6 +1345,7 @@ public final class PromptVault {
           image.blobSize = readSize;
         }
         if (image.size() > 0) library.add(image);
+        else droppedOnRead++;
       }
       if (data.available() >= 4) {
         int ndates = data.readInt();
@@ -1380,6 +1381,8 @@ public final class PromptVault {
   }
 
   private static SecretKey key() throws Exception {
+    SecretKey here = KEY_HERE.get();
+    if (here != null) return here;
     Keys k = keys;
     if (k == null) throw new IllegalStateException("The prompt library has no key");
     return k.key();
@@ -1563,15 +1566,148 @@ public final class PromptVault {
   private static final byte[] PLAIN_MAGIC = new byte[] {'P', 'K', 'V', '0'};
   private final boolean plain;
 
-  /** The library file in use in `dir`: the unencrypted one when it is there, else the encrypted one. */
+  /** The library file in use in `dir`: the active DB's (Database settings), the unencrypted one when it is there, else the encrypted one. */
   static File fileIn(File dir) {
-    File p = new File(dir, PLAIN_NAME);
-    return p.isFile() ? p : new File(dir, "prompts.vault");
+    return fileAt(DbSlots.home(dir));
   }
 
-  /** Whether the library in `dir` is the encrypted one (General settings > Use encrypted DB). */
+  /** The library file in the folder `home` itself (a DB's own folder). */
+  static File fileAt(File home) {
+    File p = new File(home, PLAIN_NAME);
+    return p.isFile() ? p : new File(home, ENCRYPTED_NAME);
+  }
+
+  static final String ENCRYPTED_NAME = "prompts.vault";
+
+  /** Whether the library in `dir` is the encrypted one (Database settings > Use encrypted DB). */
   public static boolean encrypted(File dir) {
-    return !new File(dir, PLAIN_NAME).isFile();
+    return !new File(DbSlots.home(dir), PLAIN_NAME).isFile();
+  }
+
+  /** Whether a file in a DB's folder is one of the DB's own (the library, its kept and linked files). */
+  public static boolean isDbFile(String name) {
+    if (name == null) return false;
+    String n = name.endsWith(".tmp") ? name.substring(0, name.length() - 4) : name;
+    return n.equals(ENCRYPTED_NAME) || n.equals(PLAIN_NAME)
+        || ((n.startsWith(BLOB_PREFIX) || n.startsWith(PLAIN_BLOB_PREFIX) || n.startsWith(LINKED_PREFIX)) && (n.endsWith(".dat") || name.endsWith(".tmp")));
+  }
+
+  /** A key used in place of the app's own on this thread (a DB from another computer, read with its key file). */
+  private static final ThreadLocal<SecretKey> KEY_HERE = new ThreadLocal<SecretKey>();
+
+  /** The library in the folder `home`, read on its own (not the one the app uses): for a DB being imported. */
+  public static PromptVault openAt(File home) throws Exception {
+    PromptVault v = new PromptVault(fileAt(home));
+    if (v.file.isFile()) v.read();
+    return v;
+  }
+
+  /** Forgets the library in memory (its files were moved): the next open reads it again. */
+  public static synchronized void forget() {
+    shared = null;
+  }
+
+  /** Library files left out as the library was read (their kept file was not there): prune() saves without them. */
+  private int droppedOnRead;
+
+  /** No prompts and no library files (the categories made at first do not count). */
+  public synchronized boolean isEmpty() {
+    return prompts.isEmpty() && library.isEmpty();
+  }
+
+  /** "3 prompts, 4 versions, 12 files". */
+  public synchronized String summary() {
+    return prompts.size() + (prompts.size() == 1 ? " prompt, " : " prompts, ") + versions.size() + (versions.size() == 1 ? " version, " : " versions, ")
+        + library.size() + (library.size() == 1 ? " file" : " files");
+  }
+
+  /**
+   * What the library links to that is not on disk any more (a DB brought from another computer
+   * without some of its files): the library files go, a version's file is cleared. Saved when any
+   * went; how many.
+   */
+  public synchronized int prune() throws Exception {
+    // Library files whose kept file was not there were left out as the library was read.
+    int gone = droppedOnRead;
+    droppedOnRead = 0;
+    File dir = file.getParentFile();
+    for (int i = library.size() - 1; i >= 0; i--) {
+      LibraryFile f = library.get(i);
+      if ((f.blob != null && !new File(dir, f.blob).isFile()) || f.size() == 0) {
+        library.remove(i);
+        gone++;
+      }
+    }
+    for (Version v : versions) {
+      if (missing(dir, v.ref1Name, v.ref1, v.ref1Blob)) {
+        v.ref1Name = "";
+        v.ref1 = new byte[0];
+        v.ref1Blob = null;
+        gone++;
+      }
+      if (missing(dir, v.ref2Name, v.ref2, v.ref2Blob)) {
+        v.ref2Name = "";
+        v.ref2 = new byte[0];
+        v.ref2Blob = null;
+        gone++;
+      }
+      if (missing(dir, v.resultName, v.result, v.resultBlob)) {
+        v.resultName = "";
+        v.result = new byte[0];
+        v.resultBlob = null;
+        gone++;
+      }
+    }
+    if (gone > 0 || !file.isFile()) save();
+    return gone;
+  }
+
+  /** A version's file named but not there: its kept file gone, or (read so) no bytes at all. */
+  private static boolean missing(File dir, String name, byte[] bytes, String blob) {
+    if (name == null || name.length() == 0) return false;
+    if (blob != null) return !new File(dir, blob).isFile();
+    return bytes == null || bytes.length == 0;
+  }
+
+  /**
+   * Database settings > Send db to zip: the library in use copied unencrypted into `toDir`
+   * (prompts-plain.vault, its kept files decrypted, its linked files copied), one file at a time.
+   */
+  public static void exportPlain(File dir, File toDir) throws Exception {
+    PromptVault from = open(dir);
+    toDir.mkdirs();
+    PromptVault to = new PromptVault(new File(toDir, PLAIN_NAME));
+    begin("Copying the database for the zip");
+    try {
+      copyInto(from, to, true);
+      to.save();
+    } finally {
+      end();
+    }
+  }
+
+  /**
+   * An encrypted DB in `home` (another computer's, its key given) made unencrypted there: the
+   * library and its kept files written unencrypted, the encrypted ones deleted. Throws when the key
+   * does not open it.
+   */
+  public static void toPlain(File home, SecretKey key) throws Exception {
+    KEY_HERE.set(key);
+    try {
+      PromptVault from = new PromptVault(new File(home, ENCRYPTED_NAME));
+      try {
+        from.read();
+      } catch (javax.crypto.AEADBadTagException ex) {
+        throw new IllegalStateException("That key does not open this DB");
+      }
+      PromptVault to = new PromptVault(new File(home, PLAIN_NAME));
+      copyInto(from, to, false);
+      to.save();
+    } finally {
+      KEY_HERE.remove();
+    }
+    File[] kids = home.listFiles();
+    if (kids != null) for (File k : kids) if (k.getName().equals(ENCRYPTED_NAME) || k.getName().startsWith(BLOB_PREFIX)) k.delete();
   }
 
   private String blobPrefix() {
@@ -1601,77 +1737,17 @@ public final class PromptVault {
    */
   public static synchronized void setEncrypted(File dir, boolean on) throws Exception {
     if (encrypted(dir) == on) return;
+    File home = DbSlots.home(dir);
     PromptVault from = open(dir);
     begin(on ? "Encrypting the database" : "Copying the database unencrypted");
     try {
-      PromptVault to = new PromptVault(new File(dir, on ? "prompts.vault" : PLAIN_NAME));
-      synchronized (from) {
-        to.nextId = from.nextId;
-        for (Category c : from.categories) {
-          Category n = new Category();
-          n.id = c.id;
-          n.parentId = c.parentId;
-          n.name = c.name;
-          to.categories.add(n);
-        }
-        for (Prompt p : from.prompts) {
-          Prompt n = new Prompt();
-          n.id = p.id;
-          n.categoryId = p.categoryId;
-          n.title = p.title;
-          n.created = p.created;
-          to.prompts.add(n);
-        }
-        for (Version v : from.versions) {
-          Version n = new Version();
-          n.id = v.id;
-          n.promptId = v.promptId;
-          n.description = v.description;
-          n.body = v.body;
-          n.ref1Name = v.ref1Name;
-          n.ref2Name = v.ref2Name;
-          n.resultName = v.resultName;
-          n.model = v.model;
-          n.codeType = v.codeType;
-          n.resultText = v.resultText;
-          n.created = v.created;
-          n.finalVersion = v.finalVersion;
-          n.ref1 = copy(v.ref1);
-          n.ref2 = copy(v.ref2);
-          n.result = copy(v.result);
-          if (v.ref1Blob != null) {
-            n.ref1Blob = to.keepBlob(from.storedBlob(v.ref1Blob));
-            n.ref1Size = v.ref1Size;
-          }
-          if (v.ref2Blob != null) {
-            n.ref2Blob = to.keepBlob(from.storedBlob(v.ref2Blob));
-            n.ref2Size = v.ref2Size;
-          }
-          if (v.resultBlob != null) {
-            n.resultBlob = to.keepBlob(from.storedBlob(v.resultBlob));
-            n.resultSize = v.resultSize;
-          }
-          to.versions.add(n);
-        }
-        for (LibraryFile f : from.library) {
-          LibraryFile n = new LibraryFile();
-          n.id = f.id;
-          n.name = f.name;
-          n.note = f.note;
-          n.which = f.which;
-          n.bytes = copy(f.bytes);
-          if (f.blob != null) {
-            // A linked file stays where it is (both libraries link to it).
-            n.blob = f.blob.startsWith(LINKED_PREFIX) ? f.blob : to.keepBlob(from.storedBlob(f.blob));
-            n.blobSize = f.blobSize;
-          }
-          to.library.add(n);
-        }
-      }
+      PromptVault to = new PromptVault(new File(home, on ? ENCRYPTED_NAME : PLAIN_NAME));
+      // A linked file stays where it is (both libraries link to it).
+      copyInto(from, to, false);
       to.save();
       if (on) {
         // Back to the encrypted library: the unencrypted files go.
-        File[] kids = dir.listFiles();
+        File[] kids = home.listFiles();
         if (kids != null) {
           for (File k : kids) {
             String n = k.getName();
@@ -1684,13 +1760,109 @@ public final class PromptVault {
       end();
     }
   }
+
+  /**
+   * Everything of `from` into `to` (not saved yet): each kept file read and written one at a time,
+   * as `to` keeps them. A linked file is linked to as it is, or (`copyLinked`, `to` in another
+   * folder) copied beside `to`.
+   */
+  private static void copyInto(PromptVault from, PromptVault to, boolean copyLinked) throws Exception {
+    synchronized (from) {
+      to.nextId = from.nextId;
+      for (Category c : from.categories) {
+        Category n = new Category();
+        n.id = c.id;
+        n.parentId = c.parentId;
+        n.name = c.name;
+        to.categories.add(n);
+      }
+      for (Prompt p : from.prompts) {
+        Prompt n = new Prompt();
+        n.id = p.id;
+        n.categoryId = p.categoryId;
+        n.title = p.title;
+        n.created = p.created;
+        n.tags = p.tags;
+        to.prompts.add(n);
+      }
+      for (Version v : from.versions) {
+        Version n = new Version();
+        n.id = v.id;
+        n.promptId = v.promptId;
+        n.description = v.description;
+        n.body = v.body;
+        n.ref1Name = v.ref1Name;
+        n.ref2Name = v.ref2Name;
+        n.resultName = v.resultName;
+        n.model = v.model;
+        n.codeType = v.codeType;
+        n.resultText = v.resultText;
+        n.created = v.created;
+        n.finalVersion = v.finalVersion;
+        n.ref1 = copy(v.ref1);
+        n.ref2 = copy(v.ref2);
+        n.result = copy(v.result);
+        if (v.ref1Blob != null) {
+          n.ref1Blob = carry(from, to, v.ref1Blob);
+          n.ref1Size = n.ref1Blob == null ? 0 : v.ref1Size;
+        }
+        if (v.ref2Blob != null) {
+          n.ref2Blob = carry(from, to, v.ref2Blob);
+          n.ref2Size = n.ref2Blob == null ? 0 : v.ref2Size;
+        }
+        if (v.resultBlob != null) {
+          n.resultBlob = carry(from, to, v.resultBlob);
+          n.resultSize = n.resultBlob == null ? 0 : v.resultSize;
+        }
+        to.versions.add(n);
+      }
+      for (LibraryFile f : from.library) {
+        LibraryFile n = new LibraryFile();
+        n.id = f.id;
+        n.name = f.name;
+        n.note = f.note;
+        n.which = f.which;
+        n.created = f.created;
+        n.bytes = copy(f.bytes);
+        if (f.blob != null) {
+          if (f.blob.startsWith(LINKED_PREFIX)) {
+            n.blob = f.blob;
+            File src = new File(from.file.getParentFile(), f.blob);
+            File dst = new File(to.file.getParentFile(), f.blob);
+            if (copyLinked && !dst.getAbsoluteFile().equals(src.getAbsoluteFile())) {
+              if (!src.isFile()) continue;
+              java.nio.file.Files.copy(src.toPath(), dst.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+          } else {
+            n.blob = carry(from, to, f.blob);
+            // Its kept file gone (a DB from elsewhere without it): the file is left out.
+            if (n.blob == null) continue;
+          }
+          n.blobSize = f.blobSize;
+        }
+        to.library.add(n);
+      }
+    }
+  }
+  /** A kept file of `from` written as `to` keeps it; null when it is not on disk. */
+  private static String carry(PromptVault from, PromptVault to, String blob) throws Exception {
+    if (!new File(from.file.getParentFile(), blob).isFile()) return null;
+    return to.keepBlob(from.storedBlob(blob));
+  }
+
   /** The files the last save named. */
   private final java.util.HashSet<String> blobsUsed = new java.util.HashSet<String>();
 
   /** The library's size on disk in `dir`, its kept files included (bytes). */
   public static long storedSize(File dir) {
+    return storedSizeAt(DbSlots.home(dir));
+  }
+
+  /** A DB's size in its folder `home`: the library in use there and its kept and linked files (bytes). */
+  public static long storedSizeAt(File home) {
+    File dir = home;
     long total = 0;
-    File at = fileIn(dir);
+    File at = fileAt(home);
     String prefix = PLAIN_NAME.equals(at.getName()) ? PLAIN_BLOB_PREFIX : BLOB_PREFIX;
     File[] kids = dir == null ? null : dir.listFiles();
     if (kids == null) return 0;
