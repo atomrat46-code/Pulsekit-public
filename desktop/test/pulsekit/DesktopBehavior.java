@@ -6210,12 +6210,12 @@ public final class DesktopBehavior {
     Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
     final StringBuilder options = new StringBuilder();
     inspectNext = d -> {
-      for (String t : new String[] {FileFavourites.ADD_SHORT, FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, PyJav.TO_WAV}) options.append(find(d.getContentPane(), t) == null ? t + " missing " : "");
+      // A WAV is WAV ready now: Convert hits into MIDI in place of Convert into WAV.
+      for (String t : new String[] {FileFavourites.ADD_SHORT, FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, PyJav.HITS_TO_MIDI}) options.append(find(d.getContentPane(), t) == null ? t + " missing " : "");
       options.insert(0, d.getTitle() + ": ");
     };
     MediaBrowser.answer = q -> q.startsWith("Tags for") ? "drums" : null;
     answers.add(MediaTags.ADD_TAG);
-    answers.add(PyJav.TO_WAV);
     answers.add("Close");
     final PyJav pj = (PyJav) get("pyJav");
     edt(() -> pj.offerAudio(wav));
@@ -6223,8 +6223,7 @@ public final class DesktopBehavior {
     MediaBrowser.answer = null;
     inspectNext = null;
     out.append("MP3 ready (a WAV here): ").append(options.toString().trim()).append(" | tags ").append(MediaTags.line(MediaTags.key("track.wav", wav.length()))).append(" | Convert into WAV: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
-    boolean readyOk = options.toString().startsWith("Audio ready:") && !options.toString().contains("missing") && MediaTags.line(MediaTags.key("track.wav", wav.length())).contains("drums")
-        && ((JLabel) get("nowPlaying")).getText().contains("is a WAV already");
+    boolean readyOk = options.toString().startsWith("WAV ready:") && !options.toString().contains("missing") && MediaTags.line(MediaTags.key("track.wav", wav.length())).contains("drums");
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
 

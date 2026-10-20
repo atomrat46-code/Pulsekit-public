@@ -8480,7 +8480,8 @@ public class BehaviorTest {
     MediaBrowser.lastAsk.dismiss();
     PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
     idle();
-    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(3);
+    // Add to category… (Use last tags: sunset comes before it now).
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(itemIndex(PictureOffer.menu, MediaTags.ADD_CATEGORY));
     for (int i = 0; i < 20; i++) {
       Thread.sleep(50);
       idle();
@@ -9349,7 +9350,7 @@ public class BehaviorTest {
     MediaBrowser.lastAsk.dismiss();
     AudioOffer.last.dismiss();
     out.append("MP3 ready: ").append(title).append(", items ").append(items.length() == 0 ? "all there" : items).append(", Add tag opens ").append(tagsTitle).append('\n');
-    boolean readyOk = "MP3 ready".equals(title) && items.length() == 0 && tagsTitle.equals("Tags for track.mp3") && ReadyRecent.SOUND.equals(ReadyRecent.kind("track.mp3"));
+    boolean readyOk = "MP3 ready".equals(title) && items.length() == 0 && tagsTitle.equals("Tags for track.mp3") && ReadyRecent.MP3.equals(ReadyRecent.kind("track.mp3"));
     write("s159_viewer_music_mp3_ready", out.toString());
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
