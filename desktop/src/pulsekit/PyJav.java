@@ -1247,6 +1247,8 @@ final class PyJav {
         }
         // ImageUpscaler with --addtodb: the picture as a Reference file; --output_dir original: a copy beside the input picture.
         if ("ImageUpscaler.java".equals(name)) {
+            // Its size: Add to DB asks about smaller pictures.
+            if (r.code == 0) UpscaleCheck.remember(dir, r);
             String up = PromptKeep.keepUpscaled(dir, r, argv);
             if (up.length() > 0) kept = kept.length() > 0 ? kept + "\n" + up : up;
             String copy = this.copyToOriginal(r, argv);

@@ -137,6 +137,44 @@ public final class MediaPlaylist {
     }
   }
 
+  /**
+   * Every folder with files in its default playlist: {its folder key, how many files}, by the
+   * folder's name. (Each sealed playlist names its folder on its first line.)
+   */
+  public static List<String[]> folders(File dir) {
+    List<String[]> out = new ArrayList<String[]>();
+    File[] all = dir == null ? null : dir.listFiles();
+    if (all == null) return out;
+    for (File f : all) {
+      String n = f.getName();
+      if (!n.startsWith("playlist-") || !n.endsWith(".dat")) continue;
+      try {
+        String text = new String(Sealed.open(Files.readAllBytes(f.toPath())), StandardCharsets.UTF_8);
+        String folder = null;
+        int count = 0;
+        for (String line : text.split("\n")) {
+          if (line.startsWith("folder\t")) folder = line.substring(7);
+          else if (line.indexOf('\t') > 0) count++;
+        }
+        if (folder != null && count > 0) out.add(new String[] {folder, String.valueOf(count)});
+      } catch (Exception ignored) {
+        // not one of ours, or not readable
+      }
+    }
+    java.util.Collections.sort(out, (x, y) -> folderLabel(x[0]).compareToIgnoreCase(folderLabel(y[0])));
+    return out;
+  }
+
+  /** A folder key's name to show: the last part of its path (a granted folder's document id: after its last / or :). */
+  public static String folderLabel(String folder) {
+    String f = folder == null ? "" : folder;
+    int bar = f.lastIndexOf('|');
+    if (bar >= 0) f = f.substring(bar + 1);
+    int cut = Math.max(Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\')), f.lastIndexOf(':'));
+    String last = cut >= 0 && cut < f.length() - 1 ? f.substring(cut + 1) : f;
+    return last.length() == 0 ? f : last;
+  }
+
   /** "Playlist (3)". */
   public static String button(int count) {
     return "Playlist (" + count + ")";

@@ -6,7 +6,8 @@
  *
  * directory  The folder to browse. In Params, Browse picks it and opens the Media browser at once;
  *            a run lists what is in it here and opens the Media browser too. On the phone the
- *            folder is one the system picker granted (a content:// address), read by the app.
+ *            folder is one the system picker granted (a content:// address), read by the app,
+ *            or Download (pulsekit:downloads; Android lets no app pick it as a folder).
  *
  * Plain Java 8, so PyJav can compile it on a phone.
  */
@@ -55,7 +56,7 @@ public final class MediaBrowser {
       }
       if (a.startsWith("--")) continue;
       if (first == null) first = a;
-      if (dir == null && (a.startsWith("content://") || new File(a).isDirectory())) dir = a;
+      if (dir == null && (a.startsWith("content://") || a.equals("pulsekit:downloads") || new File(a).isDirectory())) dir = a;
     }
     if (dir == null) dir = first;
     if (dir == null || dir.startsWith("<")) {
@@ -64,7 +65,7 @@ public final class MediaBrowser {
       return 2;
     }
     // A folder the phone's picker granted: the app lists it.
-    if (dir.startsWith("content://")) {
+    if (dir.startsWith("content://") || dir.equals("pulsekit:downloads")) {
       System.out.println("Succeeded: the app lists that folder");
       System.out.println("Media browser: " + dir);
       return 0;

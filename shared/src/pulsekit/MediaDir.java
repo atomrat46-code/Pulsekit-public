@@ -186,6 +186,7 @@ public final class MediaDir {
   public static String label(String dir) {
     if (dir == null || dir.trim().length() == 0) return "None";
     String d = dir.trim();
+    if (d.equals("pulsekit:downloads")) return "Download";
     if (d.startsWith("file://")) {
       try {
         d = java.net.URLDecoder.decode(d.substring(7).replace("+", "%2B"), "UTF-8");
@@ -251,6 +252,13 @@ public final class MediaDir {
 
   private static String placeKey(String folder) {
     return Integer.toHexString((folder == null ? "" : folder).hashCode());
+  }
+
+  /** Whether the folder (`root`, then the folders opened under it) is a favourite. */
+  public static synchronized boolean isFavourite(String root, List<String> under) {
+    StringBuilder sb = new StringBuilder(root == null ? "" : root.replace('\t', ' ').replace('\n', ' '));
+    if (under != null) for (String u : under) sb.append('\t').append(u.replace('\t', ' ').replace('\n', ' '));
+    return favourites.contains(sb.toString());
   }
 
   /** Adds the folder (`root`, then the folders opened under it); false when it is a favourite already. */

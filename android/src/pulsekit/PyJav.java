@@ -617,6 +617,8 @@ final class PyJav {
      */
     void pkCopyToOriginal(final pulsekit.JavaRun.Result result, final java.util.List argv) {
         if (!"ImageUpscaler.java".equals(app.pyName) || argv == null) return;
+        // Its size: Add to DB asks about smaller pictures.
+        if (result != null && result.code == 0) pulsekit.UpscaleCheck.remember(app.getFilesDir(), result);
         int at = argv.indexOf("--output_dir");
         if (at < 0 || at + 1 >= argv.size() || !"original".equals(String.valueOf(argv.get(at + 1)).trim().toLowerCase())) return;
         final pulsekit.JavaRun.FileOut made = pulsekit.PromptKeep.made(result);
