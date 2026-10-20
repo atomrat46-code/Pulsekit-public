@@ -20,6 +20,8 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 
 /**
@@ -238,19 +240,51 @@ final class MediaBrowser {
             });
             top.add(up, BorderLayout.WEST);
         }
-        // Add to favourites: this folder, as a tab in Choose file.
-        JButton fav = new JButton("Add to favourites");
+        // Add to favourites: this folder, as a tab in Choose file (★ In favourites when it is one).
+        final boolean already = MediaDir.isFavourite(root.getPath(), under);
+        JButton fav = new JButton(already ? MediaDir.STAR + "In favourites" : "Add to favourites");
         fav.setName("media-favourite");
         fav.addActionListener(e -> {
             boolean added = MediaDir.addFavourite(root.getPath(), under);
             saveLoop();
-            app.setNow(added ? MediaDir.label(dir.getPath()) + " is a favourite: a tab in Choose file" : MediaDir.label(dir.getPath()) + " is a favourite already");
-            if (added && this.chooser != null) {
+            String said = added ? MediaDir.label(dir.getPath()) + " added to favourites: a tab in Choose file" : MediaDir.label(dir.getPath()) + " is in favourites already";
+            app.setNow(said);
+            lastSaid = said;
+            if (added) {
                 gone.set(true);
                 this.fill(dialog, root, dir);
             }
         });
         loopRow.add(fav, 0);
+        // Import file…, Import folder…, Copy folder from…: files from elsewhere copied into this folder.
+        if (this.chooser == null) {
+            String[][] imports = {{"Copy folder from\u2026", "media-copy-folder"}, {"Import folder\u2026", "media-import-folder"}, {"Import file\u2026", "media-import-file"}};
+            for (String[] im : imports) {
+                JButton b = new JButton(im[0]);
+                b.setName(im[1]);
+                final String what = im[1];
+                b.addActionListener(e -> {
+                    String said = this.importHere(dialog, dir, what);
+                    if (said == null) return;
+                    app.setNow(said);
+                    lastImport = said;
+                    gone.set(true);
+                    this.fill(dialog, root, dir);
+                });
+                loopRow.add(b, 0);
+            }
+        }
+        // The favourite folders, and the folders with a playlist: each opens here.
+        if (this.chooser == null) {
+            JButton favs = new JButton(MediaDir.STAR + "Favourites \u25be");
+            favs.setName("media-favourites-list");
+            favs.addActionListener(e -> this.favouritesList(favs, dialog));
+            JButton lists = new JButton("\u2630 Playlists \u25be");
+            lists.setName("media-playlists-list");
+            lists.addActionListener(e -> this.playlistsList(lists, dialog));
+            loopRow.add(favs, 0);
+            loopRow.add(lists, 1);
+        }
         // A all, I pictures, V videos, S sounds, T text, O other files.
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         final Runnable again = () -> {
@@ -794,6 +828,139 @@ final class MediaBrowser {
     javax.swing.JPopupMenu lastMenu;
 
     /** Save pls: the folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    /** What the last import said (for the tests). */
+    static String lastImport;
+
+    /** Files (Import file…), a folder's files (Import folder…) or a whole folder (Copy folder from…) copied into `dir`; what it did, or null. */
+    String importHere(JDialog dialog, File dir, String what) {
+        boolean files = what.equals("media-import-file");
+        javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+        chooser.setDialogTitle(files ? "Import file" : what.equals("media-import-folder") ? "Import folder (its files)" : "Copy folder from");
+        chooser.setFileSelectionMode(files ? javax.swing.JFileChooser.FILES_ONLY : javax.swing.JFileChooser.DIRECTORIES_ONLY);
+        chooser.setMultiSelectionEnabled(files);
+        if (chooser.showOpenDialog(dialog) != javax.swing.JFileChooser.APPROVE_OPTION) return null;
+        List<File> from = new ArrayList<File>();
+        if (files) {
+            File[] picked = chooser.getSelectedFiles();
+            if (picked == null || picked.length == 0) picked = new File[] {chooser.getSelectedFile()};
+            for (File f : picked) if (f != null) from.add(f);
+        } else {
+            File folder = chooser.getSelectedFile();
+            if (folder == null || !folder.isDirectory()) return "Not a folder";
+            if (what.equals("media-copy-folder")) from.add(folder);
+            else {
+                File[] kids = folder.listFiles();
+                if (kids != null) for (File k : kids) if (k.isFile() && !k.getName().startsWith(".")) from.add(k);
+            }
+        }
+        int done = 0, failed = 0;
+        for (File f : from) {
+            if (dir.getAbsolutePath().startsWith(f.getAbsolutePath() + File.separator) || dir.equals(f)) {
+                failed++;
+                continue;
+            }
+            try {
+                MediaDir.copyInto(f, dir);
+                done++;
+            } catch (Exception ex) {
+                failed++;
+            }
+        }
+        String kind = what.equals("media-copy-folder") ? (done == 1 ? " folder" : " folders") : (done == 1 ? " file" : " files");
+        return "Copied " + done + kind + " into " + dir.getName() + (failed > 0 ? " (" + failed + " could not be copied)" : "");
+    }
+
+    /** What the favourites button said last, and the lists shown last (for the tests). */
+    static String lastSaid;
+    static JPopupMenu lastFavourites, lastPlaylists;
+
+    /** ★ Favourites: the favourite folders, each with Open and Its favourite files (F on). */
+    void favouritesList(java.awt.Component at, JDialog dialog) {
+        JPopupMenu m = new JPopupMenu();
+        if (MediaDir.favourites.isEmpty()) {
+            JMenuItem none = new JMenuItem("No favourite folders yet: Add to favourites in a folder");
+            none.setEnabled(false);
+            m.add(none);
+        }
+        for (final String fav : new java.util.ArrayList<String>(MediaDir.favourites)) {
+            javax.swing.JMenu one = new javax.swing.JMenu(MediaDir.favouriteLabel(fav));
+            one.setName("media-fav-folder:" + MediaDir.favouriteLabel(fav));
+            JMenuItem open = new JMenuItem("Open");
+            open.setName("media-fav-open");
+            open.addActionListener(e -> this.openFavourite(fav, false, dialog));
+            JMenuItem only = new JMenuItem(MediaDir.STAR + "Its favourite files");
+            only.setName("media-fav-files");
+            only.addActionListener(e -> this.openFavourite(fav, true, dialog));
+            one.add(open);
+            one.add(only);
+            m.add(one);
+        }
+        MenuCancel.add(m);
+        lastFavourites = m;
+        if (at.isShowing()) m.show(at, 0, at.getHeight());
+    }
+
+    /** A favourite folder opened here; with `onlyFavourites`, F on: its favourite files. */
+    void openFavourite(String fav, boolean onlyFavourites, JDialog dialog) {
+        String[] part = fav.split("\t");
+        File root = new File(part[0]);
+        File dir = root;
+        for (int k = 1; k < part.length; k++) {
+            File next = new File(part[k]);
+            if (next.isDirectory()) dir = next;
+        }
+        if (!dir.isDirectory()) {
+            app.setNow(MediaDir.favouriteLabel(fav) + " is not there any more");
+            return;
+        }
+        FileFilter.use(FileFilter.MEDIA);
+        if (onlyFavourites) FileFilter.fav = true;
+        this.fill(dialog, root, dir);
+        if (onlyFavourites) app.setNow(MediaDir.STAR + "The favourite files in " + MediaDir.favouriteLabel(fav) + " (F off: all of them)");
+    }
+
+    /** ☰ Playlists: the folders with files in their default playlist, each with Play (its playlist here), Open (the Playlist window) and Save as…. */
+    void playlistsList(java.awt.Component at, JDialog dialog) {
+        JPopupMenu m = new JPopupMenu();
+        java.util.List<String[]> folders = MediaPlaylist.folders(PromptDb.dir());
+        if (folders.isEmpty()) {
+            JMenuItem none = new JMenuItem("No folder has a playlist yet: Add to default playlist on a file");
+            none.setEnabled(false);
+            m.add(none);
+        }
+        for (final String[] f : folders) {
+            final File folder = new File(f[0]);
+            final String name = Playlist.clean(MediaPlaylist.folderLabel(f[0]));
+            javax.swing.JMenu one = new javax.swing.JMenu(MediaPlaylist.folderLabel(f[0]) + " (" + f[1] + ")");
+            one.setName("media-pl-folder:" + MediaPlaylist.folderLabel(f[0]));
+            JMenuItem play = new JMenuItem("Play here");
+            play.setName("media-pl-play");
+            play.addActionListener(e -> {
+                if (folder.isDirectory()) this.fill(dialog, folder, folder);
+                this.playlist(dialog, folder);
+            });
+            JMenuItem open = new JMenuItem("Open");
+            open.setName("media-pl-open");
+            open.addActionListener(e -> {
+                app.setNow(this.savePls(folder, name));
+                PlaylistWindow.open(app, name);
+            });
+            JMenuItem saveAs = new JMenuItem("Save as\u2026");
+            saveAs.setName("media-pl-saveas");
+            saveAs.addActionListener(e -> {
+                app.setNow(this.savePls(folder, name));
+                PlaylistWindow.saveAs(app, dialog, Playlist.load(PromptDb.dir(), name));
+            });
+            one.add(play);
+            one.add(open);
+            one.add(saveAs);
+            m.add(one);
+        }
+        MenuCancel.add(m);
+        lastPlaylists = m;
+        if (at.isShowing()) m.show(at, 0, at.getHeight());
+    }
+
     String savePls(File folder, String name) {
         Playlist p = new Playlist(name);
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), folder.getAbsolutePath())) p.add(it.id, it.name);
@@ -862,6 +1029,25 @@ final class MediaBrowser {
                 continue;
             }
             item.addActionListener(e -> {
+                // A picture smaller than the last upscaled one, or not 4:7: asked first whether to upscale it.
+                if ((which == 0 || which == 1) && entry.kind == MediaDir.PICTURE && !MediaDir.tooBig(f.length())) {
+                    String q;
+                    try {
+                        q = UpscaleCheck.question(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()));
+                    } catch (Exception ex) {
+                        q = null;
+                    }
+                    if (q != null) {
+                        Object[] options = {"Upscale first", "Add as it is", "Cancel"};
+                        int ans = javax.swing.JOptionPane.showOptionDialog(card, q, which == 1 ? "Add to DB result files" : "Add to DB Reference files",
+                            javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                        if (ans == 0) {
+                            app.setNow(this.menuPicked(entry, f, MediaDir.UPSCALE_ITEM));
+                            return;
+                        }
+                        if (ans != 1) return;
+                    }
+                }
                 String said = this.menuPicked(entry, f, which);
                 app.setNow(said);
                 // In the DB: then which group it goes in (No group: none).
@@ -1347,8 +1533,11 @@ final class MediaBrowser {
         // Its tags and category.
         String tags = e.folder || e.dbId != 0 ? "" : MediaTags.line(MediaTags.key(e));
         if (tags.length() > 0) sub += "<br><span style='color:#D9A441'>" + esc(tags) + "</span>";
+        // A favourite file: ★ before its name.
+        FileFavourites.load(PromptDb.dir());
+        String star = !e.folder && e.dbId == 0 && FileFavourites.isKey(MediaDir.groupKey(e)) ? MediaDir.STAR : "";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
-            + "<div style='width:" + CELL + "px'>" + badge + esc(MediaDir.shownName(e)) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
+            + "<div style='width:" + CELL + "px'>" + badge + star + esc(MediaDir.shownName(e)) + "</div><div style='font-size:9px;color:#8A8B86'>" + sub + "</div></center></html>";
     }
 
     private static String esc(String s) {

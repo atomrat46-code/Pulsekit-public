@@ -147,6 +147,18 @@ public final class PyJavParams {
           if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
         });
         row.addView(browse);
+        // Download: Android lets no app pick it with Browse; the Media browser reads it through Android's own list.
+        if (!p.flag && activity instanceof MainActivity) {
+          android.widget.Button download = new android.widget.Button(activity);
+          download.setText("Download");
+          download.setTag("params-download:" + p.token);
+          download.setOnClickListener(v -> {
+            values[index] = MediaBrowser.DOWNLOADS;
+            chosen.setText(MediaDir.label(values[index]));
+            MediaBrowser.open((MainActivity) activity, MediaBrowser.DOWNLOADS);
+          });
+          row.addView(download);
+        }
         if (p.pls) row.addView(playlistButton(activity, p, values, index, chosen));
         if (p.flag) {
           // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.

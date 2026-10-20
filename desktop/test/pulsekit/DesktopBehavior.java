@@ -6301,6 +6301,98 @@ public final class DesktopBehavior {
     if (!quickOk || !midiOk || !libOk) throw new AssertionError(out.toString() + enc.log);
   }
 
+  /**
+   * The Media browser: Add to favourites says what it did (★ In favourites after), a favourite file
+   * gets ★; ★ Favourites and ☰ Playlists list folders (a folder's playlist Open); Import file copies
+   * a file in; Add to DB asks first about a picture smaller than the last upscaled one or not 4:7.
+   */
+  void s138_media_favourites_playlists_import_upscale_check() throws Exception {
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File pulse = new File(System.getProperty("user.home"), "Pulse");
+    pulse.mkdirs();
+    final File wide = new File(pulse, "wide.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", wide);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(pulse));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    String before = ((javax.swing.AbstractButton) component(mb.last, "media-favourite")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-favourite")).doClick());
+    idle();
+    String said = MediaBrowser.lastSaid;
+    String after = ((javax.swing.AbstractButton) component(mb.last, "media-favourite")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-favourite")).doClick());
+    idle();
+    out.append("Add to favourites: \"").append(before).append("\" -> ").append(said).append(" | button now \"").append(after).append("\" -> ").append(MediaBrowser.lastSaid).append('\n');
+    boolean favOk = said.contains("added to favourites") && after.startsWith(MediaDir.STAR) && MediaBrowser.lastSaid.contains("in favourites already");
+    // A favourite file, in its folder's playlist.
+    FileFavourites.load(PromptDb.dir());
+    FileFavourites.toggleKey(MediaDir.groupKey(entryOf(wide)));
+    MediaPlaylist.add(PromptDb.dir(), pulse.getAbsolutePath(), wide.getAbsolutePath(), "wide.png", wide.length());
+    edt(() -> mb.open(pulse));
+    idle();
+    String card = ((javax.swing.AbstractButton) component(mb.last, "media-card:wide.png")).getText();
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-favourites-list")).doClick());
+    StringBuilder favs = new StringBuilder();
+    for (Component c : MediaBrowser.lastFavourites.getComponents()) if (c instanceof javax.swing.JMenuItem) favs.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    edt(() -> MediaBrowser.lastFavourites.setVisible(false));
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-playlists-list")).doClick());
+    StringBuilder lists = new StringBuilder();
+    javax.swing.JMenuItem open = null;
+    for (Component c : MediaBrowser.lastPlaylists.getComponents()) {
+      if (!(c instanceof javax.swing.JMenu)) continue;
+      lists.append(((javax.swing.JMenu) c).getText()).append(" | ");
+      for (Component k : ((javax.swing.JMenu) c).getMenuComponents()) if ("media-pl-open".equals(k.getName())) open = (javax.swing.JMenuItem) k;
+    }
+    edt(() -> MediaBrowser.lastPlaylists.setVisible(false));
+    final javax.swing.JMenuItem openItem = open;
+    answers.add("(keep)");
+    if (openItem != null) SwingUtilities.invokeLater(() -> openItem.doClick());
+    for (int i = 0; i < 100 && (PlaylistWindow.last == null || !PlaylistWindow.last.isShowing() || !PlaylistWindow.last.getTitle().endsWith("Pulse")); i++) Thread.sleep(100);
+    idle();
+    String opened = PlaylistWindow.last == null ? "none" : PlaylistWindow.last.getTitle();
+    if (PlaylistWindow.last != null) edt(() -> PlaylistWindow.last.dispose());
+    out.append("favourite file starred ").append(card.contains(MediaDir.STAR + "wide.png")).append(" | Favourites: ").append(favs).append("Playlists: ").append(lists).append("Open: ").append(opened).append('\n');
+    boolean listsOk = card.contains(MediaDir.STAR + "wide.png") && favs.toString().contains("Pulse") && lists.toString().contains("Pulse (1)") && opened.endsWith("Pulse");
+    // Import file.
+    File outside = new File(System.getProperty("user.home"), "elsewhere");
+    outside.mkdirs();
+    File song = new File(outside, "song.wav");
+    Files.write(song.toPath(), AudioIo.encodeWav(new short[2205], 22050));
+    chooseNext = song;
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-import-file")).doClick());
+    idle();
+    out.append("Import file: ").append(MediaBrowser.lastImport).append(" | there ").append(new File(pulse, "song.wav").isFile()).append('\n');
+    boolean importOk = new File(pulse, "song.wav").isFile() && MediaBrowser.lastImport != null && MediaBrowser.lastImport.startsWith("Copied 1 file");
+    // Add to DB: asked first.
+    final StringBuilder asked = new StringBuilder();
+    inspectNext = d -> asked.append(texts(d.getContentPane()).get(0));
+    answers.add("Add as it is");
+    answers.add("OK");
+    edt(() -> mb.menu(entryOf(wide), wide, (java.awt.Component) component(mb.last, "media-card:wide.png"), 0, 0));
+    javax.swing.JMenuItem addRef = null;
+    for (Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.MENU[0].equals(((javax.swing.JMenuItem) c).getText())) addRef = (javax.swing.JMenuItem) c;
+    edt(() -> mb.lastMenu.setVisible(false));
+    final javax.swing.JMenuItem add = addRef;
+    edt(() -> add.doClick());
+    idle();
+    inspectNext = null;
+    String now = ((JLabel) get("nowPlaying")).getText();
+    edt(() -> mb.last.dispose());
+    out.append("Add to DB asks: ").append(asked.toString().split("\n")[0]).append(" | Add as it is: ").append(now).append('\n');
+    boolean upOk = asked.toString().contains("not 4:7") && now.contains("is in the DB");
+    if (!favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
+  }
+
+  private static MediaDir.Entry entryOf(File f) {
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = f.getName();
+    e.id = f.getAbsolutePath();
+    e.kind = MediaDir.kind(f.getName());
+    e.size = f.length();
+    return e;
+  }
+
   /** The tab Pulsekit was on is kept (~/.pulsekit/last-tab.txt), and Pulsekit opens on it again. */
   void s115_last_tab_kept() throws Exception {
     edt(() -> call("showView", "fills"));

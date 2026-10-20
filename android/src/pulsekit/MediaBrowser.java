@@ -133,6 +133,13 @@ final class MediaBrowser {
         // A folder by its file:// address is a path.
         if (d.startsWith("file://")) d = Uri.parse(d).getPath();
         MediaBrowser b;
+        if (DOWNLOADS.equals(d)) {
+            // Download (Android lets no app pick it as a folder): read through Android's own list of it.
+            b = new MediaBrowser(app, null, DOWNLOADS);
+            load(app);
+            b.base = null;
+            return b;
+        }
         if (d.startsWith("content://")) {
             Uri tree = Uri.parse(d);
             String doc;
@@ -842,6 +849,260 @@ final class MediaBrowser {
     }
 
     /** Save pls: this folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
+    static final int IMPORT_FILES = 81;
+    static final int IMPORT_FOLDER = 82;
+    static final int COPY_FOLDER = 83;
+    /** The browser an import goes into (the folder it shows). */
+    static MediaBrowser importInto;
+
+    /** The system's picker: files (Import file…) or a folder (Import folder…, Copy folder from…). */
+    void pickImport(int code) {
+        importInto = this;
+        Intent intent;
+        if (code == IMPORT_FILES) {
+            intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        } else {
+            intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        }
+        try {
+            this.app.startActivityForResult(intent, code);
+        } catch (Exception ex) {
+            this.app.setNow("No picker on this phone: " + ex.getMessage());
+        }
+    }
+
+    /** The picker's answer: the files (or the folder's files, or the whole folder) copied here, off the main thread. */
+    static void imported(final MainActivity app, final int code, Intent intent) {
+        final MediaBrowser to = importInto;
+        importInto = null;
+        if (to == null || intent == null) return;
+        final List<Uri> files = new ArrayList<Uri>();
+        if (code == IMPORT_FILES) {
+            if (intent.getClipData() != null) for (int i = 0; i < intent.getClipData().getItemCount(); i++) files.add(intent.getClipData().getItemAt(i).getUri());
+            else if (intent.getData() != null) files.add(intent.getData());
+        }
+        final Uri tree = code == IMPORT_FILES ? null : intent.getData();
+        if (files.isEmpty() && tree == null) return;
+        app.setNow("Copying into " + to.label() + "\u2026");
+        new Thread(() -> {
+            int[] done = new int[2];
+            String failed = null;
+            try {
+                if (code == IMPORT_FILES) {
+                    for (Uri u : files) to.importOne(u, DbImport.displayName(app, u), to.here(), done);
+                } else {
+                    String top = DocumentsContract.getTreeDocumentId(tree);
+                    String into = to.here();
+                    if (code == COPY_FOLDER) {
+                        // The folder itself (and its folders) under this one.
+                        into = to.folderIn(into, MediaDir.label(DocumentsContract.buildDocumentUriUsingTree(tree, top).toString()));
+                        if (into == null) throw new java.io.IOException("could not make the folder here");
+                    }
+                    to.importTree(tree, top, into, code == COPY_FOLDER, done, 0);
+                }
+            } catch (Exception ex) {
+                failed = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            }
+            final String why = failed;
+            app.runOnUiThread(() -> {
+                String said = "Copied " + done[0] + (done[0] == 1 ? " file" : " files") + " into " + to.label() + (done[1] > 0 ? " (" + done[1] + " could not be copied)" : "") + (why == null ? "" : ": " + why);
+                lastImport = said;
+                app.setNow(said);
+                if (to.dialog != null && to.dialog.isShowing()) to.load(to.here());
+            });
+        }, "pulsekit-media-import").start();
+    }
+
+    /** What the last import said (for the tests). */
+    static volatile String lastImport;
+
+    /** A folder's files (and with `deep`, its folders, each made here) copied into `into`. */
+    private void importTree(Uri tree, String doc, String into, boolean deep, int[] done, int depth) throws Exception {
+        Cursor c = this.app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, doc),
+            new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+        List<String[]> kids = new ArrayList<String[]>();
+        try {
+            while (c != null && c.moveToNext()) kids.add(new String[] {c.getString(0), c.getString(1), c.getString(2)});
+        } finally {
+            if (c != null) c.close();
+        }
+        for (String[] k : kids) {
+            String name = k[1] == null ? "file" : k[1];
+            if (name.startsWith(".")) continue;
+            if (DocumentsContract.Document.MIME_TYPE_DIR.equals(k[2])) {
+                if (!deep || depth >= 8) continue;
+                String sub = this.folderIn(into, name);
+                if (sub != null) this.importTree(tree, k[0], sub, true, done, depth + 1);
+                continue;
+            }
+            this.importOne(DocumentsContract.buildDocumentUriUsingTree(tree, k[0]), name, into, done);
+        }
+    }
+
+    /** One file copied into folder `into`: first into Pulsekit's own temp folder, then to its place. */
+    private void importOne(Uri from, String name, String into, int[] done) {
+        File tmp = new File(this.app.getCacheDir(), "media-import.tmp");
+        try {
+            InputStream in = this.app.getContentResolver().openInputStream(from);
+            if (in == null) throw new java.io.IOException("no data");
+            try {
+                java.nio.file.Files.copy(in, tmp.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                in.close();
+            }
+            String clean = MediaDir.cleanName(name);
+            if (clean == null) clean = "file";
+            if (this.tree == null) {
+                File dir = new File(into);
+                File out = new File(dir, clean);
+                String stem = clean.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+                String ext = clean.substring(stem.length());
+                for (int n = 1; out.exists(); n++) out = new File(dir, stem + " (" + n + ")" + ext);
+                java.nio.file.Files.copy(tmp.toPath(), out.toPath());
+            } else {
+                String mime = this.app.getContentResolver().getType(from);
+                Uri out = DocumentsContract.createDocument(this.app.getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(this.tree, into),
+                    mime == null ? "application/octet-stream" : mime, clean);
+                if (out == null) throw new java.io.IOException("could not write " + clean);
+                java.io.OutputStream os = this.app.getContentResolver().openOutputStream(out);
+                try {
+                    java.nio.file.Files.copy(tmp.toPath(), os);
+                } finally {
+                    os.close();
+                }
+            }
+            done[0]++;
+        } catch (Exception ex) {
+            done[1]++;
+        } finally {
+            tmp.delete();
+        }
+    }
+
+    /** The folder `name` in folder `in` (made when it is not there): its id, or null. */
+    private String folderIn(String in, String name) {
+        String clean = MediaDir.cleanName(name);
+        if (clean == null) clean = "folder";
+        try {
+            if (this.tree == null) {
+                File f = new File(in, clean);
+                return f.isDirectory() || f.mkdirs() ? f.getAbsolutePath() : null;
+            }
+            Uri made = DocumentsContract.createDocument(this.app.getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(this.tree, in), DocumentsContract.Document.MIME_TYPE_DIR, clean);
+            return made == null ? null : DocumentsContract.getDocumentId(made);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** The lists shown last (for the tests). */
+    static AlertDialog lastFavourites, lastPlaylists, lastPlaylistMenu;
+
+    /** ★ Favourites: the favourite folders; a tap opens one, held: its favourite files (F on). */
+    void favouritesList() {
+        final List<String> favs = new ArrayList<String>(MediaDir.favourites);
+        String[] rows = new String[favs.size()];
+        for (int i = 0; i < rows.length; i++) rows[i] = MediaDir.favouriteLabel(favs.get(i));
+        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle(MediaDir.STAR + "Favourite folders").setNegativeButton("Cancel", null);
+        if (rows.length == 0) b.setMessage("No favourite folders yet: Add to favourites in a folder");
+        else b.setItems(rows, (d, w) -> this.openFavourite(favs.get(w), false));
+        final AlertDialog shown = b.show();
+        if (rows.length > 0) shown.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            shown.dismiss();
+            this.openFavourite(favs.get(position), true);
+            return true;
+        });
+        lastFavourites = shown;
+    }
+
+    /** A favourite folder opened in a browser of its own; with `onlyFavourites`, F on: its favourite files. */
+    void openFavourite(String fav, boolean onlyFavourites) {
+        String[] part = fav.split("\t");
+        MediaBrowser b = make(this.app, part[0], false);
+        if (b == null) return;
+        for (int k = 1; k < part.length; k++) {
+            if (!b.there(part[k])) break;
+            b.path.add(part[k]);
+        }
+        b.root = b.base;
+        FileFilter.use(FileFilter.MEDIA);
+        if (onlyFavourites) FileFilter.fav = true;
+        if (this.dialog != null) this.dialog.dismiss();
+        last = b;
+        b.show();
+        if (onlyFavourites) this.app.setNow(MediaDir.STAR + "The favourite files in " + MediaDir.favouriteLabel(fav) + " (F off: all of them)");
+    }
+
+    /** ☰ Playlists: the folders with files in their default playlist; a tap opens its playlist, held: Open, Save as. */
+    void playlistsList() {
+        final List<String[]> folders = MediaPlaylist.folders(this.app.getFilesDir());
+        String[] rows = new String[folders.size()];
+        for (int i = 0; i < rows.length; i++) rows[i] = MediaPlaylist.folderLabel(folders.get(i)[0]) + " (" + folders.get(i)[1] + ")";
+        AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle("\u2630 Folder playlists").setNegativeButton("Cancel", null);
+        if (rows.length == 0) b.setMessage("No folder has a playlist yet: Add to default playlist on a file");
+        else b.setItems(rows, (d, w) -> {
+            MediaBrowser at = this.openKey(folders.get(w)[0]);
+            if (at != null) at.playlist();
+        });
+        final AlertDialog shown = b.show();
+        if (rows.length > 0) shown.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+            final String key = folders.get(position)[0];
+            final String name = Playlist.clean(MediaPlaylist.folderLabel(key));
+            lastPlaylistMenu = new AlertDialog.Builder(this.app).setTitle(name)
+                .setItems(new CharSequence[] {"Open", "Save as\u2026"}, (d, w) -> {
+                    MediaBrowser there = this.browserAt(key);
+                    if (there == null) return;
+                    this.app.setNow(there.savePls(name));
+                    shown.dismiss();
+                    // Open: in the Playlist window (Editor, Viewer); Save as: a .pls on disk.
+                    if (w == 0) PlaylistScreen.show(this.app, name);
+                    else {
+                        // (The picker's answer writes the playlist shown.)
+                        PlaylistScreen.shown = Playlist.load(this.app.getFilesDir(), name);
+                        PlaylistScreen.saveAs(this.app, PlaylistScreen.shown);
+                    }
+                })
+                .setNegativeButton("Cancel", null).show();
+            return true;
+        });
+        lastPlaylists = shown;
+    }
+
+    /** A browser (not shown) on the folder a playlist key names: a path, or a granted folder "tree|document". */
+    MediaBrowser browserAt(String key) {
+        int bar = key.indexOf('|');
+        if (bar < 0) return make(this.app, key, false);
+        MediaBrowser b = make(this.app, key.substring(0, bar), false);
+        if (b == null) return null;
+        String doc = key.substring(bar + 1);
+        String top = b.path.get(0);
+        if (!doc.equals(top) && doc.startsWith(top)) {
+            String rest = doc.substring(top.length());
+            if (rest.startsWith("/")) rest = rest.substring(1);
+            String at = top;
+            for (String part : rest.split("/")) {
+                if (part.length() == 0) continue;
+                at = at.endsWith(":") || at.endsWith("/") ? at + part : at + "/" + part;
+                b.path.add(at);
+            }
+        }
+        b.root = b.base;
+        return b;
+    }
+
+    /** The folder a playlist key names, opened in place of this browser. */
+    MediaBrowser openKey(String key) {
+        MediaBrowser b = this.browserAt(key);
+        if (b == null) return null;
+        if (this.dialog != null) this.dialog.dismiss();
+        last = b;
+        b.show();
+        return b;
+    }
+
     String savePls(String name) {
         Playlist p = new Playlist(name);
         for (MediaPlaylist.Item it : MediaPlaylist.items(this.app.getFilesDir(), this.folderKey())) {
@@ -1237,8 +1498,9 @@ final class MediaBrowser {
         this.paintPlaylist();
         if (this.chooser != null) this.tabs();
         if (!this.loading) this.filters();
-        // Download without the phone's permission to read other apps' files: only Pulsekit's own show.
-        if (DOWNLOADS.equals(here()) && !mediaAllowed(this.app)) {
+        // Download (or a folder by its path) without the phone's permission to read other apps' files:
+        // only Pulsekit's own show (on some phones a folder then shows only its folders).
+        if ((DOWNLOADS.equals(here()) || this.tree == null) && !mediaAllowed(this.app)) {
             TextView ask = this.app.pill("Show files other apps saved here", false, v -> askMedia(this.app));
             ask.setTag("media-ask-permission");
             this.body.addView(ask);
@@ -1254,16 +1516,46 @@ final class MediaBrowser {
             lp.rightMargin = this.app.dp(6);
             tools.addView(up, lp);
         }
-        // Add to favourites: this folder, as a tab in Choose file.
+        // Add to favourites: this folder, as a tab in Choose file (★ In favourites when it is one).
         if (this.base != null && !DOWNLOADS.equals(here())) {
-            TextView fav = this.app.pill("Add to favourites", false, v -> {
+            final boolean already = MediaDir.isFavourite(this.base, this.path.subList(1, this.path.size()));
+            TextView fav = this.app.pill(already ? MediaDir.STAR + "In favourites" : "Add to favourites", already, v -> {
                 boolean added = MediaDir.addFavourite(this.base, this.path.subList(1, this.path.size()));
                 save(this.app);
-                this.app.setNow(added ? this.label() + " is a favourite: a tab in Choose file" : this.label() + " is a favourite already");
-                if (added && this.chooser != null) this.paint();
+                String said = added ? this.label() + " added to favourites: a tab in Choose file" : this.label() + " is in favourites already";
+                this.app.setNow(said);
+                android.widget.Toast.makeText(this.app, said, android.widget.Toast.LENGTH_SHORT).show();
+                if (added) this.paint();
             });
             fav.setTag("media-favourite");
             tools.addView(fav);
+        }
+        // Import file…, Import folder…, Copy folder from…: files from elsewhere copied into this folder.
+        if (this.changeable()) {
+            if (tools.getChildCount() > 0) this.body.addView(tools);
+            tools = this.app.row();
+            String[][] imports = {{"Import file\u2026", "media-import-file"}, {"Import folder\u2026", "media-import-folder"}, {"Copy folder from\u2026", "media-copy-folder"}};
+            for (int i = 0; i < imports.length; i++) {
+                final int code = IMPORT_FILES + i;
+                TextView b = this.app.pill(imports[i][0], false, v -> this.pickImport(code));
+                b.setTag(imports[i][1]);
+                LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-2, -2);
+                ilp.rightMargin = this.app.dp(6);
+                tools.addView(b, ilp);
+            }
+        }
+        if (tools.getChildCount() > 0) this.body.addView(tools);
+        tools = this.app.row();
+        // The favourite folders, and the folders with a playlist: each opens here.
+        if (this.chooser == null) {
+            TextView favs = this.app.pill(MediaDir.STAR + "Favourites \u25be", false, v -> this.favouritesList());
+            favs.setTag("media-favourites-list");
+            LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(-2, -2);
+            flp.rightMargin = this.app.dp(6);
+            tools.addView(favs, flp);
+            TextView lists = this.app.pill("\u2630 Playlists \u25be", false, v -> this.playlistsList());
+            lists.setTag("media-playlists-list");
+            tools.addView(lists);
         }
         if (tools.getChildCount() > 0) this.body.addView(tools);
         if (this.loading) {
@@ -1319,7 +1611,9 @@ final class MediaBrowser {
             }
             if (!e.folder && listed.contains(e.id)) this.badge(box, e);
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
-            TextView name = this.app.text(MediaDir.shownName(e), 11, false);
+            // A favourite file: ★ before its name.
+            boolean favFile = !e.folder && e.dbId == 0 && FileFavourites.isKey(MediaDir.groupKey(e));
+            TextView name = this.app.text((favFile ? MediaDir.STAR : "") + MediaDir.shownName(e), 11, false);
             name.setMaxLines(3);
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             name.setPadding(0, this.app.dp(3), 0, 0);
@@ -1384,7 +1678,7 @@ final class MediaBrowser {
             if (e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO) {
                 Bitmap have = THUMBS.get(key(e));
                 String size = SIZES.get(key(e));
-                if (size != null && size.length() > 0) name.setText(e.name + "\n" + size);
+                if (size != null && size.length() > 0) name.setText(name.getText().toString().split("\n")[0] + "\n" + size);
                 if (have != null && size != null) image.setImageBitmap(have);
                 else {
                     views.add(image);
@@ -1469,7 +1763,7 @@ final class MediaBrowser {
                     if (mine != this.token) return;
                     if (b != null) view.setImageBitmap(b);
                     if (size.length() > 0) {
-                        label.setText(e.name + "\n" + size);
+                        label.setText(label.getText().toString().split("\n")[0] + "\n" + size);
                         label.setTag("media-size:" + size);
                     }
                 });
@@ -1883,10 +2177,38 @@ final class MediaBrowser {
             this.app.setNow(this.menuPicked(e, which));
             return;
         }
+        this.pick(e, which, false);
+    }
+
+    /** The question shown last before Add to DB (for the tests). */
+    static AlertDialog lastUpscaleAsk;
+
+    /** Add to DB; a picture smaller than the last upscaled one, or not 4:7, is asked about first (unless `asked`). */
+    void pick(final MediaDir.Entry e, final int which, final boolean asked) {
         this.app.setNow("Adding " + e.name + " to the prompt library\u2026");
         PyJav.KEEPING.incrementAndGet();
         new Thread(() -> {
             String said;
+            if (!asked && e.kind == MediaDir.PICTURE && !MediaDir.tooBig(e.size)) {
+                String q;
+                try {
+                    q = UpscaleCheck.question(this.app.getFilesDir(), e.name, this.read(e));
+                } catch (Exception ex) {
+                    q = null;
+                }
+                if (q != null) {
+                    final String question = q;
+                    this.main.post(() -> {
+                        PyJav.KEEPING.decrementAndGet();
+                        this.app.setNow("");
+                        lastUpscaleAsk = new AlertDialog.Builder(this.app).setTitle(which == 1 ? "Add to DB result files" : "Add to DB Reference files").setMessage(question)
+                            .setPositiveButton("Upscale first", (d, w) -> this.upscale(e))
+                            .setNeutralButton("Add as it is", (d, w) -> this.pick(e, which, true))
+                            .setNegativeButton("Cancel", null).show();
+                    });
+                    return;
+                }
+            }
             try {
                 said = this.menuPicked(e, which);
             } catch (Throwable ex) {

@@ -9445,6 +9445,135 @@ public class BehaviorTest {
     if (!quickOk || !midiOk || !libOk || !soundOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The Media browser: Download as its directory; Add to favourites says what it did (★ In
+   * favourites after), a favourite file gets ★; ★ Favourites and ☰ Playlists list folders (held:
+   * the favourite files; a playlist's Open). Import file copies a file in (through Pulsekit's temp
+   * folder). Add to DB asks first about a picture smaller than the last upscaled one or not 4:7.
+   */
+  @Test
+  public void s161_media_favourites_playlists_import_upscale_check() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    FileFavourites.reset();
+    File dir = app.getFilesDir();
+    MediaBrowser dl = MediaBrowser.open(app, MediaBrowser.DOWNLOADS);
+    idle();
+    String dlTitle = dl == null ? "none" : org.robolectric.Shadows.shadowOf(dl.dialog).getTitle().toString();
+    if (dl != null) dl.dialog.dismiss();
+    out.append("Download as the directory: ").append(dlTitle).append(" | label ").append(MediaDir.label(MediaBrowser.DOWNLOADS)).append('\n');
+    boolean dlOk = dl != null && "Download".equals(MediaDir.label(MediaBrowser.DOWNLOADS));
+    // A folder with a picture (64×48: not 4:7).
+    File media = new File(app.getCacheDir(), "Pulse");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    Files.write(new File(media, "wide.png").toPath(), png.toByteArray());
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    String before = ((TextView) bv.findViewWithTag("media-favourite")).getText().toString();
+    bv.findViewWithTag("media-favourite").performClick();
+    idle();
+    String said = ((TextView) get("now")).getText().toString();
+    bv = b.dialog.getWindow().getDecorView();
+    String after = ((TextView) bv.findViewWithTag("media-favourite")).getText().toString();
+    bv.findViewWithTag("media-favourite").performClick();
+    idle();
+    String again = ((TextView) get("now")).getText().toString();
+    out.append("Add to favourites: \"").append(before).append("\" -> ").append(said).append(" | button now \"").append(after).append("\" -> ").append(again).append('\n');
+    boolean favOk = said.contains("added to favourites") && after.startsWith(MediaDir.STAR) && again.contains("in favourites already");
+    // A favourite file: ★ before its name.
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    java.util.List<String> rows = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(rows.indexOf(FileFavourites.ADD_SHORT));
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    View starCard = bv.findViewWithTag("media-card:wide.png");
+    boolean starred = false;
+    if (starCard instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) starCard).getChildCount(); i++) {
+      View c = ((android.view.ViewGroup) starCard).getChildAt(i);
+      if (c instanceof TextView && ((TextView) c).getText().toString().startsWith(MediaDir.STAR + "wide.png")) starred = true;
+    }
+    // Into its default playlist, then the lists.
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    rows = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(rows.indexOf(MediaDir.MENU[2]));
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-favourites-list").performClick();
+    idle();
+    String favs = listItems(MediaBrowser.lastFavourites);
+    android.widget.ListView lv = MediaBrowser.lastFavourites.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    FileFilter.use(FileFilter.MEDIA);
+    boolean onlyFav = FileFilter.fav;
+    FileFilter.fav = false;
+    b = MediaBrowser.last;
+    bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-playlists-list").performClick();
+    idle();
+    String lists = listItems(MediaBrowser.lastPlaylists);
+    lv = MediaBrowser.lastPlaylists.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    String plMenu = listItems(MediaBrowser.lastPlaylistMenu);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastPlaylistMenu).clickOnItem(0);
+    idle();
+    String opened = PlaylistScreen.last == null ? "none" : org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle().toString();
+    if (PlaylistScreen.last != null) PlaylistScreen.last.dismiss();
+    out.append("favourite file starred ").append(starred).append(" | Favourites: ").append(favs).append(" (held: F on ").append(onlyFav).append(") | Playlists: ").append(lists)
+        .append(" | held: ").append(plMenu).append(" -> Open: ").append(opened).append('\n');
+    boolean listsOk = starred && favs.contains("Pulse") && onlyFav && lists.equals("Pulse (1)") && plMenu.startsWith("Open") && opened.endsWith("Pulse");
+    // Import file: copied in.
+    b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    bv = b.dialog.getWindow().getDecorView();
+    boolean buttons = bv.findViewWithTag("media-import-file") != null && bv.findViewWithTag("media-import-folder") != null && bv.findViewWithTag("media-copy-folder") != null;
+    File outside = new File(app.getCacheDir(), "elsewhere");
+    outside.mkdirs();
+    File song = new File(outside, "song.wav");
+    Files.write(song.toPath(), AudioIo.encodeWav(new short[2205], 22050));
+    MediaBrowser.importInto = b;
+    MediaBrowser.lastImport = null;
+    MediaBrowser.imported(app, MediaBrowser.IMPORT_FILES, new android.content.Intent().setData(android.net.Uri.fromFile(song)));
+    for (int i = 0; i < 60 && MediaBrowser.lastImport == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    out.append("import buttons ").append(buttons).append(" | Import file: ").append(MediaBrowser.lastImport).append(" | there ").append(new File(media, "song.wav").isFile()).append('\n');
+    boolean importOk = buttons && new File(media, "song.wav").isFile() && MediaBrowser.lastImport != null && MediaBrowser.lastImport.startsWith("Copied 1 file");
+    // Add to DB: asked first about the 64×48 picture.
+    bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    rows = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    MediaBrowser.lastUpscaleAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(rows.indexOf(MediaDir.MENU[0]));
+    for (int i = 0; i < 60 && MediaBrowser.lastUpscaleAsk == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asked = MediaBrowser.lastUpscaleAsk == null ? "not asked" : org.robolectric.Shadows.shadowOf(MediaBrowser.lastUpscaleAsk).getMessage().toString();
+    if (MediaBrowser.lastUpscaleAsk != null) MediaBrowser.lastUpscaleAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 60 && !((TextView) get("now")).getText().toString().contains("is in the DB"); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String added = ((TextView) get("now")).getText().toString();
+    if (GroupDialogs.last != null) GroupDialogs.last.dismiss();
+    b.dialog.dismiss();
+    out.append("Add to DB asks: ").append(asked.split("\n")[0]).append(" | Add as it is: ").append(added).append('\n');
+    boolean upOk = asked.contains("not 4:7") && added.contains("is in the DB");
+    write("s161_media_favourites_playlists_import_upscale_check", out.toString());
+    FileFavourites.reset();
+    if (!dlOk || !favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);
