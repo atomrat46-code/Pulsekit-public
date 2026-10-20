@@ -218,7 +218,7 @@ final class PyJav {
             android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(-1, -1);
             host.addView((android.view.View) app.promptsPane, (android.view.ViewGroup.LayoutParams) flp);
         }
-        android.widget.TextView tab = app.text("Prompts", 13, true);
+        android.widget.TextView tab = app.text("DB/Prompts", 13, true);
         tab.setGravity(17);
         tab.setTag("prompts");
         tab.setOnClickListener(pulsekit.FileSetClicks.prompts(app));
@@ -1353,7 +1353,8 @@ final class PyJav {
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
-        this.pkOffer("the groove", ok && !toWav && "MidiDrumGen.java".equals(app.pyName), () -> MidiOffer.offer(app, made));
+        // (Not after a batch, --count: its grooves go to the batch folder.)
+        this.pkOffer("the groove", ok && !toWav && "MidiDrumGen.java".equals(app.pyName) && !(argv != null && argv.contains("--count")), () -> MidiOffer.offer(app, made));
         // MediaBrowser: its folder in the Media browser.
         this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
             String browse = MediaDir.opened(madeLog);

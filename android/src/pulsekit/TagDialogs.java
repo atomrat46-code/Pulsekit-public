@@ -105,26 +105,107 @@ final class TagDialogs {
         final String key = MediaTags.key(name, size);
         final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         new Thread(() -> {
+            PromptVault opened = null;
             final List<String> names = new ArrayList<String>();
-            names.add("(none)");
             try {
-                names.addAll(MediaTags.categoryNames(PromptVault.open(app.getFilesDir())));
+                opened = PromptVault.open(app.getFilesDir());
+                names.addAll(MediaTags.categoryRows(opened));
             } catch (Throwable ex) {
                 // no library: none only
+                names.add("(none)");
             }
+            final PromptVault vault = opened;
             main.post(() -> {
                 int now = Math.max(0, names.indexOf(ReadyRecent.picked(ready, MediaTags.category(key))));
-                MediaBrowser.lastAsk = new AlertDialog.Builder(app).setTitle("Category for " + name)
+                final Runnable again = () -> category(app, name, size, after, ready);
+                AlertDialog shown = new AlertDialog.Builder(app).setTitle("Category for " + name)
                     .setSingleChoiceItems(names.toArray(new String[0]), now, (d, which) -> {
                         String picked = names.get(which);
-                        MediaTags.setCategory(key, which == 0 ? "" : picked);
-                        if (which > 0) ReadyRecent.setCategory(ready, picked);
-                        app.setNow(name + (which == 0 ? ": no category" : " is in " + picked));
+                        if (vault != null && MediaTags.NEW_CATEGORY.equals(picked)) {
+                            // A new main category: the list again, with it.
+                            d.dismiss();
+                            named(app, "New category", null, n -> {
+                                MediaTags.addCategory(vault, null, n);
+                                again.run();
+                            });
+                            return;
+                        }
+                        if (vault != null && MediaTags.NEW_SUBCATEGORY.equals(picked)) {
+                            // Which category it goes under, then its name; the list again, with it.
+                            d.dismiss();
+                            final List<String> parents = MediaTags.categoryNames(vault);
+                            if (parents.isEmpty()) {
+                                app.setNow("Make a category first (" + MediaTags.NEW_CATEGORY + ")");
+                                again.run();
+                                return;
+                            }
+                            MediaBrowser.lastAsk = new AlertDialog.Builder(app).setTitle("New subcategory under")
+                                .setItems(parents.toArray(new String[0]), (d2, w2) -> subcategory(app, vault, parents.get(w2), again))
+                                .setNegativeButton("Cancel", (d2, w2) -> again.run()).show();
+                            return;
+                        }
+                        if (vault != null && MediaTags.INTO_NEW.equals(picked)) {
+                            // A new main category, and the file in it.
+                            d.dismiss();
+                            named(app, "Add into new category", null, n -> {
+                                String path = MediaTags.addCategory(vault, null, n);
+                                placed(app, name, key, path, ready, after);
+                            });
+                            return;
+                        }
                         d.dismiss();
-                        if (after != null) after.run();
+                        placed(app, name, key, which == 0 ? "" : picked, ready, after);
                     })
                     .setNegativeButton("Cancel", null).show();
+                // Held on a category: a new subcategory under it.
+                shown.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+                    String held = names.get(position);
+                    if (vault == null || position == 0 || held.startsWith("+ ")) return false;
+                    shown.dismiss();
+                    subcategory(app, vault, held, again);
+                    return true;
+                });
+                MediaBrowser.lastAsk = shown;
             });
         }, "pulsekit-file-categories").start();
+    }
+
+    /** The file in the category (none for ""), said, and `after` run. */
+    private static void placed(MainActivity app, String name, String key, String path, String ready, Runnable after) {
+        MediaTags.setCategory(key, path);
+        if (path.length() > 0) ReadyRecent.setCategory(ready, path);
+        app.setNow(name + (path.length() == 0 ? ": no category" : " is in " + path));
+        if (after != null) after.run();
+    }
+
+    /** A new subcategory under `parentPath` (its name asked), then `again` (the list with it). */
+    private static void subcategory(MainActivity app, PromptVault vault, String parentPath, Runnable again) {
+        named(app, "New subcategory under " + parentPath, null, n -> {
+            MediaTags.addCategory(vault, parentPath, n);
+            again.run();
+        });
+    }
+
+    interface Named {
+        void take(String name) throws Exception;
+    }
+
+    /** A name asked for (Add / Cancel); `done` gets it; a failure is said on the status line. */
+    static void named(final MainActivity app, String title, String start, final Named done) {
+        final android.widget.EditText field = new android.widget.EditText(app);
+        field.setSingleLine(true);
+        field.setTag("category-name-field");
+        if (start != null) field.setText(start);
+        MediaBrowser.lastAsk = new AlertDialog.Builder(app).setTitle(title).setView(field)
+            .setPositiveButton("Add", (d, w) -> {
+                String n = field.getText().toString().trim();
+                if (n.length() == 0) return;
+                try {
+                    done.take(n);
+                } catch (Exception ex) {
+                    app.setNow(ex.getMessage() == null ? "Could not add " + n : ex.getMessage());
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
     }
 }

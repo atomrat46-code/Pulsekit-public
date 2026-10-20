@@ -153,21 +153,26 @@ final class PlaylistScreen {
         });
         delete.setTag("playlist-delete");
         top.addView(delete);
-        TextView imp = app.pill("Import .pls…", false, v -> pick(app, PICK_PLS, false));
-        imp.setTag("playlist-import");
-        top.addView(imp);
-        TextView merge = app.pill("Merge .pls…", false, v -> pick(app, PICK_MERGE, true));
-        merge.setTag("playlist-merge");
-        top.addView(merge);
-        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
-        TextView saveIt = app.pill(Playlist.SAVE, false, v -> savePls(app, p));
-        saveIt.setTag("playlist-save");
-        top.addView(saveIt);
-        TextView export = app.pill(Playlist.SAVE_AS, false, v -> saveAs(app, p));
-        export.setTag("playlist-export");
-        top.addView(export);
         topScroll.addView(top);
         col.addView(topScroll);
+        // A second row (the first ran off the phone's screen): Save, Save as…, Import .pls, Merge .pls.
+        // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
+        HorizontalScrollView fileScroll = new HorizontalScrollView(app);
+        LinearLayout files = app.row();
+        TextView saveIt = app.pill(Playlist.SAVE, false, v -> savePls(app, p));
+        saveIt.setTag("playlist-save");
+        files.addView(saveIt);
+        TextView export = app.pill(Playlist.SAVE_AS, false, v -> saveAs(app, p));
+        export.setTag("playlist-export");
+        files.addView(export);
+        TextView imp = app.pill("Import .pls…", false, v -> pick(app, PICK_PLS, false));
+        imp.setTag("playlist-import");
+        files.addView(imp);
+        TextView merge = app.pill("Merge .pls…", false, v -> pick(app, PICK_MERGE, true));
+        merge.setTag("playlist-merge");
+        files.addView(merge);
+        fileScroll.addView(files);
+        col.addView(fileScroll);
         // Editor | Viewer.
         LinearLayout tabs = app.row();
         String[] names = {"Editor", "Viewer"};
@@ -346,8 +351,8 @@ final class PlaylistScreen {
         final Playlist.Settings s = Playlist.settings(dir);
         final CheckBox repeat = box(app, "Repeat: from the end back to the beginning", s.repeat, "playlist-repeat");
         final CheckBox auto = box(app, "Auto mode: the next file shows by itself (else tap \u25b6)", s.auto, "playlist-auto");
-        final CheckBox loop = box(app, "Loop video: the video plays again and again until an arrow is tapped (Auto mode off)", s.loop, "playlist-loop");
-        final CheckBox autoplay = box(app, "Autoplay video (else a long press, or Play, starts it)", s.autoplay, "playlist-autoplay");
+        final CheckBox loop = box(app, Playlist.LOOP_CAPTION.replace("pressed", "tapped"), s.loop, "playlist-loop");
+        final CheckBox autoplay = box(app, Playlist.AUTOPLAY_CAPTION, s.autoplay, "playlist-autoplay");
         final CheckBox mute = box(app, "Mute", s.mute, "playlist-mute");
         final int[] seconds = {s.seconds};
         final float[] speed = {s.speed};
@@ -917,6 +922,12 @@ final class PlaylistScreen {
         stage.addView(picture, new FrameLayout.LayoutParams(-1, -1));
         stage.addView(video, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         stage.addView(message, new FrameLayout.LayoutParams(-1, -1));
+        // A sound's place: a line across its picture (waveform, or a MIDI's hits).
+        final View playhead = new View(app);
+        playhead.setTag("viewer-playhead");
+        playhead.setBackgroundColor(Color.parseColor("#E0B04A"));
+        playhead.setVisibility(View.GONE);
+        stage.addView(playhead, new FrameLayout.LayoutParams(app.dp(2), -1));
         TextView prev = app.pill("◀", false, null);
         prev.setTag("viewer-prev");
         TextView next = app.pill("▶", false, null);
@@ -1025,9 +1036,11 @@ final class PlaylistScreen {
                 // released
             }
         };
+        // A sound plays at its own speed (MIDI, WAV, MP3): speed and zoom are for videos and pictures.
+        final boolean[] soundShown = new boolean[1];
         final Runnable applySpeed = () -> {
             android.media.MediaPlayer mp = player[0];
-            if (mp == null || android.os.Build.VERSION.SDK_INT < 23) return;
+            if (mp == null || soundShown[0] || android.os.Build.VERSION.SDK_INT < 23) return;
             try {
                 boolean was = mp.isPlaying();
                 mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(rate[0]));
@@ -1053,6 +1066,11 @@ final class PlaylistScreen {
             // A video (or a sound) at its own zoom, a picture at its own.
             int kindShown = it.kind();
             videoShown[0] = kindShown == MediaDir.VIDEO || kindShown == MediaDir.SOUND;
+            soundShown[0] = kindShown == MediaDir.SOUND;
+            rowLook.setVisibility(soundShown[0] ? View.GONE : View.VISIBLE);
+            loopPill.setText(Playlist.loopLabel(kindShown));
+            playhead.setVisibility(View.GONE);
+            picture.setScaleType(ImageView.ScaleType.FIT_CENTER);
             Playlist.Settings kept = Playlist.settings(dir);
             zoom[0] = (float) MediaDir.clampZoom(videoShown[0] ? kept.zoomVideo : kept.zoom);
             zoomText.setText("Zoom " + MediaDir.zoomLabel(zoom[0]));
@@ -1090,6 +1108,27 @@ final class PlaylistScreen {
                 if (f != null) video.setVideoPath(f.getAbsolutePath());
                 else video.setVideoURI(Uri.parse(it.file));
                 viewerNote = k == MediaDir.VIDEO ? "video" : "sound";
+                if (k == MediaDir.SOUND) {
+                    // Its picture: a drum MIDI's hits (as the MIDI editor shows them), a WAV's or MP3's waveform.
+                    final int shownIndex = at[0];
+                    final int pw = Math.max(64, stage.getWidth() > 0 ? stage.getWidth() : app.getResources().getDisplayMetrics().widthPixels);
+                    final int ph = Math.max(48, stage.getHeight() > 0 ? stage.getHeight() / 2 : pw / 3);
+                    new Thread(() -> {
+                        byte[] b = bytes(app, it, vault);
+                        int[] px = SoundPicture.pixels(it.file, b, pw, ph);
+                        if (px == null) return;
+                        Bitmap drawn = Bitmap.createBitmap(px, pw, ph, Bitmap.Config.ARGB_8888);
+                        app.runOnUiThread(() -> {
+                            if (at[0] != shownIndex || !v.isShowing()) return;
+                            picture.setScaleType(ImageView.ScaleType.FIT_XY);
+                            picture.setImageBitmap(drawn);
+                            picture.setVisibility(View.VISIBLE);
+                            playhead.setVisibility(View.VISIBLE);
+                            playhead.setTranslationX(0);
+                            soundPicture = true;
+                        });
+                    }, "pulsekit-sound-picture").start();
+                }
                 applyZoom.run();
                 return;
             }
@@ -1297,6 +1336,10 @@ final class PlaylistScreen {
                 if (video.getVisibility() == View.VISIBLE) {
                     try {
                         timeText.setText(Playlist.time(video.getCurrentPosition(), player[0] == null ? -1 : video.getDuration()));
+                        // A sound's place on its picture.
+                        if (playhead.getVisibility() == View.VISIBLE && player[0] != null && video.getDuration() > 0) {
+                            playhead.setTranslationX(stage.getWidth() * (float) video.getCurrentPosition() / video.getDuration());
+                        }
                     } catch (Exception ignored) {
                         // not ready
                     }
@@ -1339,6 +1382,9 @@ final class PlaylistScreen {
         }
         return row;
     }
+
+    /** Whether the viewer drew a sound's picture (for the tests). */
+    static boolean soundPicture;
 
     /** The viewer's long press and Auto mode tick, for the tests. */
     static Runnable stageHold;

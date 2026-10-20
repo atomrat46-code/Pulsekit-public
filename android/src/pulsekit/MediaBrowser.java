@@ -1156,15 +1156,24 @@ final class MediaBrowser {
         return null;
     }
 
-    private boolean canGoAbove() {
-        return this.path.size() <= 1 && this.aboveRoot() != null;
-    }
+    /** Up's question at a folder Android allows no higher (for the tests). */
+    static android.app.AlertDialog lastAbove;
 
     /** Up at the first folder: the browser again on the folder above it (the folder it came from shown under it). */
     private void above() {
         Object[] to = this.aboveRoot();
         if (to == null) {
-            this.app.setNow("Android lets Pulsekit read only the folder picked: Params, Browse a higher folder to go further up");
+            // Android lets Pulsekit read only the folders picked: another one, picked with the system's picker.
+            final MainActivity host = this.app;
+            lastAbove = new android.app.AlertDialog.Builder(host).setTitle("Up")
+                .setMessage("Android lets Pulsekit read only the folders picked. Pick a folder (a higher one, or any other) to browse there.")
+                .setPositiveButton("Pick a folder", (d, w) -> {
+                    PyJavParams.pendingValues = null;
+                    PyJavParams.pendingOpensMedia = true;
+                    if (this.dialog != null) this.dialog.dismiss();
+                    pick(host);
+                })
+                .setNegativeButton("Cancel", null).show();
             return;
         }
         MediaBrowser b = make(this.app, (String) to[0], false);
@@ -1235,8 +1244,9 @@ final class MediaBrowser {
             this.body.addView(ask);
         }
         LinearLayout tools = this.app.row();
-        // Up stays at the folder Params gave too: it goes on above it where the phone allows.
-        if (this.path.size() > 1 || this.canGoAbove()) {
+        // Up stays at the folder Params gave too (.bck, say): it goes on above it where the phone allows,
+        // else it picks another folder with the system's picker.
+        if (this.path.size() > 1 || this.chooser == null) {
             TextView up = this.app.pill("Up", false, v -> this.up());
             up.setTag("media-up");
             if (this.path.size() > 1 && this.changeable()) this.dropTarget(up, this.path.get(this.path.size() - 2));
@@ -1538,6 +1548,10 @@ final class MediaBrowser {
                 playDefault(host, file, name);
             } else if (MediaDir.TO_COMPOSER.equals(item)) {
                 toComposer(host, file, name);
+            } else if (MediaDir.TO_FILE_SET.equals(item)) {
+                toFileSet(host, file, name);
+            } else if (MediaDir.TO_WAV.equals(item)) {
+                AudioOffer.convert(host, file);
             } else {
                 host.openKitView("py");
                 host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
@@ -1549,6 +1563,29 @@ final class MediaBrowser {
     }
 
     /** Add to composer stack: the MIDI as a file set (no song asked about), its patterns and fills on the Composer's stack, the Composer shown. */
+    /** The file set picked last list (for the tests). */
+    static AlertDialog lastFileSets;
+
+    /** Add into file set: the MIDI kept as the source MIDI of the file set picked (From file set finds it there). */
+    static void toFileSet(final MainActivity app, File file, final String name) {
+        final byte[] midi;
+        try {
+            midi = java.nio.file.Files.readAllBytes(file.toPath());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+            return;
+        }
+        final java.util.List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(MediaDir.TO_FILE_SET + " \u00b7 " + name).setNegativeButton("Cancel", null);
+        if (sources.isEmpty()) b.setMessage("No file sets yet: import a pattern library, or run DrumMidi_CRT in PyJav (it makes one).");
+        else b.setItems(sources.toArray(new String[0]), (d, w) -> {
+            Engine.rememberFileSetMidi(sources.get(w), midi, name);
+            Engine.storeFileSetAudioDir(new File(app.getFilesDir(), "fset-audio"));
+            app.setNow(name + " is the MIDI of the file set " + sources.get(w));
+        });
+        lastFileSets = b.show();
+    }
+
     static void toComposer(MainActivity app, File file, String name) {
         try {
             Engine.MidiBars bars = Engine.parseMidiBars(java.nio.file.Files.readAllBytes(file.toPath()));
@@ -2785,12 +2822,60 @@ final class MediaBrowser {
         LinearLayout buttons = this.app.row();
         buttons.addView(play);
         buttons.addView(stop);
-        col.addView(this.app.text(MediaDir.isMidi(e.name) ? "MIDI, played with the phone's own instruments" : (e.size / 1024) + " KB", 12, false));
+        // Volume and Mute (the Media browser's, kept for next time).
+        final boolean[] muted = new boolean[1];
+        final SeekBar volume = new SeekBar(this.app);
+        volume.setTag("media-sound-volume");
+        volume.setMax(100);
+        volume.setProgress(MediaDir.volume);
+        final TextView level = this.app.text(MediaDir.volume + "%", 12, false);
+        level.setTag("media-sound-level");
+        final Runnable applyVolume = () -> {
+            float v = muted[0] ? 0f : volume.getProgress() / 100f;
+            try {
+                player.setVolume(v, v);
+            } catch (Exception ignored) {
+                // released
+            }
+            level.setText(muted[0] ? "muted" : volume.getProgress() + "%");
+        };
+        volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                MediaDir.volume = value;
+                applyVolume.run();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                save(MediaBrowser.this.app);
+            }
+        });
+        final TextView mute = this.app.pill("Mute", false, null);
+        mute.setTag("media-sound-mute");
+        mute.setOnClickListener(v -> {
+            muted[0] = !muted[0];
+            mute.setText(muted[0] ? "Unmute" : "Mute");
+            applyVolume.run();
+        });
+        buttons.addView(mute);
+        // A drum MIDI with Pulsekit's kit (the imported SoundFont); another MIDI with the phone's own instruments.
+        File kitWav = MediaDir.isMidi(e.name) ? this.kitWav(e) : null;
+        col.addView(this.app.text(MediaDir.isMidi(e.name) ? (kitWav != null ? "MIDI, played with Pulsekit's kit (the imported SoundFont)" : "MIDI, played with the phone's own instruments") : (e.size / 1024) + " KB", 12, false));
         col.addView(where, new LinearLayout.LayoutParams(-1, -2));
         col.addView(time);
         col.addView(buttons);
+        LinearLayout volRow = this.app.row();
+        volRow.addView(this.app.text("Volume", 12, false));
+        volRow.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
+        volRow.addView(level);
+        col.addView(volRow);
         player.setOnPreparedListener(mp -> {
             ready[0] = true;
+            applyVolume.run();
             where.setMax(Math.max(1, mp.getDuration()));
             time.setText("0:00 / " + clock(mp.getDuration()));
             mp.start();
@@ -2820,10 +2905,25 @@ final class MediaBrowser {
         });
         d.show();
         try {
-            player.setDataSource(this.app, this.uri(e));
+            if (kitWav != null) player.setDataSource(kitWav.getAbsolutePath());
+            else player.setDataSource(this.app, this.uri(e));
             player.prepareAsync();
         } catch (Exception ex) {
             this.app.setNow("Could not play " + e.name);
+        }
+    }
+
+    /** A drum MIDI rendered with Pulsekit's kit to a WAV in the cache; null for a MIDI without drums (or no kit). */
+    private File kitWav(MediaDir.Entry e) {
+        if (this.app.playback == null) return null;
+        try {
+            short[] pcm = AudioIo.renderMidiDrums(this.read(e), this.app.playback.mixVoices(), 22050);
+            if (pcm == null || pcm.length == 0) return null;
+            File wav = new File(this.app.getCacheDir(), "media-midi.wav");
+            java.nio.file.Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+            return wav;
+        } catch (Throwable ex) {
+            return null;
         }
     }
 

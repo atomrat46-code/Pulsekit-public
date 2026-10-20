@@ -770,7 +770,7 @@ final class PyJav {
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
                 // With --towav or --test it goes on to Midi2Wav (and its test) instead.
                 if (madeMidi != null && result.code == 0 && Midi2WavTest.fromGen(name, argv)) this.genToWav(madeMidi, argv);
-                else if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name)) this.offerMidi(madeMidi.name, madeMidi.bytes);
+                else if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name) && !argv.contains("--count")) this.offerMidi(madeMidi.name, madeMidi.bytes);
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
@@ -1290,12 +1290,28 @@ final class PyJav {
         }
         int seconds = Math.round(pcm.length / 22050f);
         String length = (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60);
+        // The MIDI as a file for its items (the MIDI editor, Midi2Wav, vst_render, the default SoundFont).
+        File file = new File(new File(PromptDb.dir(), "pyjav-in"), midiName.replace('/', '_').replace('\\', '_'));
+        try {
+            file.getParentFile().mkdirs();
+            Files.write(file.toPath(), midi);
+        } catch (Exception ex) {
+            file = null;
+        }
         javax.sound.sampled.Clip clip = null;
         try {
             while (true) {
                 boolean playing = clip != null && clip.isRunning();
                 // Add to composer stack: the file set's patterns and fills, as blocks to compose with.
-                Object[] options = new Object[] {playing ? "Stop" : "Play", "Add to composer stack", "Close"};
+                // Then favourites, group, tags, category, playlist and the MIDI's own items.
+                FileFavourites.load(PromptDb.dir());
+                java.util.List<Object> opts = new java.util.ArrayList<Object>();
+                opts.add(playing ? "Stop" : "Play");
+                opts.add("Add to composer stack");
+                java.util.List<String> more = file == null ? new java.util.ArrayList<String>() : midiItems(MarkFile.isFavourite(file.getName(), file.length()));
+                opts.addAll(more);
+                opts.add("Close");
+                Object[] options = opts.toArray();
                 int ans = JOptionPane.showOptionDialog(app, midiName + " (" + length + ") is imported as a file set.\n\n"
                     + "Play sounds it with Pulsekit's kit (your imported SoundFont, if any).", "MIDI ready",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
@@ -1310,6 +1326,11 @@ final class PyJav {
                     c.save(PromptDb.dir());
                     app.setNow(Composer.stackedNote(midiName, added));
                     break;
+                }
+                if (ans >= 2 && ans < 2 + more.size()) {
+                    if (clip != null && clip.isRunning()) clip.stop();
+                    if (this.midiItem(file, midiName, more.get(ans - 2))) break;
+                    continue;
                 }
                 if (ans != 0) break;
                 if (playing) {
@@ -1334,6 +1355,51 @@ final class PyJav {
                 clip.close();
             }
         }
+    }
+
+    /** MIDI ready's items after Play and Add to composer stack: favourites, group, tags, category, playlist, the MIDI's own. */
+    static java.util.List<String> midiItems(boolean favourite) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        out.add(favourite ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT);
+        out.add(FileGroups.ADD);
+        out.add(MediaTags.ADD_TAG);
+        out.add(MediaTags.ADD_CATEGORY);
+        out.add(Playlist.ADD);
+        for (String k : MediaDir.kindItems("x.mid", true)) if (!MediaDir.TO_COMPOSER.equals(k)) out.add(k);
+        return out;
+    }
+
+    /** One of MIDI ready's items; true when it leaves MIDI ready (a program opened, the editor). */
+    boolean midiItem(File file, String name, String item) {
+        String kind = ReadyRecent.SOUND;
+        if (item.equals(FileFavourites.ADD_SHORT) || item.equals(FileFavourites.REMOVE_SHORT)) GroupMenus.toggleFavourite(app, file);
+        else if (item.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(file), name, kind);
+        else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, file.getName(), file.length(), null, kind);
+        else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, file.getName(), file.length(), null, kind);
+        else if (item.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, file.getAbsolutePath(), name);
+        else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);
+        else if (item.equals(MediaDir.TO_FILE_SET)) MediaBrowser.toFileSet(app, file, name);
+        else if (item.equals(MediaDir.MIDI_EDIT)) {
+            // Save keeps the edited MIDI in the program files folder as <name>-edited.mid.
+            final String edited = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-edited.mid";
+            try {
+                MidiEditScreen.openFile(app, name, Files.readAllBytes(file.toPath()), m -> {
+                    File saved = this.saveProgramFile(edited, m);
+                    return saved == null ? edited : saved.getPath();
+                });
+            } catch (Exception ex) {
+                app.setNow("Could not read " + name);
+            }
+            return true;
+        } else if (item.equals(MediaDir.RENDER_SF2) || item.equals(MediaDir.RENDER_PLUGIN)) {
+            app.showView("py");
+            if (item.equals(MediaDir.RENDER_PLUGIN)) app.programMenus.selectListedProgram("Python", "vst_render.py");
+            else app.programMenus.selectListedProgram("Java", "Midi2Wav.java");
+            this.setInputFile(file);
+            SwingUtilities.invokeLater(this::openParams);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1448,10 +1514,30 @@ final class PyJav {
      * DrumMidi_CRT.jar runs on it, importing the drums as a file set), Play (the system player), or Close.
      */
     void offerAudio(File audio) {
-        Object[] options = new Object[] {"Make drum MIDI", "Play", "Close"};
-        int ans = JOptionPane.showOptionDialog(app, audio.getName() + " is saved in " + audio.getParent() + ".\n\n"
-            + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        // Favourites, group, tags, category, playlist and Convert into WAV come back to the question.
+        String name = audio.getName();
+        String kind = ReadyRecent.SOUND;
+        int ans;
+        while (true) {
+            FileFavourites.load(PromptDb.dir());
+            Object[] options = new Object[] {"Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
+                FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, TO_WAV, "Close"};
+            ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
+                + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : "Audio ready",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (ans == 2) GroupMenus.toggleFavourite(app, audio);
+            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
+            else if (ans == 4) TagDialogs.tags(app, app, name, audio.length(), null, kind);
+            else if (ans == 5) TagDialogs.category(app, app, name, audio.length(), null, kind);
+            else if (ans == 6) PlaylistWindow.askAdd(app, audio.getAbsolutePath(), name);
+            else if (ans == 7) {
+                if (!name.toLowerCase().endsWith(".mp3")) app.setNow(name + " is a WAV already");
+                else {
+                    File wav = this.asWav(audio);
+                    if (wav != audio) app.setNow("Saved " + wav.getName() + " beside " + name);
+                }
+            } else break;
+        }
         if (ans == 0) {
             // DrumMidi_CRT.jar carries an MP3 decoder, so the audio is given as it is.
             this.audioInputPath = audio.getAbsolutePath();
@@ -1465,6 +1551,8 @@ final class PyJav {
             }
         }
     }
+
+    static final String TO_WAV = "Convert into WAV";
 
     /** An MP3 as a mono 16-bit WAV beside it (song.mp3 → song.wav); other files, or a failed decode, as they are. */
     File asWav(File audio) {

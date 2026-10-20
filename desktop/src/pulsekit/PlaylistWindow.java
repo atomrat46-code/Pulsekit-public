@@ -141,6 +141,8 @@ final class PlaylistWindow {
             again.run();
         });
         top.add(delete);
+        // A second row: Save, Save as…, Import .pls, Merge .pls.
+        JPanel files = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton imp = new JButton("Import .pls…");
         imp.setName("playlist-import");
         imp.addActionListener(e -> {
@@ -151,7 +153,7 @@ final class PlaylistWindow {
             switchTo(dir, name);
             again.run();
         });
-        top.add(imp);
+        files.add(imp);
         JButton merge = new JButton("Merge .pls…");
         merge.setName("playlist-merge");
         merge.setToolTipText("Two or three playlists as one (PlayList.java)");
@@ -163,7 +165,7 @@ final class PlaylistWindow {
             switchTo(dir, name);
             again.run();
         });
-        top.add(merge);
+        files.add(merge);
         // Save: the .pls where it was saved last (Save as… when it has not been); Save as…: a place picked.
         JButton saveIt = new JButton(Playlist.SAVE);
         saveIt.setName("playlist-save");
@@ -173,12 +175,15 @@ final class PlaylistWindow {
             if (at != null && new File(at).getParentFile() != null && new File(at).getParentFile().isDirectory()) savePls(app, p, new File(at));
             else saveAs(app, d, p);
         });
-        top.add(saveIt);
+        files.add(saveIt, 0);
         JButton export = new JButton(Playlist.SAVE_AS);
         export.setName("playlist-export");
         export.addActionListener(e -> saveAs(app, d, p));
-        top.add(export);
-        body.add(top, BorderLayout.NORTH);
+        files.add(export, 1);
+        JPanel bars = new JPanel(new java.awt.GridLayout(2, 1, 0, 4));
+        bars.add(top);
+        bars.add(files);
+        body.add(bars, BorderLayout.NORTH);
         final JTabbedPane tabs = new JTabbedPane();
         tabs.setName("playlist-tabs");
         tabs.addTab("Editor", editor(app, d, p, again));
@@ -318,7 +323,8 @@ final class PlaylistWindow {
             app.setNow("Playlist " + p.name + ": " + p.items.size() + (p.items.size() == 1 ? " file" : " files"));
             return p.name;
         }
-        if (code == 0 && log != null && log.contains("Playlist: " + Playlist.DEFAULT)) return Playlist.DEFAULT;
+        // Run without a playlist: the one used last ("" opens it).
+        if (code == 0 && log != null && log.contains("Playlist: " + Playlist.DEFAULT)) return "";
         app.setNow(log == null ? "PlayList.java failed" : lastLine(log));
         return null;
     }
@@ -649,9 +655,9 @@ final class PlaylistWindow {
         repeat.setName("playlist-repeat");
         final JCheckBox auto = new JCheckBox("Auto mode: the next file shows by itself (else press \u25b6)", s.auto);
         auto.setName("playlist-auto");
-        final JCheckBox loop = new JCheckBox("Loop video: the video plays again and again until an arrow is pressed (Auto mode off)", s.loop);
+        final JCheckBox loop = new JCheckBox(Playlist.LOOP_CAPTION, s.loop);
         loop.setName("playlist-loop");
-        final JCheckBox autoplay = new JCheckBox("Autoplay video (else hold the video, or press Play, to start it)", s.autoplay);
+        final JCheckBox autoplay = new JCheckBox(Playlist.AUTOPLAY_CAPTION.replace("a long press", "holding it"), s.autoplay);
         autoplay.setName("playlist-autoplay");
         final JSpinner seconds = new JSpinner(new SpinnerNumberModel(s.seconds, 1, 600, 1));
         seconds.setName("playlist-seconds");
@@ -782,6 +788,8 @@ final class PlaylistWindow {
     /** A picture full size: zoomed by the wheel and Zoom − / +, dragged when zoomed; a held press runs `held`. */
     static final class Picture extends JPanel {
         BufferedImage image;
+        /** A sound's place on its picture (0..1), or -1 for none. */
+        double playhead = -1;
         double zoom = 1;
         int panX;
         int panY;
@@ -845,7 +853,14 @@ final class PlaylistWindow {
             double s = Math.min(this.getWidth() / (double) img.getWidth(), this.getHeight() / (double) img.getHeight()) * this.zoom;
             int w = (int) Math.round(img.getWidth() * s);
             int h = (int) Math.round(img.getHeight() * s);
-            g.drawImage(img, (this.getWidth() - w) / 2 + this.panX, (this.getHeight() - h) / 2 + this.panY, w, h, null);
+            int x0 = (this.getWidth() - w) / 2 + this.panX;
+            int y0 = (this.getHeight() - h) / 2 + this.panY;
+            g.drawImage(img, x0, y0, w, h, null);
+            if (this.playhead >= 0) {
+                g.setColor(new Color(0xE0B04A));
+                int x = x0 + (int) Math.round(Math.min(1, this.playhead) * w);
+                g.fillRect(x - 1, y0, 2, h);
+            }
         }
     }
 
@@ -917,6 +932,10 @@ final class PlaylistWindow {
         picture.zoom = MediaDir.clampZoom(s.zoom);
         // Pictures and videos each keep a zoom of their own (picture.zoom holds the one shown).
         final boolean[] videoShown = new boolean[1];
+        // A sound (MIDI, WAV, MP3) plays at its own speed and has no zoom: those controls go while one shows.
+        final boolean[] soundShown = new boolean[1];
+        final java.util.List<java.awt.Component> lookParts = new java.util.ArrayList<java.awt.Component>();
+        final JCheckBox[] loopRef = new JCheckBox[1];
         // A video's place: "00:12 / 01:30".
         final JLabel timeText = new JLabel("");
         timeText.setName("viewer-time");
@@ -948,6 +967,10 @@ final class PlaylistWindow {
             File f = local(it);
             int k = it.kind();
             videoShown[0] = k == MediaDir.VIDEO || k == MediaDir.SOUND;
+            soundShown[0] = k == MediaDir.SOUND;
+            for (java.awt.Component c : lookParts) c.setVisible(!soundShown[0]);
+            if (loopRef[0] != null) loopRef[0].setText(Playlist.loopLabel(k));
+            picture.playhead = -1;
             Playlist.Settings kept = Playlist.settings(dir);
             picture.zoom = MediaDir.clampZoom(videoShown[0] ? kept.zoomVideo : kept.zoom);
             zoomLevel.setText(MediaDir.zoomLabel(picture.zoom));
@@ -974,6 +997,26 @@ final class PlaylistWindow {
                 }
                 return;
             }
+            if (k == MediaDir.SOUND) {
+                // Its picture: a drum MIDI's hits (as the MIDI editor shows them), a WAV's or MP3's waveform; the line is its place.
+                picture.image = null;
+                try {
+                    if (f.length() <= SoundPicture.MAX_BYTES) {
+                        int pw = 960, ph = 320;
+                        int[] px = SoundPicture.pixels(f.getName(), java.nio.file.Files.readAllBytes(f.toPath()), pw, ph);
+                        if (px != null) {
+                            BufferedImage drawn = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_ARGB);
+                            drawn.setRGB(0, 0, pw, ph, px, 0, pw);
+                            picture.image = drawn;
+                            picture.playhead = 0;
+                        }
+                    }
+                } catch (Exception ex) {
+                    picture.image = null;
+                }
+                picture.zoomTo(1);
+                viewerNote = picture.image != null ? "sound picture" : "sound";
+            }
             if ((k == MediaDir.VIDEO || k == MediaDir.SOUND) && VlcPlayer.available()) {
                 try {
                     VlcPlayer vp = new VlcPlayer(f);
@@ -987,17 +1030,24 @@ final class PlaylistWindow {
                         keep.run();
                     };
                     videoCard.add(vp.screen, BorderLayout.CENTER);
-                    cards.show(stage, "video");
+                    // A sound shows its picture (VLC plays it unseen).
+                    cards.show(stage, k == MediaDir.SOUND && picture.image != null ? "picture" : "video");
                     videoCard.revalidate();
-                    viewerNote = k == MediaDir.VIDEO ? "video" : "sound";
+                    if (k == MediaDir.VIDEO) viewerNote = "video";
                     if (Playlist.settings(dir).autoplay || k == MediaDir.SOUND) {
                         vp.play();
-                        vp.rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
+                        if (!soundShown[0]) vp.rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
                     }
                     return;
                 } catch (Throwable ex) {
                     release.run();
                 }
+            }
+            if (k == MediaDir.SOUND && picture.image != null) {
+                // Without VLC: its picture, and how to hear it.
+                app.setNow("Install VLC (videolan.org) to play " + it.title + " here");
+                cards.show(stage, "picture");
+                return;
             }
             message.setText("<html><center>" + esc(it.title) + "<br><br>" + (k == MediaDir.VIDEO || k == MediaDir.SOUND
                 ? "Install VLC (videolan.org) to play it here" : "Not a picture, video or sound") + "</center></html>");
@@ -1036,7 +1086,7 @@ final class PlaylistWindow {
         play.addActionListener(e -> {
             if (player[0] == null) return;
             player[0].play();
-            player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
+            if (!soundShown[0]) player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
         });
         pause.addActionListener(e -> {
             if (player[0] == null) return;
@@ -1057,7 +1107,7 @@ final class PlaylistWindow {
             if (!volume.getValueIsAdjusting()) keep.run();
         });
         speed.addActionListener(e -> {
-            if (player[0] != null) player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
+            if (player[0] != null && !soundShown[0]) player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
             keep.run();
         });
         Runnable zoomed = () -> {
@@ -1086,11 +1136,16 @@ final class PlaylistWindow {
         // Auto mode: a picture for its seconds, a video or a sound to its end, then the next.
         final javax.swing.Timer tick = new javax.swing.Timer(250, e -> {
             if (player[0] != null) timeText.setText(Playlist.time(player[0].timeMs(), player[0].lengthMs()));
+            // A sound's place on its picture.
+            if (player[0] != null && soundShown[0] && picture.playhead >= 0 && player[0].lengthMs() > 0) {
+                picture.playhead = player[0].timeMs() / (double) player[0].lengthMs();
+                picture.repaint();
+            }
             Playlist.Settings now = Playlist.settings(dir);
             // Loop video: at its end the video starts again (an arrow goes on).
             if (now.loop && player[0] != null && player[0].state() == VlcPlayer.ENDED) {
                 player[0].play();
-                player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
+                if (!soundShown[0]) player[0].rate(Playlist.SPEEDS[Math.max(0, speed.getSelectedIndex())]);
                 return;
             }
             if (!now.auto || held[0]) return;
@@ -1109,7 +1164,8 @@ final class PlaylistWindow {
             }
         });
         // Loop video and Auto mode here too (one at a time), kept as the Viewer tab's.
-        final JCheckBox loopBox = new JCheckBox("\u27f3 Loop this video", s.loop);
+        final JCheckBox loopBox = new JCheckBox(Playlist.loopLabel(p.items.get(Math.max(0, Math.min(start, p.items.size() - 1))).kind()), s.loop);
+        loopRef[0] = loopBox;
         loopBox.setName("viewer-loop");
         final JCheckBox autoBox = new JCheckBox("Auto mode", s.auto);
         autoBox.setName("viewer-auto");
@@ -1143,7 +1199,13 @@ final class PlaylistWindow {
         close.addActionListener(e -> v.dispose());
         row2.add(close);
         JPanel row3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        for (java.awt.Component c : new java.awt.Component[] {new JLabel("Volume"), volume, mute, new JLabel("  Speed"), speed, new JLabel("  Zoom"), zoomOut, zoomIn, fit, zoomLevel}) row3.add(c);
+        JLabel speedLabel = new JLabel("  Speed");
+        JLabel zoomLabel = new JLabel("  Zoom");
+        for (java.awt.Component c : new java.awt.Component[] {new JLabel("Volume"), volume, mute, speedLabel, speed, zoomLabel, zoomOut, zoomIn, fit, zoomLevel}) row3.add(c);
+        for (java.awt.Component c : new java.awt.Component[] {speedLabel, speed, zoomLabel, zoomOut, zoomIn, fit, zoomLevel}) {
+            lookParts.add(c);
+            c.setVisible(!soundShown[0]);
+        }
         controls.add(row1);
         controls.add(row2);
         controls.add(row3);

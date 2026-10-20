@@ -254,6 +254,11 @@ public final class Pulsekit extends UiKit {
         this.getContentPane().setBackground(BG);
     }
 
+    // The playlist viewer draws an MP3's waveform with the computer's decoder.
+    static {
+        SoundPicture.mp3 = Mp3Decode::parse;
+    }
+
     public static void main(String[] stringArray) {
         SwingUtilities.invokeLater(() -> {
             try {
@@ -360,7 +365,7 @@ public final class Pulsekit extends UiKit {
         this.addTab(jPanel7, "song", "Song");
         this.addTab(jPanel7, "composer", "Composer");
         this.addTab(jPanel7, "py", "PyJav");
-        this.addTab(jPanel7, "prompts", "Prompts");
+        this.addTab(jPanel7, "prompts", "DB/Prompts");
         this.addFileTab(jPanel7);
         // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
         this.drumSubtabs = new JPanel();

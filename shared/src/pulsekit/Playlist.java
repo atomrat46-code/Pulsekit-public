@@ -340,7 +340,8 @@ public final class Playlist {
       save(dir, p);
       return p.name;
     }
-    if (r.code == 0 && r.log != null && r.log.contains("Playlist: " + DEFAULT)) return DEFAULT;
+    // Run without a playlist: the one used last ("" opens it).
+    if (r.code == 0 && r.log != null && r.log.contains("Playlist: " + DEFAULT)) return "";
     return null;
   }
 
@@ -552,6 +553,15 @@ public final class Playlist {
   public static String time(long at, long length) {
     return clock(at) + " / " + (length > 0 ? clock(length) : "--:--");
   }
+
+  /** The viewer's Loop pill for the file shown: "⟳ Loop this video", "⟳ Loop this song", "⟳ Loop this file". */
+  public static String loopLabel(int kind) {
+    return "\u27f3 Loop this " + (kind == MediaDir.VIDEO ? "video" : kind == MediaDir.SOUND ? "song" : "file");
+  }
+
+  /** The Viewer tab's switches, for videos and sounds alike. */
+  public static final String LOOP_CAPTION = "Loop media file: the media file plays again and again until an arrow is pressed (Auto mode off)";
+  public static final String AUTOPLAY_CAPTION = "Autoplay media file (else a long press, or Play, starts it)";
 
   /** "1.25×". */
   public static String speedText(float speed) {

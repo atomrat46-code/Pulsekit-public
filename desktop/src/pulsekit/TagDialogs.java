@@ -78,27 +78,103 @@ final class TagDialogs {
         MediaTags.load(PromptDb.dir());
         ReadyRecent.load(PromptDb.dir());
         String key = MediaTags.key(name, size);
-        List<String> names = new ArrayList<String>();
-        names.add("(none)");
+        PromptVault vault;
+        List<String> names;
         try {
-            names.addAll(MediaTags.categoryNames(PromptDb.vault()));
+            vault = PromptDb.vault();
+            names = MediaTags.categoryRows(vault);
         } catch (Exception ex) {
             // no library: none only
+            vault = null;
+            names = new ArrayList<String>();
+            names.add("(none)");
         }
         String picked;
+        final String[] held = new String[1];
         if (MediaBrowser.answer != null) {
             picked = MediaBrowser.answer.apply("Category for " + name);
         } else {
             String now = ReadyRecent.picked(ready, MediaTags.category(key));
-            Object a = javax.swing.JOptionPane.showInputDialog(parent, "Category for " + name, "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
-                names.toArray(new String[0]), now.length() == 0 ? names.get(0) : now);
-            picked = a == null ? null : a.toString();
+            // A list: a right click on a category adds a subcategory under it.
+            final javax.swing.JList<String> list = new javax.swing.JList<String>(names.toArray(new String[0]));
+            list.setName("category-list");
+            list.setSelectedValue(now.length() == 0 ? names.get(0) : now, true);
+            list.setVisibleRowCount(Math.min(14, names.size()));
+            final List<String> rows = names;
+            list.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (!javax.swing.SwingUtilities.isRightMouseButton(e)) return;
+                    int at = list.locationToIndex(e.getPoint());
+                    if (at <= 0 || rows.get(at).startsWith("+ ")) return;
+                    held[0] = rows.get(at);
+                    javax.swing.SwingUtilities.getWindowAncestor(list).dispose();
+                }
+            });
+            JPanel panel = new JPanel(new BorderLayout(0, 6));
+            panel.add(new javax.swing.JScrollPane(list), BorderLayout.CENTER);
+            panel.add(new JLabel("Right click a category: a new subcategory under it"), BorderLayout.SOUTH);
+            int ans = javax.swing.JOptionPane.showConfirmDialog(parent, panel, "Category for " + name, javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE);
+            picked = held[0] == null && ans == javax.swing.JOptionPane.OK_OPTION ? list.getSelectedValue() : null;
+        }
+        if (vault != null && held[0] != null) {
+            if (subcategory(app, parent, vault, held[0])) category(app, parent, name, size, after, ready);
+            return;
         }
         if (picked == null) return;
+        try {
+            if (vault != null && MediaTags.NEW_CATEGORY.equals(picked)) {
+                String n = named(parent, "New category");
+                if (n != null) MediaTags.addCategory(vault, null, n);
+                category(app, parent, name, size, after, ready);
+                return;
+            }
+            if (vault != null && MediaTags.NEW_SUBCATEGORY.equals(picked)) {
+                List<String> parents = MediaTags.categoryNames(vault);
+                if (parents.isEmpty()) {
+                    app.setNow("Make a category first (" + MediaTags.NEW_CATEGORY + ")");
+                } else {
+                    Object under = MediaBrowser.answer != null ? MediaBrowser.answer.apply("New subcategory under")
+                        : javax.swing.JOptionPane.showInputDialog(parent, "New subcategory under", "Category", javax.swing.JOptionPane.PLAIN_MESSAGE, null,
+                            parents.toArray(new String[0]), parents.get(0));
+                    if (under != null) subcategory(app, parent, vault, under.toString());
+                }
+                category(app, parent, name, size, after, ready);
+                return;
+            }
+            if (vault != null && MediaTags.INTO_NEW.equals(picked)) {
+                String n = named(parent, "Add into new category");
+                if (n == null) return;
+                picked = MediaTags.addCategory(vault, null, n);
+            }
+        } catch (Exception ex) {
+            app.setNow(ex.getMessage() == null ? "Could not add the category" : ex.getMessage());
+            return;
+        }
         MediaTags.setCategory(key, picked.equals("(none)") ? "" : picked);
         if (!picked.equals("(none)")) ReadyRecent.setCategory(ready, picked);
         app.setNow(name + (picked.equals("(none)") ? ": no category" : " is in " + picked));
         if (after != null) after.run();
+    }
+
+    /** A new subcategory under `parentPath` (its name asked); true when one was made. */
+    private static boolean subcategory(Pulsekit app, Component parent, PromptVault vault, String parentPath) {
+        String n = named(parent, "New subcategory under " + parentPath);
+        if (n == null) return true;
+        try {
+            MediaTags.addCategory(vault, parentPath, n);
+        } catch (Exception ex) {
+            app.setNow(ex.getMessage() == null ? "Could not add " + n : ex.getMessage());
+        }
+        return true;
+    }
+
+    /** A name asked for; null when none was given. */
+    private static String named(Component parent, String title) {
+        Object typed = MediaBrowser.answer != null ? MediaBrowser.answer.apply(title)
+            : javax.swing.JOptionPane.showInputDialog(parent, "Name", title, javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, "");
+        String n = typed == null ? "" : typed.toString().trim();
+        return n.length() == 0 ? null : n;
     }
 
     /** Select all, Clear all when every tag is ticked; the label follows the boxes. */

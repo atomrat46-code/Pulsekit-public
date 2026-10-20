@@ -496,8 +496,11 @@ final class PromptDb {
             card.setVerticalTextPosition(SwingConstants.BOTTOM);
             card.setHorizontalTextPosition(SwingConstants.CENTER);
             card.setPreferredSize(new Dimension(CELL + 20, CELL + 60));
-            byte[] bytes = vault == null ? null : vault.fileBytes(file.versionId, file.which);
+            // A sound or text is not read for its card (a large WAV read for every card ran out of memory); a MIDI is, for its length.
+            byte[] bytes = vault == null || MediaDir.noThumb(name) && !MediaDir.isMidi(name) ? null : vault.fileBytes(file.versionId, file.which);
             lastSize = "";
+            MidiInfo midi = MediaDir.isMidi(name) ? MidiInfo.of(bytes) : null;
+            lastMidi = midi == null ? "" : midi.line();
             ImageIcon thumb = bytes == null ? null : thumb(name, bytes);
             // A prompt file: small thumbnails of its prompt's reference and result files.
             if (thumb == null && vault != null && file.which == PromptVault.PROMPT_FILE) thumb = slotStrip(vault, vault.versionOf(file), CELL / 3);
@@ -523,7 +526,33 @@ final class PromptDb {
                     }
                 });
             }
-            if (play && fits(name, SOUNDS_OR_MIDIS)) {
+            if ("gallery:".equals(tag) && fits(name, SOUNDS_OR_MIDIS)) {
+                // The gallery's sound or MIDI: ▶ ❚❚ ■ and, while it plays, mm:ss / mm:ss.
+                JPanel cell = new JPanel(new BorderLayout(0, 2));
+                cell.add(card, BorderLayout.CENTER);
+                JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 0));
+                final JLabel time = new JLabel(" ");
+                time.setName("gallery-time:" + name);
+                JButton go = new JButton("\u25b6");
+                go.setName("gallery-play:" + name);
+                go.addActionListener(e -> this.resume(file, card, time));
+                JButton hold = new JButton("\u275a\u275a");
+                hold.setName("gallery-pause:" + name);
+                hold.addActionListener(e -> {
+                    if (this.playingCard == card) this.pause();
+                });
+                JButton halt = new JButton("\u25a0");
+                halt.setName("gallery-stop:" + name);
+                halt.addActionListener(e -> {
+                    if (this.playingCard == card) this.stop();
+                });
+                controls.add(go);
+                controls.add(hold);
+                controls.add(halt);
+                controls.add(time);
+                cell.add(controls, BorderLayout.SOUTH);
+                grid.add(cell);
+            } else if (play && fits(name, SOUNDS_OR_MIDIS)) {
                 JPanel cell = new JPanel(new BorderLayout(0, 2));
                 cell.add(card, BorderLayout.CENTER);
                 JButton listen = new JButton(PLAY);
@@ -566,6 +595,12 @@ final class PromptDb {
         } catch (Exception ex) {
             // no library: no line
         }
+        // A MIDI's length, bars, beats and whether it is a drum MIDI.
+        if (lastMidi != null && lastMidi.length() > 0) sub = sub + "<br>" + lastMidi;
+        // Its groups (a file can be in several), and In separate storage for a large import.
+        FileGroups.load(dir());
+        String groups = FileGroups.cardLine(file);
+        if (groups.length() > 0) sub = sub + "<br><span style='color:#D9A441'>" + groups.replace("&", "&amp;").replace("<", "&lt;") + "</span>";
         // When it was kept: the newest come first.
         if (file.when().length() > 0) sub = sub + "<br><span style='color:#D9A441'>" + file.when() + "</span>";
         return "<html><center>" + (mark == null ? "" : "<div style='font-size:18px;color:#8A8B86;padding:30px'>" + mark + "</div>")
@@ -576,6 +611,42 @@ final class PromptDb {
     static String mark(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
         return dot >= 0 ? name.substring(dot + 1).toUpperCase() : "FILE";
+    }
+
+    /** The MIDI line of the card made last (MidiInfo.line), "" for any other file. */
+    static String lastMidi = "";
+
+    /** The time line of the card playing (mm:ss / mm:ss), its ticker, and whether ❚❚ holds it. */
+    private JLabel playingTime;
+    private javax.swing.Timer timeTick;
+    private boolean clipPaused;
+
+    /** ▶: the card's sound from the start, or on from where ❚❚ left it. */
+    void resume(PromptVault.StoredFile file, JButton card, JLabel time) {
+        if (this.playingCard == card && this.clip != null) {
+            if (this.clipPaused) {
+                this.clipPaused = false;
+                this.clip.start();
+            }
+            return;
+        }
+        this.preview(file, card);
+        if (this.playingCard != card || this.clip == null) return;
+        this.playingTime = time;
+        final javax.sound.sampled.Clip c = this.clip;
+        this.timeTick = new javax.swing.Timer(500, e -> {
+            if (this.clip != c || this.playingTime == null) return;
+            this.playingTime.setText(Playlist.time(c.getMicrosecondPosition() / 1000, c.getMicrosecondLength() / 1000));
+        });
+        this.timeTick.setInitialDelay(0);
+        this.timeTick.start();
+    }
+
+    /** ❚❚: the sound held where it is. */
+    void pause() {
+        if (this.clip == null || this.clipPaused) return;
+        this.clipPaused = true;
+        this.clip.stop();
     }
 
     /** The size thumb() read last: "1920×1080 · 16:9" for a picture, "16:9" for a video's preview; "" when not known. */
@@ -1080,7 +1151,8 @@ final class PromptDb {
             c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
             c.addLineListener(ev -> {
                 if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) SwingUtilities.invokeLater(() -> {
-                    if (this.clip == c) this.stop();
+                    // ❚❚ stops the line too: the sound is kept for ▶.
+                    if (this.clip == c && !this.clipPaused) this.stop();
                 });
             });
             this.clip = c;
@@ -1103,6 +1175,11 @@ final class PromptDb {
     void stop() {
         javax.sound.sampled.Clip c = this.clip;
         this.clip = null;
+        this.clipPaused = false;
+        if (this.timeTick != null) this.timeTick.stop();
+        this.timeTick = null;
+        if (this.playingTime != null) this.playingTime.setText(" ");
+        this.playingTime = null;
         if (c != null) {
             try {
                 c.stop();
@@ -1147,7 +1224,8 @@ final class PromptDb {
                 app.setNow("Could not read " + file.name);
             }
         });
-        JMenuItem save = new JMenuItem("Save as…");
+        // Export to disk: a copy to work on with another program.
+        JMenuItem save = new JMenuItem(MediaDir.EXPORT);
         save.addActionListener(e -> this.saveAs(file));
         JMenuItem rename = new JMenuItem("Rename");
         rename.addActionListener(e -> {
@@ -1273,7 +1351,7 @@ final class PromptDb {
         menu.add(delete);
         this.lastFileMenu = menu;
         MenuCancel.add(menu);
-        menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
+        if (card.isShowing()) menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
     }
 
     /** A stored file's bytes; none when the library cannot be read. */
@@ -1329,6 +1407,18 @@ final class PromptDb {
             Files.write(in.toPath(), bytes);
             if (MediaDir.PLAY_SF.equals(item)) {
                 MediaBrowser.playDefault(app, in, file.name);
+                return;
+            }
+            if (MediaDir.TO_FILE_SET.equals(item)) {
+                MediaBrowser.toFileSet(app, in, file.name);
+                return;
+            }
+            if (MediaDir.TO_WAV.equals(item)) {
+                // The WAV a new file of the same gallery.
+                AudioIo.Pcm pcm = Mp3Decode.parse(bytes);
+                String made = PromptVault.fileTitle(file.name).replaceAll("(?i)\\.mp3$", "") + ".wav";
+                vault().addLibraryFile(made, AudioIo.encodeWav(AudioIo.floatsToShorts(pcm.samples), pcm.sr), "Converted", file.which == 3 ? 3 : 1);
+                app.setNow(made + " in " + (file.which == 3 ? "Result files" : "Ref files"));
                 return;
             }
             if (MediaDir.TO_COMPOSER.equals(item)) {
@@ -1612,6 +1702,63 @@ final class PromptDb {
         this.vlcPreview(name, video, false, false);
     }
 
+    /** The video paused, and its menu: Save frame (the Prompts page's: into the library), Extract frame, Capture frame and process, the video's own items. */
+    void frameMenu(String name, File video, VlcPlayer player, boolean prompts, int x, int y) {
+        if (player.playing()) player.pause();
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        if (prompts) {
+            javax.swing.JMenuItem keep = new javax.swing.JMenuItem("Save frame");
+            keep.setName("video-save-frame");
+            keep.addActionListener(ev -> this.saveFrame(name, player));
+            m.add(keep);
+        }
+        javax.swing.JMenuItem extract = new javax.swing.JMenuItem("Extract frame");
+        extract.setName("video-extract-frame");
+        extract.addActionListener(ev -> PromptDb.this.captureFrame(name, video, player));
+        m.add(extract);
+        // The frame captured, then into a program as its Reference file (as Picture ready's Process as a reference).
+        javax.swing.JMenuItem process = new javax.swing.JMenuItem("Capture frame and process as a reference");
+        process.setName("video-process-frame");
+        process.addActionListener(ev -> {
+            PromptDb.this.lastCapture = null;
+            PromptDb.this.captureFrame(name, video, player);
+            final File shot = PromptDb.this.lastCapture;
+            if (shot == null) return;
+            java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
+            if (w != null) w.dispose();
+            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+        });
+        m.add(process);
+        // The video among the favourites, or in a group.
+        for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem && !MenuCancel.is(c)) m.add((JMenuItem) c);
+        PromptDb.this.lastFrameMenu = m;
+        MenuCancel.add(m);
+        if (player.screen.isShowing()) m.show(player.screen, x, y);
+    }
+
+    /** Save frame: the frame shown kept in the library as a reference file (<video>-1m02s345.png; a linked video's too). */
+    void saveFrame(String name, VlcPlayer player) {
+        java.awt.image.BufferedImage img = player.screen.frame;
+        if (img == null) {
+            app.setNow("No frame to save yet");
+            return;
+        }
+        try {
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(img, "png", png);
+            String file = MediaDir.frameName(name, player.timeMs());
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+            vault().addReferenceImage(file, png.toByteArray(), stem, 1);
+            lastSavedFrame = file;
+            app.setNow("Saved " + file + " in Ref files");
+        } catch (Exception ex) {
+            app.setNow("Could not save the frame: " + ex.getMessage());
+        }
+    }
+
+    /** The frame Save frame kept last (for the tests). */
+    String lastSavedFrame;
+
     /** The right click's menu shown last (Extract frame), for the tests. */
     javax.swing.JPopupMenu lastFrameMenu;
 
@@ -1822,37 +1969,23 @@ final class PromptDb {
         sound.add(volume);
         sound.add(level);
         transport.add(looping);
-        // Right click (the phone's long press): paused, then Extract frame (into the SC folder beside the video).
+        // Right click (the phone's long press): paused, then Save frame (into the library; the Prompts page's player),
+        // Extract frame (into the SC folder beside the video) and the rest.
         player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
                 if (!SwingUtilities.isRightMouseButton(e)) return;
-                if (player.playing()) player.pause();
-                javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
-                javax.swing.JMenuItem extract = new javax.swing.JMenuItem("Extract frame");
-                extract.setName("video-extract-frame");
-                extract.addActionListener(ev -> PromptDb.this.captureFrame(name, video, player));
-                m.add(extract);
-                // The frame captured, then into a program as its Reference file (as Picture ready's Process as a reference).
-                javax.swing.JMenuItem process = new javax.swing.JMenuItem("Capture frame and process as a reference");
-                process.setName("video-process-frame");
-                process.addActionListener(ev -> {
-                    PromptDb.this.lastCapture = null;
-                    PromptDb.this.captureFrame(name, video, player);
-                    final File shot = PromptDb.this.lastCapture;
-                    if (shot == null) return;
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
-                    if (w != null) w.dispose();
-                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
-                });
-                m.add(process);
-                // The video among the favourites, or in a group.
-                for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem && !MenuCancel.is(c)) m.add((JMenuItem) c);
-                PromptDb.this.lastFrameMenu = m;
-                MenuCancel.add(m);
-                m.show(player.screen, e.getX(), e.getY());
+                PromptDb.this.frameMenu(name, video, player, prompts, e.getX(), e.getY());
             }
         });
+        if (prompts) {
+            // The Prompts page's video: a click plays or pauses; held, it pauses with the menu (as a long press on the phone).
+            player.screen.clicked = () -> {
+                if (player.playing()) player.pause();
+                else player.play();
+            };
+            player.screen.held = () -> this.frameMenu(name, video, player, true, player.screen.getWidth() / 2, player.screen.getHeight() / 2);
+        }
         if (remember) {
             sound.setVisible(false);
             // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
@@ -2213,7 +2346,15 @@ final class PromptDb {
         }
         if (pcm == null || pcm.length == 0) {
             if (midi) {
-                app.setNow(name + " has no drums for the kit to play");
+                // No drums for the kit: Java's own instruments play it.
+                try {
+                    File tmp = File.createTempFile("pulsekit-midi", ".mid");
+                    tmp.deleteOnExit();
+                    Files.write(tmp.toPath(), bytes);
+                    MediaBrowser.playDefault(app, tmp, name);
+                } catch (Exception ex) {
+                    app.setNow(name + " could not be played");
+                }
                 return;
             }
             PromptVault.StoredFile f = new PromptVault.StoredFile();
@@ -2226,39 +2367,105 @@ final class PromptDb {
             raw[2 * i] = (byte) pcm[i];
             raw[2 * i + 1] = (byte) (pcm[i] >> 8);
         }
-        int seconds = Math.round(pcm.length / (float) sr);
-        String length = (seconds / 60) + ":" + String.format(java.util.Locale.US, "%02d", seconds % 60);
-        String note = midi ? "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any)." : "Sound";
-        javax.sound.sampled.Clip c = null;
+        String note = midi ? "MIDI drums, played with Pulsekit's kit sounds (your imported SoundFont, if any)" : (bytes.length / 1024) + " KB";
+        this.soundPlayer(name, note, raw, sr);
+    }
+
+    /** The sound player shown last, for the tests. */
+    JDialog lastSoundPlayer;
+
+    /** A sound in a small player: Play, Pause, Stop, mm:ss / mm:ss, volume and Mute (the Media browser's volume, kept). */
+    void soundPlayer(String name, String note, byte[] raw, float sr) {
+        final javax.sound.sampled.Clip c;
         try {
-            while (true) {
-                boolean playing = c != null && c.isRunning();
-                Object[] options = new Object[] {playing ? "Stop" : "Play", "Close"};
-                int ans = JOptionPane.showOptionDialog(app, name + " (" + length + ")\n\n" + note, "Preview",
-                    JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-                if (ans != 0) break;
-                if (playing) {
-                    c.stop();
-                    continue;
-                }
-                try {
-                    if (c == null) {
-                        c = javax.sound.sampled.AudioSystem.getClip();
-                        c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
-                    }
-                    c.setFramePosition(0);
-                    c.start();
-                } catch (Exception ex) {
-                    app.setNow("No audio output for " + name);
-                    break;
-                }
+            c = javax.sound.sampled.AudioSystem.getClip();
+            c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
+        } catch (Exception ex) {
+            app.setNow("No audio output for " + name);
+            return;
+        }
+        final JDialog d = new JDialog(app, "Preview \u00b7 " + name, true);
+        JPanel col = new JPanel(new java.awt.GridLayout(0, 1, 0, 6));
+        col.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        col.add(new JLabel(name + " \u00b7 " + note));
+        final JLabel time = new JLabel(Playlist.time(0, c.getMicrosecondLength() / 1000));
+        time.setName("sound-time");
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton play = new JButton("Play");
+        play.setName("sound-play");
+        JButton pause = new JButton("Pause");
+        pause.setName("sound-pause");
+        JButton stop = new JButton("Stop");
+        stop.setName("sound-stop");
+        final JButton mute = new JButton("Mute");
+        mute.setName("sound-mute");
+        final javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, MediaDir.volume);
+        volume.setName("sound-volume");
+        final JLabel level = new JLabel(MediaDir.volume + "%");
+        final boolean[] muted = new boolean[1];
+        final Runnable applyVolume = () -> {
+            int v = muted[0] ? 0 : volume.getValue();
+            level.setText(muted[0] ? "muted" : v + "%");
+            try {
+                javax.sound.sampled.FloatControl gain = (javax.sound.sampled.FloatControl) c.getControl(javax.sound.sampled.FloatControl.Type.MASTER_GAIN);
+                float db = v <= 0 ? gain.getMinimum() : (float) (20 * Math.log10(v / 100.0));
+                gain.setValue(Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), db)));
+            } catch (Exception ex) {
+                // no volume control on this output
             }
-        } finally {
-            if (c != null) {
+        };
+        applyVolume.run();
+        volume.addChangeListener(e -> {
+            MediaDir.volume = volume.getValue();
+            applyVolume.run();
+        });
+        mute.addActionListener(e -> {
+            muted[0] = !muted[0];
+            mute.setText(muted[0] ? "Unmute" : "Mute");
+            applyVolume.run();
+        });
+        play.addActionListener(e -> {
+            if (c.getFramePosition() >= c.getFrameLength()) c.setFramePosition(0);
+            c.start();
+        });
+        pause.addActionListener(e -> c.stop());
+        stop.addActionListener(e -> {
+            c.stop();
+            c.setFramePosition(0);
+        });
+        buttons.add(play);
+        buttons.add(pause);
+        buttons.add(stop);
+        buttons.add(time);
+        col.add(buttons);
+        JPanel vol = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        vol.add(new JLabel("Volume"));
+        vol.add(volume);
+        vol.add(level);
+        vol.add(mute);
+        col.add(vol);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> d.dispose());
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        south.add(close);
+        d.getContentPane().add(col, BorderLayout.CENTER);
+        d.getContentPane().add(south, BorderLayout.SOUTH);
+        final javax.swing.Timer tick = new javax.swing.Timer(250, e -> time.setText(Playlist.time(c.getMicrosecondPosition() / 1000, c.getMicrosecondLength() / 1000)));
+        tick.start();
+        d.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                tick.stop();
                 c.stop();
                 c.close();
+                MediaBrowser.saveLoop();
             }
-        }
+        });
+        d.pack();
+        d.setLocationRelativeTo(app);
+        lastSoundPlayer = d;
+        c.start();
+        d.setVisible(true);
     }
 
     // ------------------------------------------------------------ File > Import as Ref file / Result file
@@ -2270,11 +2477,25 @@ final class PromptDb {
         this.importPicked(chooser.getSelectedFile(), result);
     }
 
-    /** Asks to add the file (OK / Cancel), then stores it on its own, not with a prompt. */
+    /** Asks to add the file (OK / Cancel), then stores it on its own, not with a prompt; one of 20 MB or more into separate storage, after asking. */
     void importPicked(File file, boolean result) {
         String name = file.getName();
-        if (file.length() > MAX_BYTES) {
-            app.setNow(name + " is over the library's 128 MB");
+        String kind = result ? "result file" : "reference file";
+        String title = result ? "Import as Result file" : "Import as Ref file";
+        if (file.length() >= PromptVault.LINK_MIN) {
+            int ans = JOptionPane.showOptionDialog(app, DbFilter.linkQuestion(name, file.length()), title, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+                new Object[] {"Import", "Cancel"}, "Import");
+            if (ans != 0) {
+                app.setNow("Not imported: " + name);
+                return;
+            }
+            try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+                vault().addLinkedFile(name, in, "Imported", result ? 3 : 1);
+            } catch (Exception ex) {
+                app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+                return;
+            }
+            this.imported(name, file.length(), result, true);
             return;
         }
         byte[] bytes;
@@ -2284,19 +2505,36 @@ final class PromptDb {
             app.setNow("Could not read " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
             return;
         }
-        String kind = result ? "result file" : "reference file";
         int ans = JOptionPane.showOptionDialog(app, "Add " + name + " (" + Math.max(1, bytes.length / 1024) + " KB) to the prompt library as a " + kind + "?\n\n"
             + (result ? "It shows in Result files on the Prompts page." : "It shows in Ref files on the Prompts page and in Browse DB."),
-            result ? "Import as Result file" : "Import as Ref file", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+            title, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
             new Object[] {"OK", "Cancel"}, "OK");
         if (ans != 0) return;
         try {
             vault().addLibraryFile(name, bytes, "Imported", result ? 3 : 1);
-            app.setNow("Imported " + name + " as a " + kind);
-            // Then which group it goes in (No group: none).
-            GroupMenus.afterAdd(app, name, bytes.length);
         } catch (Exception ex) {
             app.setNow("Could not import " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return;
         }
+        this.imported(name, bytes.length, result, false);
+    }
+
+    /** The gallery an import opened last, for the tests (0 Ref files, 1 Result files; -1 none). */
+    static int lastImportGallery = -1;
+
+    /**
+     * Imported: said, which group it goes in (No group: none), then Ref files (or Result files)
+     * opened on it (S for a sound or MIDI file).
+     */
+    void imported(String name, long size, boolean result, boolean linked) {
+        app.setNow("Imported " + name + " as a " + (result ? "result file" : "reference file") + (linked ? " (in separate storage)" : ""));
+        GroupMenus.afterAdd(app, name, size);
+        String letter = DbFilter.afterImport(name);
+        if (letter != null) galleryFilter = letter;
+        lastImportGallery = result ? 1 : 0;
+        String said = app.nowPlaying.getText();
+        app.showView("prompts");
+        app.setNow(said);
+        SwingUtilities.invokeLater(() -> this.gallery(result));
     }
 }

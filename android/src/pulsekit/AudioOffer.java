@@ -23,10 +23,37 @@ final class AudioOffer {
         if (data == null) return false;
         final String path = useAsInput(app, name, data);
         if (path == null) return false;
+        // What it is, then its items: favourites, group, tags, category, playlist, Convert into WAV.
+        final String shownName = name;
+        final long size = data.length;
+        android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+        col.setOrientation(android.widget.LinearLayout.VERTICAL);
+        col.setPadding(app.dp(20), app.dp(8), app.dp(20), 0);
+        android.widget.TextView said = app.text(name + " (" + (data.length / 1024) + " KB) is in Downloads and is now PyJav's input.\n\n"
+            + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", 14, false);
+        col.addView(said);
+        final String[] items = {PictureOffer.isFavourite(app, name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+            MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, TO_WAV};
+        for (int i = 0; i < items.length; i++) {
+            final int which = i;
+            android.widget.TextView item = app.pill(items[i], false, v -> {
+                if (which == 0) PictureOffer.toggleFavourite(app, shownName, size);
+                else if (which == 1) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, ReadyRecent.SOUND);
+                else if (which == 2) TagDialogs.tags(app, shownName, size, null, ReadyRecent.SOUND);
+                else if (which == 3) TagDialogs.category(app, shownName, size, null, ReadyRecent.SOUND);
+                else if (which == 4) PlaylistScreen.addReady(app, shownName, null, new java.io.File(path));
+                else convert(app, new java.io.File(path));
+            });
+            item.setTag("audio-item:" + items[i]);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, -2);
+            lp.topMargin = app.dp(6);
+            col.addView(item, lp);
+        }
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(col);
         final AlertDialog dialog = new AlertDialog.Builder(app)
-            .setTitle("Audio ready")
-            .setMessage(name + " (" + (data.length / 1024) + " KB) is in Downloads and is now PyJav's input.\n\n"
-                + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.")
+            .setTitle(name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : "Audio ready")
+            .setView(scroll)
             .setNeutralButton("Play", null)
             .setPositiveButton("Make drum MIDI", new DialogInterface.OnClickListener() {
                 @Override
@@ -71,6 +98,7 @@ final class AudioOffer {
             }
         });
         dialog.show();
+        last = dialog;
         return true;
     }
 
@@ -100,6 +128,33 @@ final class AudioOffer {
     static void makeDrumMidi(final MainActivity app, final boolean run) {
         app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
         if (run) app.pyJav.pkRunPyJav();
+    }
+
+    static final String TO_WAV = "Convert into WAV";
+
+    /** The offer shown last (for the tests). */
+    static AlertDialog last;
+
+    /** Convert into WAV: the MP3 decoded to a WAV, kept in Downloads beside it. */
+    static void convert(final MainActivity app, java.io.File audio) {
+        if (!audio.getName().toLowerCase().endsWith(".mp3")) {
+            app.setNow(audio.getName() + " is a WAV already");
+            return;
+        }
+        app.setNow("Converting " + audio.getName() + " into WAV\u2026");
+        toWav(app, audio, (wav, error) -> {
+            if (wav == null) {
+                app.setNow("Could not convert " + audio.getName() + (error == null ? "" : ": " + error));
+                return;
+            }
+            String where;
+            try {
+                where = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()));
+            } catch (Exception ex) {
+                where = null;
+            }
+            app.setNow(where == null ? "Made " + wav.getName() + " (not in Downloads)" : "Saved " + where);
+        });
     }
 
     interface Done {
