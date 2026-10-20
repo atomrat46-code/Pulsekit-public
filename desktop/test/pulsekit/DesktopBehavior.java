@@ -6666,6 +6666,12 @@ public final class DesktopBehavior {
     if (!typesOk || !rest) throw new AssertionError(out.toString());
   }
 
+  /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
+  private static boolean jdk8PushedQueue(Throwable t) {
+    StackTraceElement[] st = t.getStackTrace();
+    return t instanceof NullPointerException && st.length > 0 && "java.awt.EventQueue".equals(st[0].getClassName()) && "getCurrentEventImpl".equals(st[0].getMethodName());
+  }
+
   /** A stream read whole (InputStream.readAllBytes is newer than Java 8, which the suite also runs on). */
   private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -7765,7 +7771,10 @@ public final class DesktopBehavior {
   // ------------------------------------------------------------ app driving
 
   private void start() throws Exception {
-    Thread.setDefaultUncaughtExceptionHandler((th, e) -> errors.add(e));
+    Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+      errors.add(e);
+      e.printStackTrace();
+    });
     Thread watcher = new Thread(this::watchDialogs, "dialog-watcher");
     watcher.setDaemon(true);
     watcher.start();
@@ -7783,7 +7792,11 @@ public final class DesktopBehavior {
         try {
           super.dispatchEvent(e);
         } catch (Throwable t) {
+          // Java 8's own EventQueue fails this way on a focus change while a queue is pushed (this
+          // one, the tests' own): not Pulsekit's, so not counted.
+          if (jdk8PushedQueue(t)) return;
           errors.add(t);
+          t.printStackTrace();
         }
       }
     });
