@@ -9148,6 +9148,201 @@ public class BehaviorTest {
     if (!runningOk || !allOk || !recentOk || !groupOk || !firstLastOk || !saveOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A large import goes into separate storage (after asking), never read whole: its card says In
+   * separate storage, and its groups. Long-pressing a sound card works with tags on it (its bytes
+   * are not read for the menu). A MIDI card shows its length, bars, beats and whether it is a drum
+   * MIDI, has ▶ ❚❚ ■, and its menu Add into file set. Category… adds categories and subcategories
+   * (a held category too), and Add into new category puts the file in a new one.
+   */
+  @Test
+  public void s158_linked_import_cards_categories() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaTags.reset();
+    FileGroups.reset();
+    File dir = app.getFilesDir();
+    // Separate storage: streamed as it is, linked.
+    byte[] big = new byte[3 * 1024 * 1024];
+    for (int i = 0; i < big.length; i++) big[i] = (byte) (i * 31);
+    PromptVault vault = PromptVault.open(dir);
+    long id = vault.addLinkedFile("Passing Ships.wav", new java.io.ByteArrayInputStream(big), "Imported", 1);
+    File linked = vault.linkedFile(id, 1);
+    PromptVault.StoredFile ships = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("Passing Ships.wav".equals(f.name)) ships = f;
+    boolean sameBytes = java.util.Arrays.equals(big, vault.fileBytes(id, 1));
+    out.append("linked: ").append(linked != null && linked.getName().startsWith("prompts-linked-")).append(", size ").append(ships == null ? -1 : ships.size)
+        .append(", marked ").append(ships != null && ships.linked).append(", bytes the same ").append(sameBytes).append('\n');
+    out.append("question: ").append(DbFilter.linkQuestion("Passing Ships.wav", 40L * 1024 * 1024).split("\\.")[0]).append('\n');
+    boolean linkOk = linked != null && ships != null && ships.linked && ships.size == big.length && sameBytes;
+    FileGroups.load(dir);
+    FileGroups.toggle("Trip", FileGroups.keys(ships));
+    FileGroups.toggle("Songs", FileGroups.keys(ships));
+    // An MP3 with tags, and a drum MIDI.
+    byte[] mp3 = new byte[4000];
+    mp3[0] = 'I'; mp3[1] = 'D'; mp3[2] = '3'; mp3[3] = 3;
+    DbImport.store(app, "song.mp3", mp3, false);
+    MediaTags.load(dir);
+    MediaTags.setTags(MediaTags.key("song.mp3", 4000), java.util.Arrays.asList("mp3", "VST"));
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    for (int i = 2; i < 16; i += 4) cells[2][i] = 90;
+    byte[] groove = Engine.encodeMidi(cells, 100);
+    DbImport.store(app, "groove.mid", groove, false);
+    // After an import: Ref files open, on S.
+    DbImport.imported(app, "groove.mid", groove.length, false, false);
+    idle();
+    GroupDialogs.last.dismiss();
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    java.lang.reflect.Method rebuild = PromptSheet.class.getDeclaredMethod("rebuild", android.app.Activity.class);
+    rebuild.setAccessible(true);
+    rebuild.invoke(null, app);
+    for (int i = 0; i < 40; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    java.lang.reflect.Field filter = PromptSheet.class.getDeclaredField("galleryFilter");
+    filter.setAccessible(true);
+    out.append("after the import: Ref files open ").append(findText(pane, "groove.mid") != null).append(", letter ").append(filter.get(null)).append(", now ").append(((TextView) get("now")).getText()).append('\n');
+    boolean importOk = findText(pane, "groove.mid") != null && "S".equals(filter.get(null));
+    TextView groups = (TextView) pane.findViewWithTag("refs-groups:Passing Ships.wav");
+    TextView midiLine = (TextView) pane.findViewWithTag("refs-midi:groove.mid");
+    boolean controls = pane.findViewWithTag("refs-play:groove.mid") != null && pane.findViewWithTag("refs-pause:groove.mid") != null && pane.findViewWithTag("refs-stop:groove.mid") != null
+        && pane.findViewWithTag("refs-time:song.mp3") != null;
+    out.append("cards: ").append(groups == null ? "no groups line" : groups.getText()).append(" | ").append(midiLine == null ? "no MIDI line" : midiLine.getText())
+        .append(" | ▶ ❚❚ ■ ").append(controls).append('\n');
+    boolean cardsOk = groups != null && groups.getText().toString().equals("Groups: Trip, Songs \u00b7 In separate storage")
+        && midiLine != null && midiLine.getText().toString().matches("00:0\\d \u00b7 1 bar \u00b7 4 beats \u00b7 100 BPM 4/4 \u00b7 drum MIDI") && controls;
+    // The tagged MP3's long press, then the MIDI's.
+    ((View) findText(pane, "song.mp3").getParent()).performLongClick();
+    idle();
+    String soundMenu = listItems(PromptSheet.lastFileMenu);
+    PromptSheet.lastFileMenu.dismiss();
+    ((View) findText(pane, "groove.mid").getParent()).performLongClick();
+    idle();
+    java.util.List<String> rows = java.util.Arrays.asList(listItems(PromptSheet.lastFileMenu).split(" \\| "));
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(rows.indexOf(MediaDir.TO_FILE_SET));
+    idle();
+    String sets = MediaBrowser.lastFileSets == null ? "none" : org.robolectric.Shadows.shadowOf(MediaBrowser.lastFileSets).getMessage() == null ? listItems(MediaBrowser.lastFileSets)
+        : org.robolectric.Shadows.shadowOf(MediaBrowser.lastFileSets).getMessage().toString();
+    if (MediaBrowser.lastFileSets != null) MediaBrowser.lastFileSets.dismiss();
+    out.append("MP3 menu (tags mp3, VST): ").append(soundMenu.split(" \\| ").length).append(" items | MIDI menu: ").append(rows.contains(MediaDir.TO_FILE_SET)).append(" -> ").append(sets).append('\n');
+    boolean menusOk = soundMenu.contains(MediaTags.TAGS) && rows.contains(MediaDir.TO_FILE_SET) && sets.startsWith("No file sets yet");
+    // Category…: the Add rows; a new category; a held one gets a subcategory; Add into new category.
+    TagDialogs.category(app, "song.mp3", 4000, null);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String catRows = listItems(MediaBrowser.lastAsk);
+    java.util.List<String> cats = java.util.Arrays.asList(catRows.split(" \\| "));
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(cats.indexOf(MediaTags.NEW_CATEGORY));
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Beats");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.List<String> again = java.util.Arrays.asList(listItems(MediaBrowser.lastAsk).split(" \\| "));
+    android.widget.ListView lv = MediaBrowser.lastAsk.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, again.indexOf("Beats"), 0);
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Drums");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.List<String> third = java.util.Arrays.asList(listItems(MediaBrowser.lastAsk).split(" \\| "));
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(third.indexOf(MediaTags.INTO_NEW));
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Songs");
+    MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Category…: ").append(catRows).append(" | after New category Beats and a held Beats: ").append(third.subList(0, third.size() - 3)).append(" | song.mp3 in ").append(MediaTags.category(MediaTags.key("song.mp3", 4000))).append('\n');
+    boolean catOk = cats.contains(MediaTags.NEW_CATEGORY) && cats.contains(MediaTags.NEW_SUBCATEGORY) && cats.contains(MediaTags.INTO_NEW)
+        && third.contains("Beats") && third.contains("Beats / Drums") && "Songs".equals(MediaTags.category(MediaTags.key("song.mp3", 4000)));
+    write("s158_linked_import_cards_categories", out.toString());
+    MediaTags.reset();
+    FileGroups.reset();
+    if (!linkOk || !importOk || !cardsOk || !menusOk || !catOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The playlist viewer with a song: "⟳ Loop this song", no speed or zoom, its picture (a drum
+   * MIDI's hits) with its place on it; the Viewer tab says media file. SogniMusic's MP3 ready:
+   * favourites, group, tags, category, playlist and Convert into WAV.
+   */
+  @Test
+  public void s159_viewer_music_mp3_ready() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    File media = new File(app.getCacheDir(), "music-view");
+    media.mkdirs();
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    File mid = new File(media, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeMidi(cells, 100));
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File pic = new File(media, "a.png");
+    Files.write(pic.toPath(), png.toByteArray());
+    Playlist.addTo(dir, "Mixed", pic.getAbsolutePath(), "a.png");
+    Playlist.addTo(dir, "Mixed", mid.getAbsolutePath(), "beat.mid");
+    Playlist.Settings set = Playlist.settings(dir);
+    set.auto(false);
+    Playlist.saveSettings(dir, set);
+    PlaylistScreen.soundPicture = false;
+    PlaylistScreen.viewer(app, Playlist.load(dir, "Mixed"), 0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    String pictureLoop = ((TextView) vw.findViewWithTag("viewer-loop")).getText().toString();
+    boolean pictureLook = vw.findViewWithTag("viewer-speed").isShown();
+    vw.findViewWithTag("viewer-next").performClick();
+    for (int i = 0; i < 40 && !PlaylistScreen.soundPicture; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String songLoop = ((TextView) vw.findViewWithTag("viewer-loop")).getText().toString();
+    boolean songLook = vw.findViewWithTag("viewer-speed").isShown() || vw.findViewWithTag("viewer-zoom-in").isShown();
+    boolean drawn = PlaylistScreen.soundPicture && vw.findViewWithTag("viewer-playhead").getVisibility() == View.VISIBLE;
+    PlaylistScreen.lastViewer.dismiss();
+    int[] px = SoundPicture.pixels("beat.mid", Files.readAllBytes(mid.toPath()), 64, 16);
+    out.append("viewer: picture ").append(pictureLoop).append(" (speed shown ").append(pictureLook).append(") | song ").append(songLoop).append(" (speed or zoom shown ").append(songLook)
+        .append(") | its picture drawn ").append(drawn).append(", pixels ").append(px != null).append('\n');
+    boolean viewerOk = pictureLoop.endsWith("file") && pictureLook && songLoop.equals("\u27f3 Loop this song") && !songLook && drawn && px != null;
+    PlaylistScreen.tab = 1;
+    PlaylistScreen.show(app, "Mixed");
+    idle();
+    View ew = PlaylistScreen.last.getWindow().getDecorView();
+    String caption = ((android.widget.CheckBox) ew.findViewWithTag("playlist-loop")).getText().toString() + " | " + ((android.widget.CheckBox) ew.findViewWithTag("playlist-autoplay")).getText();
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    out.append("Viewer tab: ").append(caption).append('\n');
+    boolean captionOk = caption.startsWith("Loop media file") && caption.contains("Autoplay media file");
+    // MP3 ready.
+    byte[] mp3 = new byte[3000];
+    mp3[0] = 'I'; mp3[1] = 'D'; mp3[2] = '3';
+    JavaRun.Result r = new JavaRun.Result("Succeeded: track.mp3\n", java.util.Arrays.asList(new JavaRun.FileOut("track.mp3", mp3)), 0);
+    AudioOffer.offer(app, "track.mp3", r);
+    idle();
+    String title = org.robolectric.Shadows.shadowOf(AudioOffer.last).getTitle().toString();
+    View aw = AudioOffer.last.getWindow().getDecorView();
+    StringBuilder items = new StringBuilder();
+    for (String it : new String[] {FileFavourites.ADD_SHORT, FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, AudioOffer.TO_WAV}) items.append(aw.findViewWithTag("audio-item:" + it) != null ? "" : it + " missing ");
+    aw.findViewWithTag("audio-item:" + MediaTags.ADD_TAG).performClick();
+    idle();
+    String tagsTitle = org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).getTitle().toString();
+    MediaBrowser.lastAsk.dismiss();
+    AudioOffer.last.dismiss();
+    out.append("MP3 ready: ").append(title).append(", items ").append(items.length() == 0 ? "all there" : items).append(", Add tag opens ").append(tagsTitle).append('\n');
+    boolean readyOk = "MP3 ready".equals(title) && items.length() == 0 && tagsTitle.equals("Tags for track.mp3") && ReadyRecent.SOUND.equals(ReadyRecent.kind("track.mp3"));
+    write("s159_viewer_music_mp3_ready", out.toString());
+    if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

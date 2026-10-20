@@ -920,6 +920,10 @@ final class MediaBrowser {
             toComposer(app, f, entry.name);
             return;
         }
+        if (MediaDir.TO_FILE_SET.equals(item)) {
+            toFileSet(app, f, entry.name);
+            return;
+        }
         final File root = this.shownRoot;
         final File dir = this.shown;
         if (this.last != null) this.last.dispose();
@@ -933,6 +937,28 @@ final class MediaBrowser {
     }
 
     /** Add to composer stack: the MIDI as a file set (no song asked about), its patterns and fills on the Composer's stack, the Composer shown. */
+    /** Add into file set: the MIDI kept as the source MIDI of the file set picked (From file set finds it there). */
+    static void toFileSet(Pulsekit app, File f, String name) {
+        byte[] midi;
+        try {
+            midi = java.nio.file.Files.readAllBytes(f.toPath());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+            return;
+        }
+        java.util.List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        if (sources.isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(app, "No file sets yet: import a pattern library, or run DrumMidi_CRT in PyJav (it makes one).", MediaDir.TO_FILE_SET, javax.swing.JOptionPane.PLAIN_MESSAGE);
+            return;
+        }
+        Object picked = javax.swing.JOptionPane.showInputDialog(app, "File set for " + name, MediaDir.TO_FILE_SET, javax.swing.JOptionPane.PLAIN_MESSAGE, null,
+            sources.toArray(new String[0]), sources.get(0));
+        if (picked == null) return;
+        Engine.rememberFileSetMidi(picked.toString(), midi, name);
+        app.fileSets.storeAudioDir();
+        app.setNow(name + " is the MIDI of the file set " + picked);
+    }
+
     static void toComposer(Pulsekit app, File f, String name) {
         try {
             Engine.MidiBars bars = Engine.parseMidiBars(java.nio.file.Files.readAllBytes(f.toPath()));

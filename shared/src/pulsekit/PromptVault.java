@@ -285,6 +285,8 @@ public final class PromptVault {
     public long created;
     /** How many prompts (and imported files) use this same file: it is listed once, kept once. */
     public int uses = 1;
+    /** Kept in separate storage (a large import, unencrypted beside the library, linked to it). */
+    public boolean linked;
     String key;
 
     /** When it was kept, "2026-10-18 14:05"; "" when not known (imported before dates were kept). */
@@ -558,6 +560,77 @@ public final class PromptVault {
     return file.id;
   }
 
+  /**
+   * A large file (LINK_MIN or more) imported into separate storage: copied as it is (not
+   * encrypted, never read whole into memory) beside the library as prompts-linked-<hash>.dat, and
+   * the library links to it. Listed, tagged and grouped as any reference or result file.
+   */
+  public synchronized long addLinkedFile(String name, java.io.InputStream in, String note, int which) throws Exception {
+    File dir = file.getParentFile();
+    File tmp = new File(dir, LINKED_PREFIX + System.nanoTime() + ".tmp");
+    java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+    long size = 0;
+    FileOutputStream out = new FileOutputStream(tmp);
+    try {
+      byte[] buf = new byte[256 * 1024];
+      for (int n; (n = in.read(buf)) > 0; ) {
+        out.write(buf, 0, n);
+        md.update(buf, 0, n);
+        size += n;
+        if (size > Integer.MAX_VALUE - 1024) throw new IllegalArgumentException("File is too large");
+      }
+    } catch (Exception ex) {
+      out.close();
+      tmp.delete();
+      throw ex;
+    } finally {
+      out.close();
+    }
+    if (size == 0) {
+      tmp.delete();
+      throw new IllegalArgumentException("That file is empty");
+    }
+    byte[] d = md.digest();
+    StringBuilder sb = new StringBuilder(LINKED_PREFIX);
+    for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i] & 0xff));
+    String blobName = sb.append(".dat").toString();
+    File kept = new File(dir, blobName);
+    if (kept.isFile()) tmp.delete();
+    else if (!tmp.renameTo(kept)) throw new IllegalStateException("Could not keep " + name);
+    String clean = fileTitle(name);
+    if (clean.length() == 0) clean = "file";
+    int kind = which == 3 ? 3 : 1;
+    String label = note == null ? "" : note.replace('\n', ' ').replace('\r', ' ').trim();
+    LibraryFile f = null;
+    for (int i = 0; i < library.size(); i++) {
+      LibraryFile have = library.get(i);
+      if (have.which == kind && have.name != null && have.name.equalsIgnoreCase(clean)) f = have;
+    }
+    if (f == null) {
+      f = new LibraryFile();
+      f.id = nextId++;
+      f.created = System.currentTimeMillis();
+      f.name = clean;
+      f.which = kind;
+      library.add(f);
+    }
+    f.bytes = new byte[0];
+    f.blob = blobName;
+    f.blobSize = (int) size;
+    f.note = label;
+    save();
+    return f.id;
+  }
+
+  /** A linked file's place on disk (separate storage); null for any other file. */
+  public synchronized File linkedFile(long id, int which) {
+    if (version(id) != null) return null;
+    LibraryFile f = libraryFile(id);
+    if (f == null || f.blob == null || !f.blob.startsWith(LINKED_PREFIX)) return null;
+    File at = new File(file.getParentFile(), f.blob);
+    return at.isFile() ? at : null;
+  }
+
   private void addLibrary(List<StoredFile> out, LibraryFile image) {
     if (image == null || image.size() == 0) return;
     String name = image.name == null || image.name.length() == 0 ? "frame.jpg" : image.name;
@@ -569,6 +642,7 @@ public final class PromptVault {
     row.promptTitle = title;
     row.size = image.size();
     row.created = image.created;
+    row.linked = image.blob != null && image.blob.startsWith(LINKED_PREFIX);
     out.add(row);
   }
 
@@ -1176,7 +1250,7 @@ public final class PromptVault {
     if (kids != null) {
       for (File k : kids) {
         String n = k.getName();
-        if (n.startsWith(blobPrefix()) && n.endsWith(".dat") && !blobsUsed.contains(n)) k.delete();
+        if ((n.startsWith(blobPrefix()) || n.startsWith(LINKED_PREFIX)) && n.endsWith(".dat") && !blobsUsed.contains(n)) k.delete();
       }
     }
   }
@@ -1376,9 +1450,15 @@ public final class PromptVault {
     int n = in.readInt();
     if (n == -1) {
       String name = readUtf(in);
-      if (!(name.startsWith(BLOB_PREFIX) || name.startsWith(PLAIN_BLOB_PREFIX)) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
+      if (!(name.startsWith(BLOB_PREFIX) || name.startsWith(PLAIN_BLOB_PREFIX) || name.startsWith(LINKED_PREFIX)) || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) throw new IllegalStateException("Prompt database is damaged");
       File blob = new File(file.getParentFile(), name);
       if (!blob.isFile()) return new byte[0];
+      if (name.startsWith(LINKED_PREFIX)) {
+        // Separate storage: the file as it is.
+        readBlob = name;
+        readSize = (int) Math.min(Integer.MAX_VALUE, blob.length());
+        return new byte[0];
+      }
       // The kept file is the magic, the 12-byte IV, the file and the 16-byte tag (unencrypted: the magic and the file).
       long size = blob.length() - FILE_MAGIC.length - (name.startsWith(PLAIN_BLOB_PREFIX) ? 0 : 12 + 16);
       if (size <= 0) return new byte[0];
@@ -1397,6 +1477,21 @@ public final class PromptVault {
     if (name.equals(lastBlob) && lastBlobBytes != null) return copy(lastBlobBytes);
     File blob = new File(file.getParentFile(), name);
     if (!blob.isFile()) return new byte[0];
+    if (name.startsWith(LINKED_PREFIX)) {
+      // Separate storage: read as it is, once (not kept: it is large).
+      try {
+        byte[] raw = new byte[(int) blob.length()];
+        DataInputStream fin = new DataInputStream(new FileInputStream(blob));
+        try {
+          fin.readFully(raw);
+        } finally {
+          fin.close();
+        }
+        return raw;
+      } catch (Exception ex) {
+        return new byte[0];
+      }
+    }
     boolean quiet = quietRead();
     if (!quiet) begin("Reading a file from the encrypted database");
     try {
@@ -1409,7 +1504,7 @@ public final class PromptVault {
       }
       byte[] bytes = unseal(raw);
       // Kept for the next ask only when small: a big video held twice ran the phone low on memory.
-      if (bytes.length <= 32 * 1024 * 1024) {
+      if (bytes.length <= 8 * 1024 * 1024) {
         lastBlob = name;
         lastBlobBytes = bytes;
         return copy(bytes);
@@ -1461,6 +1556,10 @@ public final class PromptVault {
    */
   static final String PLAIN_NAME = "prompts-plain.vault";
   static final String PLAIN_BLOB_PREFIX = "prompts-plainblob-";
+  /** Separate storage: large imports kept as they are, linked to the library (addLinkedFile). */
+  static final String LINKED_PREFIX = "prompts-linked-";
+  /** Imports this large or larger go into separate storage (after asking). */
+  public static final long LINK_MIN = 20L * 1024 * 1024;
   private static final byte[] PLAIN_MAGIC = new byte[] {'P', 'K', 'V', '0'};
   private final boolean plain;
 
@@ -1562,7 +1661,8 @@ public final class PromptVault {
           n.which = f.which;
           n.bytes = copy(f.bytes);
           if (f.blob != null) {
-            n.blob = to.keepBlob(from.storedBlob(f.blob));
+            // A linked file stays where it is (both libraries link to it).
+            n.blob = f.blob.startsWith(LINKED_PREFIX) ? f.blob : to.keepBlob(from.storedBlob(f.blob));
             n.blobSize = f.blobSize;
           }
           to.library.add(n);
@@ -1596,7 +1696,7 @@ public final class PromptVault {
     if (kids == null) return 0;
     for (File k : kids) {
       String n = k.getName();
-      if (n.equals(at.getName()) || (n.startsWith(prefix) && n.endsWith(".dat"))) total += k.length();
+      if (n.equals(at.getName()) || ((n.startsWith(prefix) || n.startsWith(LINKED_PREFIX)) && n.endsWith(".dat"))) total += k.length();
     }
     return total;
   }

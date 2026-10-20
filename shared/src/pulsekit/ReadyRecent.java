@@ -21,6 +21,8 @@ public final class ReadyRecent {
 
   public static final String IMAGE = "image";
   public static final String VIDEO = "video";
+  /** MP3 ready's (SogniMusic's track): its own last tags, category and group. */
+  public static final String SOUND = "sound";
   static final String FILE = "ready-recent.txt";
 
   /** Add tag…'s first row: every tag ticked, or (when they all are) none. */
@@ -62,6 +64,7 @@ public final class ReadyRecent {
   /** VIDEO for a video's name, else IMAGE. */
   public static String kind(String name) {
     String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
+    if (n.matches(".+\\.(mp3|wav|wave|flac|m4a|ogg|mid|midi)")) return SOUND;
     return n.matches(".+\\.(mp4|m4v|webm|mkv|3gp|mov)") ? VIDEO : IMAGE;
   }
 

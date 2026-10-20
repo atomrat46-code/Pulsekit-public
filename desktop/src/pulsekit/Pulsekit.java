@@ -254,6 +254,11 @@ public final class Pulsekit extends UiKit {
         this.getContentPane().setBackground(BG);
     }
 
+    // The playlist viewer draws an MP3's waveform with the computer's decoder.
+    static {
+        SoundPicture.mp3 = Mp3Decode::parse;
+    }
+
     public static void main(String[] stringArray) {
         SwingUtilities.invokeLater(() -> {
             try {

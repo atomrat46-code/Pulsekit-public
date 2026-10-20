@@ -553,6 +553,15 @@ public final class Playlist {
     return clock(at) + " / " + (length > 0 ? clock(length) : "--:--");
   }
 
+  /** The viewer's Loop pill for the file shown: "⟳ Loop this video", "⟳ Loop this song", "⟳ Loop this file". */
+  public static String loopLabel(int kind) {
+    return "\u27f3 Loop this " + (kind == MediaDir.VIDEO ? "video" : kind == MediaDir.SOUND ? "song" : "file");
+  }
+
+  /** The Viewer tab's switches, for videos and sounds alike. */
+  public static final String LOOP_CAPTION = "Loop media file: the media file plays again and again until an arrow is pressed (Auto mode off)";
+  public static final String AUTOPLAY_CAPTION = "Autoplay media file (else a long press, or Play, starts it)";
+
   /** "1.25×". */
   public static String speedText(float speed) {
     String s = speed == (int) speed ? String.valueOf((int) speed) : String.valueOf(speed);

@@ -229,6 +229,39 @@ public final class MediaTags {
     return out;
   }
 
+  /** Category…'s rows after the categories: a new main category, a new subcategory (of one picked), or a new one the file goes in. */
+  public static final String NEW_CATEGORY = "+ Add new category\u2026";
+  public static final String NEW_SUBCATEGORY = "+ Add new subcategory\u2026";
+  public static final String INTO_NEW = "+ Add into new category\u2026";
+
+  /** Category…'s rows: (none), the categories, then the three Add rows. */
+  public static List<String> categoryRows(PromptVault vault) {
+    List<String> out = new ArrayList<String>();
+    out.add("(none)");
+    out.addAll(categoryNames(vault));
+    out.add(NEW_CATEGORY);
+    out.add(NEW_SUBCATEGORY);
+    out.add(INTO_NEW);
+    return out;
+  }
+
+  /** The category of this path ("Video / Clips"), or 0. */
+  public static long categoryId(PromptVault vault, String path) {
+    if (vault == null || path == null) return 0;
+    for (PromptVault.Category c : vault.categories()) if (path.equals(vault.pathName(c.id))) return c.id;
+    return 0;
+  }
+
+  /** A new category (under `parentPath`, or a main one when it is null or empty): its path. */
+  public static String addCategory(PromptVault vault, String parentPath, String name) throws Exception {
+    long parent = parentPath == null || parentPath.length() == 0 ? 0 : categoryId(vault, parentPath);
+    if (parentPath != null && parentPath.length() > 0 && parent == 0) throw new IllegalArgumentException("No category " + parentPath);
+    String path = (parent == 0 ? "" : parentPath + " / ") + (name == null ? "" : name.trim());
+    if (categoryId(vault, path) != 0) throw new IllegalArgumentException("There is a category " + path + " already");
+    long id = parent == 0 ? vault.addCategory(name) : vault.addSubcategory(parent, name);
+    return vault.pathName(id);
+  }
+
   /** Picture ready's and Video ready's: the same, worded for a file just made. */
   public static final String ADD_TAG = "Add tag\u2026";
   public static final String ADD_CATEGORY = "Add to category\u2026";

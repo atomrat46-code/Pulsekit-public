@@ -411,6 +411,7 @@ final class RefBrowser {
             for (int i = 0; i < files.size(); i++) {
                 if (dialog[0] == null || !dialog[0].isShowing()) return;
                 PromptVault.StoredFile f = files.get(i);
+                if (PromptSheet.thumbSkips(f.name)) continue;
                 final Bitmap bitmap = PromptSheet.refThumb(activity, f.name, vault.fileBytes(f.versionId, f.which), cell);
                 if (bitmap == null) continue;
                 final int at = i;

@@ -388,6 +388,17 @@ public final class PromptSheet {
   private static int focusWhich;
   private static View focusCard;
 
+  /** After an import: the Prompts page's Ref files (or Result files) shown. */
+  static void openFiles(MainActivity app, boolean results, String letter) {
+    if (letter != null) galleryFilter = letter;
+    previewBack = 0;
+    promptFilesOpen = false;
+    refsOpen = !results;
+    resultsOpen = results;
+    app.show("prompts");
+    rebuild(app);
+  }
+
   private static void buildList(Activity activity, LinearLayout col) {
     releasePreview();
     TextView refs = button(activity, "Ref files", "#1B1D1F", "#ECEBE6");
@@ -737,7 +748,7 @@ public final class PromptSheet {
           try {
             for (int i = 0; i < small.length; i++) {
               PromptVault.StoredFile f = favFiles.get(i);
-              small[i] = refThumb(activity, f.name, vault.fileBytes(f.versionId, f.which), px);
+              small[i] = refThumb(activity, f.name, thumbBytes(f.name, f.versionId, f.which), px);
               if (small[i] != null) activity.runOnUiThread(rows::notifyDataSetChanged);
             }
           } catch (Throwable ex) {
@@ -758,6 +769,7 @@ public final class PromptSheet {
     ImageView[] views = new ImageView[files.size()];
     TextView[] marks = new TextView[files.size()];
     TextView[] subs = new TextView[files.size()];
+    TextView[] midiLines = new TextView[files.size()];
     long[] ids = new long[files.size()];
     int[] slots = new int[files.size()];
     String[] names = new String[files.size()];
@@ -801,6 +813,48 @@ public final class PromptSheet {
       info.setTag("refs-info:" + name);
       info.setMaxLines(2);
       card.addView(info);
+      // Its groups (a file can be in several), and In separate storage for a large import.
+      FileGroups.load(activity.getFilesDir());
+      String extra = FileGroups.cardLine(file);
+      if (extra.length() > 0) {
+        TextView groups = label(activity, extra, 10, "#D9A441", false);
+        groups.setTag("refs-groups:" + name);
+        groups.setMaxLines(2);
+        card.addView(groups);
+      }
+      // A sound or MIDI: ▶ ❚❚ ■ and, while it plays, mm:ss / mm:ss.
+      if (sound) {
+        LinearLayout controls = new LinearLayout(activity);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView time = label(activity, "", 10, "#D9A441", false);
+        time.setTag("refs-time:" + name);
+        final PromptVault.StoredFile playing = file;
+        final TextView markFor = mark;
+        String[][] buttons = {{"\u25b6", "refs-play:"}, {"\u275a\u275a", "refs-pause:"}, {"\u25a0", "refs-stop:"}};
+        for (String[] bt : buttons) {
+          TextView b = button(activity, bt[0], "#1B1D1F", "#ECEBE6");
+          b.setTag(bt[1] + name);
+          b.setTextSize(12);
+          final String what = bt[1];
+          b.setOnClickListener(v -> {
+            if (what.equals("refs-play:")) galleryResume(activity, playing, markFor, time);
+            else if (what.equals("refs-pause:")) galleryPause(playing);
+            else if ((playing.versionId + ":" + playing.which).equals(galleryPlaying)) stopGallery();
+          });
+          LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(activity, 40), dp(activity, 32));
+          blp.rightMargin = dp(activity, 4);
+          controls.addView(b, blp);
+        }
+        controls.addView(time);
+        card.addView(controls);
+      }
+      // A MIDI: its length, bars, beats and whether it is a drum MIDI (read with the previews).
+      TextView midiLine = label(activity, "", 10, "#8A8B86", false);
+      midiLine.setTag("refs-midi:" + name);
+      midiLine.setMaxLines(2);
+      midiLine.setVisibility(View.GONE);
+      card.addView(midiLine);
       long versionId = file.versionId;
       int which = file.which;
       String itemName = name;
@@ -836,10 +890,12 @@ public final class PromptSheet {
       views[i] = thumb;
       marks[i] = mark;
       subs[i] = sub;
+      midiLines[i] = midiLine;
       ids[i] = versionId;
       slots[i] = which;
       names[i] = name;
     }
+    galleryMidiLines = midiLines;
     loadRefThumbs(activity, token, views, marks, subs, ids, slots, names, cell);
     watchGallery(activity, token);
   }
@@ -947,11 +1003,24 @@ public final class PromptSheet {
     }, "pulsekit-gallery-previews").start();
   }
 
+  /** The gallery's MIDI lines (refs-midi), filled with the previews. */
+  private static TextView[] galleryMidiLines;
+
   private static void readRefThumbs(Activity activity, int token, ImageView[] views, TextView[] marks, TextView[] subs, long[] ids, int[] slots, String[] names, int px) {
+    final TextView[] midiLines = galleryMidiLines;
     {
       for (int i = 0; i < views.length; i++) {
         if (token != refsToken) return;
-        Bitmap bitmap = refThumb(activity, names[i], vault.fileBytes(ids[i], slots[i]), px);
+        if (MediaDir.isMidi(names[i]) && midiLines != null && i < midiLines.length && midiLines[i] != null) {
+          MidiInfo midi = MidiInfo.of(vault.fileBytes(ids[i], slots[i]));
+          final TextView line = midiLines[i];
+          if (midi != null) activity.runOnUiThread(() -> {
+            if (token != refsToken) return;
+            line.setText(midi.line());
+            line.setVisibility(View.VISIBLE);
+          });
+        }
+        Bitmap bitmap = refThumb(activity, names[i], thumbBytes(names[i], ids[i], slots[i]), px);
         // Its resolution and aspect ratio under the name: "1920×1080 · 16:9".
         int[] size = LAST_SIZE.get();
         String dims = size == null ? "" : MediaSize.label(size[0], size[1]);
@@ -988,6 +1057,16 @@ public final class PromptSheet {
   static final ThreadLocal<int[]> LAST_SIZE = new ThreadLocal<int[]>();
 
   /** A thumbnail of a stored file (a picture, a video frame), or null; also for PyJav's Browse DB. Its size: LAST_SIZE. */
+  /** A sound, MIDI or text file by its name: no picture to make, so its bytes are not read (a large WAV ran the phone out of memory). */
+  static boolean thumbSkips(String name) {
+    return MediaDir.noThumb(name);
+  }
+
+  /** The bytes a thumbnail needs: none for a sound, MIDI or text file. */
+  static byte[] thumbBytes(String name, long versionId, int which) {
+    return thumbSkips(name) || vault == null ? null : vault.fileBytes(versionId, which);
+  }
+
   static Bitmap refThumb(Activity activity, String name, byte[] bytes, int px) {
     LAST_SIZE.set(new int[] {0, 0});
     if (bytes == null || bytes.length == 0) return null;
@@ -1809,7 +1888,7 @@ public final class PromptSheet {
       final long vid = v.id;
       final int slot = which;
       SLOT_JOBS.add(() -> {
-        Bitmap b = refThumb(activity, n, vault.fileBytes(vid, slot), px);
+        Bitmap b = refThumb(activity, n, thumbBytes(n, vid, slot), px);
         if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
       });
     }
@@ -1867,7 +1946,7 @@ public final class PromptSheet {
         thumbs.addView(box, lp);
         new Thread(() -> {
           PromptVault.quiet(true);
-          Bitmap b = refThumb(activity, n, vault.fileBytes(owner.id, slot), px);
+          Bitmap b = refThumb(activity, n, thumbBytes(n, owner.id, slot), px);
           if (b != null) activity.runOnUiThread(() -> mini.setImageBitmap(b));
         }, "pulsekit-prompt-file-thumb").start();
       }
@@ -2051,7 +2130,8 @@ public final class PromptSheet {
     }
     // A picture: Upscale/Resize image (ImageUpscaler on PyJav, with it as the input; Return comes back here).
     // (Known by its name or, without a picture's extension, by its bytes.)
-    boolean picture = activity instanceof MainActivity && previewKind(name, vault.fileBytes(versionId, which)) == 2;
+    // (Known by its name when it can be: a sound or a text is not read for the menu, a large one ran the phone out of memory.)
+    boolean picture = activity instanceof MainActivity && !thumbSkips(name) && previewKind(name, vault.fileBytes(versionId, which)) == 2;
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
@@ -2103,6 +2183,10 @@ public final class PromptSheet {
       java.nio.file.Files.write(in.toPath(), bytes);
       if (MediaDir.PLAY_SF.equals(item)) {
         MediaBrowser.playDefault(host, in, name);
+        return;
+      }
+      if (MediaDir.TO_FILE_SET.equals(item)) {
+        MediaBrowser.toFileSet(host, in, name);
         return;
       }
       if (MediaDir.TO_COMPOSER.equals(item)) {
@@ -3063,6 +3147,60 @@ public final class PromptSheet {
    * Taps on a gallery card: a sound (WAV, MP3, MIDI...) plays in place, the card showing "■ playing";
    * a second tap, or a tap on another card, stops it. Other files keep their long-press menu only.
    */
+  /** The card's time line while it plays (mm:ss / mm:ss), and the ticker keeping it up. */
+  private static TextView galleryTime;
+  private static boolean galleryPaused;
+
+  /** ▶: this card's sound from the start, or on from where ❚❚ left it. */
+  private static void galleryResume(Activity activity, PromptVault.StoredFile f, TextView mark, TextView time) {
+    String key = f.versionId + ":" + f.which;
+    if (key.equals(galleryPlaying) && previewAudio != null) {
+      if (galleryPaused) {
+        previewAudio.start();
+        galleryPaused = false;
+        if (galleryMark != null) galleryMark.setText("\u25a0 playing");
+      }
+      return;
+    }
+    galleryPlay(activity, f.versionId, f.which, f.name == null ? "file" : f.name, mark);
+    if (key.equals(galleryPlaying)) {
+      galleryTime = time;
+      tickGallery(key);
+    }
+  }
+
+  /** ❚❚: this card's sound held where it is. */
+  private static void galleryPause(PromptVault.StoredFile f) {
+    if (!(f.versionId + ":" + f.which).equals(galleryPlaying) || previewAudio == null) return;
+    try {
+      if (previewAudio.isPlaying()) {
+        previewAudio.pause();
+        galleryPaused = true;
+        if (galleryMark != null) galleryMark.setText("\u275a\u275a paused");
+      }
+    } catch (Exception ignored) {
+      // not playing yet
+    }
+  }
+
+  /** Every half second while the card's sound goes: its mm:ss / mm:ss. */
+  private static void tickGallery(final String key) {
+    final TextView time = galleryTime;
+    if (time == null) return;
+    time.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        if (!key.equals(galleryPlaying) || previewAudio == null || galleryTime != time) return;
+        try {
+          time.setText(Playlist.time(previewAudio.getCurrentPosition(), previewAudio.getDuration()));
+        } catch (Exception ignored) {
+          // preparing
+        }
+        time.postDelayed(this, 500);
+      }
+    }, 300);
+  }
+
   private static void galleryPlay(Activity activity, long versionId, int which, String name, TextView mark) {
     String key = versionId + ":" + which;
     boolean same = key.equals(galleryPlaying);
@@ -3101,6 +3239,9 @@ public final class PromptSheet {
   /** Stops the gallery's sound and puts its card's label back. */
   private static void stopGallery() {
     if (galleryMark != null && galleryMarkText != null) galleryMark.setText(galleryMarkText);
+    if (galleryTime != null) galleryTime.setText("");
+    galleryTime = null;
+    galleryPaused = false;
     galleryMark = null;
     galleryMarkText = null;
     galleryPlaying = null;

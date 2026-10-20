@@ -1448,10 +1448,30 @@ final class PyJav {
      * DrumMidi_CRT.jar runs on it, importing the drums as a file set), Play (the system player), or Close.
      */
     void offerAudio(File audio) {
-        Object[] options = new Object[] {"Make drum MIDI", "Play", "Close"};
-        int ans = JOptionPane.showOptionDialog(app, audio.getName() + " is saved in " + audio.getParent() + ".\n\n"
-            + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", "Audio ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        // Favourites, group, tags, category, playlist and Convert into WAV come back to the question.
+        String name = audio.getName();
+        String kind = ReadyRecent.SOUND;
+        int ans;
+        while (true) {
+            FileFavourites.load(PromptDb.dir());
+            Object[] options = new Object[] {"Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
+                FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, TO_WAV, "Close"};
+            ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
+                + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : "Audio ready",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (ans == 2) GroupMenus.toggleFavourite(app, audio);
+            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
+            else if (ans == 4) TagDialogs.tags(app, app, name, audio.length(), null, kind);
+            else if (ans == 5) TagDialogs.category(app, app, name, audio.length(), null, kind);
+            else if (ans == 6) PlaylistWindow.askAdd(app, audio.getAbsolutePath(), name);
+            else if (ans == 7) {
+                if (!name.toLowerCase().endsWith(".mp3")) app.setNow(name + " is a WAV already");
+                else {
+                    File wav = this.asWav(audio);
+                    if (wav != audio) app.setNow("Saved " + wav.getName() + " beside " + name);
+                }
+            } else break;
+        }
         if (ans == 0) {
             // DrumMidi_CRT.jar carries an MP3 decoder, so the audio is given as it is.
             this.audioInputPath = audio.getAbsolutePath();
@@ -1465,6 +1485,8 @@ final class PyJav {
             }
         }
     }
+
+    static final String TO_WAV = "Convert into WAV";
 
     /** An MP3 as a mono 16-bit WAV beside it (song.mp3 → song.wav); other files, or a failed decode, as they are. */
     File asWav(File audio) {

@@ -1538,6 +1538,8 @@ final class MediaBrowser {
                 playDefault(host, file, name);
             } else if (MediaDir.TO_COMPOSER.equals(item)) {
                 toComposer(host, file, name);
+            } else if (MediaDir.TO_FILE_SET.equals(item)) {
+                toFileSet(host, file, name);
             } else {
                 host.openKitView("py");
                 host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
@@ -1549,6 +1551,29 @@ final class MediaBrowser {
     }
 
     /** Add to composer stack: the MIDI as a file set (no song asked about), its patterns and fills on the Composer's stack, the Composer shown. */
+    /** The file set picked last list (for the tests). */
+    static AlertDialog lastFileSets;
+
+    /** Add into file set: the MIDI kept as the source MIDI of the file set picked (From file set finds it there). */
+    static void toFileSet(final MainActivity app, File file, final String name) {
+        final byte[] midi;
+        try {
+            midi = java.nio.file.Files.readAllBytes(file.toPath());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + name);
+            return;
+        }
+        final java.util.List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
+        AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(MediaDir.TO_FILE_SET + " \u00b7 " + name).setNegativeButton("Cancel", null);
+        if (sources.isEmpty()) b.setMessage("No file sets yet: import a pattern library, or run DrumMidi_CRT in PyJav (it makes one).");
+        else b.setItems(sources.toArray(new String[0]), (d, w) -> {
+            Engine.rememberFileSetMidi(sources.get(w), midi, name);
+            Engine.storeFileSetAudioDir(new File(app.getFilesDir(), "fset-audio"));
+            app.setNow(name + " is the MIDI of the file set " + sources.get(w));
+        });
+        lastFileSets = b.show();
+    }
+
     static void toComposer(MainActivity app, File file, String name) {
         try {
             Engine.MidiBars bars = Engine.parseMidiBars(java.nio.file.Files.readAllBytes(file.toPath()));

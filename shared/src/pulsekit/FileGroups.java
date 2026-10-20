@@ -110,6 +110,28 @@ public final class FileGroups {
     return out;
   }
 
+  /** The groups a file is in by any of its keys (a file can be in several), in the groups' order. */
+  public static synchronized List<String> groupsOf(String[] keys) {
+    List<String> out = new ArrayList<String>();
+    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) {
+      for (String k : keys) {
+        if (g.getValue().contains(k)) {
+          out.add(g.getKey());
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** A Ref / Result file card's line: "Groups: Trip, Work · In separate storage"; "" when neither. */
+  public static String cardLine(PromptVault.StoredFile f) {
+    List<String> in = groupsOf(keys(f));
+    String line = in.isEmpty() ? "" : (in.size() == 1 ? "Group: " : "Groups: ") + String.join(", ", in);
+    if (f.linked) line = line.length() == 0 ? "In separate storage" : line + " \u00b7 In separate storage";
+    return line;
+  }
+
   /** The file put in the group (made when it is new), or taken out when it is there; true when it is in it now. */
   public static synchronized boolean toggle(String group, String key) {
     String name = clean(group);
