@@ -9254,6 +9254,9 @@ public class BehaviorTest {
     android.widget.ListView lv = MediaBrowser.lastAsk.getListView();
     lv.getOnItemLongClickListener().onItemLongClick(lv, null, again.indexOf("Beats"), 0);
     idle();
+    String held = listItems(MediaBrowser.lastAsk);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(0);
+    idle();
     ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Drums");
     MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     for (int i = 0; i < 20; i++) {
@@ -9266,7 +9269,7 @@ public class BehaviorTest {
     ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Songs");
     MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
-    out.append("Category…: ").append(catRows).append(" | after New category Beats and a held Beats: ").append(third.subList(0, third.size() - 3)).append(" | song.mp3 in ").append(MediaTags.category(MediaTags.key("song.mp3", 4000))).append('\n');
+    out.append("Category…: ").append(catRows).append(" | held Beats: ").append(held).append(" | after New category Beats and a held Beats: ").append(third.subList(0, third.size() - 3)).append(" | song.mp3 in ").append(MediaTags.category(MediaTags.key("song.mp3", 4000))).append('\n');
     boolean catOk = cats.contains(MediaTags.NEW_CATEGORY) && cats.contains(MediaTags.NEW_SUBCATEGORY) && cats.contains(MediaTags.INTO_NEW)
         && third.contains("Beats") && third.contains("Beats / Drums") && "Songs".equals(MediaTags.category(MediaTags.key("song.mp3", 4000)));
     write("s158_linked_import_cards_categories", out.toString());
