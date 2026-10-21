@@ -56,6 +56,8 @@ public class BehaviorTest {
     PromptSheet.resetGallery();
     // F G C and the tag lists are switches kept while the program runs.
     FileFilter.reset();
+    // General settings' Sogni tools and file types: as at first.
+    AppSettings.reset();
     Engine.fileSetSongs.clear();
     this.ctl = Robolectric.buildActivity(MainActivity.class).setup();
     this.app = this.ctl.get();
@@ -5482,9 +5484,10 @@ public class BehaviorTest {
       for (File k : kids) if (k.getName().startsWith("prompts")) sb.append(k.getName().replaceAll("[0-9a-f]{24}", "<hash>")).append(' ');
       return sb.toString().trim();
     };
-    GeneralSettings.show(app);
+    // Use encrypted DB is in Database settings now.
+    DbSettings.show(app);
     idle();
-    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
+    android.widget.CheckBox box = (android.widget.CheckBox) DbSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted");
     out.append("Use encrypted DB: ").append(box.isChecked()).append("; files: ").append(files.get()).append('\n');
     box.setChecked(false);
     idle();
@@ -8478,7 +8481,8 @@ public class BehaviorTest {
     MediaBrowser.lastAsk.dismiss();
     PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-offer:look.png").performLongClick();
     idle();
-    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(3);
+    // Add to category… (Use last tags: sunset comes before it now).
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(itemIndex(PictureOffer.menu, MediaTags.ADD_CATEGORY));
     for (int i = 0; i < 20; i++) {
       Thread.sleep(50);
       idle();
@@ -9250,6 +9254,9 @@ public class BehaviorTest {
     android.widget.ListView lv = MediaBrowser.lastAsk.getListView();
     lv.getOnItemLongClickListener().onItemLongClick(lv, null, again.indexOf("Beats"), 0);
     idle();
+    String held = listItems(MediaBrowser.lastAsk);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(0);
+    idle();
     ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Drums");
     MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     for (int i = 0; i < 20; i++) {
@@ -9262,7 +9269,7 @@ public class BehaviorTest {
     ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("category-name-field")).setText("Songs");
     MediaBrowser.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
-    out.append("Category…: ").append(catRows).append(" | after New category Beats and a held Beats: ").append(third.subList(0, third.size() - 3)).append(" | song.mp3 in ").append(MediaTags.category(MediaTags.key("song.mp3", 4000))).append('\n');
+    out.append("Category…: ").append(catRows).append(" | held Beats: ").append(held).append(" | after New category Beats and a held Beats: ").append(third.subList(0, third.size() - 3)).append(" | song.mp3 in ").append(MediaTags.category(MediaTags.key("song.mp3", 4000))).append('\n');
     boolean catOk = cats.contains(MediaTags.NEW_CATEGORY) && cats.contains(MediaTags.NEW_SUBCATEGORY) && cats.contains(MediaTags.INTO_NEW)
         && third.contains("Beats") && third.contains("Beats / Drums") && "Songs".equals(MediaTags.category(MediaTags.key("song.mp3", 4000)));
     write("s158_linked_import_cards_categories", out.toString());
@@ -9347,7 +9354,7 @@ public class BehaviorTest {
     MediaBrowser.lastAsk.dismiss();
     AudioOffer.last.dismiss();
     out.append("MP3 ready: ").append(title).append(", items ").append(items.length() == 0 ? "all there" : items).append(", Add tag opens ").append(tagsTitle).append('\n');
-    boolean readyOk = "MP3 ready".equals(title) && items.length() == 0 && tagsTitle.equals("Tags for track.mp3") && ReadyRecent.SOUND.equals(ReadyRecent.kind("track.mp3"));
+    boolean readyOk = "MP3 ready".equals(title) && items.length() == 0 && tagsTitle.equals("Tags for track.mp3") && ReadyRecent.MP3.equals(ReadyRecent.kind("track.mp3"));
     write("s159_viewer_music_mp3_ready", out.toString());
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
@@ -9572,6 +9579,537 @@ public class BehaviorTest {
     write("s161_media_favourites_playlists_import_upscale_check", out.toString());
     FileFavourites.reset();
     if (!dlOk || !favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_4: each ready screen's tags remembered by kind (WAV, MP3, MIDI apart), Use last
+   * tags; WAV ready with Convert hits into MIDI; a Sogni workflow kept in Params' list as soon as it
+   * is printed (and said closed after a crash), Copy workflow id; playlists' types and the last one
+   * per kind; General settings' Sogni tools and file types; Send to zip (a password) and File >
+   * Import of a zip (its password, extract into the DB, or the zip itself kept).
+   */
+  @Test
+  public void s162_ready_tags_sogni_ids_playlists_settings_zip() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    // Tags by kind: WAV, MP3 and MIDI each their own.
+    MediaTags.load(dir);
+    ReadyRecent.load(dir);
+    MediaTags.setTags(MediaTags.key("a.wav", 10), java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.WAV, java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.MP3, java.util.Arrays.asList("song"));
+    ReadyRecent.setTags(ReadyRecent.MIDI, java.util.Arrays.asList("groove"));
+    String kinds = ReadyRecent.kind("x.wav") + "," + ReadyRecent.kind("x.mp3") + "," + ReadyRecent.kind("x.mid") + "," + ReadyRecent.kind("x.png") + "," + ReadyRecent.kind("x.mp4");
+    String wavLast = ReadyRecent.useLastLabel(ReadyRecent.WAV);
+    String mp3Last = ReadyRecent.useLastLabel(ReadyRecent.MP3);
+    // WAV ready: its items (Use last tags, Convert hits into MIDI); Use last tags puts them on the file.
+    byte[] wav = AudioIo.encodeWav(new short[4410], 22050);
+    AudioOffer.offer(app, "beat.wav", wav);
+    idle();
+    String wavTitle = org.robolectric.Shadows.shadowOf(AudioOffer.last).getTitle().toString();
+    View wv = AudioOffer.last.getWindow().getDecorView();
+    boolean hits = wv.findViewWithTag("audio-item:" + AudioOffer.HITS_TO_MIDI) != null;
+    View use = wv.findViewWithTag("audio-item:" + wavLast);
+    if (use != null) use.performClick();
+    idle();
+    MediaTags.load(dir);
+    String beatTags = MediaTags.line(MediaTags.key("beat.wav", wav.length));
+    AudioOffer.last.dismiss();
+    out.append("kinds ").append(kinds).append(" | WAV: ").append(wavLast).append(" | MP3: ").append(mp3Last).append(" | ").append(wavTitle)
+        .append(" hits item ").append(hits).append(" | Use last tags -> ").append(beatTags).append('\n');
+    boolean tagsOk = kinds.equals("wav,mp3,midi,image,video") && "Use last tags: drums, loop".equals(wavLast) && "Use last tags: song".equals(mp3Last)
+        && wavTitle.equals("WAV ready") && hits && use != null && beatTags.contains("drums") && beatTags.contains("loop");
+    // A Sogni run's workflow: in Params' list at once, said closed after Pulsekit was closed; Copy workflow id.
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniVideo.java", System.currentTimeMillis());
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_crash42\n");
+    String during = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    SogniDownloads.init(null);
+    SogniDownloads.init(dir);
+    String after = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    app.pyJav.pkShowWorkflow("wf_crash42");
+    app.pyJav.pkCopyWorkflow();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    String copied = clips.getPrimaryClip() == null ? "" : clips.getPrimaryClip().getItemAt(0).getText().toString();
+    String button = app.pyJav.pkCopyWorkflowBtn == null ? "no button" : app.pyJav.pkCopyWorkflowBtn.getText().toString() + (app.pyJav.pkCopyWorkflowBtn.getVisibility() == View.VISIBLE ? " (shown)" : " (hidden)");
+    out.append("Params' list while running: ").append(during).append(" | after a restart: ").append(after).append(" | ").append(button).append(" -> clipboard ").append(copied).append('\n');
+    boolean idsOk = during.contains(SogniHistory.DOWNLOADING) && during.contains("SogniVideo") && after.contains("closed during the download") && copied.equals("wf_crash42") && button.endsWith("(shown)");
+    // Playlists: the kinds they have, the one used last per kind.
+    Playlist.addTo(dir, "Pics", "/sdcard/a.png", "a.png");
+    Playlist.addTo(dir, "Clips", "/sdcard/b.mp4", "b.mp4");
+    Playlist.addTo(dir, "Pics", "/sdcard/c.mp4", "c.mp4");
+    String pls = new String(Files.readAllBytes(Playlist.file(dir, "Pics").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    String[][] picMenu = Playlist.menuFor(dir, "d.png");
+    String[][] vidMenu = Playlist.menuFor(dir, "e.mp4");
+    out.append("Pics.pls: ").append(pls.contains("Types=image,video")).append(" | Add to playlist for a picture: ").append(picMenu[0][0]).append(" | for a video: ").append(vidMenu[0][0]).append('\n');
+    boolean plOk = pls.contains("Types=image,video") && picMenu[0][0].equals("Pics (image, video)" + Playlist.LAST_FOR + "images") && picMenu[1][0].equals("Pics")
+        && vidMenu[0][0].equals("Pics (image, video)" + Playlist.LAST_FOR + "videos");
+    // General settings: Sogni tools, only music and chat; file types.
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    boolean boxes = gv.findViewWithTag("settings-show-sogni") != null && gv.findViewWithTag("settings-sogni-music-only") != null && gv.findViewWithTag("settings-show:V") != null;
+    java.util.List<String> progs = java.util.Arrays.asList("DrumMidi_CRT.jar", "SogniChat.java", "SogniMusic.java", "SogniPedit.java", "SogniVideo.java");
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-sogni-music-only")).setChecked(true);
+    String musicOnly = AppSettings.programs(progs).toString();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-sogni")).setChecked(false);
+    String noSogni = AppSettings.programs(progs).toString();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-sogni")).setChecked(true);
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show:V")).setChecked(false);
+    GeneralSettings.last.dismiss();
+    String letters = String.join(" ", RefBrowser.withGroup());
+    Playlist shown = AppSettings.shownPlaylist(Playlist.load(dir, "Pics"));
+    boolean videoHidden = !DbFilter.fits("b.mp4", "A") && DbFilter.fits("a.png", "A");
+    out.append("boxes ").append(boxes).append(" | only music and chat: ").append(musicOnly).append(" | no Sogni: ").append(noSogni).append(" | videos off: letters ").append(letters)
+        .append(", Pics shows ").append(shown.items.size()).append(" of 2, b.mp4 hidden ").append(videoHidden).append('\n');
+    boolean setOk = boxes && musicOnly.equals("[DrumMidi_CRT.jar, SogniChat.java, SogniMusic.java]") && noSogni.equals("[DrumMidi_CRT.jar]")
+        && !letters.contains("V") && letters.startsWith("A I S T") && shown.items.size() == 1 && videoHidden;
+    AppSettings.setShows("V", true);
+    // Send to zip in the Media browser: a folder, with a password.
+    File media = new File(app.getCacheDir(), "Zips");
+    File inner = new File(media, "Pulse");
+    new File(inner, "sub").mkdirs();
+    Files.write(new File(inner, "beat.wav").toPath(), wav);
+    Files.write(new File(new File(inner, "sub"), "note.txt").toPath(), "hello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.fileAction(MediaBrowser.last.allEntries.get(0), MediaDir.SEND_ZIP);
+    idle();
+    View zv = ZipFlow.last.getWindow().getDecorView();
+    ((android.widget.EditText) zv.findViewWithTag("zip-password")).setText("pw42");
+    ((android.widget.EditText) zv.findViewWithTag("zip-password-again")).setText("pw42");
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String zipped = ZipFlow.lastSaid;
+    File made = new File(media, "Pulse.zip");
+    java.util.List<ZipPack.Entry> es = made.isFile() ? ZipPack.list(made) : new java.util.ArrayList<ZipPack.Entry>();
+    b.dialog.dismiss();
+    out.append("Send to zip: ").append(zipped).append(" | ").append(es.size()).append(" files, encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = zipped != null && zipped.startsWith("Zipped Pulse (2 files, with a password)") && es.size() == 2 && ZipPack.encrypted(es);
+    // File > Import of that zip: its password (a wrong one first), Extract: into the DB, Ref files.
+    ZipFlow.opened(app, made, "Pulse.zip", es);
+    idle();
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("wrong");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String wrong = ZipFlow.lastSaid;
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("pw42");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String extractQ = org.robolectric.Shadows.shadowOf(ZipFlow.last).getMessage().toString();
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String where = listItems(ZipFlow.last);
+    org.robolectric.Shadows.shadowOf(ZipFlow.last).clickOnItem(ZipImport.DB);
+    idle();
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String imported = ZipFlow.lastSaid;
+    PromptVault vault = PromptVault.open(dir);
+    String refs = namesOf(vault.referenceFiles());
+    // Not extracted: the zip itself into the DB.
+    ZipFlow.opened(app, made, "Pulse.zip", es);
+    idle();
+    ((android.widget.EditText) ZipFlow.last.getWindow().getDecorView().findViewWithTag("zip-open-password")).setText("pw42");
+    ZipFlow.last.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    ZipFlow.lastSaid = null;
+    ZipFlow.last.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && ZipFlow.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String kept = ZipFlow.lastSaid;
+    out.append("Import: wrong password -> ").append(wrong).append(" | ").append(extractQ.split("\n")[0]).append(" | where: ").append(where).append(" | ").append(imported)
+        .append(" | refs ").append(PromptVault.open(dir).referenceFiles().size()).append(" | not extracted: ").append(kept).append('\n');
+    boolean importOk = wrong != null && wrong.startsWith(ZipPack.WRONG_PASSWORD) && extractQ.startsWith("Pulse.zip has 2 files") && where.equals(String.join(" | ", ZipImport.WHERE))
+        && imported != null && imported.startsWith("Imported 2 files into Ref files") && refs.contains("beat.wav") && refs.contains("note.txt")
+        && kept != null && kept.equals("Pulse.zip is in the DB as a reference file");
+    write("s162_ready_tags_sogni_ids_playlists_settings_zip", out.toString());
+    if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_5: File > Database settings (Use encrypted DB moved there, the DBs' space, the
+   * list and Use); Send db to zip (a password of at least 4 characters); Import db zip as a
+   * secondary DB, as the main DB (links to files not here left out), and a DB encrypted with
+   * another key (its key typed); the running line says the download goes on after "completed".
+   */
+  @Test
+  public void s163_db_settings_export_import() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    String running = JavaRun.news("Workflow: wf_1\nStatus: completed\n");
+    String saving = JavaRun.news("Status: completed\nDownloading: 100% (30.1 of 30.1 MB)\n");
+    out.append("running line: ").append(running).append(" | ").append(saving).append('\n');
+    boolean newsOk = running.contains("downloading the result") && saving.startsWith("Downloaded (30.1 of 30.1 MB), saving");
+    PromptVault v = PromptVault.open(dir);
+    long cat = v.addCategory("Walks");
+    long pid = v.addPrompt(cat, "Beach walk");
+    byte[] big = new byte[150 * 1024];
+    new java.util.Random(5).nextBytes(big);
+    v.addVersion(pid, "Beach walk", "", "a walk on the beach", "", "beach.png", big, "", new byte[0], "", new byte[0], "", "");
+    DbImport.store(app, "note.txt", "hello".getBytes(StandardCharsets.UTF_8), false);
+    v.addLinkedFile("long.mp4", new java.io.ByteArrayInputStream(big), "Imported", 3);
+    String before = v.summary();
+    // The dialog: Use encrypted DB, the space, the list.
+    DbSettings.show(app);
+    idle();
+    View dv = DbSettings.last.getWindow().getDecorView();
+    String sizes = ((TextView) dv.findViewWithTag("db-sizes")).getText().toString();
+    boolean parts = dv.findViewWithTag("settings-encrypted") != null && dv.findViewWithTag("db-pick:Main") != null && dv.findViewWithTag("db-send-zip") != null && dv.findViewWithTag("db-import-zip") != null;
+    GeneralSettings.show(app);
+    idle();
+    boolean movedOut = GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted") == null;
+    GeneralSettings.last.dismiss();
+    out.append("Database settings: parts ").append(parts).append(", not in General settings ").append(movedOut).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
+    boolean dialogOk = parts && movedOut && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)") && sizes.contains("All DBs: ");
+    // Send db to zip: a short password is refused; then into a file.
+    dv.findViewWithTag("db-send-zip").performClick();
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("abc");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String shortSaid = DbSettings.lastSaid;
+    DbSettings.lastAsk.dismiss();
+    File zip = new File(app.getCacheDir(), "out/pulsekit-db-Main.zip");
+    zip.getParentFile().mkdirs();
+    zip.createNewFile();
+    DbSettings.exportPassword = "pw42".toCharArray();
+    DbSettings.lastSaid = null;
+    DbSettings.export(app, android.net.Uri.fromFile(zip));
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String sent = DbSettings.lastSaid;
+    java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
+    out.append("short password: ").append(shortSaid).append(" | ").append(sent).append(" | encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(es);
+    // Import db zip: the DB in use is not empty, so: as a new secondary DB (first).
+    File copy = new File(app.getCacheDir(), "in/pulsekit-db-Main.zip");
+    copy.getParentFile().mkdirs();
+    Files.copy(zip.toPath(), copy.toPath());
+    DbSettings.opened(app, copy, "pulsekit-db-Pulse-20261020-1400.zip");
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pw42");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asRows = listItems(DbSettings.lastAsk);
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asSecondary = DbSettings.lastSaid;
+    String names = DbSlots.names(dir).toString();
+    DbSettings.use(app, "Pulse");
+    idle();
+    String inUse = DbSlots.active(dir) + ": " + PromptVault.open(dir).summary() + ", encrypted " + PromptVault.encrypted(dir);
+    DbSettings.use(app, DbSlots.MAIN);
+    idle();
+    out.append("Import as: ").append(asRows).append(" | ").append(asSecondary).append(" | DBs ").append(names).append(" | Use Pulse -> ").append(inUse).append('\n');
+    boolean secondaryOk = asRows.startsWith(DbSlots.AS[0]) && asSecondary != null && asSecondary.startsWith("Imported the DB as Pulse") && names.equals("[Main, Pulse]")
+        && inUse.equals("Pulse: " + before + ", encrypted true");
+    // As the main DB, from a zip without its linked file: that link is left out, the main DB before kept.
+    File plain = new File(app.getCacheDir(), "plain");
+    PromptVault.exportPlain(dir, plain);
+    java.util.List<ZipPack.Source> src = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : plain.listFiles()) if (!f.getName().startsWith("prompts-linked-")) src.add(new ZipPack.Source(DbSlots.ZIP_FOLDER + "/" + f.getName(), f));
+    File noLink = new File(app.getCacheDir(), "in/nolink.zip");
+    ZipPack.write(noLink, src, "pw42".toCharArray());
+    DbSettings.opened(app, noLink, "nolink.zip");
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pw42");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).clickOnItem(1);
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String asMain = DbSettings.lastSaid;
+    String mainNow = PromptVault.open(dir).summary();
+    out.append("As the main DB: ").append(asMain).append(" | main now ").append(mainNow).append(" | DBs ").append(DbSlots.names(dir)).append('\n');
+    boolean mainOk = asMain != null && asMain.startsWith("The imported DB is the main DB now (the one before is kept as Main before ") && asMain.endsWith("1 link to files that are not here left out")
+        && mainNow.equals("1 prompt, 1 version, 1 file") && DbSlots.names(dir).size() == 3 && PromptVault.encrypted(dir);
+    // A DB encrypted with another computer's key: that key typed.
+    PromptVault.Keys own = PromptVault.keys;
+    final byte[] other = new byte[32];
+    other[0] = 7;
+    File elsewhere = new File(app.getCacheDir(), "elsewhere");
+    elsewhere.mkdirs();
+    PromptVault.keys = () -> new javax.crypto.spec.SecretKeySpec(other, "AES");
+    PromptVault ev = PromptVault.open(elsewhere);
+    ev.addPrompt(ev.addCategory("Far"), "From elsewhere");
+    PromptVault.keys = own;
+    PromptVault.forget();
+    java.util.List<ZipPack.Source> raw = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : elsewhere.listFiles()) if (PromptVault.isDbFile(f.getName())) raw.add(new ZipPack.Source(f.getName(), f));
+    File rawZip = new File(app.getCacheDir(), "in/raw.zip");
+    ZipPack.write(rawZip, raw, null);
+    DbSettings.opened(app, rawZip, "Laptop.zip");
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-key") == null); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    StringBuilder hex = new StringBuilder();
+    for (byte b : other) hex.append(String.format("%02x", b & 0xff));
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-key")).setText(hex.toString());
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String keyed = DbSettings.lastSaid;
+    out.append("Another computer's DB (key typed): ").append(keyed).append(" | DBs ").append(DbSlots.names(dir)).append('\n');
+    boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && PromptVault.openAt(DbSlots.homeOf(dir, "Laptop")).summary().startsWith("1 prompt");
+    if (DbSettings.last != null) DbSettings.last.dismiss();
+    write("s163_db_settings_export_import", out.toString());
+    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_6: Show images and Show videos unticked keep pictures and videos out of the Ref
+   * files gallery and a prompt's Reference file thumbnail; Show DB/Prompts tab; the settings
+   * master password (set twice, the settings locked when closed, Unlock settings, off again).
+   */
+  @Test
+  public void s164_hidden_types_prompts_tab_master_password() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    AppSettings.load(dir);
+    AppSettings.setShows("I", false);
+    AppSettings.setShows("V", false);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "face.png", png.toByteArray(), false);
+    DbImport.store(app, "walk.mp4", new byte[2000], false);
+    DbImport.store(app, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8), false);
+    android.widget.LinearLayout gallery = PromptSheet.create(app);
+    idle();
+    findText(gallery, "Ref files").performClick();
+    idle();
+    View root = gallery;
+    String cards = (root.findViewWithTag("refs-name:face.png") != null ? "face.png " : "") + (root.findViewWithTag("refs-name:walk.mp4") != null ? "walk.mp4 " : "")
+        + (root.findViewWithTag("refs-name:notes.txt") != null ? "notes.txt" : "");
+    // A prompt's Reference file 1 (a picture): no thumbnail.
+    PromptVault vault = PromptVault.open(dir);
+    long id = vault.addPrompt(vault.categories().get(0).id, "Sky");
+    long v1 = vault.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Field pid = PromptSheet.class.getDeclaredField("promptId");
+    java.lang.reflect.Method load = PromptSheet.class.getDeclaredMethod("loadVersion", android.app.Activity.class, long.class);
+    pid.setAccessible(true);
+    load.setAccessible(true);
+    pid.set(null, id);
+    load.invoke(null, app, v1);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(30);
+      idle();
+    }
+    android.widget.ImageView t1 = (android.widget.ImageView) pane.findViewWithTag("prompt-thumb:1");
+    boolean thumbHidden = t1 == null || t1.getVisibility() != View.VISIBLE;
+    pid.set(null, 0L);
+    out.append("Ref files with images and videos off: ").append(cards.trim()).append(" | Reference file 1 thumbnail hidden ").append(thumbHidden).append('\n');
+    boolean typesOk = cards.trim().equals("notes.txt") && thumbHidden;
+    AppSettings.setShows("I", true);
+    AppSettings.setShows("V", true);
+    // Show DB/Prompts tab.
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-prompts-tab")).setChecked(false);
+    idle();
+    View tab = null;
+    for (TextView t : app.tabs) if ("prompts".equals(t.getTag())) tab = t;
+    boolean tabGone = tab != null && tab.getVisibility() == View.GONE;
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-show-prompts-tab")).setChecked(true);
+    idle();
+    boolean tabBack = tab != null && tab.getVisibility() == View.VISIBLE;
+    out.append("DB/Prompts tab: unticked gone ").append(tabGone).append(", ticked shown ").append(tabBack).append('\n');
+    boolean tabOk = tabGone && tabBack;
+    // Settings master password: set twice (not the same first), then the settings close locked.
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-master")).setChecked(true);
+    idle();
+    View mv = GeneralSettings.lastUnlock.getWindow().getDecorView();
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-new")).setText("open sesame");
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-again")).setText("open sesam");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String notSame = ((TextView) get("now")).getText().toString();
+    ((android.widget.EditText) mv.findViewWithTag("settings-master-again")).setText("open sesame");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean on = AppSettings.masterOn();
+    GeneralSettings.last.dismiss();
+    idle();
+    boolean locked = AppSettings.locked();
+    AppSettings.setShows("V", false);
+    boolean refused = AppSettings.shows("V");
+    GeneralSettings.show(app);
+    idle();
+    gv = GeneralSettings.last.getWindow().getDecorView();
+    boolean greyed = !gv.findViewWithTag("settings-show-sogni").isEnabled() && !gv.findViewWithTag("settings-master").isEnabled();
+    DbSettings.show(app);
+    idle();
+    boolean dbGreyed = !DbSettings.last.getWindow().getDecorView().findViewWithTag("settings-encrypted").isEnabled();
+    DbSettings.last.dismiss();
+    idle();
+    // Unlock settings: a wrong password first.
+    gv.findViewWithTag("settings-unlock").performClick();
+    idle();
+    ((android.widget.EditText) GeneralSettings.lastUnlock.getWindow().getDecorView().findViewWithTag("settings-master-password")).setText("wrong");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean stillLocked = AppSettings.locked() && !gv.findViewWithTag("settings-show-sogni").isEnabled();
+    gv.findViewWithTag("settings-unlock").performClick();
+    idle();
+    ((android.widget.EditText) GeneralSettings.lastUnlock.getWindow().getDecorView().findViewWithTag("settings-master-password")).setText("open sesame");
+    GeneralSettings.lastUnlock.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean open = !AppSettings.locked() && gv.findViewWithTag("settings-show-sogni").isEnabled();
+    ((android.widget.CheckBox) gv.findViewWithTag("settings-master")).setChecked(false);
+    idle();
+    boolean off = !AppSettings.masterOn();
+    GeneralSettings.last.dismiss();
+    idle();
+    out.append("master: not the same -> ").append(notSame).append(" | on ").append(on).append(", closed locked ").append(locked).append(", a change refused ").append(refused)
+        .append(", greyed ").append(greyed).append(" (Database settings ").append(dbGreyed).append(") | wrong password still locked ").append(stillLocked)
+        .append(" | unlocked ").append(open).append(" | unticked off ").append(off).append(", locked after ").append(AppSettings.locked()).append('\n');
+    boolean masterOk = notSame.contains("not the same") && on && locked && refused && greyed && dbGreyed && stillLocked && open && off && !AppSettings.locked();
+    write("s164_hidden_types_prompts_tab_master_password", out.toString());
+    if (!typesOk || !tabOk || !masterOk) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s165_inputs_restored_resume_categories_recent_prompts_sliders() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    PromptVault vault = PromptVault.open(dir);
+    // A Browse DB pick in the temp folder the phone emptied: written again from the library.
+    long pid = vault.addPrompt(vault.categories().get(0).id, "Beach");
+    long ver = vault.addVersion(pid, "Beach", "", "Sand", "", "beach.png", new byte[] {1, 2, 3, 4}, "", null, "", null, "ai", "");
+    File temp = new File(app.getCacheDir(), "pyjav-in");
+    temp.mkdirs();
+    File pick = new File(temp, "beach.png");
+    InputOrigins.record(dir, pick.getAbsolutePath(), ver, 1);
+    java.util.List<String> argv = java.util.Arrays.asList("--image", pick.getAbsolutePath(), "--out", new File(temp, "out.png").getAbsolutePath());
+    boolean gone = InputOrigins.anyGone(dir, argv, temp);
+    java.util.List<String> missing = InputOrigins.missing(dir, argv, temp, vault);
+    boolean back = pick.isFile() && pick.length() == 4;
+    pick.delete();
+    java.util.List<String> stillGone = InputOrigins.missing(dir, argv, temp, null);
+    out.append("inputs: gone ").append(gone).append(", restored ").append(back).append(" (missing ").append(missing).append(") | no library: ").append(InputOrigins.missingNote(stillGone)).append('\n');
+    boolean inputsOk = gone && missing.isEmpty() && back && stillGone.equals(java.util.Collections.singletonList("beach.png"));
+    // Unexpected end of stream reconnects; any failure with a workflow can be resumed.
+    String log = "Workflow: wf-77\nFailed: Unexpected end of stream\n";
+    java.util.List<String> again = JavaRun.reconnectArgs("SogniPedit.java", "", log, java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-78\nFailed: Sogni said no\n", java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> none = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-79\nSucceeded\n", java.util.Arrays.asList("--prompt", "sky"));
+    out.append("reconnect ").append(again).append(" | resume ").append(resume).append(" | succeeded ").append(none).append('\n');
+    out.append("question: ").append(JavaRun.resumeQuestion("Failed: Sogni said no", resume).replace('\n', ' ')).append('\n');
+    boolean resumeOk = again != null && again.contains("wf-77") && resume != null && resume.contains("wf-78") && none == null;
+    // Workflow ids: running while it downloads, completed when it succeeds.
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniHistory.started("wf-80", "SogniPedit.java", 1000L);
+    String running = SogniHistory.entries().get(0).status;
+    SogniHistory.finished("wf-80", true);
+    String completed = SogniHistory.entries().get(0).status;
+    out.append("history: ").append(running).append(" -> ").append(completed).append('\n');
+    boolean historyOk = "running".equals(running) && "completed".equals(completed);
+    // Delete category: the library's own are kept.
+    MediaTags.load(dir);
+    String made = MediaTags.addCategory(vault, "", "Trips");
+    MediaTags.addCategory(vault, made, "Rome");
+    MediaTags.setCategory("V:trip.mp4", "Trips / Rome");
+    String question = MediaTags.deleteQuestion(vault, "Trips");
+    String deleted = MediaTags.deleteCategory(vault, "Trips");
+    String refused = "";
+    try {
+      MediaTags.deleteCategory(vault, "Image");
+    } catch (IllegalArgumentException ex) {
+      refused = ex.getMessage();
+    }
+    out.append("categories: ").append(question).append(" | ").append(deleted).append(", file now '").append(MediaTags.category("V:trip.mp4")).append("' | ").append(refused).append('\n');
+    boolean categoryOk = MediaTags.categoryId(vault, "Trips") == 0 && MediaTags.category("V:trip.mp4").length() == 0 && refused.contains("own") && MediaTags.isOriginal("video")
+        && !MediaTags.isOriginal("Video / Clips");
+    // Params' recent prompts: six per program, newest first.
+    for (int i = 1; i <= 8; i++) PromptHistory.add(dir, "SogniPedit.java", "prompt " + i);
+    PromptHistory.add(dir, "SogniVideo.java", "a walk");
+    PromptHistory.add(dir, "SogniPedit.java", "prompt 5");
+    java.util.List<String> recent = PromptHistory.recent(dir, "SogniPedit.java");
+    out.append("recent prompts: ").append(recent).append(" | SogniVideo ").append(PromptHistory.recent(dir, "SogniVideo.java")).append('\n');
+    boolean recentOk = recent.size() == 6 && recent.get(0).equals("prompt 5") && recent.get(1).equals("prompt 8") && !recent.contains("prompt 2")
+        && PromptHistory.recent(dir, "SogniVideo.java").size() == 1;
+    // Use all recent choices: the tags and the category used last for images.
+    MediaTags.addCategory(vault, "", "Shots");
+    ReadyRecent.setTags(ReadyRecent.IMAGE, java.util.Arrays.asList("beach", "night"));
+    ReadyRecent.setCategory(ReadyRecent.IMAGE, "Shots");
+    String label = ReadyRecent.useAllLabel(dir, ReadyRecent.IMAGE);
+    String did = ReadyRecent.useAll(dir, ReadyRecent.IMAGE, "I:sea.png", null, null, "sea.png");
+    out.append("use all: ").append(label).append(" -> ").append(did).append('\n');
+    boolean allOk = ReadyRecent.USE_ALL.equals(label) && MediaTags.tags("I:sea.png").contains("night") && "Shots".equals(MediaTags.category("I:sea.png"));
+    // The save prompt dialog's preview: the result file, not the sheet.
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("notes.txt", "x".getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sea.png", new byte[] {1, 2}));
+    JavaRun.FileOut media = PromptSave.mediaOf(new JavaRun.Result("Wrote sea.png", files, 0), null);
+    out.append("save prompt preview: ").append(media == null ? "none" : media.name).append('\n');
+    boolean mediaOk = media != null && media.name.equals("sea.png");
+    // Drum Tracks: the sliders in a popup, opened next to Fills.
+    View sliders = app.findViewById(android.R.id.content).findViewWithTag("drum-sliders");
+    boolean hidden = app.knobsRow.getVisibility() == View.GONE;
+    sliders.performClick();
+    idle();
+    boolean shown = app.lastSliders != null && app.lastSliders.isShowing() && app.knobsRow.getVisibility() == View.VISIBLE;
+    app.lastSliders.dismiss();
+    idle();
+    boolean putBack = app.knobsRow.getVisibility() == View.GONE && app.knobsRow.getParent() != null;
+    out.append("sliders: hidden ").append(hidden).append(", in popup ").append(shown).append(", back ").append(putBack).append('\n');
+    boolean slidersOk = hidden && shown && putBack;
+    // Video ready remembers mute.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.last.mute.performClick();
+    idle();
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    boolean mutedAgain = VideoOffer.last.muted && "Unmute".contentEquals(VideoOffer.last.mute.getText());
+    out.append("video ready: muted again ").append(mutedAgain).append('\n');
+    write("s165_inputs_restored_resume_categories_recent_prompts_sliders", out.toString());
+    if (!inputsOk || !resumeOk || !historyOk || !categoryOk || !recentOk || !allOk || !mediaOk || !slidersOk || !mutedAgain) throw new AssertionError(out.toString());
   }
 
   @SuppressWarnings("unused")

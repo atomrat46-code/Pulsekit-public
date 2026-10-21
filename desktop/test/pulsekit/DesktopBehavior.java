@@ -601,7 +601,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path + " key=" + ex.getRequestHeaders().getFirst("api-key") + (body.isEmpty() ? "" : " " + body));
       byte[] reply;
       String type = "application/json";
@@ -714,7 +714,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB") + " key=" + ex.getRequestHeaders().getFirst("api-key")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
               : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB").replaceAll("data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+", "data:image/$1;base64,...")));
@@ -943,7 +943,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       seen.add(ex.getRequestMethod() + " " + path.replaceAll("jobId=pulsekit-[0-9a-f-]+", "jobId=JOB")
           + (body.isEmpty() ? "" : path.startsWith("/put") ? " (" + body.length() + " bytes, " + ex.getRequestHeaders().getFirst("Content-Type") + ")"
               : " " + body.replaceAll("pulsekit-[0-9]+-[0-9]+-[0-9a-f]+", "JOB")));
@@ -1402,11 +1402,11 @@ public final class DesktopBehavior {
     out.append("status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
     String base = opened.get(0).toString().replace("/page", "/");
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "page").openConnection();
-    String page = new String(c.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    String page = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
     out.append("page: ").append(c.getResponseCode()).append(", title ").append(page.contains("<title>Frames \u00b7 My clip.mp4</title>")).append('\n');
     c = (java.net.HttpURLConnection) new java.net.URL(base + "video").openConnection();
     c.setRequestProperty("Range", "bytes=100-199");
-    byte[] part = c.getInputStream().readAllBytes();
+    byte[] part = readAll(c.getInputStream());
     out.append("range: ").append(c.getResponseCode()).append(' ').append(c.getHeaderField("Content-Range")).append(", ").append(part.length)
         .append(" bytes, first ").append(part[0] & 0xff).append(", type ").append(c.getContentType()).append('\n');
     c = (java.net.HttpURLConnection) new java.net.URL(base.replaceAll("/[0-9a-f]{32}/", "/0123/") + "page").openConnection();
@@ -1455,7 +1455,7 @@ public final class DesktopBehavior {
     out.append("opened: ").append(opened.size()).append(", status: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
     String base = opened.get(0).toString().replace("/page", "/");
     java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "video/0").openConnection();
-    out.append("video 0: ").append(c.getResponseCode()).append(' ').append(c.getContentType()).append(", ").append(c.getInputStream().readAllBytes().length).append(" bytes\n");
+    out.append("video 0: ").append(c.getResponseCode()).append(' ').append(c.getContentType()).append(", ").append(readAll(c.getInputStream()).length).append(" bytes\n");
     c = (java.net.HttpURLConnection) new java.net.URL(base + "video/1").openConnection();
     out.append("video 1: ").append(c.getResponseCode()).append('\n');
     java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB);
@@ -1767,7 +1767,7 @@ public final class DesktopBehavior {
     final boolean[] filterOff = new boolean[1];
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       String reply;
       if (path.equals("/v1/creative-agent/workflows")) {
         bodies.add(body);
@@ -1926,7 +1926,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2588,7 +2588,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2680,7 +2680,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2775,7 +2775,7 @@ public final class DesktopBehavior {
     final byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath());
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -2998,7 +2998,7 @@ public final class DesktopBehavior {
     com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] bytes = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Try a snare roll into the crash.\"}}]}".getBytes(StandardCharsets.UTF_8);
       ex.getResponseHeaders().set("Content-Type", "application/json");
       ex.sendResponseHeaders(200, bytes.length);
@@ -3346,7 +3346,8 @@ public final class DesktopBehavior {
     final javax.swing.JCheckBox[] box = new javax.swing.JCheckBox[1];
     inspectNext = d -> box[0] = (javax.swing.JCheckBox) component(d, "settings-encrypted");
     answers.add("Close");
-    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    // Use encrypted DB is in Database settings now.
+    SwingUtilities.invokeLater(() -> DbSettings.show((Pulsekit) frame));
     for (int i = 0; i < 100 && box[0] == null; i++) Thread.sleep(100);
     idle();
     out.append("Use encrypted DB: ").append(box[0] != null && box[0].isSelected()).append("; files: ").append(files.get()).append('\n');
@@ -3503,7 +3504,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
       byte[] bytes;
       String type = "application/json";
       if (path.equals("/v1/creative-agent/workflows")) {
@@ -3813,7 +3814,7 @@ public final class DesktopBehavior {
     final int port = server.getAddress().getPort();
     server.createContext("/", ex -> {
       String path = ex.getRequestURI().toString();
-      ex.getRequestBody().readAllBytes();
+      readAll(ex.getRequestBody());
       byte[] reply;
       String type = "application/json";
       if (path.endsWith("/events/stream")) {
@@ -6210,12 +6211,12 @@ public final class DesktopBehavior {
     Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
     final StringBuilder options = new StringBuilder();
     inspectNext = d -> {
-      for (String t : new String[] {FileFavourites.ADD_SHORT, FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, PyJav.TO_WAV}) options.append(find(d.getContentPane(), t) == null ? t + " missing " : "");
+      // A WAV is WAV ready now: Convert hits into MIDI in place of Convert into WAV.
+      for (String t : new String[] {FileFavourites.ADD_SHORT, FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, PyJav.HITS_TO_MIDI}) options.append(find(d.getContentPane(), t) == null ? t + " missing " : "");
       options.insert(0, d.getTitle() + ": ");
     };
     MediaBrowser.answer = q -> q.startsWith("Tags for") ? "drums" : null;
     answers.add(MediaTags.ADD_TAG);
-    answers.add(PyJav.TO_WAV);
     answers.add("Close");
     final PyJav pj = (PyJav) get("pyJav");
     edt(() -> pj.offerAudio(wav));
@@ -6223,8 +6224,7 @@ public final class DesktopBehavior {
     MediaBrowser.answer = null;
     inspectNext = null;
     out.append("MP3 ready (a WAV here): ").append(options.toString().trim()).append(" | tags ").append(MediaTags.line(MediaTags.key("track.wav", wav.length()))).append(" | Convert into WAV: ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
-    boolean readyOk = options.toString().startsWith("Audio ready:") && !options.toString().contains("missing") && MediaTags.line(MediaTags.key("track.wav", wav.length())).contains("drums")
-        && ((JLabel) get("nowPlaying")).getText().contains("is a WAV already");
+    boolean readyOk = options.toString().startsWith("WAV ready:") && !options.toString().contains("missing") && MediaTags.line(MediaTags.key("track.wav", wav.length())).contains("drums");
     if (!viewerOk || !captionOk || !readyOk) throw new AssertionError(out.toString());
   }
 
@@ -6382,6 +6382,350 @@ public final class DesktopBehavior {
     out.append("Add to DB asks: ").append(asked.toString().split("\n")[0]).append(" | Add as it is: ").append(now).append('\n');
     boolean upOk = asked.toString().contains("not 4:7") && now.contains("is in the DB");
     if (!favOk || !listsOk || !importOk || !upOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_4 on the desktop: tags by kind (WAV, MP3, MIDI apart) and Use last tags; WAV ready
+   * with Convert hits into MIDI; a Sogni workflow in Params' list as soon as it is printed, Copy
+   * workflow id; playlists' kinds and the last one per kind; General settings' Sogni tools and file
+   * types; Send to zip with a password, and File > Import of the zip (into the DB, or kept as it is).
+   */
+  void s139_ready_tags_sogni_ids_playlists_settings_zip() throws Exception {
+    File dir = PromptDb.dir();
+    final File home = new File(System.getProperty("user.home"));
+    MediaTags.load(dir);
+    ReadyRecent.load(dir);
+    ReadyRecent.setTags(ReadyRecent.IMAGE, java.util.Arrays.asList("beach"));
+    ReadyRecent.setTags(ReadyRecent.WAV, java.util.Arrays.asList("drums", "loop"));
+    ReadyRecent.setTags(ReadyRecent.MIDI, java.util.Arrays.asList("groove"));
+    final File pic = new File(home, "sea.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final Pulsekit app = frame instanceof Pulsekit ? (Pulsekit) frame : null;
+    final javax.swing.JPopupMenu[] menu = new javax.swing.JPopupMenu[1];
+    edt(() -> menu[0] = GroupMenus.fileMenu(app, pic));
+    javax.swing.JMenuItem useLast = null;
+    for (Component c : menu[0].getComponents()) if ("file-use-last-tags".equals(c.getName())) useLast = (javax.swing.JMenuItem) c;
+    final javax.swing.JMenuItem use = useLast;
+    if (use != null) edt(() -> use.doClick());
+    MediaTags.load(dir);
+    String seaTags = MediaTags.line(MediaTags.key("sea.png", pic.length()));
+    // WAV ready: its title and Convert hits into MIDI.
+    final File wav = new File(home, "beat.wav");
+    Files.write(wav.toPath(), AudioIo.encodeWav(new short[4410], 22050));
+    final StringBuilder ready = new StringBuilder();
+    inspectNext = d -> {
+      ready.append(d.getTitle()).append(": ");
+      java.util.List<Component> all = new java.util.ArrayList<Component>();
+      java.util.LinkedList<Component> todo = new java.util.LinkedList<Component>(java.util.Arrays.asList(d.getContentPane().getComponents()));
+      while (!todo.isEmpty()) {
+        Component c = todo.removeFirst();
+        if (c instanceof javax.swing.AbstractButton) ready.append(((javax.swing.AbstractButton) c).getText()).append(" | ");
+        if (c instanceof Container) todo.addAll(java.util.Arrays.asList(((Container) c).getComponents()));
+      }
+    };
+    answers.add("Close");
+    final PyJav pj = (PyJav) get("pyJav");
+    edt(() -> pj.offerAudio(wav));
+    idle();
+    inspectNext = null;
+    out.append("Use last tags on a picture: ").append(use == null ? "no item" : use.getText()).append(" -> ").append(seaTags).append(" | ").append(ready).append('\n');
+    boolean tagsOk = use != null && use.getText().equals("Use last tags: beach") && seaTags.contains("beach") && ready.toString().startsWith("WAV ready:")
+        && ready.toString().contains(PyJav.HITS_TO_MIDI) && ready.toString().contains("Use last tags: drums, loop") && !ready.toString().contains(PyJav.TO_WAV);
+    // A Sogni run's workflow: in Params' list at once; Copy workflow id.
+    SogniHistory.init(new File(home, ".pulsekit"));
+    SogniDownloads.init(dir);
+    long id = SogniDownloads.started("SogniPedit.java", System.currentTimeMillis());
+    JavaRun.Live live = new JavaRun.Live();
+    live.download(id);
+    live.add("Workflow: wf_desk7\n");
+    String during = SogniHistory.entries().isEmpty() ? "none" : SogniHistory.entries().get(0).label();
+    edt(() -> {
+      pj.showWorkflow("wf_desk7");
+      pj.copyWorkflowId();
+    });
+    String copied = (String) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+    out.append("Params' list while running: ").append(during).append(" | ").append(pj.copyWorkflow.getText()).append(" -> clipboard ").append(copied).append('\n');
+    boolean idsOk = during.contains(SogniHistory.DOWNLOADING) && during.contains("SogniPedit") && "wf_desk7".equals(copied) && pj.copyWorkflow.isVisible();
+    // Playlists: kinds and the last one per kind.
+    Playlist.addTo(dir, "Pics", "/x/a.png", "a.png");
+    Playlist.addTo(dir, "Clips", "/x/b.mp4", "b.mp4");
+    final javax.swing.JMenu[] add = new javax.swing.JMenu[1];
+    edt(() -> add[0] = PlaylistWindow.addMenu(app, "/x/c.mp4", "c.mp4"));
+    String first = add[0].getItem(0).getText();
+    out.append("Add to playlist for a video: ").append(first).append('\n');
+    boolean plOk = first.equals("Clips (video)" + Playlist.LAST_FOR + "videos");
+    // General settings: Sogni tools and file types.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog settings = null;
+    for (int i = 0; i < 100 && settings == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) settings = (JDialog) w;
+    }
+    final JDialog gs = settings;
+    boolean boxes = gs != null && component(gs, "settings-show-sogni") != null && component(gs, "settings-show:V") != null;
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-sogni-music-only")).doClick());
+    java.util.List<String> progs = java.util.Arrays.asList("DrumMidi_CRT.jar", "SogniChat.java", "SogniMusic.java", "SogniVideo.java");
+    String musicOnly = AppSettings.programs(progs).toString();
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show-sogni")).doClick());
+    String noSogni = AppSettings.programs(progs).toString();
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show-sogni")).doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(gs, "settings-show:V")).doClick());
+    edt(() -> gs.dispose());
+    String letters = String.join(" ", PromptDb.withGroup());
+    boolean hidden = !DbFilter.fits("b.mp4", "A");
+    AppSettings.setShows("V", true);
+    out.append("settings boxes ").append(boxes).append(" | only music and chat ").append(musicOnly).append(" | no Sogni ").append(noSogni).append(" | videos off: ").append(letters).append(", b.mp4 hidden ").append(hidden).append('\n');
+    boolean setOk = boxes && musicOnly.equals("[DrumMidi_CRT.jar, SogniChat.java, SogniMusic.java]") && noSogni.equals("[DrumMidi_CRT.jar]") && !letters.contains("V") && hidden;
+    // Send to zip: a folder, with a password; then File > Import of it.
+    File pulse = new File(home, "Zips/Pulse");
+    new File(pulse, "sub").mkdirs();
+    Files.copy(wav.toPath(), new File(pulse, "beat.wav").toPath());
+    Files.write(new File(pulse, "sub/note.txt").toPath(), "hello".getBytes(StandardCharsets.UTF_8));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    ZipFlow.answer = q -> "pw42";
+    final MediaDir.Entry folder = entryOf(pulse);
+    folder.folder = true;
+    edt(() -> mb.fileAction(folder, pulse, MediaDir.SEND_ZIP));
+    File zip = new File(home, "Zips/Pulse.zip");
+    java.util.List<ZipPack.Entry> es = zip.isFile() ? ZipPack.list(zip) : new java.util.ArrayList<ZipPack.Entry>();
+    out.append("Send to zip: ").append(ZipFlow.lastSaid).append(" | ").append(es.size()).append(" files, encrypted ").append(ZipPack.encrypted(es)).append('\n');
+    boolean sendOk = ZipFlow.lastSaid != null && ZipFlow.lastSaid.startsWith("Zipped Pulse (2 files, with a password)") && es.size() == 2 && ZipPack.encrypted(es);
+    answers.add("Yes");
+    answers.add(ZipImport.WHERE[ZipImport.DB]);
+    answers.add(ZipImport.GALLERY[0]);
+    final File z = zip;
+    edt(() -> ZipFlow.importZip(app, z));
+    idle();
+    String imported = ZipFlow.lastSaid;
+    String refs = PromptDb.vault().referenceFiles().toString();
+    int refCount = PromptDb.vault().referenceFiles().size();
+    answers.add("No");
+    edt(() -> ZipFlow.importZip(app, z));
+    idle();
+    String kept = ZipFlow.lastSaid;
+    ZipFlow.answer = q -> "wrong";
+    edt(() -> ZipFlow.importZip(app, z));
+    String wrong = ZipFlow.lastSaid;
+    ZipFlow.answer = null;
+    out.append("Import: ").append(imported).append(" | refs ").append(refCount).append(" | not extracted: ").append(kept).append(" | wrong password: ").append(wrong).append('\n');
+    boolean importOk = imported != null && imported.startsWith("Imported 2 files into Ref files") && refCount >= 2 && kept != null && kept.equals("Pulse.zip is in the DB as a reference file")
+        && wrong != null && wrong.startsWith(ZipPack.WRONG_PASSWORD);
+    if (!tagsOk || !idsOk || !plOk || !setOk || !sendOk || !importOk) throw new AssertionError(out.toString() + refs);
+  }
+
+  /**
+   * Notes 20102026_5 on the desktop: File > Database settings (Use encrypted DB, the DBs' space, the
+   * list and Use); Send db to zip (a password of at least 4 characters); Import db zip as a
+   * secondary DB, and a DB encrypted with another computer's key (its key typed).
+   */
+  void s140_db_settings_export_import() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    File home = new File(System.getProperty("user.home"));
+    PromptVault v = PromptDb.vault();
+    long pid = v.addPrompt(v.addCategory("Walks"), "Beach walk");
+    byte[] big = new byte[150 * 1024];
+    new java.util.Random(5).nextBytes(big);
+    v.addVersion(pid, "Beach walk", "", "a walk on the beach", "", "beach.png", big, "", new byte[0], "", new byte[0], "", "");
+    v.addLibraryFile("note.txt", "hello".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    String before = v.summary();
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> DbSettings.show(app));
+    for (int i = 0; i < 100 && (DbSettings.last == null || !DbSettings.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog d = DbSettings.last;
+    boolean parts = component(d, "settings-encrypted") != null && component(d, "db-list") != null && component(d, "db-send-zip") != null && component(d, "db-import-zip") != null;
+    String sizes = ((javax.swing.JTextArea) component(d, "db-sizes")).getText();
+    out.append("Database settings: parts ").append(parts).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
+    boolean dialogOk = parts && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)");
+    // Send db to zip: a short password refused, then into the file picked.
+    DbSettings.answer = q -> "abc";
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-send-zip")).doClick());
+    String shortSaid = DbSettings.lastSaid;
+    DbSettings.answer = q -> "pw42";
+    File zip = new File(home, "pulsekit-db-Pulse-20261020-1400.zip");
+    chooseNext = zip;
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-send-zip")).doClick());
+    String sent = DbSettings.lastSaid;
+    out.append("short password: ").append(shortSaid).append(" | ").append(sent).append('\n');
+    boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(ZipPack.list(zip));
+    // Import db zip: as a new secondary DB; Use it.
+    chooseNext = zip;
+    answers.add(DbSlots.AS[0]);
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-import-zip")).doClick());
+    String imported = DbSettings.lastSaid;
+    @SuppressWarnings("unchecked")
+    final javax.swing.JComboBox<String> list = (javax.swing.JComboBox<String>) component(d, "db-list");
+    edt(() -> list.setSelectedItem("Pulse"));
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
+    String inUse = DbSlots.active(dir) + ": " + PromptDb.vault().summary() + ", encrypted " + PromptVault.encrypted(dir);
+    edt(() -> list.setSelectedItem(DbSlots.MAIN));
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
+    out.append("Import: ").append(imported).append(" | DBs ").append(DbSlots.names(dir)).append(" | Use Pulse -> ").append(inUse).append('\n');
+    boolean importOk = imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
+    // Another computer's DB: its key typed.
+    PromptVault.Keys own = PromptVault.keys;
+    final byte[] other = new byte[32];
+    other[0] = 9;
+    File elsewhere = new File(home, "elsewhere-db");
+    elsewhere.mkdirs();
+    PromptVault.keys = () -> new javax.crypto.spec.SecretKeySpec(other, "AES");
+    PromptVault ev = PromptVault.open(elsewhere);
+    ev.addPrompt(ev.addCategory("Far"), "From elsewhere");
+    PromptVault.keys = own;
+    PromptVault.forget();
+    java.util.List<ZipPack.Source> raw = new java.util.ArrayList<ZipPack.Source>();
+    for (File f : elsewhere.listFiles()) if (PromptVault.isDbFile(f.getName())) raw.add(new ZipPack.Source(f.getName(), f));
+    File rawZip = new File(home, "Laptop.zip");
+    ZipPack.write(rawZip, raw, null);
+    StringBuilder hex = new StringBuilder();
+    for (byte b : other) hex.append(String.format("%02x", b & 0xff));
+    DbSettings.answer = q -> q.equals(DbSlots.KEY_NOTE) ? hex.toString() : null;
+    chooseNext = rawZip;
+    answers.add(DbSlots.AS[0]);
+    edt(() -> ((javax.swing.AbstractButton) component(d, "db-import-zip")).doClick());
+    String keyed = DbSettings.lastSaid;
+    DbSettings.answer = null;
+    String sizesAfter = ((javax.swing.JTextArea) component(d, "db-sizes")).getText();
+    edt(() -> d.dispose());
+    out.append("Another computer's DB: ").append(keyed).append(" | ").append(sizesAfter.replace('\n', ' ')).append('\n');
+    boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && sizesAfter.contains("Laptop: ") && sizesAfter.contains("All DBs: ");
+    if (!dialogOk || !sendOk || !importOk || !keyOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Notes 20102026_6 on the desktop: images and videos off keep them out of the galleries and a
+   * prompt's thumbnails; Show DB/Prompts tab; the settings master password.
+   */
+  void s141_hidden_types_prompts_tab_master_password() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    AppSettings.load(dir);
+    AppSettings.setShows("I", false);
+    AppSettings.setShows("V", false);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptVault v = PromptDb.vault();
+    v.addLibraryFile("face.png", png.toByteArray(), "Imported", 1);
+    v.addLibraryFile("walk.mp4", new byte[2000], "Imported", 1);
+    v.addLibraryFile("notes.txt", "hello".getBytes(StandardCharsets.UTF_8), "Imported", 1);
+    StringBuilder kept = new StringBuilder();
+    for (PromptVault.StoredFile f : FileFilter.keep(v.referenceFiles(), v, "A")) kept.append(f.name).append(' ');
+    long id = v.addPrompt(v.categories().get(0).id, "Sky");
+    long vid = v.addVersion(id, "Sky", "", "Blue sky", "", "sky.png", png.toByteArray(), "", null, "", null, "ai", "");
+    boolean noStrip = PromptDb.slotStrip(v, v.version(vid), 40) == null;
+    AppSettings.setShows("I", true);
+    boolean stripBack = PromptDb.slotStrip(v, v.version(vid), 40) != null;
+    AppSettings.setShows("V", true);
+    out.append("Ref files with images and videos off: ").append(kept.toString().trim()).append(" | prompt thumbnails hidden ").append(noStrip).append(", back with images ").append(stripBack).append('\n');
+    boolean typesOk = kept.toString().trim().equals("notes.txt") && noStrip && stripBack;
+    // Show DB/Prompts tab; the master password.
+    GeneralSettings.answer = q -> "open sesame";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog gs = null;
+    for (int i = 0; i < 100 && gs == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) gs = (JDialog) w;
+    }
+    final JDialog d = gs;
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-show-prompts-tab")).doClick());
+    boolean tabGone = !component(app, "tab:prompts").isVisible();
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-show-prompts-tab")).doClick());
+    boolean tabBack = component(app, "tab:prompts").isVisible();
+    edt(() -> ((javax.swing.AbstractButton) component(d, "settings-master")).doClick());
+    boolean on = AppSettings.masterOn();
+    edt(() -> d.dispose());
+    boolean locked = AppSettings.locked();
+    AppSettings.setShows("V", false);
+    boolean refused = AppSettings.shows("V");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog gs2 = null;
+    for (int i = 0; i < 100 && gs2 == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && w != d && "General settings".equals(((JDialog) w).getTitle())) gs2 = (JDialog) w;
+    }
+    final JDialog d2 = gs2;
+    boolean greyed = !component(d2, "settings-show-sogni").isEnabled() && !component(d2, "settings-master").isEnabled();
+    GeneralSettings.answer = q -> "wrong";
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-unlock")).doClick());
+    boolean stillLocked = AppSettings.locked() && !component(d2, "settings-show-sogni").isEnabled();
+    GeneralSettings.answer = q -> "open sesame";
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-unlock")).doClick());
+    boolean open = !AppSettings.locked() && component(d2, "settings-show-sogni").isEnabled();
+    edt(() -> ((javax.swing.AbstractButton) component(d2, "settings-master")).doClick());
+    boolean off = !AppSettings.masterOn();
+    edt(() -> d2.dispose());
+    GeneralSettings.answer = null;
+    out.append("DB/Prompts tab: unticked gone ").append(tabGone).append(", ticked shown ").append(tabBack).append(" | master on ").append(on).append(", closed locked ").append(locked)
+        .append(", a change refused ").append(refused).append(", greyed ").append(greyed).append(" | wrong password still locked ").append(stillLocked).append(" | unlocked ").append(open)
+        .append(" | unticked off ").append(off).append('\n');
+    boolean rest = tabGone && tabBack && on && locked && refused && greyed && stillLocked && open && off && !AppSettings.locked();
+    if (!typesOk || !rest) throw new AssertionError(out.toString());
+  }
+
+  /** Notes 21102026: Drum Tracks' sliders in a window, recent prompts, Delete category, workflow ids, resume. */
+  void s142_sliders_recent_prompts_categories_resume() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    edt(() -> call("showView", "pattern"));
+    answers.add("(keep)");
+    final boolean[] hidden = new boolean[1];
+    edt(() -> {
+      hidden[0] = !app.knobsRow.isVisible();
+      ((javax.swing.JButton) component(app, "drum-sliders")).doClick();
+    });
+    idle();
+    final boolean[] shown = new boolean[1];
+    edt(() -> shown[0] = app.slidersWindow != null && app.slidersWindow.isVisible() && app.knobsRow.isVisible() && SwingUtilities.getWindowAncestor(app.knobsRow) == app.slidersWindow);
+    edt(() -> app.slidersWindow.dispose());
+    idle();
+    final boolean[] back = new boolean[1];
+    edt(() -> back[0] = app.slidersWindow == null && !app.knobsRow.isVisible() && SwingUtilities.getWindowAncestor(app.knobsRow) == app);
+    out.append("sliders: hidden ").append(hidden[0]).append(", in a window ").append(shown[0]).append(", back ").append(back[0]).append('\n');
+    boolean slidersOk = hidden[0] && shown[0] && back[0];
+    for (int i = 1; i <= 7; i++) PromptHistory.add(dir, "SogniPedit.java", "prompt " + i);
+    java.util.List<String> recent = PromptHistory.recent(dir, "SogniPedit.java");
+    out.append("recent prompts: ").append(recent).append('\n');
+    boolean recentOk = recent.size() == 6 && recent.get(0).equals("prompt 7");
+    PromptVault v = PromptDb.vault();
+    MediaTags.load(dir);
+    MediaTags.addCategory(v, "", "Trips");
+    MediaTags.setCategory("V:trip.mp4", "Trips");
+    String deleted = MediaTags.deleteCategory(v, "Trips");
+    String refused = "";
+    try {
+      MediaTags.deleteCategory(v, "Video");
+    } catch (IllegalArgumentException ex) {
+      refused = ex.getMessage();
+    }
+    out.append("categories: ").append(deleted).append(", file now '").append(MediaTags.category("V:trip.mp4")).append("' | ").append(refused).append('\n');
+    boolean categoryOk = MediaTags.categoryId(v, "Trips") == 0 && MediaTags.category("V:trip.mp4").length() == 0 && refused.contains("own");
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniHistory.started("wf-90", "SogniVideo.java", 1000L);
+    String running = SogniHistory.entries().get(0).status;
+    SogniHistory.finished("wf-90", true);
+    String completed = SogniHistory.entries().get(0).status;
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniVideo.java", "", "Workflow: wf-91\nFailed: Unexpected end of stream\n", java.util.Arrays.asList("--prompt", "walk"));
+    out.append("workflow: ").append(running).append(" -> ").append(completed).append(" | resume ").append(resume).append('\n');
+    boolean wfOk = "running".equals(running) && "completed".equals(completed) && resume != null && resume.contains("wf-91");
+    if (!slidersOk || !recentOk || !categoryOk || !wfOk) throw new AssertionError(out.toString());
+  }
+
+  /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
+  private static boolean jdk8PushedQueue(Throwable t) {
+    StackTraceElement[] st = t.getStackTrace();
+    return t instanceof NullPointerException && st.length > 0 && "java.awt.EventQueue".equals(st[0].getClassName()) && "getCurrentEventImpl".equals(st[0].getMethodName());
+  }
+
+  /** A stream read whole (InputStream.readAllBytes is newer than Java 8, which the suite also runs on). */
+  private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    byte[] buf = new byte[8192];
+    for (int k; (k = in.read(buf)) > 0; ) out.write(buf, 0, k);
+    return out.toByteArray();
   }
 
   private static MediaDir.Entry entryOf(File f) {
@@ -7475,7 +7819,10 @@ public final class DesktopBehavior {
   // ------------------------------------------------------------ app driving
 
   private void start() throws Exception {
-    Thread.setDefaultUncaughtExceptionHandler((th, e) -> errors.add(e));
+    Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+      e.printStackTrace();
+      if (!jdk8PushedQueue(e)) errors.add(e);
+    });
     Thread watcher = new Thread(this::watchDialogs, "dialog-watcher");
     watcher.setDaemon(true);
     watcher.start();
@@ -7493,7 +7840,11 @@ public final class DesktopBehavior {
         try {
           super.dispatchEvent(e);
         } catch (Throwable t) {
+          // Java 8's own EventQueue fails this way on a focus change while a queue is pushed (this
+          // one, the tests' own): not Pulsekit's, so not counted.
+          if (jdk8PushedQueue(t)) return;
           errors.add(t);
+          t.printStackTrace();
         }
       }
     });

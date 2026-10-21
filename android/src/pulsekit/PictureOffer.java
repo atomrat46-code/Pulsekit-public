@@ -33,28 +33,41 @@ final class PictureOffer {
         col.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
         int shown = 0;
         for (JavaRun.FileOut f : pictures) {
-            Bitmap b = decode(f.bytes, width);
-            TextView name = app.text(f.name + (b == null ? " (no preview)" : ""), 13, false);
+            // General settings > Show images off: the picture is not shown (its name and items still are).
+            Bitmap b = AppSettings.shows("I") ? decode(f.bytes, width) : null;
+            TextView name = app.text(f.name + (b == null ? (AppSettings.shows("I") ? " (no preview)" : " (not shown: Show images is off)") : ""), 13, false);
             name.setPadding(0, app.dp(shown == 0 ? 0 : 12), 0, app.dp(4));
             col.addView(name);
-            if (b == null) continue;
-            ImageView view = new ImageView(app);
-            view.setImageBitmap(b);
-            view.setAdjustViewBounds(true);
+            boolean hidden = !AppSettings.shows("I");
+            if (b == null && !hidden) continue;
+            final android.view.View view;
+            if (b != null) {
+                ImageView image = new ImageView(app);
+                image.setImageBitmap(b);
+                image.setAdjustViewBounds(true);
+                view = image;
+            } else {
+                // Not shown: held, it still has the picture's items.
+                view = app.pill("Hold for its items", false, null);
+            }
             view.setTag("picture-offer:" + f.name);
             col.addView(view, new LinearLayout.LayoutParams(-1, -2));
             // The picture into another program, as its Reference file 1 or 2.
             final JavaRun.FileOut pic = f;
             // Long press: Add to favourites, Add to group.
             view.setOnLongClickListener(v -> {
+                final String[] picItems = TagDialogs.withUseLast(app, new String[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, ReadyRecent.IMAGE);
                 menu = new AlertDialog.Builder(app)
                     .setTitle(pic.name)
-                    .setItems(new CharSequence[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                        MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, (d, w) -> {
-                        if (w == 4) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
+                    .setItems(picItems, (d, w) -> {
+                        String it = picItems[w];
+                        if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
                         else if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
-                        else if (w == 1) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
-                        else if (w == 2) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
+                        else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
+                        else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
+                        else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, pic.name, pic.bytes.length, ReadyRecent.IMAGE);
+                        else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, pic.name, pic.bytes.length, ReadyRecent.IMAGE, pic.bytes, null);
                         else TagDialogs.category(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
                     })
                     .setNegativeButton("Cancel", null)

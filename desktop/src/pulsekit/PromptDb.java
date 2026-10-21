@@ -440,7 +440,9 @@ final class PromptDb {
 
     /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        return DbFilter.WITH_FAV_GROUP.clone();
+        // Without the types General settings leaves out (A when the one shown is).
+        DbFilter.current = AppSettings.letter(DbFilter.current);
+        return AppSettings.letters(DbFilter.WITH_FAV_GROUP);
     }
 
     /** The Browse DB dialog shown last, for the tests. */
@@ -658,7 +660,8 @@ final class PromptDb {
         java.util.List<java.awt.Image> parts = new java.util.ArrayList<java.awt.Image>();
         for (int which = 1; which <= 3; which++) {
             String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
-            if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0) continue;
+            // A type General settings leaves out: no thumbnail.
+            if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0 || !AppSettings.showsFile(n)) continue;
             ImageIcon one = thumb(n, vault.fileBytes(v.id, which));
             if (one == null) continue;
             int w = one.getIconWidth(), h = one.getIconHeight();
@@ -693,7 +696,7 @@ final class PromptDb {
         if (owner != null) {
             for (int which = 1; which <= 3; which++) {
                 final String n = which == 1 ? owner.ref1Name : which == 2 ? owner.ref2Name : owner.resultName;
-                if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0) continue;
+                if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0 || !AppSettings.showsFile(n)) continue;
                 final byte[] b = vault.fileBytes(owner.id, which);
                 ImageIcon icon = thumb(n, b);
                 JButton t = new JButton((which == 3 ? "Result" : "Ref " + which) + ": " + n, icon);
@@ -872,7 +875,7 @@ final class PromptDb {
         sortRow.add(sort);
         // A I V S T: all files, or only pictures, videos, sound files or text files.
         sortRow.add(javax.swing.Box.createHorizontalStrut(12));
-        galleryFilter = FileFilter.normal(galleryFilter);
+        galleryFilter = AppSettings.letter(FileFilter.normal(galleryFilter));
         final Runnable againGallery = () -> {
             dialog.dispose();
             this.gallery(kind);
@@ -1293,6 +1296,17 @@ final class PromptDb {
         menu.add(catItem);
         menu.add(open);
         menu.add(save);
+        // Send to zip: the file into a zip (a password recommended), saved where the save dialog says.
+        JMenuItem zip = new JMenuItem(ZipPack.SEND);
+        zip.setName("gallery-send-zip");
+        zip.addActionListener(e -> {
+            try {
+                ZipFlow.sendLibraryFile(app, vault(), file);
+            } catch (Exception ex) {
+                app.setNow("Could not zip " + file.name);
+            }
+        });
+        menu.add(zip);
         boolean extractable = false;
         try {
             extractable = PromptExtract.offered(vault(), file.versionId, file.which, file.name);

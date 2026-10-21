@@ -108,7 +108,9 @@ final class ProgramMenus {
     }
 
     void showMenu(final String kind) {
-        final String[] names = this.list(kind);
+        // Without the Sogni tools General settings leaves out.
+        AppSettings.load(app.getFilesDir());
+        final String[] names = AppSettings.programs(java.util.Arrays.asList(this.list(kind))).toArray(new String[0]);
         if (names.length == 0) {
             app.setNow("No " + kind + " programs in Programs/" + kind);
             return;

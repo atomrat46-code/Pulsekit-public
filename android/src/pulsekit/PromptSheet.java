@@ -397,6 +397,19 @@ public final class PromptSheet {
   }
 
   /** After an import: the Prompts page's Ref files (or Result files) shown. */
+  /** Database settings changed the DB in use: read from it from now on. */
+  static void reopen(MainActivity app) {
+    try {
+      vault = PromptVault.open(app.getFilesDir());
+    } catch (Exception ex) {
+      vault = null;
+      toast(app, ex);
+    }
+    categoryId = 0;
+    if (vault != null && !vault.categories().isEmpty()) categoryId = vault.categories().get(0).id;
+    rebuild(app);
+  }
+
   static void openFiles(MainActivity app, boolean results, String letter) {
     if (letter != null) galleryFilter = letter;
     previewBack = 0;
@@ -957,7 +970,9 @@ public final class PromptSheet {
   private static List<PromptVault.StoredFile> galleryFiles() {
     List<PromptVault.StoredFile> all = promptFilesOpen ? vault.promptFiles() : resultsOpen && !refsOpen ? vault.resultFiles() : vault.referenceFiles();
     FileFilter.use(FileFilter.GALLERY);
-    if ("A".equals(galleryFilter) && !FileFilter.active()) return all;
+    // A type General settings leaves out is never in the gallery (its letter is gone too).
+    galleryFilter = AppSettings.letter(galleryFilter);
+    if ("A".equals(galleryFilter) && !FileFilter.active() && AppSettings.showsAll()) return all;
     return FileFilter.keep(all, vault, galleryFilter);
   }
 
@@ -1884,7 +1899,8 @@ public final class PromptSheet {
     final int px = Math.max(dp(activity, 24), cell / 3 - dp(activity, 6));
     for (int which = 1; which <= 3; which++) {
       final String n = which == 1 ? v.ref1Name : which == 2 ? v.ref2Name : v.resultName;
-      if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0) continue;
+      // A type General settings leaves out: no thumbnail.
+      if (n == null || n.length() == 0 || vault.sizeOf(v, which) == 0 || !AppSettings.showsFile(n)) continue;
       final ImageView mini = new ImageView(activity);
       mini.setScaleType(ImageView.ScaleType.CENTER_CROP);
       mini.setBackgroundColor(Color.parseColor("#1B1D1F"));
@@ -1925,7 +1941,7 @@ public final class PromptSheet {
       final int px = dp(activity, 84);
       for (int which = 1; which <= 3; which++) {
         final String n = which == 1 ? owner.ref1Name : which == 2 ? owner.ref2Name : owner.resultName;
-        if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0) continue;
+        if (n == null || n.length() == 0 || vault.sizeOf(owner, which) == 0 || !AppSettings.showsFile(n)) continue;
         final int slot = which;
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -2023,6 +2039,8 @@ public final class PromptSheet {
     runs.add(() -> TagDialogs.category((MainActivity) activity, file.name, file.size, () -> rebuild(activity)));
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, file.versionId, file.which, file.name));
+    items.add(ZipPack.SEND);
+    runs.add(() -> ZipFlow.sendLibraryFile(activity, vault, file.versionId, file.which, file.name));
     items.add("Rename");
     runs.add(() -> ask(activity, "Rename prompt file", "Name", file.name, next -> {
       try {
@@ -2155,6 +2173,8 @@ public final class PromptSheet {
     // Export to disk: a copy in Download, to work on with another app.
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, versionId, which, name));
+    items.add(ZipPack.SEND);
+    runs.add(() -> ZipFlow.sendLibraryFile(activity, vault, versionId, which, name));
     items.add("Rename");
     runs.add(rename);
     items.add("Delete");
@@ -2462,7 +2482,8 @@ public final class PromptSheet {
     final byte[] bytes = which == 1 ? ref1Bytes : which == 2 ? ref2Bytes : resultBytes;
     final Object key = bytes;
     thumb.setTag(R_THUMB_KEY, key);
-    if (bytes == null || bytes.length == 0) {
+    // No thumbnail for a type General settings leaves out (Show images, Show videos).
+    if (bytes == null || bytes.length == 0 || !AppSettings.showsFile(name)) {
       thumb.setImageDrawable(null);
       thumb.setVisibility(View.GONE);
       return;

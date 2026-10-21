@@ -122,10 +122,73 @@ public final class Playlist {
       sb.append("Title").append(n).append('=').append(it.title).append('\n');
       sb.append("Length").append(n).append('=').append(it.length).append('\n');
     }
+    // What kinds of file it has ("Types=image,video"); players that do not know the line skip it.
+    List<String> kinds = this.types();
+    if (!kinds.isEmpty()) sb.append("Types=").append(String.join(",", kinds)).append('\n');
     sb.append("NumberOfEntries=").append(this.items.size()).append('\n');
     sb.append("Version=2\n");
     return sb.toString();
   }
+
+  /** The kinds of file a playlist has. */
+  public static final String IMAGE = "image";
+  public static final String VIDEO = "video";
+  public static final String AUDIO = "audio";
+  public static final String MIDI = "midi";
+
+  /** A file's kind by its name: IMAGE, VIDEO, AUDIO, MIDI, or "" for anything else. */
+  public static String type(String name) {
+    if (MediaDir.isMidi(name)) return MIDI;
+    int k = MediaDir.kind(name);
+    return k == MediaDir.PICTURE ? IMAGE : k == MediaDir.VIDEO ? VIDEO : k == MediaDir.SOUND ? AUDIO : "";
+  }
+
+  /** An item's kind (its title's ending, else its address'). */
+  public static String type(Item it) {
+    String t = type(it.title);
+    return t.length() > 0 ? t : type(shortName(it.file));
+  }
+
+  /** The kinds of file in the list, in the order they first come (image, video…). */
+  public List<String> types() {
+    List<String> out = new ArrayList<String>();
+    for (Item it : this.items) {
+      String t = type(it);
+      if (t.length() > 0 && !out.contains(t)) out.add(t);
+    }
+    return out;
+  }
+
+  /** "Pulse (image, video)": a playlist's name with the kinds it has. */
+  public static String labelWithTypes(File dir, String name) {
+    List<String> kinds = load(dir, name).types();
+    return kinds.isEmpty() ? name : name + " (" + String.join(", ", kinds) + ")";
+  }
+
+  /** "images", "videos": a kind said in a sentence. */
+  public static String plural(String type) {
+    return IMAGE.equals(type) ? "images" : VIDEO.equals(type) ? "videos" : AUDIO.equals(type) ? "audio files" : MIDI.equals(type) ? "MIDI files" : "files";
+  }
+
+  /** Add to playlist's rows for a file: {labels, names}, the playlist used last for its kind first ("· last used for videos"), then New playlist…. */
+  public static String[][] menuFor(File dir, String title) {
+    List<String> rows = names(dir);
+    String kind = type(title);
+    String last = kind.length() == 0 ? "" : settings(dir).lastOf(kind);
+    if (last.length() > 0 && rows.remove(last)) rows.add(0, last);
+    String[] labels = new String[rows.size() + 1];
+    String[] names = new String[rows.size() + 1];
+    for (int i = 0; i < rows.size(); i++) {
+      names[i] = rows.get(i);
+      labels[i] = labelWithTypes(dir, rows.get(i)) + (rows.get(i).equals(last) ? LAST_FOR + plural(kind) : "");
+    }
+    labels[rows.size()] = NEW;
+    names[rows.size()] = NEW;
+    return new String[][] {labels, names};
+  }
+
+  /** After the playlist used last for a kind of file in Add to playlist…'s list. */
+  public static final String LAST_FOR = " \u00b7 last used for ";
 
   /** Several lists as one, in order; a file in more than one comes once (where it came first). */
   public static Playlist merge(String name, List<Playlist> lists) {
@@ -262,6 +325,16 @@ public final class Playlist {
       save(dir, p);
     } catch (Exception ex) {
       return "Could not add " + shown + " to " + n + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+    }
+    // The playlist used last for this kind of file, kept (Add to playlist… shows it first).
+    String kind = type(shown);
+    if (kind.length() == 0) kind = type(shortName(file));
+    if (kind.length() > 0) {
+      Settings st = settings(dir);
+      if (!n.equals(st.lastOf(kind))) {
+        st.setLastOf(kind, n);
+        saveSettings(dir, st);
+      }
     }
     return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
   }
@@ -460,6 +533,17 @@ public final class Playlist {
     public float zoomVideo = 1f;
     /** The playlist open last. */
     public String last = DEFAULT;
+    /** The playlist each kind of file (IMAGE, VIDEO, AUDIO, MIDI) went into last. */
+    public final Map<String, String> lastOf = new LinkedHashMap<String, String>();
+
+    public String lastOf(String type) {
+      String v = this.lastOf.get(type);
+      return v == null ? "" : v;
+    }
+
+    public void setLastOf(String type, String name) {
+      if (type != null && type.length() > 0 && name != null && clean(name).length() > 0) this.lastOf.put(type, clean(name));
+    }
 
     /** Loop video on (Auto mode off then) or off. */
     public void loop(boolean on) {
@@ -503,6 +587,7 @@ public final class Playlist {
             videoZoomKept = true;
           }
           else if (k.equals("last")) s.last = clean(v).length() == 0 ? DEFAULT : clean(v);
+          else if (k.startsWith("last.")) s.setLastOf(k.substring(5), v);
         } catch (NumberFormatException ignored) {
           // that one stays as it was
         }
@@ -520,6 +605,7 @@ public final class Playlist {
   public static void saveSettings(File dir, Settings s) {
     String text = "repeat=" + s.repeat + "\nauto=" + s.auto + "\nautoplay=" + s.autoplay + "\nloop=" + s.loop + "\nseconds=" + s.seconds + "\nvolume=" + s.volume
         + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nzoomVideo=" + s.zoomVideo + "\nlast=" + s.last + "\n";
+    for (Map.Entry<String, String> e : s.lastOf.entrySet()) text += "last." + e.getKey() + "=" + e.getValue() + "\n";
     try {
       if (!dir.isDirectory()) dir.mkdirs();
       Files.write(new File(dir, SETTINGS).toPath(), text.getBytes(StandardCharsets.UTF_8));

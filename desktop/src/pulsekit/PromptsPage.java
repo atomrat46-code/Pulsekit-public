@@ -885,7 +885,8 @@ final class PromptsPage {
         final String n = which == 1 ? this.ref1Name : which == 2 ? this.ref2Name : this.resultName;
         final byte[] b = which == 1 ? this.ref1Bytes : which == 2 ? this.ref2Bytes : this.resultBytes;
         name.putClientProperty("thumb-for", b);
-        if (b == null || b.length == 0 || n == null) {
+        // No thumbnail for a type General settings leaves out (Show images, Show videos).
+        if (b == null || b.length == 0 || n == null || !AppSettings.showsFile(n)) {
             name.setIcon(null);
             return;
         }

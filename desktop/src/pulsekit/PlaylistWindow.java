@@ -340,8 +340,11 @@ final class PlaylistWindow {
     static javax.swing.JMenu addMenu(final Pulsekit app, final String file, final String title) {
         javax.swing.JMenu m = new javax.swing.JMenu(Playlist.ADD);
         m.setName("add-to-playlist");
-        for (final String n : Playlist.names(PromptDb.dir())) {
-            JMenuItem item = new JMenuItem(n);
+        // The playlist used last for this kind of file first; each with the kinds it has.
+        String[][] rows = Playlist.menuFor(PromptDb.dir(), title);
+        for (int i = 0; i < rows[1].length - 1; i++) {
+            final String n = rows[1][i];
+            JMenuItem item = new JMenuItem(rows[0][i]);
             item.setName("playlist-add:" + n);
             item.addActionListener(e -> confirmAdd(app, n, file, title));
             m.add(item);
@@ -358,10 +361,12 @@ final class PlaylistWindow {
 
     /** Add to playlist as a question of its own (Video ready): the playlists, then New playlist…. */
     static void askAdd(Pulsekit app, String file, String title) {
-        String[] rows = Playlist.menu(PromptDb.dir());
-        Object picked = JOptionPane.showInputDialog(app, "Playlist for " + title, Playlist.ADD.replace("\u2026", ""), JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
+        // The playlist used last for this kind of file first; each with the kinds it has.
+        String[][] menu = Playlist.menuFor(PromptDb.dir(), title);
+        Object picked = JOptionPane.showInputDialog(app, "Playlist for " + title, Playlist.ADD.replace("\u2026", ""), JOptionPane.PLAIN_MESSAGE, null, menu[0], menu[0][0]);
         if (picked == null) return;
         String name = picked.toString();
+        for (int i = 0; i < menu[0].length; i++) if (menu[0][i].equals(name)) name = menu[1][i];
         if (Playlist.NEW.equals(name)) {
             name = ask(app, Playlist.NEW, "");
             if (name == null) return;
@@ -459,7 +464,8 @@ final class PlaylistWindow {
                 final Playlist.Item it = items.get(i);
                 final File f = local(it);
                 final long size = f == null ? -1 : f.length();
-                final ImageIcon icon = thumb(it, f, 72, 54);
+                // No thumbnail for a type General settings leaves out (Show images, Show videos).
+                final ImageIcon icon = AppSettings.shownItems(java.util.Collections.singletonList(it)).isEmpty() ? null : thumb(it, f, 72, 54);
                 final JLabel l = thumbs.get(i);
                 final int n = i;
                 SwingUtilities.invokeLater(() -> {
@@ -866,6 +872,18 @@ final class PlaylistWindow {
 
     /** The viewer on the list from item `start`. */
     static void viewer(final Pulsekit app, java.awt.Window owner, final Playlist p, int start) {
+        // The types General settings leaves out are not shown (the list itself keeps them).
+        if (!AppSettings.showsAll()) {
+            Playlist shown = AppSettings.shownPlaylist(p);
+            if (shown.items.isEmpty() && !p.items.isEmpty()) {
+                app.setNow(AppSettings.nothingShown(p.name));
+                return;
+            }
+            if (shown.items.size() != p.items.size()) {
+                viewer(app, owner, shown, AppSettings.shownStart(p, start));
+                return;
+            }
+        }
         if (p.items.isEmpty()) {
             app.setNow(p.name + " has no files yet");
             return;

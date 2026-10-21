@@ -270,6 +270,8 @@ public class MainActivity extends UiKit {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
+        // General settings' Sogni tools and file types.
+        AppSettings.load(this.getFilesDir());
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -428,6 +430,16 @@ public class MainActivity extends UiKit {
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
         this.addTab(drumButtons, "fills", "Fills");
+        // Sliders: Tempo, Swing, Density and Human in a popup (they took room on every Drum Tracks page).
+        TextView sliders = this.text("Sliders", 13, true);
+        sliders.setGravity(17);
+        sliders.setTag("drum-sliders");
+        sliders.setTextColor(MUTED);
+        sliders.setPadding(0, this.dp(8), 0, this.dp(8));
+        LinearLayout.LayoutParams slidersLp = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
+        slidersLp.setMargins(this.dp(2), 0, this.dp(2), 0);
+        sliders.setOnClickListener(v -> this.showSliders());
+        drumButtons.addView((View)sliders, (ViewGroup.LayoutParams)slidersLp);
         this.drumSubtabs.addView((View)drumButtons);
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
@@ -446,6 +458,8 @@ public class MainActivity extends UiKit {
         this.densBar = this.knob(this.knobsRow, "DENSITY", 1, 10, 5, n -> this.densVal.setText((CharSequence)Integer.toString(n)));
         this.humanBar = this.knob(this.knobsRow, "HUMAN", 0, 100, 18, n -> this.humanVal.setText((CharSequence)(n + "%")));
         this.chrome.addView((View)this.knobsRow);
+        // Shown in the Sliders popup (next to Fills), not on the page.
+        this.knobsRow.setVisibility(View.GONE);
         this.toolsRow = this.row();
         this.toolsRow.setPadding(0, this.dp(4), 0, this.dp(4));
         this.stepsBtn = this.outline("16 steps", false, view -> this.gridEditor.toggleSteps());
@@ -563,6 +577,27 @@ public class MainActivity extends UiKit {
 
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
+    /** The Sliders popup shown last (for the tests). */
+    AlertDialog lastSliders;
+
+    /** Sliders: Tempo, Swing, Density and Human in a popup; Close puts them back (hidden) on the page. */
+    void showSliders() {
+        final ViewGroup home = (ViewGroup) this.knobsRow.getParent();
+        if (home == null) return;
+        final int at = home.indexOfChild(this.knobsRow);
+        home.removeView(this.knobsRow);
+        this.knobsRow.setVisibility(View.VISIBLE);
+        final LinearLayout box = this.col();
+        box.setPadding(this.dp(16), this.dp(8), this.dp(16), this.dp(8));
+        box.addView(this.knobsRow);
+        this.lastSliders = new AlertDialog.Builder(this).setTitle("Sliders").setView(box).setPositiveButton("Close", null).show();
+        this.lastSliders.setOnDismissListener(d -> {
+            box.removeView(this.knobsRow);
+            this.knobsRow.setVisibility(View.GONE);
+            home.addView(this.knobsRow, Math.min(at, home.getChildCount()));
+        });
     }
 
     void addTab(LinearLayout linearLayout, String string, String string2) {
@@ -766,6 +801,17 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null) MediaBrowser.imported(this, n, intent);
             return;
         }
+        if (n == DbSettings.PASSWORD_FILE || n == DbSettings.SAVE_ZIP || n == DbSettings.OPEN_ZIP || n == DbSettings.KEY_FILE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) DbSettings.picked(this, n, intent.getData());
+            return;
+        }
+        if (n == ZipFlow.PICK_FOLDER) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) ZipFlow.folderPicked(this, intent.getData());
+            else if (ZipFlow.zip != null) this.setNow("Not extracted: " + ZipFlow.zipName);
+            return;
+        }
         if (n == DownloadsScreen.PICK_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) DownloadsScreen.folderPicked(this, intent.getData());
@@ -828,6 +874,11 @@ public class MainActivity extends UiKit {
                 }
                 this.playback.refreshPadLabels();
                 Toast.makeText((Context)this, (CharSequence)(Engine.TRACK_LABEL[n3] + " sample loaded"), (int)0).show();
+                return;
+            }
+            if (n == 7 && ZipImport.isZip(DbImport.displayName(this, uri))) {
+                // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
+                ZipFlow.importZip(this, uri, DbImport.displayName(this, uri));
                 return;
             }
             if (n == 7) {
@@ -1102,6 +1153,11 @@ public class MainActivity extends UiKit {
         android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
         midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
+        // Use encrypted DB, the DBs and their space, Send db to zip, Import db zip.
+        android.widget.TextView dbSettings = this.text(DbSlots.TITLE, 14, true);
+        dbSettings.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        dbSettings.setTextColor(FG);
+        dbSettings.setTag("file-db-settings");
         android.widget.TextView general = this.text("General settings", 14, true);
         general.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         general.setTextColor(FG);
@@ -1131,6 +1187,7 @@ public class MainActivity extends UiKit {
         menu.addView(downloads);
         menu.addView(playlists);
         menu.addView(general);
+        menu.addView(dbSettings);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
@@ -1159,6 +1216,10 @@ public class MainActivity extends UiKit {
             pop.dismiss();
             DbImport.pick(this, true);
         });
+        dbSettings.setOnClickListener(v -> {
+            pop.dismiss();
+            DbSettings.show(this);
+        });
         general.setOnClickListener(v -> {
             pop.dismiss();
             GeneralSettings.show(this);
@@ -1186,6 +1247,8 @@ public class MainActivity extends UiKit {
             boolean on = this.view.equals(tag)
                     || (DRUM_TRACKS.equals(tag) && drumView(this.view))
                     || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
+            // General settings > Show DB/Prompts tab.
+            if ("prompts".equals(tag)) tab.setVisibility(AppSettings.showPromptsTab() ? android.view.View.VISIBLE : android.view.View.GONE);
             tab.setBackground(this.round(on ? ELEV : 0, 8));
             tab.setTextColor(on ? FG : MUTED);
         }

@@ -509,6 +509,12 @@ final class PyJav {
         outAt.topMargin = app.dp(18);
         app.pyPane.addView(outHead, slot, outAt);
         slot = slot + 1;
+        // A Sogni run's workflow id, copied with one tap as soon as the run prints it.
+        this.pkCopyWorkflowBtn = app.action("Copy workflow id", ELEV, FG, v -> this.pkCopyWorkflow());
+        this.pkCopyWorkflowBtn.setTag("pyjav-copy-workflow");
+        this.pkCopyWorkflowBtn.setVisibility(this.pkWorkflowId == null ? 8 : 0);
+        app.pyPane.addView(this.pkCopyWorkflowBtn, slot);
+        slot = slot + 1;
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
@@ -709,6 +715,32 @@ final class PyJav {
     /** DrumMidi's "no hits yet, abort?" question shown last, for the tests. */
     android.app.AlertDialog pkAskAbort;
 
+    /** Copy workflow id: shown once the run going on (or the last one) has printed "Workflow: <id>". */
+    android.widget.TextView pkCopyWorkflowBtn;
+    String pkWorkflowId;
+
+    /** The workflow id the run printed, shown on the button (null: hidden). */
+    void pkShowWorkflow(String id) {
+        this.pkWorkflowId = id;
+        if (this.pkCopyWorkflowBtn == null) return;
+        this.pkCopyWorkflowBtn.setVisibility(id == null ? 8 : 0);
+        if (id != null) this.pkCopyWorkflowBtn.setText("Copy workflow id (" + (id.length() > 14 ? id.substring(0, 14) + "\u2026" : id) + ")");
+    }
+
+    /** The workflow id onto the clipboard. */
+    void pkCopyWorkflow() {
+        if (this.pkWorkflowId == null) return;
+        try {
+            android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            clips.setPrimaryClip(android.content.ClipData.newPlainText("Sogni workflow", this.pkWorkflowId));
+            // In Params' --workflow list too (when it is not there yet).
+            pulsekit.SogniHistory.started(this.pkWorkflowId, app.pyName, System.currentTimeMillis());
+            app.setNow("Copied workflow id " + this.pkWorkflowId);
+        } catch (Throwable ex) {
+            app.setNow("Workflow id: " + this.pkWorkflowId);
+        }
+    }
+
     /** Every second while the run goes: "Running… 2:05 · Status: processing", while the text below Run is still that line. */
     void pkTickLive(final pulsekit.JavaRun.Live live, final String head) {
         // One tick a run (shown again after another program: the one going on carries on).
@@ -721,6 +753,9 @@ final class PyJav {
                     if (pkTicking == live) pkTicking = null;
                     return;
                 }
+                // Its workflow id, once printed: Copy workflow id.
+                String wf = pulsekit.SogniDownloads.workflowIn(live.text());
+                if (wf != null && !wf.equals(pkWorkflowId)) pkShowWorkflow(wf);
                 // DrumMidi without a hit for a while: asked whether to abort.
                 String noHits = pulsekit.JavaRun.noHitsQuestion(app.pyName, live, System.currentTimeMillis());
                 if (noHits != null) {
@@ -933,6 +968,18 @@ final class PyJav {
             if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
             if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         }
+        // A picture picked from the library and gone from the temp folder since (the phone emptied it): written again, or said.
+        if (pulsekit.InputOrigins.anyGone(app.getFilesDir(), argv, app.getCacheDir())) try {
+            java.util.List<String> gone = pulsekit.InputOrigins.missing(app.getFilesDir(), argv, app.getCacheDir(), pulsekit.PromptVault.open(app.getFilesDir()));
+            if (!gone.isEmpty()) {
+                String note = pulsekit.InputOrigins.missingNote(gone);
+                if (this.pkPyLog != null) this.pkPyLog.setText(note);
+                app.setNow(note);
+                return;
+            }
+        } catch (Exception ignored) {
+            // the program says what it misses
+        }
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
         this.pkDrumsWarned = false;
@@ -964,6 +1011,7 @@ final class PyJav {
         RUNS.incrementAndGet();
         // Kept running (a notification) until the run is over: switching apps does not lose it.
         pulsekit.RunKeeper.start(app, name);
+        this.pkShowWorkflow(null);
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         Long downloadRun = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
@@ -1014,7 +1062,26 @@ final class PyJav {
             return;
         }
         this.pkShowPyResult(result);
+        // Any other failure with its workflow known: asked whether to resume it (no new run is paid for).
+        final java.util.List<String> resume = pulsekit.JavaRun.resumeArgs(app.pyName, src, log, argv);
+        if (resume != null && log != null && log.indexOf("Failed") >= 0) {
+            if (saveRun) resume.add(pulsekit.PromptKeep.SAVE_RUN);
+            pkAskResume = new android.app.AlertDialog.Builder(app).setTitle("Resume " + app.pyName + "?")
+                .setMessage(pulsekit.JavaRun.resumeQuestion(log, resume))
+                .setPositiveButton("Resume", (d, w) -> {
+                    this.pkReconnectNote = "Resuming workflow " + pulsekit.JavaRun.workflowOf(resume) + "\u2026";
+                    this.pkForcedArgs = resume;
+                    this.pkRunConfirmed = true;
+                    this.pkDrumsWarned = true;
+                    app.setNow(this.pkReconnectNote);
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("No", null).show();
+        }
     }
+
+    /** The Resume question shown last (for the tests). */
+    static android.app.AlertDialog pkAskResume;
 
     public void pkAcceptOutput(String answer) {
         String given = answer == null ? "" : answer.trim();
@@ -1243,6 +1310,11 @@ final class PyJav {
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
+        if (pulsekit.SogniDownloads.workflowIn(log) != null) {
+            this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
+            // Params' --workflow list: completed when it downloaded, failed else.
+            pulsekit.SogniHistory.finished(pulsekit.SogniDownloads.workflowIn(log), log.indexOf("Succeeded") >= 0);
+        }
         // The prompt library work runs in the background: storing a large result (a 10 s video)
         // re-encrypts the whole library, which on the main thread froze the app ("not responding").
         final pulsekit.JavaRun.Result kept0 = result;
@@ -1357,6 +1429,9 @@ final class PyJav {
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
         // (Not after a batch, --count: its grooves go to the batch folder.)
         this.pkOffer("the groove", ok && !toWav && "MidiDrumGen.java".equals(app.pyName) && !(argv != null && argv.contains("--count")), () -> MidiOffer.offer(app, made));
+        // WAV ready's Convert hits into MIDI: MIDI ready on what DrumMidi_CRT made.
+        this.pkOffer("the MIDI", ok && "DrumMidi_CRT.jar".equals(program) && MidiOffer.hitsAsked, () -> MidiOffer.offerHits(app, made, this.pkPyOutputPath));
+        MidiOffer.hitsAsked = false;
         // MediaBrowser: its folder in the Media browser.
         this.pkOffer("the Media browser", ok && "MediaBrowser.java".equals(app.pyName), () -> {
             String browse = MediaDir.opened(madeLog);
@@ -1769,7 +1844,7 @@ final class PyJav {
         } catch (Exception ignored) {
             // the dialog offers no categories then
         }
-        SavePromptDialog.show(app, vault, p.sheet, choice -> {
+        SavePromptDialog.show(app, vault, p.sheet, PromptSave.mediaOf(result, p.sheet), choice -> {
             if (choice == null) {
                 this.pkAddLogLine(PromptSave.cancelledNote(p.sheet));
                 this.pkAskSheets(sheets, i + 1, result, argv, pending);

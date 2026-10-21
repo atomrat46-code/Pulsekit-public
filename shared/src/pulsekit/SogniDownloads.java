@@ -97,6 +97,8 @@ public final class SogniDownloads {
           if (r.status.length() == 0 || r.status.startsWith("Running") || r.status.startsWith("Reconnecting") || r.status.startsWith("Resuming") || r.status.startsWith("Queued")) {
             r.status = "Failed: Pulsekit was closed during the run" + (r.workflow.length() > 0 ? " (Resume download fetches it)" : "");
           }
+          // Params' --workflow list says so for its workflow.
+          if (r.workflow.length() > 0) SogniHistory.closed(r.workflow, r.program);
           stopped = true;
         }
         RUNS.add(r);
@@ -142,6 +144,8 @@ public final class SogniDownloads {
     if (r == null || workflow == null || workflow.trim().length() == 0 || workflow.trim().equals(r.workflow)) return;
     r.workflow = workflow.trim();
     write();
+    // Params' --workflow list has it at once too (not only when the run ends).
+    SogniHistory.started(r.workflow, r.program, System.currentTimeMillis());
   }
 
   /** The exact arguments the run started with (Resume download). */

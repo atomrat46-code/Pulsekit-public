@@ -190,7 +190,9 @@ final class RefBrowser {
 
     /** A I V S T, F (favourites) and G (a group). */
     static String[] withGroup() {
-        return DbFilter.WITH_FAV_GROUP.clone();
+        // Without the types General settings leaves out (A when the one shown is).
+        DbFilter.current = AppSettings.letter(DbFilter.current);
+        return AppSettings.letters(DbFilter.WITH_FAV_GROUP);
     }
 
     /** A letter's (or a switch's, or a tag list's) pill: lit when on. */
@@ -441,6 +443,8 @@ final class RefBrowser {
             } finally {
                 fos.close();
             }
+            // Written again from the library when the phone empties the temp folder (InputOrigins).
+            InputOrigins.record(activity.getFilesDir(), out.getAbsolutePath(), file.versionId, file.which);
             picked.picked(file.name, out);
             return true;
         } catch (Exception ex) {

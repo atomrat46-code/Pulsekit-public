@@ -49,7 +49,7 @@ final class DownloadsScreen {
         scroll.addView(col);
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app).setTitle("Downloads").setView(scroll).setPositiveButton("Close", null).create();
-        fill(app, col);
+        safeFill(app, col);
         last.show();
         // Every second while it is shown: the tabs' counts and the runs' times; the list again when a run moved on.
         final AlertDialog shown = last;
@@ -61,7 +61,7 @@ final class DownloadsScreen {
                 String now = signature();
                 if (!now.equals(seen[0])) {
                     seen[0] = now;
-                    fill(app, col);
+                    safeFill(app, col);
                 } else {
                     refreshTimes(col);
                 }
@@ -90,6 +90,26 @@ final class DownloadsScreen {
                 if (r != null) ((TextView) k).setText(SogniDownloads.runLabel(r));
             } else if (k instanceof android.view.ViewGroup) {
                 refreshTimes((android.view.ViewGroup) k);
+            }
+        }
+    }
+
+    /**
+     * The list made, or (something in it it cannot show: a run a crash left half written) what went
+     * wrong said in its place, kept in crash-log.txt: the page opens either way (it closed Pulsekit).
+     */
+    private static void safeFill(final MainActivity app, final LinearLayout col) {
+        try {
+            fill(app, col);
+        } catch (Throwable ex) {
+            col.removeAllViews();
+            TextView why = app.text("Could not show the downloads: " + ex + "\n\nClear a run (hold its line) or Clear all, then open Downloads again.", 13, false);
+            why.setTag("downloads-error");
+            col.addView(why);
+            try {
+                CrashLog.write(app.getFilesDir(), Thread.currentThread(), ex);
+            } catch (Throwable ignored) {
+                // not kept
             }
         }
     }
@@ -255,10 +275,27 @@ final class DownloadsScreen {
         });
     }
 
-    /** A picture's thumbnail (read whole: a picture is small). */
-    private static android.graphics.Bitmap pictureThumb(MainActivity app, SogniDownloads.Item item, int px) {
-        byte[] data = bytes(app, item);
-        return data == null ? null : PromptSheet.refThumb(app, item.name, data, px);
+    /** A picture's thumbnail, read at a small size (a large SogniPedit picture read whole ran the phone out of memory). */
+    private static android.graphics.Bitmap pictureThumb(MainActivity app, SogniDownloads.Item item, int px) throws Exception {
+        android.graphics.BitmapFactory.Options size = new android.graphics.BitmapFactory.Options();
+        size.inJustDecodeBounds = true;
+        try (InputStream in = open(app, item)) {
+            android.graphics.BitmapFactory.decodeStream(in, null, size);
+        }
+        if (size.outWidth <= 0 || size.outHeight <= 0) return null;
+        android.graphics.BitmapFactory.Options read = new android.graphics.BitmapFactory.Options();
+        read.inSampleSize = 1;
+        while (Math.max(size.outWidth, size.outHeight) / (read.inSampleSize * 2) >= px * 2) read.inSampleSize *= 2;
+        try (InputStream in = open(app, item)) {
+            return android.graphics.BitmapFactory.decodeStream(in, null, read);
+        }
+    }
+
+    private static InputStream open(MainActivity app, SogniDownloads.Item item) throws Exception {
+        Uri uri = uriFor(app, item.where);
+        InputStream in = uri != null ? app.getContentResolver().openInputStream(uri) : new java.io.FileInputStream(fileFor(item.where));
+        if (in == null) throw new java.io.IOException("cannot open it");
+        return in;
     }
 
     /** A video's first frame, read from the file where it is (not loaded whole). */
@@ -312,14 +349,22 @@ final class DownloadsScreen {
         }).setNegativeButton("Cancel", null).show();
     }
 
-    /** A failed run's menu (held): Resume download when its workflow is known, Clear. */
+    static final String COPY_WORKFLOW = "Copy workflow id";
+
+    /** A failed run's menu (held): Resume download when its workflow is known, Copy workflow id, Clear. */
     static void runMenu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r) {
         final java.util.List<String> rows = new java.util.ArrayList<String>();
         if (SogniDownloads.canResume(r)) rows.add(SogniDownloads.RESUME);
+        if (r.workflow.length() > 0) rows.add(COPY_WORKFLOW);
         rows.add("Clear");
         lastMenu = new AlertDialog.Builder(app).setTitle(r.programName() + " \u00b7 " + r.when()).setItems(rows.toArray(new String[0]), (d, which) -> {
             if (SogniDownloads.RESUME.equals(rows.get(which))) {
                 resume(app, r);
+                return;
+            }
+            if (COPY_WORKFLOW.equals(rows.get(which))) {
+                app.pyJav.pkWorkflowId = r.workflow;
+                app.pyJav.pkCopyWorkflow();
                 return;
             }
             SogniDownloads.clear(r.id, null);

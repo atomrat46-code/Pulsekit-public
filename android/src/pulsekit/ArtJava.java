@@ -777,15 +777,29 @@ public final class ArtJava {
   static String publish(Context ctx, String name, byte[] data) {
     if (ctx == null || name == null || data == null) return null;
     String safe = name.replace('\\', '_').replace('/', '_');
-    String chosen = toFolder(ctx, safe, data);
-    if (chosen != null) return chosen;
-    if (android.os.Build.VERSION.SDK_INT >= 29) {
-      // Download numbers a second copy "name (1).png", but only up to "name (32).png": after that it
-      // takes no more of that name, so the file gets the time it was made in its name instead.
-      for (String given : new String[] {safe, stamped(safe, ""), stamped(safe, "-" + (System.nanoTime() % 1000))}) {
-        String saved = toDownloads(ctx, given, data);
-        if (saved != null) return saved;
+    // A file manager with the same folder open can keep a write from going through for a moment:
+    // tried again after a short wait before the file goes anywhere else.
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        // Never waited for on the screen's thread.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) break;
+        try {
+          Thread.sleep(400L * attempt);
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        }
       }
+      String chosen = toFolder(ctx, safe, data);
+      if (chosen != null) return chosen;
+      if (android.os.Build.VERSION.SDK_INT >= 29) {
+        // Download numbers a second copy "name (1).png", but only up to "name (32).png": after that it
+        // takes no more of that name, so the file gets the time it was made in its name instead.
+        for (String given : new String[] {safe, stamped(safe, ""), stamped(safe, "-" + (System.nanoTime() % 1000))}) {
+          String saved = toDownloads(ctx, given, data);
+          if (saved != null) return saved;
+        }
+      } else break;
     }
     try {
       File dir = ctx.getExternalFilesDir(null);

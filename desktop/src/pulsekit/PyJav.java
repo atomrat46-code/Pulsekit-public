@@ -214,12 +214,49 @@ final class PyJav {
         outputHead.setName("pyjav-output-head");
         JPanel outputBox = new JPanel(new BorderLayout());
         outputBox.setOpaque(false);
-        outputBox.add((Component)outputHead, "North");
+        // A Sogni run's workflow id, copied with one click as soon as the run prints it.
+        this.copyWorkflow = new JButton("Copy workflow id");
+        this.copyWorkflow.setName("pyjav-copy-workflow");
+        this.copyWorkflow.setVisible(false);
+        this.copyWorkflow.addActionListener(e -> this.copyWorkflowId());
+        JPanel outTop = new JPanel(new BorderLayout());
+        outTop.setOpaque(false);
+        outTop.add(outputHead, BorderLayout.WEST);
+        outTop.add(this.copyWorkflow, BorderLayout.EAST);
+        outputBox.add((Component)outTop, "North");
         outputBox.add((Component)logScroll, "Center");
         jPanel.add((Component)north, "North");
         jPanel.add((Component)editorBox, "Center");
         jPanel.add((Component)outputBox, "South");
         return jPanel;
+    }
+
+    /** Recent prompts' menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastRecent;
+
+    /** Copy workflow id: shown once the run going on (or the last one) has printed "Workflow: <id>". */
+    JButton copyWorkflow;
+    String workflowId;
+
+    /** The workflow id the run printed, on the button (null: hidden). */
+    void showWorkflow(String id) {
+        this.workflowId = id;
+        if (this.copyWorkflow == null) return;
+        this.copyWorkflow.setVisible(id != null);
+        if (id != null) this.copyWorkflow.setText("Copy workflow id (" + (id.length() > 14 ? id.substring(0, 14) + "\u2026" : id) + ")");
+    }
+
+    /** The workflow id onto the clipboard. */
+    void copyWorkflowId() {
+        if (this.workflowId == null) return;
+        try {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(this.workflowId), null);
+            // In Params' --workflow list too (when it is not there yet).
+            SogniHistory.started(this.workflowId, app.pyName, System.currentTimeMillis());
+            app.setNow("Copied workflow id " + this.workflowId);
+        } catch (Exception ex) {
+            app.setNow("Workflow id: " + this.workflowId);
+        }
     }
 
     void browsePyFile() {
@@ -547,7 +584,11 @@ final class PyJav {
         // Kept by the program: shown again when it is picked after another (SogniPedit's Params looked at meanwhile).
         final Shown runShown = new Shown(live, head, lastLine, lastTop);
         RUNNING.put(name, runShown);
+        this.showWorkflow(null);
         tick.addActionListener(ev -> {
+            // Its workflow id, once printed: Copy workflow id.
+            String wf = SogniDownloads.workflowIn(live.text());
+            if (wf != null && !wf.equals(this.workflowId)) this.showWorkflow(wf);
             // DrumMidi without a hit for a while: asked whether to abort.
             String noHits = JavaRun.noHitsQuestion(name, live, System.currentTimeMillis());
             if (noHits != null) {
@@ -710,6 +751,11 @@ final class PyJav {
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
                 SogniHistory.record(result.log, System.currentTimeMillis());
+                if (SogniDownloads.workflowIn(result.log) != null) {
+                    this.showWorkflow(SogniDownloads.workflowIn(result.log));
+                    // Params' --workflow list: completed when it downloaded, failed else.
+                    SogniHistory.finished(SogniDownloads.workflowIn(result.log), result.log.indexOf("Succeeded") >= 0);
+                }
                 // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
                 // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
                 // Pending (File > Downloads) while what the run stores is stored.
@@ -771,12 +817,29 @@ final class PyJav {
                 // With --towav or --test it goes on to Midi2Wav (and its test) instead.
                 if (madeMidi != null && result.code == 0 && Midi2WavTest.fromGen(name, argv)) this.genToWav(madeMidi, argv);
                 else if (madeMidi != null && result.code == 0 && "MidiDrumGen.java".equals(name) && !argv.contains("--count")) this.offerMidi(madeMidi.name, madeMidi.bytes);
+                // WAV ready's Convert hits into MIDI: MIDI ready on what DrumMidi_CRT made.
+                else if (madeMidi != null && result.code == 0 && "DrumMidi_CRT.jar".equals(name) && this.hitsAsked) this.offerMidi(madeMidi.name, madeMidi.bytes);
+                this.hitsAsked = false;
                 // MediaBrowser: its folder in the Media browser.
                 String browse = result.code == 0 && "MediaBrowser.java".equals(name) ? MediaDir.opened(result.log) : null;
                 if (browse != null) app.mediaBrowser.open(new File(browse));
                 // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
                 String list = "PlayList.java".equals(name) ? PlaylistWindow.kept(app, result) : null;
                 if (list != null) PlaylistWindow.open(app, list);
+                // Any other failure with its workflow known: asked whether to resume it (no new run is paid for).
+                java.util.List<String> resume = javaProg && !inBatch && result.log != null && result.log.indexOf("Failed") >= 0 ? JavaRun.resumeArgs(name, src, result.log, argv) : null;
+                if (resume != null) {
+                    if (savingRun) resume.add(PromptKeep.SAVE_RUN);
+                    Object[] options = {"Resume", "No"};
+                    if (JOptionPane.showOptionDialog(app, JavaRun.resumeQuestion(result.log, resume), "Resume " + name + "?", JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0) {
+                        this.reconnectNote = "Resuming workflow " + JavaRun.workflowOf(resume) + "\u2026";
+                        this.forcedArgs = resume;
+                        app.setNow(this.reconnectNote);
+                        this.runPython();
+                        return;
+                    }
+                }
                 // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
                 if (batch != null && batch.takes(name)) {
                     java.util.List<String> paths = new java.util.ArrayList<String>();
@@ -800,14 +863,21 @@ final class PyJav {
         col.setLayout(new javax.swing.BoxLayout(col, javax.swing.BoxLayout.Y_AXIS));
         for (File f : pictures) {
             java.awt.image.BufferedImage img = null;
+            // General settings > Show images off: the picture is not shown (its name and right-click items still are).
+            boolean hidden = !AppSettings.shows("I");
             try {
-                img = javax.imageio.ImageIO.read(f);
+                img = hidden ? null : javax.imageio.ImageIO.read(f);
             } catch (Exception ignored) {
                 img = null;
             }
-            JLabel name = new JLabel(f.getName() + (img == null ? " (no preview)" : ""));
+            JLabel name = new JLabel(f.getName() + (img == null ? (hidden ? " (not shown: Show images is off; a right click has its items)" : " (no preview)") : ""));
             name.setAlignmentX(0.0f);
             col.add(name);
+            if (hidden) {
+                final File pic = f;
+                name.setName("picture-offer:" + f.getName());
+                GroupMenus.onRightClick(name, () -> GroupMenus.fileMenu(app, pic).show(name, 20, 20));
+            }
             if (img == null) continue;
             double scale = Math.min(1.0, 480.0 / Math.max(img.getWidth(), img.getHeight()));
             java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
@@ -1202,7 +1272,7 @@ final class PyJav {
             if (same != null) {
                 line = PromptSave.unchangedNote(p.sheet, same);
             } else {
-                PromptSave.Choice c = PromptSave.ask() ? SavePromptDialog.ask(app, vault, p.sheet) : null;
+                PromptSave.Choice c = PromptSave.ask() ? SavePromptDialog.ask(app, vault, p.sheet, PromptSave.mediaOf(r, p.sheet)) : null;
                 if (PromptSave.ask() && c == null) {
                     line = PromptSave.cancelledNote(p.sheet);
                 } else {
@@ -1310,7 +1380,7 @@ final class PyJav {
                 java.util.List<Object> opts = new java.util.ArrayList<Object>();
                 opts.add(playing ? "Stop" : "Play");
                 opts.add("Add to composer stack");
-                java.util.List<String> more = file == null ? new java.util.ArrayList<String>() : midiItems(MarkFile.isFavourite(file.getName(), file.length()));
+                java.util.List<String> more = file == null ? new java.util.ArrayList<String>() : TagDialogs.withUseLast(midiItems(MarkFile.isFavourite(file.getName(), file.length())), ReadyRecent.MIDI);
                 opts.addAll(more);
                 opts.add("Close");
                 Object[] options = opts.toArray();
@@ -1373,10 +1443,12 @@ final class PyJav {
 
     /** One of MIDI ready's items; true when it leaves MIDI ready (a program opened, the editor). */
     boolean midiItem(File file, String name, String item) {
-        String kind = ReadyRecent.SOUND;
+        String kind = ReadyRecent.MIDI;
         if (item.equals(FileFavourites.ADD_SHORT) || item.equals(FileFavourites.REMOVE_SHORT)) GroupMenus.toggleFavourite(app, file);
         else if (item.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(file), name, kind);
         else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, file.getName(), file.length(), null, kind);
+        else if (item.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, file.getName(), file.length(), kind);
+        else if (item.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, file, kind);
         else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, file.getName(), file.length(), null, kind);
         else if (item.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, file.getAbsolutePath(), name);
         else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);
@@ -1417,17 +1489,21 @@ final class PyJav {
         // Add to favourites, Add to group, the tags, the category and Add to playlist come back to the question.
         while (true) {
             FileFavourites.load(PromptDb.dir());
-            Object[] options = new Object[] {"Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, "Close"};
+            java.util.List<String> videoItems = TagDialogs.withUseLast(java.util.Arrays.asList("Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, "Close"), ReadyRecent.VIDEO);
+            Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            String it = ans < 0 ? "Close" : videoItems.get(ans);
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
-            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
-            else if (ans == 4) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
-            else if (ans == 5) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
-            else if (ans == 6) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
+            else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
+            else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
+            else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, video.getName(), video.length(), ReadyRecent.VIDEO);
+            else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, video, ReadyRecent.VIDEO);
+            else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
+            else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
         }
         try {
@@ -1517,35 +1593,56 @@ final class PyJav {
      */
     void offerAudio(File audio) {
         // Favourites, group, tags, category, playlist and Convert into WAV come back to the question.
+        // A WAV (Convert into WAV's) has Convert hits into MIDI instead: DrumMidi_CRT on it, then MIDI ready.
         String name = audio.getName();
-        String kind = ReadyRecent.SOUND;
-        int ans;
+        String kind = ReadyRecent.kind(name);
+        boolean mp3 = name.toLowerCase().endsWith(".mp3");
+        boolean wav = name.toLowerCase().matches(".+\\.(wav|wave)");
+        String it;
+        File madeWav = null;
         while (true) {
             FileFavourites.load(PromptDb.dir());
-            Object[] options = new Object[] {"Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
-                FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, TO_WAV, "Close"};
-            ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
-                + "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set.", name.toLowerCase().endsWith(".mp3") ? "MP3 ready" : "Audio ready",
+            java.util.List<String> items = TagDialogs.withUseLast(java.util.Arrays.asList("Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
+                FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
+            Object[] options = items.toArray();
+            int ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
+                + (wav ? "Convert hits into MIDI runs DrumMidi_CRT on it, then shows the MIDI it made."
+                    : "Make drum MIDI runs DrumMidi_CRT on it and imports the drums as a file set."), mp3 ? "MP3 ready" : wav ? "WAV ready" : "Audio ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            it = ans < 0 ? "Close" : items.get(ans);
             if (ans == 2) GroupMenus.toggleFavourite(app, audio);
-            else if (ans == 3) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
-            else if (ans == 4) TagDialogs.tags(app, app, name, audio.length(), null, kind);
-            else if (ans == 5) TagDialogs.category(app, app, name, audio.length(), null, kind);
-            else if (ans == 6) PlaylistWindow.askAdd(app, audio.getAbsolutePath(), name);
-            else if (ans == 7) {
-                if (!name.toLowerCase().endsWith(".mp3")) app.setNow(name + " is a WAV already");
+            else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
+            else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, name, audio.length(), null, kind);
+            else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, audio.length(), kind);
+            else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, audio, kind);
+            else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, name, audio.length(), null, kind);
+            else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, audio.getAbsolutePath(), name);
+            else if (it.equals(TO_WAV)) {
+                if (!mp3) app.setNow(name + " is a WAV already");
                 else {
-                    File wav = this.asWav(audio);
-                    if (wav != audio) app.setNow("Saved " + wav.getName() + " beside " + name);
+                    File w = this.asWav(audio);
+                    if (w != audio) {
+                        app.setNow("Saved " + w.getName() + " beside " + name);
+                        // WAV ready follows on it.
+                        madeWav = w;
+                        break;
+                    }
                 }
             } else break;
         }
-        if (ans == 0) {
+        if (madeWav != null) {
+            this.offerAudio(madeWav);
+        } else if (it.equals("Make drum MIDI") || it.equals(HITS_TO_MIDI)) {
             // DrumMidi_CRT.jar carries an MP3 decoder, so the audio is given as it is.
             this.audioInputPath = audio.getAbsolutePath();
             app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+            if (it.equals(HITS_TO_MIDI)) {
+                // This WAV, whatever input the program had before; MIDI ready when it is done.
+                this.setInputFile(audio);
+                this.hitsAsked = true;
+            }
             this.runPython();
-        } else if (ans == 1) {
+        } else if (it.equals("Play")) {
             try {
                 java.awt.Desktop.getDesktop().open(audio);
             } catch (Exception ex) {
@@ -1553,6 +1650,11 @@ final class PyJav {
             }
         }
     }
+
+    /** WAV ready's: DrumMidi_CRT on the WAV, then MIDI ready on the MIDI it made. */
+    static final String HITS_TO_MIDI = "Convert hits into MIDI";
+    /** Convert hits into MIDI asked: MIDI ready follows the DrumMidi_CRT run. */
+    boolean hitsAsked;
 
     static final String TO_WAV = "Convert into WAV";
 
@@ -2098,9 +2200,32 @@ final class PyJav {
                         area.setText(text);
                         area.setCaretPosition(0);
                     }));
+                    // Recent prompts: the six used last with this program, one picked into the field.
+                    JButton recent = new JButton(PromptHistory.RECENT + " \u25be");
+                    recent.setName("params-prompt-recent:" + p.token);
+                    recent.addActionListener(e -> {
+                        java.util.List<String> got = PromptHistory.recent(PromptDb.dir(), program);
+                        if (got.isEmpty()) {
+                            app.setNow("No prompts run with " + program + " yet");
+                            return;
+                        }
+                        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+                        for (final String one : got) {
+                            javax.swing.JMenuItem item = new javax.swing.JMenuItem(PromptHistory.label(one));
+                            item.addActionListener(ev -> {
+                                area.setText(one);
+                                area.setCaretPosition(0);
+                            });
+                            m.add(item);
+                        }
+                        MenuCancel.add(m);
+                        lastRecent = m;
+                        m.show(recent, 0, recent.getHeight());
+                    });
                     picks.add(select);
                     picks.add(db);
                     picks.add(prompts);
+                    picks.add(recent);
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;
@@ -2187,6 +2312,8 @@ final class PyJav {
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
+        // The prompt kept among the program's six last (Recent prompts).
+        for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(PromptDb.dir(), program, values[i]);
         // Another program loaded meanwhile (ImageUpscaler from the Media browser Choose file opened):
         // its argument line is not this program's (it was given SogniPedit's --prompt).
         if (!program.equals(app.pyName)) {

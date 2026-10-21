@@ -916,6 +916,73 @@ final class MediaBrowser {
         }, "pulsekit-media-import").start();
     }
 
+    /**
+     * Send to zip: the file, or the folder with its folders, into "<name>.zip" here, with a password
+     * when one is given (made in Pulsekit's temp folder first, then copied here).
+     */
+    void sendToZip(final MediaDir.Entry e) {
+        ZipFlow.askPassword(this.app, e.name, password -> {
+            this.app.setNow("Zipping " + e.name + "\u2026");
+            new Thread(() -> {
+                String text;
+                File tmp = new File(this.app.getCacheDir(), "media-send.zip");
+                try {
+                    List<ZipPack.Source> sources = new ArrayList<ZipPack.Source>();
+                    if (this.tree == null && !e.id.startsWith(MEDIA) && !e.id.startsWith(DL)) {
+                        File f = new File(e.id);
+                        if (f.isDirectory()) sources.addAll(ZipPack.folder(f));
+                        else sources.add(new ZipPack.Source(e.name, f));
+                    } else if (e.folder) {
+                        this.treeSources(e.id, e.name, sources, 0);
+                    } else {
+                        final Uri u = this.uri(e);
+                        sources.add(new ZipPack.Source(e.name, () -> this.app.getContentResolver().openInputStream(u), 0));
+                    }
+                    if (sources.isEmpty()) throw new java.io.IOException(e.name + " has no files");
+                    ZipPack.write(tmp, sources, password);
+                    int[] done = new int[2];
+                    String name = ZipPack.zipName(e.name, e.folder);
+                    this.importOne(Uri.fromFile(tmp), name, this.here(), done);
+                    text = done[0] == 1 ? "Zipped " + e.name + " (" + sources.size() + (sources.size() == 1 ? " file" : " files") + (password != null ? ", with a password" : "")
+                        + ") into " + name + " in " + this.label() : "Could not put " + name + " in " + this.label();
+                } catch (Throwable ex) {
+                    text = "Could not zip " + e.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                } finally {
+                    tmp.delete();
+                }
+                final String shown = text;
+                this.app.runOnUiThread(() -> {
+                    ZipFlow.said(this.app, shown);
+                    if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
+                });
+            }, "pulsekit-media-zip").start();
+        });
+    }
+
+    /** A granted folder's files (and its folders') as zip sources under `prefix`. */
+    private void treeSources(String doc, String prefix, List<ZipPack.Source> out, int depth) throws Exception {
+        if (depth > 16) return;
+        Cursor c = this.app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(this.tree, doc),
+            new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null);
+        List<String[]> kids = new ArrayList<String[]>();
+        try {
+            while (c != null && c.moveToNext()) kids.add(new String[] {c.getString(0), c.getString(1), c.getString(2), c.isNull(3) ? "0" : String.valueOf(c.getLong(3))});
+        } finally {
+            if (c != null) c.close();
+        }
+        for (String[] k : kids) {
+            String name = k[1] == null ? "file" : k[1];
+            if (name.startsWith(".")) continue;
+            if (DocumentsContract.Document.MIME_TYPE_DIR.equals(k[2])) {
+                this.treeSources(k[0], prefix + "/" + name, out, depth + 1);
+                continue;
+            }
+            final Uri u = DocumentsContract.buildDocumentUriUsingTree(this.tree, k[0]);
+            out.add(new ZipPack.Source(prefix + "/" + name, () -> this.app.getContentResolver().openInputStream(u), Long.parseLong(k[3])));
+        }
+    }
+
     /** What the last import said (for the tests). */
     static volatile String lastImport;
 
@@ -1217,10 +1284,11 @@ final class MediaBrowser {
         FileFavourites.load(this.app.getFilesDir());
         LinearLayout row = this.app.row();
         FileFilter.use(FileFilter.MEDIA);
-        MediaDir.filter = FileFilter.normal(MediaDir.filter);
+        MediaDir.filter = AppSettings.letter(FileFilter.normal(MediaDir.filter));
         for (int i = 0; i < MediaDir.FILTERS.length; i++) {
             final String f = MediaDir.FILTERS[i];
-            if (FileFilter.isToggle(f)) continue;
+            // F G C come after; a type General settings leaves out has no letter.
+            if (FileFilter.isToggle(f) || !AppSettings.shows(f)) continue;
             int n = MediaDir.count(this.allEntries, f);
             TextView pill = this.app.pill(f, f.equals(MediaDir.filter), v -> {
                 MediaDir.filter = f;
@@ -1975,6 +2043,10 @@ final class MediaBrowser {
 
     /** Rename, Copy to folder, Move to folder or Delete, asked about first. */
     void fileAction(final MediaDir.Entry e, String action) {
+        if (MediaDir.SEND_ZIP.equals(action)) {
+            this.sendToZip(e);
+            return;
+        }
         if (MediaDir.RENAME.equals(action)) {
             final android.widget.EditText field = new android.widget.EditText(this.app);
             field.setSingleLine(true);

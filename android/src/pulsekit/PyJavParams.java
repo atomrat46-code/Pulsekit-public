@@ -345,6 +345,24 @@ public final class PyJavParams {
         }));
         row.addView(prompts);
         box.addView(spaced(activity, row));
+        // Recent prompts: the six used last with this program, one picked into the field.
+        android.widget.Button recent = new android.widget.Button(activity);
+        recent.setText(PromptHistory.RECENT + " \u25be");
+        recent.setTag("params-prompt-recent:" + p.token);
+        recent.setOnClickListener(v -> {
+          final java.util.List<String> got = PromptHistory.recent(activity.getFilesDir(), name);
+          if (got.isEmpty()) {
+            android.widget.Toast.makeText(activity, "No prompts run with " + name + " yet", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+          }
+          String[] rows = new String[got.size()];
+          for (int k = 0; k < rows.length; k++) rows[k] = PromptHistory.label(got.get(k));
+          lastRecent = new AlertDialog.Builder(activity).setTitle(PromptHistory.RECENT + " \u00b7 " + name).setItems(rows, (d, w) -> {
+            target.setText(got.get(w));
+            target.setSelection(0);
+          }).setNegativeButton("Cancel", null).show();
+        });
+        box.addView(recent);
         continue;
       }
       if (p.choices != null && p.choices.length > 0) {
@@ -401,6 +419,8 @@ public final class PyJavParams {
               if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
             }
             String switches = ProgramParams.build(ps, values);
+            // The prompt kept among the program's six last (Recent prompts).
+            for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
             activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();
             boolean newInput = false;
             String input = null;
@@ -435,11 +455,20 @@ public final class PyJavParams {
     if (d != null && d.isShowing() && shownFor != null && !shownFor.equals(program)) d.dismiss();
   }
 
+  /** Recent prompts' list shown last, for the tests. */
+  static AlertDialog lastRecent;
+
   /** The Preview shown last, for the tests. */
   static AlertDialog lastParamsPreview;
 
   /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
   static void previewPicture(Activity activity, String path) {
+    // Picked from the library and gone from the temp folder since: written again first.
+    try {
+      InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
+    } catch (Exception ignored) {
+      // said below when it cannot be read
+    }
     android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
     bounds.inJustDecodeBounds = true;
     android.graphics.BitmapFactory.decodeFile(path, bounds);
@@ -451,7 +480,7 @@ public final class PyJavParams {
     android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(path, opts);
     AlertDialog.Builder dialog = new AlertDialog.Builder(activity).setTitle(fileLabel(path)).setPositiveButton("Close", null);
     if (bitmap == null) {
-      dialog.setMessage("The picture could not be read.");
+      dialog.setMessage(new java.io.File(path).isFile() ? "The picture could not be read." : "The picture is not there any more (the phone emptied Pulsekit's temp folder): pick it again.");
     } else {
       android.widget.ImageView image = new android.widget.ImageView(activity);
       image.setTag("params-preview-image");

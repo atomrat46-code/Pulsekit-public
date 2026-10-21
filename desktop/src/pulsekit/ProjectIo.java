@@ -836,11 +836,16 @@ final class ProjectIo {
 
     void openFile() {
         JFileChooser jFileChooser = new JFileChooser();
-        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, Hydrogen, Reaper, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set", "sng", "mid", "midi", "h2song", "h2pattern", "xml", "rpp", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset"));
+        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, Hydrogen, Reaper, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set, zip", "sng", "mid", "midi", "h2song", "h2pattern", "xml", "rpp", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset", "zip"));
         if (jFileChooser.showOpenDialog(app) != 0) {
             return;
         }
         File file = jFileChooser.getSelectedFile();
+        // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
+        if (ZipImport.isZip(file.getName())) {
+            ZipFlow.importZip(app, file);
+            return;
+        }
         try {
             byte[] picked = Files.readAllBytes(file.toPath());
             this.ingest(picked, file.getName());

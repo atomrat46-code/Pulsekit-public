@@ -245,6 +245,46 @@ public final class MediaTags {
     return out;
   }
 
+  /** A category held (long press, right click): a new subcategory under it, or Delete category. */
+  public static final String HELD_NEW_SUB = "New subcategory under it\u2026";
+  public static final String DELETE_CATEGORY = "Delete category";
+  /** The library's own categories (made at first): never deleted. */
+  public static final String[] ORIGINAL = {"General", "Writing", "Code", "Music", "Image", "video"};
+
+  /** Whether `path` is one of the library's own main categories (Video, Image...). */
+  public static boolean isOriginal(String path) {
+    if (path == null || path.indexOf(" / ") >= 0) return false;
+    for (String o : ORIGINAL) if (o.equalsIgnoreCase(path.trim())) return true;
+    return false;
+  }
+
+  /** Delete category's question: how many subcategories and prompts go with it. */
+  public static String deleteQuestion(PromptVault vault, String path) {
+    long id = categoryId(vault, path);
+    List<PromptVault.Category> kids = vault.descendants(id);
+    int prompts = vault.prompts(id).size();
+    for (PromptVault.Category k : kids) prompts += vault.prompts(k.id).size();
+    return "Delete the category " + path + (kids.isEmpty() ? "" : ", its " + kids.size() + (kids.size() == 1 ? " subcategory" : " subcategories"))
+        + (prompts == 0 ? "" : " and the " + prompts + (prompts == 1 ? " prompt" : " prompts") + " in " + (kids.isEmpty() ? "it" : "them")) + "?"
+        + (prompts == 0 ? "" : "\n\nThe prompts are deleted with it (their files in Ref and Result files stay).");
+  }
+
+  /** Delete category: refused for the library's own; the files put in it have no category after. What was done. */
+  public static String deleteCategory(PromptVault vault, String path) throws Exception {
+    if (isOriginal(path)) throw new IllegalArgumentException(path + " is one of the library's own categories: it is not deleted");
+    long id = categoryId(vault, path);
+    if (id == 0) throw new IllegalArgumentException("No category " + path);
+    vault.deleteCategory(id);
+    // Files put in it (or under it) have no category now.
+    synchronized (MediaTags.class) {
+      for (Map.Entry<String, String[]> e : new ArrayList<Map.Entry<String, String[]>>(FILES.entrySet())) {
+        String c = e.getValue()[0];
+        if (c != null && (c.equals(path) || c.startsWith(path + " / "))) setCategory(e.getKey(), "");
+      }
+    }
+    return "Deleted the category " + path;
+  }
+
   /** The category of this path ("Video / Clips"), or 0. */
   public static long categoryId(PromptVault vault, String path) {
     if (vault == null || path == null) return 0;

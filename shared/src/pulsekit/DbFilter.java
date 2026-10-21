@@ -14,6 +14,8 @@ public final class DbFilter {
 
   /** Whether a library file shows under `letter`: F its favourites, G the group G shows, else by its name. */
   public static boolean fits(PromptVault.StoredFile f, String letter) {
+    // A type General settings leaves out is never shown.
+    if (!AppSettings.showsFile(f.name)) return false;
     if (FileFavourites.LETTER.equals(letter)) return FileFavourites.is(f);
     if (FileGroups.LETTER.equals(letter)) return FileGroups.fits(f);
     return fits(f.name, letter);
@@ -26,6 +28,7 @@ public final class DbFilter {
 
   /** Whether a file of this name is shown under `letter` (A, or an unknown letter, shows all). */
   public static boolean fits(String name, String letter) {
+    if (!AppSettings.showsFile(name)) return false;
     if (letter == null || letter.equals("A")) return true;
     int kind = MediaDir.kind(name);
     if (letter.equals("I")) return kind == MediaDir.PICTURE;
