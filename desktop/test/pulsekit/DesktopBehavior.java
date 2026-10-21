@@ -6666,6 +6666,54 @@ public final class DesktopBehavior {
     if (!typesOk || !rest) throw new AssertionError(out.toString());
   }
 
+  /** Notes 21102026: Drum Tracks' sliders in a window, recent prompts, Delete category, workflow ids, resume. */
+  void s142_sliders_recent_prompts_categories_resume() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = PromptDb.dir();
+    edt(() -> call("showView", "pattern"));
+    answers.add("(keep)");
+    final boolean[] hidden = new boolean[1];
+    edt(() -> {
+      hidden[0] = !app.knobsRow.isVisible();
+      ((javax.swing.JButton) component(app, "drum-sliders")).doClick();
+    });
+    idle();
+    final boolean[] shown = new boolean[1];
+    edt(() -> shown[0] = app.slidersWindow != null && app.slidersWindow.isVisible() && app.knobsRow.isVisible() && SwingUtilities.getWindowAncestor(app.knobsRow) == app.slidersWindow);
+    edt(() -> app.slidersWindow.dispose());
+    idle();
+    final boolean[] back = new boolean[1];
+    edt(() -> back[0] = app.slidersWindow == null && !app.knobsRow.isVisible() && SwingUtilities.getWindowAncestor(app.knobsRow) == app);
+    out.append("sliders: hidden ").append(hidden[0]).append(", in a window ").append(shown[0]).append(", back ").append(back[0]).append('\n');
+    boolean slidersOk = hidden[0] && shown[0] && back[0];
+    for (int i = 1; i <= 7; i++) PromptHistory.add(dir, "SogniPedit.java", "prompt " + i);
+    java.util.List<String> recent = PromptHistory.recent(dir, "SogniPedit.java");
+    out.append("recent prompts: ").append(recent).append('\n');
+    boolean recentOk = recent.size() == 6 && recent.get(0).equals("prompt 7");
+    PromptVault v = PromptDb.vault();
+    MediaTags.load(dir);
+    MediaTags.addCategory(v, "", "Trips");
+    MediaTags.setCategory("V:trip.mp4", "Trips");
+    String deleted = MediaTags.deleteCategory(v, "Trips");
+    String refused = "";
+    try {
+      MediaTags.deleteCategory(v, "Video");
+    } catch (IllegalArgumentException ex) {
+      refused = ex.getMessage();
+    }
+    out.append("categories: ").append(deleted).append(", file now '").append(MediaTags.category("V:trip.mp4")).append("' | ").append(refused).append('\n');
+    boolean categoryOk = MediaTags.categoryId(v, "Trips") == 0 && MediaTags.category("V:trip.mp4").length() == 0 && refused.contains("own");
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniHistory.started("wf-90", "SogniVideo.java", 1000L);
+    String running = SogniHistory.entries().get(0).status;
+    SogniHistory.finished("wf-90", true);
+    String completed = SogniHistory.entries().get(0).status;
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniVideo.java", "", "Workflow: wf-91\nFailed: Unexpected end of stream\n", java.util.Arrays.asList("--prompt", "walk"));
+    out.append("workflow: ").append(running).append(" -> ").append(completed).append(" | resume ").append(resume).append('\n');
+    boolean wfOk = "running".equals(running) && "completed".equals(completed) && resume != null && resume.contains("wf-91");
+    if (!slidersOk || !recentOk || !categoryOk || !wfOk) throw new AssertionError(out.toString());
+  }
+
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
   private static boolean jdk8PushedQueue(Throwable t) {
     StackTraceElement[] st = t.getStackTrace();

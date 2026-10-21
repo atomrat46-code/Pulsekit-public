@@ -30,6 +30,92 @@ final class SavePromptDialog {
 
     /** The place and names chosen; null when cancelled. */
     static PromptSave.Choice ask(Pulsekit app, final PromptVault vault, PromptRun.Sheet sheet) {
+        return ask(app, vault, sheet, null);
+    }
+
+    /** The sound playing in Save prompt (stopped as it closes). */
+    static javax.sound.sampled.Clip clip;
+
+    /**
+     * The downloaded file small at the top of Save prompt: a picture, a video's preview, or Play /
+     * Pause / Stop for a sound (as General settings' Show images, videos, sounds allow); null for none.
+     */
+    static JPanel preview(final JavaRun.FileOut media) {
+        if (media == null || !AppSettings.showsFile(media.name)) return null;
+        int kind = MediaDir.kind(media.name);
+        JPanel box = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        box.setName("save-prompt-preview");
+        if (kind == MediaDir.PICTURE || kind == MediaDir.VIDEO) {
+            javax.swing.ImageIcon icon = PromptDb.thumb(media.name, media.bytes);
+            if (icon == null || icon.getIconWidth() <= 0) return null;
+            double s = Math.min(1.0, 120.0 / Math.max(icon.getIconWidth(), icon.getIconHeight()));
+            JLabel l = new JLabel(new javax.swing.ImageIcon(icon.getImage().getScaledInstance(Math.max(1, (int) (icon.getIconWidth() * s)), Math.max(1, (int) (icon.getIconHeight() * s)), java.awt.Image.SCALE_SMOOTH)));
+            l.setName("save-prompt-thumb");
+            box.add(l);
+            box.add(new JLabel(media.name));
+            return box;
+        }
+        if (kind != MediaDir.SOUND || MediaDir.isMidi(media.name)) return null;
+        final JButton play = new JButton("Play");
+        play.setName("save-prompt-play");
+        final JButton stop = new JButton("Stop");
+        stop.setName("save-prompt-stop");
+        play.addActionListener(e -> {
+            try {
+                if (clip == null) {
+                    byte[] pcm;
+                    javax.sound.sampled.AudioFormat format;
+                    if (media.name.toLowerCase().endsWith(".mp3")) {
+                        AudioIo.Pcm decoded = Mp3Decode.parse(media.bytes);
+                        short[] s = AudioIo.floatsToShorts(decoded.samples);
+                        pcm = new byte[s.length * 2];
+                        for (int i = 0; i < s.length; i++) {
+                            pcm[2 * i] = (byte) s[i];
+                            pcm[2 * i + 1] = (byte) (s[i] >> 8);
+                        }
+                        format = new javax.sound.sampled.AudioFormat(decoded.sr, 16, 1, true, false);
+                    } else {
+                        javax.sound.sampled.AudioInputStream in = javax.sound.sampled.AudioSystem.getAudioInputStream(new java.io.ByteArrayInputStream(media.bytes));
+                        format = in.getFormat();
+                        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[65536];
+                        for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                        pcm = out.toByteArray();
+                    }
+                    clip = javax.sound.sampled.AudioSystem.getClip();
+                    clip.open(format, pcm, 0, pcm.length);
+                }
+                if (clip.isRunning()) {
+                    clip.stop();
+                    play.setText("Play");
+                } else {
+                    if (clip.getFramePosition() >= clip.getFrameLength()) clip.setFramePosition(0);
+                    clip.start();
+                    play.setText("Pause");
+                }
+            } catch (Exception ex) {
+                stopClip();
+                play.setText("Play");
+            }
+        });
+        stop.addActionListener(e -> {
+            stopClip();
+            play.setText("Play");
+        });
+        box.add(new JLabel(media.name));
+        box.add(play);
+        box.add(stop);
+        return box;
+    }
+
+    static void stopClip() {
+        if (clip == null) return;
+        clip.stop();
+        clip.close();
+        clip = null;
+    }
+
+    static PromptSave.Choice ask(Pulsekit app, final PromptVault vault, PromptRun.Sheet sheet, JavaRun.FileOut media) {
         PromptSave.Choice first = PromptSave.suggest(vault, sheet);
         final JComboBox<String> main = new JComboBox<String>();
         main.setName("save-prompt-main");
@@ -213,8 +299,11 @@ final class SavePromptDialog {
         add(form, g, row, "", hint);
         JPanel box = new JPanel(new BorderLayout());
         box.add(form, BorderLayout.CENTER);
+        JPanel shown = preview(media);
+        if (shown != null) box.add(shown, BorderLayout.NORTH);
         Object[] options = {"OK", "Cancel"};
         int ans = JOptionPane.showOptionDialog(app, box, "Save prompt", JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        stopClip();
         if (ans != 0) return null;
         PromptSave.Choice c = new PromptSave.Choice();
         c.main = text(main).length() == 0 ? "General" : text(main);

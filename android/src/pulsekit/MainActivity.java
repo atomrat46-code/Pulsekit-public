@@ -430,6 +430,16 @@ public class MainActivity extends UiKit {
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
         this.addTab(drumButtons, "fills", "Fills");
+        // Sliders: Tempo, Swing, Density and Human in a popup (they took room on every Drum Tracks page).
+        TextView sliders = this.text("Sliders", 13, true);
+        sliders.setGravity(17);
+        sliders.setTag("drum-sliders");
+        sliders.setTextColor(MUTED);
+        sliders.setPadding(0, this.dp(8), 0, this.dp(8));
+        LinearLayout.LayoutParams slidersLp = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
+        slidersLp.setMargins(this.dp(2), 0, this.dp(2), 0);
+        sliders.setOnClickListener(v -> this.showSliders());
+        drumButtons.addView((View)sliders, (ViewGroup.LayoutParams)slidersLp);
         this.drumSubtabs.addView((View)drumButtons);
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
@@ -448,6 +458,8 @@ public class MainActivity extends UiKit {
         this.densBar = this.knob(this.knobsRow, "DENSITY", 1, 10, 5, n -> this.densVal.setText((CharSequence)Integer.toString(n)));
         this.humanBar = this.knob(this.knobsRow, "HUMAN", 0, 100, 18, n -> this.humanVal.setText((CharSequence)(n + "%")));
         this.chrome.addView((View)this.knobsRow);
+        // Shown in the Sliders popup (next to Fills), not on the page.
+        this.knobsRow.setVisibility(View.GONE);
         this.toolsRow = this.row();
         this.toolsRow.setPadding(0, this.dp(4), 0, this.dp(4));
         this.stepsBtn = this.outline("16 steps", false, view -> this.gridEditor.toggleSteps());
@@ -565,6 +577,27 @@ public class MainActivity extends UiKit {
 
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
+    /** The Sliders popup shown last (for the tests). */
+    AlertDialog lastSliders;
+
+    /** Sliders: Tempo, Swing, Density and Human in a popup; Close puts them back (hidden) on the page. */
+    void showSliders() {
+        final ViewGroup home = (ViewGroup) this.knobsRow.getParent();
+        if (home == null) return;
+        final int at = home.indexOfChild(this.knobsRow);
+        home.removeView(this.knobsRow);
+        this.knobsRow.setVisibility(View.VISIBLE);
+        final LinearLayout box = this.col();
+        box.setPadding(this.dp(16), this.dp(8), this.dp(16), this.dp(8));
+        box.addView(this.knobsRow);
+        this.lastSliders = new AlertDialog.Builder(this).setTitle("Sliders").setView(box).setPositiveButton("Close", null).show();
+        this.lastSliders.setOnDismissListener(d -> {
+            box.removeView(this.knobsRow);
+            this.knobsRow.setVisibility(View.GONE);
+            home.addView(this.knobsRow, Math.min(at, home.getChildCount()));
+        });
     }
 
     void addTab(LinearLayout linearLayout, String string, String string2) {

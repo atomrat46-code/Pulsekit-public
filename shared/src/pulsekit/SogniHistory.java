@@ -56,7 +56,7 @@ public final class SogniHistory {
   }
 
   /** A download's status while it goes, and after Pulsekit was closed during it. */
-  public static final String DOWNLOADING = "downloading";
+  public static final String DOWNLOADING = "running";
   public static final String CLOSED_STATUS = "Pulsekit was closed during the download: Resume download fetches it";
   /** Runs found closed before the list's folder was known. */
   private static final List<String> CLOSED = new ArrayList<String>();
@@ -72,6 +72,21 @@ public final class SogniHistory {
     list.add(0, new Entry(id.trim(), now, DOWNLOADING, program == null ? "" : program.replaceAll("\\.(java|py|jar|class)$", "")));
     while (list.size() > MAX) list.remove(list.size() - 1);
     write(list);
+  }
+
+  /** The run is over: its workflow "completed" when it succeeded (downloaded), else "failed" (Resume can fetch it). */
+  public static synchronized void finished(String id, boolean ok) {
+    if (file == null || id == null || id.trim().length() == 0) return;
+    List<Entry> list = entries();
+    for (int i = 0; i < list.size(); i++) {
+      Entry e = list.get(i);
+      if (!e.id.equals(id.trim())) continue;
+      String status = ok ? "completed" : (e.status.length() == 0 || DOWNLOADING.equals(e.status) || "completed".equals(e.status) ? "failed" : e.status);
+      if (status.equals(e.status)) return;
+      list.set(i, new Entry(e.id, e.time, status, e.prompt));
+      write(list);
+      return;
+    }
   }
 
   /** A run Pulsekit was closed during: its workflow says so (and is listed, if it was not). */

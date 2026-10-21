@@ -49,6 +49,7 @@ final class AudioOffer {
                 else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, kind);
                 else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, shownName, size, null, kind);
                 else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, shownName, size, kind);
+                else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, shownName, size, kind, null, new java.io.File(path));
                 else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, shownName, size, null, kind);
                 else if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, shownName, null, new java.io.File(path));
                 else if (it.equals(HITS_TO_MIDI)) hitsToMidi(app, path);

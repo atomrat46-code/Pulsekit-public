@@ -464,7 +464,8 @@ final class PlaylistWindow {
                 final Playlist.Item it = items.get(i);
                 final File f = local(it);
                 final long size = f == null ? -1 : f.length();
-                final ImageIcon icon = thumb(it, f, 72, 54);
+                // No thumbnail for a type General settings leaves out (Show images, Show videos).
+                final ImageIcon icon = AppSettings.shownItems(java.util.Collections.singletonList(it)).isEmpty() ? null : thumb(it, f, 72, 54);
                 final JLabel l = thumbs.get(i);
                 final int n = i;
                 SwingUtilities.invokeLater(() -> {

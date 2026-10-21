@@ -733,6 +733,8 @@ final class PyJav {
         try {
             android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
             clips.setPrimaryClip(android.content.ClipData.newPlainText("Sogni workflow", this.pkWorkflowId));
+            // In Params' --workflow list too (when it is not there yet).
+            pulsekit.SogniHistory.started(this.pkWorkflowId, app.pyName, System.currentTimeMillis());
             app.setNow("Copied workflow id " + this.pkWorkflowId);
         } catch (Throwable ex) {
             app.setNow("Workflow id: " + this.pkWorkflowId);
@@ -966,6 +968,18 @@ final class PyJav {
             if (this.pkRef2Path != null && this.pkRef2Path.length() > 0 && !argv.contains(this.pkRef2Path)) argv.add(this.pkRef2Path);
             if (this.pkOutputInvented && this.pkPyOutputPath != null && this.pkPyOutputPath.length() > 0 && !argv.contains(this.pkPyOutputPath)) argv.add(this.pkPyOutputPath);
         }
+        // A picture picked from the library and gone from the temp folder since (the phone emptied it): written again, or said.
+        if (pulsekit.InputOrigins.anyGone(app.getFilesDir(), argv, app.getCacheDir())) try {
+            java.util.List<String> gone = pulsekit.InputOrigins.missing(app.getFilesDir(), argv, app.getCacheDir(), pulsekit.PromptVault.open(app.getFilesDir()));
+            if (!gone.isEmpty()) {
+                String note = pulsekit.InputOrigins.missingNote(gone);
+                if (this.pkPyLog != null) this.pkPyLog.setText(note);
+                app.setNow(note);
+                return;
+            }
+        } catch (Exception ignored) {
+            // the program says what it misses
+        }
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
         this.pkDrumsWarned = false;
@@ -1048,7 +1062,26 @@ final class PyJav {
             return;
         }
         this.pkShowPyResult(result);
+        // Any other failure with its workflow known: asked whether to resume it (no new run is paid for).
+        final java.util.List<String> resume = pulsekit.JavaRun.resumeArgs(app.pyName, src, log, argv);
+        if (resume != null && log != null && log.indexOf("Failed") >= 0) {
+            if (saveRun) resume.add(pulsekit.PromptKeep.SAVE_RUN);
+            pkAskResume = new android.app.AlertDialog.Builder(app).setTitle("Resume " + app.pyName + "?")
+                .setMessage(pulsekit.JavaRun.resumeQuestion(log, resume))
+                .setPositiveButton("Resume", (d, w) -> {
+                    this.pkReconnectNote = "Resuming workflow " + pulsekit.JavaRun.workflowOf(resume) + "\u2026";
+                    this.pkForcedArgs = resume;
+                    this.pkRunConfirmed = true;
+                    this.pkDrumsWarned = true;
+                    app.setNow(this.pkReconnectNote);
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("No", null).show();
+        }
     }
+
+    /** The Resume question shown last (for the tests). */
+    static android.app.AlertDialog pkAskResume;
 
     public void pkAcceptOutput(String answer) {
         String given = answer == null ? "" : answer.trim();
@@ -1277,7 +1310,11 @@ final class PyJav {
         if (this.pkPyLog != null) this.pkPyLog.setText(log);
         this.pkRunLog = log;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
-        if (pulsekit.SogniDownloads.workflowIn(log) != null) this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
+        if (pulsekit.SogniDownloads.workflowIn(log) != null) {
+            this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
+            // Params' --workflow list: completed when it downloaded, failed else.
+            pulsekit.SogniHistory.finished(pulsekit.SogniDownloads.workflowIn(log), log.indexOf("Succeeded") >= 0);
+        }
         // The prompt library work runs in the background: storing a large result (a 10 s video)
         // re-encrypts the whole library, which on the main thread froze the app ("not responding").
         final pulsekit.JavaRun.Result kept0 = result;
@@ -1807,7 +1844,7 @@ final class PyJav {
         } catch (Exception ignored) {
             // the dialog offers no categories then
         }
-        SavePromptDialog.show(app, vault, p.sheet, choice -> {
+        SavePromptDialog.show(app, vault, p.sheet, PromptSave.mediaOf(result, p.sheet), choice -> {
             if (choice == null) {
                 this.pkAddLogLine(PromptSave.cancelledNote(p.sheet));
                 this.pkAskSheets(sheets, i + 1, result, argv, pending);

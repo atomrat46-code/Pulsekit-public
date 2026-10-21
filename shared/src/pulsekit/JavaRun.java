@@ -182,6 +182,26 @@ public final class JavaRun {
    * programs that take --workflow, and never for a run that succeeded.
    */
   public static List<String> reconnectArgs(String program, String source, String log, List<String> argv) {
+    return workflowArgs(program, source, log, argv, false);
+  }
+
+  /**
+   * Any failed run whose workflow is known (not only one that timed out): the arguments to join
+   * that workflow again (Resume), or null.
+   */
+  public static List<String> resumeArgs(String program, String source, String log, List<String> argv) {
+    return workflowArgs(program, source, log, argv, true);
+  }
+
+  /** Resume's question: the run failed (why), its workflow may still finish or have finished on Sogni. */
+  public static String resumeQuestion(String log, List<String> again) {
+    String why = "";
+    for (String line : (log == null ? "" : log).split("\n")) if (line.trim().startsWith("Failed")) why = line.trim();
+    return (why.length() > 0 ? why + "\n\n" : "") + "Its workflow " + workflowOf(again) + " is known: Resume waits for it on Sogni (or fetches what it made) "
+        + "without starting, or paying for, a new run.";
+  }
+
+  private static List<String> workflowArgs(String program, String source, String log, List<String> argv, boolean anyFailure) {
     if (log == null || argv == null) return null;
     String text = source == null ? "" : source;
     String low = program == null ? "" : program.toLowerCase(java.util.Locale.ROOT);
@@ -196,8 +216,8 @@ public final class JavaRun {
     }
     if (ok || id == null || id.length() == 0 || id.indexOf(' ') >= 0) return null;
     boolean stopped = log.indexOf("Timed out") >= 0
-        || log.matches("(?s).*Failed:[^\n]*(?i:unable to resolve host|connection (reset|refused|abort)|software caused connection abort|network is unreachable|socket|timeout).*");
-    if (!stopped) return null;
+        || log.matches("(?s).*Failed:[^\n]*(?i:unable to resolve host|connection (reset|refused|abort)|software caused connection abort|network is unreachable|socket|timeout|unexpected end of stream|end of stream|premature eof|connection closed).*");
+    if (!stopped && !anyFailure) return null;
     List<String> out = new ArrayList<String>();
     for (int i = 0; i < argv.size(); i++) {
       String a = argv.get(i);

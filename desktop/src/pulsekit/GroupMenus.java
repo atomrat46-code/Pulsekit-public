@@ -102,6 +102,14 @@ final class GroupMenus {
             again.addActionListener(e -> TagDialogs.useLast(app, name, size, ReadyRecent.kind(name)));
             m.add(again);
         }
+        // Use all recent choices: tags, category, group and playlist as chosen last for this kind.
+        FileGroups.load(PromptDb.dir());
+        if (ReadyRecent.useAllLabel(PromptDb.dir(), ReadyRecent.kind(name)) != null) {
+            JMenuItem everything = new JMenuItem(ReadyRecent.USE_ALL);
+            everything.setName("file-use-all");
+            everything.addActionListener(e -> TagDialogs.useAll(app, file, ReadyRecent.kind(name)));
+            m.add(everything);
+        }
         JMenuItem cat = new JMenuItem(MediaTags.ADD_CATEGORY);
         cat.setName("file-category");
         cat.addActionListener(e -> TagDialogs.category(app, app, name, size, null, ReadyRecent.kind(name)));

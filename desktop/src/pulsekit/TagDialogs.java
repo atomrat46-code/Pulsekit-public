@@ -76,14 +76,24 @@ final class TagDialogs {
         app.setNow(now == null ? "No tags used yet for this kind of file" : name + ": " + String.join(", ", now));
     }
 
+    /** Use all recent choices on a run's saved file. */
+    static void useAll(Pulsekit app, java.io.File file, String ready) {
+        MediaTags.load(PromptDb.dir());
+        ReadyRecent.load(PromptDb.dir());
+        app.setNow(ReadyRecent.useAll(PromptDb.dir(), ready, MediaTags.key(file.getName(), file.length()), GroupMenus.keys(file), file.getAbsolutePath(), file.getName()));
+    }
+
     /** The ready screens' items with Use last tags: … after Add tag… when tags were used for `ready`'s kind. */
     static List<String> withUseLast(List<String> items, String ready) {
         ReadyRecent.load(PromptDb.dir());
         String label = ReadyRecent.useLastLabel(ready);
         List<String> out = new ArrayList<String>(items);
-        if (label == null) return out;
         int at = out.indexOf(MediaTags.ADD_TAG);
-        out.add(at < 0 ? out.size() : at + 1, label);
+        if (label != null) out.add(at < 0 ? out.size() : ++at, label);
+        // Use all recent choices: tags, category, group and playlist as chosen last for this kind.
+        FileGroups.load(PromptDb.dir());
+        String all = ReadyRecent.useAllLabel(PromptDb.dir(), ready);
+        if (all != null) out.add(at < 0 ? out.size() : at + 1, all);
         return out;
     }
 
@@ -132,12 +142,27 @@ final class TagDialogs {
             });
             JPanel panel = new JPanel(new BorderLayout(0, 6));
             panel.add(new javax.swing.JScrollPane(list), BorderLayout.CENTER);
-            panel.add(new JLabel("Right click a category: a new subcategory under it"), BorderLayout.SOUTH);
+            panel.add(new JLabel("Right click a category: a new subcategory under it, or Delete category"), BorderLayout.SOUTH);
             int ans = javax.swing.JOptionPane.showConfirmDialog(parent, panel, "Category for " + name, javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE);
             picked = held[0] == null && ans == javax.swing.JOptionPane.OK_OPTION ? list.getSelectedValue() : null;
         }
         if (vault != null && held[0] != null) {
-            if (subcategory(app, parent, vault, held[0])) category(app, parent, name, size, after, ready);
+            // Right click on a category: a new subcategory under it, or Delete category (not the library's own).
+            Object[] rows = MediaTags.isOriginal(held[0]) ? new Object[] {MediaTags.HELD_NEW_SUB, "Cancel"} : new Object[] {MediaTags.HELD_NEW_SUB, MediaTags.DELETE_CATEGORY, "Cancel"};
+            int what = javax.swing.JOptionPane.showOptionDialog(parent, held[0], "Category", javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE, null, rows, rows[0]);
+            if (what == 0) subcategory(app, parent, vault, held[0]);
+            else if (what == 1 && rows.length == 3) {
+                Object[] yes = {"Delete", "Cancel"};
+                if (javax.swing.JOptionPane.showOptionDialog(parent, MediaTags.deleteQuestion(vault, held[0]), MediaTags.DELETE_CATEGORY, javax.swing.JOptionPane.DEFAULT_OPTION,
+                    javax.swing.JOptionPane.WARNING_MESSAGE, null, yes, yes[1]) == 0) {
+                    try {
+                        app.setNow(MediaTags.deleteCategory(vault, held[0]));
+                    } catch (Exception ex) {
+                        app.setNow(ex.getMessage());
+                    }
+                }
+            }
+            category(app, parent, name, size, after, ready);
             return;
         }
         if (picked == null) return;

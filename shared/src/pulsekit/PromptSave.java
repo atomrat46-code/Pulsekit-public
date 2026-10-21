@@ -275,6 +275,22 @@ public final class PromptSave {
     return out.toString();
   }
 
+  /**
+   * The file the run made for a sheet (its result, else the run's first picture, video or sound):
+   * Save prompt shows it small (or plays it). Null when the run made none.
+   */
+  public static JavaRun.FileOut mediaOf(JavaRun.Result result, PromptRun.Sheet sheet) {
+    if (result == null || result.files == null) return null;
+    String want = sheet == null ? "" : sheet.result;
+    JavaRun.FileOut first = null;
+    for (JavaRun.FileOut f : result.files) {
+      if (f.bytes == null || f.bytes.length == 0 || isSheetFile(f)) continue;
+      if (want != null && want.length() > 0 && want.equals(f.name)) return f;
+      if (first == null && MediaDir.kind(f.name) != 0) first = f;
+    }
+    return first;
+  }
+
   /** A .prompt file a run wrote: the app writes it to disk itself, after asking (or not, when unchanged). */
   public static boolean isSheetFile(JavaRun.FileOut f) {
     return f != null && f.name != null && f.bytes != null && f.name.toLowerCase(java.util.Locale.ROOT).endsWith(".prompt")

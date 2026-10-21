@@ -119,6 +119,57 @@ public final class ReadyRecent {
     return MediaTags.tags(key);
   }
 
+  /** The ready screens' item that does all the choices used last for that kind at once. */
+  public static final String USE_ALL = "Use all recent choices";
+
+  /** A ready screen's kind as a playlist's kind of file. */
+  public static String playlistTypeOf(String kind) {
+    return playlistType(kind);
+  }
+
+  static String playlistType(String kind) {
+    if (IMAGE.equals(kind)) return Playlist.IMAGE;
+    if (VIDEO.equals(kind)) return Playlist.VIDEO;
+    if (MIDI.equals(kind)) return Playlist.MIDI;
+    return Playlist.AUDIO;
+  }
+
+  /** Use all recent choices, when anything was chosen for this kind before (else null). */
+  public static String useAllLabel(File dir, String kind) {
+    if (kind == null) return null;
+    boolean any = !tags(kind).isEmpty() || category(kind).length() > 0 || group(kind).length() > 0
+        || (dir != null && Playlist.settings(dir).lastOf(playlistType(kind)).length() > 0);
+    return any ? USE_ALL : null;
+  }
+
+  /**
+   * Use all recent choices: the tags, the category, the group and the playlist chosen last for this
+   * kind, all at once (`tagKey` the file's tags key, `groupKeys` its group keys, `file`/`title` it
+   * for a playlist; null leaves that out). What was done.
+   */
+  public static String useAll(File dir, String kind, String tagKey, String[] groupKeys, String file, String title) {
+    List<String> done = new ArrayList<String>();
+    List<String> tags = useLast(kind, tagKey);
+    if (tags != null) done.add("tags " + String.join(", ", tags));
+    String cat = category(kind);
+    if (cat.length() > 0 && tagKey != null) {
+      MediaTags.setCategory(tagKey, cat);
+      done.add("in " + cat);
+    }
+    String g = group(kind);
+    if (g.length() > 0 && groupKeys != null && groupKeys.length > 0) {
+      if (!FileGroups.names().contains(g)) FileGroups.make(g);
+      if (!FileGroups.in(g, groupKeys)) FileGroups.toggle(g, groupKeys);
+      done.add("group " + g);
+    }
+    String list = dir == null ? "" : Playlist.settings(dir).lastOf(playlistType(kind));
+    if (list.length() > 0 && file != null) {
+      if (!Playlist.inList(dir, list, file)) Playlist.addTo(dir, list, file, title);
+      done.add("playlist " + list);
+    }
+    return done.isEmpty() ? "No choices made for this kind of file yet" : (title == null ? "" : title + ": ") + String.join(" \u00b7 ", done);
+  }
+
   /** The tags ticked first: the file's own, or (when it has none) those used last that are still known. */
   public static List<String> ticked(String kind, List<String> has, List<String> known) {
     if (kind == null || !has.isEmpty()) return has;

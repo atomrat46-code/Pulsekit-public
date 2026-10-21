@@ -443,6 +443,8 @@ final class RefBrowser {
             } finally {
                 fos.close();
             }
+            // Written again from the library when the phone empties the temp folder (InputOrigins).
+            InputOrigins.record(activity.getFilesDir(), out.getAbsolutePath(), file.versionId, file.which);
             picked.picked(file.name, out);
             return true;
         } catch (Exception ex) {

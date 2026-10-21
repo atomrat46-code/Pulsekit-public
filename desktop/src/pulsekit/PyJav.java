@@ -231,6 +231,9 @@ final class PyJav {
         return jPanel;
     }
 
+    /** Recent prompts' menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastRecent;
+
     /** Copy workflow id: shown once the run going on (or the last one) has printed "Workflow: <id>". */
     JButton copyWorkflow;
     String workflowId;
@@ -248,6 +251,8 @@ final class PyJav {
         if (this.workflowId == null) return;
         try {
             java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(this.workflowId), null);
+            // In Params' --workflow list too (when it is not there yet).
+            SogniHistory.started(this.workflowId, app.pyName, System.currentTimeMillis());
             app.setNow("Copied workflow id " + this.workflowId);
         } catch (Exception ex) {
             app.setNow("Workflow id: " + this.workflowId);
@@ -746,7 +751,11 @@ final class PyJav {
                 }
                 if (app.pyLog != null) this.runLog = app.pyLog.getText();
                 SogniHistory.record(result.log, System.currentTimeMillis());
-                if (SogniDownloads.workflowIn(result.log) != null) this.showWorkflow(SogniDownloads.workflowIn(result.log));
+                if (SogniDownloads.workflowIn(result.log) != null) {
+                    this.showWorkflow(SogniDownloads.workflowIn(result.log));
+                    // Params' --workflow list: completed when it downloaded, failed else.
+                    SogniHistory.finished(SogniDownloads.workflowIn(result.log), result.log.indexOf("Succeeded") >= 0);
+                }
                 // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
                 // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
                 // Pending (File > Downloads) while what the run stores is stored.
@@ -817,6 +826,20 @@ final class PyJav {
                 // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
                 String list = "PlayList.java".equals(name) ? PlaylistWindow.kept(app, result) : null;
                 if (list != null) PlaylistWindow.open(app, list);
+                // Any other failure with its workflow known: asked whether to resume it (no new run is paid for).
+                java.util.List<String> resume = javaProg && !inBatch && result.log != null && result.log.indexOf("Failed") >= 0 ? JavaRun.resumeArgs(name, src, result.log, argv) : null;
+                if (resume != null) {
+                    if (savingRun) resume.add(PromptKeep.SAVE_RUN);
+                    Object[] options = {"Resume", "No"};
+                    if (JOptionPane.showOptionDialog(app, JavaRun.resumeQuestion(result.log, resume), "Resume " + name + "?", JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0) {
+                        this.reconnectNote = "Resuming workflow " + JavaRun.workflowOf(resume) + "\u2026";
+                        this.forcedArgs = resume;
+                        app.setNow(this.reconnectNote);
+                        this.runPython();
+                        return;
+                    }
+                }
                 // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
                 if (batch != null && batch.takes(name)) {
                     java.util.List<String> paths = new java.util.ArrayList<String>();
@@ -840,14 +863,21 @@ final class PyJav {
         col.setLayout(new javax.swing.BoxLayout(col, javax.swing.BoxLayout.Y_AXIS));
         for (File f : pictures) {
             java.awt.image.BufferedImage img = null;
+            // General settings > Show images off: the picture is not shown (its name and right-click items still are).
+            boolean hidden = !AppSettings.shows("I");
             try {
-                img = javax.imageio.ImageIO.read(f);
+                img = hidden ? null : javax.imageio.ImageIO.read(f);
             } catch (Exception ignored) {
                 img = null;
             }
-            JLabel name = new JLabel(f.getName() + (img == null ? " (no preview)" : ""));
+            JLabel name = new JLabel(f.getName() + (img == null ? (hidden ? " (not shown: Show images is off; a right click has its items)" : " (no preview)") : ""));
             name.setAlignmentX(0.0f);
             col.add(name);
+            if (hidden) {
+                final File pic = f;
+                name.setName("picture-offer:" + f.getName());
+                GroupMenus.onRightClick(name, () -> GroupMenus.fileMenu(app, pic).show(name, 20, 20));
+            }
             if (img == null) continue;
             double scale = Math.min(1.0, 480.0 / Math.max(img.getWidth(), img.getHeight()));
             java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
@@ -1242,7 +1272,7 @@ final class PyJav {
             if (same != null) {
                 line = PromptSave.unchangedNote(p.sheet, same);
             } else {
-                PromptSave.Choice c = PromptSave.ask() ? SavePromptDialog.ask(app, vault, p.sheet) : null;
+                PromptSave.Choice c = PromptSave.ask() ? SavePromptDialog.ask(app, vault, p.sheet, PromptSave.mediaOf(r, p.sheet)) : null;
                 if (PromptSave.ask() && c == null) {
                     line = PromptSave.cancelledNote(p.sheet);
                 } else {
@@ -1418,6 +1448,7 @@ final class PyJav {
         else if (item.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(file), name, kind);
         else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, file.getName(), file.length(), null, kind);
         else if (item.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, file.getName(), file.length(), kind);
+        else if (item.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, file, kind);
         else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, file.getName(), file.length(), null, kind);
         else if (item.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, file.getAbsolutePath(), name);
         else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);
@@ -1470,6 +1501,7 @@ final class PyJav {
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, video.getName(), video.length(), ReadyRecent.VIDEO);
+            else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, video, ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
             else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
@@ -1582,6 +1614,7 @@ final class PyJav {
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, name, audio.length(), null, kind);
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, audio.length(), kind);
+            else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, audio, kind);
             else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, name, audio.length(), null, kind);
             else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, audio.getAbsolutePath(), name);
             else if (it.equals(TO_WAV)) {
@@ -2167,9 +2200,32 @@ final class PyJav {
                         area.setText(text);
                         area.setCaretPosition(0);
                     }));
+                    // Recent prompts: the six used last with this program, one picked into the field.
+                    JButton recent = new JButton(PromptHistory.RECENT + " \u25be");
+                    recent.setName("params-prompt-recent:" + p.token);
+                    recent.addActionListener(e -> {
+                        java.util.List<String> got = PromptHistory.recent(PromptDb.dir(), program);
+                        if (got.isEmpty()) {
+                            app.setNow("No prompts run with " + program + " yet");
+                            return;
+                        }
+                        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+                        for (final String one : got) {
+                            javax.swing.JMenuItem item = new javax.swing.JMenuItem(PromptHistory.label(one));
+                            item.addActionListener(ev -> {
+                                area.setText(one);
+                                area.setCaretPosition(0);
+                            });
+                            m.add(item);
+                        }
+                        MenuCancel.add(m);
+                        lastRecent = m;
+                        m.show(recent, 0, recent.getHeight());
+                    });
                     picks.add(select);
                     picks.add(db);
                     picks.add(prompts);
+                    picks.add(recent);
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;
@@ -2256,6 +2312,8 @@ final class PyJav {
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         this.saveParams(program, ProgramParams.build(ps, values));
+        // The prompt kept among the program's six last (Recent prompts).
+        for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(PromptDb.dir(), program, values[i]);
         // Another program loaded meanwhile (ImageUpscaler from the Media browser Choose file opened):
         // its argument line is not this program's (it was given SogniPedit's --prompt).
         if (!program.equals(app.pyName)) {

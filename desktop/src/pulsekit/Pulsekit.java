@@ -381,12 +381,20 @@ public final class Pulsekit extends UiKit {
         drumHead.setAlignmentX(0.0f);
         this.drumSubtabs.add(drumHead);
         this.drumSubtabs.add(Box.createVerticalStrut(8));
-        JPanel drumButtons = new JPanel(new GridLayout(1, 3, 6, 4));
+        JPanel drumButtons = new JPanel(new GridLayout(1, 4, 6, 4));
         drumButtons.setOpaque(false);
         drumButtons.setAlignmentX(0.0f);
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
         this.addTab(drumButtons, "fills", "Fills");
+        // Sliders: Tempo, Swing, Density and Human in a window of their own (they took room on every Drum Tracks page).
+        JButton sliders = new JButton("Sliders");
+        this.flatten(sliders);
+        sliders.setFont(new Font("SansSerif", 1, 13));
+        sliders.setForeground(MUTED);
+        sliders.setName("drum-sliders");
+        sliders.addActionListener(e -> this.showSliders());
+        drumButtons.add(sliders);
         drumButtons.setMaximumSize(new Dimension(420, drumButtons.getPreferredSize().height));
         this.drumSubtabs.add(drumButtons);
         JPanel tabRows = new JPanel(new BorderLayout());
@@ -605,6 +613,43 @@ public final class Pulsekit extends UiKit {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
     }
 
+    /** The Sliders window while it is open (for the tests too). */
+    javax.swing.JDialog slidersWindow;
+
+    /** Sliders: Tempo, Swing, Density and Human in a window; closed, they go back (hidden) on the page. */
+    void showSliders() {
+        if (this.slidersWindow != null) {
+            this.slidersWindow.toFront();
+            return;
+        }
+        final java.awt.Container home = this.knobsRow.getParent();
+        if (home == null) return;
+        final int at = java.util.Arrays.asList(home.getComponents()).indexOf(this.knobsRow);
+        home.remove(this.knobsRow);
+        final javax.swing.JDialog d = new javax.swing.JDialog(this, "Sliders", false);
+        this.slidersWindow = d;
+        this.knobsRow.setVisible(true);
+        JPanel box = new JPanel(new BorderLayout());
+        box.setBackground(BG);
+        box.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        box.add(this.knobsRow, BorderLayout.CENTER);
+        d.setContentPane(box);
+        d.setSize(560, 120);
+        d.setLocationRelativeTo(this);
+        d.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                box.remove(Pulsekit.this.knobsRow);
+                Pulsekit.this.slidersWindow = null;
+                Pulsekit.this.knobsRow.setVisible(false);
+                home.add(Pulsekit.this.knobsRow, Math.max(0, Math.min(at, home.getComponentCount())));
+                home.revalidate();
+            }
+        });
+        d.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
+        d.setVisible(true);
+    }
+
     void addTab(JPanel jPanel, String string, String string2) {
         JButton jButton = new JButton(string2);
         this.flatten(jButton);
@@ -794,7 +839,8 @@ public final class Pulsekit extends UiKit {
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
         this.fillHost.setVisible(bl);
-        this.knobsRow.setVisible(!bl2 && !bl3 && !bl4 && !prompts);
+        // Only in the Sliders window (next to Fills).
+        this.knobsRow.setVisible(this.slidersWindow != null);
         this.toolsRow.setVisible(groove);
         if (pattern || combo || bl) {
             this.pages.show(this.pageHost, "grid");

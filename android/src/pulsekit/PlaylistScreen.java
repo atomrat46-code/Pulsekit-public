@@ -286,7 +286,8 @@ final class PlaylistScreen {
             for (int i = 0; i < items.size(); i++) {
                 final Playlist.Item it = items.get(i);
                 final long size = size(app, it, vault);
-                final Bitmap bmp = thumb(app, it, vault, px);
+                // No thumbnail for a type General settings leaves out (Show images, Show videos).
+                final Bitmap bmp = AppSettings.shownItems(java.util.Collections.singletonList(it)).isEmpty() ? null : thumb(app, it, vault, px);
                 final int n = i;
                 main.post(() -> {
                     if (bmp != null) thumbs.get(n).setImageBitmap(bmp);

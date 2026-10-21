@@ -115,6 +115,7 @@ final class VideoOffer {
                     else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null, ReadyRecent.VIDEO);
                     else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, clipName, clipSize, null, ReadyRecent.VIDEO);
                     else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, clipName, clipSize, ReadyRecent.VIDEO);
+                    else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, clipName, clipSize, ReadyRecent.VIDEO, null, new java.io.File(path));
                     else TagDialogs.category(app, clipName, clipSize, null, ReadyRecent.VIDEO);
                 })
                 .setNegativeButton("Cancel", null)
@@ -175,10 +176,14 @@ final class VideoOffer {
             mute.setText(muted ? "Unmute" : "Mute");
             app.paintChip(mute, muted);
             applyVolume();
+            // The next Video ready starts muted or not, as this one was left.
+            app.getSharedPreferences(PREFS, 0).edit().putBoolean(MUTED, muted).apply();
         }
     }
 
     static Player last;
+    static final String PREFS = "video-ready";
+    static final String MUTED = "muted";
 
     private VideoOffer() {}
 
@@ -207,6 +212,15 @@ final class VideoOffer {
         col.addView(name);
         p.view = new VideoView(app);
         p.view.setTag("video-offer:view");
+        // Muted or not as the last Video ready was left.
+        p.muted = app.getSharedPreferences(PREFS, 0).getBoolean(MUTED, false);
+        // General settings > Show videos off: the clip is not shown (its items still are).
+        if (!AppSettings.shows("V")) {
+            p.view.setVisibility(android.view.View.GONE);
+            TextView hidden = app.text("Not shown: Show videos is off in General settings.", 12, false);
+            hidden.setTag("video-offer:hidden");
+            col.addView(hidden);
+        }
         final int width = app.getResources().getDisplayMetrics().widthPixels - app.dp(72);
         final LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, app.dp(240));
         col.addView(p.view, size);
@@ -248,7 +262,7 @@ final class VideoOffer {
         p.play.setTag("video-offer:play");
         TextView stop = app.pill("Stop", false, v -> p.stop());
         stop.setTag("video-offer:stop");
-        p.mute = app.pill("Mute", false, v -> p.toggleMute(app));
+        p.mute = app.pill(p.muted ? "Unmute" : "Mute", p.muted, v -> p.toggleMute(app));
         p.mute.setTag("video-offer:mute");
         for (TextView b : new TextView[] {p.play, stop, p.mute}) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);

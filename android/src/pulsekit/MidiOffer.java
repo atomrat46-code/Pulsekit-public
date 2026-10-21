@@ -165,6 +165,7 @@ final class MidiOffer {
         else if (item.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, name, size), name, null, kind);
         else if (item.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, name, size, null, kind);
         else if (item.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, size, kind);
+        else if (item.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, name, size, kind, null, file);
         else if (item.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, name, size, null, kind);
         else if (item.equals(Playlist.ADD)) PlaylistScreen.addReady(app, name, null, file);
         else if (item.equals(MediaDir.PLAY_SF)) MediaBrowser.playDefault(app, file, name);

@@ -10007,6 +10007,108 @@ public class BehaviorTest {
     if (!typesOk || !tabOk || !masterOk) throw new AssertionError(out.toString());
   }
 
+  @Test
+  public void s165_inputs_restored_resume_categories_recent_prompts_sliders() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File dir = app.getFilesDir();
+    PromptVault vault = PromptVault.open(dir);
+    // A Browse DB pick in the temp folder the phone emptied: written again from the library.
+    long pid = vault.addPrompt(vault.categories().get(0).id, "Beach");
+    long ver = vault.addVersion(pid, "Beach", "", "Sand", "", "beach.png", new byte[] {1, 2, 3, 4}, "", null, "", null, "ai", "");
+    File temp = new File(app.getCacheDir(), "pyjav-in");
+    temp.mkdirs();
+    File pick = new File(temp, "beach.png");
+    InputOrigins.record(dir, pick.getAbsolutePath(), ver, 1);
+    java.util.List<String> argv = java.util.Arrays.asList("--image", pick.getAbsolutePath(), "--out", new File(temp, "out.png").getAbsolutePath());
+    boolean gone = InputOrigins.anyGone(dir, argv, temp);
+    java.util.List<String> missing = InputOrigins.missing(dir, argv, temp, vault);
+    boolean back = pick.isFile() && pick.length() == 4;
+    pick.delete();
+    java.util.List<String> stillGone = InputOrigins.missing(dir, argv, temp, null);
+    out.append("inputs: gone ").append(gone).append(", restored ").append(back).append(" (missing ").append(missing).append(") | no library: ").append(InputOrigins.missingNote(stillGone)).append('\n');
+    boolean inputsOk = gone && missing.isEmpty() && back && stillGone.equals(java.util.Collections.singletonList("beach.png"));
+    // Unexpected end of stream reconnects; any failure with a workflow can be resumed.
+    String log = "Workflow: wf-77\nFailed: Unexpected end of stream\n";
+    java.util.List<String> again = JavaRun.reconnectArgs("SogniPedit.java", "", log, java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-78\nFailed: Sogni said no\n", java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> none = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-79\nSucceeded\n", java.util.Arrays.asList("--prompt", "sky"));
+    out.append("reconnect ").append(again).append(" | resume ").append(resume).append(" | succeeded ").append(none).append('\n');
+    out.append("question: ").append(JavaRun.resumeQuestion("Failed: Sogni said no", resume).replace('\n', ' ')).append('\n');
+    boolean resumeOk = again != null && again.contains("wf-77") && resume != null && resume.contains("wf-78") && none == null;
+    // Workflow ids: running while it downloads, completed when it succeeds.
+    SogniHistory.init(new File(dir, "sogni"));
+    SogniHistory.started("wf-80", "SogniPedit.java", 1000L);
+    String running = SogniHistory.entries().get(0).status;
+    SogniHistory.finished("wf-80", true);
+    String completed = SogniHistory.entries().get(0).status;
+    out.append("history: ").append(running).append(" -> ").append(completed).append('\n');
+    boolean historyOk = "running".equals(running) && "completed".equals(completed);
+    // Delete category: the library's own are kept.
+    MediaTags.load(dir);
+    String made = MediaTags.addCategory(vault, "", "Trips");
+    MediaTags.addCategory(vault, made, "Rome");
+    MediaTags.setCategory("V:trip.mp4", "Trips / Rome");
+    String question = MediaTags.deleteQuestion(vault, "Trips");
+    String deleted = MediaTags.deleteCategory(vault, "Trips");
+    String refused = "";
+    try {
+      MediaTags.deleteCategory(vault, "Image");
+    } catch (IllegalArgumentException ex) {
+      refused = ex.getMessage();
+    }
+    out.append("categories: ").append(question).append(" | ").append(deleted).append(", file now '").append(MediaTags.category("V:trip.mp4")).append("' | ").append(refused).append('\n');
+    boolean categoryOk = MediaTags.categoryId(vault, "Trips") == 0 && MediaTags.category("V:trip.mp4").length() == 0 && refused.contains("own") && MediaTags.isOriginal("video")
+        && !MediaTags.isOriginal("Video / Clips");
+    // Params' recent prompts: six per program, newest first.
+    for (int i = 1; i <= 8; i++) PromptHistory.add(dir, "SogniPedit.java", "prompt " + i);
+    PromptHistory.add(dir, "SogniVideo.java", "a walk");
+    PromptHistory.add(dir, "SogniPedit.java", "prompt 5");
+    java.util.List<String> recent = PromptHistory.recent(dir, "SogniPedit.java");
+    out.append("recent prompts: ").append(recent).append(" | SogniVideo ").append(PromptHistory.recent(dir, "SogniVideo.java")).append('\n');
+    boolean recentOk = recent.size() == 6 && recent.get(0).equals("prompt 5") && recent.get(1).equals("prompt 8") && !recent.contains("prompt 2")
+        && PromptHistory.recent(dir, "SogniVideo.java").size() == 1;
+    // Use all recent choices: the tags and the category used last for images.
+    MediaTags.addCategory(vault, "", "Shots");
+    ReadyRecent.setTags(ReadyRecent.IMAGE, java.util.Arrays.asList("beach", "night"));
+    ReadyRecent.setCategory(ReadyRecent.IMAGE, "Shots");
+    String label = ReadyRecent.useAllLabel(dir, ReadyRecent.IMAGE);
+    String did = ReadyRecent.useAll(dir, ReadyRecent.IMAGE, "I:sea.png", null, null, "sea.png");
+    out.append("use all: ").append(label).append(" -> ").append(did).append('\n');
+    boolean allOk = ReadyRecent.USE_ALL.equals(label) && MediaTags.tags("I:sea.png").contains("night") && "Shots".equals(MediaTags.category("I:sea.png"));
+    // The save prompt dialog's preview: the result file, not the sheet.
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("notes.txt", "x".getBytes(StandardCharsets.UTF_8)));
+    files.add(new JavaRun.FileOut("sea.png", new byte[] {1, 2}));
+    JavaRun.FileOut media = PromptSave.mediaOf(new JavaRun.Result("Wrote sea.png", files, 0), null);
+    out.append("save prompt preview: ").append(media == null ? "none" : media.name).append('\n');
+    boolean mediaOk = media != null && media.name.equals("sea.png");
+    // Drum Tracks: the sliders in a popup, opened next to Fills.
+    View sliders = app.findViewById(android.R.id.content).findViewWithTag("drum-sliders");
+    boolean hidden = app.knobsRow.getVisibility() == View.GONE;
+    sliders.performClick();
+    idle();
+    boolean shown = app.lastSliders != null && app.lastSliders.isShowing() && app.knobsRow.getVisibility() == View.VISIBLE;
+    app.lastSliders.dismiss();
+    idle();
+    boolean putBack = app.knobsRow.getVisibility() == View.GONE && app.knobsRow.getParent() != null;
+    out.append("sliders: hidden ").append(hidden).append(", in popup ").append(shown).append(", back ").append(putBack).append('\n');
+    boolean slidersOk = hidden && shown && putBack;
+    // Video ready remembers mute.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.last.mute.performClick();
+    idle();
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    boolean mutedAgain = VideoOffer.last.muted && "Unmute".contentEquals(VideoOffer.last.mute.getText());
+    out.append("video ready: muted again ").append(mutedAgain).append('\n');
+    write("s165_inputs_restored_resume_categories_recent_prompts_sliders", out.toString());
+    if (!inputsOk || !resumeOk || !historyOk || !categoryOk || !recentOk || !allOk || !mediaOk || !slidersOk || !mutedAgain) throw new AssertionError(out.toString());
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

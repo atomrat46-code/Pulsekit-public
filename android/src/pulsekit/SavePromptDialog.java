@@ -30,15 +30,106 @@ final class SavePromptDialog {
 
     private SavePromptDialog() {}
 
+    /** The downloaded file at the top of Save prompt (nothing when its type is left out in General settings). */
+    static void preview(final MainActivity app, LinearLayout col, final JavaRun.FileOut media) {
+        if (!AppSettings.showsFile(media.name)) return;
+        int kind = MediaDir.kind(media.name);
+        int px = app.dp(120);
+        if (kind == MediaDir.PICTURE || kind == MediaDir.VIDEO) {
+            android.graphics.Bitmap b = null;
+            try {
+                b = kind == MediaDir.PICTURE ? PictureOffer.decode(media.bytes, px * 2) : PromptSheet.refThumb(app, media.name, media.bytes, px * 2);
+            } catch (Throwable ignored) {
+                b = null;
+            }
+            if (b == null) return;
+            android.widget.ImageView image = new android.widget.ImageView(app);
+            image.setImageBitmap(b);
+            image.setAdjustViewBounds(true);
+            image.setMaxHeight(px);
+            image.setTag("save-prompt-thumb");
+            col.addView(image, new LinearLayout.LayoutParams(-2, px));
+            return;
+        }
+        if (kind != MediaDir.SOUND || MediaDir.isMidi(media.name)) return;
+        // A sound: Play, Pause and Stop.
+        final java.io.File file = new java.io.File(app.getCacheDir(), "save-prompt-" + media.name.replaceAll("[^A-Za-z0-9._-]", "_"));
+        try {
+            java.nio.file.Files.write(file.toPath(), media.bytes);
+        } catch (Exception ex) {
+            return;
+        }
+        LinearLayout row = app.row();
+        final TextView play = app.pill("Play", true, null);
+        final TextView stop = app.pill("Stop", false, null);
+        play.setTag("save-prompt-play");
+        stop.setTag("save-prompt-stop");
+        play.setOnClickListener(v -> {
+            try {
+                if (player == null) {
+                    player = new android.media.MediaPlayer();
+                    player.setDataSource(file.getAbsolutePath());
+                    player.setOnCompletionListener(mp -> {
+                        stopPlayer();
+                        play.setText("Play");
+                    });
+                    player.prepare();
+                }
+                if (player.isPlaying()) {
+                    player.pause();
+                    play.setText("Play");
+                } else {
+                    player.start();
+                    play.setText("Pause");
+                }
+            } catch (Exception ex) {
+                stopPlayer();
+                app.setNow("Could not play " + media.name);
+            }
+        });
+        stop.setOnClickListener(v -> {
+            stopPlayer();
+            play.setText("Play");
+        });
+        row.addView(app.text(media.name + "  ", 13, false));
+        row.addView(play);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2);
+        gap.leftMargin = app.dp(6);
+        row.addView(stop, gap);
+        col.addView(row);
+    }
+
+    static void stopPlayer() {
+        if (player == null) return;
+        try {
+            player.release();
+        } catch (Exception ignored) {
+            // released
+        }
+        player = null;
+    }
+
     /** The subcategory or group list shown last (for the tests). */
     static AlertDialog lastBrowse;
 
     static void show(final MainActivity app, final PromptVault vault, PromptRun.Sheet sheet, final Done done) {
+        show(app, vault, sheet, null, done);
+    }
+
+    /** The player of the downloaded sound shown last (stopped as the dialog closes). */
+    static android.media.MediaPlayer player;
+
+    /**
+     * As above, with the file the run made shown small at the top: a picture, a video's first
+     * frame, or Play / Pause / Stop for a sound (as General settings' Show images, videos, sounds allow).
+     */
+    static void show(final MainActivity app, final PromptVault vault, PromptRun.Sheet sheet, JavaRun.FileOut media, final Done done) {
         final PromptSave.Choice first = PromptSave.suggest(vault, sheet);
         LinearLayout col = new LinearLayout(app);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = app.dp(14);
         col.setPadding(pad, pad / 2, pad, pad / 2);
+        if (media != null) preview(app, col, media);
         final EditText main = field(app, first.main, "save-prompt-main");
         final EditText sub = field(app, first.sub, "save-prompt-sub");
         final EditText name = field(app, first.name, "save-prompt-name");
@@ -233,6 +324,7 @@ final class SavePromptDialog {
             })
             .create();
         last = dialog;
+        dialog.setOnDismissListener(d -> stopPlayer());
         dialog.show();
         // OK checks the names first; the dialog stays open until they are given.
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {

@@ -97,11 +97,22 @@ final class TagDialogs {
     static String[] withUseLast(MainActivity app, String[] items, String ready) {
         ReadyRecent.load(app.getFilesDir());
         String label = ReadyRecent.useLastLabel(ready);
-        if (label == null) return items;
         java.util.List<String> out = new ArrayList<String>(java.util.Arrays.asList(items));
         int at = out.indexOf(MediaTags.ADD_TAG);
-        out.add(at < 0 ? out.size() : at + 1, label);
+        if (label != null) out.add(at < 0 ? out.size() : ++at, label);
+        // Use all recent choices: tags, category, group and playlist as chosen last for this kind.
+        FileGroups.load(app.getFilesDir());
+        String all = ReadyRecent.useAllLabel(app.getFilesDir(), ready);
+        if (all != null) out.add(at < 0 ? out.size() : at + 1, all);
         return out.toArray(new String[0]);
+    }
+
+    /** Use all recent choices on a run's file (`bytes`, or the file `from`): kept beside the playlists for the playlist part. */
+    static void useAll(MainActivity app, String name, long size, String ready, byte[] bytes, java.io.File from) {
+        MediaTags.load(app.getFilesDir());
+        ReadyRecent.load(app.getFilesDir());
+        String kept = Playlist.settings(app.getFilesDir()).lastOf(ReadyRecent.playlistTypeOf(ready)).length() > 0 ? PlaylistScreen.keep(app, name, bytes, from) : null;
+        app.setNow(ReadyRecent.useAll(app.getFilesDir(), ready, MediaTags.key(name, size), PictureOffer.groupKeys(app, name, size), kept, name));
     }
 
     private static void tagged(MainActivity app, String name, String key, List<String> chosen, Runnable after, String ready) {
@@ -176,12 +187,12 @@ final class TagDialogs {
                         placed(app, name, key, which == 0 ? "" : picked, ready, after);
                     })
                     .setNegativeButton("Cancel", null).show();
-                // Held on a category: a new subcategory under it.
+                // Held on a category: a new subcategory under it, or Delete category (not the library's own).
                 shown.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
                     String held = names.get(position);
                     if (vault == null || position == 0 || held.startsWith("+ ")) return false;
                     shown.dismiss();
-                    subcategory(app, vault, held, again);
+                    heldMenu(app, vault, held, again);
                     return true;
                 });
                 MediaBrowser.lastAsk = shown;
@@ -195,6 +206,27 @@ final class TagDialogs {
         if (path.length() > 0) ReadyRecent.setCategory(ready, path);
         app.setNow(name + (path.length() == 0 ? ": no category" : " is in " + path));
         if (after != null) after.run();
+    }
+
+    /** A held category's menu: New subcategory under it…, Delete category (asked first; refused for the library's own). */
+    static void heldMenu(final MainActivity app, final PromptVault vault, final String held, final Runnable again) {
+        final String[] rows = MediaTags.isOriginal(held) ? new String[] {MediaTags.HELD_NEW_SUB} : new String[] {MediaTags.HELD_NEW_SUB, MediaTags.DELETE_CATEGORY};
+        MediaBrowser.lastAsk = new AlertDialog.Builder(app).setTitle(held).setItems(rows, (d, w) -> {
+            if (w == 0) {
+                subcategory(app, vault, held, again);
+                return;
+            }
+            MediaBrowser.lastAsk = new AlertDialog.Builder(app).setTitle(MediaTags.DELETE_CATEGORY).setMessage(MediaTags.deleteQuestion(vault, held))
+                .setPositiveButton("Delete", (d2, w2) -> {
+                    try {
+                        app.setNow(MediaTags.deleteCategory(vault, held));
+                    } catch (Exception ex) {
+                        app.setNow(ex.getMessage());
+                    }
+                    again.run();
+                })
+                .setNegativeButton("Cancel", (d2, w2) -> again.run()).show();
+        }).setNegativeButton("Cancel", (d, w) -> again.run()).show();
     }
 
     /** A new subcategory under `parentPath` (its name asked), then `again` (the list with it). */
