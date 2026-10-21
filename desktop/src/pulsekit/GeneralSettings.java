@@ -106,6 +106,15 @@ final class GeneralSettings {
             app.setNow(promptsTab.isSelected() ? "The DB/Prompts tab is shown" : "No DB/Prompts tab (File > Import as Ref file and the galleries still reach the DB)");
         });
         more.add(promptsTab);
+        // Look: FlatLaf's modern look, or Swing's classic one; Pulsekit starts with it next time.
+        more.add(headline("Look"));
+        final JCheckBox modernLook = new JCheckBox(AppSettings.MODERN_LOOK, AppSettings.modernLook());
+        modernLook.setName("settings-modern-look");
+        modernLook.addActionListener(e -> {
+            AppSettings.setModernLook(modernLook.isSelected());
+            app.setNow(modernLook.isSelected() ? "Modern look: Pulsekit starts with it next time" : "Classic look: Pulsekit starts with it next time");
+        });
+        more.add(modernLook);
         // Security: the settings master password.
         more.add(headline("Security"));
         final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());
@@ -134,7 +143,7 @@ final class GeneralSettings {
         more.add(note(AppSettings.MASTER_NOTE.replace("; unticked", ";\nunticked")));
         for (java.awt.Component c : more.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
         // Settings master password: everything greyed until Unlock settings is given the password.
-        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, master);
+        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, master);
         final java.util.List<javax.swing.JComponent> all2 = new java.util.ArrayList<javax.swing.JComponent>(controls);
         for (java.awt.Component c : more.getComponents()) if (c instanceof JCheckBox && !all2.contains(c)) all2.add((JCheckBox) c);
         JPanel lockRow = unlockRow(app, dialog, () -> lock(all2));

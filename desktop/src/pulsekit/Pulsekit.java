@@ -40,7 +40,6 @@ import javax.swing.JPopupMenu;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import pulsekit.AudioIo;
 import pulsekit.Engine;
 
@@ -263,12 +262,7 @@ public final class Pulsekit extends UiKit {
 
     public static void main(String[] stringArray) {
         SwingUtilities.invokeLater(() -> {
-            try {
-                UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
-            }
-            catch (Exception exception) {
-                // empty catch block
-            }
+            Looks.apply();
             new Pulsekit().setVisible(true);
         });
     }

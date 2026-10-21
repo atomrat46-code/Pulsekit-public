@@ -90,6 +90,18 @@ public final class AppSettings {
     set("promptsTab", on);
   }
 
+  // ------------------------------------------------------------ Modern look (desktop)
+
+  public static final String MODERN_LOOK = "Modern look (from the next start)";
+
+  public static boolean modernLook() {
+    return flag("modernLook", true);
+  }
+
+  public static void setModernLook(boolean on) {
+    set("modernLook", on);
+  }
+
   // ------------------------------------------------------------ Settings master password
 
   public static final String MASTER = "Settings master password";

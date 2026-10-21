@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 OUT=build
 rm -rf "$OUT" && mkdir -p "$OUT/classes"
 
-javac --release 8 -nowarn -encoding UTF-8 -cp ../shared/libs/jlayer-1_0_1.jar:libs/jna-5.14.0.jar \
+javac --release 8 -nowarn -encoding UTF-8 -cp ../shared/libs/jlayer-1_0_1.jar:libs/jna-5.14.0.jar:libs/flatlaf-3.5.4.jar \
   -d "$OUT/classes" $(find src ../shared/src -name '*.java')
 
 # Python helpers PythonRun reads as resources, and the JLayer decoder classes.
@@ -15,6 +15,9 @@ cp src/pulsekit/drum_midi.py ../shared/src/pulsekit/midiutil.py "$OUT/classes/pu
 # JNA (VlcPlayer calls the computer's VLC with it): its classes, its native parts for each system, and its licences.
 (cd "$OUT/classes" && jar xf ../../libs/jna-5.14.0.jar com/sun/jna META-INF/AL2.0 META-INF/LGPL2.1 META-INF/LICENSE \
   && mkdir -p META-INF/jna && mv META-INF/AL2.0 META-INF/LGPL2.1 META-INF/LICENSE META-INF/jna/)
+# FlatLaf (the modern look): its classes, themes and native window parts, and its licence (Apache 2.0).
+(cd "$OUT/classes" && jar xf ../../libs/flatlaf-3.5.4.jar com/formdev META-INF/LICENSE \
+  && mkdir -p META-INF/flatlaf && mv META-INF/LICENSE META-INF/flatlaf/)
 
 # PyJav's Java / Python / Code menus, and Scripts from the repo's Prompts folder.
 # A JAR cannot list a folder, so add an index.

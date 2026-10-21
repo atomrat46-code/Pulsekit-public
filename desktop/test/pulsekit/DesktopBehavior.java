@@ -6714,6 +6714,38 @@ public final class DesktopBehavior {
     if (!slidersOk || !recentOk || !categoryOk || !wfOk) throw new AssertionError(out.toString());
   }
 
+  /** FlatLaf's modern look at start, in Pulsekit's colors; General settings' Modern look unticked keeps the classic one next time. */
+  void s143_modern_look() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    String look = javax.swing.UIManager.getLookAndFeel().getName();
+    java.awt.Color accent = javax.swing.UIManager.getColor("Component.accentColor");
+    out.append("look: ").append(look).append(", modern ").append(Looks.modern).append(", accent ").append(accent == null ? "none" : String.format("#%06X", accent.getRGB() & 0xFFFFFF)).append('\n');
+    boolean modernOk = Looks.modern && look.startsWith("FlatLaf") && accent != null && (accent.getRGB() & 0xFFFFFF) == 0xD9A441;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    idle();
+    final javax.swing.JCheckBox[] box = new javax.swing.JCheckBox[1];
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        if (w.isShowing() && w instanceof java.awt.Dialog) {
+          java.awt.Component c = component(w, "settings-modern-look");
+          if (c != null) box[0] = (javax.swing.JCheckBox) c;
+        }
+      }
+    });
+    boolean ticked = box[0] != null && box[0].isSelected();
+    edt(() -> box[0].doClick());
+    idle();
+    boolean off = !AppSettings.modernLook();
+    String now = app.nowPlaying.getText();
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w.isShowing() && w instanceof java.awt.Dialog) w.dispose();
+    });
+    idle();
+    out.append("Modern look ticked at first ").append(ticked).append(", unticked off ").append(off).append(" -> ").append(now).append('\n');
+    if (!modernOk || !ticked || !off) throw new AssertionError(out.toString());
+  }
+
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
   private static boolean jdk8PushedQueue(Throwable t) {
     StackTraceElement[] st = t.getStackTrace();
