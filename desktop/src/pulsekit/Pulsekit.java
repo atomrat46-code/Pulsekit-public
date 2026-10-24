@@ -375,22 +375,27 @@ public final class Pulsekit extends UiKit {
         drumHead.setAlignmentX(0.0f);
         this.drumSubtabs.add(drumHead);
         this.drumSubtabs.add(Box.createVerticalStrut(8));
-        JPanel drumButtons = new JPanel(new GridLayout(1, 4, 6, 4));
-        drumButtons.setOpaque(false);
-        drumButtons.setAlignmentX(0.0f);
+        // Pattern, Fillern and Fill, then CTL (the sliders' window), Play/Pause, Stop and GEN: one row that
+        // scrolls sideways (the mouse near its left or right edge) when the window is narrow.
+        EdgeScrollRow drumRow = new EdgeScrollRow();
+        JPanel drumButtons = drumRow.items;
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
-        this.addTab(drumButtons, "fills", "Fills");
-        // Sliders: Tempo, Swing, Density and Human in a window of their own (they took room on every Drum Tracks page).
-        JButton sliders = new JButton("Sliders");
-        this.flatten(sliders);
-        sliders.setFont(new Font("SansSerif", 1, 13));
-        sliders.setForeground(MUTED);
-        sliders.setName("drum-sliders");
-        sliders.addActionListener(e -> this.showSliders());
+        this.addTab(drumButtons, "fills", "Fill");
+        JButton sliders = this.drumRowButton("CTL", "drum-sliders", MUTED, () -> this.showSliders());
+        sliders.setToolTipText("Tempo, Swing, Density and Human");
         drumButtons.add(sliders);
-        drumButtons.setMaximumSize(new Dimension(420, drumButtons.getPreferredSize().height));
-        this.drumSubtabs.add(drumButtons);
+        this.drumPlay = this.drumRowButton("\u25b6", "drum-play", FG, () -> this.playback.playPause());
+        this.drumPlay.setToolTipText("Play / Pause");
+        drumButtons.add(this.drumPlay);
+        JButton drumStop = this.drumRowButton("\u25a0", "drum-stop", FG, () -> this.playback.stop());
+        drumStop.setToolTipText("Stop");
+        drumButtons.add(drumStop);
+        JButton drumGen = this.drumRowButton("GEN", "drum-gen", HIT, () -> this.playback.generate());
+        drumGen.setToolTipText("A new random groove (as Variate)");
+        drumButtons.add(drumGen);
+        drumRow.watchItems();
+        this.drumSubtabs.add(drumRow);
         JPanel tabRows = new JPanel(new BorderLayout());
         tabRows.setOpaque(false);
         tabRows.add((Component)jPanel7, "North");
@@ -605,6 +610,20 @@ public final class Pulsekit extends UiKit {
 
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
+    /** Drum Tracks' Play/Pause on the Pattern, Fillern and Fill row. */
+    JButton drumPlay;
+
+    /** One of the Drum Tracks row's buttons after its tabs (CTL, Play, Stop, GEN). */
+    JButton drumRowButton(String label, String name, java.awt.Color color, Runnable click) {
+        JButton b = new JButton(label);
+        this.flatten(b);
+        b.setFont(new Font("SansSerif", 1, 13));
+        b.setForeground(color);
+        b.setName(name);
+        b.addActionListener(e -> click.run());
+        return b;
     }
 
     /** The Sliders window while it is open (for the tests too). */
@@ -827,13 +846,14 @@ public final class Pulsekit extends UiKit {
         // Prompts, Composer, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
         boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
             || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
-        if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
+        // Drum Tracks has Play/Pause, Stop and GEN on its own row: the bar is not shown there.
+        if (this.transportBar != null) this.transportBar.setVisible(!noTransport && !drumView(string));
         // Without the bar there is no Stop: a beat or song that was playing stops here.
         if (noTransport && this.sequencer != null && this.sequencer.isRunning()) this.playback.stop();
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
         this.fillHost.setVisible(bl);
-        // Only in the Sliders window (next to Fills).
+        // Only in CTL's window (next to Fill).
         this.knobsRow.setVisible(this.slidersWindow != null);
         this.toolsRow.setVisible(groove);
         if (pattern || combo || bl) {

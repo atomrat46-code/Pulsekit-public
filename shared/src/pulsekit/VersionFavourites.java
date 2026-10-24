@@ -76,7 +76,8 @@ public final class VersionFavourites {
     List<PromptVault.Version> out = new ArrayList<PromptVault.Version>();
     for (Long id : IDS) {
       PromptVault.Version v = vault.version(id.longValue());
-      if (v != null && vault.prompt(v.promptId) != null) out.add(v);
+      // Those General settings' Sogni boxes leave out are not listed.
+      if (v != null && vault.prompt(v.promptId) != null && SogniShown.programShown(SogniShown.programOf(v.id))) out.add(v);
     }
     return out;
   }

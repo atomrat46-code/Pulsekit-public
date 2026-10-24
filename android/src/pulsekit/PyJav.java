@@ -1155,7 +1155,7 @@ final class PyJav {
         try {
             if (app.playBtn == null || !(app.playBtn.getParent() instanceof android.view.View)) return;
             android.view.View row = (android.view.View) app.playBtn.getParent();
-            row.setVisibility("py".equals(app.view) ? 8 : 0);
+            row.setVisibility("py".equals(app.view) || MainActivity.drumView(app.view) ? 8 : 0);
         } catch (Throwable ignored) {}
     }
 

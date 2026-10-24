@@ -257,6 +257,8 @@ public final class SogniDownloads {
     Run r = run(id);
     if (r == null || versionId == 0) return;
     r.versionId = versionId;
+    // The Sogni boxes in General settings leave out the prompts their programs stored.
+    SogniShown.record(versionId, r.program);
     write();
   }
 
@@ -305,12 +307,36 @@ public final class SogniDownloads {
     return !FINISHED.equals(state) || "Program".equals(sort);
   }
 
+  /** The program whose run stored this prompt version, or null. */
+  public static synchronized String programOfVersion(long versionId) {
+    if (versionId == 0) return null;
+    for (Run r : RUNS) if (r.versionId == versionId) return r.program;
+    return null;
+  }
+
+  /**
+   * Whether General settings show the run: its program by the Sogni boxes, and (once it has files)
+   * one of them by the file types (a run that made only videos is not shown with Show videos off).
+   */
+  public static boolean shown(Run r) {
+    if (!AppSettings.listsProgram(r.program)) return false;
+    return r.items.isEmpty() || !shownItems(r).isEmpty();
+  }
+
+  /** The run's files General settings show (the file types and the Sogni boxes). */
+  public static List<Item> shownItems(Run r) {
+    List<Item> out = new ArrayList<Item>();
+    for (Item it : r.items) if (AppSettings.showsFile(it.name)) out.add(it);
+    return out;
+  }
+
   /** The runs in one tab (PENDING, PROGRESS, or FINISHED for finished and failed); Finished in the order Sort by says, the others by program, the newest first. */
   public static synchronized List<Run> tab(String state) {
     List<Run> out = new ArrayList<Run>();
     for (Run r : RUNS) {
       boolean in = FINISHED.equals(state) ? FINISHED.equals(r.state) || FAILED.equals(r.state) : state.equals(r.state);
-      if (in) out.add(r);
+      // Those General settings leave out (the Sogni boxes, the file types) are not listed.
+      if (in && shown(r)) out.add(r);
     }
     final String how = FINISHED.equals(state) ? sort : "Program";
     Collections.sort(out, new Comparator<Run>() {

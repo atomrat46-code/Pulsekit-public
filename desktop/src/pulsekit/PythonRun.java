@@ -38,6 +38,9 @@ public final class PythonRun {
 
   private PythonRun() {}
 
+  /** How long a script may run: rendering a song through a plugin (vst_render.py) takes minutes, not seconds. */
+  static final int SCRIPT_SECONDS = 600;
+
   public static String findPython() {
     String[][] cmds = {{"python3"}, {"python"}, {"py", "-3"}};
     for (String[] cmd : cmds) {
@@ -60,6 +63,89 @@ public final class PythonRun {
       }
     }
     return null;
+  }
+
+  /** The command that starts the Python Pulsekit runs ("py -3" as two words), or null when there is none. */
+  public static List<String> pythonCommand() {
+    String py = findPython();
+    if (py == null) return null;
+    List<String> cmd = new ArrayList<String>();
+    cmd.add(py);
+    if ("py".equals(py)) cmd.add("-3");
+    return cmd;
+  }
+
+  /** Where that Python is (its sys.executable), or the command's name when it does not say. */
+  public static String whichPython() {
+    List<String> cmd = pythonCommand();
+    if (cmd == null) return "(none)";
+    List<String> all = new ArrayList<String>(cmd);
+    all.add("-c");
+    all.add("import sys; print(sys.executable)");
+    String out = runFor(all, 10, null).trim();
+    return out.length() > 0 && !out.contains("\n") ? out : String.join(" ", cmd);
+  }
+
+  /**
+   * pip install for the Python Pulsekit runs (python -m pip install ...), with --user when pip may
+   * not write into Python's own folder. Its output line by line to `out`; whether it worked.
+   */
+  public static boolean pipInstall(List<String> packages, java.util.function.Consumer<String> out) {
+    List<String> cmd = pythonCommand();
+    if (cmd == null || packages == null || packages.isEmpty()) return false;
+    List<String> all = new ArrayList<String>(cmd);
+    Collections.addAll(all, "-m", "pip", "install");
+    all.addAll(packages);
+    StringBuilder log = new StringBuilder();
+    int code = runCode(all, 600, line -> {
+      log.append(line).append('\n');
+      if (out != null) out.accept(line);
+    });
+    if (code == 0) return true;
+    if (!PipMissing.needsUser(log.toString())) return false;
+    List<String> user = new ArrayList<String>(cmd);
+    Collections.addAll(user, "-m", "pip", "install", "--user");
+    user.addAll(packages);
+    if (out != null) out.accept("Trying again with --user\u2026");
+    return runCode(user, 600, out) == 0;
+  }
+
+  /** A command's output (stdout and stderr), waiting at most `seconds`. */
+  static String runFor(List<String> cmd, int seconds, java.util.function.Consumer<String> lines) {
+    StringBuilder sb = new StringBuilder();
+    runCode(cmd, seconds, line -> {
+      sb.append(line).append('\n');
+      if (lines != null) lines.accept(line);
+    });
+    return sb.toString();
+  }
+
+  /** A command run, its lines to `lines`; its exit code (-1 when it could not start or took too long). */
+  static int runCode(List<String> cmd, int seconds, java.util.function.Consumer<String> lines) {
+    try {
+      ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+      pb.environment().put("PYTHONUNBUFFERED", "1");
+      Process p = pb.start();
+      Thread reader = new Thread(() -> {
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+          for (String line; (line = r.readLine()) != null; ) if (lines != null) lines.accept(line);
+        } catch (Exception ignored) {
+          // the process ended
+        }
+      });
+      reader.setDaemon(true);
+      reader.start();
+      if (!p.waitFor(seconds, TimeUnit.SECONDS)) {
+        p.destroyForcibly();
+        if (lines != null) lines.accept("Stopped after " + seconds + " s.");
+        return -1;
+      }
+      reader.join(2000);
+      return p.exitValue();
+    } catch (Exception ex) {
+      if (lines != null) lines.accept("Could not run " + String.join(" ", cmd) + ": " + ex.getMessage());
+      return -1;
+    }
   }
 
   private static List<String> join(String[] cmd, String extra) {
@@ -113,7 +199,7 @@ public final class PythonRun {
       ByteArrayOutputStream bos = new ByteArrayOutputStream();
       InputStream in = proc.getInputStream();
       byte[] buf = new byte[4096];
-      long deadline = System.currentTimeMillis() + 20_000;
+      long deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
       while (System.currentTimeMillis() < deadline) {
         while (in.available() > 0) {
           int n = in.read(buf);
@@ -125,7 +211,7 @@ public final class PythonRun {
       }
       if (proc.isAlive()) {
         proc.destroyForcibly();
-        bos.write("\nScript timed out (20s).".getBytes(StandardCharsets.UTF_8));
+        bos.write(("\nScript timed out (" + SCRIPT_SECONDS + " s).").getBytes(StandardCharsets.UTF_8));
       }
       int n;
       while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);

@@ -542,7 +542,7 @@ public final class PromptSheet {
     addSub.setOnClickListener(v -> addSubcategory(activity));
     col.addView(addSub, buttonLp(activity));
     col.addView(caption(activity, "PROMPTS"));
-    List<PromptVault.Prompt> prompts = vault.prompts(categoryId);
+    List<PromptVault.Prompt> prompts = SogniShown.prompts(vault, vault.prompts(categoryId));
     if (prompts.isEmpty()) {
       col.addView(label(activity, "none", 14, "#8A8B86", false));
     }

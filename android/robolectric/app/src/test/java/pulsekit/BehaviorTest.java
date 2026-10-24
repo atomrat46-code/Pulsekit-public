@@ -10112,6 +10112,139 @@ public class BehaviorTest {
     if (!inputsOk || !resumeOk || !historyOk || !categoryOk || !recentOk || !allOk || !mediaOk || !slidersOk || !mutedAgain) throw new AssertionError(out.toString());
   }
 
+  @Test
+  public void s166_drum_row_sogni_shown_pip_missing() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // Drum Tracks: one row (Pattern, Fillern, Fill, CTL, Play, Stop, GEN); no sliders and no Stop/Play/Gen bar on the page.
+    call("show", "pattern");
+    idle();
+    View root = app.findViewById(android.R.id.content);
+    View row = (View) root.findViewWithTag("drum-sliders").getParent();
+    StringBuilder labels = new StringBuilder();
+    for (int i = 0; i < ((ViewGroup) row).getChildCount(); i++) labels.append(((TextView) ((ViewGroup) row).getChildAt(i)).getText()).append(' ');
+    boolean oneRow = labels.toString().trim().equals("Pattern Fillern Fill CTL \u25b6 \u25a0 GEN");
+    // Every label fits its button on the phone's width (nothing cut).
+    StringBuilder fit = new StringBuilder();
+    boolean allFit = true;
+    for (int i = 0; i < ((ViewGroup) row).getChildCount(); i++) {
+      TextView t = (TextView) ((ViewGroup) row).getChildAt(i);
+      // A real bold font's width (DejaVu Sans Bold, wider than the phone's Roboto), letter by letter.
+      float need = boldWidth(t.getText().toString()) * t.getTextSize();
+      int room = t.getWidth() - t.getPaddingLeft() - t.getPaddingRight();
+      fit.append(t.getText()).append(' ').append((int) need).append('/').append(room).append(' ');
+      allFit &= room > 0 && need <= room;
+    }
+    out.append("widths (text/room px, screen ").append(root.getWidth()).append("): ").append(fit.toString().trim()).append('\n');
+    oneRow &= allFit;
+    boolean noSliders = app.knobsRow.getVisibility() == View.GONE;
+    boolean noBar = app.transportRow.getVisibility() == View.GONE;
+    call("show", "song");
+    idle();
+    boolean barOnSong = app.transportRow.getVisibility() == View.VISIBLE;
+    call("show", "fills");
+    idle();
+    boolean stillNoSliders = app.knobsRow.getVisibility() == View.GONE && app.transportRow.getVisibility() == View.GONE;
+    out.append("row: ").append(labels.toString().trim()).append(" | sliders hidden ").append(noSliders).append(", bar hidden ").append(noBar)
+        .append(", bar on Song ").append(barOnSong).append(", Fill: still hidden ").append(stillNoSliders).append('\n');
+    // Play pauses (where it is) and goes on; Stop starts again.
+    call("show", "pattern");
+    idle();
+    TextView play = (TextView) root.findViewWithTag("drum-play");
+    play.performClick();
+    idle();
+    boolean playing = app.playing && "\u275a\u275a".contentEquals(play.getText());
+    play.performClick();
+    idle();
+    boolean paused = !app.playing && app.playback.paused && "\u25b6".contentEquals(play.getText());
+    play.performClick();
+    idle();
+    boolean resumed = app.playing && !app.playback.paused;
+    root.findViewWithTag("drum-stop").performClick();
+    idle();
+    boolean stopped = !app.playing && !app.playback.paused && "\u25b6".contentEquals(play.getText());
+    out.append("play ").append(playing).append(", pause ").append(paused).append(", play again ").append(resumed).append(", stop ").append(stopped).append('\n');
+    boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
+    // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
+    File dir = app.getFilesDir();
+    AppSettings.load(dir);
+    PromptVault vault = PromptVault.open(dir);
+    long cat = vault.categories().get(0).id;
+    long pv = vault.addPrompt(cat, "Walk");
+    long vv = vault.addVersion(pv, "Walk", "", "A walk", "", "me.png", new byte[] {1, 2}, "", null, "walk-result.mp4", new byte[] {3, 4, 5}, "ai", "");
+    long pm = vault.addPrompt(cat, "House");
+    long vm = vault.addVersion(pm, "House", "", "Deep house", "", "", null, "", null, "house-track.mp3", new byte[] {6, 7, 8}, "ai", "");
+    long pt = vault.addPrompt(cat, "Typed");
+    vault.addVersion(pt, "Typed", "", "Typed in", "", "", null, "", null, "", null, "ai", "");
+    SogniDownloads.init(dir);
+    long rv = SogniDownloads.started("SogniVideo.java", 1000L);
+    SogniDownloads.result(rv, "Succeeded: walk-result.mp4", "saved Download/walk-result.mp4", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(rv, vv);
+    SogniDownloads.done(rv);
+    long rm = SogniDownloads.started("SogniMusic.java", 2000L);
+    SogniDownloads.result(rm, "Succeeded: house-track.mp3", "saved Download/house-track.mp3", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(rm, vm);
+    SogniDownloads.done(rm);
+    long rc = SogniDownloads.started("SogniChat.java", 3000L);
+    SogniDownloads.result(rc, "Succeeded: sogni-chat-cat.png", "saved Download/sogni-chat-cat.png", new java.util.HashMap<String, String>());
+    SogniDownloads.done(rc);
+    String all = sogniView(vault);
+    AppSettings.setMusicOnly(true);
+    String music = sogniView(vault);
+    AppSettings.setShows("I", false);
+    String musicNoImages = sogniView(vault);
+    AppSettings.setShows("I", true);
+    AppSettings.setMusicOnly(false);
+    AppSettings.setShowSogni(false);
+    String none = sogniView(vault);
+    AppSettings.setShowSogni(true);
+    // The programs kept after a restart (prompt-programs.txt).
+    SogniShown.reset();
+    SogniShown.load(dir);
+    String kept = SogniShown.programOf(vv) + " " + SogniShown.programOf(vm);
+    out.append("all shown: ").append(all).append('\n').append("music and chat only: ").append(music).append('\n').append("  and Show images off: ").append(musicNoImages)
+        .append('\n').append("no Sogni tools: ").append(none).append('\n').append("kept: ").append(kept).append('\n');
+    boolean sogniOk = all.equals("prompts House Typed Walk | results house-track.mp3 walk-result.mp4 | downloads SogniChat SogniMusic SogniVideo")
+        && music.equals("prompts House Typed | results house-track.mp3 | downloads SogniChat SogniMusic")
+        && musicNoImages.equals("prompts House Typed | results house-track.mp3 | downloads SogniMusic")
+        && none.equals("prompts Typed | results | downloads")
+        && kept.equals("SogniVideo.java SogniMusic.java")
+        && SogniShown.programOfName("sogni-video-walk.mp4").equals("SogniVideo") && SogniShown.programOfName("sogni-Deep-House-1a2b.mp3").equals("SogniMusic") && AppSettings.showsFile("beach.png");
+    // A Python run stopped for a library that is not installed: the packages to install.
+    java.util.List<String> pip = PipMissing.missing("numpy is not installed (No module named 'numpy'). Install it with: pip install numpy\nModuleNotFoundError: No module named 'cv2'");
+    out.append("pip: ").append(pip).append(" | ").append(PipMissing.question(pip, "C:\\Python312\\python.exe").replace('\n', ' ')).append('\n');
+    boolean pipOk = pip.toString().equals("[numpy, opencv-python]");
+    write("s166_drum_row_sogni_shown_pip_missing", out.toString());
+    if (!drumOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
+  }
+
+  /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
+  private static float boldWidth(String text) {
+    float em = 0;
+    for (char c : text.toCharArray()) {
+      if ("iljI".indexOf(c) >= 0) em += 0.34f;
+      else if ("tfr".indexOf(c) >= 0) em += 0.49f;
+      else if (Character.isUpperCase(c)) em += 0.78f;
+      else if (c > 0x2000) em += 0.9f;
+      else em += 0.71f;
+    }
+    return em;
+  }
+
+  /** What the Sogni boxes show: the prompts, the library's result files, the Downloads (Finished) programs. */
+  private static String sogniView(PromptVault vault) {
+    java.util.List<String> prompts = new java.util.ArrayList<String>();
+    for (PromptVault.Prompt p : SogniShown.prompts(vault, vault.prompts(vault.categories().get(0).id))) prompts.add(p.title);
+    java.util.Collections.sort(prompts);
+    java.util.List<String> results = new java.util.ArrayList<String>();
+    for (PromptVault.StoredFile f : FileFilter.keep(vault.resultFiles(), vault, "A")) results.add(f.name);
+    java.util.Collections.sort(results);
+    java.util.List<String> runs = new java.util.ArrayList<String>();
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) runs.add(r.programName());
+    java.util.Collections.sort(runs);
+    return ("prompts " + String.join(" ", prompts)).trim() + " | " + ("results " + String.join(" ", results)).trim() + " | " + ("downloads " + String.join(" ", runs)).trim();
+  }
+
   @SuppressWarnings("unused")
   private static int len(Object arr) {
     return Array.getLength(arr);

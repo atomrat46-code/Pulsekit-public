@@ -207,7 +207,7 @@ public final class FileFilter {
     for (PromptVault.StoredFile f : all) {
       // An old F or G as the letter still means its marks.
       if (isToggle(letter) && !DbFilter.fits(f, letter)) continue;
-      if (!DbFilter.fits(f.name, type) || !marks(f)) continue;
+      if (!DbFilter.fits(f.name, type) || !marks(f) || !SogniShown.fileShown(f)) continue;
       if (prompts != null && !fitsPrompt(f, prompts)) continue;
       out.add(f);
     }

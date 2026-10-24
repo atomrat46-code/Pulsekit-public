@@ -6746,6 +6746,70 @@ public final class DesktopBehavior {
     if (!modernOk || !ticked || !off) throw new AssertionError(out.toString());
   }
 
+  /** Next_todo: Drum Tracks' one row (scrolling at its edges), no bar there; the Sogni boxes; Install for a missing Python library. */
+  void s144_drum_row_sogni_shown_pip() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    edt(() -> call("showView", "pattern"));
+    idle();
+    final StringBuilder labels = new StringBuilder();
+    final EdgeScrollRow[] row = new EdgeScrollRow[1];
+    final boolean[] state = new boolean[3];
+    edt(() -> {
+      java.awt.Component sliders = component(app, "drum-sliders");
+      row[0] = (EdgeScrollRow) SwingUtilities.getAncestorOfClass(EdgeScrollRow.class, sliders);
+      for (java.awt.Component c : row[0].items.getComponents()) labels.append(((javax.swing.AbstractButton) c).getText()).append(' ');
+      state[0] = !app.knobsRow.isVisible();
+      state[1] = !app.transportBar.isVisible();
+    });
+    edt(() -> call("showView", "song"));
+    idle();
+    edt(() -> state[2] = app.transportBar.isVisible());
+    out.append("row: ").append(labels.toString().trim()).append(" | sliders hidden ").append(state[0]).append(", bar hidden ").append(state[1]).append(", bar on Song ").append(state[2]).append('\n');
+    boolean rowOk = labels.toString().trim().equals("Pattern Fillern Fill CTL ▶ ■ GEN") && state[0] && state[1] && state[2];
+    // A narrow row: the mouse at its right edge scrolls it, at its left edge back.
+    final int[] at = new int[4];
+    edt(() -> {
+      EdgeScrollRow r = new EdgeScrollRow();
+      for (int i = 0; i < 12; i++) r.items.add(new javax.swing.JButton("Item " + i));
+      r.watchItems();
+      r.setSize(200, r.getPreferredSize().height);
+      r.doLayout();
+      r.getViewport().setSize(200, r.getPreferredSize().height);
+      r.getViewport().setViewSize(r.items.getPreferredSize());
+      at[0] = r.maxOffset();
+      r.aim(195);
+      for (int i = 0; i < 5; i++) r.scrollBy(r.direction * EdgeScrollRow.STEP);
+      at[1] = r.offset();
+      r.aim(5);
+      for (int i = 0; i < 5; i++) r.scrollBy(r.direction * EdgeScrollRow.STEP);
+      at[2] = r.offset();
+      r.aim(100);
+      at[3] = r.direction;
+    });
+    out.append("edge scrolling: can scroll ").append(at[0]).append(" px, right edge -> ").append(at[1]).append(", left edge -> ").append(at[2]).append(", middle still ").append(at[3] == 0).append('\n');
+    boolean scrollOk = at[0] > 0 && at[1] == 5 * EdgeScrollRow.STEP && at[2] == 0 && at[3] == 0;
+    // The Sogni boxes: a Sogni video's name is left out with the tools off, kept with music and chat only for sound.
+    File dir = PromptDb.dir();
+    AppSettings.load(dir);
+    AppSettings.setShowSogni(false);
+    boolean off = !AppSettings.showsFile("sogni-video-walk.mp4") && !AppSettings.showsFile("sogni-Deep-House-1a2b.mp3") && AppSettings.showsFile("beach.png");
+    AppSettings.setMusicOnly(true);
+    boolean music = !AppSettings.showsFile("sogni-video-walk.mp4") && AppSettings.showsFile("sogni-Deep-House-1a2b.mp3") && AppSettings.showsFile("sogni-chat-cat.png");
+    AppSettings.setMusicOnly(false);
+    out.append("Sogni tools off: hidden ").append(off).append(" | music and chat only ").append(music).append('\n');
+    boolean sogniOk = off && music && AppSettings.showSogni();
+    // Install's question names the Python Pulsekit runs (No: nothing is installed).
+    answers.add("No");
+    edt(() -> app.pyJav.offerPip(java.util.Arrays.asList("numpy")));
+    for (int i = 0; i < 100 && PyJav.lastPipQuestion == null; i++) Thread.sleep(50);
+    idle();
+    String q = PyJav.lastPipQuestion == null ? "" : PyJav.lastPipQuestion;
+    String now = app.nowPlaying.getText();
+    out.append("Install: ").append(q.split("\n")[0]).append(" -> No: ").append(now).append('\n');
+    boolean pipOk = q.startsWith("numpy is not installed for the Python Pulsekit runs") && now.startsWith("Not installed: numpy");
+    if (!rowOk || !scrollOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
+  }
+
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
   private static boolean jdk8PushedQueue(Throwable t) {
     StackTraceElement[] st = t.getStackTrace();

@@ -21,7 +21,8 @@ public final class PromptSearch {
     if (vault == null || q.length() == 0) return out;
     String[] words = q.split("\\s+");
     final List<PromptVault.Prompt> named = new ArrayList<PromptVault.Prompt>();
-    for (PromptVault.Prompt p : vault.allPrompts()) {
+    // The prompts General settings' Sogni boxes leave out are not found either.
+    for (PromptVault.Prompt p : SogniShown.prompts(vault, vault.allPrompts())) {
       String title = p.title == null ? "" : p.title.toLowerCase(Locale.ROOT);
       String tags = ";" + (p.tags == null ? "" : p.tags.toLowerCase(Locale.ROOT)) + ";";
       String place = where(vault, p).toLowerCase(Locale.ROOT);

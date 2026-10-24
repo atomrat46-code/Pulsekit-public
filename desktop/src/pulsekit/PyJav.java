@@ -446,6 +446,47 @@ final class PyJav {
         }, "pulsekit-pls").start();
     }
 
+    /** The Install question shown last (for the tests). */
+    static String lastPipQuestion;
+
+    /**
+     * Install for a script that stopped for a library that is not installed: the Python Pulsekit
+     * runs is named (pip in a command window may install into another), and Install runs
+     * python -m pip install for that Python, then the script again.
+     */
+    void offerPip(final java.util.List<String> packages) {
+        new Thread(() -> {
+            final String python = PythonRun.whichPython();
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                lastPipQuestion = PipMissing.question(packages, python);
+                Object[] options = {"Install", "No"};
+                int answer = javax.swing.JOptionPane.showOptionDialog(app, lastPipQuestion, "Install " + String.join(", ", packages) + "?",
+                    javax.swing.JOptionPane.YES_NO_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (answer != 0) {
+                    app.setNow("Not installed: " + String.join(", ", packages) + " (python -m pip install " + String.join(" ", packages) + " with " + python + ")");
+                    return;
+                }
+                if (this.pyRun != null) this.pyRun.setEnabled(false);
+                app.setNow("Installing " + String.join(", ", packages) + " for " + python + "\u2026");
+                if (app.pyLog != null) app.pyLog.append("\n\nInstalling " + String.join(", ", packages) + " for " + python + "\u2026\n");
+                new Thread(() -> {
+                    boolean ok = PythonRun.pipInstall(packages, line -> javax.swing.SwingUtilities.invokeLater(() -> {
+                        if (app.pyLog != null) app.pyLog.append(line + "\n");
+                    }));
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        if (this.pyRun != null) this.pyRun.setEnabled(true);
+                        if (!ok) {
+                            app.setNow("pip could not install " + String.join(", ", packages) + ": see its output below");
+                            return;
+                        }
+                        app.setNow("Installed " + String.join(", ", packages) + ": running again");
+                        this.runPython();
+                    });
+                }, "pip-install").start();
+            });
+        }, "python-which").start();
+    }
+
     void runPython() {
         if (app.pyEditor == null) return;
         final String listed = app.programMenus.listedSourceToRun();
@@ -663,6 +704,11 @@ final class PyJav {
                     }
                 }
                 if (app.pyLog != null) app.pyLog.setText(shown);
+                // A library the script needs is not installed for the Python Pulsekit runs: install it for that one.
+                if (!javaProg && !promptProg && result.code != 0) {
+                    java.util.List<String> packages = PipMissing.missing(result.log);
+                    if (!packages.isEmpty()) this.offerPip(packages);
+                }
                 boolean loaded = false;
                 int midis = 0;
                 int audios = 0;

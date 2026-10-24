@@ -185,7 +185,7 @@ final class PromptBrowser {
             });
             body.addView(star);
         }
-        List<PromptVault.Prompt> prompts = vault.prompts(chosen);
+        List<PromptVault.Prompt> prompts = SogniShown.prompts(vault, vault.prompts(chosen));
         if (prompts.isEmpty()) body.addView(text(activity, "No prompts here", 14, "#8A8B86"));
         items(activity, vault, body, dialog, picked, prompts, false);
     }

@@ -157,6 +157,8 @@ public class MainActivity extends UiKit {
     LinearLayout chrome;
     /** The bottom strip: the length bar and ■ / Play / Gen. Hidden on pages that play nothing (afterShow). */
     LinearLayout transportBar;
+    /** The bar's Stop, Play and Gen row (not on Drum Tracks: its own row has them). */
+    LinearLayout transportRow;
 
     LinearLayout body;
 
@@ -429,17 +431,21 @@ public class MainActivity extends UiKit {
         drumButtons.setPadding(0, this.dp(8), 0, 0);
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
-        this.addTab(drumButtons, "fills", "Fills");
-        // Sliders: Tempo, Swing, Density and Human in a popup (they took room on every Drum Tracks page).
-        TextView sliders = this.text("Sliders", 13, true);
-        sliders.setGravity(17);
-        sliders.setTag("drum-sliders");
-        sliders.setTextColor(MUTED);
-        sliders.setPadding(0, this.dp(8), 0, this.dp(8));
-        LinearLayout.LayoutParams slidersLp = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
-        slidersLp.setMargins(this.dp(2), 0, this.dp(2), 0);
-        sliders.setOnClickListener(v -> this.showSliders());
-        drumButtons.addView((View)sliders, (ViewGroup.LayoutParams)slidersLp);
+        this.addTab(drumButtons, "fills", "Fill");
+        // Each takes room for its label (Pattern most, the icons least), so all seven fit a narrow phone.
+        float[] tabWeights = {1.25f, 1.15f, 0.75f};
+        for (int i = 0; i < 3; i++) ((LinearLayout.LayoutParams) drumButtons.getChildAt(i).getLayoutParams()).weight = tabWeights[i];
+        // CTL: Tempo, Swing, Density and Human in a popup; then Play/Pause, Stop and GEN, all on this one row.
+        TextView sliders = this.drumRowItem("CTL", "drum-sliders", MUTED, v -> this.showSliders());
+        drumButtons.addView((View)sliders, (ViewGroup.LayoutParams)this.drumRowLp(0.75f));
+        this.drumPlay = this.drumRowItem("\u25b6", "drum-play", FG, v -> this.playback.playPause());
+        this.drumPlay.setTextSize(15f);
+        drumButtons.addView((View)this.drumPlay, (ViewGroup.LayoutParams)this.drumRowLp(0.6f));
+        TextView drumStop = this.drumRowItem("\u25a0", "drum-stop", FG, v -> this.playback.stop());
+        drumStop.setTextSize(15f);
+        drumButtons.addView((View)drumStop, (ViewGroup.LayoutParams)this.drumRowLp(0.6f));
+        TextView drumGen = this.drumRowItem("GEN", "drum-gen", HIT, v -> this.playback.generate());
+        drumButtons.addView((View)drumGen, (ViewGroup.LayoutParams)this.drumRowLp(0.75f));
         this.drumSubtabs.addView((View)drumButtons);
         linearLayout8.addView((View)linearLayout9);
         linearLayout8.addView((View)linearLayout10);
@@ -527,6 +533,7 @@ public class MainActivity extends UiKit {
         linearLayout24.addView((View)this.playBtn);
         linearLayout24.addView((View)this.action("Gen", HIT, BG, view -> this.playback.generate()), (ViewGroup.LayoutParams)this.square());
         linearLayout23.addView((View)linearLayout24);
+        this.transportRow = linearLayout24;
         this.transportBar = linearLayout23;
         linearLayout2.addView((View)linearLayout23);
         return linearLayout2;
@@ -577,6 +584,27 @@ public class MainActivity extends UiKit {
 
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
+    /** Drum Tracks' Play/Pause on the Pattern, Fillern and Fill row ("\u25b6", "\u275a\u275a" while playing). */
+    TextView drumPlay;
+
+    /** One of the Drum Tracks row's buttons after its tabs (CTL, Play, Stop, GEN): small, so all fit on one row. */
+    TextView drumRowItem(String label, String tag, int color, View.OnClickListener click) {
+        TextView t = this.text(label, 12, true);
+        t.setGravity(17);
+        t.setTag(tag);
+        t.setTextColor(color);
+        t.setSingleLine(true);
+        t.setPadding(0, this.dp(8), 0, this.dp(8));
+        t.setOnClickListener(click);
+        return t;
+    }
+
+    LinearLayout.LayoutParams drumRowLp(float weight) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, this.dp(36), weight);
+        lp.setMargins(this.dp(2), 0, this.dp(2), 0);
+        return lp;
     }
 
     /** The Sliders popup shown last (for the tests). */
@@ -669,7 +697,8 @@ public class MainActivity extends UiKit {
             this.styleWrap.setVisibility(this.grooveView() ? 0 : 8);
         }
         this.fillWrap.setVisibility(bl4 ? 0 : 8);
-        this.knobsRow.setVisibility(bl || bl2 || bl7 || bl8 ? 8 : 0);
+        // Tempo, Swing, Density and Human show only in CTL's popup.
+        if (this.lastSliders == null || !this.lastSliders.isShowing()) this.knobsRow.setVisibility(8);
         this.toolsRow.setVisibility(this.grooveView() ? 0 : 8);
         this.refreshTabs();
         this.styleLibrary.refreshFills();
