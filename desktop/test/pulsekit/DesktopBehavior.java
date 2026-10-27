@@ -7098,8 +7098,17 @@ public final class DesktopBehavior {
         + "copy = vr.retempo(song, 80, out)\n"
         + "opts = {'--outdir': out, '--dir': d, '--state': None, '--effect_state': None, '--carla': None, '--midimap': None}\n"
         + "z = vr.make_zip(out, 'Kit', ['--dir', d, '--test', '--zip', '--bpm', '80'], d, [(song, copy)], [sys.argv[5]], [sys.argv[6]], sys.argv[7], opts, 80.0)\n"
-        + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n"
-        + "print('asks %s' % vr.ask_zip())\n";
+        + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z[0]).namelist())))\n"
+        + "print('asks %s' % vr.ask_zip())\n"
+        // --zip_mb 1: three MIDIs with 0.6 MB WAVs that do not shrink, a zip each, each with the report and the run.
+        + "import os, shutil\n"
+        + "played, wavs = [], []\n"
+        + "for k in range(3):\n"
+        + "    m = os.path.join(d, 'beats', 's%d.mid' % k); shutil.copy(song, m); w = os.path.join(out, 'beats', 's%d-Kit.wav' % k)\n"
+        + "    open(w, 'wb').write(os.urandom(600000)); played.append((m, None)); wavs.append(w)\n"
+        + "parts = vr.make_zip(out, 'Kit', ['--zip_mb', '1'], d, played, wavs, [], sys.argv[7], opts, None, 1)\n"
+        + "print('parts %d: ' % len(parts) + ' | '.join(os.path.basename(p)[-13:] + ' ' + ','.join(sorted(zipfile.ZipFile(p).namelist())) for p in parts))\n"
+        + "print('sizes ok %s' % all(os.path.getsize(p) <= 1000000 for p in parts))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), song.getAbsolutePath(), out.getAbsolutePath(),
         wav.getAbsolutePath(), dm.getAbsolutePath(), report.getAbsolutePath()));
@@ -7112,7 +7121,9 @@ public final class DesktopBehavior {
     for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--zip")) label = p.label;
     this.out.append(said).append("\nvst_render.py --zip: ").append(plain).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("names dm/beats/song-Kit-dm.mid midi-80bpm/beats/song.mid midi/beats/song.mid vst-render-run.txt vst-test-Kit.txt wav/beats/song-Kit.wav")
-        && said.contains("Zipped 5 files") && said.contains("asks False") && !plain.contains("unknown switch") && label.startsWith("Zip:");
+        && said.contains("Zipped 5 files") && said.contains("asks None")
+        && said.contains("parts 3: -part1of3.zip midi/beats/s0.mid,vst-render-run.txt,vst-test-Kit.txt,wav/beats/s0-Kit.wav | -part2of3.zip midi/beats/s1.mid,")
+        && said.contains("sizes ok True") && !plain.contains("unknown switch") && label.startsWith("Zip:");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

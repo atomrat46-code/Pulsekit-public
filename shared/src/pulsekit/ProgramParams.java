@@ -659,6 +659,9 @@ public final class ProgramParams {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
     } else if (p.token.equals("--zip")) {
       p.label = "Zip: the MIDI files, the WAVs (and the test's MIDI files and report) in one zip";
+    } else if (p.token.equals("--zip_mb")) {
+      p.label = "Several zips of at most this many MB (zips without the box above)";
+      p.hint = "30 for a 30 MB chat limit; empty: one zip";
     }
   }
 

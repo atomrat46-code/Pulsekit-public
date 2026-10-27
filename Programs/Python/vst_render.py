@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--zip] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--zip] [--zip_mb N] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -47,6 +47,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   vst-render-<plugin>-<date>-<time>.zip beside the report (in --outdir when given). The
                   plugin and Carla settings files given go in too, and the switches used (vst-render-run.txt).
                   Without --zip, a --dir or --test run in a terminal asks at the end whether to make it.
+  --zip_mb N      zips of at most N MB each (--zip implied): vst-render-...-part1of3.zip and so on, for a
+                  chat or mail that takes files up to a size (30 for 30 MB). Each MIDI stays with its WAV
+                  and DrumMidi's MIDI, and each zip has the report, the settings and vst-render-run.txt.
   --scan          lists the plugins in the usual VST folders, then stops.
 
 The plugins' own delay (lookahead, oversampling) is taken off the start, so the hits land where
@@ -763,31 +766,53 @@ def finish(np, audio, volume):
 
 
 def ask_zip():
-    """A --dir or --test run in a terminal: asks whether to zip what it used and made (no: Enter)."""
+    """A --dir or --test run in a terminal: asks whether to zip what it used and made (no: Enter), and
+    the largest zip in MB (Enter: one zip). None for no zip, else the MB limit (0: one zip)."""
     try:
         if not sys.stdin or not sys.stdin.isatty():
-            return False
-        return input("Put the MIDI files, the WAVs and the report into a zip? [y/N] ").strip().lower() in ("y", "yes")
+            return None
+        if input("Put the MIDI files, the WAVs and the report into a zip? [y/N] ").strip().lower() not in ("y", "yes"):
+            return None
+        size = input("Largest zip in MB, for several zips (Enter: one zip) ").strip()
+        try:
+            return max(0.0, float(size)) if size else 0.0
+        except ValueError:
+            print("Not a number: one zip")
+            return 0.0
     except (EOFError, OSError, ValueError):
-        return False
+        return None
 
 
-def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm):
-    """--zip: the inputs and what was made in one zip beside the report; its path.
+ZIP_MB = 1000 * 1000
+
+
+def packed_size(path):
+    """How many bytes the file takes in a zip (deflated as zipfile does it)."""
+    import zlib
+    z = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+    n = 0
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(1 << 20)
+            if not b:
+                break
+            n += len(z.compress(b))
+    return min(n + len(z.flush()), os.path.getsize(path) + 64)
+
+
+def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0):
+    """--zip: the inputs and what was made in one zip beside the report (or, with --zip_mb, in zips of at
+    most that many MB); their paths.
 
     midi/ the MIDI files played (their subfolders under --dir kept), midi-<bpm>bpm/ the copies played at
     --bpm's tempo, wav/ the renders, dm/ DrumMidi's MIDI files (--test), settings/ the settings files
-    given, and at the top the report and vst-render-run.txt (the switches used)."""
+    given, and at the top the report and vst-render-run.txt (the switches used). Split, each zip keeps a
+    MIDI with its WAV and DrumMidi's MIDI, and has the report, the settings and the run in it too."""
     import time
     import zipfile
     if not os.path.isdir(where):
         os.makedirs(where)
     base = "vst-render-%s-%s" % (re.sub(r"[^A-Za-z0-9._-]+", "_", plugin), time.strftime("%Y%m%d-%H%M%S"))
-    path = os.path.join(where, base + ".zip")
-    n = 2
-    while os.path.exists(path):
-        path = os.path.join(where, "%s-%d.zip" % (base, n))
-        n += 1
     used = set()
 
     def arc(sub, f, root=None):
@@ -800,43 +825,89 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm):
             k += 1
         used.add(a)
         return a
+    out_root = opts["--outdir"] or folder
+    # Each MIDI's files together (a unit), then what every zip has (the shared ones).
+    dm_left = list(dms)
+    units = []
+    for k, (m, copy) in enumerate(played):
+        unit = []
+        if m and os.path.isfile(m):
+            unit.append((m, arc("midi" if m.lower().endswith((".mid", ".midi")) else "input", m, folder)))
+        if copy and os.path.isfile(copy):
+            unit.append((copy, arc("midi-%gbpm" % bpm, m, folder)))
+        o = wavs[k] if k < len(wavs) else None
+        if o and os.path.isfile(o):
+            unit.append((o, arc("wav", o, out_root)))
+            dm = os.path.splitext(o)[0] + "-dm.mid"
+            if dm in dm_left:
+                dm_left.remove(dm)
+                unit.append((dm, arc("dm", dm, out_root)))
+        if unit:
+            units.append(unit)
+    for d in dm_left:
+        units.append([(d, arc("dm", d, out_root))])
+    shared = []
+    if opts["--dir"] and opts["--dir"].lower().endswith(".pls") and os.path.isfile(opts["--dir"]):
+        shared.append((opts["--dir"], arc("", opts["--dir"])))
+    for key in ("--state", "--effect_state", "--carla", "--midimap"):
+        f = opts[key]
+        if f and os.path.isfile(f):
+            shared.append((f, arc("settings", f)))
+    if report and os.path.isfile(report):
+        shared.append((report, arc("", report)))
+    run = "vst_render.py " + " ".join('"%s"' % a if " " in a else a for a in argv) + "\n"
+    run_name = arc("", "vst-render-run.txt")
+
+    # The zips: units in order, a new zip when the next unit would not fit (a unit bigger than the
+    # limit gets a zip of its own).
+    def cost(files):
+        return sum(packed_size(f) + 120 + 2 * len(a.encode("utf-8")) for f, a in files)
+    groups = [[]]
+    if limit_mb and limit_mb > 0:
+        limit = int(limit_mb * ZIP_MB)
+        room = limit - cost(shared) - len(run) - 200 - 22
+        filled = 0
+        for unit in units:
+            c = cost(unit)
+            if groups[-1] and filled + c > room:
+                groups.append([])
+                filled = 0
+            if c > room:
+                print("Note: %s alone is bigger than %g MB: its zip is bigger" % (os.path.basename(unit[0][0]), limit_mb))
+            groups[-1].append(unit)
+            filled += c
+    else:
+        groups = [units]
+    paths = []
     count = 0
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        out_root = opts["--outdir"] or folder
-        for m, copy in played:
-            if m and os.path.isfile(m):
-                z.write(m, arc("midi" if m.lower().endswith((".mid", ".midi")) else "input", m, folder))
-                count += 1
-            if copy and os.path.isfile(copy):
-                z.write(copy, arc("midi-%gbpm" % bpm, m, folder))
-                count += 1
-        if opts["--dir"] and opts["--dir"].lower().endswith(".pls") and os.path.isfile(opts["--dir"]):
-            z.write(opts["--dir"], arc("", opts["--dir"]))
-            count += 1
-        for o in wavs:
-            if os.path.isfile(o):
-                z.write(o, arc("wav", o, out_root))
-                count += 1
-        for d in dms:
-            z.write(d, arc("dm", d, out_root))
-            count += 1
-        for key in ("--state", "--effect_state", "--carla", "--midimap"):
-            f = opts[key]
-            if f and os.path.isfile(f):
-                z.write(f, arc("settings", f))
-                count += 1
-        if report and os.path.isfile(report):
-            z.write(report, arc("", report))
-            count += 1
-        z.writestr(arc("", "vst-render-run.txt"), "vst_render.py " + " ".join('"%s"' % a if " " in a else a for a in argv) + "\n")
-    print("Zipped %d file%s" % (count, "" if count == 1 else "s"))
-    return path
+    for g, group in enumerate(groups):
+        name = base if len(groups) == 1 else "%s-part%dof%d" % (base, g + 1, len(groups))
+        path = os.path.join(where, name + ".zip")
+        n = 2
+        while os.path.exists(path):
+            path = os.path.join(where, "%s-%d.zip" % (name, n))
+            n += 1
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for unit in group:
+                for f, a in unit:
+                    z.write(f, a)
+                    count += 1
+            for f, a in shared:
+                z.write(f, a)
+            z.writestr(run_name, run)
+        paths.append(path)
+    count += len(shared)
+    if len(paths) == 1:
+        print("Zipped %d file%s" % (count, "" if count == 1 else "s"))
+    else:
+        print("Zipped %d file%s in %d zips of at most %g MB (each has the report, the settings and the run)" % (count, "" if count == 1 else "s", len(paths), limit_mb))
+    return paths
 
 
 def main(argv):
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java"}
+            "--drummidi": None, "--java": "java", "--zip_mb": None}
     switches = set()
     files = []
     i = 0
@@ -917,6 +988,14 @@ def main(argv):
     if bits not in (16, 24):
         fail("--bits is 16 or 24")
     tail = max(0.0, min(30.0, tail))
+    zip_mb = 0.0
+    if opts["--zip_mb"]:
+        try:
+            zip_mb = float(opts["--zip_mb"])
+        except ValueError:
+            fail("--zip_mb takes a number (MB)")
+        if zip_mb < 1:
+            fail("--zip_mb is 1 or more (MB)")
     bpm = None
     if opts["--bpm"]:
         try:
@@ -1049,11 +1128,13 @@ def main(argv):
             f.write(text + "\n")
         print("Wrote %s" % rep)
     where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1]))) if batch_done else None
-    if where and ("--zip" in switches or ((batch is not None or test) and ask_zip())):
+    limit_mb = zip_mb if "--zip" in switches or zip_mb else (ask_zip() if batch is not None or test else None)
+    if where and limit_mb is not None:
         made = make_zip(where, stem(plugin_name), argv, folder if batch is not None else None,
                         [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
-                        [o for _, o in batch_done], dms, rep, opts, bpm)
-        print("Zip: %s" % made)
+                        [o for _, o in batch_done], dms, rep, opts, bpm, limit_mb)
+        for z in made:
+            print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
     if batch is not None:
         print("Succeeded: %d of %d MIDI files rendered" % (len(batch_done), len(batch)))
     else:
