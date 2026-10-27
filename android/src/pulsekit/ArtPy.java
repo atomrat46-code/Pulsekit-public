@@ -26,12 +26,20 @@ public final class ArtPy {
       if (src.trim().isEmpty()) {
         return fail("That Python file is empty.");
       }
-      String py = pythonBin();
+      // General settings > Python for scripts: a Python app (Pydroid 3, QPython) gets the script handed over.
+      PhonePython.App app = PhonePython.chosen(ctx);
+      String py = app == null ? pythonBin() : null;
+      if (app == null && py == null) {
+        java.util.List<PhonePython.App> apps = PhonePython.apps(ctx);
+        if (!apps.isEmpty()) app = apps.get(0);
+      }
+      if (app != null) return PhonePython.handOff(ctx, app, n, src, argv, midiutil(ctx));
       if (py == null) {
         return fail(
             "Python 3 is not installed on this phone.\n"
                 + "The script was loaded from anywhere and copied into app storage, same as Java.\n"
-                + "Java runs inside the app. Python still needs python3 on the device.");
+                + "Java runs inside the app. Python still needs python3 on the device, or a Python app\n"
+                + "(Pydroid 3, QPython: General settings > " + AppSettings.PYTHON + " hands scripts to it).");
       }
       work = new File(ctx.getCacheDir(), "pypy-" + System.nanoTime());
       if (!work.mkdirs()) return fail("Could not create a work folder");
@@ -88,12 +96,30 @@ public final class ArtPy {
           + "\nPython · app storage, not the folder you picked\n"
           + bos.toString("UTF-8")
           + saved;
+      // A library this Python lacks: a Python app may have it (or install it with its own pip).
+      java.util.List<String> missing = code != 0 ? PipMissing.missing(log) : new java.util.ArrayList<String>();
+      if (!missing.isEmpty()) {
+        java.util.List<PhonePython.App> apps = PhonePython.apps(ctx);
+        log = log + "\n" + String.join(", ", missing) + (missing.size() == 1 ? " is" : " are") + " not installed for " + py + "."
+            + (apps.isEmpty() ? " Install a Python app (Pydroid 3, QPython), or the library for this Python."
+                : " " + apps.get(0).label + " can run the script with its own libraries (Pydroid 3: menu > Pip): pick it in General settings > " + AppSettings.PYTHON + ".");
+      }
       return new JavaRun.Result(log, files, code);
     } catch (Throwable ex) {
       String m = ex.getMessage();
       return fail(m == null || m.isEmpty() ? ex.toString() : m);
     } finally {
       delete(work);
+    }
+  }
+
+  /** Pulsekit's midiutil.py, for a script handed to a Python app. */
+  private static byte[] midiutil(Context ctx) {
+    try {
+      File got = extract(ctx, "midiutil.py");
+      return got != null && got.isFile() ? read(got) : null;
+    } catch (Exception ex) {
+      return null;
     }
   }
 

@@ -7035,6 +7035,40 @@ public final class DesktopBehavior {
     if (!menusOk || !editorOk || !closed || !back[0] || code.window.isShowing()) throw new AssertionError(out.toString());
   }
 
+  /** vst_render --bpm: a MIDI with no tempo (120) played at 80 from a copy; PyJav does not pass Pulsekit's tempo to it. */
+  void s147_vst_render_bpm() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "bpm-test");
+    dir.mkdirs();
+    // A MIDI with no tempo: a kick at beat 0 and at beat 2 (1.0 s at the default 120).
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    File song = new File(dir, "song.mid");
+    Files.write(song.toPath(), mid.toByteArray());
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "a = vr.midi_notes(sys.argv[2])[1]\n"
+        + "b = vr.midi_notes(vr.retempo(sys.argv[2], 80, sys.argv[3]))[1]\n"
+        + "print('at 120: %.3f s, at 80: %.3f s, notes %d %d' % (a[-1][0], b[-1][0], len(a), len(b)))\n";
+    File work = new File(dir, "out");
+    work.mkdirs();
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), song.getAbsolutePath(), work.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    // A bad --bpm is refused before anything is rendered.
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), song.getAbsolutePath(), "--plugin", "x.vst3", "--bpm", "5"));
+    String refused = PythonRun.runFor(bad, 60, null).trim();
+    java.util.List<String> argv = JavaRun.argvFor(ProgramFiles.bundledSource("vst_render.py"), 124, "house", 4, 0, song.getAbsolutePath());
+    this.out.append("--bpm 80: ").append(said).append("\n--bpm 5: ").append(refused.replace('\n', ' ')).append("\nPyJav's arguments: ").append(argv).append('\n');
+    boolean ok = said.startsWith("at 120: 1.000 s, at 80: 1.500 s, notes 2 2") && refused.contains("--bpm is 20 to 400") && !argv.contains("--bpm");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

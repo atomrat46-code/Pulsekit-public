@@ -106,6 +106,38 @@ final class GeneralSettings {
         });
         col.addView(promptsTab);
         controls.add(promptsTab);
+        // Python for scripts: the phone's own python3, or a Python app (Pydroid 3, QPython) the script is handed to.
+        col.addView(headline(app, AppSettings.PYTHON));
+        final android.widget.RadioGroup python = new android.widget.RadioGroup(app);
+        python.setTag("settings-python");
+        java.util.List<PhonePython.App> apps = PhonePython.apps(app);
+        final java.util.List<String> picks = new java.util.ArrayList<String>();
+        picks.add(PhonePython.OWN);
+        String[] labels = new String[apps.size() + 1];
+        labels[0] = "Pulsekit runs it (python3 on this phone; a Python app when there is none)";
+        for (int i = 0; i < apps.size(); i++) {
+            picks.add(apps.get(i).pkg);
+            labels[i + 1] = apps.get(i).label + ": the script is handed to it (Download/Pulsekit/PyJav), Run it there";
+        }
+        String now = AppSettings.pythonPath();
+        for (int i = 0; i < labels.length; i++) {
+            android.widget.RadioButton b = new android.widget.RadioButton(app);
+            b.setId(android.view.View.generateViewId());
+            b.setText(labels[i]);
+            b.setTag("settings-python:" + (picks.get(i).length() == 0 ? "own" : picks.get(i)));
+            python.addView(b);
+            if (picks.get(i).equals(now) || (i == 0 && !picks.contains(now))) b.setChecked(true);
+        }
+        python.setOnCheckedChangeListener((g, id) -> {
+            for (int i = 0; i < g.getChildCount(); i++) {
+                if (g.getChildAt(i).getId() != id) continue;
+                AppSettings.setPythonPath(picks.get(i));
+                app.setNow(i == 0 ? "Pulsekit runs Python scripts itself" : "Python scripts are handed to " + labels[i].replaceAll(":.*", ""));
+            }
+        });
+        col.addView(python);
+        if (apps.isEmpty()) col.addView(app.text("No Python app found (Pydroid 3, QPython): Pulsekit uses python3 when the phone has it.", 12, false));
+        controls.add(python);
         // Security: the settings master password.
         col.addView(headline(app, "Security"));
         final CheckBox master = new CheckBox(app);

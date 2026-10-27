@@ -10317,6 +10317,59 @@ public class BehaviorTest {
     if (!opened || !marked || !undone || !redone || !found || !saveOk || !asked || !closed || !codeOk || !rows.startsWith("Open in editor window")) throw new AssertionError(out.toString());
   }
 
+  @Test
+  public void s168_python_apps_hand_off() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    // Two Python apps on the phone (the tests' list): General settings lists them; picking one is kept.
+    PhonePython.testApps = java.util.Arrays.asList(new PhonePython.App("ru.iiec.pydroid3", "Pydroid 3"), new PhonePython.App("org.qpython.qpy", "QPython"));
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    android.widget.RadioGroup group = (android.widget.RadioGroup) gv.findViewWithTag("settings-python");
+    StringBuilder rows = new StringBuilder();
+    for (int i = 0; i < group.getChildCount(); i++) rows.append(((TextView) group.getChildAt(i)).getText().toString().replaceAll(":.*", "")).append(" | ");
+    ((android.widget.RadioButton) gv.findViewWithTag("settings-python:ru.iiec.pydroid3")).setChecked(true);
+    idle();
+    String picked = AppSettings.pythonPath();
+    GeneralSettings.last.dismiss();
+    idle();
+    out.append("Python for scripts: ").append(rows).append("picked ").append(picked).append('\n');
+    boolean listOk = rows.toString().startsWith("Pulsekit runs it (python3 on this phone; a Python app when there is none) | Pydroid 3 | QPython")
+        && "ru.iiec.pydroid3".equals(picked) && PhonePython.chosen(app) != null;
+    // The hand-over: the program, midiutil.py, the input file and run_<program>.py into Download/Pulsekit/PyJav/<program>.
+    final java.util.Map<String, byte[]> written = new java.util.LinkedHashMap<String, byte[]>();
+    PhonePython.testWriter = (folder, name, data) -> {
+      written.put(folder + "/" + name, data);
+      return "content://media/external/downloads/" + written.size();
+    };
+    File in = new File(app.getCacheDir(), "pyjav-in/song.mid");
+    in.getParentFile().mkdirs();
+    Files.write(in.toPath(), new byte[] {'M', 'T', 'h', 'd'});
+    String outWav = new File(app.getCacheDir(), "pyjav-in/song-out.wav").getAbsolutePath();
+    JavaRun.Result r = PhonePython.handOff(app, PhonePython.chosen(app), "compare_hits.py", "print('hi')\n",
+        java.util.Arrays.asList(in.getAbsolutePath(), outWav, "--sens", "2"), "# midiutil".getBytes(StandardCharsets.UTF_8));
+    String here = PhonePython.folderPath("compare_hits");
+    out.append("written: ").append(written.keySet()).append('\n').append("log: ").append(r.log.replace("\n", " | ")).append('\n');
+    out.append("intent: ").append(PhonePython.lastIntent.getPackage()).append(' ').append(PhonePython.lastIntent.getType()).append(' ').append(PhonePython.lastIntent.getData()).append('\n');
+    String runner = PhonePython.lastRunner;
+    out.append("runner: ").append(runner.replace("\n", " | ")).append('\n');
+    boolean handOk = written.keySet().toString().equals("[Pulsekit/PyJav/compare_hits/compare_hits.py, Pulsekit/PyJav/compare_hits/midiutil.py, Pulsekit/PyJav/compare_hits/song.mid, Pulsekit/PyJav/compare_hits/run_compare_hits.py]")
+        && "ru.iiec.pydroid3".equals(PhonePython.lastIntent.getPackage()) && r.code == 0 && r.log.contains("Opened in Pydroid 3")
+        && runner.contains(PhonePython.py(here + "/song.mid")) && runner.contains(PhonePython.py(here + "/song-out.wav")) && runner.contains("\"--sens\", \"2\"")
+        && runner.contains("runpy.run_path(sys.argv[0], run_name=\"__main__\")");
+    // PyJav does not add Pulsekit's tempo to vst_render (its --bpm is the MIDI's own).
+    java.util.List<String> argv = JavaRun.argvFor("usage --bpm N plays the MIDI. " + JavaRun.NO_KIT_BPM + ".", 124, "house", 4, 0, "song.mid");
+    java.util.List<String> drum = JavaRun.argvFor("usage --bpm N", 124, "house", 4, 0, "");
+    out.append("vst_render argv: ").append(argv).append(" | a kit program: ").append(drum).append('\n');
+    boolean bpmOk = !argv.contains("--bpm") && drum.contains("--bpm") && drum.contains("124");
+    PhonePython.testApps = null;
+    PhonePython.testWriter = null;
+    AppSettings.setPythonPath("");
+    write("s168_python_apps_hand_off", out.toString());
+    if (!listOk || !handOk || !bpmOk) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;
