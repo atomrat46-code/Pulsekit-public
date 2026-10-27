@@ -24,14 +24,20 @@ import javax.swing.Timer;
 final class EdgeScrollRow extends JScrollPane {
     /** How near the edge (pixels) the mouse scrolls the row, and how far each tick goes. */
     static final int EDGE = 36;
-    static final int STEP = 14;
+    static final int STEP = 8;
 
-    final JPanel items = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+    final JPanel items;
     /** -1 left, 1 right, 0 still. */
     int direction;
     private final Timer ticks = new Timer(16, e -> this.scrollBy(this.direction * STEP));
 
     EdgeScrollRow() {
+        this(new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)));
+    }
+
+    /** Around a row of its own (a chip strip whose chips change: the mouse over any of them counts). */
+    EdgeScrollRow(JPanel items) {
+        this.items = items;
         this.items.setOpaque(false);
         this.setViewportView(this.items);
         this.setOpaque(false);
@@ -64,24 +70,24 @@ final class EdgeScrollRow extends JScrollPane {
             }
         };
         this.edges = edges;
-        this.addMouseListener(edges);
-        this.addMouseMotionListener(edges);
         this.addMouseWheelListener(edges);
-        this.items.addMouseListener(edges);
-        this.items.addMouseMotionListener(edges);
+        // The mouse over the row or anything in it, chips added later too (a strip is rebuilt when patterns change).
+        java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(ev -> {
+            if (!(ev instanceof MouseEvent) || !this.isShowing()) return;
+            MouseEvent m = (MouseEvent) ev;
+            Component c = m.getComponent();
+            boolean inside = c != null && (c == this || SwingUtilities.isDescendingFrom(c, this));
+            int id = m.getID();
+            if (id == MouseEvent.MOUSE_MOVED || id == MouseEvent.MOUSE_DRAGGED) {
+                if (inside) edges.mouseMoved(m);
+                else if (this.direction != 0) this.aim(-1);
+            } else if (id == MouseEvent.MOUSE_EXITED && inside) {
+                edges.mouseExited(m);
+            }
+        }, java.awt.AWTEvent.MOUSE_MOTION_EVENT_MASK | java.awt.AWTEvent.MOUSE_EVENT_MASK);
     }
 
     private final MouseAdapter edges;
-
-    /** The row's items (added to `items`) scroll the row too when the mouse is over them. */
-    void watchItems() {
-        for (Component c : this.items.getComponents()) {
-            if (java.util.Arrays.asList(c.getMouseMotionListeners()).contains(this.edges)) continue;
-            c.addMouseListener(this.edges);
-            c.addMouseMotionListener(this.edges);
-            c.addMouseWheelListener(this.edges);
-        }
-    }
 
     /** The mouse at x (in the row): near an edge with more items that way, the row scrolls; else it stops. */
     void aim(int x) {

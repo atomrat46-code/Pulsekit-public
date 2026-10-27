@@ -98,7 +98,69 @@ final class GridEditor {
         }
     }
 
+    /** A grid row's least height: on a small screen the grid scrolls up and down rather than squashing its cells. */
+    static final int MIN_ROW = 22;
+
+    /** The grid, in a scroller that only scrolls when the window has no room for its rows at MIN_ROW. */
     JPanel buildGrid() {
+        final JPanel cells = this.buildCells();
+        final int rows = Engine.TRACK_ID.length + 1;
+        final int least = rows * MIN_ROW + (rows - 1) * 3;
+        // Grows to the room there is (as before), never below `least` high.
+        class Fit extends JPanel implements javax.swing.Scrollable {
+            Fit() {
+                super(new java.awt.BorderLayout());
+                this.setOpaque(false);
+                this.add(cells, java.awt.BorderLayout.CENTER);
+            }
+
+            @Override
+            public java.awt.Dimension getPreferredScrollableViewportSize() {
+                return this.getPreferredSize();
+            }
+
+            @Override
+            public java.awt.Dimension getPreferredSize() {
+                java.awt.Dimension d = cells.getPreferredSize();
+                return new java.awt.Dimension(d.width, Math.max(least, d.height));
+            }
+
+            @Override
+            public int getScrollableUnitIncrement(java.awt.Rectangle r, int orientation, int direction) {
+                return MIN_ROW + 3;
+            }
+
+            @Override
+            public int getScrollableBlockIncrement(java.awt.Rectangle r, int orientation, int direction) {
+                return Math.max(MIN_ROW, r.height - MIN_ROW);
+            }
+
+            @Override
+            public boolean getScrollableTracksViewportWidth() {
+                return true;
+            }
+
+            @Override
+            public boolean getScrollableTracksViewportHeight() {
+                java.awt.Container p = this.getParent();
+                return p != null && p.getHeight() >= least;
+            }
+        }
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(new Fit(), javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+            javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(javax.swing.BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(MIN_ROW + 3);
+        scroll.setName("grid-scroll");
+        JPanel host = new JPanel(new java.awt.BorderLayout());
+        host.setOpaque(false);
+        host.add(scroll, java.awt.BorderLayout.CENTER);
+        return host;
+    }
+
+    /** The cells: ACC and the tracks' rows, a button a step. */
+    JPanel buildCells() {
         int n;
         int cols = app.steps;
         JPanel jPanel = new JPanel(new GridLayout(Engine.TRACK_ID.length + 1, cols + 1, 3, 3));

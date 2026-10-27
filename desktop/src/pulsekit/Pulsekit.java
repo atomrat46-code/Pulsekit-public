@@ -237,7 +237,8 @@ public final class Pulsekit extends UiKit {
         this.styleLibrary.refreshStyles();
         // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
         String lastTab = readLastTab();
-        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.showView(lastTab);
+        // Shown through showView even when it is the first page already (it hides what that page does not show).
+        this.showView(REMEMBERED_TABS.contains(lastTab) ? lastTab : this.view);
         // VLC brought Pulsekit down as it started last time: it is off now, and Pulsekit says so.
         final String vlcCrashed = VlcPlayer.crashedLastTime();
         if (vlcCrashed != null) {
@@ -396,7 +397,6 @@ public final class Pulsekit extends UiKit {
         JButton drumGen = this.drumRowButton("GEN", "drum-gen", HIT, () -> this.playback.generate());
         drumGen.setToolTipText("A new random groove (as Variate)");
         drumButtons.add(drumGen);
-        drumRow.watchItems();
         this.drumSubtabs.add(drumRow);
         JPanel tabRows = new JPanel(new BorderLayout());
         tabRows.setOpaque(false);
@@ -449,9 +449,9 @@ public final class Pulsekit extends UiKit {
         this.variatedPatternBar.setOpaque(false);
         this.variatedPatternBar.setAlignmentX(0.0f);
         this.styleHost.add(this.sectionLab("Built-in"));
-        this.styleHost.add(this.styleBar);
+        this.styleHost.add(this.oneRow(this.styleBar));
         this.styleHost.add(this.sectionLab("Variated"));
-        this.styleHost.add(this.variatedPatternBar);
+        this.styleHost.add(this.oneRow(this.variatedPatternBar));
         this.styleHost.add(this.sectionLab("Imported"));
         this.styleHost.add(this.cappedScroll(this.importedBar, 260));
         this.fillHost.setOpaque(false);
@@ -480,6 +480,8 @@ public final class Pulsekit extends UiKit {
         JButton jButton3 = this.chip("Apply", false);
         jButton3.addActionListener(actionEvent -> this.showView("combo"));
         this.fillBar.add(jButton3);
+        // Only in CTL's window: never on the page, from the start.
+        this.knobsRow.setVisible(false);
         this.knobsRow.setOpaque(false);
         this.knobsRow.setAlignmentX(0.0f);
         this.knobsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
@@ -515,9 +517,9 @@ public final class Pulsekit extends UiKit {
         });
         this.toolsRow.add(jButton);
         this.fillHost.add(this.sectionLab("Built-in"));
-        this.fillHost.add(this.fillBar);
+        this.fillHost.add(this.oneRow(this.fillBar));
         this.fillHost.add(this.sectionLab("Variated"));
-        this.fillHost.add(this.variatedFillBar);
+        this.fillHost.add(this.oneRow(this.variatedFillBar));
         this.fillHost.add(this.sectionLab("Imported"));
         this.fillHost.add(this.cappedScroll(this.importedFillBar, 160));
         this.fillHost.setVisible(false);
@@ -1036,8 +1038,17 @@ public final class Pulsekit extends UiKit {
         }
     }
 
+    /** A chip strip as one row that scrolls sideways at its edges (Built-in, Variated), as on Android. */
+    EdgeScrollRow oneRow(JPanel strip) {
+        if (strip instanceof ChipStrip) ((ChipStrip) strip).oneRow = true;
+        return new EdgeScrollRow(strip);
+    }
+
     /** Wrapping chip row that reports a stable height so BoxLayout cannot loop. */
     static final class ChipStrip extends JPanel {
+        /** All chips on one row (in an EdgeScrollRow), not wrapped onto more. */
+        boolean oneRow;
+
         ChipStrip() {
             super(new FlowLayout(FlowLayout.LEFT, 6, 6));
             setOpaque(false);
@@ -1050,7 +1061,7 @@ public final class Pulsekit extends UiKit {
             Container p = getParent();
             if (p != null && p.getWidth() > 0) w = p.getWidth();
             else if (getWidth() > 0) w = getWidth();
-            int inner = Math.max(64, w);
+            int inner = this.oneRow ? Integer.MAX_VALUE : Math.max(64, w);
             int x = 0;
             int y = 0;
             int rowH = 0;
@@ -1067,8 +1078,9 @@ public final class Pulsekit extends UiKit {
                 rowH = Math.max(rowH, d.height);
                 n++;
             }
-            if (n == 0) return new Dimension(w, 12);
-            return new Dimension(w, y + rowH + 8);
+            if (n == 0) return new Dimension(this.oneRow ? 64 : w, 12);
+            // One row: as wide as its chips (the row around it scrolls).
+            return new Dimension(this.oneRow ? x + 6 : w, y + rowH + 8);
         }
 
         @Override

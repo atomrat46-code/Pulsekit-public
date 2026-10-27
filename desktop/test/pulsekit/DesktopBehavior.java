@@ -6779,7 +6779,6 @@ public final class DesktopBehavior {
     edt(() -> {
       EdgeScrollRow r = new EdgeScrollRow();
       for (int i = 0; i < 12; i++) r.items.add(new javax.swing.JButton("Item " + i));
-      r.watchItems();
       r.setSize(200, r.getPreferredSize().height);
       r.doLayout();
       r.getViewport().setSize(200, r.getPreferredSize().height);
@@ -6796,6 +6795,50 @@ public final class DesktopBehavior {
     });
     out.append("edge scrolling: can scroll ").append(at[0]).append(" px, right edge -> ").append(at[1]).append(", left edge -> ").append(at[2]).append(", middle still ").append(at[3] == 0).append('\n');
     boolean scrollOk = at[0] > 0 && at[1] == 5 * EdgeScrollRow.STEP && at[2] == 0 && at[3] == 0;
+    // A small laptop window: Built-in on one row, scrolled by the mouse at its right edge; the grid's rows stay readable.
+    edt(() -> {
+      app.setExtendedState(java.awt.Frame.NORMAL);
+      app.setSize(1000, 560);
+      app.validate();
+      call("showView", "pattern");
+    });
+    idle();
+    final EdgeScrollRow[] styles = new EdgeScrollRow[1];
+    final int[] grid = new int[3];
+    edt(() -> {
+      styles[0] = (EdgeScrollRow) SwingUtilities.getAncestorOfClass(EdgeScrollRow.class, app.styleBar);
+      java.awt.Component first = app.styleBar.getComponent(0);
+      grid[0] = app.styleBar.getComponentCount() > 0 && first.getY() == app.styleBar.getComponent(app.styleBar.getComponentCount() - 1).getY() ? 1 : 0;
+      javax.swing.JScrollPane gs = (javax.swing.JScrollPane) component(app, "grid-scroll");
+      javax.swing.JPanel cells = (javax.swing.JPanel) ((javax.swing.JPanel) gs.getViewport().getView()).getComponent(0);
+      grid[1] = cells.getComponent(cells.getComponentCount() - 1).getHeight();
+      grid[2] = gs.getHeight();
+      // The mouse moves onto the row's right edge (over a chip there): the row scrolls.
+      java.awt.Point p = new java.awt.Point(styles[0].getWidth() - 4, styles[0].getHeight() / 2);
+      java.awt.Component under = SwingUtilities.getDeepestComponentAt(styles[0], p.x, p.y);
+      if (under == null) under = styles[0];
+      java.awt.Point q = SwingUtilities.convertPoint(styles[0], p, under);
+      java.awt.Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(new java.awt.event.MouseEvent(under, java.awt.event.MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, q.x, q.y, 0, false));
+    });
+    Thread.sleep(600);
+    idle();
+    final int[] moved = new int[1];
+    edt(() -> {
+      moved[0] = styles[0].offset();
+      styles[0].aim(-1);
+    });
+    out.append("small window: Built-in one row ").append(grid[0] == 1).append(", mouse at its right edge scrolled it ").append(moved[0]).append(" px | grid rows ")
+        .append(grid[1]).append(" px high (least ").append(GridEditor.MIN_ROW).append(") in ").append(grid[2]).append(" px\n");
+    boolean smallOk = grid[0] == 1 && moved[0] > 0 && grid[1] >= GridEditor.MIN_ROW;
+    // Started on Pattern (the tab kept from last time): the sliders are not on the page.
+    final boolean[] restart = new boolean[1];
+    SwingUtilities.invokeAndWait(() -> {
+      Pulsekit again = new Pulsekit();
+      restart[0] = !again.knobsRow.isVisible() && "pattern".equals(again.view);
+      again.dispose();
+    });
+    out.append("started again on Pattern: sliders hidden ").append(restart[0]).append('\n');
+    scrollOk &= smallOk && restart[0];
     // The Sogni boxes: a Sogni video's name is left out with the tools off, kept with music and chat only for sound.
     File dir = PromptDb.dir();
     AppSettings.load(dir);
