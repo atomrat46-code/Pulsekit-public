@@ -6838,6 +6838,27 @@ public final class DesktopBehavior {
       again.dispose();
     });
     out.append("started again on Pattern: sliders hidden ").append(restart[0]).append('\n');
+    // Fill: three imported sets are all shown (the Fill page was cut at 220 px); the chips are the modern look's.
+    edt(() -> {
+      for (int i = 1; i <= 3; i++) {
+        javax.swing.JButton set = app.chip("\u25b8 Escape from the island " + i + " - 11", false);
+        set.setAlignmentX(0f);
+        app.importedFillBar.add(set);
+      }
+      call("showView", "fills");
+    });
+    idle();
+    final int[] fill = new int[3];
+    edt(() -> {
+      fill[0] = app.fillHost.getHeight();
+      fill[1] = app.fillHost.getPreferredSize().height;
+      javax.swing.JScrollPane sets = (javax.swing.JScrollPane) SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane.class, app.importedFillBar);
+      fill[2] = sets.getViewport().getHeight() >= app.importedFillBar.getPreferredSize().height ? 1 : 0;
+    });
+    boolean chipUi = app.styleBar.getComponent(0) instanceof javax.swing.JButton && ((javax.swing.JButton) app.styleBar.getComponent(0)).getUI() instanceof ChipUI;
+    out.append("Fill: ").append(fill[0]).append(" of ").append(fill[1]).append(" px shown, all three imported sets in view ").append(fill[2] == 1)
+        .append(" | chips rounded (ChipUI) ").append(chipUi).append('\n');
+    scrollOk &= fill[0] >= fill[1] && fill[2] == 1 && chipUi;
     scrollOk &= smallOk && restart[0];
     // The Sogni boxes: a Sogni video's name is left out with the tools off, kept with music and chat only for sound.
     File dir = PromptDb.dir();

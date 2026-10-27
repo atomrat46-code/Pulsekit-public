@@ -155,6 +155,8 @@ abstract class UiKit extends JFrame {
         jButton.setBorderPainted(false);
         jButton.setOpaque(true);
         jButton.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 14));
+        // The modern look: rounded, with hover and press (the colours stay these).
+        if (Looks.modern) jButton.setUI(ChipUI.shared());
     }
 
     JButton chip(String string, boolean bl) {
@@ -188,7 +190,13 @@ abstract class UiKit extends JFrame {
         jButton.setOpaque(true);
         jButton.setBackground(bl ? new Color(2765356) : BG);
         jButton.setForeground(bl ? FG : MUTED);
-        jButton.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(bl ? HIT : BORDER), BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+        if (jButton.getUI() instanceof ChipUI) {
+            // Its outline drawn rounded by the modern look.
+            jButton.putClientProperty("pk.outline", bl ? HIT : BORDER);
+            jButton.setBorder(BorderFactory.createEmptyBorder(7, 13, 7, 13));
+        } else {
+            jButton.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(bl ? HIT : BORDER), BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+        }
     }
 
     JButton cellBtn(String string) {
@@ -202,6 +210,7 @@ abstract class UiKit extends JFrame {
         jButton.setPreferredSize(new Dimension(w, 22));
         jButton.setMinimumSize(new Dimension(w, 22));
         jButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        jButton.putClientProperty("pk.arc", 6);
         jButton.setBackground(ELEV);
         jButton.setForeground(SUBTLE);
         return jButton;

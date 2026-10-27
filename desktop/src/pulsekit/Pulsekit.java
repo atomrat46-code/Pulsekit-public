@@ -60,7 +60,7 @@ public final class Pulsekit extends UiKit {
 
     final List<JButton> tabs = new ArrayList<JButton>();
 
-    final JPanel styleHost = new JPanel();
+    final JPanel styleHost = new FitHeight();
 
     final JPanel styleBar = new ChipStrip();
 
@@ -68,7 +68,7 @@ public final class Pulsekit extends UiKit {
 
     final JPanel variatedPatternBar = new ChipStrip();
 
-    final JPanel fillHost = new JPanel();
+    final JPanel fillHost = new FitHeight();
 
     final JPanel fillBar = new ChipStrip();
 
@@ -429,7 +429,6 @@ public final class Pulsekit extends UiKit {
         this.styleHost.setOpaque(false);
         this.styleHost.setLayout(new BoxLayout(this.styleHost, BoxLayout.Y_AXIS));
         this.styleHost.setAlignmentX(0.0f);
-        this.styleHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, 280));
         this.styleBar.setOpaque(false);
         this.styleBar.setAlignmentX(0.0f);
         for (String object2 : this.styles.keySet()) {
@@ -457,7 +456,6 @@ public final class Pulsekit extends UiKit {
         this.fillHost.setOpaque(false);
         this.fillHost.setLayout(new BoxLayout(this.fillHost, BoxLayout.Y_AXIS));
         this.fillHost.setAlignmentX(0.0f);
-        this.fillHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
         this.fillBar.setOpaque(false);
         this.fillBar.setAlignmentX(0.0f);
         this.fillBar.setVisible(true);
@@ -521,7 +519,7 @@ public final class Pulsekit extends UiKit {
         this.fillHost.add(this.sectionLab("Variated"));
         this.fillHost.add(this.oneRow(this.variatedFillBar));
         this.fillHost.add(this.sectionLab("Imported"));
-        this.fillHost.add(this.cappedScroll(this.importedFillBar, 160));
+        this.fillHost.add(this.cappedScroll(this.importedFillBar, 260));
         this.fillHost.setVisible(false);
         this.chrome.add(this.styleHost);
         this.chrome.add(this.fillHost);
@@ -957,6 +955,9 @@ public final class Pulsekit extends UiKit {
                 || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
+            // The modern look marks the open tab with the gold accent under it.
+            jButton.putClientProperty("pk.selected", bl);
+            jButton.repaint();
             // General settings > Show DB/Prompts tab.
             if ("prompts".equals(tab)) jButton.setVisible(AppSettings.showPromptsTab());
         }
@@ -1035,6 +1036,14 @@ public final class Pulsekit extends UiKit {
             graphics2D.setColor(FG);
             graphics2D.fill(new Ellipse2D.Float(f5 - 8.0f, f3 - 8.0f, 16.0f, 16.0f));
             graphics2D.dispose();
+        }
+    }
+
+    /** A page part as tall as its contents (Pattern's and Fill's chips and Imported): never cut, never stretched. */
+    static final class FitHeight extends JPanel {
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
         }
     }
 
