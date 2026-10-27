@@ -7184,6 +7184,49 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** vst_render --skip_existing: a whole WAV from before is kept (and its newer DrumMidi MIDI), a cut-off one is made again. */
+  void s150_vst_render_skip_existing() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "skip-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 3; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    Files.write(new File(dir, "DrumMidi_CRT.jar").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, shutil, time\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "d = sys.argv[2]; out = os.path.join(d, 'out'); os.makedirs(out)\n"
+        + "vr.write_wav(os.path.join(out, 's0-kit.wav'), np.zeros((2, 4410)) + 0.1, 44100, 16)\n"
+        + "vr.write_wav(os.path.join(out, 's1-kit.wav'), np.zeros((2, 4410)) + 0.1, 44100, 16)\n"
+        + "b = open(os.path.join(out, 's1-kit.wav'), 'rb').read(); open(os.path.join(out, 's1-kit.wav'), 'wb').write(b[:len(b) // 2])\n"
+        + "time.sleep(0.05); shutil.copy(os.path.join(d, 'in', 's0.mid'), os.path.join(out, 's0-kit-dm.mid'))\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
+        + "vr.Gizmo = G\n"
+        + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--skip_existing', '--test', '--drummidi', os.path.join(d, 'DrumMidi_CRT.jar')])\n"
+        + "print('renders %d' % G.n)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said).append('\n');
+    boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
+        && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
+        && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

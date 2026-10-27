@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -38,6 +38,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   the effect's window opens after the instrument's.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
+  --skip_existing with --dir: a MIDI whose WAV is already there (from a run that was stopped) is not
+                  rendered again; that WAV is tested and zipped as the new ones are. With --test, a
+                  WAV's DrumMidi MIDI (<wav>-dm.mid) newer than the WAV is used as it is, not made again
+                  (leave this off after DrumMidi_CRT or --no-toms changed).
   --test          then runs DrumMidi_CRT on each WAV and compares its hits with the MIDI played, per
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
@@ -540,6 +544,21 @@ def score_line(rows):
     return "  ".join(parts)
 
 
+def whole_wav(path):
+    """A WAV written to its end: sound in it, all of its frames in the file (not one cut off by a stop)."""
+    try:
+        if not os.path.isfile(path):
+            return False
+        w = wave.open(path, "rb")
+        try:
+            need = w.getnframes() * w.getnchannels() * w.getsampwidth()
+        finally:
+            w.close()
+        return need > 0 and os.path.getsize(path) >= need + 44
+    except Exception:
+        return False
+
+
 def drum_midi(java, jar, wav, mid, extra=()):
     """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text."""
     import subprocess
@@ -981,7 +1000,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip", "--zip_nowav"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip", "--zip_nowav", "--skip_existing"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1130,20 +1149,28 @@ def main(argv):
     else:
         print("vst_render: %d MIDI file%s in %s%s" % (len(batch), "" if len(batch) == 1 else "s", folder, " (and its subfolders)" if "--recursive" in switches else ""))
         batch_done = []
+        skip = "--skip_existing" in switches
+        kept = 0
         for m in stoppable(batch, "rendering", "the test and the zip use the WAVs made"):
+            where = opts["--outdir"] or os.path.dirname(m)
+            if opts["--outdir"] and not pls:
+                # Subfolders are kept under --outdir.
+                where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
+            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
+            # --skip_existing: a WAV a stopped run made is kept, when it is whole.
+            if skip and whole_wav(o):
+                print("Kept %s (already made)" % os.path.relpath(o, opts["--outdir"] or folder))
+                batch_done.append((m, o))
+                kept += 1
+                continue
             try:
                 audio, length, _ = chain.render(np, midi=at_tempo(m), tail=tail)
             except Exception as e:
                 print("Failed %s: %s" % (os.path.relpath(m, folder), e))
                 continue
             audio, note = finish(np, audio, volume)
-            where = opts["--outdir"] or os.path.dirname(m)
-            if opts["--outdir"] and not pls:
-                # Subfolders are kept under --outdir.
-                where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
             if not os.path.isdir(where):
                 os.makedirs(where)
-            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             write_wav(o, audio, rate, bits)
             print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
@@ -1161,7 +1188,12 @@ def main(argv):
             tested += 1
             dm = os.path.splitext(o)[0] + "-dm.mid"
             no_toms = "--no-toms" in switches
-            found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, ["--no-toms"] if no_toms else [])
+            if "--skip_existing" in switches and os.path.isfile(dm) and os.path.getmtime(dm) >= os.path.getmtime(o):
+                # DrumMidi's MIDI of this WAV from a stopped run: used as it is.
+                found = midi_notes(dm)[1]
+                print("Kept %s (already made)" % os.path.basename(dm))
+            else:
+                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, ["--no-toms"] if no_toms else [])
             if os.path.isfile(dm):
                 dms.append(dm)
             name = os.path.basename(o)
@@ -1202,7 +1234,8 @@ def main(argv):
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
     if batch is not None:
-        print("Succeeded: %d of %d MIDI files rendered" % (len(batch_done), len(batch)))
+        made = len(batch_done) - kept
+        print("Succeeded: %d of %d MIDI files rendered%s" % (made, len(batch), ", %d kept from before" % kept if kept else ""))
     else:
         print("Succeeded: %s" % batch_done[0][1])
 

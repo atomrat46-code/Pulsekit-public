@@ -653,6 +653,8 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Folder for the WAVs";
       p.hint = "empty: beside each MIDI";
+    } else if (p.token.equals("--skip_existing")) {
+      p.label = "Skip what is already made: WAVs (and DrumMidi's MIDI) from a run that was stopped";
     } else if (p.token.equals("--test")) {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
