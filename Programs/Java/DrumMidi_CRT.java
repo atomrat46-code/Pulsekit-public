@@ -150,6 +150,13 @@ public class DrumMidi_CRT{
      * a hat struck with it 0.68 and more), are hats only where they keep the hats' time.
      */
     static final double KICK_HAT_JUMP = 0.15, SNARE_HAT_JUMP = 0.66, SNARE_LIKE = 0.65, SNARE_LIKE_BODY = 0.5;
+    /**
+     * A hat peak within ECHO_FRAMES (~115 ms) of the one before that raises the hat band less than
+     * ECHO_RISE and stays under ECHO_LEVEL of it is that hit's second peak (a kick's, an open hat's or a
+     * ride's: Anarchy Drums' samples have one 40-120 ms on), not a hat of its own.
+     */
+    static final int ECHO_FRAMES = 10;
+    static final double ECHO_RISE = 0.2, ECHO_LEVEL = 0.8;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
@@ -666,6 +673,7 @@ public class DrumMidi_CRT{
         for (int i = 0; i < nHats; i++) {
             if (!keep[i]) continue;
             int t = hatPeaks.get(i).intValue();
+            if (echo(hatPeaks, hat, hatLevel, i)) continue;
             boolean open = openHat(hatRaw, hatPeaks, i);
             // A pedal hat's chick reaches the hat band: no closed hat on it.
             if (!open && onPedal(hits, t * (double) HOP / sr)) continue;
@@ -697,7 +705,7 @@ public class DrumMidi_CRT{
             for (Hit h : hits) {
                 if ((h.note == RIDE_NOTE || h.note == CRASH_NOTE) && Math.abs(h.time - time) <= SAME_CYMBAL) found = true;
             }
-            if (found) continue;
+            if (found || echo(hatPeaks, hat, hatLevel, i)) continue;
             boolean open = openHat(hatRaw, hatPeaks, i);
             if (!open && onPedal(hits, time)) continue;
             hits.add(new Hit(time, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
@@ -1715,6 +1723,13 @@ public class DrumMidi_CRT{
     static boolean onPedal(List<Hit> hits, double time) {
         for (Hit h : hits) if (h.note == PEDAL_HAT && Math.abs(h.time - time) <= SAME_CYMBAL) return true;
         return false;
+    }
+
+    /** The hat peak is the second peak of the one before (ECHO_FRAMES). */
+    static boolean echo(List<Integer> peaks, double[] hat, double[] level, int i) {
+        if (i == 0) return false;
+        int t = peaks.get(i).intValue(), p = peaks.get(i - 1).intValue();
+        return t - p <= ECHO_FRAMES && jump(level, t) < ECHO_RISE && hat[t] < ECHO_LEVEL * hat[p];
     }
 
     static boolean keepsTime(List<Integer> peaks, boolean[] keep, int i) {
