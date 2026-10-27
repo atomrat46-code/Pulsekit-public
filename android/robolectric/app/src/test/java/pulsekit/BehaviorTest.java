@@ -4843,7 +4843,11 @@ public class BehaviorTest {
     app.pyName = "DrumMidi_CRT.jar";
     app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", dir.getAbsolutePath()));
     app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: DrumMidi on 4 of 4 WAV files in batch-test (<wav>-dm.mid beside each)", new java.util.ArrayList<JavaRun.FileOut>(), 0));
-    for (int i = 0; i < 50 && !"CompareHits.java".equals(get("pyName")); i++) idle();
+    // The program is picked before its arguments are set: wait for both (a loaded machine is slower).
+    for (int i = 0; i < 250 && !("CompareHits.java".equals(get("pyName")) && String.valueOf(app.pyJav.pkLastArgv).startsWith("[--batch")); i++) {
+      idle();
+      Thread.sleep(20);
+    }
     out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
     if (!"CompareHits.java".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--batch, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
     // 3. As if CompareHits --batch had run: the report.
