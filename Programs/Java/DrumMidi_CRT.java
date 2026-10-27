@@ -138,6 +138,20 @@ public class DrumMidi_CRT{
      * up to 0.08, a shuffle 0.6).
      */
     static final double DOTTED_BEAT = 0.8;
+    /**
+     * A "kick" reading under LOW_TOM of the song's usual kick pitch (the median of LOW_TOM_KICKS kicks
+     * at least) is a floor tom tuned under the kick (Anarchy Drums' toms ring at 78-82 Hz under its
+     * 113 Hz kick; other kits' kicks read that low 1 time in 600). Not at a pitch KICK_MOST of the
+     * kicks share, nor where wires ring (a snare with it) or under LOW_TOM_HZ (no pitch read there).
+     * A tom's tone rings on: 8 frames on it keeps LOW_TOM_RING of its level at its pitch (0.06-0.24;
+     * a kick heard through room mics reads that low too, but dies at once: 0.00-0.04). A pitch that
+     * already sounded just before is a guitar's note held over the kick; over guitars no tom is
+     * looked for under the kick (a chord's low note rings there).
+     */
+    static final double LOW_TOM = 0.8, LOW_TOM_HZ = 40, LOW_TOM_RING = 0.05;
+    static final int LOW_TOM_KICKS = 8;
+    /** Such a tom with no other drum found at it still raises the tom bands' level by LOW_TOM_JUMP. */
+    static final double LOW_TOM_JUMP = 0.1;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
@@ -616,7 +630,7 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare);
+        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare, guitar);
         pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
@@ -744,6 +758,30 @@ public class DrumMidi_CRT{
                 strength = r;
             }
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
+        }
+        // Toms tuned under the kick that nothing else was found at (their stick hardly clicks, their
+        // level hardly jumps over the song's kicks): onsets in the tom bands with the low tone ringing,
+        // where no kick, snare, tom or cymbal was written (a loose kick or snare peak there is the tom's).
+        if (!bass && !guitar && kickFrames.size() >= LOW_TOM_KICKS) {
+            double[] kp = new double[kickFrames.size()];
+            for (int i = 0; i < kp.length; i++) kp[i] = lowPitch[kickFrames.get(i).intValue()];
+            Arrays.sort(kp);
+            double usualKick = kp[kp.length / 2];
+            double[] tomBand = new double[kick.length];
+            for (int t = 0; t < tomBand.length; t++) tomBand[t] = Math.max(floor[t], Math.max(mid[t], rack[t]));
+            normalize(tomBand);
+            for (Integer pk : pickPeaks(tomBand, BASE_DELTA / Math.max(0.05, tomSens), 4)) {
+                int t = pk.intValue();
+                if (t + 8 >= mag.length) continue;
+                double time = t * (double) HOP / sr;
+                boolean taken = false;
+                for (Hit h : hits) if (Math.abs(h.time - time) <= 0.035 && h.note != CLOSED_HAT && h.note != OPEN_HAT && h.note != PEDAL_HAT) taken = true;
+                if (taken) continue;
+                double pt = lowPitch[t];
+                if (pt >= LOW_TOM * usualKick || pt < LOW_TOM_HZ || jump(tomLevel, t) < LOW_TOM_JUMP || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+                if (toneRing(mag, t, pt, sr) < LOW_TOM_RING || heldBefore(lowPitch, t, pt)) continue;
+                hits.add(new Hit(time, FLOOR_TOM, tomBand[t]));
+            }
         }
         rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
@@ -1508,13 +1546,14 @@ public class DrumMidi_CRT{
      * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
      * nearly as many floor toms). Not called where a bass line plays: its notes would be read instead.
      */
-    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag, boolean[] snareAt, SnareBody loudSnare) {
+    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag, boolean[] snareAt, SnareBody loudSnare, boolean guitar) {
         if (kickFrames.size() < 4) return;
         double[] p = new double[kickFrames.size()];
         for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
         double[] sorted = p.clone();
         Arrays.sort(sorted);
         double kickPitch = sorted[sorted.length / 4];
+        double usualKick = sorted[sorted.length / 2];
         // A song where most kicks read high carry a note held from before (guitars over the drums,
         // HELD_SONG of them, at least 5): there every kick's tom pitch is checked on what is new at it.
         int high = 0, held = 0;
@@ -1537,6 +1576,13 @@ public class DrumMidi_CRT{
             // A kick read at its third partial, in its pitch or in what is new at it, stays a kick;
             // so does one at a pitch many of the song's kicks read.
             if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
+            // A tom tuned under the kick.
+            if (!guitar && p.length >= LOW_TOM_KICKS && p[i] < LOW_TOM * usualKick && p[i] >= LOW_TOM_HZ && !snareAt[t]
+                && wiresLeft(noiseLevel, t) < TOM_WIRES && !sharedPitch(p, p[i], KICK_MOST) && toneRing(mag, t, p[i], sr) >= LOW_TOM_RING
+                && !heldBefore(lowPitch, t, p[i])) {
+                floorTom(hits, t * (double) HOP / sr);
+                continue;
+            }
             if (sharedPitch(p, p[i]) && lowEnd(mag, t, p[i], sr) >= KICK_SHARE_SUB) continue;
             // A pitch most of the song's kicks read is the kick's with less of a low end than
             // KICK_SHARE_SUB asks (a kick processed so its second partial rings over the
@@ -1561,6 +1607,17 @@ public class DrumMidi_CRT{
             if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
             floorTom(hits, t * (double) HOP / sr);
         }
+    }
+
+    /** How much of its level at `pitch` a hit keeps 8 frames on (a tom's tone rings, a kick's thump dies). */
+    static double toneRing(float[][] mag, int t, double pitch, double sr) {
+        int maxBin = mag[t].length - 1, pb = bin(pitch, sr, maxBin), a = Math.min(mag.length - 1, t + 1), b = Math.min(mag.length - 1, t + 8);
+        double at = 0, later = 0;
+        for (int k = Math.max(1, pb - 1); k <= Math.min(maxBin, pb + 1); k++) {
+            at = Math.max(at, mag[a][k]);
+            later = Math.max(later, mag[b][k]);
+        }
+        return at > 1e-12 ? later / at : 0;
     }
 
     /** Whether KICK_SHARE of the pitches (KICK_SHARE_MIN at least) are within KICK_SAME of `pitch`. */
