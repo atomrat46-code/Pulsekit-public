@@ -156,6 +156,14 @@ public class DrumMidi_CRT{
     static final double SAME_CYMBAL = 0.035;
     static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.6;
     static final double RIDE_STABLE_RINGING = 0.84, RIDE_RING = 0.45, RIDE_TOP_RING = 0.3;
+    /**
+     * A sampled ride played dry (Anarchy Drums') holds its partials less: its wash keeps RIDE_WASH of
+     * the hit 6 frames on (0.64-0.86) at RIDE_WASH_STABLE (0.76-0.86) while its 7-14 kHz dies to
+     * RIDE_WASH_TOP 6 frames on (0.42-0.62) and RIDE_WASH_TOP_LATE 12 frames on (0.05-0.49). Closed
+     * hats in a room and open hats ring like that too, but their top keeps on (0.6-1.0 and 0.5-0.8
+     * 12 frames on).
+     */
+    static final double RIDE_WASH = 0.6, RIDE_WASH_STABLE = 0.74, RIDE_WASH_TOP = 0.65, RIDE_WASH_TOP_LATE = 0.4;
     static final int RIDE_ALONE = 2;
     static final double RIDE_NEAR = 1.0;
     static final int RIDE_SEEN = 3;
@@ -1798,8 +1806,11 @@ public class DrumMidi_CRT{
             // A guitar holds the band steady under closed hats too; their 7-14 kHz has died 6 frames on
             // (a ride's still rings, RIDE_TOP_RING of the hit).
             boolean topRings = b + 6 < sh.hi.length && sh.hi[b + 6] >= RIDE_TOP_RING * sh.hi[b];
+            // A dry ride's wash: the ride band rings on while its top dies (closed and open hats keep their top).
+            boolean washes = b + 12 < sh.ride.length && sh.ride[b + 6] >= RIDE_WASH * sh.ride[b]
+                && sh.hi[b + 6] <= RIDE_WASH_TOP * sh.hi[b] && sh.hi[b + 12] <= RIDE_WASH_TOP_LATE * sh.hi[b];
             boolean stable = !bass && topRings && (next - h.time) * fps > 8 && b + 4 < sh.stab.length
-                && (sh.stab[b + 4] >= RIDE_STABLE || rings && sh.stab[b + 4] >= RIDE_STABLE_RINGING);
+                && (sh.stab[b + 4] >= RIDE_STABLE || rings && sh.stab[b + 4] >= RIDE_STABLE_RINGING || washes && sh.stab[b + 4] >= RIDE_WASH_STABLE);
             // Rises at the hit: what already sounds (a band, a ride's own wash) does not count.
             int pre = Math.max(0, t - 3);
             double dl = Math.max(0, sh.lo[b] - sh.lo[pre]), dr = Math.max(1e-9, sh.ride[b] - sh.ride[pre]), dh = Math.max(0, sh.hi[b] - sh.hi[pre]);
