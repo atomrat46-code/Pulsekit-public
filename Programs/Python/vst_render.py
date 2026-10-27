@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -46,6 +46,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
+  --map notes     with --test: what the plugin really plays for the MIDI's notes, so the report
+                  compares DrumMidi with that: 45=46,41=none,57=49 (a note to another, or none: the
+                  plugin plays nothing there, or nothing the test should count). Or a text file of
+                  such pairs (one or more on a line, # comments). The MIDI files themselves are not
+                  changed; the report says which map it used.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
                   deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
@@ -568,6 +573,36 @@ def to_mp3(java, jar, wav, mp3, kbps):
     return None
 
 
+def note_map(text):
+    """--map: {note: note or None} from "45=46,41=none" or a text file of such pairs (# comments)."""
+    if os.path.isfile(text):
+        with open(text) as f:
+            text = "\n".join(line.split("#", 1)[0] for line in f)
+    out = {}
+    for pair in re.split(r"[,;\s]+", text.strip()):
+        if not pair:
+            continue
+        if "=" not in pair:
+            raise ValueError("%s is not note=note (45=46, or 41=none)" % pair)
+        a, b = (x.strip() for x in pair.split("=", 1))
+        try:
+            src = int(a)
+            dst = None if b.lower() in ("none", "-", "off", "") else int(b)
+        except ValueError:
+            raise ValueError("%s is not note=note (45=46, or 41=none)" % pair)
+        if not 0 <= src <= 127 or dst is not None and not 0 <= dst <= 127:
+            raise ValueError("%s: MIDI notes are 0 to 127" % pair)
+        out[src] = dst
+    return out
+
+
+def mapped(notes, nmap):
+    """The played notes as the plugin plays them (--map): moved to another note, or left out."""
+    if not nmap:
+        return notes
+    return [(t, nmap.get(n, n)) for t, n in notes if nmap.get(n, n) is not None]
+
+
 def whole_wav(path):
     """A WAV written to its end: sound in it, all of its frames in the file (not one cut off by a stop)."""
     try:
@@ -1012,7 +1047,7 @@ def main(argv):
         pass
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None}
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None}
     switches = set()
     files = []
     i = 0
@@ -1079,6 +1114,14 @@ def main(argv):
         jar = opts["--drummidi"]
         if not jar or not os.path.isfile(jar):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
+    nmap = {}
+    if opts["--map"]:
+        if not test:
+            fail("--map is for --test: what the plugin plays for the MIDI's notes")
+        try:
+            nmap = note_map(opts["--map"])
+        except (ValueError, OSError) as e:
+            fail("--map: %s" % e)
     mp3_kbps = None
     if opts["--mp3"]:
         try:
@@ -1222,6 +1265,7 @@ def main(argv):
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
                   "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  "Notes mapped (--map): " + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         tested = 0
@@ -1242,6 +1286,7 @@ def main(argv):
                 report.append("%s: %s" % (name, found))
                 continue
             length, played = midi_notes(at_tempo(m))
+            played = mapped(played, nmap)
             if no_toms:
                 played = [(t, n) for t, n in played if n not in TOMS]
             rows, shift = score(played, found, length + 0.05)

@@ -7313,6 +7313,43 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** vst_render --map: the test's played notes as the plugin plays them (moved or left out), from pairs or a file; bad maps refused. */
+  void s153_vst_render_map() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "map-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File file = new File(dir, "anarchy-map.txt");
+    Files.write(file.toPath(), "# Anarchy Drums\n45=46\n41=none  57=49\n".getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "m = vr.note_map('45=46, 41=none'); f = vr.note_map(sys.argv[2])\n"
+        + "print('pairs', sorted(m.items(), key=lambda x: x[0]))\n"
+        + "print('file', sorted(f.items(), key=lambda x: x[0]))\n"
+        + "played = [(0.0, 36), (0.5, 45), (1.0, 41), (1.5, 43)]\n"
+        + "print('mapped', vr.mapped(played, m))\n"
+        + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
+        + "print('score', vr.score_line(rows))\n"
+        + "for bad in ('45', '45=x', '200=46'):\n"
+        + "    try: vr.note_map(bad); print('kept', bad)\n"
+        + "    except ValueError as e: print('refused', e)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), file.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    java.util.List<String> noTest = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    noTest.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map", "45=46"));
+    String refused = PythonRun.runFor(noTest, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--map")) label = p.label;
+    this.out.append(said).append("\nwithout --test: ").append(refused).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("pairs [(41, None), (45, 46)]") && said.contains("file [(41, None), (45, 46), (57, 49)]")
+        && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
+        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
+        && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
+        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

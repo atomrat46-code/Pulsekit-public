@@ -659,6 +659,9 @@ public final class ProgramParams {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
+    } else if (p.token.equals("--map")) {
+      p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them";
+      p.hint = "Anarchy Drums: 45=46,41=none; empty: as the MIDI has them";
     } else if (p.token.equals("--mp3")) {
       p.label = "MP3s instead of WAVs (after the test): the WAVs are made MP3s at this bitrate and deleted";
       p.hint = "empty: WAVs; 192 is about a seventh of the WAV";
