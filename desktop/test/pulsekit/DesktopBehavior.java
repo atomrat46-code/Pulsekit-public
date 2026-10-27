@@ -7243,7 +7243,7 @@ public final class DesktopBehavior {
     Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
     File script = new File(dir, "vst_render.py");
     Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
-    String java = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
     String check = "import importlib.util, os, sys, glob, zipfile\n"
         + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
         + "import numpy as np\n"
@@ -7265,7 +7265,7 @@ public final class DesktopBehavior {
         + "vr.main(args + ['--skip_existing'])\n"
         + "print('renders %d' % G.n)\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
-    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), jar.getAbsolutePath(), java));
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), jar.getAbsolutePath(), javaBin));
     String said = PythonRun.runFor(cmd, 180, null).trim();
     // PyJav hands the jar over for --mp3 alone (no --test).
     java.util.List<String> argv = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("--mp3", "192"), new File(dir, "given.jar"), new byte[] {1});
