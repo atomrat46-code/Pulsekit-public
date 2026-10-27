@@ -785,6 +785,7 @@ public class DrumMidi_CRT{
         }
         rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
+        darkCrashes(hits, shape, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
         note("Hits: " + hits.size());
@@ -1903,6 +1904,40 @@ public class DrumMidi_CRT{
             // Over a band, guitar chords struck with the hats look low too: hats are not made rides.
             if (bass && note == RIDE_NOTE) continue;
             if (note != h.note) hits.set(hits.indexOf(h), new Hit(h.time, note, h.strength));
+        }
+    }
+
+    /**
+     * A crash played on and on (eighths or quarters, as heavy music rides it) has no time to wash
+     * between its hits, so isCrash, which asks for the wash, does not find it: its hits are written
+     * as hats or a ride. Such a crash is dark: its 7-14 kHz under CRASH_TILT of its 3-7 kHz (Anarchy
+     * Drums' crashes 0.18-0.29; hats and rides 0.34-0.92), and the 3-7 kHz still at CRASH_SWELL of the
+     * hit 5 frames on (a crash swells: 0.88-1.71; most hats die under it). Where at least
+     * CRASH_SHARE of the cymbal hits within CRASH_WINDOW seconds are so (any number of them: a lone
+     * crash too), they are the crash.
+     */
+    static final double CRASH_TILT = 0.3, CRASH_SWELL = 0.75, CRASH_SHARE = 0.5, CRASH_WINDOW = 1.0;
+
+    static void darkCrashes(List<Hit> hits, CymbalShape sh, double fps) {
+        List<Hit> cym = new ArrayList<Hit>();
+        for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == OPEN_HAT || h.note == RIDE_NOTE || h.note == CRASH_NOTE) cym.add(h);
+        int n = cym.size();
+        boolean[] dark = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            int t = (int) Math.round(cym.get(i).time * fps) + 1;
+            if (t + 5 >= sh.ride.length || sh.ride[t] < 1e-12) continue;
+            dark[i] = sh.hi[t] < CRASH_TILT * sh.ride[t] && sh.ride[t + 5] >= CRASH_SWELL * sh.ride[t];
+        }
+        for (int i = 0; i < n; i++) {
+            Hit h = cym.get(i);
+            if (h.note == CRASH_NOTE) continue;
+            int seen = 0, crashes = 0;
+            for (int j = 0; j < n; j++) {
+                if (Math.abs(cym.get(j).time - h.time) > CRASH_WINDOW) continue;
+                seen++;
+                if (dark[j]) crashes++;
+            }
+            if (crashes > 0 && crashes >= CRASH_SHARE * seen && dark[i]) hits.set(hits.indexOf(h), new Hit(h.time, CRASH_NOTE, h.strength));
         }
     }
 
