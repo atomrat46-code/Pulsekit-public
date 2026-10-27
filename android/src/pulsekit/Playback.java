@@ -135,12 +135,39 @@ final class Playback {
 
     final Random mixRng = new Random();
 
+    /** Drum Tracks' Play/Pause paused the beat: Play goes on from the same step. */
+    boolean paused;
+
+    /** Drum Tracks' Play/Pause: playing, it pauses (the step and playhead stay); paused, it goes on. */
+    void playPause() {
+        if (app.playing) {
+            app.playing = false;
+            this.mixNeedHit = false;
+            this.paused = true;
+            if (app.playBtn != null) app.playBtn.setText((CharSequence)"Play");
+            if (app.drumPlay != null) app.drumPlay.setText((CharSequence)"\u25b6");
+            return;
+        }
+        if (this.paused && !app.songPlay) {
+            this.paused = false;
+            this.ensureAudio();
+            this.mixReset = true;
+            this.mixNeedHit = true;
+            app.playing = true;
+            app.playBtn.setText((CharSequence)"Pause");
+            if (app.drumPlay != null) app.drumPlay.setText((CharSequence)"\u275a\u275a");
+            return;
+        }
+        this.toggle();
+    }
+
     void toggle() {
         if (app.playing) {
             this.stop();
             return;
         }
         this.ensureAudio();
+        this.paused = false;
         app.songPlay = "song".equals(app.view) && !app.songEditor.activeSong().isEmpty();
         this.step = 0;
         app.songIndex = 0;
@@ -152,6 +179,7 @@ final class Playback {
             this.applyPart(app.songEditor.activeSong().get(0));
         }
         app.playBtn.setText((CharSequence)"Pause");
+        if (app.drumPlay != null) app.drumPlay.setText((CharSequence)"\u275a\u275a");
         this.mixReset = true;
         this.mixNeedHit = true;
         app.playing = true;
@@ -160,12 +188,14 @@ final class Playback {
 
     void stop() {
         app.playing = false;
+        this.paused = false;
         this.mixNeedHit = false;
         app.playhead = -1;
         app.songPlay = false;
         if (app.playBtn != null) {
             app.playBtn.setText((CharSequence)"Play");
         }
+        if (app.drumPlay != null) app.drumPlay.setText((CharSequence)"\u25b6");
         app.gridEditor.refreshGrid();
         app.songEditor.refreshSong();
     }

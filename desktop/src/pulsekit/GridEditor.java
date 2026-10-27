@@ -98,13 +98,129 @@ final class GridEditor {
         }
     }
 
+    /** A grid row's least height: on a small screen the grid scrolls up and down rather than squashing its cells. */
+    static final int MIN_ROW = 22;
+
+    /** The grid, in a scroller that only scrolls when the window has no room for its rows at MIN_ROW. */
     JPanel buildGrid() {
+        final JPanel cells = this.buildCells();
+        final int rows = Engine.TRACK_ID.length + 1;
+        final int least = rows * MIN_ROW + (rows - 1) * 3;
+        // Grows to the room there is (as before), never below `least` high.
+        class Fit extends JPanel implements javax.swing.Scrollable {
+            Fit() {
+                super(new java.awt.BorderLayout());
+                this.setOpaque(false);
+                this.add(cells, java.awt.BorderLayout.CENTER);
+            }
+
+            @Override
+            public java.awt.Dimension getPreferredScrollableViewportSize() {
+                return this.getPreferredSize();
+            }
+
+            @Override
+            public java.awt.Dimension getPreferredSize() {
+                java.awt.Dimension d = cells.getPreferredSize();
+                return new java.awt.Dimension(d.width, Math.max(least, d.height));
+            }
+
+            @Override
+            public int getScrollableUnitIncrement(java.awt.Rectangle r, int orientation, int direction) {
+                return MIN_ROW + 3;
+            }
+
+            @Override
+            public int getScrollableBlockIncrement(java.awt.Rectangle r, int orientation, int direction) {
+                return Math.max(MIN_ROW, r.height - MIN_ROW);
+            }
+
+            @Override
+            public boolean getScrollableTracksViewportWidth() {
+                return true;
+            }
+
+            @Override
+            public boolean getScrollableTracksViewportHeight() {
+                java.awt.Container p = this.getParent();
+                return p != null && p.getHeight() >= least;
+            }
+        }
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(new Fit(), javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+            javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(javax.swing.BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(MIN_ROW + 3);
+        scroll.setName("grid-scroll");
+        JPanel host = new JPanel(new java.awt.BorderLayout(0, 8));
+        host.setOpaque(false);
+        host.add(scroll, java.awt.BorderLayout.CENTER);
+        host.add(this.buildLenBar(), java.awt.BorderLayout.SOUTH);
+        return host;
+    }
+
+    /** The ACC label (gold while any step is accented, as on Android). */
+    JLabel accLab;
+
+    /** LEN's chips: 16th, 8th, Quarter, Half, Whole. */
+    final JButton[] lenChips = new JButton[Engine.LEN_STEPS.length];
+
+    /** LEN, as on Android: a length picked here is painted into each cell clicked (picked again: off). */
+    JPanel buildLenBar() {
+        JPanel bar = new JPanel(new GridLayout(1, Engine.LEN_STEPS.length + 1, 6, 0));
+        bar.setOpaque(false);
+        bar.setName("len-bar");
+        JLabel lab = new JLabel("LEN");
+        lab.setForeground(SUBTLE);
+        lab.setFont(new Font("SansSerif", 1, 11));
+        bar.add(lab);
+        for (int i = 0; i < Engine.LEN_STEPS.length; i++) {
+            final int len = Engine.LEN_STEPS[i];
+            JButton chip = new JButton(Engine.LEN_LABEL[i]);
+            app.flatten(chip);
+            chip.setFont(new Font("SansSerif", 1, 12));
+            chip.setName("len:" + Engine.LEN_LABEL[i]);
+            chip.setBorder(javax.swing.BorderFactory.createEmptyBorder(8, 6, 8, 6));
+            chip.addActionListener(e -> {
+                app.paintLen = app.paintLen == len ? 0 : len;
+                this.paintLenChips();
+                app.setNow(app.paintLen == 0 ? "LEN off: a click turns a cell on and off" : "LEN " + Engine.LEN_LABEL[java.util.Arrays.binarySearch(Engine.LEN_STEPS, len)] + ": a click paints that length");
+            });
+            this.lenChips[i] = chip;
+            bar.add(chip);
+        }
+        this.paintLenChips();
+        return bar;
+    }
+
+    /** Each LEN chip in its length's colour; the picked one outlined, the others dimmed while one is picked. */
+    void paintLenChips() {
+        for (int i = 0; i < Engine.LEN_STEPS.length; i++) {
+            JButton chip = this.lenChips[i];
+            if (chip == null) continue;
+            int len = Engine.LEN_STEPS[i];
+            Color hue = new Color(Engine.lenHue(len) | 0xFF000000);
+            boolean picked = app.paintLen == len;
+            boolean dim = app.paintLen != 0 && !picked;
+            chip.setBackground(dim ? ChipUI.mix(hue, BG, 0.55f) : hue);
+            chip.setForeground(dim ? ChipUI.mix(BG, hue, 0.4f) : BG);
+            chip.putClientProperty("pk.outline", picked ? FG : null);
+            chip.putClientProperty("pk.outlineWidth", picked ? 3 : null);
+            if (!(chip.getUI() instanceof ChipUI)) chip.setBorder(picked ? javax.swing.BorderFactory.createLineBorder(FG, 3) : javax.swing.BorderFactory.createEmptyBorder(8, 6, 8, 6));
+            chip.repaint();
+        }
+    }
+
+    /** The cells: ACC and the tracks' rows, a button a step. */
+    JPanel buildCells() {
         int n;
         int cols = app.steps;
         JPanel jPanel = new JPanel(new GridLayout(Engine.TRACK_ID.length + 1, cols + 1, 3, 3));
         jPanel.setOpaque(false);
         Font font = new Font("SansSerif", 1, 11);
         JLabel jLabel = new JLabel("ACC");
+        this.accLab = jLabel;
         jLabel.setForeground(SUBTLE);
         jLabel.setFont(font);
         jPanel.add(jLabel);
@@ -145,6 +261,11 @@ final class GridEditor {
                 jButton.addActionListener(actionEvent -> {
                     if (this.lenHeld) {
                         this.lenHeld = false;
+                        return;
+                    }
+                    // LEN picked: the click paints that length.
+                    if (app.paintLen > 0) {
+                        this.setCellLen(n3, n4, app.paintLen);
                         return;
                     }
                     int[][] vel = this.editCells();
@@ -255,13 +376,19 @@ final class GridEditor {
                 this.paintCell(this.buttons[n][i], vel, len, i == app.playhead, app.accents[i], covered);
             }
         }
+        boolean any = false;
+        int pulse = Engine.stepsPerBeat(app.tsDen);
         for (n = 0; n < app.steps; ++n) {
             JButton jButton = this.accentBtns[n];
             if (jButton == null) continue;
             boolean bl = app.accents[n];
-            jButton.setBackground(bl ? HIT : (n == app.playhead ? FG : ELEV));
+            any |= bl;
+            // As on Android: accented steps gold, the beat's number or a small arrow.
+            jButton.setBackground(bl ? ACCENT : (n == app.playhead ? FG : ELEV));
             jButton.setForeground(bl || n == app.playhead ? BG : SUBTLE);
+            jButton.setText(n % pulse == 0 ? Integer.toString(n / pulse + 1) : (bl ? "\u25be" : "\u00b7"));
         }
+        if (this.accLab != null) this.accLab.setForeground(any ? ACCENT : SUBTLE);
     }
 
     int[][] editCells() {
@@ -320,8 +447,16 @@ final class GridEditor {
             ? HIT
             : (n > 0 || covered
                 ? new Color(Engine.lenColor(len, n), true)
-                : (bl2 ? new Color(0x222422) : ELEV));
+                : (bl2 ? ACC_CELL : ELEV));
         jButton.setBackground(color);
+        // An accented step's empty cell: outlined in gold, as on Android.
+        boolean ring = bl2 && !bl && n <= 0 && !covered;
+        if (jButton.getUI() instanceof ChipUI) {
+            jButton.putClientProperty("pk.outline", ring ? ACCENT : null);
+            jButton.putClientProperty("pk.outlineWidth", ring ? 2 : null);
+        } else {
+            jButton.setBorder(ring ? javax.swing.BorderFactory.createLineBorder(ACCENT, 2) : javax.swing.BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        }
         String mark = n > 0 ? (Engine.lenMark(len).isEmpty() ? "16" : Engine.lenMark(len)) : (covered ? "—" : "");
         jButton.setText(mark);
         jButton.setForeground(n >= 90 ? BG : (n > 0 || covered ? FG : SUBTLE));

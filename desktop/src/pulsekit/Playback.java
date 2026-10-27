@@ -243,6 +243,28 @@ final class Playback {
         return sequence;
     }
 
+    /** Drum Tracks' Play/Pause paused the beat: Play goes on from the same place. */
+    boolean paused;
+
+    /** Drum Tracks' Play/Pause: playing, it pauses where it is; paused, it goes on. */
+    void playPause() {
+        if (app.sequencer != null && app.sequencer.isRunning()) {
+            app.sequencer.stop();
+            this.paused = true;
+            app.playBtn.setText("Play");
+            if (app.drumPlay != null) app.drumPlay.setText("\u25b6");
+            return;
+        }
+        if (this.paused && app.sequencer != null && !app.songPlay) {
+            this.paused = false;
+            app.sequencer.start();
+            app.playBtn.setText("Pause");
+            if (app.drumPlay != null) app.drumPlay.setText("\u275a\u275a");
+            return;
+        }
+        this.togglePlay();
+    }
+
     void togglePlay() {
         if (app.sequencer == null) {
             this.openMidi();
@@ -256,7 +278,9 @@ final class Playback {
         }
         app.songPlay = "song".equals(app.view) && !app.songEditor.activeSong().isEmpty();
         if (app.songPlay && app.songPart < 0) app.songPart = 0;
+        this.paused = false;
         app.playBtn.setText("Pause");
+        if (app.drumPlay != null) app.drumPlay.setText("\u275a\u275a");
         this.rebuildAndPlay(false);
     }
 
@@ -342,6 +366,8 @@ final class Playback {
         if (app.playBtn != null) {
             app.playBtn.setText("Play");
         }
+        this.paused = false;
+        if (app.drumPlay != null) app.drumPlay.setText("\u25b6");
         app.gridEditor.refreshGrid();
         app.songEditor.refreshSong();
     }

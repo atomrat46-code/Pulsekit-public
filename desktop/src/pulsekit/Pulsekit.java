@@ -60,7 +60,7 @@ public final class Pulsekit extends UiKit {
 
     final List<JButton> tabs = new ArrayList<JButton>();
 
-    final JPanel styleHost = new JPanel();
+    final JPanel styleHost = new FitHeight();
 
     final JPanel styleBar = new ChipStrip();
 
@@ -68,7 +68,7 @@ public final class Pulsekit extends UiKit {
 
     final JPanel variatedPatternBar = new ChipStrip();
 
-    final JPanel fillHost = new JPanel();
+    final JPanel fillHost = new FitHeight();
 
     final JPanel fillBar = new ChipStrip();
 
@@ -220,6 +220,8 @@ public final class Pulsekit extends UiKit {
 
     Pulsekit() {
         super("Pulsekit");
+        // "Pulsekit 228": which build is running shows in the title bar.
+        if (Looks.version().length() > 0) this.setTitle("Pulsekit " + Looks.version());
         // General settings' Sogni tools and file types.
         AppSettings.load(PromptDb.dir());
         this.drumSets.add(Engine.DrumSet.originalSet());
@@ -235,7 +237,8 @@ public final class Pulsekit extends UiKit {
         this.styleLibrary.refreshStyles();
         // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
         String lastTab = readLastTab();
-        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.showView(lastTab);
+        // Shown through showView even when it is the first page already (it hides what that page does not show).
+        this.showView(REMEMBERED_TABS.contains(lastTab) ? lastTab : this.view);
         // VLC brought Pulsekit down as it started last time: it is off now, and Pulsekit says so.
         final String vlcCrashed = VlcPlayer.crashedLastTime();
         if (vlcCrashed != null) {
@@ -249,9 +252,13 @@ public final class Pulsekit extends UiKit {
             }
         });
         this.setDefaultCloseOperation(3);
-        this.setMinimumSize(new Dimension(1100, 740));
-        this.setSize(1280, 820);
+        // Inside the screen's usable area (not under the taskbar): on a small laptop the grid's last rows were out of sight.
+        java.awt.Rectangle usable = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        // The least size fits a small laptop's screen too (it was 1100 x 740, taller than the screen).
+        this.setMinimumSize(new Dimension(Math.min(900, usable.width), Math.min(560, usable.height)));
+        this.setSize(Math.min(1280, usable.width), Math.min(820, usable.height));
         this.setLocationRelativeTo(null);
+        if (this.getY() < usable.y || this.getY() + this.getHeight() > usable.y + usable.height) this.setLocation(this.getX(), usable.y);
         this.getContentPane().setBackground(BG);
     }
 
@@ -375,22 +382,26 @@ public final class Pulsekit extends UiKit {
         drumHead.setAlignmentX(0.0f);
         this.drumSubtabs.add(drumHead);
         this.drumSubtabs.add(Box.createVerticalStrut(8));
-        JPanel drumButtons = new JPanel(new GridLayout(1, 4, 6, 4));
-        drumButtons.setOpaque(false);
-        drumButtons.setAlignmentX(0.0f);
+        // Pattern, Fillern and Fill, then CTL (the sliders' window), Play/Pause, Stop and GEN: one row that
+        // scrolls sideways (the mouse near its left or right edge) when the window is narrow.
+        EdgeScrollRow drumRow = new EdgeScrollRow();
+        JPanel drumButtons = drumRow.items;
         this.addTab(drumButtons, "pattern", "Pattern");
         this.addTab(drumButtons, "combo", "Fillern");
-        this.addTab(drumButtons, "fills", "Fills");
-        // Sliders: Tempo, Swing, Density and Human in a window of their own (they took room on every Drum Tracks page).
-        JButton sliders = new JButton("Sliders");
-        this.flatten(sliders);
-        sliders.setFont(new Font("SansSerif", 1, 13));
-        sliders.setForeground(MUTED);
-        sliders.setName("drum-sliders");
-        sliders.addActionListener(e -> this.showSliders());
+        this.addTab(drumButtons, "fills", "Fill");
+        JButton sliders = this.drumRowButton("CTL", "drum-sliders", MUTED, () -> this.showSliders());
+        sliders.setToolTipText("Tempo, Swing, Density and Human");
         drumButtons.add(sliders);
-        drumButtons.setMaximumSize(new Dimension(420, drumButtons.getPreferredSize().height));
-        this.drumSubtabs.add(drumButtons);
+        this.drumPlay = this.drumRowButton("\u25b6", "drum-play", FG, () -> this.playback.playPause());
+        this.drumPlay.setToolTipText("Play / Pause");
+        drumButtons.add(this.drumPlay);
+        JButton drumStop = this.drumRowButton("\u25a0", "drum-stop", FG, () -> this.playback.stop());
+        drumStop.setToolTipText("Stop");
+        drumButtons.add(drumStop);
+        JButton drumGen = this.drumRowButton("GEN", "drum-gen", HIT, () -> this.playback.generate());
+        drumGen.setToolTipText("A new random groove (as Variate)");
+        drumButtons.add(drumGen);
+        this.drumSubtabs.add(drumRow);
         JPanel tabRows = new JPanel(new BorderLayout());
         tabRows.setOpaque(false);
         tabRows.add((Component)jPanel7, "North");
@@ -422,7 +433,6 @@ public final class Pulsekit extends UiKit {
         this.styleHost.setOpaque(false);
         this.styleHost.setLayout(new BoxLayout(this.styleHost, BoxLayout.Y_AXIS));
         this.styleHost.setAlignmentX(0.0f);
-        this.styleHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, 280));
         this.styleBar.setOpaque(false);
         this.styleBar.setAlignmentX(0.0f);
         for (String object2 : this.styles.keySet()) {
@@ -442,15 +452,14 @@ public final class Pulsekit extends UiKit {
         this.variatedPatternBar.setOpaque(false);
         this.variatedPatternBar.setAlignmentX(0.0f);
         this.styleHost.add(this.sectionLab("Built-in"));
-        this.styleHost.add(this.styleBar);
+        this.styleHost.add(this.oneRow(this.styleBar));
         this.styleHost.add(this.sectionLab("Variated"));
-        this.styleHost.add(this.variatedPatternBar);
+        this.styleHost.add(this.oneRow(this.variatedPatternBar));
         this.styleHost.add(this.sectionLab("Imported"));
         this.styleHost.add(this.cappedScroll(this.importedBar, 260));
         this.fillHost.setOpaque(false);
         this.fillHost.setLayout(new BoxLayout(this.fillHost, BoxLayout.Y_AXIS));
         this.fillHost.setAlignmentX(0.0f);
-        this.fillHost.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
         this.fillBar.setOpaque(false);
         this.fillBar.setAlignmentX(0.0f);
         this.fillBar.setVisible(true);
@@ -473,6 +482,8 @@ public final class Pulsekit extends UiKit {
         JButton jButton3 = this.chip("Apply", false);
         jButton3.addActionListener(actionEvent -> this.showView("combo"));
         this.fillBar.add(jButton3);
+        // Only in CTL's window: never on the page, from the start.
+        this.knobsRow.setVisible(false);
         this.knobsRow.setOpaque(false);
         this.knobsRow.setAlignmentX(0.0f);
         this.knobsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
@@ -508,11 +519,11 @@ public final class Pulsekit extends UiKit {
         });
         this.toolsRow.add(jButton);
         this.fillHost.add(this.sectionLab("Built-in"));
-        this.fillHost.add(this.fillBar);
+        this.fillHost.add(this.oneRow(this.fillBar));
         this.fillHost.add(this.sectionLab("Variated"));
-        this.fillHost.add(this.variatedFillBar);
+        this.fillHost.add(this.oneRow(this.variatedFillBar));
         this.fillHost.add(this.sectionLab("Imported"));
-        this.fillHost.add(this.cappedScroll(this.importedFillBar, 160));
+        this.fillHost.add(this.cappedScroll(this.importedFillBar, 260));
         this.fillHost.setVisible(false);
         this.chrome.add(this.styleHost);
         this.chrome.add(this.fillHost);
@@ -605,6 +616,23 @@ public final class Pulsekit extends UiKit {
 
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
+    }
+
+    /** The LEN bar's length a click paints into a cell (0: a click turns the cell on and off). */
+    int paintLen;
+
+    /** Drum Tracks' Play/Pause on the Pattern, Fillern and Fill row. */
+    JButton drumPlay;
+
+    /** One of the Drum Tracks row's buttons after its tabs (CTL, Play, Stop, GEN). */
+    JButton drumRowButton(String label, String name, java.awt.Color color, Runnable click) {
+        JButton b = new JButton(label);
+        this.flatten(b);
+        b.setFont(new Font("SansSerif", 1, 13));
+        b.setForeground(color);
+        b.setName(name);
+        b.addActionListener(e -> click.run());
+        return b;
     }
 
     /** The Sliders window while it is open (for the tests too). */
@@ -827,13 +855,14 @@ public final class Pulsekit extends UiKit {
         // Prompts, Composer, Import, Export, Drum Midi Settings, Help, Compare Hits, Pads and PyJav play nothing from the bar.
         boolean noTransport = prompts || "import".equals(string) || "export".equals(string) || "midisettings".equals(string)
             || "help".equals(string) || "comparehits".equals(string) || "pads".equals(string) || "py".equals(string);
-        if (this.transportBar != null) this.transportBar.setVisible(!noTransport);
+        // Drum Tracks has Play/Pause, Stop and GEN on its own row: the bar is not shown there.
+        if (this.transportBar != null) this.transportBar.setVisible(!noTransport && !drumView(string));
         // Without the bar there is no Stop: a beat or song that was playing stops here.
         if (noTransport && this.sequencer != null && this.sequencer.isRunning()) this.playback.stop();
         this.chrome.setVisible(!bl3 && !bl4 && !prompts && (!bl2 || !"play".equals(this.songMode)));
         this.styleHost.setVisible(groove);
         this.fillHost.setVisible(bl);
-        // Only in the Sliders window (next to Fills).
+        // Only in CTL's window (next to Fill).
         this.knobsRow.setVisible(this.slidersWindow != null);
         this.toolsRow.setVisible(groove);
         if (pattern || combo || bl) {
@@ -933,6 +962,9 @@ public final class Pulsekit extends UiKit {
                 || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
+            // The modern look marks the open tab with the gold accent under it.
+            jButton.putClientProperty("pk.selected", bl);
+            jButton.repaint();
             // General settings > Show DB/Prompts tab.
             if ("prompts".equals(tab)) jButton.setVisible(AppSettings.showPromptsTab());
         }
@@ -1014,8 +1046,25 @@ public final class Pulsekit extends UiKit {
         }
     }
 
+    /** A page part as tall as its contents (Pattern's and Fill's chips and Imported): never cut, never stretched. */
+    static final class FitHeight extends JPanel {
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, this.getPreferredSize().height);
+        }
+    }
+
+    /** A chip strip as one row that scrolls sideways at its edges (Built-in, Variated), as on Android. */
+    EdgeScrollRow oneRow(JPanel strip) {
+        if (strip instanceof ChipStrip) ((ChipStrip) strip).oneRow = true;
+        return new EdgeScrollRow(strip);
+    }
+
     /** Wrapping chip row that reports a stable height so BoxLayout cannot loop. */
     static final class ChipStrip extends JPanel {
+        /** All chips on one row (in an EdgeScrollRow), not wrapped onto more. */
+        boolean oneRow;
+
         ChipStrip() {
             super(new FlowLayout(FlowLayout.LEFT, 6, 6));
             setOpaque(false);
@@ -1028,7 +1077,7 @@ public final class Pulsekit extends UiKit {
             Container p = getParent();
             if (p != null && p.getWidth() > 0) w = p.getWidth();
             else if (getWidth() > 0) w = getWidth();
-            int inner = Math.max(64, w);
+            int inner = this.oneRow ? Integer.MAX_VALUE : Math.max(64, w);
             int x = 0;
             int y = 0;
             int rowH = 0;
@@ -1045,8 +1094,9 @@ public final class Pulsekit extends UiKit {
                 rowH = Math.max(rowH, d.height);
                 n++;
             }
-            if (n == 0) return new Dimension(w, 12);
-            return new Dimension(w, y + rowH + 8);
+            if (n == 0) return new Dimension(this.oneRow ? 64 : w, 12);
+            // One row: as wide as its chips (the row around it scrolls).
+            return new Dimension(this.oneRow ? x + 6 : w, y + rowH + 8);
         }
 
         @Override

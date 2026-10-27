@@ -225,7 +225,7 @@ final class DownloadsScreen {
                 none.setPadding(app.dp(16), 0, 0, app.dp(4));
                 col.addView(none);
             }
-            for (final SogniDownloads.Item item : r.items) {
+            for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) {
                 TextView row = app.text(item.name + "\n" + item.shown, 14, false);
                 row.setTag("downloads-item:" + item.name);
                 row.setPadding(app.dp(16), app.dp(8), app.dp(8), app.dp(8));

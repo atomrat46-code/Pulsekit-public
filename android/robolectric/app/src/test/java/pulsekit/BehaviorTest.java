@@ -1098,8 +1098,12 @@ public class BehaviorTest {
     log.performLongClick();
     idle();
     AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
-    out.append("menu: ").append(menu.getListView().getAdapter().getItem(0)).append('\n');
-    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    // The menu: Open in editor window, Save as the results file, Save text as.
+    out.append("menu: ").append(listItems(menu)).append('\n');
+    java.util.List<String> rows = java.util.Arrays.asList(listItems(menu).split(" \\| "));
+    int saveAt = 0;
+    for (int i = 0; i < rows.size(); i++) if (rows.get(i).startsWith("Save as CompareHits")) saveAt = i;
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(saveAt);
     idle();
     android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("save: ").append(save.getAction()).append(' ').append(save.getType()).append(' ')
@@ -10110,6 +10114,287 @@ public class BehaviorTest {
     out.append("video ready: muted again ").append(mutedAgain).append('\n');
     write("s165_inputs_restored_resume_categories_recent_prompts_sliders", out.toString());
     if (!inputsOk || !resumeOk || !historyOk || !categoryOk || !recentOk || !allOk || !mediaOk || !slidersOk || !mutedAgain) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  @org.robolectric.annotation.Config(qualifiers = "w411dp-h891dp")
+  public void s166_drum_row_sogni_shown_pip_missing() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // As Pulsekit starts (on Pattern): no Stop/Play/Gen bar at the bottom.
+    String startView = app.view;
+    boolean noBarAtStart = !"pattern".equals(startView) || app.transportRow.getVisibility() == View.GONE;
+    out.append("started on ").append(startView).append(": bottom bar hidden ").append(noBarAtStart).append('\n');
+    // Drum Tracks: one row (Pattern, Fillern, Fill, CTL, Play, Stop, GEN); no sliders and no Stop/Play/Gen bar on the page.
+    call("show", "pattern");
+    idle();
+    View root = app.findViewById(android.R.id.content);
+    View row = (View) root.findViewWithTag("drum-sliders").getParent();
+    StringBuilder labels = new StringBuilder();
+    for (int i = 0; i < ((ViewGroup) row).getChildCount(); i++) labels.append(((TextView) ((ViewGroup) row).getChildAt(i)).getText()).append(' ');
+    boolean oneRow = labels.toString().trim().equals("Pattern Fillern Fill CTL \u25b6 \u25a0 GEN");
+    // Every label fits its button on the phone's width (nothing cut).
+    StringBuilder fit = new StringBuilder();
+    boolean allFit = true;
+    for (int i = 0; i < ((ViewGroup) row).getChildCount(); i++) {
+      TextView t = (TextView) ((ViewGroup) row).getChildAt(i);
+      // A real bold font's width (DejaVu Sans Bold, wider than the phone's Roboto), letter by letter.
+      float need = boldWidth(t.getText().toString()) * t.getTextSize();
+      int room = t.getWidth() - t.getPaddingLeft() - t.getPaddingRight();
+      fit.append(t.getText()).append(' ').append((int) need).append('/').append(room).append(' ');
+      allFit &= room > 0 && need <= room;
+    }
+    out.append("widths (text/room px, screen ").append(root.getWidth()).append("): ").append(fit.toString().trim()).append('\n');
+    oneRow &= allFit;
+    boolean noSliders = app.knobsRow.getVisibility() == View.GONE;
+    boolean noBar = app.transportRow.getVisibility() == View.GONE;
+    call("show", "song");
+    idle();
+    boolean barOnSong = app.transportRow.getVisibility() == View.VISIBLE;
+    call("show", "fills");
+    idle();
+    boolean stillNoSliders = app.knobsRow.getVisibility() == View.GONE && app.transportRow.getVisibility() == View.GONE;
+    out.append("row: ").append(labels.toString().trim()).append(" | sliders hidden ").append(noSliders).append(", bar hidden ").append(noBar)
+        .append(", bar on Song ").append(barOnSong).append(", Fill: still hidden ").append(stillNoSliders).append('\n');
+    // Play pauses (where it is) and goes on; Stop starts again.
+    call("show", "pattern");
+    idle();
+    TextView play = (TextView) root.findViewWithTag("drum-play");
+    play.performClick();
+    idle();
+    boolean playing = app.playing && "\u275a\u275a".contentEquals(play.getText());
+    play.performClick();
+    idle();
+    boolean paused = !app.playing && app.playback.paused && "\u25b6".contentEquals(play.getText());
+    play.performClick();
+    idle();
+    boolean resumed = app.playing && !app.playback.paused;
+    root.findViewWithTag("drum-stop").performClick();
+    idle();
+    boolean stopped = !app.playing && !app.playback.paused && "\u25b6".contentEquals(play.getText());
+    out.append("play ").append(playing).append(", pause ").append(paused).append(", play again ").append(resumed).append(", stop ").append(stopped).append('\n');
+    // A long Imported list scrolls inside a small part of the screen: the grid keeps its room.
+    for (int i = 0; i < 15; i++) {
+      TextView set = app.text("\u25b8 EP sogni Arena Rock " + i + " \u00b7 53", 14, true);
+      set.setPadding(0, app.dp(12), 0, app.dp(12));
+      app.importedHost.addView(set);
+    }
+    call("show", "pattern");
+    idle();
+    View importedScroll = root.findViewWithTag("imported-scroll");
+    int screenH = app.getResources().getDisplayMetrics().heightPixels;
+    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.IMPORTED_SHARE));
+    boolean importedCapped = importedScroll.getHeight() > 0 && importedScroll.getHeight() <= cap && app.importedHost.getHeight() > importedScroll.getHeight()
+        && app.gridScroll.getHeight() >= 4 * app.dp(36);
+    out.append("Imported with 15 sets: ").append(importedScroll.getHeight()).append(" px of ").append(app.importedHost.getHeight()).append(" (cap ").append(cap)
+        .append(", screen ").append(screenH).append(") | grid ").append(app.gridScroll.getHeight()).append(" px\n");
+    app.importedHost.removeViews(1, 15);
+    boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
+    drumOk &= importedCapped && noBarAtStart;
+    // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
+    File dir = app.getFilesDir();
+    AppSettings.load(dir);
+    PromptVault vault = PromptVault.open(dir);
+    long cat = vault.categories().get(0).id;
+    long pv = vault.addPrompt(cat, "Walk");
+    long vv = vault.addVersion(pv, "Walk", "", "A walk", "", "me.png", new byte[] {1, 2}, "", null, "walk-result.mp4", new byte[] {3, 4, 5}, "ai", "");
+    long pm = vault.addPrompt(cat, "House");
+    long vm = vault.addVersion(pm, "House", "", "Deep house", "", "", null, "", null, "house-track.mp3", new byte[] {6, 7, 8}, "ai", "");
+    long pt = vault.addPrompt(cat, "Typed");
+    vault.addVersion(pt, "Typed", "", "Typed in", "", "", null, "", null, "", null, "ai", "");
+    SogniDownloads.init(dir);
+    long rv = SogniDownloads.started("SogniVideo.java", 1000L);
+    SogniDownloads.result(rv, "Succeeded: walk-result.mp4", "saved Download/walk-result.mp4", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(rv, vv);
+    SogniDownloads.done(rv);
+    long rm = SogniDownloads.started("SogniMusic.java", 2000L);
+    SogniDownloads.result(rm, "Succeeded: house-track.mp3", "saved Download/house-track.mp3", new java.util.HashMap<String, String>());
+    SogniDownloads.stored(rm, vm);
+    SogniDownloads.done(rm);
+    long rc = SogniDownloads.started("SogniChat.java", 3000L);
+    SogniDownloads.result(rc, "Succeeded: sogni-chat-cat.png", "saved Download/sogni-chat-cat.png", new java.util.HashMap<String, String>());
+    SogniDownloads.done(rc);
+    String all = sogniView(vault);
+    AppSettings.setMusicOnly(true);
+    String music = sogniView(vault);
+    AppSettings.setShows("I", false);
+    String musicNoImages = sogniView(vault);
+    AppSettings.setShows("I", true);
+    AppSettings.setMusicOnly(false);
+    AppSettings.setShowSogni(false);
+    String none = sogniView(vault);
+    AppSettings.setShowSogni(true);
+    // The programs kept after a restart (prompt-programs.txt).
+    SogniShown.reset();
+    SogniShown.load(dir);
+    String kept = SogniShown.programOf(vv) + " " + SogniShown.programOf(vm);
+    out.append("all shown: ").append(all).append('\n').append("music and chat only: ").append(music).append('\n').append("  and Show images off: ").append(musicNoImages)
+        .append('\n').append("no Sogni tools: ").append(none).append('\n').append("kept: ").append(kept).append('\n');
+    boolean sogniOk = all.equals("prompts House Typed Walk | results house-track.mp3 walk-result.mp4 | downloads SogniChat SogniMusic SogniVideo")
+        && music.equals("prompts House Typed | results house-track.mp3 | downloads SogniChat SogniMusic")
+        && musicNoImages.equals("prompts House Typed | results house-track.mp3 | downloads SogniMusic")
+        && none.equals("prompts Typed | results | downloads")
+        && kept.equals("SogniVideo.java SogniMusic.java")
+        && SogniShown.programOfName("sogni-video-walk.mp4").equals("SogniVideo") && SogniShown.programOfName("sogni-Deep-House-1a2b.mp3").equals("SogniMusic") && AppSettings.showsFile("beach.png");
+    // A Python run stopped for a library that is not installed: the packages to install.
+    java.util.List<String> pip = PipMissing.missing("numpy is not installed (No module named 'numpy'). Install it with: pip install numpy\nModuleNotFoundError: No module named 'cv2'");
+    out.append("pip: ").append(pip).append(" | ").append(PipMissing.question(pip, "C:\\Python312\\python.exe").replace('\n', ' ')).append('\n');
+    boolean pipOk = pip.toString().equals("[numpy, opencv-python]");
+    write("s166_drum_row_sogni_shown_pip_missing", out.toString());
+    if (!drumOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s167_output_code_editor_window() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    // Output's long press: Open in editor window.
+    TextView log = (TextView) get("pkPyLog");
+    log.setText("line one\nline two\nSucceeded");
+    log.performLongClick();
+    idle();
+    String rows = listItems(PyJav.lastOutputMenu);
+    org.robolectric.Shadows.shadowOf(PyJav.lastOutputMenu).clickOnItem(0);
+    idle();
+    TextEditorScreen ed = TextEditorScreen.last;
+    boolean opened = ed != null && ed.dialog.isShowing() && ed.text.getText().toString().equals("line one\nline two\nSucceeded") && ed.back == null;
+    out.append("Output menu: ").append(rows).append(" | editor open ").append(opened).append(", named ").append(ed == null ? "-" : ed.name).append('\n');
+    // Edit, undo, redo, find.
+    ed.text.append("\nmore");
+    ed.keepStep();
+    boolean marked = ed.changed && "Not saved".contentEquals(ed.state.getText());
+    ed.undo();
+    boolean undone = ed.text.getText().toString().endsWith("Succeeded");
+    ed.redo();
+    boolean redone = ed.text.getText().toString().endsWith("more");
+    boolean found = ed.findNext("TWO") && ed.text.getSelectionStart() == 14 && ed.text.getSelectionEnd() == 17;
+    out.append("changed ").append(marked).append(", undo ").append(undone).append(", redo ").append(redone).append(", find ").append(found).append('\n');
+    // Save as: the picker's place is written, and Save writes there again.
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-save-as").performClick();
+    idle();
+    android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    File file = new File(app.getCacheDir(), "edited-output.txt");
+    org.robolectric.Shadows.shadowOf(app).receiveResult(pick, android.app.Activity.RESULT_OK, new android.content.Intent().setData(android.net.Uri.fromFile(file)));
+    idle();
+    String written = file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : "";
+    ed.text.append("!");
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-save").performClick();
+    idle();
+    String again = file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : "";
+    out.append("Save as ").append(pick.getStringExtra(android.content.Intent.EXTRA_TITLE)).append(" -> ").append(written.replace('\n', '|')).append(" | Save -> ")
+        .append(again.endsWith("more!")).append(", saved ").append(!ed.changed).append('\n');
+    boolean saveOk = written.endsWith("more") && again.endsWith("more!") && !ed.changed && "pkPyLog".length() > 0;
+    // Close with unsaved changes asks; Don't save closes.
+    ed.text.append("?");
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-close").performClick();
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean asked = ask != null && ask.isShowing() && ed.dialog.isShowing();
+    ask.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean closed = !ed.dialog.isShowing();
+    out.append("close with changes: asked ").append(asked).append(", Don't save closed ").append(closed).append('\n');
+    // Code: its long-press menu has the two items; the editor's Back to Code puts the text back.
+    android.view.Menu menu = new android.widget.PopupMenu(app, app.pyEditor).getMenu();
+    app.pyEditor.getCustomSelectionActionModeCallback().onCreateActionMode(null, menu);
+    StringBuilder codeRows = new StringBuilder();
+    for (int i = 0; i < menu.size(); i++) codeRows.append(menu.getItem(i).getTitle()).append(i + 1 < menu.size() ? " | " : "");
+    app.pyEditor.setText("print('hi')\n");
+    app.pyJav.pkOpenInEditor(true);
+    idle();
+    TextEditorScreen code = TextEditorScreen.last;
+    code.text.setText("print('edited')\n");
+    code.dialog.getWindow().getDecorView().findViewWithTag("editor-back").performClick();
+    idle();
+    boolean backOk = "print('edited')\n".equals(app.pyEditor.getText().toString());
+    code.mark(false);
+    code.close();
+    idle();
+    out.append("Code menu: ").append(codeRows).append(" | Back to Code ").append(backOk).append('\n');
+    boolean codeOk = codeRows.toString().equals("Open in editor window | Save text as…") && backOk && !code.dialog.isShowing();
+    write("s167_output_code_editor_window", out.toString());
+    if (!opened || !marked || !undone || !redone || !found || !saveOk || !asked || !closed || !codeOk || !rows.startsWith("Open in editor window")) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s168_python_apps_hand_off() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    // Two Python apps on the phone (the tests' list): General settings lists them; picking one is kept.
+    PhonePython.testApps = java.util.Arrays.asList(new PhonePython.App("ru.iiec.pydroid3", "Pydroid 3"), new PhonePython.App("org.qpython.qpy", "QPython"));
+    GeneralSettings.show(app);
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    android.widget.RadioGroup group = (android.widget.RadioGroup) gv.findViewWithTag("settings-python");
+    StringBuilder rows = new StringBuilder();
+    for (int i = 0; i < group.getChildCount(); i++) rows.append(((TextView) group.getChildAt(i)).getText().toString().replaceAll(":.*", "")).append(" | ");
+    ((android.widget.RadioButton) gv.findViewWithTag("settings-python:ru.iiec.pydroid3")).setChecked(true);
+    idle();
+    String picked = AppSettings.pythonPath();
+    GeneralSettings.last.dismiss();
+    idle();
+    out.append("Python for scripts: ").append(rows).append("picked ").append(picked).append('\n');
+    boolean listOk = rows.toString().startsWith("Pulsekit runs it (python3 on this phone; a Python app when there is none) | Pydroid 3 | QPython")
+        && "ru.iiec.pydroid3".equals(picked) && PhonePython.chosen(app) != null;
+    // The hand-over: the program, midiutil.py, the input file and run_<program>.py into Download/Pulsekit/PyJav/<program>.
+    final java.util.Map<String, byte[]> written = new java.util.LinkedHashMap<String, byte[]>();
+    PhonePython.testWriter = (folder, name, data) -> {
+      written.put(folder + "/" + name, data);
+      return "content://media/external/downloads/" + written.size();
+    };
+    File in = new File(app.getCacheDir(), "pyjav-in/song.mid");
+    in.getParentFile().mkdirs();
+    Files.write(in.toPath(), new byte[] {'M', 'T', 'h', 'd'});
+    String outWav = new File(app.getCacheDir(), "pyjav-in/song-out.wav").getAbsolutePath();
+    JavaRun.Result r = PhonePython.handOff(app, PhonePython.chosen(app), "compare_hits.py", "print('hi')\n",
+        java.util.Arrays.asList(in.getAbsolutePath(), outWav, "--sens", "2"), "# midiutil".getBytes(StandardCharsets.UTF_8));
+    String here = PhonePython.folderPath("compare_hits");
+    out.append("written: ").append(written.keySet()).append('\n').append("log: ").append(r.log.replace("\n", " | ")).append('\n');
+    out.append("intent: ").append(PhonePython.lastIntent.getPackage()).append(' ').append(PhonePython.lastIntent.getType()).append(' ').append(PhonePython.lastIntent.getData()).append('\n');
+    String runner = PhonePython.lastRunner;
+    out.append("runner: ").append(runner.replace("\n", " | ")).append('\n');
+    boolean handOk = written.keySet().toString().equals("[Pulsekit/PyJav/compare_hits/compare_hits.py, Pulsekit/PyJav/compare_hits/midiutil.py, Pulsekit/PyJav/compare_hits/song.mid, Pulsekit/PyJav/compare_hits/run_compare_hits.py]")
+        && "ru.iiec.pydroid3".equals(PhonePython.lastIntent.getPackage()) && r.code == 0 && r.log.contains("Opened in Pydroid 3")
+        && runner.contains(PhonePython.py(here + "/song.mid")) && runner.contains(PhonePython.py(here + "/song-out.wav")) && runner.contains("\"--sens\", \"2\"")
+        && runner.contains("runpy.run_path(sys.argv[0], run_name=\"__main__\")");
+    // PyJav does not add Pulsekit's tempo to vst_render (its --bpm is the MIDI's own).
+    java.util.List<String> argv = JavaRun.argvFor("usage --bpm N plays the MIDI. " + JavaRun.NO_KIT_BPM + ".", 124, "house", 4, 0, "song.mid");
+    java.util.List<String> drum = JavaRun.argvFor("usage --bpm N", 124, "house", 4, 0, "");
+    out.append("vst_render argv: ").append(argv).append(" | a kit program: ").append(drum).append('\n');
+    boolean bpmOk = !argv.contains("--bpm") && drum.contains("--bpm") && drum.contains("124");
+    PhonePython.testApps = null;
+    PhonePython.testWriter = null;
+    AppSettings.setPythonPath("");
+    write("s168_python_apps_hand_off", out.toString());
+    if (!listOk || !handOk || !bpmOk) throw new AssertionError(out.toString());
+  }
+
+  /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
+  private static float boldWidth(String text) {
+    float em = 0;
+    for (char c : text.toCharArray()) {
+      if ("iljI".indexOf(c) >= 0) em += 0.34f;
+      else if ("tfr".indexOf(c) >= 0) em += 0.49f;
+      else if (Character.isUpperCase(c)) em += 0.78f;
+      else if (c > 0x2000) em += 0.9f;
+      else em += 0.71f;
+    }
+    return em;
+  }
+
+  /** What the Sogni boxes show: the prompts, the library's result files, the Downloads (Finished) programs. */
+  private static String sogniView(PromptVault vault) {
+    java.util.List<String> prompts = new java.util.ArrayList<String>();
+    for (PromptVault.Prompt p : SogniShown.prompts(vault, vault.prompts(vault.categories().get(0).id))) prompts.add(p.title);
+    java.util.Collections.sort(prompts);
+    java.util.List<String> results = new java.util.ArrayList<String>();
+    for (PromptVault.StoredFile f : FileFilter.keep(vault.resultFiles(), vault, "A")) results.add(f.name);
+    java.util.Collections.sort(results);
+    java.util.List<String> runs = new java.util.ArrayList<String>();
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) runs.add(r.programName());
+    java.util.Collections.sort(runs);
+    return ("prompts " + String.join(" ", prompts)).trim() + " | " + ("results " + String.join(" ", results)).trim() + " | " + ("downloads " + String.join(" ", runs)).trim();
   }
 
   @SuppressWarnings("unused")

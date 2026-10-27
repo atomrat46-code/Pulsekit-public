@@ -190,7 +190,7 @@ final class DownloadsScreen {
                 row.add(ready);
                 row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
                 body.add(row);
-                for (final SogniDownloads.Item item : r.items) body.add(itemButton(app, body, r, item));
+                for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
                 continue;
             }
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
@@ -214,7 +214,7 @@ final class DownloadsScreen {
                 row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
                 body.add(row);
             }
-            for (final SogniDownloads.Item item : r.items) body.add(itemButton(app, body, r, item));
+            for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
         }
         body.revalidate();
         body.repaint();

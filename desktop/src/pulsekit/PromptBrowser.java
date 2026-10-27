@@ -199,7 +199,7 @@ final class PromptBrowser {
             }
             head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
             body.add(head);
-            List<PromptVault.Prompt> prompts = vault.prompts(chosen);
+            List<PromptVault.Prompt> prompts = SogniShown.prompts(vault, vault.prompts(chosen));
             if (prompts.isEmpty()) {
                 JLabel none = new JLabel("No prompts here");
                 none.setAlignmentX(0.0f);

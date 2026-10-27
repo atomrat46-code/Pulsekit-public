@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -23,6 +23,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
   --wav           a WAV to play through --plugin (an effect) instead of MIDI.
   --effect        an effect after the instrument (an amp sim, a reverb); --effect_state its settings,
                   as --state (its last --edit settings when not given).
+  --bpm N         plays the MIDI at N beats a minute (20 to 400): for a MIDI file with no tempo in it,
+                  which plays at 120 otherwise (a DAW may have shown it at its project's tempo), or to
+                  hear one faster or slower. The file's own tempo changes are replaced by this one; the
+                  file itself is not changed. With --test, its hits are compared at this tempo too.
+                  (Pulsekit does not pass its own tempo as --bpm: give it in Params.)
   --rate N        sample rate: 44100 (default) or 48000.
   --tail N        seconds rendered after the last note, for the sound to ring out (2).
   --volume N      percent, 1 to 400 (100). A mix that would clip is turned down to fit.
@@ -353,6 +358,71 @@ def var_len(d, p):
         if b < 0x80:
             break
     return v, p
+
+
+def retempo(path, bpm, folder):
+    """A copy of the MIDI file at one tempo, bpm (its own tempo changes left out), in folder; its path."""
+    d = open(path, "rb").read()
+    if d[:4] != b"MThd":
+        raise ValueError("%s is not a MIDI file" % os.path.basename(path))
+    head = 8 + struct.unpack(">I", d[4:8])[0]
+    out = bytearray(d[:head])
+    us = int(round(60000000.0 / bpm))
+    tempo = b"\x00\xff\x51\x03" + bytes([(us >> 16) & 0xFF, (us >> 8) & 0xFF, us & 0xFF])
+    i, first = head, True
+    while i + 8 <= len(d):
+        kind, size = d[i:i + 4], struct.unpack(">I", d[i + 4:i + 8])[0]
+        p, end = i + 8, min(len(d), i + 8 + size)
+        if kind != b"MTrk":
+            out += d[i:end]
+            i += 8 + size
+            continue
+        body = bytearray(tempo if first else b"")
+        first = False
+        carry, status = 0, 0
+        while p < end:
+            delta, q = var_len(d, p)
+            delta += carry
+            b = d[q]
+            if b == 0xFF:
+                n, r = var_len(d, q + 2)
+                event, after = d[q:r + n], r + n
+                if d[q + 1] == 0x51:
+                    # A tempo change: left out, its time kept for the next event.
+                    carry, p = delta, after
+                    continue
+            elif b in (0xF0, 0xF7):
+                n, r = var_len(d, q + 1)
+                event, after = d[q:r + n], r + n
+            else:
+                if b & 0x80:
+                    status = b
+                    r = q + 1
+                else:
+                    # Running status: written out in full, as the event before it may be gone.
+                    r = q
+                hi = status & 0xF0
+                after = r + (1 if hi in (0xC0, 0xD0) else 2)
+                event = bytes([status]) + d[r:after]
+            carry = 0
+            body += write_var(delta) + event
+            p = after
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+        i += 8 + size
+    to = os.path.join(folder, os.path.basename(path))
+    with open(to, "wb") as f:
+        f.write(out)
+    return to
+
+
+def write_var(v):
+    """A MIDI variable-length number."""
+    b = [v & 0x7F]
+    v >>= 7
+    while v:
+        b.insert(0, (v & 0x7F) | 0x80)
+        v >>= 7
+    return bytes(b)
 
 
 def midi_notes(path):
@@ -689,7 +759,7 @@ def finish(np, audio, volume):
 
 def main(argv):
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
-            "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
+            "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java"}
     switches = set()
     files = []
@@ -771,6 +841,29 @@ def main(argv):
     if bits not in (16, 24):
         fail("--bits is 16 or 24")
     tail = max(0.0, min(30.0, tail))
+    bpm = None
+    if opts["--bpm"]:
+        try:
+            bpm = float(opts["--bpm"])
+        except ValueError:
+            fail("--bpm takes a number (beats a minute)")
+        if not 20 <= bpm <= 400:
+            fail("--bpm is 20 to 400")
+        if opts["--wav"]:
+            fail("--bpm is a MIDI's tempo; --wav plays a WAV as it is")
+    # --bpm: each MIDI is played from a copy at that tempo (the file itself stays as it is).
+    import tempfile
+    tempo_dir = tempfile.mkdtemp(prefix="vst-bpm-") if bpm else None
+    played_as = {}
+
+    def at_tempo(m):
+        if not bpm:
+            return m
+        if m not in played_as:
+            played_as[m] = retempo(m, bpm, tempfile.mkdtemp(dir=tempo_dir))
+        return played_as[m]
+    if bpm:
+        print("Tempo: %g BPM (--bpm)" % bpm)
     try:
         import numpy as np
     except ImportError as e:
@@ -791,12 +884,12 @@ def main(argv):
         if not os.path.isfile(source):
             fail("no file at %s" % source)
         if midi and not opts["--wav"]:
-            length, notes = midi_notes(midi)
+            length, notes = midi_notes(at_tempo(midi))
             if not notes:
                 fail("%s has no notes" % os.path.basename(midi))
             print("MIDI: %s, %d notes, %.1f s" % (os.path.basename(midi), len(notes), length))
         try:
-            audio, length, late = chain.render(np, midi=None if opts["--wav"] else midi, wav=opts["--wav"], tail=tail)
+            audio, length, late = chain.render(np, midi=None if opts["--wav"] else at_tempo(midi), wav=opts["--wav"], tail=tail)
         except ValueError as e:
             fail(str(e))
         if opts["--wav"]:
@@ -822,7 +915,7 @@ def main(argv):
         batch_done = []
         for m in batch:
             try:
-                audio, length, _ = chain.render(np, midi=m, tail=tail)
+                audio, length, _ = chain.render(np, midi=at_tempo(m), tail=tail)
             except Exception as e:
                 print("Failed %s: %s" % (os.path.relpath(m, folder), e))
                 continue
@@ -850,7 +943,7 @@ def main(argv):
             if isinstance(found, str):
                 report.append("%s: %s" % (name, found))
                 continue
-            length, played = midi_notes(m)
+            length, played = midi_notes(at_tempo(m))
             if no_toms:
                 played = [(t, n) for t, n in played if n not in TOMS]
             rows, shift = score(played, found, length + 0.05)

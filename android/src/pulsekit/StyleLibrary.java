@@ -23,15 +23,20 @@ final class StyleLibrary {
         this.app = app;
     }
 
+    /** How much of the screen's height Imported may take before it scrolls inside. */
+    static final float IMPORTED_SHARE = 0.10f;
+
     /**
-     * The imported file sets scroll inside at most a third of the screen, so a long list
-     * does not push the knobs and the grid off the screen.
+     * The imported file sets scroll inside at most IMPORTED_SHARE of the screen, so a long list
+     * does not push the grid off the screen.
      */
     View cappedScroll(View content) {
         android.widget.ScrollView scroll = new android.widget.ScrollView(app) {
             @Override
             protected void onMeasure(int widthSpec, int heightSpec) {
-                int cap = (int) (getResources().getDisplayMetrics().heightPixels * 0.33f);
+                // A tenth of the screen (at least one set's row and a half): with the header, the strips and LEN the grid
+                // still has room for several rows (at a third, a long list left it one row on a phone).
+                int cap = Math.max(app.dp(72), (int) (getResources().getDisplayMetrics().heightPixels * IMPORTED_SHARE));
                 int size = View.MeasureSpec.getSize(heightSpec);
                 if (View.MeasureSpec.getMode(heightSpec) == View.MeasureSpec.UNSPECIFIED || size > cap) size = cap;
                 super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.AT_MOST));

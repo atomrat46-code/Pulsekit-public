@@ -42,6 +42,11 @@ abstract class UiKit extends JFrame {
 
     static final Color HIT = new Color(10136476);
 
+    /** Android's gold: accented steps, and the outline of their empty cells (ACC_CELL), as on the phone. */
+    static final Color ACCENT = new Color(0xD9A441);
+
+    static final Color ACC_CELL = new Color(0x3A3220);
+
     JButton action(String string, Color color, Color color2, Runnable runnable) {
         JButton jButton = this.action(string, color, color2);
         jButton.addActionListener(actionEvent -> runnable.run());
@@ -134,7 +139,10 @@ abstract class UiKit extends JFrame {
             @Override
             public Dimension getPreferredSize() {
                 Dimension d = content.getPreferredSize();
-                return new Dimension(d.width, Math.min(maxHeight, d.height + 4));
+                // On a small screen a fifth of its height at most: the grid keeps room for its rows.
+                int screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().height;
+                int cap = Math.max(72, Math.min(maxHeight, screen / 5));
+                return new Dimension(d.width, Math.min(cap, d.height + 4));
             }
 
             @Override
@@ -155,6 +163,8 @@ abstract class UiKit extends JFrame {
         jButton.setBorderPainted(false);
         jButton.setOpaque(true);
         jButton.setBorder(BorderFactory.createEmptyBorder(8, 14, 8, 14));
+        // The modern look: rounded, with hover and press (the colours stay these).
+        if (Looks.modern) jButton.setUI(ChipUI.shared());
     }
 
     JButton chip(String string, boolean bl) {
@@ -188,7 +198,13 @@ abstract class UiKit extends JFrame {
         jButton.setOpaque(true);
         jButton.setBackground(bl ? new Color(2765356) : BG);
         jButton.setForeground(bl ? FG : MUTED);
-        jButton.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(bl ? HIT : BORDER), BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+        if (jButton.getUI() instanceof ChipUI) {
+            // Its outline drawn rounded by the modern look.
+            jButton.putClientProperty("pk.outline", bl ? HIT : BORDER);
+            jButton.setBorder(BorderFactory.createEmptyBorder(7, 13, 7, 13));
+        } else {
+            jButton.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(bl ? HIT : BORDER), BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+        }
     }
 
     JButton cellBtn(String string) {
@@ -202,6 +218,7 @@ abstract class UiKit extends JFrame {
         jButton.setPreferredSize(new Dimension(w, 22));
         jButton.setMinimumSize(new Dimension(w, 22));
         jButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        jButton.putClientProperty("pk.arc", 6);
         jButton.setBackground(ELEV);
         jButton.setForeground(SUBTLE);
         return jButton;

@@ -341,6 +341,9 @@ public final class JavaRun {
    * extra args already give is not added, so the command line shows it once (Params' --genre
    * "Rock Ballad", not also --genre House).
    */
+  /** A program that says this takes --bpm only from Params, not Pulsekit's tempo. */
+  public static final String NO_KIT_BPM = "Pulsekit does not pass its own tempo as --bpm";
+
   public static List<String> argvFor(String source, int bpm, String style, int bars, int swing, String extra) {
     return argvFor(source, bpm, style, bars, swing, extra, 4, 4);
   }
@@ -355,7 +358,8 @@ public final class JavaRun {
       argv.addAll(given);
       return withKeyFile(src, argv);
     }
-    if (src.contains("--bpm") && !given.contains("--bpm")) {
+    // A program whose --bpm is its own (vst_render's: the MIDI's tempo) says so; Pulsekit's tempo is not passed.
+    if (src.contains("--bpm") && !src.contains(NO_KIT_BPM) && !given.contains("--bpm")) {
       argv.add("--bpm");
       argv.add(Integer.toString(bpm));
     }

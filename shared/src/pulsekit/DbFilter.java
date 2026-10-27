@@ -15,7 +15,7 @@ public final class DbFilter {
   /** Whether a library file shows under `letter`: F its favourites, G the group G shows, else by its name. */
   public static boolean fits(PromptVault.StoredFile f, String letter) {
     // A type General settings leaves out is never shown.
-    if (!AppSettings.showsFile(f.name)) return false;
+    if (!AppSettings.showsFile(f.name) || !SogniShown.fileShown(f)) return false;
     if (FileFavourites.LETTER.equals(letter)) return FileFavourites.is(f);
     if (FileGroups.LETTER.equals(letter)) return FileGroups.fits(f);
     return fits(f.name, letter);

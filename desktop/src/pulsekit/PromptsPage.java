@@ -317,7 +317,7 @@ final class PromptsPage {
         this.col.add(Box.createVerticalStrut(8));
         this.col.add(catButtons);
         this.col.add(this.caption("PROMPTS"));
-        List<PromptVault.Prompt> prompts = this.vault.prompts(this.categoryId);
+        List<PromptVault.Prompt> prompts = SogniShown.prompts(this.vault, this.vault.prompts(this.categoryId));
         if (prompts.isEmpty()) this.col.add(this.note("none"));
         for (PromptVault.Prompt item : prompts) {
             PromptVault.Version fin = this.vault.finalVersion(item.id);

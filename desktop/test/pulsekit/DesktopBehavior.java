@@ -6734,6 +6734,14 @@ public final class DesktopBehavior {
       }
     });
     boolean ticked = box[0] != null && box[0].isSelected();
+    final String[] shownLook = new String[1];
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        if (w.isShowing() && w instanceof java.awt.Dialog && component(w, "settings-look-in-use") != null) shownLook[0] = ((JLabel) component(w, "settings-look-in-use")).getText();
+      }
+    });
+    out.append("General settings: ").append(shownLook[0]).append(" | title: ").append(app.getTitle()).append('\n');
+    boolean inUseOk = "In use: modern (FlatLaf Dark)".equals(shownLook[0]) && app.getTitle().matches("Pulsekit \\d+");
     edt(() -> box[0].doClick());
     idle();
     boolean off = !AppSettings.modernLook();
@@ -6743,7 +6751,329 @@ public final class DesktopBehavior {
     });
     idle();
     out.append("Modern look ticked at first ").append(ticked).append(", unticked off ").append(off).append(" -> ").append(now).append('\n');
-    if (!modernOk || !ticked || !off) throw new AssertionError(out.toString());
+    if (!modernOk || !ticked || !off || !inUseOk) throw new AssertionError(out.toString());
+  }
+
+  /** Next_todo: Drum Tracks' one row (scrolling at its edges), no bar there; the Sogni boxes; Install for a missing Python library. */
+  void s144_drum_row_sogni_shown_pip() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    edt(() -> call("showView", "pattern"));
+    idle();
+    final StringBuilder labels = new StringBuilder();
+    final EdgeScrollRow[] row = new EdgeScrollRow[1];
+    final boolean[] state = new boolean[3];
+    edt(() -> {
+      java.awt.Component sliders = component(app, "drum-sliders");
+      row[0] = (EdgeScrollRow) SwingUtilities.getAncestorOfClass(EdgeScrollRow.class, sliders);
+      for (java.awt.Component c : row[0].items.getComponents()) labels.append(((javax.swing.AbstractButton) c).getText()).append(' ');
+      state[0] = !app.knobsRow.isVisible();
+      state[1] = !app.transportBar.isVisible();
+    });
+    edt(() -> call("showView", "song"));
+    idle();
+    edt(() -> state[2] = app.transportBar.isVisible());
+    out.append("row: ").append(labels.toString().trim()).append(" | sliders hidden ").append(state[0]).append(", bar hidden ").append(state[1]).append(", bar on Song ").append(state[2]).append('\n');
+    boolean rowOk = labels.toString().trim().equals("Pattern Fillern Fill CTL ▶ ■ GEN") && state[0] && state[1] && state[2];
+    // A narrow row: the mouse at its right edge scrolls it, at its left edge back.
+    final int[] at = new int[4];
+    edt(() -> {
+      EdgeScrollRow r = new EdgeScrollRow();
+      for (int i = 0; i < 12; i++) r.items.add(new javax.swing.JButton("Item " + i));
+      r.setSize(200, r.getPreferredSize().height);
+      r.doLayout();
+      r.getViewport().setSize(200, r.getPreferredSize().height);
+      r.getViewport().setViewSize(r.items.getPreferredSize());
+      at[0] = r.maxOffset();
+      r.aim(195);
+      for (int i = 0; i < 5; i++) r.scrollBy(r.direction * EdgeScrollRow.STEP);
+      at[1] = r.offset();
+      r.aim(5);
+      for (int i = 0; i < 5; i++) r.scrollBy(r.direction * EdgeScrollRow.STEP);
+      at[2] = r.offset();
+      r.aim(100);
+      at[3] = r.direction;
+    });
+    out.append("edge scrolling: can scroll ").append(at[0]).append(" px, right edge -> ").append(at[1]).append(", left edge -> ").append(at[2]).append(", middle still ").append(at[3] == 0).append('\n');
+    boolean scrollOk = at[0] > 0 && at[1] == 5 * EdgeScrollRow.STEP && at[2] == 0 && at[3] == 0;
+    // A small laptop window: Built-in on one row, scrolled by the mouse at its right edge; the grid's rows stay readable.
+    edt(() -> {
+      app.setExtendedState(java.awt.Frame.NORMAL);
+      app.setSize(1000, 560);
+      app.validate();
+      call("showView", "pattern");
+    });
+    idle();
+    final EdgeScrollRow[] styles = new EdgeScrollRow[1];
+    final int[] grid = new int[3];
+    edt(() -> {
+      styles[0] = (EdgeScrollRow) SwingUtilities.getAncestorOfClass(EdgeScrollRow.class, app.styleBar);
+      java.awt.Component first = app.styleBar.getComponent(0);
+      grid[0] = app.styleBar.getComponentCount() > 0 && first.getY() == app.styleBar.getComponent(app.styleBar.getComponentCount() - 1).getY() ? 1 : 0;
+      javax.swing.JScrollPane gs = (javax.swing.JScrollPane) component(app, "grid-scroll");
+      javax.swing.JPanel cells = (javax.swing.JPanel) ((javax.swing.JPanel) gs.getViewport().getView()).getComponent(0);
+      grid[1] = cells.getComponent(cells.getComponentCount() - 1).getHeight();
+      grid[2] = gs.getHeight();
+      // The mouse moves onto the row's right edge (over a chip there): the row scrolls.
+      java.awt.Point p = new java.awt.Point(styles[0].getWidth() - 4, styles[0].getHeight() / 2);
+      java.awt.Component under = SwingUtilities.getDeepestComponentAt(styles[0], p.x, p.y);
+      if (under == null) under = styles[0];
+      java.awt.Point q = SwingUtilities.convertPoint(styles[0], p, under);
+      java.awt.Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(new java.awt.event.MouseEvent(under, java.awt.event.MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, q.x, q.y, 0, false));
+    });
+    Thread.sleep(600);
+    idle();
+    final int[] moved = new int[1];
+    edt(() -> {
+      moved[0] = styles[0].offset();
+      styles[0].aim(-1);
+    });
+    out.append("small window: Built-in one row ").append(grid[0] == 1).append(", mouse at its right edge scrolled it ").append(moved[0]).append(" px | grid rows ")
+        .append(grid[1]).append(" px high (least ").append(GridEditor.MIN_ROW).append(") in ").append(grid[2]).append(" px\n");
+    boolean smallOk = grid[0] == 1 && moved[0] > 0 && grid[1] >= GridEditor.MIN_ROW;
+    // Started on Pattern (the tab kept from last time): the sliders are not on the page.
+    final boolean[] restart = new boolean[1];
+    SwingUtilities.invokeAndWait(() -> {
+      Pulsekit again = new Pulsekit();
+      restart[0] = !again.knobsRow.isVisible() && "pattern".equals(again.view);
+      again.dispose();
+    });
+    out.append("started again on Pattern: sliders hidden ").append(restart[0]).append('\n');
+    // Fill: three imported sets are all shown (the Fill page was cut at 220 px); the chips are the modern look's.
+    edt(() -> {
+      for (int i = 1; i <= 3; i++) {
+        javax.swing.JButton set = app.chip("\u25b8 Escape from the island " + i + " - 11", false);
+        set.setAlignmentX(0f);
+        app.importedFillBar.add(set);
+      }
+      call("showView", "fills");
+    });
+    idle();
+    final int[] fill = new int[3];
+    edt(() -> {
+      fill[0] = app.fillHost.getHeight();
+      fill[1] = app.fillHost.getPreferredSize().height;
+      javax.swing.JScrollPane sets = (javax.swing.JScrollPane) SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane.class, app.importedFillBar);
+      fill[2] = sets.getViewport().getHeight() >= app.importedFillBar.getPreferredSize().height ? 1 : 0;
+    });
+    boolean chipUi = app.styleBar.getComponent(0) instanceof javax.swing.JButton && ((javax.swing.JButton) app.styleBar.getComponent(0)).getUI() instanceof ChipUI;
+    out.append("Fill: ").append(fill[0]).append(" of ").append(fill[1]).append(" px shown, all three imported sets in view ").append(fill[2] == 1)
+        .append(" | chips rounded (ChipUI) ").append(chipUi).append('\n');
+    scrollOk &= fill[0] >= fill[1] && fill[2] == 1 && chipUi;
+    // LEN, as on Android: Half picked, a click paints a half-note hit; accented steps are gold.
+    edt(() -> call("showView", "pattern"));
+    idle();
+    final String[] len = new String[1];
+    edt(() -> {
+      ((javax.swing.JButton) component(app, "len:Half")).doClick();
+      int t = 1;
+      int step = 2;
+      app.gridEditor.buttons[t][step].doClick();
+      boolean painted = app.cells[t][step] > 0 && Engine.lenAt(app.lens, t, step) == 8;
+      ((javax.swing.JButton) component(app, "len:Half")).doClick();
+      app.gridEditor.buttons[t][3].doClick();
+      boolean toggled = app.cells[t][3] > 0 && Engine.lenAt(app.lens, t, 3) <= 1;
+      boolean gold = app.accents[0] && UiKit.ACCENT.equals(app.gridEditor.accentBtns[0].getBackground());
+      len[0] = "half painted " + painted + ", LEN off: a plain hit " + toggled + ", accented step gold " + gold + ", window least " + app.getMinimumSize().width + "x" + app.getMinimumSize().height;
+      app.cells[t][step] = 0;
+      app.lens[t][step] = 0;
+      app.cells[t][3] = 0;
+      app.gridEditor.refreshGrid();
+    });
+    out.append("LEN: ").append(len[0]).append('\n');
+    scrollOk &= len[0].startsWith("half painted true, LEN off: a plain hit true, accented step gold true");
+    scrollOk &= smallOk && restart[0];
+    // The Sogni boxes: a Sogni video's name is left out with the tools off, kept with music and chat only for sound.
+    File dir = PromptDb.dir();
+    AppSettings.load(dir);
+    AppSettings.setShowSogni(false);
+    boolean off = !AppSettings.showsFile("sogni-video-walk.mp4") && !AppSettings.showsFile("sogni-Deep-House-1a2b.mp3") && AppSettings.showsFile("beach.png");
+    AppSettings.setMusicOnly(true);
+    boolean music = !AppSettings.showsFile("sogni-video-walk.mp4") && AppSettings.showsFile("sogni-Deep-House-1a2b.mp3") && AppSettings.showsFile("sogni-chat-cat.png");
+    AppSettings.setMusicOnly(false);
+    out.append("Sogni tools off: hidden ").append(off).append(" | music and chat only ").append(music).append('\n');
+    boolean sogniOk = off && music && AppSettings.showSogni();
+    // Install's question names the Python Pulsekit runs (No: nothing is installed).
+    answers.add("No");
+    edt(() -> app.pyJav.offerPip(java.util.Arrays.asList("numpy")));
+    for (int i = 0; i < 100 && PyJav.lastPipQuestion == null; i++) Thread.sleep(50);
+    idle();
+    String q = PyJav.lastPipQuestion == null ? "" : PyJav.lastPipQuestion;
+    String now = app.nowPlaying.getText();
+    out.append("Install: ").append(q.split("\n")[0]).append(" -> No: ").append(now).append('\n');
+    boolean pipOk = q.startsWith("numpy is not installed for the Python Pulsekit runs") && now.startsWith("Not installed: numpy");
+    if (!rowOk || !scrollOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
+  }
+
+  /** Params keep a file argument (vst_render's song.mid); General settings' Python for scripts; another Python that has the package. */
+  void s145_params_file_python_choice() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    String src = ProgramFiles.bundledSource("vst_render.py");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    String[] v = ProgramParams.values(ps, "C:\\midi\\song.mid --plugin \"C:\\VST3\\Anarchy Drums.vst3\"", "");
+    out.append("vst_render Params from the saved ones, no arguments: ").append(v[0]).append(" | ").append(v[2]).append('\n');
+    boolean paramsOk = "C:\\midi\\song.mid".equals(v[0]) && v[2].endsWith("Anarchy Drums.vst3");
+    // Two Pythons on the computer (the tests' list): General settings lists them, picking one is kept.
+    final String here = PythonRun.whichPython();
+    final PythonRun.Found other = new PythonRun.Found("/usr/bin/python3", "3.10.11");
+    PyJav.pythonsFound = () -> java.util.Arrays.asList(new PythonRun.Found(here, "3.15.0"), other);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    for (int i = 0; i < 40; i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    final String[] items = new String[1];
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        if (!w.isShowing() || !(w instanceof java.awt.Dialog)) continue;
+        java.awt.Component c = component(w, "settings-python");
+        if (c == null) continue;
+        @SuppressWarnings("unchecked")
+        javax.swing.JComboBox<String> box = (javax.swing.JComboBox<String>) c;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < box.getItemCount(); i++) sb.append(box.getItemAt(i)).append(" | ");
+        items[0] = sb.toString();
+        box.setSelectedIndex(box.getItemCount() - 1);
+      }
+    });
+    String picked = AppSettings.pythonPath();
+    java.util.List<String> cmd = PythonRun.pythonCommand();
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w.isShowing() && w instanceof java.awt.Dialog) w.dispose();
+    });
+    idle();
+    out.append("Python for scripts: ").append(items[0]).append("\npicked ").append(picked).append(", runs ").append(cmd).append('\n');
+    boolean listOk = items[0] != null && items[0].startsWith(GeneralSettings.AUTO_PYTHON) && items[0].contains("Python 3.10.11") && "/usr/bin/python3".equals(picked)
+        && cmd.equals(java.util.Collections.singletonList("/usr/bin/python3"));
+    AppSettings.setPythonPath("");
+    // A missing package another Python has: Use that Python (and the script runs again with it).
+    answers.add("Use that Python");
+    PyJav.lastPipQuestion = null;
+    edt(() -> app.pyJav.offerPip(java.util.Arrays.asList("json")));
+    for (int i = 0; i < 100 && PyJav.lastPipQuestion == null; i++) Thread.sleep(50);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String q = PyJav.lastPipQuestion == null ? "" : PyJav.lastPipQuestion;
+    String now = AppSettings.pythonPath();
+    out.append("other Python has it: ").append(q.replace('\n', ' ')).append("\n-> scripts run with ").append(now).append('\n');
+    boolean otherOk = q.contains("but this Python on the computer has it") && q.contains("3.10.11") && "/usr/bin/python3".equals(now);
+    AppSettings.setPythonPath("");
+    PyJav.pythonsFound = null;
+    // pip's "no matching distribution": the note says pick an older Python.
+    String note = PipMissing.noPackageNote(java.util.Arrays.asList("dawdreamer"), "C:\\Python\\pythoncore-3.15\\python.exe", "3.15.0");
+    boolean noteOk = PipMissing.noPackageFor("ERROR: No matching distribution found for dawdreamer") && note.contains("Python 3.15.0") && note.contains(AppSettings.PYTHON);
+    out.append("no package: ").append(note).append('\n');
+    if (!paramsOk || !listOk || !otherOk || !noteOk) throw new AssertionError(out.toString());
+  }
+
+  /** PyJav's Output and Code menus: Open in editor window (Save, Save as, Undo, Redo, Find, Back to Code), Save text as. */
+  void s146_output_code_editor_window() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    edt(() -> call("showView", "py"));
+    idle();
+    final String[] menus = new String[2];
+    edt(() -> {
+      app.pyLog.setText("line one\nline two\nSucceeded");
+      menus[0] = items(TextMenu.menu(app.pyLog));
+      menus[1] = items(TextMenu.menu(app.pyEditor));
+    });
+    out.append("Output menu: ").append(menus[0]).append("\nCode menu: ").append(menus[1]).append('\n');
+    boolean menusOk = menus[0].contains("Open in editor window") && menus[0].contains("Save text as") && !menus[0].contains("Paste")
+        && menus[1].contains("Paste") && menus[1].contains("Open in editor window") && menus[1].contains("Save text as");
+    // Output in the editor window: edit, undo, redo, find, Save as, Save.
+    answers.add("(keep)");
+    edt(() -> app.pyJav.openInEditor(false));
+    idle();
+    final TextEditorWindow ed = TextEditorWindow.last;
+    final String[] got = new String[1];
+    File saved = new File(System.getProperty("user.home"), "edited-output.txt");
+    TextEditorWindow.saveAsFor = saved;
+    edt(() -> {
+      boolean full = ed.window.isShowing() && ed.window.getWidth() > 600 && ed.backTo == null;
+      ed.text.append("\nmore");
+      boolean changed = ed.changed && ed.window.getTitle().startsWith("* ");
+      ed.undo();
+      boolean undone = ed.text.getText().endsWith("Succeeded");
+      ed.redo();
+      boolean redone = ed.text.getText().endsWith("more");
+      boolean found = ed.findNext("TWO") && ed.text.getSelectionStart() == 14;
+      boolean savedAs = ed.saveAs() && !ed.changed;
+      ed.text.append("!");
+      boolean savedAgain = ed.save();
+      got[0] = "window " + full + ", changed " + changed + ", undo " + undone + ", redo " + redone + ", find " + found + ", Save as " + savedAs + ", Save " + savedAgain + ", title " + ed.window.getTitle();
+    });
+    TextEditorWindow.saveAsFor = null;
+    String written = new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8);
+    out.append("editor: ").append(got[0]).append(" | file ").append(written.replace('\n', '|')).append('\n');
+    boolean editorOk = got[0].startsWith("window true, changed true, undo true, redo true, find true, Save as true, Save true") && written.endsWith("more!");
+    // Close with changes asks: Don't save closes.
+    answers.add("Don't save");
+    edt(() -> ed.text.append("?"));
+    edt(() -> ed.close());
+    idle();
+    boolean closed = !ed.window.isShowing();
+    // Code in the editor window: Back to Code puts the edited text in the Code area.
+    answers.add("(keep)");
+    edt(() -> {
+      app.pyEditor.setText("print('hi')\n");
+      app.pyJav.openInEditor(true);
+    });
+    idle();
+    final TextEditorWindow code = TextEditorWindow.last;
+    final boolean[] back = new boolean[1];
+    edt(() -> {
+      code.text.setText("print('edited')\n");
+      ((javax.swing.JButton) component(code.window, "editor-back")).doClick();
+      back[0] = "print('edited')\n".equals(app.pyEditor.getText());
+      code.changed = false;
+      code.close();
+    });
+    idle();
+    out.append("close with changes: Don't save closed ").append(closed).append(" | Back to Code ").append(back[0]).append('\n');
+    if (!menusOk || !editorOk || !closed || !back[0] || code.window.isShowing()) throw new AssertionError(out.toString());
+  }
+
+  /** vst_render --bpm: a MIDI with no tempo (120) played at 80 from a copy; PyJav does not pass Pulsekit's tempo to it. */
+  void s147_vst_render_bpm() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "bpm-test");
+    dir.mkdirs();
+    // A MIDI with no tempo: a kick at beat 0 and at beat 2 (1.0 s at the default 120).
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    File song = new File(dir, "song.mid");
+    Files.write(song.toPath(), mid.toByteArray());
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "a = vr.midi_notes(sys.argv[2])[1]\n"
+        + "b = vr.midi_notes(vr.retempo(sys.argv[2], 80, sys.argv[3]))[1]\n"
+        + "print('at 120: %.3f s, at 80: %.3f s, notes %d %d' % (a[-1][0], b[-1][0], len(a), len(b)))\n";
+    File work = new File(dir, "out");
+    work.mkdirs();
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), song.getAbsolutePath(), work.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    // A bad --bpm is refused before anything is rendered.
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), song.getAbsolutePath(), "--plugin", "x.vst3", "--bpm", "5"));
+    String refused = PythonRun.runFor(bad, 60, null).trim();
+    java.util.List<String> argv = JavaRun.argvFor(ProgramFiles.bundledSource("vst_render.py"), 124, "house", 4, 0, song.getAbsolutePath());
+    this.out.append("--bpm 80: ").append(said).append("\n--bpm 5: ").append(refused.replace('\n', ' ')).append("\nPyJav's arguments: ").append(argv).append('\n');
+    boolean ok = said.startsWith("at 120: 1.000 s, at 80: 1.500 s, notes 2 2") && refused.contains("--bpm is 20 to 400") && !argv.contains("--bpm");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** A popup menu's items: "Select all | Copy | Open in editor window". */
+  private static String items(javax.swing.JPopupMenu menu) {
+    StringBuilder sb = new StringBuilder();
+    for (java.awt.Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+    return sb.toString();
   }
 
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */

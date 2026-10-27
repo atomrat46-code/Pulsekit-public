@@ -1179,6 +1179,8 @@ public final class ProgramParams {
     Map<String, String> fromSaved = read(ps, saved);
     Map<String, String> fromArgs = read(ps, extra);
     List<String> inOrder = orderedValues(ps, extra);
+    // The file arguments (song.mid) the Params were saved with, where the arguments have none: kept as the switches are.
+    List<String> savedOrder = saved == null ? new ArrayList<String>() : orderedValues(ps, saved);
     String[] out = new String[ps.size()];
     int k = 0;
     for (int i = 0; i < ps.size(); i++) {
@@ -1190,6 +1192,7 @@ public final class ProgramParams {
         out[i] = v == null ? "" : v;
       } else {
         String v = k < inOrder.size() ? inOrder.get(k) : "";
+        if ((v.length() == 0 || v.startsWith("<")) && k < savedOrder.size()) v = savedOrder.get(k);
         k++;
         // A file of the wrong kind (another program's output.mid in a .wav slot) is not this one's.
         String has = ext(v);

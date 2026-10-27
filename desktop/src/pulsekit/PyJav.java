@@ -182,10 +182,21 @@ final class PyJav {
         app.pyEditor.setForeground(FG);
         app.pyEditor.setCaretColor(FG);
         app.pyEditor.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        // Code's menu: Select all, Cut, Copy, Paste, Open in editor window, Save text as.
+        TextMenu.attach(app.pyEditor, menu -> {
+            menu.add(this.menuItem("Open in editor window", "code-editor", () -> this.openInEditor(true)));
+            menu.add(this.menuItem("Save text as\u2026", "code-save-as", () -> SaveText.save(app, this.codeName(), app.pyEditor.getText())));
+        });
         JScrollPane scroll = new JScrollPane(app.pyEditor);
         scroll.setBorder(BorderFactory.createLineBorder(BORDER));
         app.pyLog = new JTextArea(6, 40);
-        SaveText.attach(app, app.pyLog, () -> this.runLog != null && this.runLog.equals(app.pyLog.getText()) ? PyJavHints.resultsFileName(app.pyName) : null);
+        // Output's menu: Select all and Copy, Open in editor window, Save text as (and a run's results file).
+        TextMenu.attach(app.pyLog, menu -> {
+            menu.add(this.menuItem("Open in editor window", "output-editor", () -> this.openInEditor(false)));
+            String results = this.runLog != null && this.runLog.equals(app.pyLog.getText()) ? PyJavHints.resultsFileName(app.pyName) : null;
+            if (results != null) menu.add(this.menuItem("Save as " + results, "output-save-results", () -> SaveText.save(app, results, app.pyLog.getText())));
+            menu.add(this.menuItem("Save text as\u2026", "output-save-as", () -> SaveText.save(app, this.outputName(), app.pyLog.getText())));
+        });
         app.pyLog.setEditable(false);
         app.pyLog.setLineWrap(true);
         app.pyLog.setWrapStyleWord(true);
@@ -446,6 +457,130 @@ final class PyJav {
         }, "pulsekit-pls").start();
     }
 
+    private javax.swing.JMenuItem menuItem(String label, String name, Runnable click) {
+        javax.swing.JMenuItem item = new javax.swing.JMenuItem(label);
+        item.setName(name);
+        item.addActionListener(e -> click.run());
+        return item;
+    }
+
+    /** The Code area's file name (the program's, or script.py). */
+    String codeName() {
+        return app.pyName == null || app.pyName.isEmpty() ? "script.py" : app.pyName;
+    }
+
+    /** The Output's file name to offer: "SogniVideo-output.txt". */
+    String outputName() {
+        return this.codeName().replaceAll("\\.[A-Za-z0-9]+$", "") + "-output.txt";
+    }
+
+    /** Open in editor window: the Output's text, or the Code's (which Back to Code puts back). */
+    void openInEditor(boolean code) {
+        if (code) {
+            TextEditorWindow.open(app, this.codeName() + " \u2014 Pulsekit editor", this.codeName(), app.pyEditor.getText(), edited -> app.pyEditor.setText(edited));
+        } else {
+            TextEditorWindow.open(app, this.outputName() + " \u2014 Pulsekit editor", this.outputName(), app.pyLog.getText(), null);
+        }
+    }
+
+    /** The Install question shown last (for the tests). */
+    static String lastPipQuestion;
+
+    /**
+     * Install for a script that stopped for a library that is not installed: the Python Pulsekit
+     * runs is named (pip in a command window may install into another), and Install runs
+     * python -m pip install for that Python, then the script again.
+     */
+    /** The Pythons offerPip looks through (the tests give their own); null: those on this computer. */
+    static java.util.function.Supplier<java.util.List<PythonRun.Found>> pythonsFound;
+
+    void offerPip(final java.util.List<String> packages) {
+        new Thread(() -> {
+            final String python = PythonRun.whichPython();
+            // Another Python on the computer may have them already (pip in a command window installs into its own).
+            PythonRun.Found other = null;
+            java.util.List<PythonRun.Found> all = pythonsFound != null ? pythonsFound.get() : PythonRun.found();
+            for (PythonRun.Found f : all) {
+                if (f.path.equalsIgnoreCase(python)) continue;
+                if (PythonRun.hasPackages(f.path, packages)) {
+                    other = f;
+                    break;
+                }
+            }
+            String version = "";
+            for (PythonRun.Found f : all) if (f.path.equalsIgnoreCase(python)) version = f.version;
+            final PythonRun.Found useIt = other;
+            final String pythonVersion = version;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (useIt != null) {
+                    lastPipQuestion = PipMissing.otherHasIt(packages, python, useIt.label());
+                    Object[] options = {"Use that Python", "Install here", "No"};
+                    int answer = javax.swing.JOptionPane.showOptionDialog(app, lastPipQuestion, "Python for scripts",
+                        javax.swing.JOptionPane.YES_NO_CANCEL_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                    if (answer == 0) {
+                        AppSettings.setPythonPath(useIt.path);
+                        app.setNow("Scripts run with " + useIt.label() + ": running again");
+                        this.runPython();
+                        return;
+                    }
+                    if (answer != 1) {
+                        app.setNow("Not installed: " + String.join(", ", packages) + " (General settings > " + AppSettings.PYTHON + " picks another Python)");
+                        return;
+                    }
+                    this.pipInstall(packages, python, pythonVersion);
+                    return;
+                }
+                lastPipQuestion = PipMissing.question(packages, python);
+                Object[] options = {"Install", "No"};
+                int answer = javax.swing.JOptionPane.showOptionDialog(app, lastPipQuestion, "Install " + String.join(", ", packages) + "?",
+                    javax.swing.JOptionPane.YES_NO_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (answer != 0) {
+                    app.setNow("Not installed: " + String.join(", ", packages) + " (python -m pip install " + String.join(" ", packages) + " with " + python + ")");
+                    return;
+                }
+                this.pipInstall(packages, python, pythonVersion);
+            });
+        }, "python-which").start();
+    }
+
+    /** python -m pip install for the Python Pulsekit runs, then the script again; a package with none for this Python is said so. */
+    void pipInstall(final java.util.List<String> packages, final String python, final String version) {
+        if (this.pyRun != null) this.pyRun.setEnabled(false);
+        app.setNow("Installing " + String.join(", ", packages) + " for " + python + "\u2026");
+        if (app.pyLog != null) app.pyLog.append("\n\nInstalling " + String.join(", ", packages) + " for " + python + "\u2026\n");
+        final StringBuilder log = new StringBuilder();
+        new Thread(() -> {
+            boolean ok = PythonRun.pipInstall(packages, line -> {
+                synchronized (log) {
+                    log.append(line).append('\n');
+                }
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (app.pyLog != null) app.pyLog.append(line + "\n");
+                });
+            });
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (this.pyRun != null) this.pyRun.setEnabled(true);
+                if (!ok) {
+                    String said;
+                    synchronized (log) {
+                        said = log.toString();
+                    }
+                    if (PipMissing.noPackageFor(said)) {
+                        String note = PipMissing.noPackageNote(packages, python, version);
+                        app.setNow(note);
+                        if (app.pyLog != null) app.pyLog.append("\n" + note + "\n");
+                        javax.swing.JOptionPane.showMessageDialog(app, note, "No package for this Python", javax.swing.JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                    app.setNow("pip could not install " + String.join(", ", packages) + ": see its output below");
+                    return;
+                }
+                app.setNow("Installed " + String.join(", ", packages) + ": running again");
+                this.runPython();
+            });
+        }, "pip-install").start();
+    }
+
     void runPython() {
         if (app.pyEditor == null) return;
         final String listed = app.programMenus.listedSourceToRun();
@@ -663,6 +798,11 @@ final class PyJav {
                     }
                 }
                 if (app.pyLog != null) app.pyLog.setText(shown);
+                // A library the script needs is not installed for the Python Pulsekit runs: install it for that one.
+                if (!javaProg && !promptProg && result.code != 0) {
+                    java.util.List<String> packages = PipMissing.missing(result.log);
+                    if (!packages.isEmpty()) this.offerPip(packages);
+                }
                 boolean loaded = false;
                 int midis = 0;
                 int audios = 0;

@@ -31,6 +31,8 @@ public final class AppSettings {
 
   /** The settings kept in `dir` (read again only when it is another folder). */
   public static synchronized void load(File dir) {
+    // Which program stored each prompt (the Sogni boxes leave theirs out) is kept beside these.
+    SogniShown.load(dir);
     File f = dir == null ? null : new File(dir, FILE);
     if (f != null && f.equals(at)) return;
     at = f;
@@ -51,6 +53,7 @@ public final class AppSettings {
     VALUES.clear();
     at = null;
     unlocked = false;
+    SogniShown.reset();
   }
 
   private static synchronized boolean flag(String key, boolean otherwise) {
@@ -88,6 +91,21 @@ public final class AppSettings {
 
   public static void setShowPromptsTab(boolean on) {
     set("promptsTab", on);
+  }
+
+  // ------------------------------------------------------------ Python (desktop)
+
+  public static final String PYTHON = "Python for scripts";
+
+  /** The Python the desktop runs scripts with (its python.exe), or "" to find one (python3, python, py). */
+  public static synchronized String pythonPath() {
+    String v = VALUES.get("python");
+    return v == null ? "" : v;
+  }
+
+  public static synchronized void setPythonPath(String path) {
+    if (locked()) return;
+    put("python", path == null || path.trim().length() == 0 ? null : path.trim());
   }
 
   // ------------------------------------------------------------ Modern look (desktop)
@@ -222,6 +240,8 @@ public final class AppSettings {
 
   /** Every type shown: nothing is left out. */
   public static boolean showsAll() {
+    // The Sogni boxes leave out what Sogni's programs made (all of it, or all but music and chat).
+    if (!showSogni() || musicOnly()) return false;
     for (String l : TYPE_LETTERS) if (!shows(l)) return false;
     return true;
   }
@@ -250,6 +270,7 @@ public final class AppSettings {
 
   /** Whether a file of this name is shown at all (its type ticked). */
   public static boolean showsFile(String name) {
+    if (!SogniShown.nameShown(name)) return false;
     String t = typeOf(name);
     return t.length() == 0 || shows(t);
   }
