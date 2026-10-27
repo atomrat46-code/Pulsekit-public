@@ -10113,6 +10113,7 @@ public class BehaviorTest {
   }
 
   @Test
+  @org.robolectric.annotation.Config(qualifiers = "w411dp-h891dp")
   public void s166_drum_row_sogni_shown_pip_missing() throws Exception {
     StringBuilder out = new StringBuilder();
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
@@ -10164,7 +10165,24 @@ public class BehaviorTest {
     idle();
     boolean stopped = !app.playing && !app.playback.paused && "\u25b6".contentEquals(play.getText());
     out.append("play ").append(playing).append(", pause ").append(paused).append(", play again ").append(resumed).append(", stop ").append(stopped).append('\n');
+    // A long Imported list scrolls inside a small part of the screen: the grid keeps its room.
+    for (int i = 0; i < 15; i++) {
+      TextView set = app.text("\u25b8 EP sogni Arena Rock " + i + " \u00b7 53", 14, true);
+      set.setPadding(0, app.dp(12), 0, app.dp(12));
+      app.importedHost.addView(set);
+    }
+    call("show", "pattern");
+    idle();
+    View importedScroll = root.findViewWithTag("imported-scroll");
+    int screenH = app.getResources().getDisplayMetrics().heightPixels;
+    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.IMPORTED_SHARE));
+    boolean importedCapped = importedScroll.getHeight() > 0 && importedScroll.getHeight() <= cap && app.importedHost.getHeight() > importedScroll.getHeight()
+        && app.gridScroll.getHeight() >= 4 * app.dp(36);
+    out.append("Imported with 15 sets: ").append(importedScroll.getHeight()).append(" px of ").append(app.importedHost.getHeight()).append(" (cap ").append(cap)
+        .append(", screen ").append(screenH).append(") | grid ").append(app.gridScroll.getHeight()).append(" px\n");
+    app.importedHost.removeViews(1, 15);
     boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
+    drumOk &= importedCapped;
     // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
     File dir = app.getFilesDir();
     AppSettings.load(dir);

@@ -139,7 +139,10 @@ abstract class UiKit extends JFrame {
             @Override
             public Dimension getPreferredSize() {
                 Dimension d = content.getPreferredSize();
-                return new Dimension(d.width, Math.min(maxHeight, d.height + 4));
+                // On a small screen a fifth of its height at most: the grid keeps room for its rows.
+                int screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().height;
+                int cap = Math.max(72, Math.min(maxHeight, screen / 5));
+                return new Dimension(d.width, Math.min(cap, d.height + 4));
             }
 
             @Override
