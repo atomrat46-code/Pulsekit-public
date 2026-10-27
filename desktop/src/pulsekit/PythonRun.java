@@ -311,11 +311,14 @@ public final class PythonRun {
       InputStream in = proc.getInputStream();
       byte[] buf = new byte[4096];
       long deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
+      // Output shows what the script prints as it goes.
+      JavaRun.Live live = JavaRun.live();
       while (System.currentTimeMillis() < deadline) {
         while (in.available() > 0) {
           int n = in.read(buf);
           if (n <= 0) break;
           bos.write(buf, 0, n);
+          if (live != null) live.add(new String(buf, 0, n, StandardCharsets.UTF_8));
           // Output: the script is working, its time starts again.
           deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
         }

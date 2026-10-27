@@ -147,6 +147,19 @@ public final class JavaRun {
     return "Running\u2026 " + time + (news == null ? "" : " \u00b7 " + news);
   }
 
+  /** Output's text while a run goes: the "Running…" line, then the last lines the program printed so far. */
+  public static String runningLog(Live live, long now) {
+    String line = runningLine(live, now);
+    String text = live == null ? "" : live.text().trim();
+    if (text.length() == 0) return line;
+    int at = text.length();
+    for (int n = 0; n < LIVE_LINES && at > 0; n++) at = text.lastIndexOf('\n', at - 1);
+    return line + "\n\n" + (at > 0 ? "\u2026\n" + text.substring(at + 1) : text);
+  }
+
+  /** How many of the program's last lines Output shows while it runs. */
+  static final int LIVE_LINES = 300;
+
   private static String two(long v) {
     return v < 10 ? "0" + v : String.valueOf(v);
   }

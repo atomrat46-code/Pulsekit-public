@@ -851,7 +851,7 @@ final class PyJav {
                         .setNegativeButton("Keep waiting", (d, w) -> live.askedAt = System.currentTimeMillis()).show();
                 }
                 if (pkLiveShown != null && pkLiveShown.equals(pkPyLog.getText().toString())) {
-                    String line = head + pulsekit.JavaRun.runningLine(live, System.currentTimeMillis());
+                    String line = head + pulsekit.JavaRun.runningLog(live, System.currentTimeMillis());
                     pkPyLog.setText(line);
                     pkLiveShown = line;
                 }
@@ -886,7 +886,7 @@ final class PyJav {
         long now = System.currentTimeMillis();
         this.pkLive = live;
         if (this.pkPyLog != null) {
-            this.pkPyLog.setText(head + pulsekit.JavaRun.runningLine(live, now));
+            this.pkPyLog.setText(head + pulsekit.JavaRun.runningLog(live, now));
             this.pkLiveShown = this.pkPyLog.getText().toString();
         }
         String top = pulsekit.JavaRun.runningTop(name, live, now);

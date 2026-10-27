@@ -162,12 +162,19 @@ final class PyJav {
         extraLab.setBorderPainted(false);
         extraLab.setFocusPainted(false);
         extraLab.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        // The arguments get a row of their own, as wide as the page.
+        final JPanel argsRow = new JPanel(new BorderLayout());
+        argsRow.setOpaque(false);
+        argsRow.setAlignmentX(0.0f);
+        argsRow.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        argsRow.setVisible(false);
         extraLab.addActionListener(e -> {
             boolean open = !this.pyExtra.isVisible();
             this.pyExtra.setVisible(open);
+            argsRow.setVisible(open);
             extraLab.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
-            controls.revalidate();
-            controls.repaint();
+            north.revalidate();
+            north.repaint();
         });
         controls.add(extraLab);
         this.pyExtra = new JTextField(22);
@@ -179,8 +186,10 @@ final class PyJav {
             BorderFactory.createLineBorder(BORDER),
             BorderFactory.createEmptyBorder(6, 8, 6, 8)));
         this.pyExtra.setToolTipText("Optional extra command-line flags, e.g. --out groove.mid");
-        controls.add(this.pyExtra);
+        argsRow.add(this.pyExtra, BorderLayout.CENTER);
         north.add(controls);
+        argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, this.pyExtra.getPreferredSize().height + 6));
+        north.add(argsRow);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
         app.pyEditor.setBackground(ELEV);
@@ -242,10 +251,22 @@ final class PyJav {
         outputBox.add((Component)outTop, "North");
         outputBox.add((Component)logScroll, "Center");
         jPanel.add((Component)north, "North");
-        jPanel.add((Component)editorBox, "Center");
-        jPanel.add((Component)outputBox, "South");
+        // Code and Output share the rest; the line between them is dragged to give either more room.
+        this.pySplit = new javax.swing.JSplitPane(javax.swing.JSplitPane.VERTICAL_SPLIT, editorBox, outputBox);
+        this.pySplit.setName("pyjav-split");
+        this.pySplit.setOpaque(false);
+        this.pySplit.setBorder(BorderFactory.createEmptyBorder());
+        this.pySplit.setContinuousLayout(true);
+        this.pySplit.setResizeWeight(0.65);
+        this.pySplit.setDividerSize(8);
+        editorBox.setMinimumSize(new Dimension(50, 60));
+        outputBox.setMinimumSize(new Dimension(50, 60));
+        jPanel.add((Component)this.pySplit, "Center");
         return jPanel;
     }
+
+    /** Code above, Output below: the divider between them is dragged. */
+    javax.swing.JSplitPane pySplit;
 
     /** Recent prompts' menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastRecent;
@@ -750,8 +771,11 @@ final class PyJav {
                 app.setNow(lastTop[0]);
             }
             if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
-            String line = head + JavaRun.runningLine(live, System.currentTimeMillis());
-            app.pyLog.setText(line);
+            String line = head + JavaRun.runningLog(live, System.currentTimeMillis());
+            if (!line.equals(app.pyLog.getText())) {
+                app.pyLog.setText(line);
+                app.pyLog.setCaretPosition(app.pyLog.getDocument().getLength());
+            }
             lastLine[0] = line;
         });
         tick.start();
@@ -2602,7 +2626,7 @@ final class PyJav {
         Shown r = name == null ? null : RUNNING.get(name);
         if (r == null || r.live.done || r.live.aborted()) return false;
         long now = System.currentTimeMillis();
-        String line = r.head + JavaRun.runningLine(r.live, now);
+        String line = r.head + JavaRun.runningLog(r.live, now);
         if (app.pyLog != null) app.pyLog.setText(line);
         r.lastLine[0] = line;
         r.lastTop[0] = JavaRun.runningTop(name, r.live, now);

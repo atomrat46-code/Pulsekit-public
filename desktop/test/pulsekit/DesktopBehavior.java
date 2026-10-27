@@ -7276,6 +7276,43 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** PyJav: the Arguments field as wide as the page, Code and Output parted by a divider, a script's lines in Output as it runs. */
+  void s152_pyjav_layout_live() throws Exception {
+    call("showView", "py");
+    idle();
+    edt(() -> ((javax.swing.JButton) component(frame, "pyjav-args-head")).doClick());
+    idle();
+    final int[] w = new int[3];
+    edt(() -> {
+      JTextField args = (JTextField) get("pyExtra");
+      javax.swing.JSplitPane split = (javax.swing.JSplitPane) component(frame, "pyjav-split");
+      w[0] = args.getWidth();
+      w[1] = split.getWidth();
+      int before = split.getTopComponent().getHeight();
+      split.setDividerLocation(before - 80);
+      split.validate();
+      w[2] = before - split.getTopComponent().getHeight();
+    });
+    this.out.append("arguments ").append(w[0] * 100 / Math.max(1, w[1])).append("% of the page's width, Code smaller by ").append(w[2]).append(" px after dragging\n");
+    // A script that prints, waits, then prints again: its first line is in Output while it still runs.
+    final JavaRun.Live live = new JavaRun.Live();
+    final String script = "import time\nprint('rendered 1 of 2', flush=True)\ntime.sleep(3)\nprint('rendered 2 of 2')\n";
+    Thread t = new Thread(() -> {
+      JavaRun.track(live);
+      PythonRun.run(script, "live.py", new java.util.ArrayList<String>());
+    });
+    t.start();
+    long until = System.currentTimeMillis() + 20000;
+    while (!live.text().contains("rendered 1 of 2") && System.currentTimeMillis() < until) Thread.sleep(50);
+    String during = JavaRun.runningLog(live, System.currentTimeMillis());
+    boolean alive = t.isAlive();
+    t.join(30000);
+    this.out.append("while running (" + alive + "): ").append(during.replaceAll("Running… \\d+:\\d+", "Running… m:ss").replace('\n', '|')).append('\n');
+    boolean ok = w[0] * 100 / Math.max(1, w[1]) >= 90 && w[2] >= 60 && alive && during.startsWith("Running…") && during.endsWith("rendered 1 of 2")
+        && live.text().contains("rendered 2 of 2");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();
