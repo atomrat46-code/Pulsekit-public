@@ -295,7 +295,8 @@ public class MainActivity extends UiKit {
         this.songEditor.refreshSong();
         // The tab Pulsekit was on when it closed (a main tab or a Drum Tracks subtab).
         String lastTab = this.getSharedPreferences(UI_PREFS, 0).getString("tab", null);
-        if (REMEMBERED_TABS.contains(lastTab) && !lastTab.equals(this.view)) this.show(lastTab);
+        // Shown through show() even when it is the first page already (it hides the bar Drum Tracks does not use).
+        this.show(REMEMBERED_TABS.contains(lastTab) ? lastTab : this.view);
 
         ArtJava.pinWorkDir(this);
         this.handler.postDelayed(this.dbWatch, 400);

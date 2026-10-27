@@ -10117,6 +10117,10 @@ public class BehaviorTest {
   public void s166_drum_row_sogni_shown_pip_missing() throws Exception {
     StringBuilder out = new StringBuilder();
     if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // As Pulsekit starts (on Pattern): no Stop/Play/Gen bar at the bottom.
+    String startView = app.view;
+    boolean noBarAtStart = !"pattern".equals(startView) || app.transportRow.getVisibility() == View.GONE;
+    out.append("started on ").append(startView).append(": bottom bar hidden ").append(noBarAtStart).append('\n');
     // Drum Tracks: one row (Pattern, Fillern, Fill, CTL, Play, Stop, GEN); no sliders and no Stop/Play/Gen bar on the page.
     call("show", "pattern");
     idle();
@@ -10182,7 +10186,7 @@ public class BehaviorTest {
         .append(", screen ").append(screenH).append(") | grid ").append(app.gridScroll.getHeight()).append(" px\n");
     app.importedHost.removeViews(1, 15);
     boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
-    drumOk &= importedCapped;
+    drumOk &= importedCapped && noBarAtStart;
     // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
     File dir = app.getFilesDir();
     AppSettings.load(dir);
