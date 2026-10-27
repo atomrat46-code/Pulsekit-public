@@ -657,6 +657,8 @@ public final class ProgramParams {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
+    } else if (p.token.equals("--zip")) {
+      p.label = "Zip: the MIDI files, the WAVs (and the test's MIDI files and report) in one zip";
     }
   }
 

@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--test] [--no-toms] [--zip] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -42,6 +42,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
+  --zip           then puts the MIDI files played (and the copies at --bpm's tempo), the WAVs made, and
+                  with --test DrumMidi's MIDI files and the report, into one zip:
+                  vst-render-<plugin>-<date>-<time>.zip beside the report (in --outdir when given). The
+                  plugin and Carla settings files given go in too, and the switches used (vst-render-run.txt).
+                  Without --zip, a --dir or --test run in a terminal asks at the end whether to make it.
   --scan          lists the plugins in the usual VST folders, then stops.
 
 The plugins' own delay (lookahead, oversampling) is taken off the start, so the hits land where
@@ -757,6 +762,77 @@ def finish(np, audio, volume):
     return audio, None
 
 
+def ask_zip():
+    """A --dir or --test run in a terminal: asks whether to zip what it used and made (no: Enter)."""
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return False
+        return input("Put the MIDI files, the WAVs and the report into a zip? [y/N] ").strip().lower() in ("y", "yes")
+    except (EOFError, OSError, ValueError):
+        return False
+
+
+def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm):
+    """--zip: the inputs and what was made in one zip beside the report; its path.
+
+    midi/ the MIDI files played (their subfolders under --dir kept), midi-<bpm>bpm/ the copies played at
+    --bpm's tempo, wav/ the renders, dm/ DrumMidi's MIDI files (--test), settings/ the settings files
+    given, and at the top the report and vst-render-run.txt (the switches used)."""
+    import time
+    import zipfile
+    if not os.path.isdir(where):
+        os.makedirs(where)
+    base = "vst-render-%s-%s" % (re.sub(r"[^A-Za-z0-9._-]+", "_", plugin), time.strftime("%Y%m%d-%H%M%S"))
+    path = os.path.join(where, base + ".zip")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(where, "%s-%d.zip" % (base, n))
+        n += 1
+    used = set()
+
+    def arc(sub, f, root=None):
+        rel = os.path.relpath(f, root) if root and os.path.abspath(f).startswith(os.path.abspath(root) + os.sep) else os.path.basename(f)
+        a = (sub + "/" if sub else "") + rel.replace(os.sep, "/")
+        head, ext = os.path.splitext(a)
+        k = 2
+        while a in used:
+            a = "%s-%d%s" % (head, k, ext)
+            k += 1
+        used.add(a)
+        return a
+    count = 0
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        out_root = opts["--outdir"] or folder
+        for m, copy in played:
+            if m and os.path.isfile(m):
+                z.write(m, arc("midi" if m.lower().endswith((".mid", ".midi")) else "input", m, folder))
+                count += 1
+            if copy and os.path.isfile(copy):
+                z.write(copy, arc("midi-%gbpm" % bpm, m, folder))
+                count += 1
+        if opts["--dir"] and opts["--dir"].lower().endswith(".pls") and os.path.isfile(opts["--dir"]):
+            z.write(opts["--dir"], arc("", opts["--dir"]))
+            count += 1
+        for o in wavs:
+            if os.path.isfile(o):
+                z.write(o, arc("wav", o, out_root))
+                count += 1
+        for d in dms:
+            z.write(d, arc("dm", d, out_root))
+            count += 1
+        for key in ("--state", "--effect_state", "--carla", "--midimap"):
+            f = opts[key]
+            if f and os.path.isfile(f):
+                z.write(f, arc("settings", f))
+                count += 1
+        if report and os.path.isfile(report):
+            z.write(report, arc("", report))
+            count += 1
+        z.writestr(arc("", "vst-render-run.txt"), "vst_render.py " + " ".join('"%s"' % a if " " in a else a for a in argv) + "\n")
+    print("Zipped %d file%s" % (count, "" if count == 1 else "s"))
+    return path
+
+
 def main(argv):
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
@@ -772,7 +848,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -930,6 +1006,10 @@ def main(argv):
             write_wav(o, audio, rate, bits)
             print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
+    dms = []
+    rep = None
+    # The plugin's (or project's, kit's) name: the test loop's `name` is each WAV's.
+    plugin_name = name
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
                   "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
@@ -939,6 +1019,8 @@ def main(argv):
             dm = os.path.splitext(o)[0] + "-dm.mid"
             no_toms = "--no-toms" in switches
             found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, ["--no-toms"] if no_toms else [])
+            if os.path.isfile(dm):
+                dms.append(dm)
             name = os.path.basename(o)
             if isinstance(found, str):
                 report.append("%s: %s" % (name, found))
@@ -962,10 +1044,16 @@ def main(argv):
         print("")
         print(text)
         where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1])))
-        rep = os.path.join(where, "vst-test-%s.txt" % stem(name))
+        rep = os.path.join(where, "vst-test-%s.txt" % stem(plugin_name))
         with open(rep, "w") as f:
             f.write(text + "\n")
         print("Wrote %s" % rep)
+    where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1]))) if batch_done else None
+    if where and ("--zip" in switches or ((batch is not None or test) and ask_zip())):
+        made = make_zip(where, stem(plugin_name), argv, folder if batch is not None else None,
+                        [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
+                        [o for _, o in batch_done], dms, rep, opts, bpm)
+        print("Zip: %s" % made)
     if batch is not None:
         print("Succeeded: %d of %d MIDI files rendered" % (len(batch_done), len(batch)))
     else:

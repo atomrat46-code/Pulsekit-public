@@ -7069,6 +7069,53 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** vst_render --zip: the MIDI played, its --bpm copy, the WAV, DrumMidi's MIDI, the report and the run in one zip. */
+  void s148_vst_render_zip() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "zip-test");
+    File sub = new File(dir, "beats");
+    sub.mkdirs();
+    File out = new File(dir, "out");
+    out.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    File song = new File(sub, "song.mid");
+    Files.write(song.toPath(), mid.toByteArray());
+    File wav = new File(out, "beats/song-Kit.wav");
+    wav.getParentFile().mkdirs();
+    Files.write(wav.toPath(), new byte[] {1, 2, 3});
+    File dm = new File(out, "beats/song-Kit-dm.mid");
+    Files.write(dm.toPath(), mid.toByteArray());
+    File report = new File(out, "vst-test-Kit.txt");
+    Files.write(report.toPath(), "All: Kick 1/1\n".getBytes(StandardCharsets.UTF_8));
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d, song, out = sys.argv[2], sys.argv[3], sys.argv[4]\n"
+        + "copy = vr.retempo(song, 80, out)\n"
+        + "opts = {'--outdir': out, '--dir': d, '--state': None, '--effect_state': None, '--carla': None, '--midimap': None}\n"
+        + "z = vr.make_zip(out, 'Kit', ['--dir', d, '--test', '--zip', '--bpm', '80'], d, [(song, copy)], [sys.argv[5]], [sys.argv[6]], sys.argv[7], opts, 80.0)\n"
+        + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n"
+        + "print('asks %s' % vr.ask_zip())\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), song.getAbsolutePath(), out.getAbsolutePath(),
+        wav.getAbsolutePath(), dm.getAbsolutePath(), report.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    // The switch is known to the program and labelled in Params.
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "--zip"));
+    String plain = PythonRun.runFor(bad, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--zip")) label = p.label;
+    this.out.append(said).append("\nvst_render.py --zip: ").append(plain).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("names dm/beats/song-Kit-dm.mid midi-80bpm/beats/song.mid midi/beats/song.mid vst-render-run.txt vst-test-Kit.txt wav/beats/song-Kit.wav")
+        && said.contains("Zipped 5 files") && said.contains("asks False") && !plain.contains("unknown switch") && label.startsWith("Zip:");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();
