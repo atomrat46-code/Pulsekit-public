@@ -182,10 +182,21 @@ final class PyJav {
         app.pyEditor.setForeground(FG);
         app.pyEditor.setCaretColor(FG);
         app.pyEditor.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        // Code's menu: Select all, Cut, Copy, Paste, Open in editor window, Save text as.
+        TextMenu.attach(app.pyEditor, menu -> {
+            menu.add(this.menuItem("Open in editor window", "code-editor", () -> this.openInEditor(true)));
+            menu.add(this.menuItem("Save text as\u2026", "code-save-as", () -> SaveText.save(app, this.codeName(), app.pyEditor.getText())));
+        });
         JScrollPane scroll = new JScrollPane(app.pyEditor);
         scroll.setBorder(BorderFactory.createLineBorder(BORDER));
         app.pyLog = new JTextArea(6, 40);
-        SaveText.attach(app, app.pyLog, () -> this.runLog != null && this.runLog.equals(app.pyLog.getText()) ? PyJavHints.resultsFileName(app.pyName) : null);
+        // Output's menu: Select all and Copy, Open in editor window, Save text as (and a run's results file).
+        TextMenu.attach(app.pyLog, menu -> {
+            menu.add(this.menuItem("Open in editor window", "output-editor", () -> this.openInEditor(false)));
+            String results = this.runLog != null && this.runLog.equals(app.pyLog.getText()) ? PyJavHints.resultsFileName(app.pyName) : null;
+            if (results != null) menu.add(this.menuItem("Save as " + results, "output-save-results", () -> SaveText.save(app, results, app.pyLog.getText())));
+            menu.add(this.menuItem("Save text as\u2026", "output-save-as", () -> SaveText.save(app, this.outputName(), app.pyLog.getText())));
+        });
         app.pyLog.setEditable(false);
         app.pyLog.setLineWrap(true);
         app.pyLog.setWrapStyleWord(true);
@@ -444,6 +455,32 @@ final class PyJav {
                 if (list != null) PlaylistWindow.open(app, list);
             });
         }, "pulsekit-pls").start();
+    }
+
+    private javax.swing.JMenuItem menuItem(String label, String name, Runnable click) {
+        javax.swing.JMenuItem item = new javax.swing.JMenuItem(label);
+        item.setName(name);
+        item.addActionListener(e -> click.run());
+        return item;
+    }
+
+    /** The Code area's file name (the program's, or script.py). */
+    String codeName() {
+        return app.pyName == null || app.pyName.isEmpty() ? "script.py" : app.pyName;
+    }
+
+    /** The Output's file name to offer: "SogniVideo-output.txt". */
+    String outputName() {
+        return this.codeName().replaceAll("\\.[A-Za-z0-9]+$", "") + "-output.txt";
+    }
+
+    /** Open in editor window: the Output's text, or the Code's (which Back to Code puts back). */
+    void openInEditor(boolean code) {
+        if (code) {
+            TextEditorWindow.open(app, this.codeName() + " \u2014 Pulsekit editor", this.codeName(), app.pyEditor.getText(), edited -> app.pyEditor.setText(edited));
+        } else {
+            TextEditorWindow.open(app, this.outputName() + " \u2014 Pulsekit editor", this.outputName(), app.pyLog.getText(), null);
+        }
     }
 
     /** The Install question shown last (for the tests). */

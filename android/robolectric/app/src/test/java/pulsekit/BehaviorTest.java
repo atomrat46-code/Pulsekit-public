@@ -1098,8 +1098,12 @@ public class BehaviorTest {
     log.performLongClick();
     idle();
     AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
-    out.append("menu: ").append(menu.getListView().getAdapter().getItem(0)).append('\n');
-    org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    // The menu: Open in editor window, Save as the results file, Save text as.
+    out.append("menu: ").append(listItems(menu)).append('\n');
+    java.util.List<String> rows = java.util.Arrays.asList(listItems(menu).split(" \\| "));
+    int saveAt = 0;
+    for (int i = 0; i < rows.size(); i++) if (rows.get(i).startsWith("Save as CompareHits")) saveAt = i;
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(saveAt);
     idle();
     android.content.Intent save = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
     out.append("save: ").append(save.getAction()).append(' ').append(save.getType()).append(' ')
@@ -10238,6 +10242,79 @@ public class BehaviorTest {
     boolean pipOk = pip.toString().equals("[numpy, opencv-python]");
     write("s166_drum_row_sogni_shown_pip_missing", out.toString());
     if (!drumOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s167_output_code_editor_window() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    // Output's long press: Open in editor window.
+    TextView log = (TextView) get("pkPyLog");
+    log.setText("line one\nline two\nSucceeded");
+    log.performLongClick();
+    idle();
+    String rows = listItems(PyJav.lastOutputMenu);
+    org.robolectric.Shadows.shadowOf(PyJav.lastOutputMenu).clickOnItem(0);
+    idle();
+    TextEditorScreen ed = TextEditorScreen.last;
+    boolean opened = ed != null && ed.dialog.isShowing() && ed.text.getText().toString().equals("line one\nline two\nSucceeded") && ed.back == null;
+    out.append("Output menu: ").append(rows).append(" | editor open ").append(opened).append(", named ").append(ed == null ? "-" : ed.name).append('\n');
+    // Edit, undo, redo, find.
+    ed.text.append("\nmore");
+    ed.keepStep();
+    boolean marked = ed.changed && "Not saved".contentEquals(ed.state.getText());
+    ed.undo();
+    boolean undone = ed.text.getText().toString().endsWith("Succeeded");
+    ed.redo();
+    boolean redone = ed.text.getText().toString().endsWith("more");
+    boolean found = ed.findNext("TWO") && ed.text.getSelectionStart() == 14 && ed.text.getSelectionEnd() == 17;
+    out.append("changed ").append(marked).append(", undo ").append(undone).append(", redo ").append(redone).append(", find ").append(found).append('\n');
+    // Save as: the picker's place is written, and Save writes there again.
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-save-as").performClick();
+    idle();
+    android.content.Intent pick = org.robolectric.Shadows.shadowOf(app).getNextStartedActivityForResult().intent;
+    File file = new File(app.getCacheDir(), "edited-output.txt");
+    org.robolectric.Shadows.shadowOf(app).receiveResult(pick, android.app.Activity.RESULT_OK, new android.content.Intent().setData(android.net.Uri.fromFile(file)));
+    idle();
+    String written = file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : "";
+    ed.text.append("!");
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-save").performClick();
+    idle();
+    String again = file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : "";
+    out.append("Save as ").append(pick.getStringExtra(android.content.Intent.EXTRA_TITLE)).append(" -> ").append(written.replace('\n', '|')).append(" | Save -> ")
+        .append(again.endsWith("more!")).append(", saved ").append(!ed.changed).append('\n');
+    boolean saveOk = written.endsWith("more") && again.endsWith("more!") && !ed.changed && "pkPyLog".length() > 0;
+    // Close with unsaved changes asks; Don't save closes.
+    ed.text.append("?");
+    ed.dialog.getWindow().getDecorView().findViewWithTag("editor-close").performClick();
+    idle();
+    AlertDialog ask = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean asked = ask != null && ask.isShowing() && ed.dialog.isShowing();
+    ask.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean closed = !ed.dialog.isShowing();
+    out.append("close with changes: asked ").append(asked).append(", Don't save closed ").append(closed).append('\n');
+    // Code: its long-press menu has the two items; the editor's Back to Code puts the text back.
+    android.view.Menu menu = new android.widget.PopupMenu(app, app.pyEditor).getMenu();
+    app.pyEditor.getCustomSelectionActionModeCallback().onCreateActionMode(null, menu);
+    StringBuilder codeRows = new StringBuilder();
+    for (int i = 0; i < menu.size(); i++) codeRows.append(menu.getItem(i).getTitle()).append(i + 1 < menu.size() ? " | " : "");
+    app.pyEditor.setText("print('hi')\n");
+    app.pyJav.pkOpenInEditor(true);
+    idle();
+    TextEditorScreen code = TextEditorScreen.last;
+    code.text.setText("print('edited')\n");
+    code.dialog.getWindow().getDecorView().findViewWithTag("editor-back").performClick();
+    idle();
+    boolean backOk = "print('edited')\n".equals(app.pyEditor.getText().toString());
+    code.mark(false);
+    code.close();
+    idle();
+    out.append("Code menu: ").append(codeRows).append(" | Back to Code ").append(backOk).append('\n');
+    boolean codeOk = codeRows.toString().equals("Open in editor window | Save text as…") && backOk && !code.dialog.isShowing();
+    write("s167_output_code_editor_window", out.toString());
+    if (!opened || !marked || !undone || !redone || !found || !saveOk || !asked || !closed || !codeOk || !rows.startsWith("Open in editor window")) throw new AssertionError(out.toString());
   }
 
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */

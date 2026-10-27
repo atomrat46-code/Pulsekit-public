@@ -17,6 +17,12 @@ final class TextMenu {
     private TextMenu() {}
 
     static void attach(final JTextComponent field) {
+        attach(field, null);
+    }
+
+    /** With items of its own after Select all, Cut, Copy and Paste (Open in editor window...). */
+    static void attach(final JTextComponent field, final java.util.function.Consumer<JPopupMenu> extra) {
+        field.putClientProperty("pk.menu-extra", extra);
         MouseAdapter mouse = new MouseAdapter() {
             Timer hold;
 
@@ -73,6 +79,13 @@ final class TextMenu {
         if (field.isEditable()) menu.add(cut);
         menu.add(copy);
         if (field.isEditable()) menu.add(paste);
+        Object extra = field.getClientProperty("pk.menu-extra");
+        if (extra instanceof java.util.function.Consumer) {
+            menu.addSeparator();
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<JPopupMenu> more = (java.util.function.Consumer<JPopupMenu>) extra;
+            more.accept(menu);
+        }
         MenuCancel.add(menu);
         return menu;
     }

@@ -6968,6 +6968,80 @@ public final class DesktopBehavior {
     if (!paramsOk || !listOk || !otherOk || !noteOk) throw new AssertionError(out.toString());
   }
 
+  /** PyJav's Output and Code menus: Open in editor window (Save, Save as, Undo, Redo, Find, Back to Code), Save text as. */
+  void s146_output_code_editor_window() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    edt(() -> call("showView", "py"));
+    idle();
+    final String[] menus = new String[2];
+    edt(() -> {
+      app.pyLog.setText("line one\nline two\nSucceeded");
+      menus[0] = items(TextMenu.menu(app.pyLog));
+      menus[1] = items(TextMenu.menu(app.pyEditor));
+    });
+    out.append("Output menu: ").append(menus[0]).append("\nCode menu: ").append(menus[1]).append('\n');
+    boolean menusOk = menus[0].contains("Open in editor window") && menus[0].contains("Save text as") && !menus[0].contains("Paste")
+        && menus[1].contains("Paste") && menus[1].contains("Open in editor window") && menus[1].contains("Save text as");
+    // Output in the editor window: edit, undo, redo, find, Save as, Save.
+    answers.add("(keep)");
+    edt(() -> app.pyJav.openInEditor(false));
+    idle();
+    final TextEditorWindow ed = TextEditorWindow.last;
+    final String[] got = new String[1];
+    File saved = new File(System.getProperty("user.home"), "edited-output.txt");
+    TextEditorWindow.saveAsFor = saved;
+    edt(() -> {
+      boolean full = ed.window.isShowing() && ed.window.getWidth() > 600 && ed.backTo == null;
+      ed.text.append("\nmore");
+      boolean changed = ed.changed && ed.window.getTitle().startsWith("* ");
+      ed.undo();
+      boolean undone = ed.text.getText().endsWith("Succeeded");
+      ed.redo();
+      boolean redone = ed.text.getText().endsWith("more");
+      boolean found = ed.findNext("TWO") && ed.text.getSelectionStart() == 14;
+      boolean savedAs = ed.saveAs() && !ed.changed;
+      ed.text.append("!");
+      boolean savedAgain = ed.save();
+      got[0] = "window " + full + ", changed " + changed + ", undo " + undone + ", redo " + redone + ", find " + found + ", Save as " + savedAs + ", Save " + savedAgain + ", title " + ed.window.getTitle();
+    });
+    TextEditorWindow.saveAsFor = null;
+    String written = new String(Files.readAllBytes(saved.toPath()), StandardCharsets.UTF_8);
+    out.append("editor: ").append(got[0]).append(" | file ").append(written.replace('\n', '|')).append('\n');
+    boolean editorOk = got[0].startsWith("window true, changed true, undo true, redo true, find true, Save as true, Save true") && written.endsWith("more!");
+    // Close with changes asks: Don't save closes.
+    answers.add("Don't save");
+    edt(() -> ed.text.append("?"));
+    edt(() -> ed.close());
+    idle();
+    boolean closed = !ed.window.isShowing();
+    // Code in the editor window: Back to Code puts the edited text in the Code area.
+    answers.add("(keep)");
+    edt(() -> {
+      app.pyEditor.setText("print('hi')\n");
+      app.pyJav.openInEditor(true);
+    });
+    idle();
+    final TextEditorWindow code = TextEditorWindow.last;
+    final boolean[] back = new boolean[1];
+    edt(() -> {
+      code.text.setText("print('edited')\n");
+      ((javax.swing.JButton) component(code.window, "editor-back")).doClick();
+      back[0] = "print('edited')\n".equals(app.pyEditor.getText());
+      code.changed = false;
+      code.close();
+    });
+    idle();
+    out.append("close with changes: Don't save closed ").append(closed).append(" | Back to Code ").append(back[0]).append('\n');
+    if (!menusOk || !editorOk || !closed || !back[0] || code.window.isShowing()) throw new AssertionError(out.toString());
+  }
+
+  /** A popup menu's items: "Select all | Copy | Open in editor window". */
+  private static String items(javax.swing.JPopupMenu menu) {
+    StringBuilder sb = new StringBuilder();
+    for (java.awt.Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+    return sb.toString();
+  }
+
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
   private static boolean jdk8PushedQueue(Throwable t) {
     StackTraceElement[] st = t.getStackTrace();

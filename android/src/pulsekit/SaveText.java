@@ -63,7 +63,8 @@ final class SaveText {
         pending = text;
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("text/plain");
+        // Not text/plain for code (vst_render.py): the picker would add .txt to its name.
+        intent.setType(file.toLowerCase().endsWith(".txt") ? "text/plain" : "application/octet-stream");
         intent.putExtra(Intent.EXTRA_TITLE, file);
         app.startActivityForResult(intent, SAVE);
     }

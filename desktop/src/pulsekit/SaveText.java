@@ -52,9 +52,9 @@ final class SaveText {
         if (chooser.showSaveDialog(app) != JFileChooser.APPROVE_OPTION) return;
         try {
             Files.write(chooser.getSelectedFile().toPath(), (text == null ? "" : text).getBytes(StandardCharsets.UTF_8));
-            app.setNow("Saved results");
+            app.setNow("Saved " + chooser.getSelectedFile().getName());
         } catch (Exception ex) {
-            app.setNow("Could not save the results");
+            app.setNow("Could not save " + chooser.getSelectedFile().getName());
         }
     }
 }

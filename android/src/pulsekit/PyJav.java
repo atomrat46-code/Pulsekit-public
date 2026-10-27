@@ -68,6 +68,8 @@ final class PyJav {
         app.pyEditor.setPadding(app.dp(10), app.dp(10), app.dp(10), app.dp(10));
         app.pyEditor.setGravity(0x800033);
         app.pyEditor.setMinLines(8);
+        // A long press's menu: Open in editor window and Save text as, beside Copy and Paste.
+        this.pkCodeMenus();
         // A fixed height that scrolls inside, so a long program does not make the page long.
         app.pyEditor.setVerticalScrollBarEnabled(true);
         // A drag in the editor scrolls it while it can go that way; at its top or end the page takes
@@ -518,8 +520,89 @@ final class PyJav {
         this.pkPyLog = app.text("Output appears here.", 12, false);
         this.pkPyLog.setTextColor(FG);
         this.pkPyLog.setMinLines(4);
-        SaveText.attach(app, this.pkPyLog, () -> this.pkLogIsRun() ? pulsekit.PyJavHints.resultsFileName(app.pyName) : null);
+        // Long press: Open in editor window, Save text as, and a run's results file.
+        this.pkPyLog.setTag("pyjav-output");
+        this.pkPyLog.setLongClickable(true);
+        this.pkPyLog.setOnLongClickListener(v -> {
+            this.pkOutputMenu();
+            return true;
+        });
         app.pyPane.addView(this.pkPyLog, slot);
+    }
+
+    /** The Output menu shown last (for the tests). */
+    static android.app.AlertDialog lastOutputMenu;
+
+    /** Output's long-press menu: Open in editor window, Save as the results file (after a run), Save text as. */
+    void pkOutputMenu() {
+        final String text = this.pkPyLog.getText() == null ? "" : this.pkPyLog.getText().toString();
+        final String results = this.pkLogIsRun() ? pulsekit.PyJavHints.resultsFileName(app.pyName) : null;
+        final java.util.List<String> rows = new java.util.ArrayList<String>();
+        rows.add("Open in editor window");
+        if (results != null && text.trim().length() > 0) rows.add("Save as " + results);
+        rows.add("Save text as\u2026");
+        lastOutputMenu = new android.app.AlertDialog.Builder(app).setItems(rows.toArray(new String[0]), (d, w) -> {
+            String row = rows.get(w);
+            if (row.startsWith("Open")) this.pkOpenInEditor(false);
+            else if (row.startsWith("Save as ")) pulsekit.SaveText.save(app, results, text);
+            else pulsekit.SaveText.save(app, this.pkOutputFileName(), text);
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** The Code area's file name (the program's, or script.py). */
+    String pkCodeName() {
+        return app.pyName == null || app.pyName.length() == 0 ? "script.py" : app.pyName;
+    }
+
+    /** The Output's file name to offer: "SogniVideo-output.txt". */
+    String pkOutputFileName() {
+        return this.pkCodeName().replaceAll("\\.[A-Za-z0-9]+$", "") + "-output.txt";
+    }
+
+    /** Open in editor window: the Output's text, or the Code's (which Back to Code puts back). */
+    void pkOpenInEditor(boolean code) {
+        if (code) {
+            pulsekit.TextEditorScreen.open(app, this.pkCodeName(), this.pkCodeName(), app.pyEditor.getText().toString(), edited -> app.pyEditor.setText(edited));
+        } else {
+            pulsekit.TextEditorScreen.open(app, "Output", this.pkOutputFileName(), this.pkPyLog.getText().toString(), null);
+        }
+    }
+
+    /** Code's selection menus (a long press) get Open in editor window and Save text as. */
+    void pkCodeMenus() {
+        android.view.ActionMode.Callback extra = new android.view.ActionMode.Callback() {
+            @Override
+            public boolean onCreateActionMode(android.view.ActionMode mode, android.view.Menu menu) {
+                menu.add(0, 0x7f0e0001, 100, "Open in editor window");
+                menu.add(0, 0x7f0e0002, 101, "Save text as\u2026");
+                return true;
+            }
+
+            @Override
+            public boolean onPrepareActionMode(android.view.ActionMode mode, android.view.Menu menu) {
+                return false;
+            }
+
+            @Override
+            public boolean onActionItemClicked(android.view.ActionMode mode, android.view.MenuItem item) {
+                if (item.getItemId() == 0x7f0e0001) {
+                    mode.finish();
+                    PyJav.this.pkOpenInEditor(true);
+                    return true;
+                }
+                if (item.getItemId() == 0x7f0e0002) {
+                    mode.finish();
+                    pulsekit.SaveText.save(app, PyJav.this.pkCodeName(), app.pyEditor.getText().toString());
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onDestroyActionMode(android.view.ActionMode mode) {}
+        };
+        app.pyEditor.setCustomSelectionActionModeCallback(extra);
+        if (android.os.Build.VERSION.SDK_INT >= 23) app.pyEditor.setCustomInsertionActionModeCallback(extra);
     }
 
     public void pkPrepareOutput() {
