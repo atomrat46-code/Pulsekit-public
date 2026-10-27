@@ -42,6 +42,11 @@ abstract class UiKit extends JFrame {
 
     static final Color HIT = new Color(10136476);
 
+    /** Android's gold: accented steps, and the outline of their empty cells (ACC_CELL), as on the phone. */
+    static final Color ACCENT = new Color(0xD9A441);
+
+    static final Color ACC_CELL = new Color(0x3A3220);
+
     JButton action(String string, Color color, Color color2, Runnable runnable) {
         JButton jButton = this.action(string, color, color2);
         jButton.addActionListener(actionEvent -> runnable.run());

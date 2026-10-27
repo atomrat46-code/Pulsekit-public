@@ -6859,6 +6859,28 @@ public final class DesktopBehavior {
     out.append("Fill: ").append(fill[0]).append(" of ").append(fill[1]).append(" px shown, all three imported sets in view ").append(fill[2] == 1)
         .append(" | chips rounded (ChipUI) ").append(chipUi).append('\n');
     scrollOk &= fill[0] >= fill[1] && fill[2] == 1 && chipUi;
+    // LEN, as on Android: Half picked, a click paints a half-note hit; accented steps are gold.
+    edt(() -> call("showView", "pattern"));
+    idle();
+    final String[] len = new String[1];
+    edt(() -> {
+      ((javax.swing.JButton) component(app, "len:Half")).doClick();
+      int t = 1;
+      int step = 2;
+      app.gridEditor.buttons[t][step].doClick();
+      boolean painted = app.cells[t][step] > 0 && Engine.lenAt(app.lens, t, step) == 8;
+      ((javax.swing.JButton) component(app, "len:Half")).doClick();
+      app.gridEditor.buttons[t][3].doClick();
+      boolean toggled = app.cells[t][3] > 0 && Engine.lenAt(app.lens, t, 3) <= 1;
+      boolean gold = app.accents[0] && UiKit.ACCENT.equals(app.gridEditor.accentBtns[0].getBackground());
+      len[0] = "half painted " + painted + ", LEN off: a plain hit " + toggled + ", accented step gold " + gold + ", window least " + app.getMinimumSize().width + "x" + app.getMinimumSize().height;
+      app.cells[t][step] = 0;
+      app.lens[t][step] = 0;
+      app.cells[t][3] = 0;
+      app.gridEditor.refreshGrid();
+    });
+    out.append("LEN: ").append(len[0]).append('\n');
+    scrollOk &= len[0].startsWith("half painted true, LEN off: a plain hit true, accented step gold true");
     scrollOk &= smallOk && restart[0];
     // The Sogni boxes: a Sogni video's name is left out with the tools off, kept with music and chat only for sound.
     File dir = PromptDb.dir();

@@ -73,7 +73,12 @@ final class ChipUI extends BasicButtonUI {
             Object outline = b.getClientProperty("pk.outline");
             if (outline instanceof Color) {
                 g2.setColor(m.isRollover() && b.isEnabled() ? shade((Color) outline, 0.25f) : (Color) outline);
-                g2.drawRoundRect(0, 0, w - 1, h - 1, arc, arc);
+                Object widthProp = b.getClientProperty("pk.outlineWidth");
+                int sw = widthProp instanceof Integer ? (Integer) widthProp : 1;
+                g2.setStroke(new java.awt.BasicStroke(sw));
+                // Drawn inside the button (a wide outline is not cut at its edges).
+                float in = sw / 2f;
+                g2.draw(new java.awt.geom.RoundRectangle2D.Float(in, in, w - sw, h - sw, arc, arc));
             }
         } finally {
             g2.dispose();

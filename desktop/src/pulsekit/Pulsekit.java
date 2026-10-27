@@ -252,9 +252,13 @@ public final class Pulsekit extends UiKit {
             }
         });
         this.setDefaultCloseOperation(3);
-        this.setMinimumSize(new Dimension(1100, 740));
-        this.setSize(1280, 820);
+        // Inside the screen's usable area (not under the taskbar): on a small laptop the grid's last rows were out of sight.
+        java.awt.Rectangle usable = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        // The least size fits a small laptop's screen too (it was 1100 x 740, taller than the screen).
+        this.setMinimumSize(new Dimension(Math.min(900, usable.width), Math.min(560, usable.height)));
+        this.setSize(Math.min(1280, usable.width), Math.min(820, usable.height));
         this.setLocationRelativeTo(null);
+        if (this.getY() < usable.y || this.getY() + this.getHeight() > usable.y + usable.height) this.setLocation(this.getX(), usable.y);
         this.getContentPane().setBackground(BG);
     }
 
@@ -613,6 +617,9 @@ public final class Pulsekit extends UiKit {
     static boolean drumView(String view) {
         return "pattern".equals(view) || "combo".equals(view) || "fills".equals(view);
     }
+
+    /** The LEN bar's length a click paints into a cell (0: a click turns the cell on and off). */
+    int paintLen;
 
     /** Drum Tracks' Play/Pause on the Pattern, Fillern and Fill row. */
     JButton drumPlay;
