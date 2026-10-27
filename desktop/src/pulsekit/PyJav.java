@@ -454,10 +454,45 @@ final class PyJav {
      * runs is named (pip in a command window may install into another), and Install runs
      * python -m pip install for that Python, then the script again.
      */
+    /** The Pythons offerPip looks through (the tests give their own); null: those on this computer. */
+    static java.util.function.Supplier<java.util.List<PythonRun.Found>> pythonsFound;
+
     void offerPip(final java.util.List<String> packages) {
         new Thread(() -> {
             final String python = PythonRun.whichPython();
+            // Another Python on the computer may have them already (pip in a command window installs into its own).
+            PythonRun.Found other = null;
+            java.util.List<PythonRun.Found> all = pythonsFound != null ? pythonsFound.get() : PythonRun.found();
+            for (PythonRun.Found f : all) {
+                if (f.path.equalsIgnoreCase(python)) continue;
+                if (PythonRun.hasPackages(f.path, packages)) {
+                    other = f;
+                    break;
+                }
+            }
+            String version = "";
+            for (PythonRun.Found f : all) if (f.path.equalsIgnoreCase(python)) version = f.version;
+            final PythonRun.Found useIt = other;
+            final String pythonVersion = version;
             javax.swing.SwingUtilities.invokeLater(() -> {
+                if (useIt != null) {
+                    lastPipQuestion = PipMissing.otherHasIt(packages, python, useIt.label());
+                    Object[] options = {"Use that Python", "Install here", "No"};
+                    int answer = javax.swing.JOptionPane.showOptionDialog(app, lastPipQuestion, "Python for scripts",
+                        javax.swing.JOptionPane.YES_NO_CANCEL_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                    if (answer == 0) {
+                        AppSettings.setPythonPath(useIt.path);
+                        app.setNow("Scripts run with " + useIt.label() + ": running again");
+                        this.runPython();
+                        return;
+                    }
+                    if (answer != 1) {
+                        app.setNow("Not installed: " + String.join(", ", packages) + " (General settings > " + AppSettings.PYTHON + " picks another Python)");
+                        return;
+                    }
+                    this.pipInstall(packages, python, pythonVersion);
+                    return;
+                }
                 lastPipQuestion = PipMissing.question(packages, python);
                 Object[] options = {"Install", "No"};
                 int answer = javax.swing.JOptionPane.showOptionDialog(app, lastPipQuestion, "Install " + String.join(", ", packages) + "?",
@@ -466,25 +501,47 @@ final class PyJav {
                     app.setNow("Not installed: " + String.join(", ", packages) + " (python -m pip install " + String.join(" ", packages) + " with " + python + ")");
                     return;
                 }
-                if (this.pyRun != null) this.pyRun.setEnabled(false);
-                app.setNow("Installing " + String.join(", ", packages) + " for " + python + "\u2026");
-                if (app.pyLog != null) app.pyLog.append("\n\nInstalling " + String.join(", ", packages) + " for " + python + "\u2026\n");
-                new Thread(() -> {
-                    boolean ok = PythonRun.pipInstall(packages, line -> javax.swing.SwingUtilities.invokeLater(() -> {
-                        if (app.pyLog != null) app.pyLog.append(line + "\n");
-                    }));
-                    javax.swing.SwingUtilities.invokeLater(() -> {
-                        if (this.pyRun != null) this.pyRun.setEnabled(true);
-                        if (!ok) {
-                            app.setNow("pip could not install " + String.join(", ", packages) + ": see its output below");
-                            return;
-                        }
-                        app.setNow("Installed " + String.join(", ", packages) + ": running again");
-                        this.runPython();
-                    });
-                }, "pip-install").start();
+                this.pipInstall(packages, python, pythonVersion);
             });
         }, "python-which").start();
+    }
+
+    /** python -m pip install for the Python Pulsekit runs, then the script again; a package with none for this Python is said so. */
+    void pipInstall(final java.util.List<String> packages, final String python, final String version) {
+        if (this.pyRun != null) this.pyRun.setEnabled(false);
+        app.setNow("Installing " + String.join(", ", packages) + " for " + python + "\u2026");
+        if (app.pyLog != null) app.pyLog.append("\n\nInstalling " + String.join(", ", packages) + " for " + python + "\u2026\n");
+        final StringBuilder log = new StringBuilder();
+        new Thread(() -> {
+            boolean ok = PythonRun.pipInstall(packages, line -> {
+                synchronized (log) {
+                    log.append(line).append('\n');
+                }
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (app.pyLog != null) app.pyLog.append(line + "\n");
+                });
+            });
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (this.pyRun != null) this.pyRun.setEnabled(true);
+                if (!ok) {
+                    String said;
+                    synchronized (log) {
+                        said = log.toString();
+                    }
+                    if (PipMissing.noPackageFor(said)) {
+                        String note = PipMissing.noPackageNote(packages, python, version);
+                        app.setNow(note);
+                        if (app.pyLog != null) app.pyLog.append("\n" + note + "\n");
+                        javax.swing.JOptionPane.showMessageDialog(app, note, "No package for this Python", javax.swing.JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                    app.setNow("pip could not install " + String.join(", ", packages) + ": see its output below");
+                    return;
+                }
+                app.setNow("Installed " + String.join(", ", packages) + ": running again");
+                this.runPython();
+            });
+        }, "pip-install").start();
     }
 
     void runPython() {

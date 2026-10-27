@@ -53,6 +53,31 @@ public final class PipMissing {
     return module;
   }
 
+  /** The name a package is imported by ("opencv-python": cv2). */
+  public static String moduleOf(String pkg) {
+    for (String[] p : PACKAGES) if (p[1].equalsIgnoreCase(pkg)) return p[0];
+    return pkg.replace('-', '_');
+  }
+
+  /** Whether pip's log says the package has no version for this Python (too new, or 32-bit). */
+  public static boolean noPackageFor(String log) {
+    String low = log == null ? "" : log.toLowerCase(Locale.ROOT);
+    return low.contains("no matching distribution") || low.contains("could not find a version that satisfies");
+  }
+
+  /** What to say then: pick an older Python (one listed in General settings > Python for scripts). */
+  public static String noPackageNote(List<String> packages, String python, String version) {
+    return String.join(", ", packages) + " has no package for " + (version.length() > 0 ? "Python " + version + " (" + python + ")" : python)
+        + ": it is often too new for it. Pick an older Python in General settings > " + AppSettings.PYTHON + " (or install Python 3.10 to 3.12), then Run again.";
+  }
+
+  /** Use-it question: another Python on this computer has what this one lacks. */
+  public static String otherHasIt(List<String> packages, String python, String other) {
+    String what = String.join(", ", packages);
+    return what + (packages.size() == 1 ? " is" : " are") + " not installed for the Python Pulsekit runs:\n" + python + "\n\nbut this Python on the computer has "
+        + (packages.size() == 1 ? "it" : "them") + ":\n" + other + "\n\nRun scripts with that one from now on? (General settings > " + AppSettings.PYTHON + " changes it.)";
+  }
+
   /** Install's question: which Python Pulsekit runs (where pip in a command window may not install). */
   public static String question(List<String> packages, String python) {
     String what = String.join(", ", packages);

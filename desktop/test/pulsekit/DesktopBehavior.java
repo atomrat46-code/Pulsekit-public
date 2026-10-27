@@ -6904,6 +6904,70 @@ public final class DesktopBehavior {
     if (!rowOk || !scrollOk || !sogniOk || !pipOk) throw new AssertionError(out.toString());
   }
 
+  /** Params keep a file argument (vst_render's song.mid); General settings' Python for scripts; another Python that has the package. */
+  void s145_params_file_python_choice() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    String src = ProgramFiles.bundledSource("vst_render.py");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    String[] v = ProgramParams.values(ps, "C:\\midi\\song.mid --plugin \"C:\\VST3\\Anarchy Drums.vst3\"", "");
+    out.append("vst_render Params from the saved ones, no arguments: ").append(v[0]).append(" | ").append(v[2]).append('\n');
+    boolean paramsOk = "C:\\midi\\song.mid".equals(v[0]) && v[2].endsWith("Anarchy Drums.vst3");
+    // Two Pythons on the computer (the tests' list): General settings lists them, picking one is kept.
+    final String here = PythonRun.whichPython();
+    final PythonRun.Found other = new PythonRun.Found("/usr/bin/python3", "3.10.11");
+    PyJav.pythonsFound = () -> java.util.Arrays.asList(new PythonRun.Found(here, "3.15.0"), other);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    for (int i = 0; i < 40; i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    final String[] items = new String[1];
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        if (!w.isShowing() || !(w instanceof java.awt.Dialog)) continue;
+        java.awt.Component c = component(w, "settings-python");
+        if (c == null) continue;
+        @SuppressWarnings("unchecked")
+        javax.swing.JComboBox<String> box = (javax.swing.JComboBox<String>) c;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < box.getItemCount(); i++) sb.append(box.getItemAt(i)).append(" | ");
+        items[0] = sb.toString();
+        box.setSelectedIndex(box.getItemCount() - 1);
+      }
+    });
+    String picked = AppSettings.pythonPath();
+    java.util.List<String> cmd = PythonRun.pythonCommand();
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w.isShowing() && w instanceof java.awt.Dialog) w.dispose();
+    });
+    idle();
+    out.append("Python for scripts: ").append(items[0]).append("\npicked ").append(picked).append(", runs ").append(cmd).append('\n');
+    boolean listOk = items[0] != null && items[0].startsWith(GeneralSettings.AUTO_PYTHON) && items[0].contains("Python 3.10.11") && "/usr/bin/python3".equals(picked)
+        && cmd.equals(java.util.Collections.singletonList("/usr/bin/python3"));
+    AppSettings.setPythonPath("");
+    // A missing package another Python has: Use that Python (and the script runs again with it).
+    answers.add("Use that Python");
+    PyJav.lastPipQuestion = null;
+    edt(() -> app.pyJav.offerPip(java.util.Arrays.asList("json")));
+    for (int i = 0; i < 100 && PyJav.lastPipQuestion == null; i++) Thread.sleep(50);
+    for (int i = 0; i < 20; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String q = PyJav.lastPipQuestion == null ? "" : PyJav.lastPipQuestion;
+    String now = AppSettings.pythonPath();
+    out.append("other Python has it: ").append(q.replace('\n', ' ')).append("\n-> scripts run with ").append(now).append('\n');
+    boolean otherOk = q.contains("but this Python on the computer has it") && q.contains("3.10.11") && "/usr/bin/python3".equals(now);
+    AppSettings.setPythonPath("");
+    PyJav.pythonsFound = null;
+    // pip's "no matching distribution": the note says pick an older Python.
+    String note = PipMissing.noPackageNote(java.util.Arrays.asList("dawdreamer"), "C:\\Python\\pythoncore-3.15\\python.exe", "3.15.0");
+    boolean noteOk = PipMissing.noPackageFor("ERROR: No matching distribution found for dawdreamer") && note.contains("Python 3.15.0") && note.contains(AppSettings.PYTHON);
+    out.append("no package: ").append(note).append('\n');
+    if (!paramsOk || !listOk || !otherOk || !noteOk) throw new AssertionError(out.toString());
+  }
+
   /** The NullPointerException Java 8 throws in EventQueue.getCurrentEventImpl when an EventQueue is pushed. */
   private static boolean jdk8PushedQueue(Throwable t) {
     StackTraceElement[] st = t.getStackTrace();

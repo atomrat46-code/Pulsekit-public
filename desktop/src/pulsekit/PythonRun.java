@@ -65,8 +65,94 @@ public final class PythonRun {
     return null;
   }
 
+  /** A Python found on this computer: its python.exe and version ("3.10.11"). */
+  public static final class Found {
+    public final String path;
+    public final String version;
+
+    Found(String path, String version) {
+      this.path = path;
+      this.version = version;
+    }
+
+    /** "Python 3.10.11 — C:\\Users\\...\\python.exe" for General settings' list. */
+    public String label() {
+      return "Python " + this.version + " \u2014 " + this.path;
+    }
+  }
+
+  /**
+   * The Pythons on this computer: those python3, python and py start, those the py launcher lists,
+   * and those in the usual folders (Windows: AppData\\Local\\Programs\\Python, AppData\\Local\\Python,
+   * Program Files). Each once, by where it is. Slow (it starts each): not on the screen's thread.
+   */
+  public static List<Found> found() {
+    java.util.LinkedHashSet<String> tries = new java.util.LinkedHashSet<String>();
+    for (String[] cmd : new String[][] {{"python3"}, {"python"}, {"py", "-3"}}) {
+      Found f = describe(java.util.Arrays.asList(cmd));
+      if (f != null) tries.add(f.path);
+    }
+    // The py launcher's own list (Windows): " -V:3.10 *   C:\\...\\python.exe".
+    for (String line : runFor(java.util.Arrays.asList("py", "-0p"), 10, null).split("\n")) {
+      int at = line.toLowerCase(java.util.Locale.ROOT).indexOf(":\\");
+      if (at > 0 && line.toLowerCase(java.util.Locale.ROOT).trim().endsWith(".exe")) tries.add(line.substring(at - 1).trim());
+    }
+    String local = System.getenv("LOCALAPPDATA");
+    List<File> dirs = new ArrayList<File>();
+    if (local != null) {
+      dirs.add(new File(local, "Programs" + File.separator + "Python"));
+      dirs.add(new File(local, "Python"));
+    }
+    for (String env : new String[] {"ProgramFiles", "ProgramFiles(x86)"}) if (System.getenv(env) != null) dirs.add(new File(System.getenv(env)));
+    for (File dir : dirs) {
+      File[] kids = dir.listFiles();
+      if (kids == null) continue;
+      for (File k : kids) {
+        File exe = new File(k, "python.exe");
+        if (k.getName().toLowerCase(java.util.Locale.ROOT).startsWith("python") && exe.isFile()) tries.add(exe.getAbsolutePath());
+      }
+    }
+    for (String unix : new String[] {"/usr/bin/python3", "/usr/local/bin/python3"}) if (new File(unix).isFile()) tries.add(unix);
+    List<Found> out = new ArrayList<Found>();
+    java.util.Set<String> seen = new java.util.HashSet<String>();
+    for (String t : tries) {
+      Found f = describe(java.util.Collections.singletonList(t));
+      if (f == null) continue;
+      // The same Python by two names (python3 and python, a link to it): once.
+      String key = f.path;
+      try {
+        key = new File(f.path).getCanonicalPath();
+      } catch (Exception ignored) {
+        // its own name
+      }
+      if (seen.add(key.toLowerCase(java.util.Locale.ROOT))) out.add(f);
+    }
+    return out;
+  }
+
+  /** The Python a command starts (its sys.executable and version), or null when it is none. */
+  static Found describe(List<String> cmd) {
+    List<String> all = new ArrayList<String>(cmd);
+    all.add("-c");
+    all.add("import sys; print(sys.executable); print(sys.version.split()[0])");
+    String[] lines = runFor(all, 10, null).trim().split("\r?\n");
+    if (lines.length < 2 || !lines[lines.length - 1].matches("\\d+\\.\\d+.*")) return null;
+    String exe = lines[lines.length - 2].trim();
+    return exe.length() == 0 ? null : new Found(exe, lines[lines.length - 1].trim());
+  }
+
+  /** Whether that Python imports these packages (numpy, dawdreamer...). */
+  public static boolean hasPackages(String python, List<String> packages) {
+    StringBuilder imports = new StringBuilder();
+    for (String p : packages) imports.append(imports.length() == 0 ? "import " : ", ").append(PipMissing.moduleOf(p));
+    return runCode(java.util.Arrays.asList(python, "-c", imports.toString()), 30, null) == 0;
+  }
+
   /** The command that starts the Python Pulsekit runs ("py -3" as two words), or null when there is none. */
   public static List<String> pythonCommand() {
+    // The one picked in General settings, while it is there.
+    String chosen = AppSettings.pythonPath();
+    if (chosen.length() > 0 && new File(chosen).isFile()) return new ArrayList<String>(java.util.Collections.singletonList(chosen));
     String py = findPython();
     if (py == null) return null;
     List<String> cmd = new ArrayList<String>();
@@ -166,8 +252,8 @@ public final class PythonRun {
   }
 
   public static Result run(String source, String scriptName, List<String> argv) {
-    String py = findPython();
-    if (py == null) {
+    List<String> python = pythonCommand();
+    if (python == null) {
       return new Result(
           "Python 3 was not found on this computer.\nInstall Python 3, then Run again. midiutil is bundled.",
           Collections.<FileOut>emptyList(),
@@ -181,13 +267,7 @@ public final class PythonRun {
       Files.write(dir.resolve(name), source.getBytes(StandardCharsets.UTF_8));
       byte[] midiutil = readResource("midiutil.py");
       if (midiutil != null) Files.write(dir.resolve("midiutil.py"), midiutil);
-      List<String> cmd = new ArrayList<String>();
-      if ("py".equals(py)) {
-        cmd.add("py");
-        cmd.add("-3");
-      } else {
-        cmd.add(py);
-      }
+      List<String> cmd = new ArrayList<String>(python);
       cmd.add(name);
       if (argv != null) cmd.addAll(argv);
       ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -229,7 +309,7 @@ public final class PythonRun {
           files.add(new FileOut(fn, data));
         }
       }
-      String header = "$ " + py + " " + name + (argv == null || argv.isEmpty() ? "" : " " + String.join(" ", argv)) + "\n";
+      String header = "$ " + String.join(" ", python) + " " + name + (argv == null || argv.isEmpty() ? "" : " " + String.join(" ", argv)) + "\n";
       return new Result(header + log, files, code);
     } catch (Exception ex) {
       return new Result("Could not run Python: " + ex.getMessage(), Collections.<FileOut>emptyList(), 1);

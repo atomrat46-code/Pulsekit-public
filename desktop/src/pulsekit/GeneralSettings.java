@@ -20,6 +20,9 @@ import javax.swing.SwingUtilities;
 final class GeneralSettings {
     private GeneralSettings() {}
 
+    /** Python for scripts' first choice: the one found first, as before. */
+    static final String AUTO_PYTHON = "Automatic (python3, python or py, found first)";
+
     static void show(final Pulsekit app) {
         final JDialog dialog = new JDialog(app, "General settings", true);
         JPanel col = new JPanel(new BorderLayout(0, 8));
@@ -119,6 +122,47 @@ final class GeneralSettings {
         lookNow.setName("settings-look-in-use");
         lookNow.setBorder(javax.swing.BorderFactory.createEmptyBorder(2, 24, 4, 0));
         more.add(lookNow);
+        // Python for scripts: the one PyJav runs .py programs with (a computer may have several, pip installing into one).
+        more.add(headline(AppSettings.PYTHON));
+        final javax.swing.JComboBox<String> python = new javax.swing.JComboBox<String>(new String[] {AUTO_PYTHON});
+        python.setName("settings-python");
+        python.setAlignmentX(0f);
+        python.setMaximumSize(new java.awt.Dimension(760, python.getPreferredSize().height));
+        final java.util.List<String> paths = new java.util.ArrayList<String>();
+        paths.add("");
+        if (AppSettings.pythonPath().length() > 0) {
+            python.addItem(AppSettings.pythonPath());
+            paths.add(AppSettings.pythonPath());
+            python.setSelectedIndex(1);
+        }
+        final boolean[] filling = {true};
+        python.addActionListener(e -> {
+            int i = python.getSelectedIndex();
+            if (filling[0] || i < 0 || i >= paths.size()) return;
+            AppSettings.setPythonPath(paths.get(i));
+            app.setNow(i == 0 ? "Scripts run with the Python found first (python3, python or py)" : "Scripts run with " + python.getSelectedItem());
+        });
+        more.add(python);
+        more.add(note("Searching this computer for Pythons\u2026 Pick the one pip installed numpy, DawDreamer and the rest into (a new Python may have no packages for them yet)."));
+        new Thread(() -> {
+            final java.util.List<PythonRun.Found> found = PyJav.pythonsFound != null ? PyJav.pythonsFound.get() : PythonRun.found();
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                String picked = AppSettings.pythonPath();
+                for (PythonRun.Found f : found) {
+                    if (paths.contains(f.path)) {
+                        // The kept one: its label with the version.
+                        int at = paths.indexOf(f.path);
+                        python.removeItemAt(at);
+                        python.insertItemAt(f.label(), at);
+                        continue;
+                    }
+                    paths.add(f.path);
+                    python.addItem(f.label());
+                }
+                python.setSelectedIndex(Math.max(0, paths.indexOf(picked)));
+                filling[0] = false;
+            });
+        }, "pythons").start();
         // Security: the settings master password.
         more.add(headline("Security"));
         final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());
@@ -147,7 +191,7 @@ final class GeneralSettings {
         more.add(note(AppSettings.MASTER_NOTE.replace("; unticked", ";\nunticked")));
         for (java.awt.Component c : more.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
         // Settings master password: everything greyed until Unlock settings is given the password.
-        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, master);
+        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, python, master);
         final java.util.List<javax.swing.JComponent> all2 = new java.util.ArrayList<javax.swing.JComponent>(controls);
         for (java.awt.Component c : more.getComponents()) if (c instanceof JCheckBox && !all2.contains(c)) all2.add((JCheckBox) c);
         JPanel lockRow = unlockRow(app, dialog, () -> lock(all2));

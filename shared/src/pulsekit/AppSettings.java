@@ -93,6 +93,21 @@ public final class AppSettings {
     set("promptsTab", on);
   }
 
+  // ------------------------------------------------------------ Python (desktop)
+
+  public static final String PYTHON = "Python for scripts";
+
+  /** The Python the desktop runs scripts with (its python.exe), or "" to find one (python3, python, py). */
+  public static synchronized String pythonPath() {
+    String v = VALUES.get("python");
+    return v == null ? "" : v;
+  }
+
+  public static synchronized void setPythonPath(String path) {
+    if (locked()) return;
+    put("python", path == null || path.trim().length() == 0 ? null : path.trim());
+  }
+
   // ------------------------------------------------------------ Modern look (desktop)
 
   public static final String MODERN_LOOK = "Modern look (from the next start)";
