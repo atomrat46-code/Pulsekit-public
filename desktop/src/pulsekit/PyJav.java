@@ -149,6 +149,11 @@ final class PyJav {
         this.pyBatchStop.setName("pyjav-batch-stop");
         this.pyBatchStop.setVisible(BatchQueue.current() != null);
         controls.add(this.pyBatchStop);
+        // Stop script: a Python script running now (vst_render.py ends after the file in progress, then tests and zips).
+        this.pyScriptStop = app.action("Stop script", ELEV, FG, () -> this.stopScript());
+        this.pyScriptStop.setName("pyjav-script-stop");
+        this.pyScriptStop.setVisible(PythonRun.current != null);
+        controls.add(this.pyScriptStop);
         // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
         final JButton extraLab = new JButton("Arguments \u25b8");
         extraLab.setName("pyjav-args-head");
@@ -760,6 +765,7 @@ final class PyJav {
                 runArgv.add(this.promptRunMode);
                 if (this.promptOutputInvented && outPath.length() > 0 && !runArgv.contains(outPath)) runArgv.add(outPath);
             }
+            if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
@@ -768,6 +774,7 @@ final class PyJav {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);
+                if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
                 // The library work below runs on this same thread, before anything else can start.
                 PendingOps.done(pending);
@@ -1348,6 +1355,19 @@ final class PyJav {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+    }
+
+    javax.swing.JComponent pyScriptStop;
+
+    /** Stop script: asks the script to stop; pressed again, it is ended at once. */
+    void stopScript() {
+        if (PythonRun.stop()) {
+            this.testNote("Stopping: the step in progress ends after its file (vst_render.py then tests and zips what it made; Stop script again skips the next step too; pressed twice quickly, it ends the script now).");
+            app.setNow("Stopping the script…");
+        } else {
+            this.testNote("The script was ended.");
+            if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
+        }
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */

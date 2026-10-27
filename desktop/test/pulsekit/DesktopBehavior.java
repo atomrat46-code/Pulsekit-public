@@ -7127,6 +7127,63 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** Stop script: vst_render ends rendering after the file in progress, then zips (without WAVs) what it made; PythonRun's stop file. */
+  void s149_vst_render_stop() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "stop-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 4; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File stop = new File(dir, "stop-now");
+    // A stand-in for the kit: the second render asks to stop (as Stop script does).
+    String check = "import importlib.util, os, sys, glob, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        if G.n == 2: open(os.environ['PULSEKIT_STOP_FILE'], 'w').close()\n"
+        + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
+        + "vr.Gizmo = G\n"
+        + "d = sys.argv[2]\n"
+        + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', os.path.join(d, 'out'), '--zip_nowav'])\n"
+        + "z = glob.glob(os.path.join(d, 'out', '*.zip'))[0]\n"
+        + "print('zip ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+    pb.environment().put("PULSEKIT_STOP_FILE", stop.getAbsolutePath());
+    Process p = pb.start();
+    String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8).trim();
+    p.waitFor();
+    // PythonRun: Stop script makes the stop file the script watches; the script ends on it.
+    final String[] log = new String[1];
+    final String loop = "import os, time\nf = os.environ['PULSEKIT_STOP_FILE']\nfor i in range(600):\n    if os.path.exists(f):\n        print('stopped by the file'); break\n    print('working', i); time.sleep(0.1)\n";
+    Thread t = new Thread(() -> log[0] = PythonRun.run(loop, "loop.py", new java.util.ArrayList<String>()).log);
+    t.start();
+    long until = System.currentTimeMillis() + 20000;
+    while (PythonRun.current == null && System.currentTimeMillis() < until) Thread.sleep(50);
+    Thread.sleep(500);
+    boolean asked = PythonRun.stop();
+    t.join(30000);
+    String[] lines = log[0] == null ? new String[0] : log[0].trim().split("\n");
+    this.out.append(said).append("\nStop script asked: ").append(asked).append(", last line: ").append(lines.length == 0 ? "" : lines[lines.length - 1]).append('\n');
+    boolean ok = said.contains("Stopped rendering: 2 of 4 done; the test and the zip use the WAVs made")
+        && said.contains("zip midi/s0.mid midi/s1.mid vst-render-run.txt") && !said.contains("wav/")
+        && asked && lines.length > 0 && lines[lines.length - 1].equals("stopped by the file") && PythonRun.current == null;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

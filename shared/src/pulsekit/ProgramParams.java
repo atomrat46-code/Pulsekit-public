@@ -662,6 +662,8 @@ public final class ProgramParams {
     } else if (p.token.equals("--zip_mb")) {
       p.label = "Several zips of at most this many MB (zips without the box above)";
       p.hint = "30 for a 30 MB chat limit; empty: one zip";
+    } else if (p.token.equals("--zip_nowav")) {
+      p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
     }
   }
 
