@@ -7227,6 +7227,55 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** vst_render --mp3: each WAV made an MP3 by the jar's Wav2Mp3 and deleted; the zip has the MP3s; --skip_existing keeps them. */
+  void s151_vst_render_mp3() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "mp3-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 2; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String java = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String check = "import importlib.util, os, sys, glob, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        t = np.arange(44100 * 2) / 44100.0\n"
+        + "        return np.vstack([np.sin(2 * np.pi * 220 * t), np.sin(2 * np.pi * 330 * t)]) * 0.3, 2.0, 0\n"
+        + "vr.Gizmo = G\n"
+        + "d = sys.argv[2]; out = os.path.join(d, 'out')\n"
+        + "args = ['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--mp3', '192', '--drummidi', sys.argv[3], '--java', sys.argv[4]]\n"
+        + "vr.main(args + ['--zip_nowav'])\n"
+        + "print('files ' + ' '.join(sorted(os.listdir(out))[:3]))\n"
+        + "z = glob.glob(os.path.join(out, '*.zip'))[0]\n"
+        + "print('zip ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n"
+        + "vr.main(args + ['--skip_existing'])\n"
+        + "print('renders %d' % G.n)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), jar.getAbsolutePath(), java));
+    String said = PythonRun.runFor(cmd, 180, null).trim();
+    // PyJav hands the jar over for --mp3 alone (no --test).
+    java.util.List<String> argv = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("--mp3", "192"), new File(dir, "given.jar"), new byte[] {1});
+    this.out.append(said).append("\nPyJav's arguments: ").append(argv).append('\n');
+    boolean ok = said.contains("MP3s: 2 at 192 kbps") && said.contains("files s0-kit.mp3 s1-kit.mp3 vst-render-")
+        && said.contains("zip midi/s0.mid midi/s1.mid mp3/s0-kit.mp3 mp3/s1-kit.mp3 vst-render-run.txt")
+        && said.contains("Kept s0-kit.mp3 (already made)") && said.contains("renders 2") && argv.contains("--drummidi");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

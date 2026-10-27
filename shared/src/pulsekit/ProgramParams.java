@@ -659,6 +659,13 @@ public final class ProgramParams {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
+    } else if (p.token.equals("--mp3")) {
+      p.label = "MP3s instead of WAVs (after the test): the WAVs are made MP3s at this bitrate and deleted";
+      p.hint = "empty: WAVs; 192 is about a seventh of the WAV";
+      p.choices = new String[] {"WAV only (default)", "128 kbps", "192 kbps", "256 kbps", "320 kbps"};
+      p.choiceValues = new String[] {"", "128", "192", "256", "320"};
+    } else if (p.token.equals("--keep_wav")) {
+      p.label = "Keep the WAVs too (with MP3s)";
     } else if (p.token.equals("--zip")) {
       p.label = "Zip: the MIDI files, the WAVs (and the test's MIDI files and report) in one zip";
     } else if (p.token.equals("--zip_mb")) {

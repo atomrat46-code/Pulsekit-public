@@ -666,8 +666,8 @@ final class PyJav {
         // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
         // in the program files folder, not the run's temporary one.
         runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
-        // vst_render.py --test: Pulsekit's DrumMidi_CRT.jar and this Java for it.
-        if ("vst_render.py".equals(name) && runArgs.contains("--test")) {
+        // vst_render.py --test (and --mp3, Wav2Mp3 being in it): Pulsekit's DrumMidi_CRT.jar and this Java for it.
+        if ("vst_render.py".equals(name) && (runArgs.contains("--test") || runArgs.contains("--mp3"))) {
             try {
                 runArgs = JavaRun.withDrumMidi(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar"), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
             } catch (Exception ex) {

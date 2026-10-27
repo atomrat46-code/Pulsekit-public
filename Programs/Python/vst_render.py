@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -46,6 +46,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
+  --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
+                  Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
+                  deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
+                  are tested first. The zip then has the MP3s (mp3/). --keep_wav: the WAVs stay too.
+                  With --skip_existing, an MP3 already made counts as the MIDI's render.
   --zip           then puts the MIDI files played (and the copies at --bpm's tempo), the WAVs made, and
                   with --test DrumMidi's MIDI files and the report, into one zip:
                   vst-render-<plugin>-<date>-<time>.zip beside the report (in --outdir when given). The
@@ -57,6 +62,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
   --zip_nowav     the zip without the WAVs (--zip implied): the MIDI files, DrumMidi's MIDI files and the
                   report are small, the WAVs are most of it (a 20 s WAV is about 3.5 MB). A thousand
                   tests fit in one zip this way; send the WAVs of the files that matter by themselves.
+                  The MP3s of --mp3 still go in (they are small).
   --scan          lists the plugins in the usual VST folders, then stops.
 
 The plugins' own delay (lookahead, oversampling) is taken off the start, so the hits land where
@@ -544,6 +550,24 @@ def score_line(rows):
     return "  ".join(parts)
 
 
+MP3_RATES = (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+
+
+def to_mp3(java, jar, wav, mp3, kbps):
+    """Wav2Mp3 (in DrumMidi_CRT.jar) on the WAV; None when the MP3 was made, else why not."""
+    import subprocess
+    try:
+        r = subprocess.run([java, "-cp", os.path.abspath(jar), "Wav2Mp3", os.path.abspath(wav), os.path.abspath(mp3), "--bitrate", str(kbps)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800)
+    except Exception as e:
+        return "Wav2Mp3 did not run (%s)" % e
+    said = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    failed = [l for l in said if l.startswith("Failed") or "Exception" in l or "Error" in l]
+    if r.returncode != 0 or failed or not os.path.isfile(mp3) or os.path.getsize(mp3) == 0:
+        return (failed or said[-1:] or ["no MP3 written"])[0]
+    return None
+
+
 def whole_wav(path):
     """A WAV written to its end: sound in it, all of its frames in the file (not one cut off by a stop)."""
     try:
@@ -898,8 +922,8 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
             unit.append((copy, arc("midi-%gbpm" % bpm, m, folder)))
         o = wavs[k] if k < len(wavs) else None
         if o and os.path.isfile(o):
-            if not no_wav:
-                unit.append((o, arc("wav", o, out_root)))
+            if not (no_wav and o.lower().endswith(".wav")):
+                unit.append((o, arc("mp3" if o.lower().endswith(".mp3") else "wav", o, out_root)))
             dm = os.path.splitext(o)[0] + "-dm.mid"
             if dm in dm_left:
                 dm_left.remove(dm)
@@ -988,7 +1012,7 @@ def main(argv):
         pass
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None}
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None}
     switches = set()
     files = []
     i = 0
@@ -1000,7 +1024,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip", "--zip_nowav", "--skip_existing"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1055,6 +1079,16 @@ def main(argv):
         jar = opts["--drummidi"]
         if not jar or not os.path.isfile(jar):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
+    mp3_kbps = None
+    if opts["--mp3"]:
+        try:
+            mp3_kbps = int(opts["--mp3"])
+        except ValueError:
+            fail("--mp3 takes kbps (128, 192, 320...)")
+        if mp3_kbps not in MP3_RATES:
+            fail("--mp3 is one of %s kbps" % ", ".join(str(r) for r in MP3_RATES))
+        if not opts["--drummidi"] or not os.path.isfile(opts["--drummidi"]):
+            fail("--mp3 needs Pulsekit's DrumMidi_CRT.jar, which has Wav2Mp3 (--drummidi; Pulsekit gives its own)")
     try:
         rate = int(opts["--rate"])
         tail = float(opts["--tail"])
@@ -1163,6 +1197,13 @@ def main(argv):
                 batch_done.append((m, o))
                 kept += 1
                 continue
+            # An MP3 of it from a --mp3 run (its WAV deleted): the MIDI's render too.
+            made_mp3 = os.path.splitext(o)[0] + ".mp3"
+            if skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0:
+                print("Kept %s (already made)" % os.path.relpath(made_mp3, opts["--outdir"] or folder))
+                batch_done.append((m, made_mp3))
+                kept += 1
+                continue
             try:
                 audio, length, _ = chain.render(np, midi=at_tempo(m), tail=tail)
             except Exception as e:
@@ -1225,6 +1266,27 @@ def main(argv):
         with open(rep, "w") as f:
             f.write(text + "\n")
         print("Wrote %s" % rep)
+    if mp3_kbps and batch_done:
+        wav_mb = mp3_mb = 0.0
+        converted = 0
+        for k in stoppable(list(range(len(batch_done))), "MP3", "the rest stay WAVs"):
+            m, o = batch_done[k]
+            if o.lower().endswith(".mp3"):
+                continue
+            mp3 = os.path.splitext(o)[0] + ".mp3"
+            why = to_mp3(opts["--java"], opts["--drummidi"], o, mp3, mp3_kbps)
+            if why:
+                print("MP3 failed %s: %s (the WAV stays)" % (os.path.basename(o), why))
+                continue
+            wav_mb += os.path.getsize(o) / float(ZIP_MB)
+            mp3_mb += os.path.getsize(mp3) / float(ZIP_MB)
+            if "--keep_wav" not in switches:
+                os.remove(o)
+            batch_done[k] = (m, mp3)
+            converted += 1
+            print("MP3 %s: %.2f MB" % (os.path.basename(mp3), os.path.getsize(mp3) / float(ZIP_MB)))
+        if converted:
+            print("MP3s: %d at %d kbps, %.1f MB instead of %.1f MB of WAVs%s" % (converted, mp3_kbps, mp3_mb, wav_mb, " (the WAVs kept)" if "--keep_wav" in switches else ""))
     where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1]))) if batch_done else None
     limit_mb = zip_mb if "--zip" in switches or "--zip_nowav" in switches or zip_mb else (ask_zip() if batch is not None or test else None)
     if where and limit_mb is not None:
