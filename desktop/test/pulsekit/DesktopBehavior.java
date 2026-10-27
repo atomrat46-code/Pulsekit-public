@@ -6734,6 +6734,14 @@ public final class DesktopBehavior {
       }
     });
     boolean ticked = box[0] != null && box[0].isSelected();
+    final String[] shownLook = new String[1];
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        if (w.isShowing() && w instanceof java.awt.Dialog && component(w, "settings-look-in-use") != null) shownLook[0] = ((JLabel) component(w, "settings-look-in-use")).getText();
+      }
+    });
+    out.append("General settings: ").append(shownLook[0]).append(" | title: ").append(app.getTitle()).append('\n');
+    boolean inUseOk = "In use: modern (FlatLaf Dark)".equals(shownLook[0]) && app.getTitle().matches("Pulsekit \\d+");
     edt(() -> box[0].doClick());
     idle();
     boolean off = !AppSettings.modernLook();
@@ -6743,7 +6751,7 @@ public final class DesktopBehavior {
     });
     idle();
     out.append("Modern look ticked at first ").append(ticked).append(", unticked off ").append(off).append(" -> ").append(now).append('\n');
-    if (!modernOk || !ticked || !off) throw new AssertionError(out.toString());
+    if (!modernOk || !ticked || !off || !inUseOk) throw new AssertionError(out.toString());
   }
 
   /** Next_todo: Drum Tracks' one row (scrolling at its edges), no bar there; the Sogni boxes; Install for a missing Python library. */

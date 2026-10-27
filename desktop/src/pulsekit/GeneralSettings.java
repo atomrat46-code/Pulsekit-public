@@ -115,6 +115,10 @@ final class GeneralSettings {
             app.setNow(modernLook.isSelected() ? "Modern look: Pulsekit starts with it next time" : "Classic look: Pulsekit starts with it next time");
         });
         more.add(modernLook);
+        javax.swing.JLabel lookNow = new javax.swing.JLabel(Looks.inUse());
+        lookNow.setName("settings-look-in-use");
+        lookNow.setBorder(javax.swing.BorderFactory.createEmptyBorder(2, 24, 4, 0));
+        more.add(lookNow);
         // Security: the settings master password.
         more.add(headline("Security"));
         final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());

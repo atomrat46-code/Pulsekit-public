@@ -220,6 +220,8 @@ public final class Pulsekit extends UiKit {
 
     Pulsekit() {
         super("Pulsekit");
+        // "Pulsekit 228": which build is running shows in the title bar.
+        if (Looks.version().length() > 0) this.setTitle("Pulsekit " + Looks.version());
         // General settings' Sogni tools and file types.
         AppSettings.load(PromptDb.dir());
         this.drumSets.add(Engine.DrumSet.originalSet());

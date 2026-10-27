@@ -19,6 +19,9 @@ cp src/pulsekit/drum_midi.py ../shared/src/pulsekit/midiutil.py "$OUT/classes/pu
 (cd "$OUT/classes" && jar xf ../../libs/flatlaf-3.5.4.jar com/formdev META-INF/LICENSE \
   && mkdir -p META-INF/flatlaf && mv META-INF/LICENSE META-INF/flatlaf/)
 
+# The version (the Android app's, as both are built together): the title bar says which build runs.
+sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' ../android/AndroidManifest.xml | head -1 > "$OUT/classes/pulsekit/version.txt"
+
 # PyJav's Java / Python / Code menus, and Scripts from the repo's Prompts folder.
 # A JAR cannot list a folder, so add an index.
 # DrumMidi_CRT.jar (DrumMidi_CRT with an MP3 decoder) follows DrumMidi_CRT.java.

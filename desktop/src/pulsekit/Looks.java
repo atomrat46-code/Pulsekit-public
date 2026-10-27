@@ -14,18 +14,43 @@ final class Looks {
 
     /** Whether FlatLaf is in use (for the tests too). */
     static boolean modern;
+    /** Why FlatLaf did not start ("" when it did, or when the classic look was chosen). */
+    static String failure = "";
+
+    /** The look in use, for General settings: "Modern (FlatLaf Dark)", or the classic one and why. */
+    static String inUse() {
+        if (modern) return "In use: modern (FlatLaf Dark)";
+        return "In use: classic (" + UIManager.getLookAndFeel().getName() + ")" + (failure.length() > 0 ? ": FlatLaf could not start: " + failure : "");
+    }
+
+    /** "228" from the version file the build puts in the jar, or "" when there is none (run from the classes). */
+    static String version() {
+        try (java.io.InputStream in = Looks.class.getResourceAsStream("version.txt")) {
+            if (in == null) return "";
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[64];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toString("UTF-8").trim();
+        } catch (Exception ex) {
+            return "";
+        }
+    }
 
     static void apply() {
         AppSettings.load(PromptDb.dir());
         modern = false;
+        failure = "";
         if (AppSettings.modernLook()) {
             try {
                 com.formdev.flatlaf.FlatLaf.setGlobalExtraDefaults(defaults());
                 modern = com.formdev.flatlaf.FlatDarkLaf.setup();
-            } catch (Throwable ignored) {
-                // the classic look below
+                if (!modern) failure = "it said no";
+            } catch (Throwable ex) {
+                // the classic look below; General settings say why
+                failure = ex.getClass().getSimpleName() + (ex.getMessage() == null ? "" : " " + ex.getMessage());
             }
         }
+        System.out.println("Pulsekit " + version() + " on Java " + System.getProperty("java.version") + ": " + (modern ? "modern look (FlatLaf)" : "classic look") + (failure.length() > 0 ? " (FlatLaf: " + failure + ")" : ""));
         if (modern) return;
         try {
             UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
