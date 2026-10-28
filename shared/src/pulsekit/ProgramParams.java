@@ -1324,14 +1324,48 @@ public final class ProgramParams {
     return sb.toString();
   }
 
-  /** As DrumMidiArgs.merge, for any program: saved switches replace the program's switches in the arguments. */
+  /**
+   * The run's arguments from the Arguments field and the program's saved Params: a switch of the
+   * program's typed in the field (a --plugin added by hand) keeps its value; the saved Params give
+   * the others. The field's file arguments stay as they are.
+   */
   public static String merge(List<Param> ps, String extra, String saved) {
     if (ps == null || ps.isEmpty()) return DrumMidiArgs.merge(extra, saved);
     if (saved == null) return extra == null ? "" : extra.trim();
-    String kept = strip(ps, extra);
-    if (saved.trim().length() == 0) return kept;
-    if (kept.length() == 0) return saved.trim();
-    return kept + " " + saved.trim();
+    StringBuilder sb = new StringBuilder(strip(ps, extra));
+    append(sb, typed(ps, extra));
+    append(sb, without(ps, saved, read(ps, extra).keySet()));
+    return sb.toString();
+  }
+
+  /** The program's switches in the arguments (with their values), as typed. */
+  public static String typed(List<Param> ps, String extra) {
+    List<String> words = JavaRun.split(extra);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < words.size(); i++) {
+      Param p = find(ps, words.get(i));
+      if (p == null || !p.flag) continue;
+      append(sb, p.token);
+      if (p.takesValue && i + 1 < words.size() && !words.get(i + 1).startsWith("-")) append(sb, quote(words.get(++i)));
+    }
+    return sb.toString();
+  }
+
+  /** The switches with the ones in `tokens` (and their values) left out. */
+  static String without(List<Param> ps, String switches, java.util.Set<String> tokens) {
+    List<String> words = JavaRun.split(switches);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < words.size(); i++) {
+      Param p = find(ps, words.get(i));
+      boolean value = p != null && p.takesValue && i + 1 < words.size() && !words.get(i + 1).startsWith("-");
+      if (p != null && tokens.contains(p.token)) {
+        if (value) i++;
+        continue;
+      }
+      append(sb, quote(words.get(i)));
+      if (value) append(sb, quote(words.get(++i)));
+    }
+    return sb.toString();
   }
 
   private static Param find(List<Param> ps, String token) {

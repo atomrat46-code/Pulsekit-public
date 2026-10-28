@@ -986,7 +986,13 @@ final class PyJav {
         String name = app.pyName == null ? "script.py" : app.pyName;
         String listed = app.programMenus.sourceToRun();
         String src = listed != null ? listed : (app.pyEditor != null ? app.pyEditor.getText().toString() : "");
-        extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, pulsekit.PyJavParams.load(app, name));
+        java.util.List<pulsekit.ProgramParams.Param> runParams = pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes));
+        String savedNow = pulsekit.PyJavParams.load(app, name);
+        String field = extra;
+        extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, savedNow);
+        // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
+        if (savedNow != null && pulsekit.ProgramParams.typed(runParams, field).length() > 0)
+            pulsekit.PyJavParams.store(app, name, pulsekit.ProgramParams.build(runParams, pulsekit.ProgramParams.values(runParams, pulsekit.ProgramParams.typed(runParams, extra), "")));
         src = pulsekit.PromptRun.withoutDescription(this.pkPromptDescription, src);
         java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
         if (!dir.isDirectory()) dir.mkdirs();

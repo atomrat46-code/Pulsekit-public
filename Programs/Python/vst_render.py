@@ -578,19 +578,19 @@ class KeptLog:
     """--skip_existing's "Kept ... (already made)" lines: the first KEPT_SHOWN each, then a count
     every KEPT_EVERY (a run of hundreds kept would fill Output with them), and the total at the end."""
 
-    def __init__(self, what, total):
-        self.what, self.total, self.count = what, total, 0
+    def __init__(self, what, total, word="Kept", why="already made"):
+        self.what, self.total, self.count, self.word, self.why = what, total, 0, word, why
 
-    def kept(self, shown):
+    def kept(self, shown, why=None):
         self.count += 1
         if self.count <= KEPT_SHOWN:
-            print("Kept %s (already made)" % shown)
+            print("%s %s (%s)" % (self.word, shown, why or self.why))
         elif self.count % KEPT_EVERY == 0:
-            print("Kept %d of %d %s so far (already made)" % (self.count, self.total, self.what))
+            print("%s %d of %d %s so far (%s)" % (self.word, self.count, self.total, self.what, self.why))
 
     def end(self):
         if self.count > KEPT_SHOWN:
-            print("Kept %d of %d %s (already made)" % (self.count, self.total, self.what))
+            print("%s %d of %d %s (%s)" % (self.word, self.count, self.total, self.what, self.why))
 
 
 KEPT_SHOWN = 5
@@ -745,11 +745,56 @@ def plugin_runs(argv, opts):
     return runs
 
 
+def lead_first(argv, opts):
+    """No --plugin but a --plugin2 or --plugin3 (Params' first row unticked): the first given leads
+    (as --plugin, its own map as --map) and the next is --plugin2; without --dir, --dir2 is --dir.
+    Returns the arguments so, with a line saying it, or None when nothing moves."""
+    said = []
+    out = list(argv)
+    if not opts["--plugin"] and not opts["--carla"] and not opts["--drumgizmo"] and (opts["--plugin2"] or opts["--plugin3"]):
+        given = [(opts[k], opts[m]) for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")) if opts[k]]
+        rest = []
+        j = 0
+        while j < len(out):
+            if out[j] in ("--plugin2", "--plugin3", "--map2", "--map3", "--map"):
+                j += 2
+                continue
+            rest.append(out[j])
+            j += 1
+        common = opts["--map"]
+        lead, lead_map = given[0]
+        rest += ["--plugin", lead] + (["--map", lead_map or common] if lead_map or common else [])
+        if len(given) > 1:
+            second, second_map = given[1]
+            rest += ["--plugin2", second] + (["--map2", second_map or common] if second_map or common else [])
+        said.append("No --plugin: %s leads%s" % (os.path.basename(os.path.normpath(lead)),
+                                                  ", %s after it" % os.path.basename(os.path.normpath(given[1][0])) if len(given) > 1 else ""))
+        out = rest
+    if not opts["--dir"] and opts["--dir2"]:
+        out = ["--dir" if a == "--dir2" else a for a in out]
+        said.append("No --dir: %s is the folder" % opts["--dir2"])
+    return (out, "; ".join(said)) if said else None
+
+
 def mapped(notes, nmap):
     """The played notes as the plugin plays them (--map): moved to another note, or left out."""
     if not nmap:
         return notes
     return [(t, nmap.get(n, n)) for t, n in notes if nmap.get(n, n) is not None]
+
+
+def silent_render(path, rate):
+    """A render a run made before that is silent (a plugin with no kit then): a WAV with no sound in
+    it, or an MP3 whose DrumMidi MIDI (from --test) found no hits. --skip_existing makes it again."""
+    try:
+        if path.lower().endswith(".mp3"):
+            dm = os.path.splitext(path)[0] + "-dm.mid"
+            return os.path.isfile(dm) and not midi_notes(dm)[1]
+        import numpy as np
+        audio, _ = read_wav(path, rate)
+        return audio.size == 0 or float(np.max(np.abs(audio))) < 1e-4
+    except Exception:
+        return False
 
 
 def whole_wav(path):
@@ -1273,6 +1318,10 @@ def main(argv):
     if "--scan" in switches:
         scan()
         return
+    moved = lead_first(argv, opts)
+    if moved:
+        print(moved[1])
+        return main(moved[0])
     for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")):
         if opts[m] and not opts[k]:
             fail("%s is the map for %s: give %s too" % (m, k, k))
@@ -1544,6 +1593,7 @@ def main(argv):
         skip = "--skip_existing" in switches
         kept = 0
         kept_log = KeptLog("renders", len(batch))
+        again_log = KeptLog("renders", len(batch), "Again", "silent before: made again")
         silent = 0
         rendered = 0
         for m in stoppable(batch, "rendering", "the test and the zip use the WAVs made"):
@@ -1553,14 +1603,18 @@ def main(argv):
                 where = os.path.join(opts["--outdir"], os.path.dirname(rel(m)))
             o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             # --skip_existing: a WAV a stopped run made is kept, when it is whole.
-            if skip and whole_wav(o):
+            if skip and whole_wav(o) and silent_render(o, rate):
+                again_log.kept(shown(o), "the WAV made before is silent")
+            elif skip and whole_wav(o):
                 kept_log.kept(shown(o))
                 batch_done.append((m, o))
                 kept += 1
                 continue
             # An MP3 of it from a --mp3 run (its WAV deleted): the MIDI's render too.
             made_mp3 = os.path.splitext(o)[0] + ".mp3"
-            if skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0:
+            if skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0 and silent_render(made_mp3, rate):
+                again_log.kept(shown(made_mp3), "DrumMidi found no hits in the MP3 made before: silent")
+            elif skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0:
                 kept_log.kept(shown(made_mp3))
                 batch_done.append((m, made_mp3))
                 kept += 1
@@ -1587,6 +1641,7 @@ def main(argv):
             print("Wrote %s: %.1f s%s%s" % (shown(o), audio.shape[1] / float(rate), tempo_note(m), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
         kept_log.end()
+        again_log.end()
     dms = []
     rep = None
     # The plugin's (or project's, kit's) name: the test loop's `name` is each WAV's.

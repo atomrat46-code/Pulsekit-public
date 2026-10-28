@@ -907,7 +907,7 @@ final class PlaylistWindow {
         stage.add(message, "message");
         stage.add(videoCard, "video");
         final int[] at = {Math.max(0, Math.min(start, p.items.size() - 1))};
-        final VlcPlayer[] player = new VlcPlayer[1];
+        final MediaPlayer[] player = new MediaPlayer[1];
         final long[] shownAt = new long[1];
         final boolean[] held = new boolean[1];
         final JLabel where = new JLabel();
@@ -1035,6 +1035,24 @@ final class PlaylistWindow {
                 picture.zoomTo(1);
                 viewerNote = picture.image != null ? "sound picture" : "sound";
             }
+            if (k == MediaDir.SOUND && SoundClip.plays(f)) {
+                // A WAV or MP3 plays here with Java's own sound, under its picture (no VLC).
+                try {
+                    SoundClip sc = new SoundClip(f);
+                    player[0] = sc;
+                    sc.volume(volume.getValue());
+                    sc.mute("Unmute".equals(mute.getText()));
+                    if (picture.image != null) cards.show(stage, "picture");
+                    else {
+                        message.setText("<html><center>♪ " + esc(it.title) + "</center></html>");
+                        cards.show(stage, "message");
+                    }
+                    sc.play();
+                    return;
+                } catch (Throwable ex) {
+                    release.run();
+                }
+            }
             if ((k == MediaDir.VIDEO || k == MediaDir.SOUND) && VlcPlayer.available()) {
                 try {
                     VlcPlayer vp = new VlcPlayer(f);
@@ -1130,7 +1148,7 @@ final class PlaylistWindow {
         });
         Runnable zoomed = () -> {
             zoomLevel.setText(MediaDir.zoomLabel(picture.zoom));
-            if (player[0] != null) player[0].screen.zoomTo(picture.zoom);
+            if (player[0] instanceof VlcPlayer) ((VlcPlayer) player[0]).screen.zoomTo(picture.zoom);
             keep.run();
         };
         zoomOut.addActionListener(e -> {

@@ -670,8 +670,13 @@ final class PyJav {
             this.promptOutputName = "";
         }
         // Saved Params for this program replace its own switches; file paths stay.
-        final String extra = ProgramParams.merge(ProgramParams.parse(PyJavHints.programText(name, src, bytes)),
-            this.pyExtra != null ? this.pyExtra.getText() : "", this.loadParams(app.pyName));
+        final java.util.List<ProgramParams.Param> runParams = ProgramParams.parse(PyJavHints.programText(name, src, bytes));
+        final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
+        final String savedNow = this.loadParams(app.pyName);
+        final String extra = ProgramParams.merge(runParams, field, savedNow);
+        // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
+        if (savedNow != null && ProgramParams.typed(runParams, field).length() > 0)
+            this.saveParams(app.pyName, ProgramParams.build(runParams, ProgramParams.values(runParams, ProgramParams.typed(runParams, extra), "")));
         File outDir = new File(System.getProperty("user.home", "."), ".pulsekit");
         if (app.pyInputPath != null && app.pyInputPath.length() > 0) {
             File parent = new File(app.pyInputPath).getParentFile();
@@ -1894,7 +1899,8 @@ final class PyJav {
             }
             this.runPython();
         } else if (it.equals("Play")) {
-            try {
+            if (SoundClip.plays(audio)) SoundClip.window(app, audio);
+            else try {
                 java.awt.Desktop.getDesktop().open(audio);
             } catch (Exception ex) {
                 app.setNow("Could not open a player for " + audio.getName());

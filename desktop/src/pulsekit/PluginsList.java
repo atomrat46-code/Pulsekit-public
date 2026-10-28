@@ -86,14 +86,36 @@ final class PluginsList {
 
     /** The plugins sorted by name, A-Z or (`down`) Z-A; only the favourites when asked. */
     static List<File> shown(List<File> all, boolean favouritesOnly, boolean down) {
+        return shown(all, favouritesOnly, down, "");
+    }
+
+    /** The same, only the plugins whose names match the search (see `matches`). */
+    static List<File> shown(List<File> all, boolean favouritesOnly, boolean down, String search) {
         Set<String> fav = favourites();
         List<File> out = new ArrayList<File>();
-        for (File f : all) if (!favouritesOnly || fav.contains(f.getAbsolutePath())) out.add(f);
+        for (File f : all) if ((!favouritesOnly || fav.contains(f.getAbsolutePath())) && matches(name(f), search)) out.add(f);
         Collections.sort(out, (a, b) -> {
             int c = name(a).compareToIgnoreCase(name(b));
             return down ? -c : c;
         });
         return out;
+    }
+
+    /**
+     * Whether a name matches a search: anywhere in it, case aside; * stands for any letters and ?
+     * for one ("kv*2" finds "KVLT 2"). An empty search matches all.
+     */
+    static boolean matches(String name, String search) {
+        String q = search == null ? "" : search.trim();
+        if (q.isEmpty()) return true;
+        StringBuilder re = new StringBuilder(".*");
+        for (char c : q.toCharArray()) {
+            if (c == '*') re.append(".*");
+            else if (c == '?') re.append('.');
+            else re.append(java.util.regex.Pattern.quote(String.valueOf(c)));
+        }
+        re.append(".*");
+        return java.util.regex.Pattern.compile(re.toString(), java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE | java.util.regex.Pattern.DOTALL).matcher(name).matches();
     }
 
     static Set<String> favourites() {
@@ -180,23 +202,57 @@ final class PluginsList {
         about.setEditable(false);
         about.setLineWrap(true);
         about.setWrapStyleWord(true);
+        final javax.swing.JTextField search = new javax.swing.JTextField(12);
+        search.setName("plugins-search");
+        search.setToolTipText("Part of a name; * for any letters, ? for one");
+        // A new order or search starts from the top of the list.
+        final boolean[] toTop = new boolean[1];
         final Runnable fill = () -> {
-            File was = list.getSelectedValue();
+            File was = toTop[0] ? null : list.getSelectedValue();
             model.clear();
-            for (File f : shown(all, favTab.isSelected(), sort.getSelectedIndex() == 1)) model.addElement(f);
-            File keep = was != null ? was : current != null && current.length() > 0 ? new File(current).getAbsoluteFile() : null;
+            for (File f : shown(all, favTab.isSelected(), sort.getSelectedIndex() == 1, search.getText())) model.addElement(f);
+            File keep = toTop[0] ? null : was != null ? was : current != null && current.length() > 0 ? new File(current).getAbsoluteFile() : null;
             if (keep != null) list.setSelectedValue(keep, true);
-            if (list.getSelectedIndex() < 0 && !model.isEmpty()) list.setSelectedIndex(0);
-            if (model.isEmpty()) about.setText(favTab.isSelected() ? "No favourites yet: Add to favourites on a plugin in All."
+            if (list.getSelectedIndex() < 0 && !model.isEmpty()) {
+                list.setSelectedIndex(0);
+                list.ensureIndexIsVisible(0);
+            }
+            toTop[0] = false;
+            if (model.isEmpty()) about.setText(search.getText().trim().length() > 0 ? "No plugin name matches " + search.getText().trim() + "."
+                : favTab.isSelected() ? "No favourites yet: Add to favourites on a plugin in All."
                 : "No plugins in the VST folders (" + PyJav.vstFolders() + "). Choose plugin finds one anywhere.");
         };
+        search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void again() {
+                toTop[0] = true;
+                fill.run();
+            }
+
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                again();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                again();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                again();
+            }
+        });
         list.addListSelectionListener(e -> {
             File f = list.getSelectedValue();
             if (f != null && !e.getValueIsAdjusting()) about.setText(info(f));
         });
         allTab.addActionListener(e -> fill.run());
         favTab.addActionListener(e -> fill.run());
-        sort.addActionListener(e -> fill.run());
+        sort.addActionListener(e -> {
+            toTop[0] = true;
+            fill.run();
+        });
         final JButton use = new JButton("Use"), fav = new JButton("Add to favourites"), test = new JButton("Test plugin"), edit = new JButton("Edit settings"), close = new JButton("Close");
         use.setName("plugins-use");
         fav.setName("plugins-fav");
@@ -288,6 +344,8 @@ final class PluginsList {
         top.add(favTab);
         top.add(new JLabel("  Sort"));
         top.add(sort);
+        top.add(new JLabel("  Search"));
+        top.add(search);
         JScrollPane listScroll = new JScrollPane(list);
         listScroll.setPreferredSize(new Dimension(460, 260));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));

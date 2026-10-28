@@ -7724,10 +7724,19 @@ public final class DesktopBehavior {
       }
       return b.toString();
     };
-    final String[] seen = new String[6];
+    final String[] seen = new String[9];
     edt(() -> seen[0] = names.get());
+    // A new order starts from the top, wherever the list was.
+    edt(() -> rows.setSelectedIndex(rows.getModel().getSize() - 1));
     edt(() -> ((javax.swing.JComboBox<?>) component(list, "plugins-sort")).setSelectedIndex(1));
     edt(() -> seen[1] = names.get());
+    edt(() -> seen[6] = rows.getSelectedIndex() + " " + rows.getFirstVisibleIndex());
+    final javax.swing.JTextField search = (javax.swing.JTextField) component(list, "plugins-search");
+    edt(() -> search.setText("u?r*DRUM"));
+    edt(() -> seen[7] = names.get());
+    edt(() -> search.setText("zz*q"));
+    edt(() -> seen[8] = rows.getModel().getSize() + " " + info.getText());
+    edt(() -> search.setText(""));
     edt(() -> {
       for (int i = 0; i < rows.getModel().getSize(); i++) if (rows.getModel().getElementAt(i).getName().startsWith("Anarchy")) rows.setSelectedIndex(i);
     });
@@ -7746,10 +7755,12 @@ public final class DesktopBehavior {
     edt(() -> find(d.getContentPane(), "Cancel").doClick());
     idle();
     this.out.append("A-Z: ").append(seen[0]).append("\nZ-A: ").append(seen[1]).append("\nInfo: ").append(seen[2].replace('\n', '|')).append("\nFavourites: ").append(seen[3])
-        .append("\nTest plugin: ").append(seen[4]).append("\nUse: --plugin2 ").append(seen[5]).append('\n');
+        .append("\nTest plugin: ").append(seen[4]).append("\nUse: --plugin2 ").append(seen[5]).append("\nZ-A selected, first shown: ").append(seen[6])
+        .append("\nSearch u?r*DRUM: ").append(seen[7]).append("\nSearch zz*q: ").append(seen[8]).append('\n');
     boolean ok = seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
         && seen[2].startsWith("Anarchy Drums (VST3, a bundle folder)") && seen[2].contains("Settings (kit, patch) saved with Edit on date")
-        && seen[3].equals("\u2605 Anarchy Drums") && seen[4].length() > 0 && "Anarchy Drums.vst3".equals(seen[5]) && !list.isShowing();
+        && seen[3].equals("\u2605 Anarchy Drums") && seen[4].length() > 0 && "Anarchy Drums.vst3".equals(seen[5]) && !list.isShowing()
+        && seen[6].equals("0 0") && seen[7].equals("Ugritone Drums") && seen[8].equals("0 No plugin name matches zz*q.");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -7847,6 +7858,61 @@ public final class DesktopBehavior {
         .append("opened again: --plugin2 ").append(shown).append(" | ticked: args [").append(args2).append("] kept [").append(kept2).append("]\n");
     boolean ok = !args1.contains("--plugin2") && !saved1.contains("--plugin2") && kept1.equals("--plugin2 ~/Riot.vst3")
         && shown.equals("Riot.vst3 use false") && args2.contains("--plugin2 ~/Riot.vst3") && kept2.length() == 0;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * WAV ready's Play: the built-in player (no VLC, no system app) plays the render: Pause / Play,
+   * its place "00:00 / 00:01", Stop back to the start; closing it ends the sound. (The playlist viewer
+   * plays a sound the same way, under its waveform.)
+   */
+  void s163_builtin_sound_player() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "render-play.wav");
+    short[] tone = new short[22050 * 3 / 2];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
+    Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
+    answers.add("Play");
+    answers.add("(keep)");
+    SoundClip.lastWindow = null;
+    final PyJav pj = (PyJav) get("pyJav");
+    edt(() -> pj.offerAudio(wav));
+    for (int i = 0; i < 50 && (SoundClip.lastWindow == null || !SoundClip.lastWindow.isShowing()); i++) Thread.sleep(100);
+    final JDialog d = SoundClip.lastWindow;
+    Thread.sleep(500);
+    final String[] seen = new String[5];
+    edt(() -> seen[0] = d.getTitle() + " | " + ((javax.swing.JButton) component(d, "sound-play")).getText() + " | " + ((JLabel) component(d, "sound-time")).getText());
+    edt(() -> ((javax.swing.JButton) component(d, "sound-play")).doClick());
+    edt(() -> seen[1] = ((javax.swing.JButton) component(d, "sound-play")).getText());
+    edt(() -> ((javax.swing.JButton) component(d, "sound-stop")).doClick());
+    Thread.sleep(400);
+    edt(() -> seen[2] = ((javax.swing.JButton) component(d, "sound-play")).getText() + " " + ((JLabel) component(d, "sound-time")).getText());
+    edt(() -> ((javax.swing.JButton) component(d, "sound-play")).doClick());
+    Thread.sleep(2200);
+    edt(() -> seen[3] = ((javax.swing.JButton) component(d, "sound-play")).getText() + " " + ((JLabel) component(d, "sound-time")).getText());
+    edt(() -> d.dispose());
+    idle();
+    this.out.append("Player: ").append(seen[0]).append("\nPause pressed: ").append(seen[1]).append("\nStopped: ").append(seen[2])
+        .append("\nPlayed to the end: ").append(seen[3]).append("\nShowing after close: ").append(d.isShowing()).append('\n');
+    boolean ok = seen[0].startsWith("render-play.wav | Pause | 00:0") && seen[0].endsWith(" / 00:01") && "Play".equals(seen[1])
+        && "Play 00:00 / 00:01".equals(seen[2]) && "Play 00:01 / 00:01".equals(seen[3]) && !d.isShowing();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * vst_render's arguments: a --plugin typed in the Arguments field is the run's (the saved Params
+   * fill in the rest, their own --plugin left out); with nothing typed the saved Params are used.
+   */
+  void s164_typed_switches_win() throws Exception {
+    File vr = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(new String(Files.readAllBytes(vr.toPath()), StandardCharsets.UTF_8));
+    String saved = "--plugin old.vst3 --dir in --skip_existing";
+    String typed = ProgramParams.merge(ps, "--plugin \"new kit.vst3\" --mp3 128", saved);
+    String none = ProgramParams.merge(ps, "", saved);
+    String kept = ProgramParams.typed(ps, typed);
+    this.out.append("typed: ").append(typed).append("\nnothing typed: ").append(none).append("\nsaved next: ").append(kept).append('\n');
+    boolean ok = typed.contains("--plugin \"new kit.vst3\"") && !typed.contains("old.vst3") && typed.contains("--dir in") && typed.contains("--mp3 128")
+        && none.contains("--plugin old.vst3") && kept.contains("new kit.vst3") && kept.contains("--skip_existing");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
