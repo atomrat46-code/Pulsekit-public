@@ -795,6 +795,7 @@ public class DrumMidi_CRT{
         rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
         darkCrashes(hits, shape, fps);
+        if (cymbals && !bass) riddenCrashes(hits, shape, fps);
         if (cymbals) ringingCrashes(hits, shape, fps);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
@@ -2012,6 +2013,52 @@ public class DrumMidi_CRT{
      * recall 27% to 26%, nothing else changed).
      */
     static final double RING_WINDOW = 1.0, RING_JUMP = 1.1;
+
+    /**
+     * A crash ridden on eighths or quarters that darkCrashes misses (its hits too close to swell)
+     * stays written as hats or a ride. Its sound around the hit tells it: the cymbal hits within
+     * RIDDEN_WINDOW seconds are dark (their median 7-14 kHz under RIDDEN_AROUND of their 3-7 kHz;
+     * Anarchy Drums' ridden crashes 0.22, hats and rides 0.42), and its wash stays up between them
+     * (the median low between a hit and the next at RIDDEN_FLOOR of the hit at least: crashes 0.52,
+     * hats 0.14, rides 0.41). A hat or ride hit that is dark itself (under RIDDEN_TILT) there is the
+     * crash. Runs before ringingCrashes, so the wash's own peaks it turns into crashes are then
+     * left out. Tested: Anarchy crash recall 26% to 44%, precision 62% to 52%; hat precision 44% to
+     * 45%, ride 50% to 55%; nothing else changed.
+     */
+    static final double RIDDEN_TILT = 0.3, RIDDEN_AROUND = 0.25, RIDDEN_FLOOR = 0.5, RIDDEN_WINDOW = 1.0;
+
+    static void riddenCrashes(List<Hit> hits, CymbalShape sh, double fps) {
+        List<Hit> cym = new ArrayList<Hit>();
+        for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == OPEN_HAT || h.note == RIDE_NOTE || h.note == CRASH_NOTE) cym.add(h);
+        cym.sort(Comparator.comparingDouble(new java.util.function.ToDoubleFunction<Hit>() { public double applyAsDouble(Hit h) { return h.time; } }));
+        int n = cym.size();
+        double[] tilt = new double[n], floor = new double[n];
+        for (int i = 0; i < n; i++) {
+            int t = (int) Math.round(cym.get(i).time * fps);
+            tilt[i] = 1;
+            if (t + 3 >= sh.ride.length || sh.ride[t + 1] < 1e-12) continue;
+            tilt[i] = sh.hi[t + 1] / sh.ride[t + 1];
+            int next = i + 1 < n ? (int) Math.round(cym.get(i + 1).time * fps) : t + 25;
+            next = Math.min(Math.min(Math.max(next, t + 3), t + 25), sh.ride.length);
+            double low = Double.MAX_VALUE;
+            for (int f = t + 2; f < next; f++) low = Math.min(low, sh.ride[f]);
+            floor[i] = low / sh.ride[t + 1];
+        }
+        for (int i = 0; i < n; i++) {
+            Hit h = cym.get(i);
+            if (h.note == CRASH_NOTE || tilt[i] >= RIDDEN_TILT) continue;
+            List<Double> tilts = new ArrayList<Double>(), floors = new ArrayList<Double>();
+            for (int j = 0; j < n; j++) {
+                if (Math.abs(cym.get(j).time - h.time) > RIDDEN_WINDOW) continue;
+                tilts.add(Double.valueOf(tilt[j]));
+                floors.add(Double.valueOf(floor[j]));
+            }
+            Collections.sort(tilts);
+            Collections.sort(floors);
+            if (tilts.get(tilts.size() / 2).doubleValue() < RIDDEN_AROUND && floors.get(floors.size() / 2).doubleValue() >= RIDDEN_FLOOR)
+                hits.set(hits.indexOf(h), new Hit(h.time, CRASH_NOTE, h.strength));
+        }
+    }
 
     static void ringingCrashes(List<Hit> hits, CymbalShape sh, double fps) {
         List<Hit> crashes = new ArrayList<Hit>();
