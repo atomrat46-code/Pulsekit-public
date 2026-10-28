@@ -7454,6 +7454,39 @@ public final class DesktopBehavior {
     return mid.toByteArray();
   }
 
+  /** vst_render --map with several plugins: a map file's [plugin] sections, --map2 for the second plugin, the first plugin's --state only. */
+  void s156_vst_render_maps_per_plugin() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "maps-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File maps = new File(dir, "maps.txt");
+    Files.write(maps.toPath(), "# every plugin\n35=none\n[Anarchy Drums]\n45=46\n41=none\n[Artillery]\n57=49\n".getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "m = sys.argv[2]\n"
+        + "for p in ('/vst/Anarchy Drums.vst3', '/vst/Artillery2.vst3', '/vst/Other.vst3'):\n"
+        + "    notes, part = vr.map_for(m, p)\n"
+        + "    print('%s: %s %s' % (p.split('/')[-1], sorted(notes.items(), key=lambda x: x[0]), part))\n"
+        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--map2': '45=46', '--map3': None}\n"
+        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map', 'M', '--map2', '45=46', '--state', 's.fxp', '--test'], opts):\n"
+        + "    print('run %s: %s' % (plug, ' '.join(args)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), maps.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map2", "45=46"));
+    String refused = PythonRun.runFor(bad, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--map2")) label = q.label;
+    this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
+        && said.contains("Other.vst3: [(35, None)] ")
+        && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
+        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

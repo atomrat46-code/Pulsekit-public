@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -67,7 +67,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   compares DrumMidi with that: 45=46,41=none,57=49 (a note to another, or none: the
                   plugin plays nothing there, or nothing the test should count). Or a text file of
                   such pairs (one or more on a line, # comments). The MIDI files themselves are not
-                  changed; the report says which map it used.
+                  changed; the report says which map it used. A file can have a section per plugin:
+                  [Anarchy Drums] on a line, then its pairs; the section named in the plugin's file
+                  name is used (lines before any section are for every plugin), so one file serves
+                  --plugin, --plugin2 and --plugin3.
+  --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
                   deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
@@ -630,11 +634,44 @@ def name_tempo(path, root=None):
     return None
 
 
-def note_map(text):
+def note_map(text, plugin=None):
     """--map: {note: note or None} from "45=46,41=none" or a text file of such pairs (# comments)."""
+    return map_for(text, plugin)[0]
+
+
+def map_key(name):
+    """A plugin's or a map section's name to match on: letters and digits, lower case."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def map_for(text, plugin=None):
+    """--map's notes for the plugin, and which part of the map they came from.
+
+    A text file can have a section per plugin ([Anarchy Drums] on a line, then its pairs): the
+    section whose name is in the plugin's file name (or the other way round; case, spaces and
+    signs aside) is used, over the lines before any section (for every plugin)."""
+    section = None
     if os.path.isfile(text):
+        common, parts, at = [], {}, None
         with open(text) as f:
-            text = "\n".join(line.split("#", 1)[0] for line in f)
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                head = re.match(r"^\[(.+)\]$", line)
+                if head:
+                    at = head.group(1).strip()
+                    parts.setdefault(at, [])
+                elif line:
+                    (parts[at] if at is not None else common).append(line)
+        want = map_key(os.path.splitext(os.path.basename(os.path.normpath(plugin)))[0]) if plugin else ""
+        pick = None
+        for name in parts:
+            k = map_key(name)
+            if want and k and (k in want or want in k):
+                pick = name
+                break
+        text = "\n".join(common + (parts[pick] if pick else []))
+        if parts:
+            section = pick or ""
     out = {}
     for pair in re.split(r"[,;\s]+", text.strip()):
         if not pair:
@@ -650,7 +687,32 @@ def note_map(text):
         if not 0 <= src <= 127 or dst is not None and not 0 <= dst <= 127:
             raise ValueError("%s: MIDI notes are 0 to 127" % pair)
         out[src] = dst
-    return out
+    return out, section
+
+
+def plugin_runs(argv, opts):
+    """--plugin2/--plugin3: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
+    --state only for the first, and --map2/--map3 as that plugin's --map (else --map for all)."""
+    plugins = [(opts["--plugin"], None)] + [(opts[k], opts[m]) for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")) if opts[k]]
+    runs = []
+    for k, (plug, own_map) in enumerate(plugins):
+        one = []
+        j = 0
+        while j < len(argv):
+            a = argv[j]
+            if a in ("--plugin2", "--plugin3", "--map2", "--map3") or (a == "--state" and k > 0) or (a == "--map" and own_map):
+                j += 2
+                continue
+            if a == "--plugin":
+                one += [a, plug]
+                j += 2
+                continue
+            one.append(a)
+            j += 1
+        if own_map:
+            one += ["--map", own_map]
+        runs.append((plug, one))
+    return runs
 
 
 def mapped(notes, nmap):
@@ -1109,7 +1171,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--dir2": None}
+            "--plugin2": None, "--plugin3": None, "--dir2": None, "--map2": None, "--map3": None}
     switches = set()
     files = []
     i = 0
@@ -1131,6 +1193,9 @@ def main(argv):
     if "--scan" in switches:
         scan()
         return
+    for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")):
+        if opts[m] and not opts[k]:
+            fail("%s is the map for %s: give %s too" % (m, k, k))
     more = [opts[k] for k in ("--plugin2", "--plugin3") if opts[k]]
     if more:
         if not opts["--plugin"]:
@@ -1139,23 +1204,10 @@ def main(argv):
             fail("--plugin2 and --plugin3 are VST plugins played after --plugin; not with --carla or --drumgizmo")
         if "--edit" in switches:
             fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
-        plugins = [opts["--plugin"]] + more
+        runs = plugin_runs(argv, opts)
         done = []
-        for k, plug in enumerate(plugins):
-            one = []
-            j = 0
-            while j < len(argv):
-                a = argv[j]
-                if a in ("--plugin2", "--plugin3") or (a == "--state" and k > 0):
-                    j += 2
-                    continue
-                if a == "--plugin":
-                    one += [a, plug]
-                    j += 2
-                    continue
-                one.append(a)
-                j += 1
-            print("== Plugin %d of %d: %s" % (k + 1, len(plugins), os.path.basename(os.path.normpath(plug))))
+        for k, (plug, one) in enumerate(runs):
+            print("== Plugin %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
             try:
                 main(one)
                 done.append((plug, "done"))
@@ -1247,11 +1299,12 @@ def main(argv):
         if not jar or not os.path.isfile(jar):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     nmap = {}
+    map_part = None
     if opts["--map"]:
         if not test:
             fail("--map is for --test: what the plugin plays for the MIDI's notes")
         try:
-            nmap = note_map(opts["--map"])
+            nmap, map_part = map_for(opts["--map"], name)
         except (ValueError, OSError) as e:
             fail("--map: %s" % e)
     mp3_kbps = None
@@ -1426,7 +1479,7 @@ def main(argv):
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
                   "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
-                  "Notes mapped (--map): " + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
+                  "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         tested = 0
