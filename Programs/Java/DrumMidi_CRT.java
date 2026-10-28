@@ -501,6 +501,9 @@ public class DrumMidi_CRT{
         double[] gapRaw = bandMean(mag, bin(GAP_LO, sr, maxBin), bin(GAP_HI, sr, maxBin));
         double[] lowPitch = lowPitch(mag, sr, maxBin);
         CymbalShape shape = new CymbalShape(mag, sr, maxBin);
+        // Before HPSS, which takes a tom's ring away as a held tone.
+        double[] lowRaw = bandMean(mag, bin(RING_TOM_LO, sr, maxBin), bin(RING_TOM_HI, sr, maxBin));
+        double[] ringRaw = bandMean(mag, bin(RING_TOM_RING_LO, sr, maxBin), bin(RING_TOM_RING_HI, sr, maxBin));
         // Before HPSS, which takes a guitar's held notes away.
         boolean guitar = guitarLine(mag, sr, maxBin);
         double[] hatLevel = hatRaw.clone();
@@ -628,6 +631,7 @@ public class DrumMidi_CRT{
         }
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
+        boolean bassTones = bassNotes(kickLevel);
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : snarePeaks) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
@@ -639,7 +643,7 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare, guitar);
+        if (!bassTones) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare, guitar);
         pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
@@ -771,7 +775,7 @@ public class DrumMidi_CRT{
         // Toms tuned under the kick that nothing else was found at (their stick hardly clicks, their
         // level hardly jumps over the song's kicks): onsets in the tom bands with the low tone ringing,
         // where no kick, snare, tom or cymbal was written (a loose kick or snare peak there is the tom's).
-        if (!bass && !guitar && kickFrames.size() >= LOW_TOM_KICKS) {
+        if (!bassTones && !guitar && kickFrames.size() >= LOW_TOM_KICKS) {
             double[] kp = new double[kickFrames.size()];
             for (int i = 0; i < kp.length; i++) kp[i] = lowPitch[kickFrames.get(i).intValue()];
             Arrays.sort(kp);
@@ -797,6 +801,7 @@ public class DrumMidi_CRT{
         darkCrashes(hits, shape, fps);
         if (cymbals && !bass) riddenCrashes(hits, shape, fps);
         if (cymbals) ringingCrashes(hits, shape, fps);
+        if (writeToms && !bassTones && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
@@ -1784,6 +1789,21 @@ public class DrumMidi_CRT{
     }
 
     /**
+     * The kick band kept up by bass notes, not by ringing toms: a bass line holds it steady (its
+     * lower quartile at BASS_STEADY of its median at least: the bass mixes 0.80-0.86), toms let it
+     * die away between their hits (Anarchy Drums' tom grooves 0.43-0.67). The tom passes ask this;
+     * the kick and cymbal passes keep asking bassLine, as a band kept up there either way.
+     */
+    static final double BASS_STEADY = 0.74;
+
+    static boolean bassNotes(double[] kickLevel) {
+        double[] s = kickLevel.clone();
+        Arrays.sort(s);
+        double median = s[s.length / 2];
+        return median >= QUIET_BEFORE && s[s.length / 4] >= BASS_STEADY * median;
+    }
+
+    /**
      * Hat i keeps the time of the hats kept so far: kept hats on both sides at the same spacing, or
      * two kept hats before it (or after it) spaced as it is from the nearer one; spacings up to
      * HAT_TIME_MAX frames, equal within 40% (hat onsets land a few frames early or late: 16ths at
@@ -2058,6 +2078,66 @@ public class DrumMidi_CRT{
             if (tilts.get(tilts.size() / 2).doubleValue() < RIDDEN_AROUND && floors.get(floors.size() / 2).doubleValue() >= RIDDEN_FLOOR)
                 hits.set(hits.indexOf(h), new Hit(h.time, CRASH_NOTE, h.strength));
         }
+    }
+
+    /**
+     * A tom tuned low lands its stick in the kick band (50-160 Hz) as a kick does, and its level there
+     * hardly jumps over the tom rung before it, so the tom bands' tests miss it and it is written as a
+     * kick or not at all. What tells it is its ring: in 60-125 Hz a kick has died 6 frames on (Anarchy
+     * Drums' kicks keep 0.12-0.23 of the hit), a tom still holds it (0.37-1.0). An onset adding at least
+     * RING_TOM_ADD of the song's usual kick in 50-160 Hz, over a level under RING_TOM_BEFORE of the hit,
+     * still at RING_TOM_HOLD of it 6 frames on and RING_TOM_HOLD_LATE 12 frames on, and pitched under
+     * RING_TOM_HZ (kicks' beater 110-120 Hz, these toms 70-90), is a tom: a kick written there is
+     * taken for it. Fixed limits, not the song's own kicks: in a tom groove most "kicks" are toms.
+     * Tested: Anarchy tom recall 7% to 26%, precision 42% to 58%; kick recall 86% to 84%, precision
+     * 95% to 96%; toms on the other kits a little better, nothing else changed.
+     */
+    static final double RING_TOM_LO = 50, RING_TOM_HI = 160, RING_TOM_RING_LO = 60, RING_TOM_RING_HI = 125;
+    static final double RING_TOM_ADD = 0.35, RING_TOM_BEFORE = 0.5, RING_TOM_HOLD = 0.35, RING_TOM_HOLD_LATE = 0.3, RING_TOM_HZ = 100;
+
+    static void ringingToms(List<Hit> hits, double[] low, double[] ring, double[] pitch, double fps) {
+        int n = low.length;
+        double[] add = new double[n];
+        for (int t = 3; t + 1 < n; t++) add[t] = Math.max(0, Math.max(low[t], low[t + 1]) - Math.min(low[t - 2], low[t - 3]));
+        List<Double> kAdd = new ArrayList<Double>();
+        for (Hit h : hits) {
+            if (h.note != KICK_NOTE) continue;
+            int t = (int) Math.round(h.time * fps);
+            if (t < 3 || t + 3 >= n) continue;
+            double m = 0;
+            for (int i = t - 2; i <= t + 2; i++) m = Math.max(m, add[i]);
+            kAdd.add(Double.valueOf(m));
+        }
+        if (kAdd.size() < LOW_TOM_KICKS) return;
+        Collections.sort(kAdd);
+        double usualAdd = kAdd.get(kAdd.size() / 2).doubleValue();
+        if (usualAdd < 1e-12) return;
+        int found = 0, fromKicks = 0;
+        for (int t = 4; t + 13 < n; t++) {
+            if (add[t] < RING_TOM_ADD * usualAdd) continue;
+            boolean peak = true;
+            for (int i = t - 3; i <= t + 3; i++) if (i != t && add[i] >= add[t]) peak = false;
+            if (!peak) continue;
+            double top = Math.max(low[t], low[t + 1]), now = Math.max(ring[t], ring[t + 1]);
+            if (Math.min(low[t - 2], low[t - 3]) > RING_TOM_BEFORE * top || now < 1e-12) continue;
+            if (ring[t + 6] < RING_TOM_HOLD * now || ring[t + 12] < RING_TOM_HOLD_LATE * now || pitch[t] >= RING_TOM_HZ) continue;
+            double time = t / fps;
+            Hit kick = null;
+            boolean tom = false;
+            for (Hit h : hits) {
+                if (Math.abs(h.time - time) > SAME_CYMBAL) continue;
+                if (h.note == KICK_NOTE) kick = h;
+                if (h.note == FLOOR_TOM || h.note == MID_TOM || h.note == RACK_TOM) tom = true;
+            }
+            if (tom) continue;
+            int note = pitch[t] < FLOOR_TOM_HZ ? FLOOR_TOM : MID_TOM;
+            if (kick != null) {
+                hits.set(hits.indexOf(kick), new Hit(kick.time, note, kick.strength));
+                fromKicks++;
+            } else hits.add(new Hit(time, note, Math.min(1.5, add[t] / usualAdd)));
+            found++;
+        }
+        if (found > 0) note("Ringing toms: " + found + " (" + fromKicks + " of them written as kicks before)");
     }
 
     static void ringingCrashes(List<Hit> hits, CymbalShape sh, double fps) {
