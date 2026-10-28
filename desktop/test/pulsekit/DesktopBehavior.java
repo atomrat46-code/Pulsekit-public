@@ -7487,6 +7487,84 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's Params: the form scrolls within the screen (the dialog no taller than it); closed
+   * with the window's X, the second and third plugins and the second folder are kept as with OK;
+   * Cancel leaves them as they were.
+   */
+  void s157_params_scroll_x_keeps() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "params-test");
+    File patterns = new File(dir, "patterns");
+    patterns.mkdirs();
+    File b = new File(dir, "Artillery.vst3"), c = new File(dir, "Anarchy Drums.vst3");
+    Files.write(b.toPath(), new byte[] {1});
+    Files.write(c.toPath(), new byte[] {1});
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((JTextField) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    javax.swing.JScrollPane scroll = (javax.swing.JScrollPane) component(d, "params-scroll");
+    int screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().height;
+    int screenWide = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().width;
+    int formHeight = scroll == null ? 0 : scroll.getViewport().getView().getPreferredSize().height;
+    this.out.append("form ").append(formHeight).append(" px, shown ").append(scroll == null ? 0 : scroll.getViewport().getHeight()).append(" px, dialog ")
+        .append(d.getHeight()).append(" px high, ").append(d.getWidth() <= screenWide ? "within" : "wider than").append(" the screen's width, screen ").append(screen).append(" px, scrolls ").append(scroll != null && scroll.getVerticalScrollBar().isVisible()).append('\n');
+    boolean scrollOk = scroll != null && d.getHeight() <= screen && d.getWidth() <= screenWide && (formHeight <= scroll.getViewport().getHeight() || scroll.getVerticalScrollBar().isVisible());
+    // Choose plugin (the second and the third) and Browse (the second folder): the watcher picks them.
+    chooseNext = b;
+    edt(() -> ((javax.swing.JButton) component(d, "params-file:--plugin2")).doClick());
+    idle();
+    chooseNext = c;
+    edt(() -> ((javax.swing.JButton) component(d, "params-file:--plugin3")).doClick());
+    idle();
+    chooseNext = patterns;
+    edt(() -> ((javax.swing.JButton) component(d, "params-dir:--dir2")).doClick());
+    idle();
+    // The window's X.
+    edt(() -> d.dispatchEvent(new java.awt.event.WindowEvent(d, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py")).replace(dir.getAbsolutePath(), "~");
+    this.out.append("after X: ").append(kept).append('\n');
+    boolean keptOk = kept.contains("--plugin2 ~/Artillery.vst3") && kept.contains("--plugin3") && kept.contains("Anarchy Drums.vst3") && kept.contains("--dir2 ~/patterns");
+    // Cancel: the third plugin cleared meanwhile comes back.
+    final JDialog[] again = new JDialog[1];
+    inspectNext = w -> again[0] = w;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (again[0] == null || !again[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog e = again[0];
+    String shown2 = ((JLabel) component(e, "params-chosen:--plugin2")).getText();
+    final javax.swing.JButton clearPlugin3 = (javax.swing.JButton) component(e, "params-clear:--plugin3");
+    if (clearPlugin3 != null) edt(clearPlugin3::doClick);
+    edt(() -> find(e.getContentPane(), "Cancel").doClick());
+    idle();
+    String after = String.valueOf(call("loadParams", "vst_render.py")).replace(dir.getAbsolutePath(), "~");
+    this.out.append("opened again: --plugin2 shows ").append(shown2).append(", after Cancel: ").append(after).append('\n');
+    call("saveParams", "vst_render.py", "");
+    boolean cancelOk = "Artillery.vst3".equals(shown2) && clearPlugin3 != null && after.equals(kept);
+    if (!scrollOk || !keptOk || !cancelOk) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

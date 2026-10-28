@@ -405,41 +405,49 @@ public final class PyJavParams {
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
+    final android.content.DialogInterface.OnClickListener save = new android.content.DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(android.content.DialogInterface dialog, int which) {
+        for (int i = 0; i < fields.length; i++) {
+          if (fields[i] != null) values[i] = fields[i].getText() == null ? "" : fields[i].getText().toString();
+          // A several-line field is one argument: its lines joined.
+          if (fields[i] != null && ProgramParams.longText(ps.get(i))) values[i] = ProgramParams.oneLine(values[i]);
+          if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
+        }
+        String switches = ProgramParams.build(ps, values);
+        // The prompt kept among the program's six last (Recent prompts).
+        for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
+        activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();
+        boolean newInput = false;
+        String input = null;
+        for (int i = 0; i < ps.size(); i++) {
+          ProgramParams.Param p = ps.get(i);
+          if (p.flag || p.output) continue;
+          // A folder is not PyJav's input file.
+          input = p.dir ? null : values[i];
+          newInput = !values[i].equals(before[i]);
+          break;
+        }
+        String line = ProgramParams.line(ps, values, newInput ? "" : extra);
+        try {
+          // Only into the program it was opened for: another loaded since (ImageUpscaler from the
+          // Media browser that Choose file opened) was given SogniPedit's --prompt.
+          if (activity instanceof MainActivity && name.equals(((MainActivity) activity).pyName)) ((MainActivity) activity).pyJav.pkSetPyLine(line, newInput ? input : null);
+        } catch (Throwable ignored) {
+          /* the switches are still saved for the next run */
+        }
+      }
+    };
     shown = new AlertDialog.Builder(activity)
         .setTitle("Parameters · " + name)
         .setView(scroll)
         .setNegativeButton("Cancel", null)
-        .setPositiveButton("OK", new android.content.DialogInterface.OnClickListener() {
+        .setPositiveButton("OK", save)
+        // Back (or a tap outside) closes it as OK does, what was picked kept; Cancel leaves it all as it was.
+        .setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
           @Override
-          public void onClick(android.content.DialogInterface dialog, int which) {
-            for (int i = 0; i < fields.length; i++) {
-              if (fields[i] != null) values[i] = fields[i].getText() == null ? "" : fields[i].getText().toString();
-              // A several-line field is one argument: its lines joined.
-              if (fields[i] != null && ProgramParams.longText(ps.get(i))) values[i] = ProgramParams.oneLine(values[i]);
-              if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
-            }
-            String switches = ProgramParams.build(ps, values);
-            // The prompt kept among the program's six last (Recent prompts).
-            for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
-            activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();
-            boolean newInput = false;
-            String input = null;
-            for (int i = 0; i < ps.size(); i++) {
-              ProgramParams.Param p = ps.get(i);
-              if (p.flag || p.output) continue;
-              // A folder is not PyJav's input file.
-              input = p.dir ? null : values[i];
-              newInput = !values[i].equals(before[i]);
-              break;
-            }
-            String line = ProgramParams.line(ps, values, newInput ? "" : extra);
-            try {
-              // Only into the program it was opened for: another loaded since (ImageUpscaler from the
-              // Media browser that Choose file opened) was given SogniPedit's --prompt.
-              if (activity instanceof MainActivity && name.equals(((MainActivity) activity).pyName)) ((MainActivity) activity).pyJav.pkSetPyLine(line, newInput ? input : null);
-            } catch (Throwable ignored) {
-              /* the switches are still saved for the next run */
-            }
+          public void onCancel(android.content.DialogInterface dialog) {
+            save.onClick(dialog, android.content.DialogInterface.BUTTON_POSITIVE);
           }
         })
         .show();

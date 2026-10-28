@@ -2489,9 +2489,22 @@ final class PyJav {
         note.setAlignmentX(0.0f);
         top.add(note);
         box.add(top, BorderLayout.NORTH);
-        box.add(form, BorderLayout.CENTER);
+        // A long form (vst_render's) scrolls: the dialog stays within the screen, its buttons on it.
+        // (and as wide: long labels make it wider than a small screen).
+        javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(form, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        formScroll.setName("params-scroll");
+        formScroll.setBorder(null);
+        formScroll.getVerticalScrollBar().setUnitIncrement(16);
+        formScroll.getHorizontalScrollBar().setUnitIncrement(16);
+        java.awt.Dimension formSize = form.getPreferredSize();
+        java.awt.Rectangle screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        int room = screen.height - top.getPreferredSize().height - PARAMS_FRAME;
+        formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
+            Math.min(formSize.height, Math.max(PARAMS_MIN_FORM, room))));
+        box.add(formScroll, BorderLayout.CENTER);
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (ans != JOptionPane.OK_OPTION) return;
+        // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
+        if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
@@ -2518,6 +2531,9 @@ final class PyJav {
         if (this.pyExtra != null) this.pyExtra.setText(line);
         app.setNow("Params saved");
     }
+
+    /** The Params dialog's title bar, OK/Cancel row and margins, and the least of the form shown. */
+    static final int PARAMS_FRAME = 160, PARAMS_MIN_FORM = 200, PARAMS_SIDES = 80;
 
     /** What the last video picked for a picture row gave (for the tests). */
     String lastFramesNote;

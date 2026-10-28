@@ -10374,6 +10374,42 @@ public class BehaviorTest {
     if (!listOk || !handOk || !bpmOk) throw new AssertionError(out.toString());
   }
 
+  /** vst_render's Params: Back (or a tap outside) keeps --plugin2/--plugin3 and --dir2 as OK does; Cancel leaves them as they were. */
+  @Test
+  public void s169_params_back_keeps() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin2 = -1, plugin3 = -1, dir2 = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--plugin2")) plugin2 = i;
+      if (ps.get(i).token.equals("--plugin3")) plugin3 = i;
+      if (ps.get(i).token.equals("--dir2")) dir2 = i;
+    }
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[plugin2] = "/vst/Artillery.vst3";
+    PyJavParams.shownValues[plugin3] = "/vst/Anarchy Drums.vst3";
+    PyJavParams.shownValues[dir2] = "/midi/patterns";
+    PyJavParams.shown.cancel();
+    idle();
+    String kept = PyJavParams.load(app, "vst_render.py");
+    out.append("after Back: ").append(kept).append('\n');
+    // Cancel: what was picked meanwhile is left out.
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[dir2] = "/midi/other";
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    String after = PyJavParams.load(app, "vst_render.py");
+    out.append("after Cancel: ").append(after).append('\n');
+    PyJavParams.store(app, "vst_render.py", "");
+    write("s169_params_back_keeps", out.toString());
+    if (!kept.contains("--plugin2 /vst/Artillery.vst3") || !kept.contains("--plugin3") || !kept.contains("Anarchy Drums.vst3") || !kept.contains("--dir2 /midi/patterns")
+        || !after.equals(kept)) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;
