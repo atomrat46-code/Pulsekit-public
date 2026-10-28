@@ -10410,6 +10410,27 @@ public class BehaviorTest {
         || !after.equals(kept)) throw new AssertionError(out.toString());
   }
 
+  /** Output's lines with the times they came: while the run goes (runningLog) and after (the command line as it was, a timeout note at the end time). */
+  @Test
+  public void s170_output_times() throws Exception {
+    StringBuilder out = new StringBuilder();
+    JavaRun.Live live = new JavaRun.Live();
+    live.add("Plugin: Anarchy Drums\nWrote f0-");
+    live.add("a.wav: 1.1 s\n");
+    String during = JavaRun.runningLog(live, System.currentTimeMillis());
+    String log = "$ python3 vst_render.py --dir in\n" + live.text() + "\nScript timed out (no output for 600 s).";
+    String after = JavaRun.stampedLog(live, log, System.currentTimeMillis());
+    String clock = "\\d\\d:\\d\\d:\\d\\d";
+    out.append("during: ").append(during.replaceAll(clock, "hh:mm:ss").replaceAll("\\d+:\\d\\d", "m:ss").replace('\n', '|')).append('\n');
+    out.append("after: ").append(after.replaceAll(clock, "hh:mm:ss").replace('\n', '|')).append('\n');
+    out.append("raw kept: ").append(live.text().replace('\n', '|')).append('\n');
+    write("s170_output_times", out.toString());
+    boolean ok = during.matches("(?s)Running\u2026 .*\\n\\n" + clock + " Plugin: Anarchy Drums\\n" + clock + " Wrote f0-a\\.wav: 1\\.1 s")
+        && after.matches("(?s)\\$ python3 vst_render\\.py --dir in\\n" + clock + " Plugin: Anarchy Drums\\n" + clock + " Wrote f0-a\\.wav: 1\\.1 s\\n\\n" + clock + " Script timed out \\(no output for 600 s\\)\\.")
+        && live.text().equals("Plugin: Anarchy Drums\nWrote f0-a.wav: 1.1 s\n");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

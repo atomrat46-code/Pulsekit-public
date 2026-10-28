@@ -1096,6 +1096,8 @@ final class PyJav {
         pulsekit.RunKeeper.start(app, name);
         this.pkShowWorkflow(null);
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
+        this.pkLastLive = live;
+        this.pkEndedAt = 0;
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         Long downloadRun = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
         if (downloadRun != null) {
@@ -1325,6 +1327,16 @@ final class PyJav {
         return "Failed: " + why;
     }
 
+    /** The last run's live output, and when it was over: Output shows its lines with the times they came. */
+    pulsekit.JavaRun.Live pkLastLive;
+    long pkEndedAt;
+
+    /** The log as Output shows it: the run's lines with their times (the log itself stays as it is, for what reads it). */
+    String pkShown(String log) {
+        if (this.pkEndedAt == 0) this.pkEndedAt = System.currentTimeMillis();
+        return pulsekit.JavaRun.stampedLog(this.pkLastLive, log, this.pkEndedAt);
+    }
+
     public void pkShowPyResult(pulsekit.JavaRun.Result result) {
         String status = "Import failed: no result";
         String log = "";
@@ -1390,8 +1402,9 @@ final class PyJav {
         app.setNow(status);
         android.widget.Toast.makeText(app, status, 1).show();
         this.pkSaveInventedOutput(log);
-        if (this.pkPyLog != null) this.pkPyLog.setText(log);
-        this.pkRunLog = log;
+        String seen = this.pkShown(log);
+        if (this.pkPyLog != null) this.pkPyLog.setText(seen);
+        this.pkRunLog = seen;
         pulsekit.SogniHistory.record(log, System.currentTimeMillis());
         if (pulsekit.SogniDownloads.workflowIn(log) != null) {
             this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
@@ -1429,8 +1442,9 @@ final class PyJav {
         if (any) {
             storingStarted = true;
             log = log + "\nPrompt library: storing\u2026";
-            if (this.pkPyLog != null) this.pkPyLog.setText(log);
-            this.pkRunLog = log;
+            String storing = this.pkShown(log);
+            if (this.pkPyLog != null) this.pkPyLog.setText(storing);
+            this.pkRunLog = storing;
             this.pkKeeping = true;
             KEEPING.incrementAndGet();
             new Thread(new Runnable() {

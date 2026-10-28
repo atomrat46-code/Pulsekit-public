@@ -568,6 +568,29 @@ def score(played, found, end):
     return rows, shift
 
 
+class KeptLog:
+    """--skip_existing's "Kept ... (already made)" lines: the first KEPT_SHOWN each, then a count
+    every KEPT_EVERY (a run of hundreds kept would fill Output with them), and the total at the end."""
+
+    def __init__(self, what, total):
+        self.what, self.total, self.count = what, total, 0
+
+    def kept(self, shown):
+        self.count += 1
+        if self.count <= KEPT_SHOWN:
+            print("Kept %s (already made)" % shown)
+        elif self.count % KEPT_EVERY == 0:
+            print("Kept %d of %d %s so far (already made)" % (self.count, self.total, self.what))
+
+    def end(self):
+        if self.count > KEPT_SHOWN:
+            print("Kept %d of %d %s (already made)" % (self.count, self.total, self.what))
+
+
+KEPT_SHOWN = 5
+KEPT_EVERY = 100
+
+
 def score_line(rows):
     parts = []
     for name, played, found, ok in rows:
@@ -738,8 +761,9 @@ def whole_wav(path):
         return False
 
 
-def drum_midi(java, jar, wav, mid, extra=()):
-    """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text."""
+def drum_midi(java, jar, wav, mid, extra=(), said=None):
+    """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text.
+    `said`, a list: DrumMidi's own lines go in it."""
     import subprocess
     try:
         # DrumMidi_CRT writes into its working folder: run it in the WAV's.
@@ -748,8 +772,11 @@ def drum_midi(java, jar, wav, mid, extra=()):
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
     except Exception as e:
         return "DrumMidi_CRT did not run (%s)" % e
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    if said is not None:
+        said.extend(lines)
     if r.returncode != 0 or not os.path.isfile(mid):
-        tail = r.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        tail = lines[-1:] or [""]
         return "DrumMidi_CRT failed (%s)" % tail[0]
     return midi_notes(mid)[1]
 
@@ -1443,6 +1470,7 @@ def main(argv):
         batch_done = []
         skip = "--skip_existing" in switches
         kept = 0
+        kept_log = KeptLog("renders", len(batch))
         for m in stoppable(batch, "rendering", "the test and the zip use the WAVs made"):
             where = opts["--outdir"] or os.path.dirname(m)
             if opts["--outdir"] and (not pls or roots.get(m) != folder):
@@ -1451,14 +1479,14 @@ def main(argv):
             o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             # --skip_existing: a WAV a stopped run made is kept, when it is whole.
             if skip and whole_wav(o):
-                print("Kept %s (already made)" % shown(o))
+                kept_log.kept(shown(o))
                 batch_done.append((m, o))
                 kept += 1
                 continue
             # An MP3 of it from a --mp3 run (its WAV deleted): the MIDI's render too.
             made_mp3 = os.path.splitext(o)[0] + ".mp3"
             if skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0:
-                print("Kept %s (already made)" % shown(made_mp3))
+                kept_log.kept(shown(made_mp3))
                 batch_done.append((m, made_mp3))
                 kept += 1
                 continue
@@ -1473,6 +1501,7 @@ def main(argv):
             write_wav(o, audio, rate, bits)
             print("Wrote %s: %.1f s%s%s" % (shown(o), audio.shape[1] / float(rate), tempo_note(m), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
+        kept_log.end()
     dms = []
     rep = None
     # The plugin's (or project's, kit's) name: the test loop's `name` is each WAV's.
@@ -1484,21 +1513,28 @@ def main(argv):
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         tested = 0
+        kept_dm = KeptLog("DrumMidi MIDI files", len(batch_done))
+        print("Testing %d render%s with DrumMidi_CRT" % (len(batch_done), "" if len(batch_done) == 1 else "s"))
         for m, o in stoppable(batch_done, "the test", "the report has the WAVs tested"):
             tested += 1
             dm = os.path.splitext(o)[0] + "-dm.mid"
             no_toms = "--no-toms" in switches
-            if "--skip_existing" in switches and os.path.isfile(dm) and os.path.getmtime(dm) >= os.path.getmtime(o):
-                # DrumMidi's MIDI of this WAV from a stopped run: used as it is.
+            said = []
+            # DrumMidi's MIDI of this render from a stopped run: used as it is. (A kept MP3 is newer than
+            # the MIDI made from its WAV before the WAV became the MP3.)
+            if "--skip_existing" in switches and os.path.isfile(dm) and os.path.getsize(dm) > 0 \
+                    and (os.path.getmtime(dm) >= os.path.getmtime(o) or o.lower().endswith(".mp3")):
                 found = midi_notes(dm)[1]
-                print("Kept %s (already made)" % os.path.basename(dm))
+                kept_dm.kept(os.path.basename(dm))
+                said = None
             else:
-                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else []))
+                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else []), said)
             if os.path.isfile(dm):
                 dms.append(dm)
             name = os.path.basename(o)
             if isinstance(found, str):
                 report.append("%s: %s" % (name, found))
+                print("Tested %d of %d: %s: %s" % (tested, len(batch_done), name, found))
                 continue
             length, played = midi_notes(at_tempo(m))
             played = mapped(played, nmap)
@@ -1513,6 +1549,13 @@ def main(argv):
                 v[1] += f
                 v[2] += ok
             report.append("%s (shift %+d ms): %s" % (name, round(shift * 1000), score_line(rows)))
+            if said is not None:
+                # Each file's line as it is done (Output would else stay silent through the whole test,
+                # and PyJav takes a run silent for 600 s as hung), with what DrumMidi wrote.
+                wrote = [l for l in said if l.startswith("Wrote ")]
+                print("Tested %d of %d: %s (shift %+d ms): %s%s" % (tested, len(batch_done), name, round(shift * 1000), score_line(rows),
+                                                                  " | DrumMidi: " + wrote[-1][6:] if wrote else ""))
+        kept_dm.end()
         if tested < len(batch_done):
             report.append("Stopped: %d of %d WAVs tested" % (tested, len(batch_done)))
         if total:

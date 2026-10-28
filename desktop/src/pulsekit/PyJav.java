@@ -38,7 +38,8 @@ final class PyJav {
         this.app = app;
     }
 
-    JTextField pyExtra;
+    /** The arguments: one line for the program, wrapped over a few on screen (many VST paths do not fit one). */
+    javax.swing.JTextArea pyExtra;
 
     JButton pyRecent;
 
@@ -177,18 +178,38 @@ final class PyJav {
             north.repaint();
         });
         controls.add(extraLab);
-        this.pyExtra = new JTextField(22);
+        this.pyExtra = new javax.swing.JTextArea(1, 22);
+        this.pyExtra.setLineWrap(true);
+        this.pyExtra.setWrapStyleWord(true);
+        this.pyExtra.setFont(javax.swing.UIManager.getFont("TextField.font"));
+        // Still one line for the program: Enter adds no line, a pasted one becomes a space.
+        this.pyExtra.getInputMap().put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), "none");
+        ((javax.swing.text.AbstractDocument) this.pyExtra.getDocument()).setDocumentFilter(new javax.swing.text.DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String text, javax.swing.text.AttributeSet attr) throws javax.swing.text.BadLocationException {
+                super.insertString(fb, offset, text == null ? null : text.replaceAll("[\\r\\n]+", " "), attr);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, javax.swing.text.AttributeSet attrs) throws javax.swing.text.BadLocationException {
+                super.replace(fb, offset, length, text == null ? null : text.replaceAll("[\\r\\n]+", " "), attrs);
+            }
+        });
         this.pyExtra.setVisible(false);
         this.pyExtra.setBackground(ELEV);
         this.pyExtra.setForeground(FG);
         this.pyExtra.setCaretColor(FG);
-        this.pyExtra.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(BORDER),
-            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+        this.pyExtra.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
         this.pyExtra.setToolTipText("Optional extra command-line flags, e.g. --out groove.mid");
-        argsRow.add(this.pyExtra, BorderLayout.CENTER);
+        // Three lines shown; more scroll.
+        JScrollPane extraScroll = new JScrollPane(this.pyExtra, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        extraScroll.setName("pyjav-args-scroll");
+        extraScroll.setBorder(BorderFactory.createLineBorder(BORDER));
+        int lineHeight = this.pyExtra.getFontMetrics(this.pyExtra.getFont()).getHeight();
+        extraScroll.setPreferredSize(new Dimension(200, ARGS_LINES * lineHeight + 14));
+        argsRow.add(extraScroll, BorderLayout.CENTER);
         north.add(controls);
-        argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, this.pyExtra.getPreferredSize().height + 6));
+        argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, extraScroll.getPreferredSize().height + 6));
         north.add(argsRow);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
@@ -212,6 +233,9 @@ final class PyJav {
             menu.add(this.menuItem("Save text as\u2026", "output-save-as", () -> SaveText.save(app, this.outputName(), app.pyLog.getText())));
         });
         app.pyLog.setEditable(false);
+        // Output is read, not edited (its newest lines last): Home and End go to its start and its end.
+        app.pyLog.getInputMap().put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_HOME, 0), javax.swing.text.DefaultEditorKit.beginAction);
+        app.pyLog.getInputMap().put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_END, 0), javax.swing.text.DefaultEditorKit.endAction);
         app.pyLog.setLineWrap(true);
         app.pyLog.setWrapStyleWord(true);
         app.pyLog.setFont(new Font(Font.MONOSPACED, 0, 11));
@@ -247,6 +271,12 @@ final class PyJav {
         JPanel outTop = new JPanel(new BorderLayout());
         outTop.setOpaque(false);
         outTop.add(outputHead, BorderLayout.WEST);
+        // The run's state beside the headline: "Running… 10:05 elapsed", then how it ended.
+        this.pyStatus = new JLabel(" ");
+        this.pyStatus.setName("pyjav-status");
+        this.pyStatus.setForeground(MUTED);
+        this.pyStatus.setBorder(BorderFactory.createEmptyBorder(14, 12, 4, 0));
+        outTop.add(this.pyStatus, BorderLayout.CENTER);
         outTop.add(this.copyWorkflow, BorderLayout.EAST);
         outputBox.add((Component)outTop, "North");
         outputBox.add((Component)logScroll, "Center");
@@ -258,6 +288,9 @@ final class PyJav {
         this.pySplit.setBorder(BorderFactory.createEmptyBorder());
         this.pySplit.setContinuousLayout(true);
         this.pySplit.setResizeWeight(0.65);
+        // Home and End are the text's keys, never the divider's (a split pane moves it with them).
+        for (int key : new int[] {java.awt.event.KeyEvent.VK_HOME, java.awt.event.KeyEvent.VK_END})
+            this.pySplit.getInputMap(javax.swing.JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(javax.swing.KeyStroke.getKeyStroke(key, 0), "none");
         this.pySplit.setDividerSize(8);
         editorBox.setMinimumSize(new Dimension(50, 60));
         outputBox.setMinimumSize(new Dimension(50, 60));
@@ -770,8 +803,11 @@ final class PyJav {
                 lastTop[0] = JavaRun.runningTop(name, live, System.currentTimeMillis());
                 app.setNow(lastTop[0]);
             }
+            if (this.pyStatus != null && name.equals(app.pyName)) this.pyStatus.setText(name + ": " + JavaRun.runningStatus(live, System.currentTimeMillis()));
             if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
-            String line = head + JavaRun.runningLog(live, System.currentTimeMillis());
+            // The lines printed so far, each with its time, the newest at the end (scrolled to).
+            String tail = JavaRun.runningTail(live);
+            String line = tail.length() == 0 ? "Running\u2026" : tail;
             if (!line.equals(app.pyLog.getText())) {
                 app.pyLog.setText(line);
                 app.pyLog.setCaretPosition(app.pyLog.getDocument().getLength());
@@ -816,6 +852,8 @@ final class PyJav {
                     this.runPython();
                     return;
                 }
+                long ended = System.currentTimeMillis();
+                if (this.pyStatus != null && name.equals(app.pyName)) this.pyStatus.setText(name + ": " + JavaRun.endedStatus(live, result.code, ended));
                 String shown = result.log == null || result.log.isEmpty() ? "(no output)" : result.log;
                 if (promptProg && this.promptOutputName.length() > 0) shown = shown + "\nOutput file: " + this.promptOutputName;
                 this.writePromptOutput(shown);
@@ -828,7 +866,8 @@ final class PyJav {
                         // kept on disk only
                     }
                 }
-                if (app.pyLog != null) app.pyLog.setText(shown);
+                // On screen the lines have the times they came (the output file above has the text as it was).
+                if (app.pyLog != null) app.pyLog.setText(JavaRun.stampedLog(live, shown, ended));
                 // A library the script needs is not installed for the Python Pulsekit runs: install it for that one.
                 if (!javaProg && !promptProg && result.code != 0) {
                     java.util.List<String> packages = PipMissing.missing(result.log);
@@ -1103,6 +1142,26 @@ final class PyJav {
     }
 
     /** The first of the computer's usual VST3 and VST2 folders that exists (vst_render.py's plugin rows), else null. */
+    /** Where a plugin was last picked from (kept between sessions), or the usual VST folder. */
+    static File lastVstFolder() {
+        String kept = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(LAST_VST_KEY, "");
+        if (kept.length() > 0 && new File(kept).isDirectory()) return new File(kept);
+        return vstFolder();
+    }
+
+    static void rememberVstFolder(File dir) {
+        if (dir == null) return;
+        java.util.prefs.Preferences node = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
+        node.put(LAST_VST_KEY, dir.getAbsolutePath());
+        try {
+            node.flush();
+        } catch (java.util.prefs.BackingStoreException ignored) {
+            // kept for this session
+        }
+    }
+
+    static final String LAST_VST_KEY = "lastVstFolder";
+
     static File vstFolder() {
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         String home = System.getProperty("user.home", "");
@@ -2235,13 +2294,15 @@ final class PyJav {
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
                 if (p.plugin) pick.addActionListener(e -> {
-                    File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : vstFolder();
+                    // Its own plugin's folder, else the folder a plugin was last picked from, else the usual VST folder.
+                    File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : lastVstFolder();
                     JFileChooser chooser = new JFileChooser(start);
                     chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
                     chooser.setDialogTitle("VST plugin (.dll, .vst3)");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
+                    rememberVstFolder(chooser.getSelectedFile().getParentFile());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
@@ -2634,6 +2695,12 @@ final class PyJav {
         }
     }
 
+    /** Beside Output's headline: the run's state and time ("vst_render.py: Running… 10:05 elapsed"). */
+    JLabel pyStatus;
+
+    /** How many lines of the arguments show at once. */
+    static final int ARGS_LINES = 3;
+
     /** The runs going on, by program. */
     static final java.util.Map<String, Shown> RUNNING = new java.util.concurrent.ConcurrentHashMap<String, Shown>();
 
@@ -2642,8 +2709,13 @@ final class PyJav {
         Shown r = name == null ? null : RUNNING.get(name);
         if (r == null || r.live.done || r.live.aborted()) return false;
         long now = System.currentTimeMillis();
-        String line = r.head + JavaRun.runningLog(r.live, now);
-        if (app.pyLog != null) app.pyLog.setText(line);
+        String tail = JavaRun.runningTail(r.live);
+        String line = tail.length() == 0 ? "Running\u2026" : tail;
+        if (app.pyLog != null) {
+            app.pyLog.setText(line);
+            app.pyLog.setCaretPosition(app.pyLog.getDocument().getLength());
+        }
+        if (this.pyStatus != null) this.pyStatus.setText(name + ": " + JavaRun.runningStatus(r.live, now));
         r.lastLine[0] = line;
         r.lastTop[0] = JavaRun.runningTop(name, r.live, now);
         app.setNow(r.lastTop[0]);

@@ -51,6 +51,9 @@ public final class JavaRun {
   public static final class Live {
     public final long started = System.currentTimeMillis();
     private final StringBuffer text = new StringBuffer();
+    /** The same text with each line's time in front ("14:38:05 Wrote ..."), for Output. */
+    private final StringBuffer stamped = new StringBuffer();
+    private boolean lineStart = true;
 
     /** Its File > Downloads run (0: none): the workflow id is kept there the moment the program prints it. */
     public volatile long download;
@@ -72,6 +75,10 @@ public final class JavaRun {
       if (s == null) return;
       this.text.append(s);
       if (this.text.length() > 200000) this.text.delete(0, this.text.length() - 100000);
+      synchronized (this.stamped) {
+        this.lineStart = stamp(this.stamped, s, this.lineStart, clock(System.currentTimeMillis()));
+        if (this.stamped.length() > 240000) this.stamped.delete(0, this.stamped.length() - 120000);
+      }
       // "Workflow: <id>": kept with the download at once (Android may close the app before the run ends).
       if (this.download != 0 && !this.workflowKept && s.indexOf("Workflow: ") >= 0) {
         String id = SogniDownloads.workflowIn(this.text.toString());
@@ -84,6 +91,13 @@ public final class JavaRun {
 
     public String text() {
       return this.text.toString();
+    }
+
+    /** What the program printed, each line with the time it came. */
+    public String stamped() {
+      synchronized (this.stamped) {
+        return this.stamped.toString();
+      }
     }
 
     private volatile boolean aborted;
@@ -139,6 +153,27 @@ public final class JavaRun {
     return (program == null || program.length() == 0 ? "script.py" : program) + ": " + runningLine(live, now);
   }
 
+  /** "Running… 10:05 elapsed" with the run's latest news (Output's status line on the desktop). */
+  public static String runningStatus(Live live, long now) {
+    long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
+    String news = live == null ? null : news(live.text());
+    return "Running\u2026 " + duration(s) + " elapsed" + (news == null ? "" : " \u00b7 " + news);
+  }
+
+  /** How the run ended, and its time: "Finished in 12:03", "Timed out (no output for 600 s) after 25:10". */
+  public static String endedStatus(Live live, int code, long now) {
+    String took = duration(live == null ? 0 : Math.max(0, (now - live.started) / 1000));
+    if (live != null && live.aborted()) return "Stopped after " + took;
+    if (code == 0) return "Finished in " + took;
+    if (code == 124) return "Timed out (no output for a long while) after " + took;
+    return "Ended with an error (exit " + code + ") after " + took;
+  }
+
+  /** "2:05", "1:02:05". */
+  static String duration(long s) {
+    return s >= 3600 ? (s / 3600) + ":" + two((s / 60) % 60) + ":" + two(s % 60) : (s / 60) + ":" + two(s % 60);
+  }
+
   /** "Running… 2:05" with the run's latest news: "Running… 2:05 · Queued: position 3". */
   public static String runningLine(Live live, long now) {
     long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
@@ -147,14 +182,57 @@ public final class JavaRun {
     return "Running\u2026 " + time + (news == null ? "" : " \u00b7 " + news);
   }
 
+  /** Appends `s` to `out` with `time` before each line that starts in it; true when `s` ends a line. */
+  static boolean stamp(StringBuffer out, String s, boolean atStart, String time) {
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (atStart && c != '\n' && c != '\r') {
+        out.append(time).append(' ');
+        atStart = false;
+      }
+      out.append(c);
+      if (c == '\n') atStart = true;
+    }
+    return atStart;
+  }
+
+  /** "14:38:05": the time of day a line came. */
+  public static String clock(long millis) {
+    java.util.Calendar c = java.util.Calendar.getInstance();
+    c.setTimeInMillis(millis);
+    return two(c.get(java.util.Calendar.HOUR_OF_DAY)) + ":" + two(c.get(java.util.Calendar.MINUTE)) + ":" + two(c.get(java.util.Calendar.SECOND));
+  }
+
+  /**
+   * The run's whole log for Output when it is over, its lines with the times they came: the part the
+   * run printed as it went from `live` (the command line before it as it is), what came after it
+   * (a timeout note) at `now`. As it is when the live text is not in it (cut, or another log).
+   */
+  public static String stampedLog(Live live, String log, long now) {
+    if (live == null || log == null) return log;
+    String raw = live.text();
+    if (raw.length() == 0) return log;
+    int at = log.indexOf(raw);
+    if (at < 0) return log;
+    String stamped = live.stamped();
+    StringBuffer out = new StringBuffer(log.substring(0, at)).append(stamped);
+    stamp(out, log.substring(at + raw.length()), raw.endsWith("\n"), clock(now));
+    return out.toString();
+  }
+
+  /** The last LIVE_LINES lines the program printed so far, each with its time ("…" first when there were more). */
+  public static String runningTail(Live live) {
+    String text = live == null ? "" : live.stamped().trim();
+    int at = text.length();
+    for (int n = 0; n < LIVE_LINES && at > 0; n++) at = text.lastIndexOf('\n', at - 1);
+    return at > 0 ? "\u2026\n" + text.substring(at + 1) : text;
+  }
+
   /** Output's text while a run goes: the "Running…" line, then the last lines the program printed so far. */
   public static String runningLog(Live live, long now) {
     String line = runningLine(live, now);
-    String text = live == null ? "" : live.text().trim();
-    if (text.length() == 0) return line;
-    int at = text.length();
-    for (int n = 0; n < LIVE_LINES && at > 0; n++) at = text.lastIndexOf('\n', at - 1);
-    return line + "\n\n" + (at > 0 ? "\u2026\n" + text.substring(at + 1) : text);
+    String tail = runningTail(live);
+    return tail.length() == 0 ? line : line + "\n\n" + tail;
   }
 
   /** How many of the program's last lines Output shows while it runs. */
