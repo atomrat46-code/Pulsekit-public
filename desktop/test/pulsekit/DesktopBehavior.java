@@ -7350,6 +7350,56 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** DrumMidi --snare-leak: a Params switch (on/off), passed on by vst_render --test, and DrumMidi says what it learned or why not. */
+  void s154_snare_leak_option() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "leak-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--snare-leak");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--snare-leak")).append('\n');
+    // A short groove: kicks (a low thump), snares (noise with a body) and hats (bright noise), 120 BPM.
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(3)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.3 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "snare = (rng.standard_normal(len(n)) * 0.6 + np.sin(2 * np.pi * 200 * n)) * np.exp(-n * 25)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60) * 0.5\n"
+        + "for b in range(16):\n"
+        + "    t = 0.25 + b * 0.5\n"
+        + "    put(t, kick if b % 2 == 0 else snare * 0.8)\n"
+        + "    if b % 4 != 3: put(t, hat)\n"
+        + "    put(t + 0.25, hat * 0.7)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    Process p = new ProcessBuilder(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "groove-dm.mid").getAbsolutePath(), "--snare-leak")
+        .directory(dir).redirectErrorStream(true).start();
+    String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+    p.waitFor();
+    String leak = "", settings = "";
+    for (String line : said.split("\n")) {
+      if (line.startsWith("Snare leak:")) leak = line.trim();
+      if (line.startsWith("Settings:")) settings = line.trim();
+    }
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> vr = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    vr.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--snare-leak"));
+    String vrSaid = PythonRun.runFor(vr, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--snare-leak")) label = q.label;
+    this.out.append(settings).append('\n').append(leak.replaceAll("[0-9.]+", "N")).append("\nvst_render: ").append(vrSaid).append("\nvst_render Params: ").append(label).append('\n');
+    boolean ok = at >= 0 && DrumMidiArgs.onOff("--snare-leak") && settings.endsWith("--snare-leak") && leak.startsWith("Snare leak:")
+        && !vrSaid.contains("unknown switch") && label.startsWith("Snare leak in the test");
+    if (!ok) throw new AssertionError(this.out.toString() + said);
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

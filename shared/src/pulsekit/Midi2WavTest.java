@@ -99,7 +99,7 @@ public final class Midi2WavTest {
         if (a.equals("--plugin") || a.equals("--carla") || a.equals("--drumgizmo")) plugin = true;
         out.add(a);
         out.add(v);
-      } else if (a.equals("--no-toms") && test) {
+      } else if ((a.equals("--no-toms") || a.equals("--snare-leak")) && test) {
         out.add(a);
       }
     }

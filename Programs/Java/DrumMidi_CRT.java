@@ -24,7 +24,7 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--log [logfile]]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log [logfile]]
  *
  * --log writes the input and output names, the settings and the hits found to a text file
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
@@ -35,6 +35,12 @@ import java.util.Set;
  *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
+ *
+ * --snare-leak drops the hats a bright snare's wires make in the hat band: what the song's snare puts
+ * over 10 kHz is learned from its snares without a hat, and a hat on a snare that rises no more than
+ * that is the snare. Fewer false hats on the snare, some real ones lost too (tested: hat precision
+ * 76% to 81-85%, recall 80-87% to 71-82%); off unless asked, as songs with few hat-free snares gain
+ * nothing.
  *
  * --sens sets kick and snare, and every other part that is not given its own value.
  * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
@@ -427,7 +433,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--log <logfile>] [--dir <folder>] [--recursive]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log <logfile>] [--dir <folder>] [--recursive]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -442,6 +448,8 @@ public class DrumMidi_CRT{
         boolean cymbals = true;
         // No toms: they are still told apart from kicks and snares, but not written.
         boolean writeToms = true;
+        // Snare leak: hats on a snare that rise no more than its own wires do are left out.
+        boolean snareLeak = false;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -454,6 +462,7 @@ public class DrumMidi_CRT{
             else if ("--no-hpss".equals(opt)) hpss = false;
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
+            else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -465,7 +474,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms"));
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : ""));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -786,6 +795,7 @@ public class DrumMidi_CRT{
         rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
         darkCrashes(hits, shape, fps);
+        if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
         note("Hits: " + hits.size());
@@ -823,7 +833,7 @@ public class DrumMidi_CRT{
                 + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
                 + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
                 + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
-                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + "; tempo=" + num(bpm);
+                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + (snareLeak ? "; snare-leak=on" : "") + "; tempo=" + num(bpm);
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
@@ -1917,6 +1927,57 @@ public class DrumMidi_CRT{
      * crash too), they are the crash.
      */
     static final double CRASH_TILT = 0.3, CRASH_SWELL = 0.75, CRASH_SHARE = 0.5, CRASH_WINDOW = 1.0;
+
+    /**
+     * --snare-leak: a snare's wires reach the hat band, and a bright one (Anarchy Drums') looks there
+     * just like a hat struck with it. What is the snare's own is learned from the song's snares with
+     * no hat written at them (LEAK_SNARES at least; with fewer, nothing is changed): the share of
+     * their 4-14 kHz rise that is over 10 kHz (Anarchy's snare 0.06-0.14, a snare with a cymbal
+     * 0.16-0.26, a hat alone 0.33-0.47). A hat on a snare whose share stays under LEAK_OVER times the
+     * snare's own is the snare's leak, not a hat.
+     */
+    static final int LEAK_SNARES = 4;
+    static final double LEAK_OVER = 1.2;
+
+    static void snareLeaks(List<Hit> hits, float[][] mag, double sr, double fps) {
+        List<Hit> snares = new ArrayList<Hit>(), alone = new ArrayList<Hit>();
+        for (Hit h : hits) if (h.note == SNARE_NOTE) snares.add(h);
+        for (Hit s : snares) {
+            boolean hat = false;
+            for (Hit h : hits) if ((h.note == CLOSED_HAT || h.note == OPEN_HAT || h.note == PEDAL_HAT) && Math.abs(h.time - s.time) <= SAME_CYMBAL) hat = true;
+            if (!hat) alone.add(s);
+        }
+        if (alone.size() < LEAK_SNARES) {
+            note("Snare leak: " + alone.size() + " snares without a hat, " + LEAK_SNARES + " needed to learn the snare's own sound; no hats left out");
+            return;
+        }
+        double[] own = new double[alone.size()];
+        for (int i = 0; i < own.length; i++) own[i] = topShare(mag, (int) Math.round(alone.get(i).time * fps), sr);
+        Arrays.sort(own);
+        double snareTop = own[own.length / 2];
+        List<Hit> leaks = new ArrayList<Hit>();
+        for (Hit h : hits) {
+            if (h.note != CLOSED_HAT && h.note != OPEN_HAT) continue;
+            boolean onSnare = false;
+            for (Hit s : snares) if (Math.abs(s.time - h.time) <= SAME_CYMBAL) onSnare = true;
+            if (onSnare && topShare(mag, (int) Math.round(h.time * fps), sr) < LEAK_OVER * snareTop) leaks.add(h);
+        }
+        hits.removeAll(leaks);
+        note(String.format(java.util.Locale.ROOT, "Snare leak: learned from %d snares without a hat (%.2f of their rise over 10 kHz); %d hats on snares left out", alone.size(), snareTop, leaks.size()));
+    }
+
+    /** Of what rises at the hit in 4-14 kHz (over 3 frames before), the share over 10 kHz. */
+    static double topShare(float[][] mag, int t, double sr) {
+        if (t < 3 || t + 1 >= mag.length) return 1;
+        int maxBin = mag[t].length - 1;
+        double low = 0, high = 0;
+        for (int b = bin(4000, sr, maxBin); b < bin(14000, sr, maxBin); b++) {
+            double r = Math.max(0, Math.max(mag[t][b], mag[t + 1][b]) - mag[t - 3][b]);
+            if (b >= bin(10000, sr, maxBin)) high += r;
+            else low += r;
+        }
+        return low + high > 1e-12 ? high / (low + high) : 1;
+    }
 
     static void darkCrashes(List<Hit> hits, CymbalShape sh, double fps) {
         List<Hit> cym = new ArrayList<Hit>();

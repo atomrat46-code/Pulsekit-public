@@ -659,6 +659,8 @@ public final class ProgramParams {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
+    } else if (p.token.equals("--snare-leak")) {
+      p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them";
       p.hint = "Anarchy Drums: 45=46,41=none; empty: as the MIDI has them";

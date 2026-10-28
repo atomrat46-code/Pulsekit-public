@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -46,6 +46,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
+  --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
+                  (its --snare-leak): fewer false hats on the snare, some real ones lost.
   --map notes     with --test: what the plugin really plays for the MIDI's notes, so the report
                   compares DrumMidi with that: 45=46,41=none,57=49 (a note to another, or none: the
                   plugin plays nothing there, or nothing the test should count). Or a text file of
@@ -1059,7 +1061,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1278,7 +1280,7 @@ def main(argv):
                 found = midi_notes(dm)[1]
                 print("Kept %s (already made)" % os.path.basename(dm))
             else:
-                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, ["--no-toms"] if no_toms else [])
+                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else []))
             if os.path.isfile(dm):
                 dms.append(dm)
             name = os.path.basename(o)
