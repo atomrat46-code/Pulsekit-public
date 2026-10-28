@@ -5985,8 +5985,11 @@ public final class DesktopBehavior {
     idle();
     String back = log.getText();
     String top = ((JLabel) get("nowPlaying")).getText();
-    out.append("SogniPedit shows: ").append(other).append(" | SogniVideo again: ").append(back).append(" | top ").append(top).append('\n');
-    boolean runningOk = back.startsWith("Running") && top.startsWith("SogniVideo") && top.contains("Running");
+    // Output has the run's lines (with their times); its state is beside Output's headline.
+    String state = ((JLabel) component(frame, "pyjav-status")).getText();
+    out.append("SogniPedit shows: ").append(other).append(" | SogniVideo again: ").append(back.replaceAll("\\d\\d:\\d\\d:\\d\\d", "hh:mm:ss")).append(" | status ")
+        .append(state.replaceAll("\\d+:\\d\\d", "m:ss")).append(" | top ").append(top).append('\n');
+    boolean runningOk = back.matches("\\d\\d:\\d\\d:\\d\\d Status: processing") && state.startsWith("SogniVideo.java: Running") && top.startsWith("SogniVideo") && top.contains("Running");
     live.done = true;
     PyJav.RUNNING.clear();
     // Add tag…: Select all, then Clear all, then two ticked.
