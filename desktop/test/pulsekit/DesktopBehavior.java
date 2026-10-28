@@ -7069,6 +7069,424 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** vst_render --zip: the MIDI played, its --bpm copy, the WAV, DrumMidi's MIDI, the report and the run in one zip. */
+  void s148_vst_render_zip() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "zip-test");
+    File sub = new File(dir, "beats");
+    sub.mkdirs();
+    File out = new File(dir, "out");
+    out.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    File song = new File(sub, "song.mid");
+    Files.write(song.toPath(), mid.toByteArray());
+    File wav = new File(out, "beats/song-Kit.wav");
+    wav.getParentFile().mkdirs();
+    Files.write(wav.toPath(), new byte[] {1, 2, 3});
+    File dm = new File(out, "beats/song-Kit-dm.mid");
+    Files.write(dm.toPath(), mid.toByteArray());
+    File report = new File(out, "vst-test-Kit.txt");
+    Files.write(report.toPath(), "All: Kick 1/1\n".getBytes(StandardCharsets.UTF_8));
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d, song, out = sys.argv[2], sys.argv[3], sys.argv[4]\n"
+        + "copy = vr.retempo(song, 80, out)\n"
+        + "opts = {'--outdir': out, '--dir': d, '--state': None, '--effect_state': None, '--carla': None, '--midimap': None}\n"
+        + "z = vr.make_zip(out, 'Kit', ['--dir', d, '--test', '--zip', '--bpm', '80'], d, [(song, copy)], [sys.argv[5]], [sys.argv[6]], sys.argv[7], opts, 80.0)\n"
+        + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z[0]).namelist())))\n"
+        + "print('asks %s' % vr.ask_zip())\n"
+        // --zip_mb 1: three MIDIs with 0.6 MB WAVs that do not shrink, a zip each, each with the report and the run.
+        + "import os, shutil\n"
+        + "played, wavs = [], []\n"
+        + "for k in range(3):\n"
+        + "    m = os.path.join(d, 'beats', 's%d.mid' % k); shutil.copy(song, m); w = os.path.join(out, 'beats', 's%d-Kit.wav' % k)\n"
+        + "    open(w, 'wb').write(os.urandom(600000)); played.append((m, None)); wavs.append(w)\n"
+        + "parts = vr.make_zip(out, 'Kit', ['--zip_mb', '1'], d, played, wavs, [], sys.argv[7], opts, None, 1)\n"
+        + "print('parts %d: ' % len(parts) + ' | '.join(os.path.basename(p)[-13:] + ' ' + ','.join(sorted(zipfile.ZipFile(p).namelist())) for p in parts))\n"
+        + "print('sizes ok %s' % all(os.path.getsize(p) <= 1000000 for p in parts))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), song.getAbsolutePath(), out.getAbsolutePath(),
+        wav.getAbsolutePath(), dm.getAbsolutePath(), report.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    // The switch is known to the program and labelled in Params.
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "--zip"));
+    String plain = PythonRun.runFor(bad, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--zip")) label = p.label;
+    this.out.append(said).append("\nvst_render.py --zip: ").append(plain).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("names dm/beats/song-Kit-dm.mid midi-80bpm/beats/song.mid midi/beats/song.mid vst-render-run.txt vst-test-Kit.txt wav/beats/song-Kit.wav")
+        && said.contains("Zipped 5 files") && said.contains("asks None")
+        && said.contains("parts 3: -part1of3.zip midi/beats/s0.mid,vst-render-run.txt,vst-test-Kit.txt,wav/beats/s0-Kit.wav | -part2of3.zip midi/beats/s1.mid,")
+        && said.contains("sizes ok True") && !plain.contains("unknown switch") && label.startsWith("Zip:");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** Stop script: vst_render ends rendering after the file in progress, then zips (without WAVs) what it made; PythonRun's stop file. */
+  void s149_vst_render_stop() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "stop-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 4; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File stop = new File(dir, "stop-now");
+    // A stand-in for the kit: the second render asks to stop (as Stop script does).
+    String check = "import importlib.util, os, sys, glob, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        if G.n == 2: open(os.environ['PULSEKIT_STOP_FILE'], 'w').close()\n"
+        + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
+        + "vr.Gizmo = G\n"
+        + "d = sys.argv[2]\n"
+        + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', os.path.join(d, 'out'), '--zip_nowav'])\n"
+        + "z = glob.glob(os.path.join(d, 'out', '*.zip'))[0]\n"
+        + "print('zip ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+    pb.environment().put("PULSEKIT_STOP_FILE", stop.getAbsolutePath());
+    Process p = pb.start();
+    String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8).trim();
+    p.waitFor();
+    // PythonRun: Stop script makes the stop file the script watches; the script ends on it.
+    final String[] log = new String[1];
+    final String loop = "import os, time\nf = os.environ['PULSEKIT_STOP_FILE']\nfor i in range(600):\n    if os.path.exists(f):\n        print('stopped by the file'); break\n    print('working', i); time.sleep(0.1)\n";
+    Thread t = new Thread(() -> log[0] = PythonRun.run(loop, "loop.py", new java.util.ArrayList<String>()).log);
+    t.start();
+    long until = System.currentTimeMillis() + 20000;
+    while (PythonRun.current == null && System.currentTimeMillis() < until) Thread.sleep(50);
+    Thread.sleep(500);
+    boolean asked = PythonRun.stop();
+    t.join(30000);
+    String[] lines = log[0] == null ? new String[0] : log[0].trim().split("\n");
+    this.out.append(said).append("\nStop script asked: ").append(asked).append(", last line: ").append(lines.length == 0 ? "" : lines[lines.length - 1]).append('\n');
+    boolean ok = said.contains("Stopped rendering: 2 of 4 done; the test and the zip use the WAVs made")
+        && said.contains("zip midi/s0.mid midi/s1.mid vst-render-run.txt") && !said.contains("wav/")
+        && asked && lines.length > 0 && lines[lines.length - 1].equals("stopped by the file") && PythonRun.current == null;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** vst_render --skip_existing: a whole WAV from before is kept (and its newer DrumMidi MIDI), a cut-off one is made again. */
+  void s150_vst_render_skip_existing() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "skip-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 3; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    Files.write(new File(dir, "DrumMidi_CRT.jar").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, shutil, time\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "d = sys.argv[2]; out = os.path.join(d, 'out'); os.makedirs(out)\n"
+        + "vr.write_wav(os.path.join(out, 's0-kit.wav'), np.zeros((2, 4410)) + 0.1, 44100, 16)\n"
+        + "vr.write_wav(os.path.join(out, 's1-kit.wav'), np.zeros((2, 4410)) + 0.1, 44100, 16)\n"
+        + "b = open(os.path.join(out, 's1-kit.wav'), 'rb').read(); open(os.path.join(out, 's1-kit.wav'), 'wb').write(b[:len(b) // 2])\n"
+        + "time.sleep(0.05); shutil.copy(os.path.join(d, 'in', 's0.mid'), os.path.join(out, 's0-kit-dm.mid'))\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
+        + "vr.Gizmo = G\n"
+        + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--skip_existing', '--test', '--drummidi', os.path.join(d, 'DrumMidi_CRT.jar')])\n"
+        + "print('renders %d' % G.n)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said).append('\n');
+    boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
+        && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
+        && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** vst_render --mp3: each WAV made an MP3 by the jar's Wav2Mp3 and deleted; the zip has the MP3s; --skip_existing keeps them. */
+  void s151_vst_render_mp3() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "mp3-test");
+    File in = new File(dir, "in");
+    in.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x83, 0x60, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    for (int k = 0; k < 2; k++) Files.write(new File(in, "s" + k + ".mid").toPath(), mid.toByteArray());
+    Files.write(new File(dir, "kit.xml").toPath(), new byte[0]);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String check = "import importlib.util, os, sys, glob, zipfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class G:\n"
+        + "    n = 0\n"
+        + "    def __init__(self, rate, opts): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        G.n += 1\n"
+        + "        t = np.arange(44100 * 2) / 44100.0\n"
+        + "        return np.vstack([np.sin(2 * np.pi * 220 * t), np.sin(2 * np.pi * 330 * t)]) * 0.3, 2.0, 0\n"
+        + "vr.Gizmo = G\n"
+        + "d = sys.argv[2]; out = os.path.join(d, 'out')\n"
+        + "args = ['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--mp3', '192', '--drummidi', sys.argv[3], '--java', sys.argv[4]]\n"
+        + "vr.main(args + ['--zip_nowav'])\n"
+        + "print('files ' + ' '.join(sorted(os.listdir(out))[:3]))\n"
+        + "z = glob.glob(os.path.join(out, '*.zip'))[0]\n"
+        + "print('zip ' + ' '.join(sorted(zipfile.ZipFile(z).namelist())))\n"
+        + "vr.main(args + ['--skip_existing'])\n"
+        + "print('renders %d' % G.n)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), jar.getAbsolutePath(), javaBin));
+    String said = PythonRun.runFor(cmd, 180, null).trim();
+    // PyJav hands the jar over for --mp3 alone (no --test).
+    java.util.List<String> argv = JavaRun.withDrumMidi("vst_render.py", java.util.Arrays.asList("--mp3", "192"), new File(dir, "given.jar"), new byte[] {1});
+    this.out.append(said).append("\nPyJav's arguments: ").append(argv).append('\n');
+    boolean ok = said.contains("MP3s: 2 at 192 kbps") && said.contains("files s0-kit.mp3 s1-kit.mp3 vst-render-")
+        && said.contains("zip midi/s0.mid midi/s1.mid mp3/s0-kit.mp3 mp3/s1-kit.mp3 vst-render-run.txt")
+        && said.contains("Kept s0-kit.mp3 (already made)") && said.contains("renders 2") && argv.contains("--drummidi");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** PyJav: the Arguments field as wide as the page, Code and Output parted by a divider, a script's lines in Output as it runs. */
+  void s152_pyjav_layout_live() throws Exception {
+    call("showView", "py");
+    idle();
+    edt(() -> ((javax.swing.JButton) component(frame, "pyjav-args-head")).doClick());
+    idle();
+    final int[] w = new int[3];
+    edt(() -> {
+      JTextField args = (JTextField) get("pyExtra");
+      javax.swing.JSplitPane split = (javax.swing.JSplitPane) component(frame, "pyjav-split");
+      w[0] = args.getWidth();
+      w[1] = split.getWidth();
+      int before = split.getTopComponent().getHeight();
+      split.setDividerLocation(before - 80);
+      split.validate();
+      w[2] = before - split.getTopComponent().getHeight();
+    });
+    this.out.append("arguments ").append(w[0] * 100 / Math.max(1, w[1])).append("% of the page's width, Code smaller by ").append(w[2]).append(" px after dragging\n");
+    // A script that prints, waits, then prints again: its first line is in Output while it still runs.
+    final JavaRun.Live live = new JavaRun.Live();
+    final String script = "import time\nprint('rendered 1 of 2', flush=True)\ntime.sleep(3)\nprint('rendered 2 of 2')\n";
+    Thread t = new Thread(() -> {
+      JavaRun.track(live);
+      PythonRun.run(script, "live.py", new java.util.ArrayList<String>());
+    });
+    t.start();
+    long until = System.currentTimeMillis() + 20000;
+    while (!live.text().contains("rendered 1 of 2") && System.currentTimeMillis() < until) Thread.sleep(50);
+    String during = JavaRun.runningLog(live, System.currentTimeMillis());
+    boolean alive = t.isAlive();
+    t.join(30000);
+    this.out.append("while running (" + alive + "): ").append(during.replaceAll("Running… \\d+:\\d+", "Running… m:ss").replace('\n', '|')).append('\n');
+    boolean ok = w[0] * 100 / Math.max(1, w[1]) >= 90 && w[2] >= 60 && alive && during.startsWith("Running…") && during.endsWith("rendered 1 of 2")
+        && live.text().contains("rendered 2 of 2");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** vst_render --map: the test's played notes as the plugin plays them (moved or left out), from pairs or a file; bad maps refused. */
+  void s153_vst_render_map() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "map-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File file = new File(dir, "anarchy-map.txt");
+    Files.write(file.toPath(), "# Anarchy Drums\n45=46\n41=none  57=49\n".getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "m = vr.note_map('45=46, 41=none'); f = vr.note_map(sys.argv[2])\n"
+        + "print('pairs', sorted(m.items(), key=lambda x: x[0]))\n"
+        + "print('file', sorted(f.items(), key=lambda x: x[0]))\n"
+        + "played = [(0.0, 36), (0.5, 45), (1.0, 41), (1.5, 43)]\n"
+        + "print('mapped', vr.mapped(played, m))\n"
+        + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
+        + "print('score', vr.score_line(rows))\n"
+        + "for bad in ('45', '45=x', '200=46'):\n"
+        + "    try: vr.note_map(bad); print('kept', bad)\n"
+        + "    except ValueError as e: print('refused', e)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), file.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    java.util.List<String> noTest = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    noTest.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map", "45=46"));
+    String refused = PythonRun.runFor(noTest, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--map")) label = p.label;
+    this.out.append(said).append("\nwithout --test: ").append(refused).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("pairs [(41, None), (45, 46)]") && said.contains("file [(41, None), (45, 46), (57, 49)]")
+        && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
+        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
+        && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
+        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** DrumMidi --snare-leak: a Params switch (on/off), passed on by vst_render --test, and DrumMidi says what it learned or why not. */
+  void s154_snare_leak_option() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "leak-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--snare-leak");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--snare-leak")).append('\n');
+    // A short groove: kicks (a low thump), snares (noise with a body) and hats (bright noise), 120 BPM.
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(3)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.3 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "snare = (rng.standard_normal(len(n)) * 0.6 + np.sin(2 * np.pi * 200 * n)) * np.exp(-n * 25)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60) * 0.5\n"
+        + "for b in range(16):\n"
+        + "    t = 0.25 + b * 0.5\n"
+        + "    put(t, kick if b % 2 == 0 else snare * 0.8)\n"
+        + "    if b % 4 != 3: put(t, hat)\n"
+        + "    put(t + 0.25, hat * 0.7)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    Process p = new ProcessBuilder(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "groove-dm.mid").getAbsolutePath(), "--snare-leak")
+        .directory(dir).redirectErrorStream(true).start();
+    String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+    p.waitFor();
+    String leak = "", settings = "";
+    for (String line : said.split("\n")) {
+      if (line.startsWith("Snare leak:")) leak = line.trim();
+      if (line.startsWith("Settings:")) settings = line.trim();
+    }
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> vr = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    vr.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--snare-leak"));
+    String vrSaid = PythonRun.runFor(vr, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--snare-leak")) label = q.label;
+    this.out.append(settings).append('\n').append(leak.replaceAll("[0-9.]+", "N")).append("\nvst_render: ").append(vrSaid).append("\nvst_render Params: ").append(label).append('\n');
+    boolean ok = at >= 0 && DrumMidiArgs.onOff("--snare-leak") && settings.endsWith("--snare-leak") && leak.startsWith("Snare leak:")
+        && !vrSaid.contains("unknown switch") && label.startsWith("Snare leak in the test");
+    if (!ok) throw new AssertionError(this.out.toString() + said);
+  }
+
+  /** vst_render: two source folders, tempo from the name where a MIDI has none, and a second plugin (stand-in renderers). */
+  void s155_vst_render_folders_tempo_plugins() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "multi-test");
+    File fills = new File(dir, "fills/100 rock"), pats = new File(dir, "patterns");
+    fills.mkdirs();
+    pats.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    byte[] tempo90 = {0x00, (byte) 0xFF, 0x51, 0x03, 0x0A, 0x2C, 0x2B, 0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    Files.write(new File(fills, "Fill 1.mid").toPath(), midiFile(track));
+    Files.write(new File(pats, "80bpm Groove.mid").toPath(), midiFile(track));
+    Files.write(new File(pats, "120 Own Tempo.mid").toPath(), midiFile(tempo90));
+    Files.write(new File(dir, "a.vst3").toPath(), new byte[] {1});
+    Files.write(new File(dir, "b.vst3").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        length, notes = vr.midi_notes(midi)\n"
+        + "        return np.zeros((2, int(44100 * (length + 0.1)))) + 0.1, length, 0\n"
+        + "vr.Chain = C\n"
+        + "d = sys.argv[2]\n"
+        + "vr.main(['--plugin', os.path.join(d, 'a.vst3'), '--plugin2', os.path.join(d, 'b.vst3'), '--dir', os.path.join(d, 'fills'), '--dir2', os.path.join(d, 'patterns'),\n"
+        + "         '--recursive', '--outdir', os.path.join(d, 'out'), '--bpm_from_name'])\n"
+        + "print('made ' + ' '.join(sorted(os.path.relpath(os.path.join(r, f), os.path.join(d, 'out')).replace(os.sep, '/') for r, _, fs in os.walk(os.path.join(d, 'out')) for f in fs)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String labels = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py")))
+      if (q.token.equals("--plugin2") || q.token.equals("--dir2") || q.token.equals("--bpm_from_name")) labels += q.token + (q.plugin ? " (plugin)" : q.dir ? " (folder)" : "") + ", ";
+    this.out.append(said).append("\nParams: ").append(labels).append('\n');
+    boolean ok = said.contains("== Plugin 1 of 2: a.vst3") && said.contains("== Plugin 2 of 2: b.vst3") && said.contains("Plugins: a.vst3 done, b.vst3 done")
+        && said.contains("fills/100 rock/Fill 1-a.wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a.wav: 1.6 s at 80 BPM (name)")
+        && said.contains("patterns/120 Own Tempo-b.wav: 1.4 s at its own 90 BPM (its name says 120)")
+        && said.contains("made fills/100 rock/Fill 1-a.wav fills/100 rock/Fill 1-b.wav patterns/120 Own Tempo-a.wav patterns/120 Own Tempo-b.wav patterns/80bpm Groove-a.wav patterns/80bpm Groove-b.wav")
+        && labels.contains("--plugin2 (plugin)") && labels.contains("--dir2 (folder)") && labels.contains("--bpm_from_name");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
+  private static byte[] midiFile(byte[] track) throws java.io.IOException {
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    return mid.toByteArray();
+  }
+
+  /** vst_render --map with several plugins: a map file's [plugin] sections, --map2 for the second plugin, the first plugin's --state only. */
+  void s156_vst_render_maps_per_plugin() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "maps-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File maps = new File(dir, "maps.txt");
+    Files.write(maps.toPath(), "# every plugin\n35=none\n[Anarchy Drums]\n45=46\n41=none\n[Artillery]\n57=49\n".getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "m = sys.argv[2]\n"
+        + "for p in ('/vst/Anarchy Drums.vst3', '/vst/Artillery2.vst3', '/vst/Other.vst3'):\n"
+        + "    notes, part = vr.map_for(m, p)\n"
+        + "    print('%s: %s %s' % (p.split('/')[-1], sorted(notes.items(), key=lambda x: x[0]), part))\n"
+        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--map2': '45=46', '--map3': None}\n"
+        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map', 'M', '--map2', '45=46', '--state', 's.fxp', '--test'], opts):\n"
+        + "    print('run %s: %s' % (plug, ' '.join(args)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), maps.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    java.util.List<String> bad = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map2", "45=46"));
+    String refused = PythonRun.runFor(bad, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--map2")) label = q.label;
+    this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
+        && said.contains("Other.vst3: [(35, None)] ")
+        && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
+        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

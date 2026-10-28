@@ -597,6 +597,11 @@ public final class ProgramParams {
       p.label = "Plugin (VST2 .dll / VST3 .vst3)";
       p.ext = "any";
       p.plugin = true;
+    } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3")) {
+      p.label = (p.token.equals("--plugin2") ? "Second" : "Third") + " plugin: the whole run again with it (its own WAVs, report and zip)";
+      p.hint = "empty: only the plugin above; plays with its last Edit settings";
+      p.ext = "any";
+      p.plugin = true;
     } else if (p.token.equals("--carla")) {
       p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
       p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
@@ -647,16 +652,46 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Render every MIDI in this folder (instead of one)";
       p.hint = "empty: the MIDI file above";
+    } else if (p.token.equals("--dir2")) {
+      p.dir = true;
+      p.label = "A second folder rendered in the same run (fills here, patterns there)";
+      p.hint = "empty: only the folder above; in the WAVs' folder each goes under its own name";
+    } else if (p.token.equals("--bpm_from_name")) {
+      p.label = "Tempo from the name: a MIDI with no tempo of its own plays at the number in its file or folder name";
     } else if (p.token.equals("--recursive")) {
       p.label = "Its subfolders too";
     } else if (p.token.equals("--outdir")) {
       p.dir = true;
       p.label = "Folder for the WAVs";
       p.hint = "empty: beside each MIDI";
+    } else if (p.token.equals("--skip_existing")) {
+      p.label = "Skip what is already made: WAVs (and DrumMidi's MIDI) from a run that was stopped";
     } else if (p.token.equals("--test")) {
       p.label = "Test: DrumMidi on each WAV, its hits against the MIDI (report vst-test-<plugin>.txt)";
     } else if (p.token.equals("--no-toms")) {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
+    } else if (p.token.equals("--snare-leak")) {
+      p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
+    } else if (p.token.equals("--map")) {
+      p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
+      p.hint = "Anarchy Drums: 45=46,41=none; empty: as the MIDI has them";
+    } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
+      p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
+      p.hint = "empty: the map above is its map too";
+    } else if (p.token.equals("--mp3")) {
+      p.label = "MP3s instead of WAVs (after the test): the WAVs are made MP3s at this bitrate and deleted";
+      p.hint = "empty: WAVs; 192 is about a seventh of the WAV";
+      p.choices = new String[] {"WAV only (default)", "128 kbps", "192 kbps", "256 kbps", "320 kbps"};
+      p.choiceValues = new String[] {"", "128", "192", "256", "320"};
+    } else if (p.token.equals("--keep_wav")) {
+      p.label = "Keep the WAVs too (with MP3s)";
+    } else if (p.token.equals("--zip")) {
+      p.label = "Zip: the MIDI files, the WAVs (and the test's MIDI files and report) in one zip";
+    } else if (p.token.equals("--zip_mb")) {
+      p.label = "Several zips of at most this many MB (zips without the box above)";
+      p.hint = "30 for a 30 MB chat limit; empty: one zip";
+    } else if (p.token.equals("--zip_nowav")) {
+      p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
     }
   }
 

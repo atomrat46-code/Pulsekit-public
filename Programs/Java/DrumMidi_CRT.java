@@ -24,7 +24,7 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--log [logfile]]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log [logfile]]
  *
  * --log writes the input and output names, the settings and the hits found to a text file
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
@@ -35,6 +35,12 @@ import java.util.Set;
  *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
+ *
+ * --snare-leak drops the hats a bright snare's wires make in the hat band: what the song's snare puts
+ * over 10 kHz is learned from its snares without a hat, and a hat on a snare that rises no more than
+ * that is the snare. Fewer false hats on the snare, some real ones lost too (tested: hat precision
+ * 76% to 81-85%, recall 80-87% to 71-82%); off unless asked, as songs with few hat-free snares gain
+ * nothing.
  *
  * --sens sets kick and snare, and every other part that is not given its own value.
  * --hat, --tom, --ride and --crash replace --sens for that part (they do not multiply it).
@@ -138,6 +144,20 @@ public class DrumMidi_CRT{
      * up to 0.08, a shuffle 0.6).
      */
     static final double DOTTED_BEAT = 0.8;
+    /**
+     * A "kick" reading under LOW_TOM of the song's usual kick pitch (the median of LOW_TOM_KICKS kicks
+     * at least) is a floor tom tuned under the kick (Anarchy Drums' toms ring at 78-82 Hz under its
+     * 113 Hz kick; other kits' kicks read that low 1 time in 600). Not at a pitch KICK_MOST of the
+     * kicks share, nor where wires ring (a snare with it) or under LOW_TOM_HZ (no pitch read there).
+     * A tom's tone rings on: 8 frames on it keeps LOW_TOM_RING of its level at its pitch (0.06-0.24;
+     * a kick heard through room mics reads that low too, but dies at once: 0.00-0.04). A pitch that
+     * already sounded just before is a guitar's note held over the kick; over guitars no tom is
+     * looked for under the kick (a chord's low note rings there).
+     */
+    static final double LOW_TOM = 0.8, LOW_TOM_HZ = 40, LOW_TOM_RING = 0.05;
+    static final int LOW_TOM_KICKS = 8;
+    /** Such a tom with no other drum found at it still raises the tom bands' level by LOW_TOM_JUMP. */
+    static final double LOW_TOM_JUMP = 0.1;
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
@@ -150,12 +170,27 @@ public class DrumMidi_CRT{
      * a hat struck with it 0.68 and more), are hats only where they keep the hats' time.
      */
     static final double KICK_HAT_JUMP = 0.15, SNARE_HAT_JUMP = 0.66, SNARE_LIKE = 0.65, SNARE_LIKE_BODY = 0.5;
+    /**
+     * A hat peak within ECHO_FRAMES (~115 ms) of the one before that raises the hat band less than
+     * ECHO_RISE and stays under ECHO_LEVEL of it is that hit's second peak (a kick's, an open hat's or a
+     * ride's: Anarchy Drums' samples have one 40-120 ms on), not a hat of its own.
+     */
+    static final int ECHO_FRAMES = 10;
+    static final double ECHO_RISE = 0.2, ECHO_LEVEL = 0.8;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
     static final double SAME_CYMBAL = 0.035;
     static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.6;
     static final double RIDE_STABLE_RINGING = 0.84, RIDE_RING = 0.45, RIDE_TOP_RING = 0.3;
+    /**
+     * A sampled ride played dry (Anarchy Drums') holds its partials less: its wash keeps RIDE_WASH of
+     * the hit 6 frames on (0.64-0.86) at RIDE_WASH_STABLE (0.76-0.86) while its 7-14 kHz dies to
+     * RIDE_WASH_TOP 6 frames on (0.42-0.62) and RIDE_WASH_TOP_LATE 12 frames on (0.05-0.49). Closed
+     * hats in a room and open hats ring like that too, but their top keeps on (0.6-1.0 and 0.5-0.8
+     * 12 frames on).
+     */
+    static final double RIDE_WASH = 0.6, RIDE_WASH_STABLE = 0.74, RIDE_WASH_TOP = 0.65, RIDE_WASH_TOP_LATE = 0.4;
     static final int RIDE_ALONE = 2;
     static final double RIDE_NEAR = 1.0;
     static final int RIDE_SEEN = 3;
@@ -398,7 +433,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--log <logfile>] [--dir <folder>] [--recursive]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log <logfile>] [--dir <folder>] [--recursive]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -413,6 +448,8 @@ public class DrumMidi_CRT{
         boolean cymbals = true;
         // No toms: they are still told apart from kicks and snares, but not written.
         boolean writeToms = true;
+        // Snare leak: hats on a snare that rise no more than its own wires do are left out.
+        boolean snareLeak = false;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -425,6 +462,7 @@ public class DrumMidi_CRT{
             else if ("--no-hpss".equals(opt)) hpss = false;
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
+            else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -436,7 +474,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms"));
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : ""));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -601,7 +639,7 @@ public class DrumMidi_CRT{
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
         }
         // A floor tom is heard as a kick, but well above the song's kick pitch.
-        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare);
+        if (!bass) floorToms(hits, kickFrames, lowPitch, kickLevel, noiseLevel, sr, mag, snareAt, loudSnare, guitar);
         pedalHats(hits, snarePeaks, snareBodies, sr);
         // Toms are not where a kick or snare would be found at full sensitivity,
         // so a lower --sens does not turn quiet kicks and snares into toms.
@@ -658,6 +696,7 @@ public class DrumMidi_CRT{
         for (int i = 0; i < nHats; i++) {
             if (!keep[i]) continue;
             int t = hatPeaks.get(i).intValue();
+            if (echo(hatPeaks, hat, hatLevel, i)) continue;
             boolean open = openHat(hatRaw, hatPeaks, i);
             // A pedal hat's chick reaches the hat band: no closed hat on it.
             if (!open && onPedal(hits, t * (double) HOP / sr)) continue;
@@ -689,7 +728,7 @@ public class DrumMidi_CRT{
             for (Hit h : hits) {
                 if ((h.note == RIDE_NOTE || h.note == CRASH_NOTE) && Math.abs(h.time - time) <= SAME_CYMBAL) found = true;
             }
-            if (found) continue;
+            if (found || echo(hatPeaks, hat, hatLevel, i)) continue;
             boolean open = openHat(hatRaw, hatPeaks, i);
             if (!open && onPedal(hits, time)) continue;
             hits.add(new Hit(time, open ? OPEN_HAT : CLOSED_HAT, hat[t]));
@@ -729,8 +768,34 @@ public class DrumMidi_CRT{
             }
             hits.add(new Hit(t * (double) HOP / sr, note, strength));
         }
+        // Toms tuned under the kick that nothing else was found at (their stick hardly clicks, their
+        // level hardly jumps over the song's kicks): onsets in the tom bands with the low tone ringing,
+        // where no kick, snare, tom or cymbal was written (a loose kick or snare peak there is the tom's).
+        if (!bass && !guitar && kickFrames.size() >= LOW_TOM_KICKS) {
+            double[] kp = new double[kickFrames.size()];
+            for (int i = 0; i < kp.length; i++) kp[i] = lowPitch[kickFrames.get(i).intValue()];
+            Arrays.sort(kp);
+            double usualKick = kp[kp.length / 2];
+            double[] tomBand = new double[kick.length];
+            for (int t = 0; t < tomBand.length; t++) tomBand[t] = Math.max(floor[t], Math.max(mid[t], rack[t]));
+            normalize(tomBand);
+            for (Integer pk : pickPeaks(tomBand, BASE_DELTA / Math.max(0.05, tomSens), 4)) {
+                int t = pk.intValue();
+                if (t + 8 >= mag.length) continue;
+                double time = t * (double) HOP / sr;
+                boolean taken = false;
+                for (Hit h : hits) if (Math.abs(h.time - time) <= 0.035 && h.note != CLOSED_HAT && h.note != OPEN_HAT && h.note != PEDAL_HAT) taken = true;
+                if (taken) continue;
+                double pt = lowPitch[t];
+                if (pt >= LOW_TOM * usualKick || pt < LOW_TOM_HZ || jump(tomLevel, t) < LOW_TOM_JUMP || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+                if (toneRing(mag, t, pt, sr) < LOW_TOM_RING || heldBefore(lowPitch, t, pt)) continue;
+                hits.add(new Hit(time, FLOOR_TOM, tomBand[t]));
+            }
+        }
         rideOrHats(hits, shape, fps, bass, guitar);
         if (!bass) lonelyRides(hits);
+        darkCrashes(hits, shape, fps);
+        if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
         note("Hits: " + hits.size());
@@ -768,7 +833,7 @@ public class DrumMidi_CRT{
                 + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
                 + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
                 + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
-                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + "; tempo=" + num(bpm);
+                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + (snareLeak ? "; snare-leak=on" : "") + "; tempo=" + num(bpm);
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
@@ -1492,13 +1557,14 @@ public class DrumMidi_CRT{
      * song's kick pitch is the lower quartile of them (kicks are the lowest, and a fill can have
      * nearly as many floor toms). Not called where a bass line plays: its notes would be read instead.
      */
-    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag, boolean[] snareAt, SnareBody loudSnare) {
+    static void floorToms(List<Hit> hits, List<Integer> kickFrames, double[] lowPitch, double[] kickLevel, double[] noiseLevel, double sr, float[][] mag, boolean[] snareAt, SnareBody loudSnare, boolean guitar) {
         if (kickFrames.size() < 4) return;
         double[] p = new double[kickFrames.size()];
         for (int i = 0; i < p.length; i++) p[i] = lowPitch[kickFrames.get(i).intValue()];
         double[] sorted = p.clone();
         Arrays.sort(sorted);
         double kickPitch = sorted[sorted.length / 4];
+        double usualKick = sorted[sorted.length / 2];
         // A song where most kicks read high carry a note held from before (guitars over the drums,
         // HELD_SONG of them, at least 5): there every kick's tom pitch is checked on what is new at it.
         int high = 0, held = 0;
@@ -1521,6 +1587,13 @@ public class DrumMidi_CRT{
             // A kick read at its third partial, in its pitch or in what is new at it, stays a kick;
             // so does one at a pitch many of the song's kicks read.
             if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
+            // A tom tuned under the kick.
+            if (!guitar && p.length >= LOW_TOM_KICKS && p[i] < LOW_TOM * usualKick && p[i] >= LOW_TOM_HZ && !snareAt[t]
+                && wiresLeft(noiseLevel, t) < TOM_WIRES && !sharedPitch(p, p[i], KICK_MOST) && toneRing(mag, t, p[i], sr) >= LOW_TOM_RING
+                && !heldBefore(lowPitch, t, p[i])) {
+                floorTom(hits, t * (double) HOP / sr);
+                continue;
+            }
             if (sharedPitch(p, p[i]) && lowEnd(mag, t, p[i], sr) >= KICK_SHARE_SUB) continue;
             // A pitch most of the song's kicks read is the kick's with less of a low end than
             // KICK_SHARE_SUB asks (a kick processed so its second partial rings over the
@@ -1545,6 +1618,17 @@ public class DrumMidi_CRT{
             if ((heldSong || heldBefore(lowPitch, t, p[i])) && rise[i] < TOM_OVER_KICK * kickPitch) continue;
             floorTom(hits, t * (double) HOP / sr);
         }
+    }
+
+    /** How much of its level at `pitch` a hit keeps 8 frames on (a tom's tone rings, a kick's thump dies). */
+    static double toneRing(float[][] mag, int t, double pitch, double sr) {
+        int maxBin = mag[t].length - 1, pb = bin(pitch, sr, maxBin), a = Math.min(mag.length - 1, t + 1), b = Math.min(mag.length - 1, t + 8);
+        double at = 0, later = 0;
+        for (int k = Math.max(1, pb - 1); k <= Math.min(maxBin, pb + 1); k++) {
+            at = Math.max(at, mag[a][k]);
+            later = Math.max(later, mag[b][k]);
+        }
+        return at > 1e-12 ? later / at : 0;
     }
 
     /** Whether KICK_SHARE of the pitches (KICK_SHARE_MIN at least) are within KICK_SAME of `pitch`. */
@@ -1709,6 +1793,13 @@ public class DrumMidi_CRT{
         return false;
     }
 
+    /** The hat peak is the second peak of the one before (ECHO_FRAMES). */
+    static boolean echo(List<Integer> peaks, double[] hat, double[] level, int i) {
+        if (i == 0) return false;
+        int t = peaks.get(i).intValue(), p = peaks.get(i - 1).intValue();
+        return t - p <= ECHO_FRAMES && jump(level, t) < ECHO_RISE && hat[t] < ECHO_LEVEL * hat[p];
+    }
+
     static boolean keepsTime(List<Integer> peaks, boolean[] keep, int i) {
         int t = peaks.get(i).intValue();
         int[] before = new int[2], after = new int[2];
@@ -1798,8 +1889,11 @@ public class DrumMidi_CRT{
             // A guitar holds the band steady under closed hats too; their 7-14 kHz has died 6 frames on
             // (a ride's still rings, RIDE_TOP_RING of the hit).
             boolean topRings = b + 6 < sh.hi.length && sh.hi[b + 6] >= RIDE_TOP_RING * sh.hi[b];
+            // A dry ride's wash: the ride band rings on while its top dies (closed and open hats keep their top).
+            boolean washes = b + 12 < sh.ride.length && sh.ride[b + 6] >= RIDE_WASH * sh.ride[b]
+                && sh.hi[b + 6] <= RIDE_WASH_TOP * sh.hi[b] && sh.hi[b + 12] <= RIDE_WASH_TOP_LATE * sh.hi[b];
             boolean stable = !bass && topRings && (next - h.time) * fps > 8 && b + 4 < sh.stab.length
-                && (sh.stab[b + 4] >= RIDE_STABLE || rings && sh.stab[b + 4] >= RIDE_STABLE_RINGING);
+                && (sh.stab[b + 4] >= RIDE_STABLE || rings && sh.stab[b + 4] >= RIDE_STABLE_RINGING || washes && sh.stab[b + 4] >= RIDE_WASH_STABLE);
             // Rises at the hit: what already sounds (a band, a ride's own wash) does not count.
             int pre = Math.max(0, t - 3);
             double dl = Math.max(0, sh.lo[b] - sh.lo[pre]), dr = Math.max(1e-9, sh.ride[b] - sh.ride[pre]), dh = Math.max(0, sh.hi[b] - sh.hi[pre]);
@@ -1820,6 +1914,91 @@ public class DrumMidi_CRT{
             // Over a band, guitar chords struck with the hats look low too: hats are not made rides.
             if (bass && note == RIDE_NOTE) continue;
             if (note != h.note) hits.set(hits.indexOf(h), new Hit(h.time, note, h.strength));
+        }
+    }
+
+    /**
+     * A crash played on and on (eighths or quarters, as heavy music rides it) has no time to wash
+     * between its hits, so isCrash, which asks for the wash, does not find it: its hits are written
+     * as hats or a ride. Such a crash is dark: its 7-14 kHz under CRASH_TILT of its 3-7 kHz (Anarchy
+     * Drums' crashes 0.18-0.29; hats and rides 0.34-0.92), and the 3-7 kHz still at CRASH_SWELL of the
+     * hit 5 frames on (a crash swells: 0.88-1.71; most hats die under it). Where at least
+     * CRASH_SHARE of the cymbal hits within CRASH_WINDOW seconds are so (any number of them: a lone
+     * crash too), they are the crash.
+     */
+    static final double CRASH_TILT = 0.3, CRASH_SWELL = 0.75, CRASH_SHARE = 0.5, CRASH_WINDOW = 1.0;
+
+    /**
+     * --snare-leak: a snare's wires reach the hat band, and a bright one (Anarchy Drums') looks there
+     * just like a hat struck with it. What is the snare's own is learned from the song's snares with
+     * no hat written at them (LEAK_SNARES at least; with fewer, nothing is changed): the share of
+     * their 4-14 kHz rise that is over 10 kHz (Anarchy's snare 0.06-0.14, a snare with a cymbal
+     * 0.16-0.26, a hat alone 0.33-0.47). A hat on a snare whose share stays under LEAK_OVER times the
+     * snare's own is the snare's leak, not a hat.
+     */
+    static final int LEAK_SNARES = 4;
+    static final double LEAK_OVER = 1.2;
+
+    static void snareLeaks(List<Hit> hits, float[][] mag, double sr, double fps) {
+        List<Hit> snares = new ArrayList<Hit>(), alone = new ArrayList<Hit>();
+        for (Hit h : hits) if (h.note == SNARE_NOTE) snares.add(h);
+        for (Hit s : snares) {
+            boolean hat = false;
+            for (Hit h : hits) if ((h.note == CLOSED_HAT || h.note == OPEN_HAT || h.note == PEDAL_HAT) && Math.abs(h.time - s.time) <= SAME_CYMBAL) hat = true;
+            if (!hat) alone.add(s);
+        }
+        if (alone.size() < LEAK_SNARES) {
+            note("Snare leak: " + alone.size() + " snares without a hat, " + LEAK_SNARES + " needed to learn the snare's own sound; no hats left out");
+            return;
+        }
+        double[] own = new double[alone.size()];
+        for (int i = 0; i < own.length; i++) own[i] = topShare(mag, (int) Math.round(alone.get(i).time * fps), sr);
+        Arrays.sort(own);
+        double snareTop = own[own.length / 2];
+        List<Hit> leaks = new ArrayList<Hit>();
+        for (Hit h : hits) {
+            if (h.note != CLOSED_HAT && h.note != OPEN_HAT) continue;
+            boolean onSnare = false;
+            for (Hit s : snares) if (Math.abs(s.time - h.time) <= SAME_CYMBAL) onSnare = true;
+            if (onSnare && topShare(mag, (int) Math.round(h.time * fps), sr) < LEAK_OVER * snareTop) leaks.add(h);
+        }
+        hits.removeAll(leaks);
+        note(String.format(java.util.Locale.ROOT, "Snare leak: learned from %d snares without a hat (%.2f of their rise over 10 kHz); %d hats on snares left out", alone.size(), snareTop, leaks.size()));
+    }
+
+    /** Of what rises at the hit in 4-14 kHz (over 3 frames before), the share over 10 kHz. */
+    static double topShare(float[][] mag, int t, double sr) {
+        if (t < 3 || t + 1 >= mag.length) return 1;
+        int maxBin = mag[t].length - 1;
+        double low = 0, high = 0;
+        for (int b = bin(4000, sr, maxBin); b < bin(14000, sr, maxBin); b++) {
+            double r = Math.max(0, Math.max(mag[t][b], mag[t + 1][b]) - mag[t - 3][b]);
+            if (b >= bin(10000, sr, maxBin)) high += r;
+            else low += r;
+        }
+        return low + high > 1e-12 ? high / (low + high) : 1;
+    }
+
+    static void darkCrashes(List<Hit> hits, CymbalShape sh, double fps) {
+        List<Hit> cym = new ArrayList<Hit>();
+        for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == OPEN_HAT || h.note == RIDE_NOTE || h.note == CRASH_NOTE) cym.add(h);
+        int n = cym.size();
+        boolean[] dark = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            int t = (int) Math.round(cym.get(i).time * fps) + 1;
+            if (t + 5 >= sh.ride.length || sh.ride[t] < 1e-12) continue;
+            dark[i] = sh.hi[t] < CRASH_TILT * sh.ride[t] && sh.ride[t + 5] >= CRASH_SWELL * sh.ride[t];
+        }
+        for (int i = 0; i < n; i++) {
+            Hit h = cym.get(i);
+            if (h.note == CRASH_NOTE) continue;
+            int seen = 0, crashes = 0;
+            for (int j = 0; j < n; j++) {
+                if (Math.abs(cym.get(j).time - h.time) > CRASH_WINDOW) continue;
+                seen++;
+                if (dark[j]) crashes++;
+            }
+            if (crashes > 0 && crashes >= CRASH_SHARE * seen && dark[i]) hits.set(hits.indexOf(h), new Hit(h.time, CRASH_NOTE, h.strength));
         }
     }
 

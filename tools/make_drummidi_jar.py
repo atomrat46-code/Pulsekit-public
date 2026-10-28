@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Builds Programs/Java/DrumMidi_CRT.jar: DrumMidi_CRT with JLayer's MP3 decoder, for PyJav.
+Wav2Mp3 goes in too: vst_render.py --mp3 turns its WAVs into MP3s with it (java -cp the jar Wav2Mp3).
 
 PyJav on Android turns a jar's classes into DEX and loads only those, so files inside the jar
 cannot be read as resources. JLayer's tables (sfd.ser, l3reorder.ser) therefore go into a
@@ -19,6 +20,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
+WAV2MP3 = os.path.join(ROOT, "Programs", "Java", "Wav2Mp3.java")
 JLAYER = os.path.join(ROOT, "shared", "libs", "jlayer-1_0_1.jar")
 OUT = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.jar")
 TABLES = ("javazoom/jl/decoder/sfd.ser", "javazoom/jl/decoder/l3reorder.ser")
@@ -79,7 +81,7 @@ def main():
         with open(os.path.join(src, "JlTables.java"), "w") as f:
             f.write(tables_source(lib))
         cmd = ["javac", "-nowarn", "-encoding", "UTF-8", "--release", "8", "-d", classes,
-               SOURCE, os.path.join(src, "JlTables.java")]
+               SOURCE, WAV2MP3, os.path.join(src, "JlTables.java")]
         done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if done.returncode != 0:
             sys.stderr.write(done.stdout)

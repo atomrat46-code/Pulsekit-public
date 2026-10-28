@@ -149,6 +149,11 @@ final class PyJav {
         this.pyBatchStop.setName("pyjav-batch-stop");
         this.pyBatchStop.setVisible(BatchQueue.current() != null);
         controls.add(this.pyBatchStop);
+        // Stop script: a Python script running now (vst_render.py ends after the file in progress, then tests and zips).
+        this.pyScriptStop = app.action("Stop script", ELEV, FG, () -> this.stopScript());
+        this.pyScriptStop.setName("pyjav-script-stop");
+        this.pyScriptStop.setVisible(PythonRun.current != null);
+        controls.add(this.pyScriptStop);
         // Arguments: a click shows or hides the args field. Hidden at first, as Params sets the args.
         final JButton extraLab = new JButton("Arguments \u25b8");
         extraLab.setName("pyjav-args-head");
@@ -157,12 +162,19 @@ final class PyJav {
         extraLab.setBorderPainted(false);
         extraLab.setFocusPainted(false);
         extraLab.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        // The arguments get a row of their own, as wide as the page.
+        final JPanel argsRow = new JPanel(new BorderLayout());
+        argsRow.setOpaque(false);
+        argsRow.setAlignmentX(0.0f);
+        argsRow.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+        argsRow.setVisible(false);
         extraLab.addActionListener(e -> {
             boolean open = !this.pyExtra.isVisible();
             this.pyExtra.setVisible(open);
+            argsRow.setVisible(open);
             extraLab.setText(open ? "Arguments \u25be" : "Arguments \u25b8");
-            controls.revalidate();
-            controls.repaint();
+            north.revalidate();
+            north.repaint();
         });
         controls.add(extraLab);
         this.pyExtra = new JTextField(22);
@@ -174,8 +186,10 @@ final class PyJav {
             BorderFactory.createLineBorder(BORDER),
             BorderFactory.createEmptyBorder(6, 8, 6, 8)));
         this.pyExtra.setToolTipText("Optional extra command-line flags, e.g. --out groove.mid");
-        controls.add(this.pyExtra);
+        argsRow.add(this.pyExtra, BorderLayout.CENTER);
         north.add(controls);
+        argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, this.pyExtra.getPreferredSize().height + 6));
+        north.add(argsRow);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
         app.pyEditor.setBackground(ELEV);
@@ -237,10 +251,22 @@ final class PyJav {
         outputBox.add((Component)outTop, "North");
         outputBox.add((Component)logScroll, "Center");
         jPanel.add((Component)north, "North");
-        jPanel.add((Component)editorBox, "Center");
-        jPanel.add((Component)outputBox, "South");
+        // Code and Output share the rest; the line between them is dragged to give either more room.
+        this.pySplit = new javax.swing.JSplitPane(javax.swing.JSplitPane.VERTICAL_SPLIT, editorBox, outputBox);
+        this.pySplit.setName("pyjav-split");
+        this.pySplit.setOpaque(false);
+        this.pySplit.setBorder(BorderFactory.createEmptyBorder());
+        this.pySplit.setContinuousLayout(true);
+        this.pySplit.setResizeWeight(0.65);
+        this.pySplit.setDividerSize(8);
+        editorBox.setMinimumSize(new Dimension(50, 60));
+        outputBox.setMinimumSize(new Dimension(50, 60));
+        jPanel.add((Component)this.pySplit, "Center");
         return jPanel;
     }
+
+    /** Code above, Output below: the divider between them is dragged. */
+    javax.swing.JSplitPane pySplit;
 
     /** Recent prompts' menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastRecent;
@@ -661,8 +687,8 @@ final class PyJav {
         // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
         // in the program files folder, not the run's temporary one.
         runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
-        // vst_render.py --test: Pulsekit's DrumMidi_CRT.jar and this Java for it.
-        if ("vst_render.py".equals(name) && runArgs.contains("--test")) {
+        // vst_render.py --test (and --mp3, Wav2Mp3 being in it): Pulsekit's DrumMidi_CRT.jar and this Java for it.
+        if ("vst_render.py".equals(name) && (runArgs.contains("--test") || runArgs.contains("--mp3"))) {
             try {
                 runArgs = JavaRun.withDrumMidi(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar"), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
             } catch (Exception ex) {
@@ -745,8 +771,11 @@ final class PyJav {
                 app.setNow(lastTop[0]);
             }
             if (app.pyLog == null || lastLine[0] == null || !lastLine[0].equals(app.pyLog.getText())) return;
-            String line = head + JavaRun.runningLine(live, System.currentTimeMillis());
-            app.pyLog.setText(line);
+            String line = head + JavaRun.runningLog(live, System.currentTimeMillis());
+            if (!line.equals(app.pyLog.getText())) {
+                app.pyLog.setText(line);
+                app.pyLog.setCaretPosition(app.pyLog.getDocument().getLength());
+            }
             lastLine[0] = line;
         });
         tick.start();
@@ -760,6 +789,7 @@ final class PyJav {
                 runArgv.add(this.promptRunMode);
                 if (this.promptOutputInvented && outPath.length() > 0 && !runArgv.contains(outPath)) runArgv.add(outPath);
             }
+            if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
@@ -768,6 +798,7 @@ final class PyJav {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);
+                if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
                 if (this.pyRun != null) this.pyRun.setEnabled(true);
                 // The library work below runs on this same thread, before anything else can start.
                 PendingOps.done(pending);
@@ -1348,6 +1379,19 @@ final class PyJav {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+    }
+
+    javax.swing.JComponent pyScriptStop;
+
+    /** Stop script: asks the script to stop; pressed again, it is ended at once. */
+    void stopScript() {
+        if (PythonRun.stop()) {
+            this.testNote("Stopping: the step in progress ends after its file (vst_render.py then tests and zips what it made; Stop script again skips the next step too; pressed twice quickly, it ends the script now).");
+            app.setNow("Stopping the script…");
+        } else {
+            this.testNote("The script was ended.");
+            if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
+        }
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
@@ -2582,7 +2626,7 @@ final class PyJav {
         Shown r = name == null ? null : RUNNING.get(name);
         if (r == null || r.live.done || r.live.aborted()) return false;
         long now = System.currentTimeMillis();
-        String line = r.head + JavaRun.runningLine(r.live, now);
+        String line = r.head + JavaRun.runningLog(r.live, now);
         if (app.pyLog != null) app.pyLog.setText(line);
         r.lastLine[0] = line;
         r.lastTop[0] = JavaRun.runningTop(name, r.live, now);

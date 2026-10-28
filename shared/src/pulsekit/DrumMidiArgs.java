@@ -11,21 +11,22 @@ public final class DrumMidiArgs {
   private DrumMidiArgs() {}
 
   public static final String[] FLAGS = {
-    "--sens", "--hat", "--tom", "--ride", "--crash", "--bpm", "--quantize", "--no-hpss", "--no-cymbals", "--no-toms"
+    "--sens", "--hat", "--tom", "--ride", "--crash", "--bpm", "--quantize", "--no-hpss", "--no-cymbals", "--no-toms", "--snare-leak"
   };
   public static final String[] LABELS = {
-    "Sensitivity", "Hi-hat", "Toms", "Ride", "Crash", "BPM", "Quantize", "No HPSS", "Kick, snare and toms only", "No toms (kick, snare and cymbals only)"
+    "Sensitivity", "Hi-hat", "Toms", "Ride", "Crash", "BPM", "Quantize", "No HPSS", "Kick, snare and toms only", "No toms (kick, snare and cymbals only)",
+    "Snare leak: fewer false hats on a bright snare (a few real ones may go)"
   };
   /** The program's own values, shown as hints in empty fields. */
   public static final String[] HINTS = {
-    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out"
+    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on"
   };
   /**
    * Suggested values, tested on a drum and bass guitar mix (Passing Ships): lower sensitivity
    * keeps bass notes and cymbal wash out. Empty means the program's own default.
    */
   public static final String[] SUGGESTED = {
-    "0.4", "0.4", "0.4", "0.4", "0.4", "", "", "", "", ""
+    "0.4", "0.4", "0.4", "0.4", "0.4", "", "", "", "", "", ""
   };
   public static final String NOTE = "Defaults: the program's own values (empty fields). Suggested: tested on a drum and bass guitar mix.";
 
@@ -91,9 +92,9 @@ public final class DrumMidiArgs {
     return out;
   }
 
-  /** A switch with no value: --no-hpss, --no-cymbals, --no-toms. */
+  /** A switch with no value: --no-hpss, --no-cymbals, --no-toms, --snare-leak. */
   static boolean onOff(String flag) {
-    return "--no-hpss".equals(flag) || "--no-cymbals".equals(flag) || "--no-toms".equals(flag);
+    return "--no-hpss".equals(flag) || "--no-cymbals".equals(flag) || "--no-toms".equals(flag) || "--snare-leak".equals(flag);
   }
 
   public static int index(String token) {

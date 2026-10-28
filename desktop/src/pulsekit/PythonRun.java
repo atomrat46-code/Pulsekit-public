@@ -38,8 +38,35 @@ public final class PythonRun {
 
   private PythonRun() {}
 
-  /** How long a script may run: rendering a song through a plugin (vst_render.py) takes minutes, not seconds. */
+  /**
+   * How long a script may go on without printing anything: a batch (vst_render.py --dir on a thousand
+   * MIDI files) runs for hours while it prints a line a file, so the time counts from its last output.
+   */
   static final int SCRIPT_SECONDS = 600;
+
+  /** The script running now, and the file that asks it to stop (its PULSEKIT_STOP_FILE). */
+  static volatile Process current;
+  static volatile File stopFile;
+
+  /**
+   * Stop script: the first press asks the script to stop (vst_render.py ends after the file in
+   * progress, then tests and zips what it made); the next one ends it at once. True when it was asked.
+   */
+  static boolean stop() {
+    Process p = current;
+    File f = stopFile;
+    if (p == null || !p.isAlive()) return false;
+    if (f != null && !f.exists()) {
+      try {
+        f.createNewFile();
+        return true;
+      } catch (Exception ignored) {
+        // ended below
+      }
+    }
+    p.destroyForcibly();
+    return false;
+  }
 
   public static String findPython() {
     String[][] cmds = {{"python3"}, {"python"}, {"py", "-3"}};
@@ -275,23 +302,32 @@ public final class PythonRun {
       pb.redirectErrorStream(true);
       pb.environment().put("PYTHONPATH", dir.toAbsolutePath().toString());
       pb.environment().put("PYTHONUNBUFFERED", "1");
+      File stopAsk = dir.resolve("pulsekit-stop").toFile();
+      pb.environment().put("PULSEKIT_STOP_FILE", stopAsk.getAbsolutePath());
       Process proc = pb.start();
+      stopFile = stopAsk;
+      current = proc;
       ByteArrayOutputStream bos = new ByteArrayOutputStream();
       InputStream in = proc.getInputStream();
       byte[] buf = new byte[4096];
       long deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
+      // Output shows what the script prints as it goes.
+      JavaRun.Live live = JavaRun.live();
       while (System.currentTimeMillis() < deadline) {
         while (in.available() > 0) {
           int n = in.read(buf);
           if (n <= 0) break;
           bos.write(buf, 0, n);
+          if (live != null) live.add(new String(buf, 0, n, StandardCharsets.UTF_8));
+          // Output: the script is working, its time starts again.
+          deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
         }
         if (!proc.isAlive()) break;
         Thread.sleep(40);
       }
       if (proc.isAlive()) {
         proc.destroyForcibly();
-        bos.write(("\nScript timed out (" + SCRIPT_SECONDS + " s).").getBytes(StandardCharsets.UTF_8));
+        bos.write(("\nScript timed out (no output for " + SCRIPT_SECONDS + " s).").getBytes(StandardCharsets.UTF_8));
       }
       int n;
       while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
@@ -314,6 +350,8 @@ public final class PythonRun {
     } catch (Exception ex) {
       return new Result("Could not run Python: " + ex.getMessage(), Collections.<FileOut>emptyList(), 1);
     } finally {
+      current = null;
+      stopFile = null;
       if (dir != null) {
         try {
           File[] kids = dir.toFile().listFiles();
