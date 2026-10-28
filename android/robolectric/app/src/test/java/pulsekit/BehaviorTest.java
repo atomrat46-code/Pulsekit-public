@@ -10431,6 +10431,33 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** WAV ready's Add to DB…: Result file puts the render in the prompt library's result files. */
+  @Test
+  public void s171_wav_ready_add_to_db() throws Exception {
+    StringBuilder out = new StringBuilder();
+    short[] tone = new short[22050 / 2];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
+    byte[] wav = AudioIo.encodeWav(tone, 22050);
+    AudioOffer.offer(app, "vst-check-Kars.wav", wav);
+    idle();
+    View root = AudioOffer.last.getWindow().getDecorView();
+    View item = root.findViewWithTag("audio-item:" + MediaDir.ADD_TO_DB);
+    out.append("WAV ready lists Add to DB: ").append(item != null).append('\n');
+    if (item != null) item.performClick();
+    idle();
+    if (AudioOffer.lastDbAsk != null) AudioOffer.lastDbAsk.getListView().performItemClick(AudioOffer.lastDbAsk.getListView().getChildAt(0), 0, 0);
+    idle();
+    android.app.Dialog group = ShadowDialog.getLatestDialog();
+    if (group != null && group != AudioOffer.lastDbAsk && group != AudioOffer.last) group.dismiss();
+    idle();
+    java.util.List<String> results = new java.util.ArrayList<String>();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) results.add(f.name);
+    out.append("said: ").append(AudioOffer.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    AudioOffer.last.dismiss();
+    write("s171_wav_ready_add_to_db", out.toString());
+    if (item == null || !"vst-check-Kars.wav is in the DB as a result file".equals(AudioOffer.lastDbAdd) || !results.contains("vst-check-Kars.wav")) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

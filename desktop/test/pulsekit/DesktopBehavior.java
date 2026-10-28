@@ -7753,6 +7753,30 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /** WAV ready's Add to DB…: the render into the prompt library as a result file, then its group asked (No group). */
+  void s161_wav_ready_add_to_db() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "vst-check-Kars.wav");
+    short[] tone = new short[22050 / 2];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
+    Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
+    final boolean[] listed = new boolean[1];
+    inspectNext = d -> listed[0] = find(d.getContentPane(), MediaDir.ADD_TO_DB) != null;
+    answers.add(MediaDir.ADD_TO_DB);
+    answers.add(MediaDir.DB_KINDS[0]);
+    answers.add("OK");
+    answers.add("Close");
+    final PyJav pj = (PyJav) get("pyJav");
+    edt(() -> pj.offerAudio(wav));
+    idle();
+    inspectNext = null;
+    java.util.List<String> results = new java.util.ArrayList<String>();
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) results.add(f.name);
+    this.out.append("WAV ready lists Add to DB: ").append(listed[0]).append(" | said: ").append(pj.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    boolean ok = listed[0] && "vst-check-Kars.wav is in the DB as a result file".equals(pj.lastDbAdd) && results.contains("vst-check-Kars.wav");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

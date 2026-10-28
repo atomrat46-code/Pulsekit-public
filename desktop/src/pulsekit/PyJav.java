@@ -1853,7 +1853,7 @@ final class PyJav {
         while (true) {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> items = TagDialogs.withUseLast(java.util.Arrays.asList("Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
-                FileGroups.ADD, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
+                FileGroups.ADD, MediaDir.ADD_TO_DB, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
             Object[] options = items.toArray();
             int ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
                 + (wav ? "Convert hits into MIDI runs DrumMidi_CRT on it, then shows the MIDI it made."
@@ -1862,6 +1862,7 @@ final class PyJav {
             it = ans < 0 ? "Close" : items.get(ans);
             if (ans == 2) GroupMenus.toggleFavourite(app, audio);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
+            else if (it.equals(MediaDir.ADD_TO_DB)) this.addAudioToDb(audio);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, name, audio.length(), null, kind);
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, audio.length(), kind);
             else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, audio, kind);
@@ -1899,6 +1900,28 @@ final class PyJav {
                 app.setNow("Could not open a player for " + audio.getName());
             }
         }
+    }
+
+    /** The last Add to DB's line (for the tests). */
+    String lastDbAdd;
+
+    /** WAV / MP3 ready's Add to DB: as a result or a reference file in the prompt library, then which group it goes in. */
+    void addAudioToDb(File audio) {
+        Object[] options = {MediaDir.DB_KINDS[0], MediaDir.DB_KINDS[1], "Cancel"};
+        int ans = JOptionPane.showOptionDialog(app, "Add " + audio.getName() + " to the prompt library as a result file (what a prompt or run made) or a reference file?",
+            MediaDir.ADD_TO_DB, JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (ans != 0 && ans != 1) return;
+        byte[] bytes = null;
+        try {
+            if (!MediaDir.tooBig(audio.length())) bytes = Files.readAllBytes(audio.toPath());
+        } catch (Exception ignored) {
+            // said below
+        }
+        String said = bytes == null && MediaDir.tooBig(audio.length()) ? audio.getName() + " is over the library's 128 MB, so it is not in the DB"
+            : MediaDir.addToDb(PromptDb.dir(), audio.getName(), bytes, ans == 0);
+        this.lastDbAdd = said;
+        app.setNow(said);
+        if (said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, audio.getName(), audio.length());
     }
 
     /** WAV ready's: DrumMidi_CRT on the WAV, then MIDI ready on the MIDI it made. */

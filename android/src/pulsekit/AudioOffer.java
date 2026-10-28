@@ -40,13 +40,14 @@ final class AudioOffer {
         final boolean isWav = !name.toLowerCase().endsWith(".mp3");
         final String kind = ReadyRecent.kind(name);
         final String[] items = TagDialogs.withUseLast(app, new String[] {PictureOffer.isFavourite(app, name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-            MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, isWav ? HITS_TO_MIDI : TO_WAV}, kind);
+            MediaDir.ADD_TO_DB, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, isWav ? HITS_TO_MIDI : TO_WAV}, kind);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             final String it = items[i];
             android.widget.TextView item = app.pill(items[i], false, v -> {
                 if (which == 0) PictureOffer.toggleFavourite(app, shownName, size);
                 else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, kind);
+                else if (it.equals(MediaDir.ADD_TO_DB)) addToDb(app, shownName, new java.io.File(path));
                 else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, shownName, size, null, kind);
                 else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, shownName, size, kind);
                 else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, shownName, size, kind, null, new java.io.File(path));
@@ -111,6 +112,33 @@ final class AudioOffer {
         dialog.show();
         last = dialog;
         return true;
+    }
+
+    /** The last Add to DB's line, and its question (for the tests). */
+    static String lastDbAdd;
+    static AlertDialog lastDbAsk;
+
+    /** WAV / MP3 ready's Add to DB: as a result or a reference file in the prompt library, then which group it goes in. */
+    static void addToDb(final MainActivity app, final String name, final java.io.File file) {
+        lastDbAsk = new AlertDialog.Builder(app).setTitle(MediaDir.ADD_TO_DB + " " + name)
+            .setItems(MediaDir.DB_KINDS, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface d, int which) {
+                    byte[] bytes = null;
+                    try {
+                        if (!MediaDir.tooBig(file.length())) bytes = java.nio.file.Files.readAllBytes(file.toPath());
+                    } catch (Exception ignored) {
+                        // said below
+                    }
+                    String said = bytes == null && MediaDir.tooBig(file.length()) ? name + " is over the library's 128 MB, so it is not in the DB"
+                        : MediaDir.addToDb(app.getFilesDir(), name, bytes, which == 0);
+                    lastDbAdd = said;
+                    app.setNow(said);
+                    if (said.contains(" is in the DB as a ")) GroupDialogs.afterAdd(app, name, file.length());
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
     }
 
     /** Copies the audio into PyJav's input folder and makes it the audio input. Returns its path, or null. */
