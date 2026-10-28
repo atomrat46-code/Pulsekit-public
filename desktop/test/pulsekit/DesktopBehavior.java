@@ -7675,6 +7675,84 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * Params' Plugins list (vst_render's plugin rows): the plugins in the VST folders (in a maker's
+   * folder too), A-Z and Z-A; Info says whether a kit was saved for one with Edit; a favourite has a
+   * star and is in Favourites; Test plugin says what vst_render's check found; Use fills the row.
+   */
+  void s160_plugins_list() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    new File(home, ".vst3/Zeta Drums.vst3").mkdirs();
+    new File(home, ".vst3/Anarchy Drums.vst3").mkdirs();
+    new File(home, ".vst3/Ugritone/Ugritone Drums.vst3").mkdirs();
+    new File(home, ".vst").mkdirs();
+    Files.write(new File(home, ".vst/Riot.so").toPath(), new byte[] {1});
+    new File(home, ".pulsekit/vst").mkdirs();
+    Files.write(new File(home, ".pulsekit/vst/Anarchy Drums.state").toPath(), new byte[] {1});
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    final JDialog[] params = new JDialog[1];
+    inspectNext = w -> params[0] = w;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    PluginsList.last = null;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "params-plugins:--plugin2")).doClick());
+    for (int i = 0; i < 100 && (PluginsList.last == null || !PluginsList.last.isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog list = PluginsList.last;
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<File> rows = (javax.swing.JList<File>) component(list, "plugins-list");
+    final javax.swing.JTextArea info = (javax.swing.JTextArea) component(list, "plugins-info");
+    java.util.function.Supplier<String> names = () -> {
+      StringBuilder b = new StringBuilder();
+      // The test's own plugins (the computer's VST folders may have others).
+      for (int i = 0; i < rows.getModel().getSize(); i++) {
+        File f = rows.getModel().getElementAt(i);
+        if (f.getAbsolutePath().startsWith(home.getAbsolutePath())) b.append(b.length() == 0 ? "" : ", ").append(PluginsList.line(f, PluginsList.favourites()).trim());
+      }
+      return b.toString();
+    };
+    final String[] seen = new String[6];
+    edt(() -> seen[0] = names.get());
+    edt(() -> ((javax.swing.JComboBox<?>) component(list, "plugins-sort")).setSelectedIndex(1));
+    edt(() -> seen[1] = names.get());
+    edt(() -> {
+      for (int i = 0; i < rows.getModel().getSize(); i++) if (rows.getModel().getElementAt(i).getName().startsWith("Anarchy")) rows.setSelectedIndex(i);
+    });
+    edt(() -> seen[2] = info.getText().replace(home.getAbsolutePath(), "~").replaceAll("\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d", "date"));
+    edt(() -> ((javax.swing.JButton) component(list, "plugins-fav")).doClick());
+    edt(() -> ((javax.swing.JToggleButton) component(list, "plugins-favourites")).doClick());
+    edt(() -> seen[3] = names.get());
+    PluginsList.lastTest = null;
+    edt(() -> ((javax.swing.JButton) component(list, "plugins-test")).doClick());
+    for (int i = 0; i < 300 && PluginsList.lastTest == null; i++) Thread.sleep(100);
+    idle();
+    edt(() -> seen[4] = info.getText().split("\n")[0]);
+    edt(() -> ((javax.swing.JButton) component(list, "plugins-use")).doClick());
+    idle();
+    edt(() -> seen[5] = ((JLabel) component(d, "params-chosen:--plugin2")).getText());
+    edt(() -> find(d.getContentPane(), "Cancel").doClick());
+    idle();
+    this.out.append("A-Z: ").append(seen[0]).append("\nZ-A: ").append(seen[1]).append("\nInfo: ").append(seen[2].replace('\n', '|')).append("\nFavourites: ").append(seen[3])
+        .append("\nTest plugin: ").append(seen[4]).append("\nUse: --plugin2 ").append(seen[5]).append('\n');
+    boolean ok = seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
+        && seen[2].startsWith("Anarchy Drums (VST3, a bundle folder)") && seen[2].contains("Settings (kit, patch) saved with Edit on date")
+        && seen[3].equals("\u2605 Anarchy Drums") && seen[4].length() > 0 && "Anarchy Drums.vst3".equals(seen[5]) && !list.isShowing();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

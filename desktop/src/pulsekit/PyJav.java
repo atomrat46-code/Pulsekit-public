@@ -1163,6 +1163,12 @@ final class PyJav {
     static final String LAST_VST_KEY = "lastVstFolder";
 
     static File vstFolder() {
+        List<File> dirs = vstFolders();
+        return dirs.isEmpty() ? null : dirs.get(0);
+    }
+
+    /** The usual VST folders of this computer that exist (VST3 first). */
+    static List<File> vstFolders() {
         String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         String home = System.getProperty("user.home", "");
         String[] dirs;
@@ -1174,8 +1180,9 @@ final class PyJav {
         } else {
             dirs = new String[] {home + "/.vst3", "/usr/lib/vst3", home + "/.vst", "/usr/lib/vst", "/usr/local/lib/vst3"};
         }
-        for (String d : dirs) if (new File(d).isDirectory()) return new File(d);
-        return null;
+        List<File> found = new java.util.ArrayList<File>();
+        for (String d : dirs) if (new File(d).isDirectory()) found.add(new File(d));
+        return found;
     }
 
     static void collectButtons(java.awt.Container c, List<JButton> out) {
@@ -2352,6 +2359,19 @@ final class PyJav {
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                     picks.add(pick);
                     if (p.pls) picks.add(playlistButton(p, values, index, chosen));
+                    if (p.plugin) {
+                        // Plugins list: the installed ones, favourites first to hand; test one, or load its kit.
+                        JButton plugins = new JButton("Plugins list");
+                        plugins.setName("params-plugins:" + p.token);
+                        plugins.addActionListener(e -> {
+                            File picked = PluginsList.show(this, SwingUtilities.getWindowAncestor(plugins), values[index]);
+                            if (picked == null) return;
+                            values[index] = picked.getAbsolutePath();
+                            chosen.setText(picked.getName());
+                            rememberVstFolder(picked.getParentFile());
+                        });
+                        picks.add(plugins);
+                    }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 }

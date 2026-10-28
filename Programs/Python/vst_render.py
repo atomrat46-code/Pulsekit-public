@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -49,6 +49,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   close the window, and its settings are saved (to --state, else
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
+  --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42) through the
+                  plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
+                  plugin play with these settings? Every run does that check first, and a plugin that
+                  is silent for it is skipped (with --plugin2/--plugin3 the next one goes on): load
+                  a kit with --edit. In a run, a silent render is left out (no test, no MP3 of it),
+                  and the first three renders silent stop the plugin's run.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
   --dir2          a second folder (fills here, longer patterns there): its MIDI files rendered in the
@@ -889,16 +895,62 @@ def load_plugin(engine, name, path):
 
 
 def collect(folder, recursive):
-    """The MIDI files in the folder (and its subfolders), not DrumMidi's own (*-dm.mid) from a --test."""
+    """The MIDI files in the folder (and its subfolders), not DrumMidi's own (*-dm.mid) from a --test.
+    A subfolder with audio and no MIDI (renders of an earlier run) is named once and passed by."""
     found = []
     for root, dirs, names in os.walk(folder):
         dirs.sort()
-        for n in sorted(names):
-            if n.lower().endswith((".mid", ".midi")) and not n.lower().endswith("-dm.mid"):
-                found.append(os.path.join(root, n))
+        midis = [n for n in sorted(names) if n.lower().endswith((".mid", ".midi")) and not n.lower().endswith("-dm.mid")]
+        found.extend(os.path.join(root, n) for n in midis)
+        audio = [n for n in names if n.lower().endswith(AUDIO_ENDS)]
+        if root != folder and not midis and audio:
+            print("Skipped %s: no MIDI files (%d audio file%s)" % (os.path.relpath(root, folder), len(audio), "" if len(audio) == 1 else "s"))
         if not recursive:
             break
     return found
+
+
+AUDIO_ENDS = (".wav", ".wave", ".mp3", ".flac", ".ogg")
+
+
+def check_midi(folder):
+    """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
+    beats, closed hats (42) on the eighths, on the drum channel; returns its path."""
+    events = []
+    for k in range(8):
+        tick = k * 240
+        notes = [42] + ([36] if k in (0, 4) else [38] if k in (2, 6) else [])
+        for n in notes:
+            events.append((tick, 0x99, n, 100))
+            events.append((tick + 120, 0x89, n, 0))
+    events.sort(key=lambda e: (e[0], e[1] == 0x99))
+    data, last = bytearray(), 0
+    for tick, status, note, vel in events:
+        delta = tick - last
+        last = tick
+        var = [delta & 0x7F]
+        while delta > 0x7F:
+            delta >>= 7
+            var.insert(0, (delta & 0x7F) | 0x80)
+        data += bytes(var) + bytes([status, note, vel])
+    data += b"\x00\xff\x2f\x00"
+    path = os.path.join(folder, "vst-check.mid")
+    with open(path, "wb") as f:
+        f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480) + b"MTrk" + struct.pack(">I", len(data)) + bytes(data))
+    return path
+
+
+def silent_note(note, gizmo, carla):
+    """finish()'s silent note, for DrumGizmo (its MIDI map) or Carla (its project's kit)."""
+    if note and gizmo and note.startswith("the render is silent"):
+        return "the render is silent. Does the MIDI map play this kit's drums with the MIDI's notes (--midimap)?"
+    if note and carla and note.startswith("the render is silent"):
+        return "the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again."
+    return note
+
+
+# A run stops when its first renders are all silent: the plugin plays nothing with these settings.
+SILENT_STOP = 3
 
 
 def pls_midis(path):
@@ -1211,7 +1263,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1291,7 +1343,7 @@ def main(argv):
             batch = batch + [m for m in more if roots[m] == second]
         if not batch:
             fail("no MIDI files in %s" % folder)
-    elif not midi and not opts["--wav"]:
+    elif not midi and not opts["--wav"] and "--check" not in switches:
         fail("no MIDI file to play (or a WAV with --wav, or a folder with --dir)")
     else:
         batch = None
@@ -1434,6 +1486,30 @@ def main(argv):
     late = chain.latency()
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
+    if not opts["--wav"]:
+        # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
+        beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
+        try:
+            check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)
+        except ValueError as e:
+            fail("the test beat did not play (%s)" % e)
+        check_audio, check_note = finish(np, check_audio, volume)
+        if check_note and check_note.startswith("the render is silent"):
+            fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
+                 % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
+        peak = float(np.max(np.abs(check_audio)))
+        print("Plugin check: the test beat plays (peak %.1f dBFS)" % (20 * np.log10(max(peak, 1e-9))))
+        if "--check" in switches:
+            where = opts["--outdir"] or "."
+            if not os.path.isdir(where):
+                os.makedirs(where)
+            out = os.path.join(where, "vst-check-%s.wav" % stem(name))
+            write_wav(out, check_audio, rate, bits)
+            print("Wrote %s: %.1f s, the test beat" % (out, check_audio.shape[1] / float(rate)))
+            print("Succeeded: %s plays" % os.path.basename(os.path.normpath(name)))
+            return
+    elif "--check" in switches:
+        fail("--check plays a test beat (MIDI); --wav plays a WAV through an effect")
     if batch is None:
         source = opts["--wav"] or midi
         if not os.path.isfile(source):
@@ -1450,10 +1526,7 @@ def main(argv):
         if opts["--wav"]:
             print("Input: %s, %.1f s" % (os.path.basename(source), length))
         audio, note = finish(np, audio, volume)
-        if note and gizmo and note.startswith("the render is silent"):
-            note = "the render is silent. Does the MIDI map play this kit's drums with the MIDI's notes (--midimap)?"
-        if note and opts["--carla"] and note.startswith("the render is silent"):
-            note = "the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again."
+        note = silent_note(note, gizmo, opts["--carla"])
         if note:
             print("Note: " + note)
         if not out:
@@ -1471,6 +1544,8 @@ def main(argv):
         skip = "--skip_existing" in switches
         kept = 0
         kept_log = KeptLog("renders", len(batch))
+        silent = 0
+        rendered = 0
         for m in stoppable(batch, "rendering", "the test and the zip use the WAVs made"):
             where = opts["--outdir"] or os.path.dirname(m)
             if opts["--outdir"] and (not pls or roots.get(m) != folder):
@@ -1496,6 +1571,16 @@ def main(argv):
                 print("Failed %s: %s" % (rel(m), e))
                 continue
             audio, note = finish(np, audio, volume)
+            if note and note.startswith("the render is silent"):
+                # Nothing to test or keep: the MIDI's notes are ones this kit does not play.
+                silent += 1
+                print("Skipped %s: %s" % (rel(m), silent_note(note, gizmo, opts["--carla"])))
+                if silent >= SILENT_STOP and rendered == 0:
+                    print("Stopped: the first %d renders are silent. Load a kit or patch the MIDI's notes play (--edit), "
+                          "check the plugin (--check), or give a --map" % silent)
+                    break
+                continue
+            rendered += 1
             if not os.path.isdir(where):
                 os.makedirs(where)
             write_wav(o, audio, rate, bits)
@@ -1601,7 +1686,8 @@ def main(argv):
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
     if batch is not None:
         made = len(batch_done) - kept
-        print("Succeeded: %d of %d MIDI files rendered%s" % (made, len(batch), ", %d kept from before" % kept if kept else ""))
+        print("Succeeded: %d of %d MIDI files rendered%s%s" % (made, len(batch), ", %d kept from before" % kept if kept else "",
+                                                             ", %d silent (left out)" % silent if silent else ""))
     else:
         print("Succeeded: %s" % batch_done[0][1])
 
