@@ -7400,6 +7400,60 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString() + said);
   }
 
+  /** vst_render: two source folders, tempo from the name where a MIDI has none, and a second plugin (stand-in renderers). */
+  void s155_vst_render_folders_tempo_plugins() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "multi-test");
+    File fills = new File(dir, "fills/100 rock"), pats = new File(dir, "patterns");
+    fills.mkdirs();
+    pats.mkdirs();
+    byte[] track = {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    byte[] tempo90 = {0x00, (byte) 0xFF, 0x51, 0x03, 0x0A, 0x2C, 0x2B, 0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0x99, 36, 100, 0x00, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00};
+    Files.write(new File(fills, "Fill 1.mid").toPath(), midiFile(track));
+    Files.write(new File(pats, "80bpm Groove.mid").toPath(), midiFile(track));
+    Files.write(new File(pats, "120 Own Tempo.mid").toPath(), midiFile(tempo90));
+    Files.write(new File(dir, "a.vst3").toPath(), new byte[] {1});
+    Files.write(new File(dir, "b.vst3").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "import numpy as np\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches): pass\n"
+        + "    def latency(self): return 0\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        length, notes = vr.midi_notes(midi)\n"
+        + "        return np.zeros((2, int(44100 * (length + 0.1)))) + 0.1, length, 0\n"
+        + "vr.Chain = C\n"
+        + "d = sys.argv[2]\n"
+        + "vr.main(['--plugin', os.path.join(d, 'a.vst3'), '--plugin2', os.path.join(d, 'b.vst3'), '--dir', os.path.join(d, 'fills'), '--dir2', os.path.join(d, 'patterns'),\n"
+        + "         '--recursive', '--outdir', os.path.join(d, 'out'), '--bpm_from_name'])\n"
+        + "print('made ' + ' '.join(sorted(os.path.relpath(os.path.join(r, f), os.path.join(d, 'out')).replace(os.sep, '/') for r, _, fs in os.walk(os.path.join(d, 'out')) for f in fs)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String labels = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py")))
+      if (q.token.equals("--plugin2") || q.token.equals("--dir2") || q.token.equals("--bpm_from_name")) labels += q.token + (q.plugin ? " (plugin)" : q.dir ? " (folder)" : "") + ", ";
+    this.out.append(said).append("\nParams: ").append(labels).append('\n');
+    boolean ok = said.contains("== Plugin 1 of 2: a.vst3") && said.contains("== Plugin 2 of 2: b.vst3") && said.contains("Plugins: a.vst3 done, b.vst3 done")
+        && said.contains("fills/100 rock/Fill 1-a.wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a.wav: 1.6 s at 80 BPM (name)")
+        && said.contains("patterns/120 Own Tempo-b.wav: 1.4 s at its own 90 BPM (its name says 120)")
+        && said.contains("made fills/100 rock/Fill 1-a.wav fills/100 rock/Fill 1-b.wav patterns/120 Own Tempo-a.wav patterns/120 Own Tempo-b.wav patterns/80bpm Groove-a.wav patterns/80bpm Groove-b.wav")
+        && labels.contains("--plugin2 (plugin)") && labels.contains("--dir2 (folder)") && labels.contains("--bpm_from_name");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
+  private static byte[] midiFile(byte[] track) throws java.io.IOException {
+    java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
+    mid.write(new byte[] {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0x01, (byte) 0xE0});
+    mid.write(new byte[] {'M', 'T', 'r', 'k', 0, 0, 0, (byte) track.length});
+    mid.write(track);
+    return mid.toByteArray();
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

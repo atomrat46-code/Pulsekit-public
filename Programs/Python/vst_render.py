@@ -1,12 +1,17 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
   --plugin        the instrument: a VST2 (.dll, .so, .vst) or VST3 (.vst3) plugin. With --wav, an
                   effect (an amp, a reverb) that the WAV is played through instead.
+  --plugin2, --plugin3
+                  more instruments: the whole run (renders, test, MP3s, zip) again with each, after
+                  --plugin's: <midi>-<plugin2>.wav and its own report. Each plays with the settings
+                  last saved for it with --edit (--state is --plugin's). A plugin that fails is
+                  reported and the next one goes on.
   --carla         a Carla project (.carxp, saved in Carla): its plugins play the MIDI, in the Carla-Rack
                   VST (found in the VST folders unless --plugin gives it). Carla hosts LV2, VST2, VST3,
                   SFZ and SoundFonts natively on Linux, and Windows plugins bridged with yabridge, so
@@ -28,6 +33,14 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   hear one faster or slower. The file's own tempo changes are replaced by this one; the
                   file itself is not changed. With --test, its hits are compared at this tempo too.
                   (Pulsekit does not pass its own tempo as --bpm: give it in Params.)
+  --bpm_from_name a MIDI file with no tempo of its own (it would play at 120) plays at the tempo its
+                  name gives: a number from 40 to 300 in the file's name (127bpmTinytownBeat9,
+                  "100 Basic 1 CH", "090 S01 Chorus"), else in its folders' names, nearest first
+                  ("200 punk/S10 Outro"). A number with bpm after it counts first; one stuck to
+                  letters or in 7-4 does not (S10, F4, 7-4). A file's own tempo is kept (its line
+                  says when its name gives another: a half-time groove is named after the song's
+                  tempo); one with neither plays at --bpm when given. Each WAV's line says the
+                  tempo it was played at.
   --rate N        sample rate: 44100 (default) or 48000.
   --tail N        seconds rendered after the last note, for the sound to ring out (2).
   --volume N      percent, 1 to 400 (100). A mix that would clip is turned down to fit.
@@ -38,6 +51,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--carla
                   the effect's window opens after the instrument's.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
+  --dir2          a second folder (fills here, longer patterns there): its MIDI files rendered in the
+                  same run. In --outdir each folder's WAVs go under its own name (fills/..., patterns/...).
   --skip_existing with --dir: a MIDI whose WAV is already there (from a run that was stopped) is not
                   rendered again; that WAV is tested and zipped as the new ones are. With --test, a
                   WAV's DrumMidi MIDI (<wav>-dm.mid) newer than the WAV is used as it is, not made again
@@ -575,6 +590,46 @@ def to_mp3(java, jar, wav, mp3, kbps):
     return None
 
 
+def file_tempo(path):
+    """The MIDI file's own (first) tempo in BPM, or None when it has none (it plays at 120)."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    i = data.find(b"\xff\x51\x03")
+    if i < 0 or i + 6 > len(data):
+        return None
+    us = int.from_bytes(data[i + 3:i + 6], "big")
+    return round(60000000.0 / us, 2) if us else None
+
+
+def name_tempo(path, root=None):
+    """--bpm_from_name: a tempo (40-300) in the MIDI's name, else in its folders' names (nearest first,
+    up to `root`): a number with bpm after it first, else one standing alone (not S10, F4 or 7-4)."""
+    names = [os.path.splitext(os.path.basename(path))[0]]
+    d = os.path.dirname(os.path.abspath(path))
+    top = os.path.abspath(root) if root else None
+    while d and len(names) < 6:
+        names.append(os.path.basename(d))
+        if top and os.path.normcase(d) == os.path.normcase(top):
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    for n in names:
+        for m in re.finditer(r"(\d{2,3})\s*bpm", n, re.I):
+            v = int(m.group(1))
+            if 40 <= v <= 300:
+                return v
+        for m in re.finditer(r"(?<![A-Za-z0-9.\-])(\d{2,3})(?![A-Za-z0-9.\-])", n):
+            v = int(m.group(1))
+            if 40 <= v <= 300:
+                return v
+    return None
+
+
 def note_map(text):
     """--map: {note: note or None} from "45=46,41=none" or a text file of such pairs (# comments)."""
     if os.path.isfile(text):
@@ -922,7 +977,7 @@ def packed_size(path):
     return min(n + len(z.flush()), os.path.getsize(path) + 64)
 
 
-def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0, no_wav=False):
+def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0, no_wav=False, relfn=None):
     """--zip: the inputs and what was made in one zip beside the report (or, with --zip_mb, in zips of at
     most that many MB); their paths.
 
@@ -938,7 +993,11 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
     used = set()
 
     def arc(sub, f, root=None):
-        rel = os.path.relpath(f, root) if root and os.path.abspath(f).startswith(os.path.abspath(root) + os.sep) else os.path.basename(f)
+        if root and os.path.abspath(f).startswith(os.path.abspath(root) + os.sep):
+            rel = os.path.relpath(f, root)
+        else:
+            # A path already made relative (two folders: under each one's name) stays as it is.
+            rel = f if not os.path.isabs(f) and os.sep in f else os.path.basename(f)
         a = (sub + "/" if sub else "") + rel.replace(os.sep, "/")
         head, ext = os.path.splitext(a)
         k = 2
@@ -954,9 +1013,9 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
     for k, (m, copy) in enumerate(played):
         unit = []
         if m and os.path.isfile(m):
-            unit.append((m, arc("midi" if m.lower().endswith((".mid", ".midi")) else "input", m, folder)))
+            unit.append((m, arc("midi" if m.lower().endswith((".mid", ".midi")) else "input", relfn(m) if relfn else m, None if relfn else folder)))
         if copy and os.path.isfile(copy):
-            unit.append((copy, arc("midi-%gbpm" % bpm, m, folder)))
+            unit.append((copy, arc(("midi-%gbpm" % bpm) if bpm else "midi-at-tempo", relfn(m) if relfn else m, None if relfn else folder)))
         o = wavs[k] if k < len(wavs) else None
         if o and os.path.isfile(o):
             if not (no_wav and o.lower().endswith(".wav")):
@@ -1049,7 +1108,8 @@ def main(argv):
         pass
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None}
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
+            "--plugin2": None, "--plugin3": None, "--dir2": None}
     switches = set()
     files = []
     i = 0
@@ -1061,7 +1121,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1070,6 +1130,41 @@ def main(argv):
         i += 1
     if "--scan" in switches:
         scan()
+        return
+    more = [opts[k] for k in ("--plugin2", "--plugin3") if opts[k]]
+    if more:
+        if not opts["--plugin"]:
+            fail("--plugin2 and --plugin3 add plugins to --plugin: give --plugin too")
+        if opts["--carla"] or opts["--drumgizmo"]:
+            fail("--plugin2 and --plugin3 are VST plugins played after --plugin; not with --carla or --drumgizmo")
+        if "--edit" in switches:
+            fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
+        plugins = [opts["--plugin"]] + more
+        done = []
+        for k, plug in enumerate(plugins):
+            one = []
+            j = 0
+            while j < len(argv):
+                a = argv[j]
+                if a in ("--plugin2", "--plugin3") or (a == "--state" and k > 0):
+                    j += 2
+                    continue
+                if a == "--plugin":
+                    one += [a, plug]
+                    j += 2
+                    continue
+                one.append(a)
+                j += 1
+            print("== Plugin %d of %d: %s" % (k + 1, len(plugins), os.path.basename(os.path.normpath(plug))))
+            try:
+                main(one)
+                done.append((plug, "done"))
+            except SystemExit as e:
+                done.append((plug, "failed" if e.code else "done"))
+            print("")
+        print("Plugins: " + ", ".join("%s %s" % (os.path.basename(os.path.normpath(p)), r) for p, r in done))
+        if all(r == "failed" for p, r in done):
+            sys.exit(1)
         return
     midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
     out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
@@ -1103,12 +1198,47 @@ def main(argv):
         batch = pls_midis(folder) if pls else collect(folder, "--recursive" in switches)
         if pls:
             folder = os.path.dirname(os.path.abspath(folder))
+        roots = {m: folder for m in batch}
+        if opts["--dir2"]:
+            second = opts["--dir2"]
+            if not os.path.isdir(second):
+                fail("no folder %s (--dir2)" % second)
+            more = collect(second, "--recursive" in switches)
+            if not more:
+                fail("no MIDI files in %s (--dir2)" % second)
+            for m in more:
+                roots.setdefault(m, second)
+            batch = batch + [m for m in more if roots[m] == second]
         if not batch:
             fail("no MIDI files in %s" % folder)
     elif not midi and not opts["--wav"]:
         fail("no MIDI file to play (or a WAV with --wav, or a folder with --dir)")
     else:
         batch = None
+        roots = {}
+    if opts["--dir2"] and not opts["--dir"]:
+        fail("--dir2 is a second folder to --dir: give --dir too")
+    # With two folders, each one's files go under its own name in --outdir.
+    two = bool(opts["--dir2"])
+    names = {}
+    for r in sorted(set(roots.values()), key=lambda r: r != folder):
+        n = os.path.basename(os.path.normpath(r)) or "folder"
+        names[r] = n if n not in names.values() else "%s-%d" % (n, len(names) + 1)
+
+    def rel(m):
+        """The MIDI's path under its folder (with two folders, under the folder's name)."""
+        r = roots.get(m, folder)
+        sub = os.path.relpath(m, r) if r else os.path.basename(m)
+        return os.path.join(names[r], sub) if two and r in names else sub
+
+    def shown(path):
+        """A path as the log shows it: under --outdir, else under its folder."""
+        if opts["--outdir"]:
+            return os.path.relpath(path, opts["--outdir"])
+        for r in roots.values():
+            if os.path.abspath(path).startswith(os.path.abspath(r) + os.sep):
+                return (names[r] + os.sep if two else "") + os.path.relpath(path, r)
+        return path
     test = "--test" in switches
     if test:
         if opts["--wav"]:
@@ -1166,17 +1296,46 @@ def main(argv):
             fail("--bpm is 20 to 400")
         if opts["--wav"]:
             fail("--bpm is a MIDI's tempo; --wav plays a WAV as it is")
-    # --bpm: each MIDI is played from a copy at that tempo (the file itself stays as it is).
+    by_name = "--bpm_from_name" in switches
+    if by_name and opts["--wav"]:
+        fail("--bpm_from_name is a MIDI's tempo; --wav plays a WAV as it is")
+    # --bpm (and --bpm_from_name): each MIDI is played from a copy at that tempo (the file itself stays as it is).
     import tempfile
-    tempo_dir = tempfile.mkdtemp(prefix="vst-bpm-") if bpm else None
+    tempo_dir = tempfile.mkdtemp(prefix="vst-bpm-") if bpm or by_name else None
     played_as = {}
+    tempo_of = {}
+
+    def tempo(m):
+        """The tempo the MIDI is played at: --bpm; with --bpm_from_name its own if it has one, else its
+        name's, else --bpm; None: its own."""
+        if m not in tempo_of:
+            if not by_name:
+                tempo_of[m] = bpm
+            else:
+                own = file_tempo(m)
+                tempo_of[m] = None if own else (name_tempo(m, roots.get(m)) or bpm)
+        return tempo_of[m]
 
     def at_tempo(m):
-        if not bpm:
+        b = tempo(m)
+        if not b:
             return m
         if m not in played_as:
-            played_as[m] = retempo(m, bpm, tempfile.mkdtemp(dir=tempo_dir))
+            played_as[m] = retempo(m, b, tempfile.mkdtemp(dir=tempo_dir))
         return played_as[m]
+
+    def tempo_note(m):
+        b = tempo(m)
+        if not b:
+            if not by_name:
+                return ""
+            own, named = file_tempo(m), name_tempo(m, roots.get(m))
+            if own and named and abs(own - named) > 1:
+                return " at its own %g BPM (its name says %d)" % (own, named)
+            return " at its own %g BPM" % own if own else ""
+        return " at %g BPM (%s)" % (b, "name" if by_name and name_tempo(m, roots.get(m)) else "--bpm")
+    if by_name:
+        print("Tempo: each MIDI's own; one with none takes its name's or its folder's%s" % (", else %g BPM (--bpm)" % bpm if bpm else ""))
     if bpm:
         print("Tempo: %g BPM (--bpm)" % bpm)
     try:
@@ -1226,39 +1385,39 @@ def main(argv):
         print("Wrote %s: %.1f s, %d Hz, %d-bit stereo" % (out, audio.shape[1] / float(rate), rate, bits))
         batch_done = [(midi, out)]
     else:
-        print("vst_render: %d MIDI file%s in %s%s" % (len(batch), "" if len(batch) == 1 else "s", folder, " (and its subfolders)" if "--recursive" in switches else ""))
+        print("vst_render: %d MIDI file%s in %s%s%s" % (len(batch), "" if len(batch) == 1 else "s", folder, " and " + opts["--dir2"] if two else "", " (and their subfolders)" if two and "--recursive" in switches else " (and its subfolders)" if "--recursive" in switches else ""))
         batch_done = []
         skip = "--skip_existing" in switches
         kept = 0
         for m in stoppable(batch, "rendering", "the test and the zip use the WAVs made"):
             where = opts["--outdir"] or os.path.dirname(m)
-            if opts["--outdir"] and not pls:
-                # Subfolders are kept under --outdir.
-                where = os.path.join(opts["--outdir"], os.path.relpath(os.path.dirname(m), folder))
+            if opts["--outdir"] and (not pls or roots.get(m) != folder):
+                # Subfolders are kept under --outdir (with two folders, under each one's name).
+                where = os.path.join(opts["--outdir"], os.path.dirname(rel(m)))
             o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
             # --skip_existing: a WAV a stopped run made is kept, when it is whole.
             if skip and whole_wav(o):
-                print("Kept %s (already made)" % os.path.relpath(o, opts["--outdir"] or folder))
+                print("Kept %s (already made)" % shown(o))
                 batch_done.append((m, o))
                 kept += 1
                 continue
             # An MP3 of it from a --mp3 run (its WAV deleted): the MIDI's render too.
             made_mp3 = os.path.splitext(o)[0] + ".mp3"
             if skip and os.path.isfile(made_mp3) and os.path.getsize(made_mp3) > 0:
-                print("Kept %s (already made)" % os.path.relpath(made_mp3, opts["--outdir"] or folder))
+                print("Kept %s (already made)" % shown(made_mp3))
                 batch_done.append((m, made_mp3))
                 kept += 1
                 continue
             try:
                 audio, length, _ = chain.render(np, midi=at_tempo(m), tail=tail)
             except Exception as e:
-                print("Failed %s: %s" % (os.path.relpath(m, folder), e))
+                print("Failed %s: %s" % (rel(m), e))
                 continue
             audio, note = finish(np, audio, volume)
             if not os.path.isdir(where):
                 os.makedirs(where)
             write_wav(o, audio, rate, bits)
-            print("Wrote %s: %.1f s%s" % (os.path.relpath(o, opts["--outdir"] or folder), audio.shape[1] / float(rate), " (" + note + ")" if note else ""))
+            print("Wrote %s: %.1f s%s%s" % (shown(o), audio.shape[1] / float(rate), tempo_note(m), " (" + note + ")" if note else ""))
             batch_done.append((m, o))
     dms = []
     rep = None
@@ -1339,7 +1498,8 @@ def main(argv):
     if where and limit_mb is not None:
         made = make_zip(where, stem(plugin_name), argv, folder if batch is not None else None,
                         [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
-                        [o for _, o in batch_done], dms, rep, opts, bpm, limit_mb, "--zip_nowav" in switches)
+                        [o for _, o in batch_done], dms, rep, opts, None if by_name else bpm, limit_mb, "--zip_nowav" in switches,
+                        rel if two else None)
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
     if batch is not None:

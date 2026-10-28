@@ -597,6 +597,11 @@ public final class ProgramParams {
       p.label = "Plugin (VST2 .dll / VST3 .vst3)";
       p.ext = "any";
       p.plugin = true;
+    } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3")) {
+      p.label = (p.token.equals("--plugin2") ? "Second" : "Third") + " plugin: the whole run again with it (its own WAVs, report and zip)";
+      p.hint = "empty: only the plugin above; plays with its last Edit settings";
+      p.ext = "any";
+      p.plugin = true;
     } else if (p.token.equals("--carla")) {
       p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
       p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
@@ -647,6 +652,12 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Render every MIDI in this folder (instead of one)";
       p.hint = "empty: the MIDI file above";
+    } else if (p.token.equals("--dir2")) {
+      p.dir = true;
+      p.label = "A second folder rendered in the same run (fills here, patterns there)";
+      p.hint = "empty: only the folder above; in the WAVs' folder each goes under its own name";
+    } else if (p.token.equals("--bpm_from_name")) {
+      p.label = "Tempo from the name: a MIDI with no tempo of its own plays at the number in its file or folder name";
     } else if (p.token.equals("--recursive")) {
       p.label = "Its subfolders too";
     } else if (p.token.equals("--outdir")) {
