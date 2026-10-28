@@ -674,7 +674,7 @@ public final class ProgramParams {
       p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "Anarchy Drums: 45=46,41=none; empty: as the MIDI has them";
+      p.hint = "Anarchy Drums: 45=46,41=none (Programs/Python/maps/drum-kits.txt has it); empty: as the MIDI has them";
     } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
       p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";

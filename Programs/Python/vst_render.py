@@ -70,7 +70,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   changed; the report says which map it used. A file can have a section per plugin:
                   [Anarchy Drums] on a line, then its pairs; the section named in the plugin's file
                   name is used (lines before any section are for every plugin), so one file serves
-                  --plugin, --plugin2 and --plugin3.
+                  --plugin, --plugin2 and --plugin3. maps/drum-kits.txt (next to this script) has
+                  the kits tested so far (Anarchy Drums).
   --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and

@@ -1,0 +1,11 @@
+# vst_render.py --test --map file: what each plugin really plays for the MIDI's drum notes.
+# A [section] is used for the plugin whose file name has its name in it (case, spaces and
+# signs aside); a pair is note=note (the plugin plays that sound) or note=none (it plays
+# nothing there the test should count).
+
+[Anarchy Drums]
+# Two toms only (43 and 47/48 ring as toms). 45 sounds as a hat: no low end, its 7-14 kHz
+# jumps 15 times and 1-5 kHz holds like an open hat, and DrumMidi writes it as one.
+45=46
+# Nearly silent in this kit.
+41=none
