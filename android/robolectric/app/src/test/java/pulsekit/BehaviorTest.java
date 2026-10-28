@@ -10458,6 +10458,38 @@ public class BehaviorTest {
     if (item == null || !"vst-check-Kars.wav is in the DB as a result file".equals(AudioOffer.lastDbAdd) || !results.contains("vst-check-Kars.wav")) throw new AssertionError(out.toString());
   }
 
+  /** vst_render's Params: a row's Use box unticked leaves its plugin out of the saved Params (kept beside them); opened again it is there, unticked. */
+  @Test
+  public void s172_params_use_box() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin2 = -1;
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--plugin2")) plugin2 = i;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.store(app, "vst_render.py" + ProgramParams.OFF_KEY, "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[plugin2] = "/vst/Riot.vst3";
+    View v = PyJavParams.shown.getWindow().getDecorView();
+    ((android.widget.CheckBox) v.findViewWithTag("params-use:--plugin2")).setChecked(false);
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String saved = PyJavParams.load(app, "vst_render.py");
+    String kept = PyJavParams.load(app, "vst_render.py" + ProgramParams.OFF_KEY);
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View again = PyJavParams.shown.getWindow().getDecorView();
+    boolean ticked = ((android.widget.CheckBox) again.findViewWithTag("params-use:--plugin2")).isChecked();
+    String value = PyJavParams.shownValues[plugin2];
+    PyJavParams.shown.dismiss();
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.store(app, "vst_render.py" + ProgramParams.OFF_KEY, "");
+    out.append("saved [").append(saved).append("] kept [").append(kept).append("] opened again: ").append(value).append(" ticked ").append(ticked).append('\n');
+    write("s172_params_use_box", out.toString());
+    if (saved.contains("--plugin2") || !"--plugin2 /vst/Riot.vst3".equals(kept) || ticked || !"/vst/Riot.vst3".equals(value)) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

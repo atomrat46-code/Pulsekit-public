@@ -54,6 +54,16 @@ public final class PyJavParams {
     shownParams = ps;
     shownValues = values;
     shownLabels = new TextView[ps.size()];
+    // Rows left out of the run (their Use box unticked) keep their files beside the Params.
+    final java.util.Set<String> off = new java.util.LinkedHashSet<String>();
+    java.util.Map<String, String> offValues = ProgramParams.offValues(ps, load(activity, name + ProgramParams.OFF_KEY));
+    for (int i = 0; i < ps.size(); i++) {
+      String kept = offValues.get(ps.get(i).token);
+      if (kept == null || !ProgramParams.canTurnOff(ps.get(i))) continue;
+      values[i] = kept;
+      off.add(ps.get(i).token);
+    }
+    final android.widget.CheckBox[] uses = new android.widget.CheckBox[ps.size()];
     final String[] before = values.clone();
     if (activity instanceof MainActivity) {
       String input = ((MainActivity) activity).pyJav.pkPyInputPath;
@@ -172,6 +182,7 @@ public final class PyJavParams {
           row.addView(clear);
         }
         row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        useBox(activity, p, i, row, chosen, uses, off);
         box.addView(row);
         continue;
       }
@@ -258,6 +269,7 @@ public final class PyJavParams {
           box.removeView(label);
           box.addView(join);
         }
+        useBox(activity, p, i, row, chosen, uses, off);
         box.addView(spaced(activity, row));
         if (ProgramParams.previewsPicture(p)) {
           // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
@@ -414,6 +426,11 @@ public final class PyJavParams {
           if (fields[i] != null && ProgramParams.longText(ps.get(i))) values[i] = ProgramParams.oneLine(values[i]);
           if (checks[i] != null) values[i] = checks[i].isChecked() ? "1" : "";
         }
+        // The rows left out: kept beside the Params, not in them (a run takes the Params' switches).
+        off.clear();
+        for (int i = 0; i < uses.length; i++) if (uses[i] != null && !uses[i].isChecked()) off.add(ps.get(i).token);
+        store(activity, name + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
+        System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         String switches = ProgramParams.build(ps, values);
         // The prompt kept among the program's six last (Recent prompts).
         for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
@@ -451,6 +468,22 @@ public final class PyJavParams {
           }
         })
         .show();
+  }
+
+  /**
+   * A file or folder switch's Use box, first in its row (ticked: the file is in the run; unticked:
+   * it stays chosen, greyed, and the run leaves it out). Other rows are left as they are.
+   */
+  static void useBox(Activity activity, ProgramParams.Param p, int i, LinearLayout row, final TextView chosen, android.widget.CheckBox[] uses, java.util.Set<String> off) {
+    if (!ProgramParams.canTurnOff(p)) return;
+    final android.widget.CheckBox use = new android.widget.CheckBox(activity);
+    use.setText("Use");
+    use.setTag("params-use:" + p.token);
+    use.setChecked(!off.contains(p.token));
+    chosen.setAlpha(use.isChecked() ? 1f : 0.4f);
+    use.setOnCheckedChangeListener((b, on) -> chosen.setAlpha(on ? 1f : 0.4f));
+    uses[i] = use;
+    row.addView(use, 0);
   }
 
   /** The Params dialog shown last, and the program it is for. */

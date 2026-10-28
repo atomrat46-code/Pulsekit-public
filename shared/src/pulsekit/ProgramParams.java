@@ -1211,6 +1211,46 @@ public final class ProgramParams {
     return a + " " + b;
   }
 
+  /**
+   * A file or folder switch (vst_render's --plugin2, --dir2): its row can be left out of the run
+   * with its file kept (the row's Use box unticked), so it is back with one tick.
+   */
+  public static boolean canTurnOff(Param p) {
+    return p.flag && p.takesValue && (p.isFile() || p.dir);
+  }
+
+  /**
+   * Where the rows left out are kept beside the program's Params (its name with this after it), as
+   * their switches ("--plugin2 C:\\VST\\Riot.vst3 --dir2 F:\\fills"): the Params saved for the run
+   * have them not, so a run leaves them out; Params shows them again in their rows, unticked.
+   */
+  public static final String OFF_KEY = "#off";
+
+  /** The rows left out, switch → its file or folder, from what was kept beside the Params. */
+  public static Map<String, String> offValues(List<Param> ps, String kept) {
+    Map<String, String> out = new LinkedHashMap<String, String>();
+    if (kept == null) return out;
+    for (Map.Entry<String, String> e : read(ps, kept).entrySet()) {
+      Param p = find(ps, e.getKey());
+      if (p != null && canTurnOff(p) && e.getValue().length() > 0) out.put(e.getKey(), e.getValue());
+    }
+    return out;
+  }
+
+  /** The values the run is given: those of the rows left out (`off`) blank, so their switches are not in its arguments. */
+  public static String[] withoutOff(List<Param> ps, String[] values, java.util.Set<String> off) {
+    String[] out = values.clone();
+    for (int i = 0; i < ps.size(); i++) if (off.contains(ps.get(i).token) && canTurnOff(ps.get(i))) out[i] = "";
+    return out;
+  }
+
+  /** Only the rows left out (the others blank): what is kept beside the Params. */
+  public static String[] onlyOff(List<Param> ps, String[] values, java.util.Set<String> off) {
+    String[] out = new String[values.length];
+    for (int i = 0; i < ps.size(); i++) out[i] = off.contains(ps.get(i).token) && canTurnOff(ps.get(i)) ? values[i] : "";
+    return out;
+  }
+
   /** Field values from saved switches and the current arguments (saved switches win). */
   public static String[] values(List<Param> ps, String saved, String extra) {
     Map<String, String> fromSaved = read(ps, saved);

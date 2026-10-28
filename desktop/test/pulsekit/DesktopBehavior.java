@@ -7777,6 +7777,79 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's Params: a file or folder row's Use box unticked leaves it out of the run (its
+   * switch not in the arguments or the saved Params) and keeps it: Params shows it again, unticked;
+   * ticked again, the run has it.
+   */
+  void s162_params_use_box() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "use-test");
+    dir.mkdirs();
+    File riot = new File(dir, "Riot.vst3");
+    Files.write(riot.toPath(), new byte[] {1});
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    call("saveParams", "vst_render.py" + ProgramParams.OFF_KEY, "");
+    java.util.function.Function<java.util.function.Consumer<JDialog>, String> params = work -> {
+      try {
+        final JDialog[] d = new JDialog[1];
+        inspectNext = w -> d[0] = w;
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            call("openParams");
+          } catch (Exception ex) {
+            errors.add(ex);
+          }
+        });
+        for (int i = 0; i < 100 && (d[0] == null || !d[0].isShowing()); i++) Thread.sleep(100);
+        Thread.sleep(300);
+        final String[] seen = new String[1];
+        edt(() -> seen[0] = ((JLabel) component(d[0], "params-chosen:--plugin2")).getText() + " use "
+            + ((javax.swing.JCheckBox) component(d[0], "params-use:--plugin2")).isSelected());
+        work.accept(d[0]);
+        edt(() -> find(d[0].getContentPane(), "OK").doClick());
+        idle();
+        return seen[0];
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    // Pick the second plugin and untick its Use.
+    params.apply(d -> {
+      try {
+        chooseNext = riot;
+        edt(() -> ((javax.swing.JButton) component(d, "params-file:--plugin2")).doClick());
+        idle();
+        edt(() -> ((javax.swing.JCheckBox) component(d, "params-use:--plugin2")).doClick());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    });
+    String args1 = ((javax.swing.text.JTextComponent) get("pyExtra")).getText();
+    String saved1 = String.valueOf(call("loadParams", "vst_render.py"));
+    String kept1 = String.valueOf(call("loadParams", "vst_render.py" + ProgramParams.OFF_KEY)).replace(dir.getAbsolutePath(), "~");
+    // Opened again: there, unticked; ticked, the run has it.
+    String shown = params.apply(d -> {
+      try {
+        edt(() -> ((javax.swing.JCheckBox) component(d, "params-use:--plugin2")).doClick());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    });
+    String args2 = ((javax.swing.text.JTextComponent) get("pyExtra")).getText().replace(dir.getAbsolutePath(), "~");
+    String kept2 = String.valueOf(call("loadParams", "vst_render.py" + ProgramParams.OFF_KEY));
+    call("saveParams", "vst_render.py", "");
+    call("saveParams", "vst_render.py" + ProgramParams.OFF_KEY, "");
+    this.out.append("unticked: args [").append(args1).append("] saved [").append(saved1).append("] kept [").append(kept1).append("]\n")
+        .append("opened again: --plugin2 ").append(shown).append(" | ticked: args [").append(args2).append("] kept [").append(kept2).append("]\n");
+    boolean ok = !args1.contains("--plugin2") && !saved1.contains("--plugin2") && kept1.equals("--plugin2 ~/Riot.vst3")
+        && shown.equals("Riot.vst3 use false") && args2.contains("--plugin2 ~/Riot.vst3") && kept2.length() == 0;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

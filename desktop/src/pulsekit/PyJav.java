@@ -2247,6 +2247,16 @@ final class PyJav {
                 && input.toLowerCase().matches(".*\\.(wav|wave|mp3)$")) values[i] = input;
             break;
         }
+        // Rows left out of the run (their Use box unticked) keep their files beside the Params.
+        final java.util.Set<String> off = new java.util.LinkedHashSet<String>();
+        java.util.Map<String, String> offValues = ProgramParams.offValues(ps, this.loadParams(program + ProgramParams.OFF_KEY));
+        for (int i = 0; i < ps.size(); i++) {
+            String kept = offValues.get(ps.get(i).token);
+            if (kept == null || !ProgramParams.canTurnOff(ps.get(i))) continue;
+            values[i] = kept;
+            off.add(ps.get(i).token);
+        }
+        final javax.swing.JCheckBox[] uses = new javax.swing.JCheckBox[ps.size()];
         final String[] before = values.clone();
         // The file rows' labels: a video picked for a picture row fills it (and an empty second picture row) with its frames.
         final JLabel[] fileLabels = new JLabel[ps.size()];
@@ -2312,7 +2322,7 @@ final class PyJav {
                     });
                     row.add(clear, BorderLayout.EAST);
                 }
-                form.add(row);
+                form.add(this.withUse(p, i, row, chosen, uses, off));
                 continue;
             }
             if (p.isFile()) {
@@ -2448,7 +2458,7 @@ final class PyJav {
                     form.add(holder);
                     continue;
                 }
-                form.add(row);
+                form.add(this.withUse(p, i, row, chosen, uses, off));
                 continue;
             }
             if (ProgramParams.longText(p)) {
@@ -2612,6 +2622,11 @@ final class PyJav {
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
+        // The rows left out: kept beside the Params, not in them (a run takes the Params' switches).
+        off.clear();
+        for (int i = 0; i < uses.length; i++) if (uses[i] != null && !uses[i].isSelected()) off.add(ps.get(i).token);
+        this.saveParams(program + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
+        System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         this.saveParams(program, ProgramParams.build(ps, values));
         // The prompt kept among the program's six last (Recent prompts).
         for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(PromptDb.dir(), program, values[i]);
@@ -2638,6 +2653,25 @@ final class PyJav {
 
     /** The Params dialog's title bar, OK/Cancel row and margins, and the least of the form shown. */
     static final int PARAMS_FRAME = 160, PARAMS_MIN_FORM = 200, PARAMS_SIDES = 80;
+
+    /**
+     * A file or folder switch's row with its Use box in front (ticked: the file is in the run;
+     * unticked: it stays chosen, greyed, and the run leaves it out). Other rows as they are.
+     */
+    java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, JLabel chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
+        if (!ProgramParams.canTurnOff(p)) return row;
+        final javax.swing.JCheckBox use = new javax.swing.JCheckBox("Use", !off.contains(p.token));
+        use.setName("params-use:" + p.token);
+        use.setToolTipText("Unticked: the file or folder stays chosen, and the run leaves it out");
+        uses[i] = use;
+        Runnable paint = () -> chosen.setEnabled(use.isSelected());
+        use.addActionListener(e -> paint.run());
+        paint.run();
+        JPanel wrap = new JPanel(new BorderLayout(4, 0));
+        wrap.add(use, BorderLayout.WEST);
+        wrap.add(row, BorderLayout.CENTER);
+        return wrap;
+    }
 
     /** What the last video picked for a picture row gave (for the tests). */
     String lastFramesNote;
