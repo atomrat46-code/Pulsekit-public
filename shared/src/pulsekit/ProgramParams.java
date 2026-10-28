@@ -648,6 +648,8 @@ public final class ProgramParams {
       p.label = "Edit: open the plugin's window first (load a kit, close it: the settings are saved)";
     } else if (p.token.equals("--scan")) {
       p.label = "List the installed plugins (then stop)";
+    } else if (p.token.equals("--check")) {
+      p.label = "Check only: a test beat through each plugin (does it play with its settings?), its WAV written";
     } else if (p.token.equals("--dir")) {
       p.dir = true;
       p.label = "Render every MIDI in this folder (instead of one)";
