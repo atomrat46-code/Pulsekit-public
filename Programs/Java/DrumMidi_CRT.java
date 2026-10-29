@@ -112,6 +112,14 @@ public class DrumMidi_CRT{
     static final double SOFT_GHOST_DELTA = 0.07, SOFT_GHOST_KICK = 0.1,
         SOFT_GHOST_LEVEL = 0.05, SOFT_GHOST_LIKE = 0.85, SOFT_GHOST_RISE = 2.0, SOFT_GHOST_RING = 0.1;
     static final int RING_FRAMES = 15;
+    /**
+     * A roll or a fast fill: a snare ROLL_FRAMES (~140 ms) or less from a snare found rises out of
+     * that one's ring, so its wires seem not to ring on, and a fill has too few loud snares for the
+     * ghost notes' check. Its body rising as a snare's does, with the next snare's pitch (ROLL_PITCH_LO
+     * - ROLL_PITCH_HI of it) and spectrum (ROLL_LIKE), it is one too.
+     */
+    static final int ROLL_FRAMES = 12;
+    static final double ROLL_LIKE = 0.9, ROLL_PITCH_LO = 0.8, ROLL_PITCH_HI = 1.25;
     static final double GHOST_DELTA = 0.5;
     static final double TOM_JUMP = 0.3, TOM_WIRES = 0.15, QUIET_BEFORE = 0.25, TOM_OVER_KICK = 1.2;
     /** A pitch read 3 and 2 frames before a kick within this share was held from before (a guitar's note). */
@@ -629,6 +637,7 @@ public class DrumMidi_CRT{
                 hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
             }
         }
+        rollSnares(lv, mag, snare, notSnares, snarePeaks, snareBodies, near, hits, bodyLevel, kickLevel, sens, sr);
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
         boolean bassTones = bassNotes(kickLevel);
@@ -1660,6 +1669,35 @@ public class DrumMidi_CRT{
         return at > 1e-9 ? sub / at : 0;
     }
 
+    /** Snares in rolls and fast fills (see ROLL_FRAMES), next to the snares found, added until no more are. */
+    static void rollSnares(Levels lv, float[][] mag, double[] snare, List<Integer> notSnares, List<Integer> snarePeaks, List<Double> snareBodies, boolean[] near,
+            List<Hit> hits, double[] bodyLevel, double[] kickLevel, double sens, double sr) {
+        SnareBody one = new SnareBody(mag, new ArrayList<Hit>(), sr);
+        for (boolean more = true; more; ) {
+            more = false;
+            for (Integer p : notSnares) {
+                int t = p.intValue();
+                if (near[t]) continue;
+                double jb = jump(bodyLevel, t);
+                if (jb < SNARE_JUMP / sens || jb < SNARE_OVER_KICK * jump(kickLevel, t) || jump(lv.bodyRaw, t) < BODY_TONE * jump(lv.gapRaw, t)) continue;
+                boolean like = false;
+                for (Integer q : snarePeaks) {
+                    int s = q.intValue();
+                    if (s != t && Math.abs(s - t) <= ROLL_FRAMES && one.alike(mag, t, s)) {
+                        like = true;
+                        break;
+                    }
+                }
+                if (!like) continue;
+                mark(near, t, 2);
+                snarePeaks.add(p);
+                snareBodies.add(Double.valueOf(jb));
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+                more = true;
+            }
+        }
+    }
+
     /** The song's loud snares' body spectrum (120-450 Hz), to tell its ghost notes from toms. */
     static final class SnareBody {
         final int b0, b1;
@@ -1741,6 +1779,22 @@ public class DrumMidi_CRT{
                 nb += spec[i] * spec[i];
             }
             return na > 0 && nb > 0 && dot / Math.sqrt(na * nb) >= like;
+        }
+
+        /** The body at frame t has frame s's pitch and spectrum (a roll's snares: see ROLL_FRAMES). */
+        boolean alike(float[][] mag, int t, int s) {
+            double[] v = new double[spec.length], w = new double[spec.length];
+            add(v, mag, t);
+            add(w, mag, s);
+            double pw = peakBin(w), ratio = pw > 0 ? peakBin(v) / pw : 0;
+            if (ratio < ROLL_PITCH_LO || ratio > ROLL_PITCH_HI) return false;
+            double dot = 0, na = 0, nb = 0;
+            for (int i = 0; i < v.length; i++) {
+                dot += v[i] * w[i];
+                na += v[i] * v[i];
+                nb += w[i] * w[i];
+            }
+            return na > 0 && nb > 0 && dot / Math.sqrt(na * nb) >= ROLL_LIKE;
         }
 
         /** Where v peaks, in bins from b0's frequency (b0 + index), between bins. */
