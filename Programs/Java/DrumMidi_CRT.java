@@ -126,12 +126,16 @@ public class DrumMidi_CRT{
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
     static final int RISE_KICKS = 16;
     /**
-     * In a fill most "kicks" can be toms, so the median says little: there a kick whose new pitch is
-     * FILL_TOM_RISE times the lower quartile of the kicks' (the real kicks are the lowest), or
-     * FILL_TOM_THIN times it with a thin low end (lowEnd under FILL_TOM_LOW: kicks 0.3-1.0, these
-     * kits' toms 0.07-0.5), is a tom.
+     * In a fill (under RISE_KICKS kicks) many "kicks" are toms, and toms can read lower than the kick
+     * as well as higher, so the song's kick is taken from the half of them with the most low end
+     * (lowEnd at or over their median): the kicks. Signs of a tom: a pitch under FILL_TOM_UNDER or over
+     * FILL_TOM_OVER of theirs (their medians), a new pitch FILL_TOM_RISE times theirs, a low end under
+     * FILL_TOM_LOW of theirs (KVLT's and Riot's toms 0.2-0.4 of their kicks'). Each alone a real kick
+     * shows now and then (Riot's reads low or an octave up, Anarchy's low end varies); a "kick" with
+     * FILL_TOM_SIGNS of them is a tom.
      */
-    static final double FILL_TOM_RISE = 1.6, FILL_TOM_THIN = 1.25, FILL_TOM_LOW = 0.25;
+    static final double FILL_TOM_UNDER = 0.85, FILL_TOM_OVER = 1.4, FILL_TOM_RISE = 1.6, FILL_TOM_LOW = 0.4;
+    static final int FILL_TOM_SIGNS = 2;
     /**
      * A "snare" whose body reads under SNARE_TOM_PITCH of the song's snares' (their median; the toms
      * of these kits read 0.75-0.93 of it, snares 0.98 and over), at SNARE_TOM_HZ or more and with the
@@ -1619,19 +1623,34 @@ public class DrumMidi_CRT{
         for (int i = 0; i < p.length; i++) rise[i] = risePitch(mag, kickFrames.get(i).intValue(), sr);
         double[] rs = rise.clone();
         Arrays.sort(rs);
-        double usualRise = rs[rs.length / 2], lowRise = rs[rs.length / 4];
+        double usualRise = rs[rs.length / 2];
+        // A fill's kicks: the half with the most low end (see FILL_TOM_UNDER).
+        double[] low = new double[p.length];
+        for (int i = 0; i < p.length; i++) low[i] = lowEnd(mag, kickFrames.get(i).intValue(), p[i], sr);
+        double[] ls = low.clone();
+        Arrays.sort(ls);
+        double lowMid = ls[ls.length / 2];
+        List<Double> ap = new ArrayList<Double>(), ar = new ArrayList<Double>(), al = new ArrayList<Double>();
+        for (int i = 0; i < p.length; i++) {
+            if (low[i] < lowMid) continue;
+            ap.add(Double.valueOf(p[i]));
+            ar.add(Double.valueOf(rise[i]));
+            al.add(Double.valueOf(low[i]));
+        }
+        double fillPitch = median(ap), fillRise = median(ar), fillLow = median(al);
         for (int i = 0; i < p.length; i++) {
             int t = kickFrames.get(i).intValue();
             // A tom whose body reads as low as the kick (some kits tune them so) rises well above the
             // song's kicks in what is new at it (TOM_RISE_PITCH of their median; RISE_KICKS kicks at least).
             // A kick read at its third partial, in its pitch or in what is new at it, stays a kick;
             // so does one at a pitch many of the song's kicks read.
-            if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
-            if (p.length < RISE_KICKS && !snareAt[t] && wiresLeft(noiseLevel, t) < TOM_WIRES
-                && (rise[i] >= FILL_TOM_RISE * lowRise || rise[i] >= FILL_TOM_THIN * lowRise && lowEnd(mag, t, p[i], sr) < FILL_TOM_LOW)) {
-                floorTom(hits, t * (double) HOP / sr);
+            if (p.length < RISE_KICKS) {
+                int signs = (p[i] < FILL_TOM_UNDER * fillPitch ? 1 : 0) + (p[i] > FILL_TOM_OVER * fillPitch ? 1 : 0) + (rise[i] >= FILL_TOM_RISE * fillRise ? 1 : 0) + (low[i] < FILL_TOM_LOW * fillLow ? 1 : 0);
+                if (signs >= FILL_TOM_SIGNS)
+                    floorTom(hits, t * (double) HOP / sr);
                 continue;
             }
+            if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
             // A tom tuned under the kick.
             if (!guitar && p.length >= LOW_TOM_KICKS && p[i] < LOW_TOM * usualKick && p[i] >= LOW_TOM_HZ && !snareAt[t]
                 && wiresLeft(noiseLevel, t) < TOM_WIRES && !sharedPitch(p, p[i], KICK_MOST) && toneRing(mag, t, p[i], sr) >= LOW_TOM_RING
@@ -1742,6 +1761,13 @@ public class DrumMidi_CRT{
                 }
             }
         }
+    }
+
+    static double median(List<Double> v) {
+        if (v.isEmpty()) return 0;
+        List<Double> c = new ArrayList<Double>(v);
+        Collections.sort(c);
+        return c.get(c.size() / 2).doubleValue();
     }
 
     /** Snares found whose body reads well under the song's snares' (see SNARE_TOM_PITCH) become toms. */
