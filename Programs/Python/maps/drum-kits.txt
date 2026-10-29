@@ -7,5 +7,21 @@
 # Two toms only (43 and 47/48 ring as toms). 45 sounds as a hat: no low end, its 7-14 kHz
 # jumps 15 times and 1-5 kHz holds like an open hat, and DrumMidi writes it as one.
 45=46
-# Nearly silent in this kit.
+# Nearly silent in this kit: 41, 35 (a second kick: the sound does not rise at it) and 37
+# (side stick: no rise either).
 41=none
+35=none
+37=none
+
+[Riot Drums]
+# Ugritone's note map as in Anarchy: 45 a hat (its level hardly rises at it, DrumMidi writes
+# a hat), 41 and 35 silent.
+45=46
+41=none
+35=none
+
+[Ugritone Drums]
+# KVLT Drums 2 (its file is Ugritone Drums): every tom rings (41-48), but 35 and the side
+# stick 37 are silent.
+35=none
+37=none
