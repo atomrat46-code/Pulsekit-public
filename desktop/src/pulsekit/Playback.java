@@ -54,6 +54,12 @@ final class Playback {
 
     Synthesizer synth;
 
+    /** The MIDI output the drums play through (File > Sound devices), or null: the synth. */
+    javax.sound.midi.MidiDevice midiOut;
+
+    /** Its receiver (one for the sequencer and the hits). */
+    javax.sound.midi.Receiver midiOutReceiver;
+
     Timer doubleKickTimer;
 
     Timer playheadTimer;
@@ -140,18 +146,74 @@ final class Playback {
         }
     }
 
-    void openMidi() {
+    /** File > Sound devices picked another output: the synth and sequencer open again on it. */
+    void reopenMidi() {
         try {
+            if (app.sequencer != null) app.sequencer.close();
+            if (this.synth != null) this.synth.close();
+            if (this.midiOut != null) this.midiOut.close();
+        } catch (Exception ignored) {
+            // opened again below
+        }
+        app.sequencer = null;
+        this.synth = null;
+        this.midiOut = null;
+        this.midiOutReceiver = null;
+        this.openMidi(true);
+    }
+
+    void openMidi() {
+        this.openMidi(false);
+    }
+
+    /** quiet: File > Sound devices opens it again, which says what failed on its own (no message box over it). */
+    void openMidi(boolean quiet) {
+        try {
+            // File > Sound devices: Java Sound's default line is the output picked; the drums go to the MIDI output picked.
+            SoundOut.apply();
             this.synth = MidiSystem.getSynthesizer();
             this.synth.open();
             app.sequencer = MidiSystem.getSequencer(false);
-            app.sequencer.getTransmitter().setReceiver(this.synth.getReceiver());
+            this.midiOut = SoundOut.midiOut();
+            if (this.midiOut != null) {
+                try {
+                    this.midiOut.open();
+                    this.midiOutReceiver = this.midiOut.getReceiver();
+                } catch (Exception ex) {
+                    SoundDevices.log("MIDI output not opened", this.midiOut.getDeviceInfo().getName() + ": " + ex);
+                    this.midiOut = null;
+                }
+            }
+            app.sequencer.getTransmitter().setReceiver(this.midiOut != null ? this.midiOutReceiver : this.synth.getReceiver());
             app.sequencer.open();
             app.sequencer.setTempoInBPM(app.bpm());
             this.applyMute();
         }
         catch (Exception exception) {
-            JOptionPane.showMessageDialog(app, "Could not open the computer MIDI synth.\n" + exception.getMessage());
+            Logs.error("Could not open the computer MIDI synth (output " + SoundDevices.outNow() + ")", exception);
+            if (System.getProperty(SoundOut.LINE_KEY) != null) {
+                // The output picked cannot play the synth: the system default does.
+                System.clearProperty(SoundOut.LINE_KEY);
+                System.clearProperty(SoundOut.CLIP_KEY);
+                SoundDevices.log("Synth not opened on " + SoundDevices.outNow() + ": the default output is used", String.valueOf(exception));
+                app.sequencer = null;
+                this.synth = null;
+                try {
+                    this.synth = MidiSystem.getSynthesizer();
+                    this.synth.open();
+                    app.sequencer = MidiSystem.getSequencer(false);
+                    app.sequencer.getTransmitter().setReceiver(this.midiOut != null && this.midiOutReceiver != null ? this.midiOutReceiver : this.synth.getReceiver());
+                    app.sequencer.open();
+                    app.sequencer.setTempoInBPM(app.bpm());
+                    this.applyMute();
+                    app.setNow(SoundDevices.outNow() + " could not play the drums: the system default output plays them");
+                    return;
+                } catch (Exception again) {
+                    exception = again;
+                }
+            }
+            if (quiet) app.setNow("Could not open the computer MIDI synth: " + exception.getMessage());
+            else JOptionPane.showMessageDialog(app, "Could not open the computer MIDI synth.\n" + exception.getMessage());
         }
     }
 
@@ -407,7 +469,7 @@ final class Playback {
             }
             int kick = Engine.track("kick");
             if (n == Engine.track("dkick")) {
-                midiChannel.noteOn(Engine.NOTES[kick], 110);
+                this.hit(midiChannel, Engine.NOTES[kick]);
                 if (this.doubleKickTimer != null) {
                     this.doubleKickTimer.stop();
                 }
@@ -416,7 +478,7 @@ final class Playback {
                     try {
                         if (this.synth == null || app.muted || app.mutes[n]) return;
                         MidiChannel ch = this.synth.getChannels()[9];
-                        if (ch != null) ch.noteOn(Engine.NOTES[kick], 110);
+                        if (ch != null) this.hit(ch, Engine.NOTES[kick]);
                     } catch (Exception ignored) {
                     }
                 });
@@ -424,11 +486,24 @@ final class Playback {
                 this.doubleKickTimer.start();
                 return;
             }
-            midiChannel.noteOn(Engine.NOTES[n], 110);
+            this.hit(midiChannel, Engine.NOTES[n]);
         }
         catch (Exception exception) {
             // empty catch block
         }
+    }
+
+    /** A drum hit: to the MIDI output picked, or the synth's drum channel. */
+    void hit(MidiChannel channel, int note) {
+        if (this.midiOutReceiver != null && this.midiOut != null) {
+            try {
+                this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_ON, 9, note, 110), -1);
+                return;
+            } catch (Exception ignored) {
+                // the synth
+            }
+        }
+        channel.noteOn(note, 110);
     }
 
     void flashPad(int n) {

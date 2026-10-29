@@ -8069,6 +8069,82 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString() + "\n" + runText);
   }
 
+  /**
+   * File > Sound devices: every group listed (Pulsekit's own synth among the MIDI outputs), a driver
+   * file picked with Browse listed under Drivers, an output kept that is not connected said and
+   * left for the default (Java Sound's default lines untouched), Use the default clearing it, the
+   * report and the logs (Logging on) holding what was found.
+   */
+  void s167_sound_devices() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    AppSettings.load(PromptDb.dir());
+    AppSettings.setLogging(true);
+    AppSettings.setSoundOut("Gone Interface | DirectSound");
+    SoundOut.apply();
+    String lineProp = String.valueOf(System.getProperty(SoundOut.LINE_KEY));
+    final File dll = new File(home, "asio-test.dll");
+    Files.write(dll.toPath(), new byte[] {'M', 'Z', 0, 0});
+    SoundDevicesScreen.browseTo = what -> dll;
+    final String[] seen = new String[6];
+    final boolean[] shown = new boolean[1];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if (!"Sound devices".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[0] = true;
+      @SuppressWarnings("unchecked")
+      javax.swing.JList<Object> list = (javax.swing.JList<Object>) component(w, "sound-list");
+      StringBuilder heads = new StringBuilder();
+      int synthAt = -1;
+      for (int i = 0; i < list.getModel().getSize(); i++) {
+        Object o = list.getModel().getElementAt(i);
+        if (o instanceof String) heads.append(heads.length() == 0 ? "" : ", ").append(((String) o).replaceAll(" \\(\\d+\\)", ""));
+        else if (SoundDevices.MIDI_OUT.equals(((SoundDevices.Device) o).kind) && SoundDevices.SYNTH.equals(((SoundDevices.Device) o).driver)) synthAt = i;
+      }
+      seen[0] = heads.toString();
+      seen[1] = ((javax.swing.JLabel) component(w, "sound-now")).getText();
+      ((javax.swing.JButton) component(w, "sound-browse")).doClick();
+      StringBuilder drivers = new StringBuilder();
+      for (int i = 0; i < list.getModel().getSize(); i++) {
+        Object o = list.getModel().getElementAt(i);
+        if (o instanceof SoundDevices.Device && SoundDevices.DRIVERS.equals(((SoundDevices.Device) o).kind)) drivers.append(((SoundDevices.Device) o).name).append(' ');
+      }
+      seen[2] = drivers.toString().trim();
+      if (synthAt >= 0) {
+        list.setSelectedIndex(synthAt);
+        seen[3] = ((javax.swing.JTextArea) component(w, "sound-info")).getText().split("\n")[1] + " | use " + component(w, "sound-use").isEnabled()
+            + ", test " + component(w, "sound-test").isEnabled();
+      } else {
+        seen[3] = "no synth listed";
+      }
+      ((javax.swing.JButton) component(w, "sound-default")).doClick();
+      seen[4] = ((javax.swing.JLabel) component(w, "sound-now")).getText();
+      seen[5] = AppSettings.soundOut();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> SoundDevicesScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[0]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    SoundDevicesScreen.browseTo = null;
+    String report = SoundDevices.report("", SoundOut.list());
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.SOUND);
+    StringBuilder titles = new StringBuilder();
+    for (Logs.Entry e : logged) titles.append(titles.length() == 0 ? "" : " / ").append(e.title.replaceAll("\\(\\d+\\)", "(n)"));
+    this.out.append("missing output, default line: ").append(lineProp).append("\ngroups: ").append(seen[0]).append("\nnow: ").append(seen[1].replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " "))
+        .append("\ndrivers after Browse: ").append(seen[2]).append("\nown synth: ").append(seen[3]).append("\nafter Use the default: ").append(seen[4].replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " "))
+        .append(" (kept: \"").append(seen[5]).append("\")\nlogged: ").append(titles).append('\n');
+    boolean ok = "null".equals(lineProp) && seen[0].equals(String.join(", ", SoundDevices.KINDS)) && seen[1].contains("Gone Interface | DirectSound") && seen[1].contains("is not connected")
+        && seen[2].contains("asio-test.dll") && seen[3].endsWith("| use false, test true") && "".equals(seen[5]) && seen[4].contains(SoundDevices.DEFAULT_OUT) && seen[4].contains(SoundDevices.OWN_SYNTH)
+        && report.contains("== " + SoundDevices.MIDI_OUT) && report.contains("asio-test.dll") && titles.toString().contains("Sound devices found")
+        && titles.toString().contains("Driver file picked") && titles.toString().contains("Back to the defaults");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + report);
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

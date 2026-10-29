@@ -94,6 +94,7 @@ final class AudioOffer {
                     }
                     try {
                         player = new MediaPlayer();
+                        SoundOut.prefer(player);
                         player.setDataSource(path);
                         player.setOnCompletionListener(mp -> {
                             stop();

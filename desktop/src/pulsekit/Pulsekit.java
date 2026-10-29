@@ -717,6 +717,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem logs = new JMenuItem("Logs");
             logs.setName("file-logs");
             logs.addActionListener(e -> LogsScreen.show(this));
+            // The outputs, inputs, MIDI devices and drivers; Pulsekit's output and drum MIDI output.
+            JMenuItem sound = new JMenuItem("Sound devices");
+            sound.setName("file-sound-devices");
+            sound.addActionListener(e -> SoundDevicesScreen.show(this));
             // Playlists (.pls): the Editor and Viewer tabs.
             JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
             playlists.setName("file-playlists");
@@ -741,6 +745,7 @@ public final class Pulsekit extends UiKit {
             menu.add(saveCodeAs);
             menu.add(downloads);
             menu.add(logs);
+            menu.add(sound);
             menu.add(playlists);
             menu.add(general);
             menu.add(dbSettings);

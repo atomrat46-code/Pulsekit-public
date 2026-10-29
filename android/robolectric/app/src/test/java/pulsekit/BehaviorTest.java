@@ -10566,6 +10566,44 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString() + "\n" + text);
   }
 
+  /** File > Sound devices: every group listed (Android's own USB drivers among the drivers), an output kept that is unplugged said, Use the default clearing it, the logs keeping it. */
+  @Test
+  public void s174_sound_devices() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    AppSettings.setLogging(true);
+    AppSettings.setSoundOut("Gone Interface | USB audio (OTG)");
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    StringBuilder heads = new StringBuilder();
+    for (String kind : SoundDevices.KINDS) heads.append(sv.findViewWithTag("sound-kind:" + kind) != null ? "+" : "-");
+    String now = String.valueOf(((TextView) sv.findViewWithTag("sound-now")).getText());
+    View driver = sv.findViewWithTag("sound-device:" + SoundDevices.DRIVERS + ":" + SoundOut.ANDROID_DRIVERS + " | built in");
+    if (driver != null) driver.performClick();
+    idle();
+    String info = SoundDevicesScreen.device == null ? "" : String.valueOf(((TextView) SoundDevicesScreen.device.getWindow().getDecorView().findViewWithTag("sound-info")).getText());
+    boolean noUse = SoundDevicesScreen.device != null && SoundDevicesScreen.device.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility() != View.VISIBLE;
+    if (SoundDevicesScreen.device != null) SoundDevicesScreen.device.dismiss();
+    sv.findViewWithTag("sound-default").performClick();
+    idle();
+    sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    String after = String.valueOf(((TextView) sv.findViewWithTag("sound-now")).getText());
+    SoundDevicesScreen.last.dismiss();
+    StringBuilder titles = new StringBuilder();
+    for (Logs.Entry e : Logs.entries(Logs.SOUND)) titles.append(titles.length() == 0 ? "" : " / ").append(e.title.replaceAll("\\(\\d+\\)", "(n)"));
+    boolean noPort = !SoundOut.drumHit(38, 100);
+    AppSettings.setLogging(false);
+    out.append("groups ").append(heads).append(" | now: ").append(now.replace('\n', ' ')).append("\ndriver info: ").append(info.split("\n")[0]).append(", no Use: ").append(noUse)
+        .append("\nafter Use the default: ").append(after.replace('\n', ' ')).append(" (kept \"").append(AppSettings.soundOut()).append("\")\nlogged: ").append(titles)
+        .append(" | drum hit without a MIDI output: ").append(noPort ? "own sounds" : "sent").append('\n');
+    write("s174_sound_devices", out.toString());
+    boolean ok = heads.toString().equals("+++++++") && now.contains("Gone Interface | USB audio (OTG) is not connected") && driver != null && info.contains("class-compliant")
+        && noUse && after.contains(SoundDevices.DEFAULT_OUT) && AppSettings.soundOut().isEmpty() && titles.toString().contains("Sound devices found")
+        && titles.toString().contains("Back to the defaults") && noPort;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

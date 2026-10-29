@@ -1996,6 +1996,7 @@ final class MediaBrowser {
         stopDefault();
         try {
             android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            SoundOut.prefer(mp);
             mp.setDataSource(file.getAbsolutePath());
             mp.prepare();
             mp.start();
@@ -3157,6 +3158,7 @@ final class MediaBrowser {
         lastOpened = "sound:" + e.name;
         if (this.app.playing) this.app.playback.stop();
         final MediaPlayer player = new MediaPlayer();
+        SoundOut.prefer(player);
         lastSound = player;
         LinearLayout col = this.app.col();
         col.setPadding(this.app.dp(16), this.app.dp(8), this.app.dp(16), this.app.dp(8));
