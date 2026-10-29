@@ -8241,6 +8241,157 @@ public final class DesktopBehavior {
     return zip;
   }
 
+  /**
+   * PyJav > Plugins, the Plugin Browser: folders per type (Folders\u2026), the plugins and kits found there
+   * (a VST3 bundle, a VST2, a CLAP, an SF2, an SFZ), favourite, category, group and tags (and the
+   * filters on them, kept in plugin-library.txt and shared with Params' Plugins list), My order,
+   * Types, a kit's test beat, Use (a VST3 into vst_render's --plugin, a CLAP said not to play).
+   */
+  void s169_plugin_browser() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File vst = new File(home, "plugins"), kits = new File(home, "my kits");
+    new File(vst, "Anarchy Drums.vst3/Contents").mkdirs();
+    new File(vst, "Maker/Deep").mkdirs();
+    Files.write(new File(vst, "Maker/Deep/Old Drums.dll").toPath(), new byte[] {'M', 'Z'});
+    Files.write(new File(vst, "Surge.clap").toPath(), new byte[] {0});
+    new File(kits, "Test").mkdirs();
+    Files.write(new File(kits, "Rock.sf2").toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Rock"));
+    short[] hit = new short[8000];
+    for (int i = 0; i < hit.length; i++) hit[i] = (short) (18000 * Math.exp(-i / 900.0) * Math.sin(i * 0.05));
+    Files.write(new File(kits, "Test/kick.wav").toPath(), AudioIo.encodeWav(hit, 44100));
+    Files.write(new File(kits, "Test/Jazz.sfz").toPath(), "<region> sample=kick.wav key=36\n".getBytes(StandardCharsets.UTF_8));
+    final Pulsekit app = (Pulsekit) frame;
+    PluginBrowser.testsQuiet = Boolean.TRUE;
+    final java.util.Map<String, String> answersFor = new java.util.HashMap<String, String>();
+    PluginBrowser.answer = what -> answersFor.get(what);
+    final JDialog[] browser = new JDialog[1];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if ("Plugin Browser".equals(w.getTitle())) browser[0] = w;
+      else inspectNext = hook[0];
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("(keep)");
+    // PyJav's programs row: Plugins.
+    edt(() -> ((javax.swing.JButton) component(frame, "program-plugins")).doClick());
+    for (int i = 0; i < 100 && (browser[0] == null || !browser[0].isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog d = browser[0];
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<File> list = (javax.swing.JList<File>) component(d, "browser-list");
+    // Folders\u2026: the VST3 and VST2 types in "plugins", CLAP there too, the kits in "my kits".
+    final boolean[] saved = new boolean[1];
+    final java.util.function.Consumer<JDialog>[] folderHook = newHook();
+    folderHook[0] = w -> {
+      if (!"Plugin folders".equals(w.getTitle())) {
+        inspectNext = folderHook[0];
+        return;
+      }
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(w, "folders-type");
+      javax.swing.JTextArea paths = (javax.swing.JTextArea) component(w, "folders-paths");
+      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2}) {
+        type.setSelectedItem(t);
+        paths.setText(t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.LV2) ? "" : vst.getAbsolutePath());
+        if (t.equals(PluginLibrary.SF2)) {
+          answersFor.put("Folder", kits.getAbsolutePath());
+          ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        }
+      }
+      type.setSelectedItem(PluginLibrary.SFZ);
+      paths.setText(kits.getAbsolutePath());
+      ((javax.swing.JButton) component(w, "folders-save")).doClick();
+      saved[0] = true;
+    };
+    inspectNext = folderHook[0];
+    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "browser-folders")).doClick());
+    for (int i = 0; i < 100 && !saved[0]; i++) Thread.sleep(100);
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<String, File> pick = name -> {
+      for (int i = 0; i < list.getModel().getSize(); i++) if (PluginLibrary.name(list.getModel().getElementAt(i)).equals(name)) {
+        list.setSelectedIndex(i);
+        return list.getModel().getElementAt(i);
+      }
+      return null;
+    };
+    final java.util.function.Supplier<String> names = () -> {
+      StringBuilder b = new StringBuilder();
+      for (int i = 0; i < list.getModel().getSize(); i++) b.append(i == 0 ? "" : ", ").append(PluginLibrary.name(list.getModel().getElementAt(i)));
+      return b.toString();
+    };
+    edt(() -> {
+      seen.append("found: ").append(names.get()).append(" (").append(((javax.swing.JLabel) component(d, "browser-count")).getText()).append(")\n");
+      pick.apply("Rock");
+      ((javax.swing.JButton) component(d, "browser-fav")).doClick();
+      answersFor.put("Category", "Drum kits");
+      ((javax.swing.JButton) component(d, "browser-set-category")).doClick();
+      answersFor.put("Group", "Live");
+      ((javax.swing.JButton) component(d, "browser-set-group")).doClick();
+      answersFor.put("Tags", "metal, fast");
+      ((javax.swing.JButton) component(d, "browser-set-tags")).doClick();
+      pick.apply("Anarchy Drums");
+      ((javax.swing.JButton) component(d, "browser-set-category")).doClick();
+      seen.append("Rock line: ").append(PluginLibrary.line(pick.apply("Rock"))).append('\n');
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(d, "browser-type");
+      type.setSelectedItem(PluginLibrary.SFZ);
+      seen.append("type SFZ: ").append(names.get()).append('\n');
+      type.setSelectedItem(PluginLibrary.ANY);
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> cat = (javax.swing.JComboBox<String>) component(d, "browser-category");
+      cat.setSelectedItem("Drum kits");
+      seen.append("category Drum kits: ").append(names.get()).append('\n');
+      cat.setSelectedItem(PluginLibrary.ANY);
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> tag = (javax.swing.JComboBox<String>) component(d, "browser-tag");
+      tag.setSelectedItem("fast");
+      seen.append("tag fast: ").append(names.get()).append('\n');
+      tag.setSelectedItem(PluginLibrary.ANY);
+      ((javax.swing.JToggleButton) component(d, "browser-favourites")).doClick();
+      seen.append("favourites: ").append(names.get()).append('\n');
+      ((javax.swing.JToggleButton) component(d, "browser-favourites")).doClick();
+      ((javax.swing.JTextField) component(d, "browser-search")).setText("live");
+      seen.append("search live: ").append(names.get()).append('\n');
+      ((javax.swing.JTextField) component(d, "browser-search")).setText("");
+      // My order: Surge down to the end, then Old Drums up.
+      pick.apply("Old Drums");
+      ((javax.swing.JButton) component(d, "browser-up")).doClick();
+      seen.append("My order after Up on Old Drums: ").append(names.get()).append('\n');
+      ((javax.swing.JButton) component(d, "browser-types")).doClick();
+      seen.append("types: ").append(PluginBrowser.lastSaid.split("\n\n")[1].split("\n")[0]).append(" | ").append(PluginBrowser.lastSaid.contains("SFZ (.sfz)  desktop: yes, Android: yes")).append('\n');
+      pick.apply("Surge");
+      ((javax.swing.JButton) component(d, "browser-use")).doClick();
+      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append('\n');
+      pick.apply("Jazz");
+      ((javax.swing.JButton) component(d, "browser-test")).doClick();
+    });
+    for (int i = 0; i < 100 && !PluginBrowser.lastSaid.startsWith("Test beat"); i++) Thread.sleep(100);
+    seen.append("Test Jazz: ").append(PluginBrowser.lastSaid.replaceAll(", kit-test.*", "")).append('\n');
+    final String[] args = new String[1];
+    edt(() -> {
+      pick.apply("Anarchy Drums");
+      ((javax.swing.JButton) component(d, "browser-use")).doClick();
+      args[0] = app.pyJav.pyExtra.getText();
+      seen.append("Use Anarchy Drums: ").append(PluginBrowser.lastSaid).append(" | args ").append(args[0].replace(home.getAbsolutePath(), "~")).append('\n');
+      d.dispose();
+    });
+    idle();
+    PluginBrowser.answer = null;
+    PluginBrowser.testsQuiet = null;
+    String library = new String(Files.readAllBytes(new File(PromptDb.dir(), "plugin-library.txt").toPath()), StandardCharsets.UTF_8);
+    boolean shared = PluginsList.favourites().contains(new File(kits, "Rock.sf2").getAbsolutePath());
+    this.out.append(seen.toString().replace(home.getAbsolutePath(), "~")).append("library kept: ").append(library.split("\n").length).append(" plugins, favourite shared with Params' list: ").append(shared).append('\n');
+    String all = seen.toString();
+    boolean ok = all.contains("found: Anarchy Drums, Jazz, Old Drums, Rock, Surge (5 of 5)") && all.contains("Rock line: \u2605 Rock  [SF2]  Drum kits / Live  #metal #fast")
+        && all.contains("type SFZ: Jazz\n") && all.contains("category Drum kits: Anarchy Drums, Rock\n") && all.contains("tag fast: Rock\n") && all.contains("favourites: Rock\n")
+        && all.contains("search live: Rock\n") && all.contains("My order after Up on Old Drums: Anarchy Drums, Old Drums, Jazz, Rock, Surge") && all.contains("| true")
+        && all.contains("Use Surge: Surge: Listed only") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].startsWith("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath())
+        && shared && library.contains("Drum kits\tLive\tmetal,fast");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

@@ -118,27 +118,31 @@ final class PluginsList {
         return java.util.regex.Pattern.compile(re.toString(), java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE | java.util.regex.Pattern.DOTALL).matcher(name).matches();
     }
 
+    /** The favourites, shared with PyJav > Plugins (the Plugin Browser); the ones kept before move over once. */
     static Set<String> favourites() {
-        String kept = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(FAVOURITES_KEY, "");
-        Set<String> out = new LinkedHashSet<String>();
-        for (String s : kept.split("\n")) if (s.trim().length() > 0) out.add(s.trim());
-        return out;
+        library();
+        return PluginLibrary.favouritePaths();
     }
 
     /** Adds the plugin to the favourites, or takes it off them; true when it is one now. */
     static boolean toggleFavourite(File f) {
-        Set<String> fav = favourites();
-        String path = f.getAbsolutePath();
-        boolean now = !fav.remove(path);
-        if (now) fav.add(path);
+        library();
+        return PluginLibrary.toggleFavourite(f);
+    }
+
+    /** The Plugin Browser's library, with the favourites this list kept in the preferences before. */
+    static void library() {
+        PluginLibrary.load(PromptDb.dir());
         java.util.prefs.Preferences node = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
-        node.put(FAVOURITES_KEY, String.join("\n", fav));
+        String kept = node.get(FAVOURITES_KEY, "");
+        if (kept.isEmpty()) return;
+        for (String s : kept.split("\n")) if (s.trim().length() > 0) PluginLibrary.setFavourite(new File(s.trim()), true);
+        node.remove(FAVOURITES_KEY);
         try {
             node.flush();
         } catch (java.util.prefs.BackingStoreException ignored) {
-            // kept for this session
+            // moved for this session
         }
-        return now;
     }
 
     /** The settings vst_render saved for the plugin with Edit (~/.pulsekit/vst/<name>.state). */
@@ -279,28 +283,11 @@ final class PluginsList {
             File f = list.getSelectedValue();
             if (f == null) return;
             for (JButton b : busy) b.setEnabled(false);
-            about.setText((editFirst ? "Edit settings: " + name(f) + "'s window opens (Windows and Mac). Load a kit or patch, then close it: "
-                + "the settings are saved and a test beat plays through it.\n" : "Testing " + name(f) + ": a test beat (kick, snare, hats) through it…\n"));
-            new Thread(() -> {
-                String src = ProgramFiles.bundledSource("vst_render.py");
-                List<String> argv = new ArrayList<String>(Arrays.asList("--plugin", f.getAbsolutePath(), "--check"));
-                if (editFirst) argv.add("--edit");
-                PythonRun.Result r = src == null ? null : PythonRun.run(src, "vst_render.py", argv);
-                String log = r == null ? "vst_render.py is not bundled." : r.log;
-                lastTest = log;
-                PythonRun.FileOut wav = null;
-                if (r != null) for (PythonRun.FileOut o : r.files) if (o.name.startsWith("vst-check-") && o.name.endsWith(".wav")) wav = o;
-                final PythonRun.FileOut beat = wav;
-                SwingUtilities.invokeLater(() -> {
-                    for (JButton b : busy) b.setEnabled(true);
-                    about.setText(summary(log) + "\n\n" + info(f));
-                    // The test beat: WAV ready (Play, favourites, group, tags, category, playlist).
-                    if (beat != null && pj != null) {
-                        File saved = pj.saveProgramFile(beat.name, beat.bytes);
-                        if (saved != null) pj.offerAudio(saved);
-                    }
-                });
-            }, "plugin-test").start();
+            about.setText(testing(f, editFirst));
+            test(pj, f, editFirst, log -> {
+                for (JButton b : busy) b.setEnabled(true);
+                about.setText(summary(log) + "\n\n" + info(f));
+            });
         };
         use.addActionListener(e -> useIt.run());
         fav.addActionListener(e -> favIt.run());
@@ -364,6 +351,38 @@ final class PluginsList {
         d.setLocationRelativeTo(owner);
         d.setVisible(true);
         return chosen[0];
+    }
+
+    /** What the info says while a test or Edit runs. */
+    static String testing(File f, boolean editFirst) {
+        return editFirst ? "Edit settings: " + name(f) + "'s window opens (Windows and Mac). Load a kit or patch, then close it: "
+            + "the settings are saved and a test beat plays through it.\n" : "Testing " + name(f) + ": a test beat (kick, snare, hats) through it\u2026\n";
+    }
+
+    /**
+     * Test plugin (or Edit settings first): vst_render --check through it, off the window's thread; its
+     * test beat opens in WAV ready; `done` gets the log on the window's thread.
+     */
+    static void test(final PyJav pj, final File f, final boolean editFirst, final java.util.function.Consumer<String> done) {
+        new Thread(() -> {
+            String src = ProgramFiles.bundledSource("vst_render.py");
+            List<String> argv = new ArrayList<String>(Arrays.asList("--plugin", f.getAbsolutePath(), "--check"));
+            if (editFirst) argv.add("--edit");
+            PythonRun.Result r = src == null ? null : PythonRun.run(src, "vst_render.py", argv);
+            String log = r == null ? "vst_render.py is not bundled." : r.log;
+            lastTest = log;
+            PythonRun.FileOut wav = null;
+            if (r != null) for (PythonRun.FileOut o : r.files) if (o.name.startsWith("vst-check-") && o.name.endsWith(".wav")) wav = o;
+            final PythonRun.FileOut beat = wav;
+            SwingUtilities.invokeLater(() -> {
+                done.accept(log);
+                // The test beat: WAV ready (Play, favourites, group, tags, category, playlist).
+                if (beat != null && pj != null) {
+                    File saved = pj.saveProgramFile(beat.name, beat.bytes);
+                    if (saved != null) pj.offerAudio(saved);
+                }
+            });
+        }, "plugin-test").start();
     }
 
     private static JMenuItem item(String text, Runnable r) {

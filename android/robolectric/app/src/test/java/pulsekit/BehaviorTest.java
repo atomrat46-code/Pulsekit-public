@@ -10668,6 +10668,76 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString() + "\n" + report);
   }
 
+  /** PyJav > Plugins on the phone: kit folders set, the kits found (SF2, SFZ), favourite and category kept, the types table, Use (SFZ onto the pads) and Test (a beat). */
+  @Test
+  public void s176_plugin_browser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PluginLibrary.reset();
+    File kits = new File(app.getCacheDir(), "my kits");
+    new File(kits, "Test").mkdirs();
+    Files.write(new File(kits, "Rock.sf2").toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Rock"));
+    short[] hit = new short[8000];
+    for (int i = 0; i < hit.length; i++) hit[i] = (short) (18000 * Math.exp(-i / 900.0) * Math.sin(i * 0.05));
+    Files.write(new File(kits, "Test/kick.wav").toPath(), AudioIo.encodeWav(hit, 44100));
+    Files.write(new File(kits, "Test/Jazz.sfz").toPath(), "<region> sample=kick.wav key=36\n".getBytes(StandardCharsets.UTF_8));
+    final java.util.Map<String, String> answers = new java.util.HashMap<String, String>();
+    answers.put("Folders", kits.getAbsolutePath());
+    answers.put("Category", "Drum kits");
+    PluginBrowser.answer = what -> answers.get(what);
+    PluginBrowser.type = PluginLibrary.ANY;
+    PluginBrowser.sort = PluginLibrary.SORTS[0];
+    PluginBrowser.favourites = false;
+    View row = app.findViewById(android.R.id.content).findViewWithTag("program-plugins");
+    if (row != null) row.performClick();
+    else PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-folders").performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    boolean rock = bv.findViewWithTag("browser-item:Rock") != null, jazz = bv.findViewWithTag("browser-item:Jazz") != null;
+    bv.findViewWithTag("browser-item:Rock").performClick();
+    idle();
+    PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-fav").performClick();
+    idle();
+    PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-set-category").performClick();
+    idle();
+    String info = String.valueOf(((TextView) PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-info")).getText());
+    PluginBrowser.page.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !PluginBrowser.lastSaid.startsWith("Test beat"); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    String tested = PluginBrowser.lastSaid;
+    PluginBrowser.page.dismiss();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String line = String.valueOf(((TextView) bv.findViewWithTag("browser-item:Rock")).getText());
+    bv.findViewWithTag("browser-types").performClick();
+    idle();
+    String types = PluginBrowser.lastSaid;
+    android.app.Dialog typesDialog = ShadowDialog.getLatestDialog();
+    if (typesDialog != null && typesDialog != PluginBrowser.last) typesDialog.dismiss();
+    ProjectIo.lastSfz = "";
+    bv.findViewWithTag("browser-item:Jazz").performClick();
+    idle();
+    PluginBrowser.page.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && !ProjectIo.lastSfz.startsWith("SFZ kit") && !ProjectIo.lastSfz.startsWith("Could"); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    PluginBrowser.last.dismiss();
+    PluginBrowser.answer = null;
+    out.append("count: ").append(count).append(" | Rock ").append(rock).append(", Jazz ").append(jazz).append("\nRock: ").append(line).append(" | info: ").append(info.split("\n")[0])
+        .append("\ntest: ").append(tested).append("\ntypes: VST3 not here ").append(types.contains("VST3 (.vst3)  desktop: yes, Android: no  [not on this app]"))
+        .append(", SFZ here ").append(types.contains("SFZ (.sfz)  desktop: yes, Android: yes\n")).append("\nUse Jazz: ").append(ProjectIo.lastSfz).append('\n');
+    write("s176_plugin_browser", out.toString());
+    boolean ok = count.startsWith("2 of 2") && rock && jazz && line.equals("\u2605 Rock  [SF2]  Drum kits") && tested.startsWith("Test beat with Rock")
+        && types.contains("[not on this app]") && types.contains("SFZ (.sfz)  desktop: yes, Android: yes\n") && ProjectIo.lastSfz.equals("SFZ kit \u00b7 Jazz \u00b7 2 drums")
+        && new String(Files.readAllBytes(new File(app.getFilesDir(), "plugin-library.txt").toPath()), StandardCharsets.UTF_8).contains("\t1\tDrum kits\t");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;
