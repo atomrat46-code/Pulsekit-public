@@ -10738,6 +10738,28 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** Params' file rows: the picked file's name on its own line under the buttons, the whole width, one line shortened in the middle (SogniPedit's long picture names). */
+  @Test
+  public void s177_params_file_name_line() throws Exception {
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);
+    String name = "635555db-59c1-4146-a919-c1223177e644-0m03s666-upscaled.png";
+    PyJavParams.store(app, "SogniPedit.java", "--image /sdcard/Download/" + name);
+    PyJavParams.open(app, "SogniPedit.java", "", src);
+    idle();
+    View v = PyJavParams.shown.getWindow().getDecorView();
+    TextView chosen = (TextView) v.findViewWithTag("params-chosen:--image");
+    View pick = v.findViewWithTag("params-file:--image");
+    boolean ownLine = chosen != null && pick != null && chosen.getParent() != pick.getParent();
+    boolean oneLine = chosen != null && chosen.getEllipsize() == android.text.TextUtils.TruncateAt.MIDDLE && chosen.getMaxLines() == 1;
+    boolean wide = chosen != null && chosen.getLayoutParams().width == android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+    String text = chosen == null ? "" : String.valueOf(chosen.getText());
+    PyJavParams.shown.dismiss();
+    PyJavParams.store(app, "SogniPedit.java", "");
+    String out = "name: " + text + " | own line " + ownLine + ", one line shortened in the middle " + oneLine + ", full width " + wide + "\n";
+    write("s177_params_file_name_line", out);
+    if (!text.equals(name) || !ownLine || !oneLine || !wide) throw new AssertionError(out);
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;
