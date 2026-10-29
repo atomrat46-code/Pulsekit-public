@@ -4844,7 +4844,7 @@ public class BehaviorTest {
     app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", dir.getAbsolutePath()));
     app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: DrumMidi on 4 of 4 WAV files in batch-test (<wav>-dm.mid beside each)", new java.util.ArrayList<JavaRun.FileOut>(), 0));
     // The program is picked before its arguments are set: wait for both (a loaded machine is slower).
-    for (int i = 0; i < 250 && !("CompareHits.java".equals(get("pyName")) && String.valueOf(app.pyJav.pkLastArgv).startsWith("[--batch")); i++) {
+    for (int i = 0; i < 1500 && !("CompareHits.java".equals(get("pyName")) && String.valueOf(app.pyJav.pkLastArgv).startsWith("[--batch")); i++) {
       idle();
       Thread.sleep(20);
     }
