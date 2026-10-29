@@ -832,11 +832,14 @@ final class PyJav {
                 if (this.promptOutputInvented && outPath.length() > 0 && !runArgv.contains(outPath)) runArgv.add(outPath);
             }
             if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
+            final long runStarted = System.currentTimeMillis();
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
                     ? asPython(JavaRun.run(name, src, bytes, argv))
                     : PythonRun.run(src, name, argv);
+            // File > Logs (Logging on): the run's arguments, exit code and output.
+            Logs.run(name, promptProg ? runArgv : argv, result.code, result.log, runStarted);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);

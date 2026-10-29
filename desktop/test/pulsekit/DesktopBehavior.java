@@ -7966,6 +7966,114 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * File > Logs: nothing is written while General settings > Logging on is unticked; ticked, a
+   * program run (arguments, exit code, output) and the start are logged, a password argument
+   * hidden; the Logs window lists them by type, the newest first, shows, exports and deletes them.
+   */
+  void s166_logs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take.wav");
+    short[] pcm = new short[22050];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 44100));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 44100));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Wav2Mp3.java");
+    final javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    Runnable runIt = () -> {
+      try {
+        edt(() -> log.setText(""));
+        edt(() -> call("setInputFile", wav));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    runIt.run();
+    int whileOff = Logs.entries(Logs.ALL).size();
+    // General settings > Logging on (another dialog first, the MIDI synth's message, is let go).
+    final boolean[] box = new boolean[2];
+    final boolean[] shown = new boolean[2];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if (!"General settings".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[0] = true;
+      javax.swing.JCheckBox c = (javax.swing.JCheckBox) component(w, "settings-logging");
+      box[0] = c != null && !c.isSelected() && c.getText().equals(Logs.SETTING);
+      if (c != null) c.doClick();
+      box[1] = AppSettings.logging();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[0]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    runIt.run();
+    Logs.run("Secret.java", java.util.Arrays.asList("--password", "hunter2", "--out", "a b.txt"), 1, "Failed: no", System.currentTimeMillis());
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    java.util.List<Logs.Entry> starts = Logs.entries(Logs.STARTS);
+    String runText = runs.size() > 1 ? Logs.text(runs.get(1)) : "";
+    String secretText = runs.size() > 0 ? Logs.text(runs.get(0)) : "";
+    this.out.append("while off: ").append(whileOff).append(" entries | box unticked first: ").append(box[0]).append(", on after a click: ").append(box[1])
+        .append("\nruns: ").append(runs.size()).append(" (newest: ").append(runs.isEmpty() ? "-" : runs.get(0).title).append("), starts: ").append(starts.size())
+        .append("\nsecret run args: ").append(secretText.replaceAll("(?s).*?(Arguments:[^\n]*).*", "$1")).append('\n');
+    // The Logs window: Program runs, the Wav2Mp3 run shown, exported, then deleted.
+    final File exported = new File(home, "logs-out.txt");
+    LogsScreen.exportTo = name -> exported;
+    LogsScreen.askDelete = false;
+    final String[] seen = new String[4];
+    hook[0] = w -> {
+      if (!"Logs".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[1] = true;
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> pick = (javax.swing.JComboBox<String>) component(w, "logs-type");
+      @SuppressWarnings("unchecked")
+      javax.swing.JList<Logs.Entry> list = (javax.swing.JList<Logs.Entry>) component(w, "logs-list");
+      seen[0] = "all: " + list.getModel().getSize();
+      pick.setSelectedItem(Logs.RUNS);
+      seen[0] += ", runs: " + list.getModel().getSize();
+      list.setSelectedIndex(1);
+      seen[1] = ((javax.swing.JTextArea) component(w, "logs-text")).getText();
+      ((javax.swing.JButton) component(w, "logs-export")).doClick();
+      ((javax.swing.JButton) component(w, "logs-delete")).doClick();
+      seen[2] = String.valueOf(list.getModel().getSize());
+      seen[3] = ((javax.swing.JLabel) component(w, "logs-state")).getText();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> LogsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[1]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    LogsScreen.exportTo = null;
+    LogsScreen.askDelete = true;
+    String exportedText = exported.isFile() ? new String(Files.readAllBytes(exported.toPath()), StandardCharsets.UTF_8) : "";
+    this.out.append("window: ").append(seen[0]).append(" | after Delete: ").append(seen[2]).append(" | ").append(seen[3])
+        .append("\nshown: ").append(seen[1].split("\n")[0]).append(" / ").append(seen[1].contains("Exit code: 0")).append(" | exported: ").append(exportedText.contains("Program: Wav2Mp3.java")).append('\n');
+    boolean ok = whileOff == 0 && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
+        && runText.contains("Exit code: 0") && runText.contains("Output:") && starts.size() >= 1 && secretText.contains("--password (hidden)") && !secretText.contains("hunter2")
+        && secretText.contains("\"a b.txt\"") && seen[1].startsWith("Type: Program runs") && seen[1].contains("Program: Wav2Mp3.java") && exportedText.contains("Program: Wav2Mp3.java")
+        && "1".equals(seen[2]) && seen[3].startsWith("1 entries");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + runText);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static java.util.function.Consumer<JDialog>[] newHook() {
+    return new java.util.function.Consumer[1];
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

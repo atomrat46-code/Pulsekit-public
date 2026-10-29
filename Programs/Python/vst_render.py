@@ -755,7 +755,7 @@ def map_for(text, plugin=None):
 def plugin_runs(argv, opts):
     """--plugin2/--plugin3: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
     --state only for the first, and --map2/--map3 as that plugin's --map (else --map for all)."""
-    plugins = [(opts["--plugin"], None, None)] + [(opts[k], opts[m], opts[n]) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
+    plugins = [(opts["--plugin"], None, None)] + [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
     runs = []
     for k, (plug, own_map, own_kit) in enumerate(plugins):
         one = []
@@ -787,7 +787,7 @@ def lead_first(argv, opts):
     said = []
     out = list(argv)
     if not opts["--plugin"] and not opts["--carla"] and not opts["--drumgizmo"] and (opts["--plugin2"] or opts["--plugin3"]):
-        given = [(opts[k], opts[m], opts[n]) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
+        given = [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
         rest = []
         j = 0
         while j < len(out):
@@ -1400,7 +1400,7 @@ def main(argv):
         return main(moved[0])
     for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3"), ("--plugin2", "--kit_name2"), ("--plugin3", "--kit_name3")):
         if opts[m] and not opts[k]:
-            fail("%s is for %s: give %s too" % (m, k, k))
+            fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
     more = [opts[k] for k in ("--plugin2", "--plugin3") if opts[k]]
     if more:
         if not opts["--plugin"]:

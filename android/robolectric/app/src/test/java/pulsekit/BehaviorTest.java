@@ -10497,6 +10497,75 @@ public class BehaviorTest {
     if (saved.contains("--plugin2") || !"--plugin2 /vst/Riot.vst3".equals(kept) || ticked || !"/vst/Riot.vst3".equals(value)) throw new AssertionError(out.toString());
   }
 
+  /** File > Logs: nothing while Logging on is unticked; ticked in General settings, a run is logged; the Logs screen lists, opens, copies and deletes it. */
+  @Test
+  public void s173_logs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    String src = "public class Hello { public static void main(String[] a) { System.out.println(\"hello logs \" + a.length); } }";
+    java.util.function.Supplier<JavaRun.Result> runIt = () -> {
+      final JavaRun.Result[] got = new JavaRun.Result[1];
+      JavaRun.start("Hello.java", src, null, java.util.Arrays.asList("--x", "1"), r -> got[0] = r);
+      for (int i = 0; i < 1200 && got[0] == null; i++) {
+        try {
+          Thread.sleep(50);
+        } catch (InterruptedException ex) {
+          break;
+        }
+      }
+      return got[0];
+    };
+    JavaRun.Result first = runIt.get();
+    int whileOff = Logs.entries(Logs.ALL).size();
+    GeneralSettings.show(app);
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-logging");
+    boolean unticked = box != null && !box.isChecked();
+    if (box != null) box.setChecked(true);
+    GeneralSettings.last.dismiss();
+    idle();
+    JavaRun.Result second = runIt.get();
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    out.append("runs: ").append(first == null ? "-" : first.code).append(", ").append(second == null ? "-" : second.code).append(" | while off: ").append(whileOff)
+        .append(" | box unticked first: ").append(unticked).append(", on: ").append(AppSettings.logging()).append(" | logged runs: ").append(runs.size())
+        .append(runs.isEmpty() ? "" : " (" + runs.get(0).title + ")").append(" | starts: ").append(Logs.entries(Logs.STARTS).size()).append('\n');
+    LogsScreen.type = Logs.ALL;
+    LogsScreen.show(app);
+    idle();
+    View lv = LogsScreen.last.getWindow().getDecorView();
+    lv.findViewWithTag("logs-type:" + Logs.RUNS).performClick();
+    idle();
+    lv = LogsScreen.last.getWindow().getDecorView();
+    String state = String.valueOf(((TextView) lv.findViewWithTag("logs-state")).getText());
+    View line = runs.isEmpty() ? null : lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName());
+    if (line != null) line.performClick();
+    idle();
+    TextView body = LogsScreen.entry == null ? null : (TextView) LogsScreen.entry.getWindow().getDecorView().findViewWithTag("logs-text");
+    String text = body == null ? "" : String.valueOf(body.getText());
+    boolean selectable = body != null && body.isTextSelectable();
+    if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    String copied = clips.getPrimaryClip() == null ? "" : String.valueOf(clips.getPrimaryClip().getItemAt(0).getText());
+    if (line != null) line.performClick();
+    idle();
+    if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    int after = Logs.entries(Logs.RUNS).size();
+    LogsScreen.last.dismiss();
+    AppSettings.setLogging(false);
+    out.append("screen: ").append(state).append(" | entry: ").append(text.split("\n")[0]).append(", selectable ").append(selectable)
+        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n');
+    write("s173_logs", out.toString());
+    // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
+    String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
+    boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
+        && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
+        && text.contains("Output:\n" + second.log)
+        && selectable && copied.equals(text) && after == 0;
+    if (!ok) throw new AssertionError(out.toString() + "\n" + text);
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

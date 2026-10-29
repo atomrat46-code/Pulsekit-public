@@ -93,6 +93,17 @@ public final class AppSettings {
     set("promptsTab", on);
   }
 
+  // ------------------------------------------------------------ Logging on (File > Logs)
+
+  /** Whether logs are written (off at first: no log files until it is ticked). */
+  public static boolean logging() {
+    return flag("logging", false);
+  }
+
+  public static void setLogging(boolean on) {
+    set("logging", on);
+  }
+
   // ------------------------------------------------------------ Python (desktop)
 
   public static final String PYTHON = "Python for scripts";

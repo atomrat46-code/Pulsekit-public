@@ -268,12 +268,31 @@ public class MainActivity extends UiKit {
 
     int shownHead = -1;
 
+    /** This process's start is in the logs already. */
+    static boolean logStarted;
+
+    /** The app's versionName ("" when it cannot be read). */
+    String appVersion() {
+        try {
+            return this.getPackageManager().getPackageInfo(this.getPackageName(), 0).versionName;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
         // General settings' Sogni tools and file types.
         AppSettings.load(this.getFilesDir());
+        // File > Logs: in files/logs, written while General settings > Logging on is ticked; this start once.
+        Logs.setDir(new java.io.File(this.getFilesDir(), "logs"));
+        if (!logStarted) {
+            logStarted = true;
+            Logs.started("Pulsekit " + appVersion() + " (Android " + Build.VERSION.RELEASE + ", API " + Build.VERSION.SDK_INT + ", "
+                + Build.MANUFACTURER + " " + Build.MODEL + ")");
+        }
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -1202,6 +1221,11 @@ public class MainActivity extends UiKit {
         downloads.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         downloads.setTextColor(FG);
         downloads.setTag("file-downloads");
+        // The logs written while General settings > Logging on is ticked.
+        android.widget.TextView logs = this.text("Logs", 14, true);
+        logs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        logs.setTextColor(FG);
+        logs.setTag("file-logs");
         // Playlists (.pls): the Editor and Viewer tabs.
         android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
         playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1220,6 +1244,7 @@ public class MainActivity extends UiKit {
         menu.addView(importRef);
         menu.addView(importResult);
         menu.addView(downloads);
+        menu.addView(logs);
         menu.addView(playlists);
         menu.addView(general);
         menu.addView(dbSettings);
@@ -1262,6 +1287,10 @@ public class MainActivity extends UiKit {
         downloads.setOnClickListener(v -> {
             pop.dismiss();
             DownloadsScreen.show(this);
+        });
+        logs.setOnClickListener(v -> {
+            pop.dismiss();
+            LogsScreen.show(this);
         });
         playlists.setOnClickListener(v -> {
             pop.dismiss();
