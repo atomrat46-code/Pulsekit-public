@@ -126,6 +126,23 @@ public class DrumMidi_CRT{
     static final double PITCH_HELD = 0.04, HELD_SONG = 0.5, GUITAR_FLOOR = 0.3, TOM_RISE_PITCH = 1.7;
     static final int RISE_KICKS = 16;
     /**
+     * In a fill most "kicks" can be toms, so the median says little: there a kick whose new pitch is
+     * FILL_TOM_RISE times the lower quartile of the kicks' (the real kicks are the lowest), or
+     * FILL_TOM_THIN times it with a thin low end (lowEnd under FILL_TOM_LOW: kicks 0.3-1.0, these
+     * kits' toms 0.07-0.5), is a tom.
+     */
+    static final double FILL_TOM_RISE = 1.6, FILL_TOM_THIN = 1.25, FILL_TOM_LOW = 0.25;
+    /**
+     * A "snare" whose body reads under SNARE_TOM_PITCH of the song's snares' (their median; the toms
+     * of these kits read 0.75-0.93 of it, snares 0.98 and over), at SNARE_TOM_HZ or more and with the
+     * kick band hardly rising (under SNARE_TOM_KICK: a kick under the snare lowers its reading), is a
+     * tom. At least SNARE_TOM_SNARES snares make the song's.
+     */
+    static final double SNARE_TOM_PITCH = 0.93, SNARE_TOM_HZ = 120, SNARE_TOM_KICK = 0.3;
+    static final int SNARE_TOM_SNARES = 3;
+    /** A tom's stick click reaches the hat band: a hat within TOM_CLICK of a tom found is its click (0.07 real hats to 1). */
+    static final double TOM_CLICK = 0.03;
+    /**
      * A kick whose third partial rings louder than its fundamental reads OVERTONE_LO-OVERTONE_HI times
      * the song's kick pitch (3.06-3.18 seen) and keeps its low end (under 70 Hz, OVERTONE_SUB of the
      * level at its pitch or more: 0.77-1.22); toms there read 1.3-2.2 times, or 3.39 with 0.32-0.55.
@@ -638,6 +655,7 @@ public class DrumMidi_CRT{
             }
         }
         rollSnares(lv, mag, snare, notSnares, snarePeaks, snareBodies, near, hits, bodyLevel, kickLevel, sens, sr);
+        if (writeToms) snareToms(hits, lowPitch, lv.kick, sr);
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
         boolean bassTones = bassNotes(kickLevel);
@@ -811,6 +829,7 @@ public class DrumMidi_CRT{
         if (cymbals && !bass) riddenCrashes(hits, shape, fps);
         if (cymbals) ringingCrashes(hits, shape, fps);
         if (writeToms && !bassTones && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
+        if (writeToms) tomClicks(hits);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         progress(90);
@@ -1595,7 +1614,7 @@ public class DrumMidi_CRT{
         for (int i = 0; i < p.length; i++) rise[i] = risePitch(mag, kickFrames.get(i).intValue(), sr);
         double[] rs = rise.clone();
         Arrays.sort(rs);
-        double usualRise = rs[rs.length / 2];
+        double usualRise = rs[rs.length / 2], lowRise = rs[rs.length / 4];
         for (int i = 0; i < p.length; i++) {
             int t = kickFrames.get(i).intValue();
             // A tom whose body reads as low as the kick (some kits tune them so) rises well above the
@@ -1603,6 +1622,11 @@ public class DrumMidi_CRT{
             // A kick read at its third partial, in its pitch or in what is new at it, stays a kick;
             // so does one at a pitch many of the song's kicks read.
             if (overtoneKick(mag, t, p[i], kickPitch, sr) || overtoneKick(mag, t, rise[i], kickPitch, sr)) continue;
+            if (p.length < RISE_KICKS && !snareAt[t] && wiresLeft(noiseLevel, t) < TOM_WIRES
+                && (rise[i] >= FILL_TOM_RISE * lowRise || rise[i] >= FILL_TOM_THIN * lowRise && lowEnd(mag, t, p[i], sr) < FILL_TOM_LOW)) {
+                floorTom(hits, t * (double) HOP / sr);
+                continue;
+            }
             // A tom tuned under the kick.
             if (!guitar && p.length >= LOW_TOM_KICKS && p[i] < LOW_TOM * usualKick && p[i] >= LOW_TOM_HZ && !snareAt[t]
                 && wiresLeft(noiseLevel, t) < TOM_WIRES && !sharedPitch(p, p[i], KICK_MOST) && toneRing(mag, t, p[i], sr) >= LOW_TOM_RING
@@ -1696,6 +1720,43 @@ public class DrumMidi_CRT{
                 more = true;
             }
         }
+    }
+
+    /** Hats at a tom found are its stick's click (see TOM_CLICK). */
+    static void tomClicks(List<Hit> hits) {
+        List<Double> toms = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == FLOOR_TOM || h.note == MID_TOM || h.note == RACK_TOM) toms.add(Double.valueOf(h.time));
+        if (toms.isEmpty()) return;
+        for (java.util.Iterator<Hit> it = hits.iterator(); it.hasNext(); ) {
+            Hit h = it.next();
+            if (h.note != CLOSED_HAT && h.note != OPEN_HAT) continue;
+            for (Double t : toms) {
+                if (Math.abs(t.doubleValue() - h.time) <= TOM_CLICK) {
+                    it.remove();
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Snares found whose body reads well under the song's snares' (see SNARE_TOM_PITCH) become toms. */
+    static void snareToms(List<Hit> hits, double[] lowPitch, double[] kickLevel, double sr) {
+        List<Double> ps = new ArrayList<Double>();
+        for (Hit h : hits) if (h.note == SNARE_NOTE) ps.add(Double.valueOf(lowPitch[frame(h.time, sr, lowPitch.length)]));
+        if (ps.size() < SNARE_TOM_SNARES) return;
+        Collections.sort(ps);
+        double usual = ps.get(ps.size() / 2).doubleValue();
+        for (int i = 0; i < hits.size(); i++) {
+            Hit h = hits.get(i);
+            if (h.note != SNARE_NOTE) continue;
+            int t = frame(h.time, sr, lowPitch.length);
+            double p = lowPitch[t];
+            if (p < SNARE_TOM_PITCH * usual && p >= SNARE_TOM_HZ && jump(kickLevel, t) < SNARE_TOM_KICK) hits.set(i, new Hit(h.time, MID_TOM, h.strength));
+        }
+    }
+
+    static int frame(double time, double sr, int n) {
+        return Math.max(0, Math.min(n - 1, (int) Math.round(time * sr / HOP)));
     }
 
     /** The song's loud snares' body spectrum (120-450 Hz), to tell its ghost notes from toms. */
