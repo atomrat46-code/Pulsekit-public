@@ -7916,6 +7916,56 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's Params: --map has Pulsekit's map files to pick (drum-kits.txt, put in
+   * ~/.pulsekit/maps) and Browse; a kit name typed in the run's arguments (--kit_name) is kept,
+   * and the next Params has it to pick.
+   */
+  void s165_vst_map_and_kit_lists() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    call("saveParams", "vst_render.py", "");
+    java.util.function.Function<String, String[]> rows = token -> {
+      try {
+        final JDialog[] d = new JDialog[1];
+        inspectNext = w -> d[0] = w;
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            call("openParams");
+          } catch (Exception ex) {
+            errors.add(ex);
+          }
+        });
+        for (int i = 0; i < 100 && (d[0] == null || !d[0].isShowing()); i++) Thread.sleep(100);
+        Thread.sleep(300);
+        final String[] seen = new String[2];
+        edt(() -> {
+          seen[0] = (component(d[0], "params-choose:" + token) != null ? "Choose" : "-") + (component(d[0], "params-map-browse:" + token) != null ? " Browse" : "");
+        });
+        edt(() -> find(d[0].getContentPane(), "Cancel").doClick());
+        idle();
+        return seen;
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    String[] map = rows.apply("--map");
+    String[][] choices = VstLists.mapChoices();
+    boolean unpacked = new File(home, ".pulsekit/maps/drum-kits.txt").isFile();
+    String[] kitBefore = rows.apply("--kit_name");
+    VstLists.rememberKits("--plugin k.vst3 --kit_name \"Finnish Metal 2000\" --test");
+    String[] kitAfter = rows.apply("--kit_name");
+    this.out.append("--map row: ").append(map[0]).append(" | choices: ").append(java.util.Arrays.toString(choices[0])).append(" -> ").append(java.util.Arrays.toString(choices[1]))
+        .append(" | unpacked: ").append(unpacked).append("\n--kit_name row before: ").append(kitBefore[0]).append(" | after a run: ").append(kitAfter[0])
+        .append(" ").append(java.util.Arrays.toString(VstLists.kitNames())).append('\n');
+    boolean ok = map[0].equals("Choose Browse") && java.util.Arrays.asList(choices[0]).contains("drum-kits.txt (Pulsekit's)")
+        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("-") && kitAfter[0].equals("Choose")
+        && java.util.Arrays.asList(VstLists.kitNames()).equals(java.util.Arrays.asList("Finnish Metal 2000"));
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

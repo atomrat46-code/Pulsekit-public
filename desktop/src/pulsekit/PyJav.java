@@ -674,6 +674,7 @@ final class PyJav {
         final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
         final String savedNow = this.loadParams(app.pyName);
         final String extra = ProgramParams.merge(runParams, field, savedNow);
+        if ("vst_render.py".equals(name)) VstLists.rememberKits(extra);
         // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
         if (savedNow != null && ProgramParams.typed(runParams, field).length() > 0)
             this.saveParams(app.pyName, ProgramParams.build(runParams, ProgramParams.values(runParams, ProgramParams.typed(runParams, extra), "")));
@@ -2237,6 +2238,19 @@ final class PyJav {
         final String program = app.pyName == null || app.pyName.isEmpty() ? "program" : app.pyName;
         if (this.mustWait(program, false)) return;
         final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(this.programText());
+        // vst_render: its map files and the kit names given before, to pick from.
+        for (ProgramParams.Param p : ps) {
+            if (p.token.equals("--map") || p.token.equals("--map2") || p.token.equals("--map3")) {
+                String[][] maps = VstLists.mapChoices();
+                if (maps[0].length > 0) {
+                    p.choices = maps[0];
+                    p.choiceValues = maps[1];
+                }
+            } else if (p.token.startsWith("--kit_name")) {
+                String[] kits = VstLists.kitNames();
+                if (kits.length > 0) p.choices = kits;
+            }
+        }
         if (ps.isEmpty()) {
             JOptionPane.showMessageDialog(app, "No parameters found in " + program + ". A line such as\n"
                 + "Usage: java Prog <input.wav> [song.mid] [--level N]\nin the program lists them here.",
@@ -2553,7 +2567,25 @@ final class PyJav {
                     if (picked >= 0) field.setText(p.choiceValue(picked));
                 });
                 row.add(field, BorderLayout.CENTER);
-                row.add(choose, BorderLayout.EAST);
+                if (p.token.startsWith("--map")) {
+                    // vst_render's map: one of its files above, or another text file.
+                    JButton browse = new JButton("Browse");
+                    browse.setName("params-map-browse:" + p.token);
+                    browse.addActionListener(e -> {
+                        JFileChooser chooser = new JFileChooser(VstLists.mapsDir());
+                        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Map files", "txt"));
+                        if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                        String path = chooser.getSelectedFile().getAbsolutePath();
+                        VstLists.rememberMap(path);
+                        field.setText(path);
+                    });
+                    JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                    buttons.add(choose);
+                    buttons.add(browse);
+                    row.add(buttons, BorderLayout.EAST);
+                } else {
+                    row.add(choose, BorderLayout.EAST);
+                }
                 form.add(row);
                 if (p.modelNote) {
                     // SogniChat: image analyze mode (a DeepSeek vision model) or tools mode, as the model is picked.

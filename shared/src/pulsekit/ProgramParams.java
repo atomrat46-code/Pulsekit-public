@@ -678,10 +678,16 @@ public final class ProgramParams {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "Anarchy Drums: 45=46,41=none (Programs/Python/maps/drum-kits.txt has it); empty: as the MIDI has them";
+      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: as the MIDI has them";
     } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
       p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";
+    } else if (p.token.equals("--kit_name")) {
+      p.label = "Kit loaded in the plugin (KVLT: Finnish Metal 2000): in the files' names and the report";
+      p.hint = "empty: the plugin's name only";
+    } else if (p.token.equals("--kit_name2") || p.token.equals("--kit_name3")) {
+      p.label = "Kit loaded in the " + (p.token.equals("--kit_name2") ? "second" : "third") + " plugin";
+      p.hint = "empty: its name only";
     } else if (p.token.equals("--mp3")) {
       p.label = "MP3s instead of WAVs (after the test): the WAVs are made MP3s at this bitrate and deleted";
       p.hint = "empty: WAVs; 192 is about a seventh of the WAV";
