@@ -206,7 +206,7 @@ public class DrumMidi_CRT{
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
     static final double SAME_CYMBAL = 0.035;
-    static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.6;
+    static final double RIDE_STABLE = 0.89, RIDE_LOW = 1.0, RIDE_HIGH = 0.7, RIDE_WINDOW = 2.0, RIDE_SHARE = 0.4;
     static final double RIDE_STABLE_RINGING = 0.84, RIDE_RING = 0.45, RIDE_TOP_RING = 0.3;
     /**
      * A sampled ride played dry (Anarchy Drums') holds its partials less: its wash keeps RIDE_WASH of
@@ -219,6 +219,11 @@ public class DrumMidi_CRT{
     static final int RIDE_ALONE = 2;
     static final double RIDE_NEAR = 1.0;
     static final int RIDE_SEEN = 3;
+    /**
+     * Rock and metal ride on the kick and snare, so 2 s can hold fewer than RIDE_SEEN clean hits:
+     * then the clean hits within RIDE_WINDOW_WIDE seconds decide.
+     */
+    static final double RIDE_WINDOW_WIDE = 6.0;
     static final double PEDAL_BODY = 0.2, LOUD_BODY = 0.4, PEDAL_ALONE = 1.0, PEDAL_RUN = 0.7;
     /**
      * Rises in band level (linear, in units of the band's loud hits): a kick raises the kick band by
@@ -1989,8 +1994,9 @@ public class DrumMidi_CRT{
      * Ride or hats, passage by passage. A ride's ring keeps its partials (the ride band alike
      * from 4 to 8 frames on, RIDE_STABLE) or sits low (1-3 kHz at RIDE_LOW of the ride band,
      * 7-14 kHz under RIDE_HIGH); a closed hat with a room or reverb rings on too, but these only
-     * here and there. Where most (RIDE_SHARE) of the clean cymbal hits within RIDE_WINDOW seconds
-     * (no kick, snare or crash on them; RIDE_SEEN at least) are ride-like, the passage's closed hats
+     * here and there. Where RIDE_SHARE of the clean cymbal hits within RIDE_WINDOW seconds
+     * (no kick, snare or crash on them; RIDE_SEEN at least) are ride-like (a ride's clean hits are so
+     * 43-67% of the time, a hat's 8-14%), the passage's closed hats
      * are the ride; elsewhere its rides are hats. The levels are taken as rises at the hit, so what
      * already sounds does not count. Over a bass line the partials are not asked about, and hats
      * are not turned into a ride (chords struck with the hats rise low as a ride does).
@@ -2041,10 +2047,15 @@ public class DrumMidi_CRT{
         for (int i = 0; i < n; i++) {
             Hit h = cym.get(i);
             int seen = 0, rides = 0;
-            for (int j = 0; j < n; j++) {
-                if (!clean[j] || Math.abs(cym.get(j).time - h.time) > RIDE_WINDOW) continue;
-                seen++;
-                if (like[j]) rides++;
+            for (double window : new double[] {RIDE_WINDOW, RIDE_WINDOW_WIDE}) {
+                seen = 0;
+                rides = 0;
+                for (int j = 0; j < n; j++) {
+                    if (!clean[j] || Math.abs(cym.get(j).time - h.time) > window) continue;
+                    seen++;
+                    if (like[j]) rides++;
+                }
+                if (seen >= RIDE_SEEN) break;
             }
             if (seen < RIDE_SEEN) continue;
             int note = rides >= RIDE_SHARE * seen ? RIDE_NOTE : CLOSED_HAT;
