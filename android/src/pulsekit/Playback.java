@@ -352,6 +352,8 @@ final class Playback {
             int n2 = AudioTrack.getMinBufferSize((int)22050, (int)4, (int)2);
             n = Math.max(n2, 512);
             app.track = new AudioTrack(3, 22050, 4, 2, n, 1);
+            // File > Sound devices: the output picked.
+            SoundOut.prefer(app.track);
             app.track.play();
         }
     }
@@ -503,6 +505,8 @@ final class Playback {
      * WARNING - Removed try catching itself - possible behaviour change.
      */
     void triggerMix(int n, int n2) {
+        // File > Sound devices: a MIDI output picked plays the drums instead of Pulsekit's own sounds.
+        if (SoundOut.drumHit(Engine.NOTES[n], Engine.clamp(n2, 1, 127))) return;
         Object object = app.mixLock;
         synchronized (object) {
             app.mixPos[n] = 0;

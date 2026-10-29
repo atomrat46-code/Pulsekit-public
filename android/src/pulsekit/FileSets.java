@@ -255,6 +255,7 @@ final class FileSets {
             java.io.File f = new java.io.File(app.getCacheDir(), "pk-midi.wav");
             this.writePcmFile(f, pcm);
             android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            SoundOut.prefer(mp);
             mp.setDataSource(f.getAbsolutePath());
             mp.prepare();
             if (fromMs > 0 && fromMs < mp.getDuration()) mp.seekTo(fromMs);

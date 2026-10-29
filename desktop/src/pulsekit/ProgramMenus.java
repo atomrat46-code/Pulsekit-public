@@ -48,6 +48,11 @@ final class ProgramMenus {
             this.programButtons[i] = self[0];
             row.add(self[0]);
         }
+        // The Plugin Browser: plugins and kits of every type, their folders, favourites, categories, groups and tags.
+        JButton plugins = app.action("Plugins", ELEV, FG, () -> PluginBrowser.show(app));
+        plugins.setName("program-plugins");
+        plugins.setToolTipText("Plugin Browser: VST3, VST2, AU, LV2, CLAP plugins and SF2, SFZ kits");
+        row.add(plugins);
         return row;
     }
 

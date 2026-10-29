@@ -68,6 +68,7 @@ final class SavePromptDialog {
             try {
                 if (player == null) {
                     player = new android.media.MediaPlayer();
+                    SoundOut.prefer(player);
                     player.setDataSource(file.getAbsolutePath());
                     player.setOnCompletionListener(mp -> {
                         stopPlayer();

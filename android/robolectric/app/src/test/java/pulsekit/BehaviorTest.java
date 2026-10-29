@@ -10497,6 +10497,247 @@ public class BehaviorTest {
     if (saved.contains("--plugin2") || !"--plugin2 /vst/Riot.vst3".equals(kept) || ticked || !"/vst/Riot.vst3".equals(value)) throw new AssertionError(out.toString());
   }
 
+  /** File > Logs: nothing while Logging on is unticked; ticked in General settings, a run is logged; the Logs screen lists, opens, copies and deletes it. */
+  @Test
+  public void s173_logs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    String src = "public class Hello { public static void main(String[] a) { System.out.println(\"hello logs \" + a.length); } }";
+    java.util.function.Supplier<JavaRun.Result> runIt = () -> {
+      final JavaRun.Result[] got = new JavaRun.Result[1];
+      JavaRun.start("Hello.java", src, null, java.util.Arrays.asList("--x", "1"), r -> got[0] = r);
+      for (int i = 0; i < 1200 && got[0] == null; i++) {
+        try {
+          Thread.sleep(50);
+        } catch (InterruptedException ex) {
+          break;
+        }
+      }
+      return got[0];
+    };
+    JavaRun.Result first = runIt.get();
+    int whileOff = Logs.entries(Logs.ALL).size();
+    GeneralSettings.show(app);
+    idle();
+    android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-logging");
+    boolean unticked = box != null && !box.isChecked();
+    if (box != null) box.setChecked(true);
+    GeneralSettings.last.dismiss();
+    idle();
+    JavaRun.Result second = runIt.get();
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    out.append("runs: ").append(first == null ? "-" : first.code).append(", ").append(second == null ? "-" : second.code).append(" | while off: ").append(whileOff)
+        .append(" | box unticked first: ").append(unticked).append(", on: ").append(AppSettings.logging()).append(" | logged runs: ").append(runs.size())
+        .append(runs.isEmpty() ? "" : " (" + runs.get(0).title + ")").append(" | starts: ").append(Logs.entries(Logs.STARTS).size()).append('\n');
+    LogsScreen.type = Logs.ALL;
+    LogsScreen.show(app);
+    idle();
+    View lv = LogsScreen.last.getWindow().getDecorView();
+    lv.findViewWithTag("logs-type:" + Logs.RUNS).performClick();
+    idle();
+    lv = LogsScreen.last.getWindow().getDecorView();
+    String state = String.valueOf(((TextView) lv.findViewWithTag("logs-state")).getText());
+    View line = runs.isEmpty() ? null : lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName());
+    if (line != null) line.performClick();
+    idle();
+    TextView body = LogsScreen.entry == null ? null : (TextView) LogsScreen.entry.getWindow().getDecorView().findViewWithTag("logs-text");
+    String text = body == null ? "" : String.valueOf(body.getText());
+    boolean selectable = body != null && body.isTextSelectable();
+    if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    String copied = clips.getPrimaryClip() == null ? "" : String.valueOf(clips.getPrimaryClip().getItemAt(0).getText());
+    if (line != null) line.performClick();
+    idle();
+    if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    int after = Logs.entries(Logs.RUNS).size();
+    LogsScreen.last.dismiss();
+    AppSettings.setLogging(false);
+    out.append("screen: ").append(state).append(" | entry: ").append(text.split("\n")[0]).append(", selectable ").append(selectable)
+        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n');
+    write("s173_logs", out.toString());
+    // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
+    String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
+    boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
+        && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
+        && text.contains("Output:\n" + second.log)
+        && selectable && copied.equals(text) && after == 0;
+    if (!ok) throw new AssertionError(out.toString() + "\n" + text);
+  }
+
+  /** File > Sound devices: every group listed (Android's own USB drivers among the drivers), an output kept that is unplugged said, Use the default clearing it, the logs keeping it. */
+  @Test
+  public void s174_sound_devices() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    AppSettings.setLogging(true);
+    AppSettings.setSoundOut("Gone Interface | USB audio (OTG)");
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    StringBuilder heads = new StringBuilder();
+    for (String kind : SoundDevices.KINDS) heads.append(sv.findViewWithTag("sound-kind:" + kind) != null ? "+" : "-");
+    String now = String.valueOf(((TextView) sv.findViewWithTag("sound-now")).getText());
+    View driver = sv.findViewWithTag("sound-device:" + SoundDevices.DRIVERS + ":" + SoundOut.ANDROID_DRIVERS + " | built in");
+    if (driver != null) driver.performClick();
+    idle();
+    String info = SoundDevicesScreen.device == null ? "" : String.valueOf(((TextView) SoundDevicesScreen.device.getWindow().getDecorView().findViewWithTag("sound-info")).getText());
+    boolean noUse = SoundDevicesScreen.device != null && SoundDevicesScreen.device.getButton(AlertDialog.BUTTON_POSITIVE).getVisibility() != View.VISIBLE;
+    if (SoundDevicesScreen.device != null) SoundDevicesScreen.device.dismiss();
+    sv.findViewWithTag("sound-default").performClick();
+    idle();
+    sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    String after = String.valueOf(((TextView) sv.findViewWithTag("sound-now")).getText());
+    SoundDevicesScreen.last.dismiss();
+    StringBuilder titles = new StringBuilder();
+    for (Logs.Entry e : Logs.entries(Logs.SOUND)) titles.append(titles.length() == 0 ? "" : " / ").append(e.title.replaceAll("\\(\\d+\\)", "(n)"));
+    boolean noPort = !SoundOut.drumHit(38, 100);
+    AppSettings.setLogging(false);
+    out.append("groups ").append(heads).append(" | now: ").append(now.replace('\n', ' ')).append("\ndriver info: ").append(info.split("\n")[0]).append(", no Use: ").append(noUse)
+        .append("\nafter Use the default: ").append(after.replace('\n', ' ')).append(" (kept \"").append(AppSettings.soundOut()).append("\")\nlogged: ").append(titles)
+        .append(" | drum hit without a MIDI output: ").append(noPort ? "own sounds" : "sent").append('\n');
+    write("s174_sound_devices", out.toString());
+    boolean ok = heads.toString().equals("+++++++") && now.contains("Gone Interface | USB audio (OTG) is not connected") && driver != null && info.contains("class-compliant")
+        && noUse && after.contains(SoundDevices.DEFAULT_OUT) && AppSettings.soundOut().isEmpty() && titles.toString().contains("Sound devices found")
+        && titles.toString().contains("Back to the defaults") && noPort;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** SFZ kits: a lone .sfz asks for its package; a .zip with two kits, the one picked onto the pads (FLAC kick, 24-bit snare), kept as kit.sf2 and in the logs. */
+  @Test
+  public void s175_sfz_kit() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    AppSettings.setLogging(true);
+    File home = app.getCacheDir();
+    File zip = new File(home, "Test Kits.zip");
+    short[] snare = new short[11025];
+    for (int i = 0; i < snare.length; i++) snare[i] = (short) (20000 * Math.exp(-i / 1500.0) * Math.sin(i * 0.31 + Math.sin(i * 1.7)));
+    int n = snare.length;
+    java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(44 + n * 3).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    b.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + n * 3).put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16).putShort((short) 1).putShort((short) 1)
+        .putInt(44100).putInt(44100 * 3).putShort((short) 3).putShort((short) 24).put("data".getBytes(StandardCharsets.US_ASCII)).putInt(n * 3);
+    for (short v : snare) b.put((byte) 0x40).putShort(v);
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      String[][] files = {
+        {"Kits/Rock.sfz", "<control> default_path=Samples/\n<group> key=c2\n<region> sample=Kick\\kick.flac\n<region> sample=snare 24.wav key=38\n"},
+        {"Kits/Jazz.sfz", "<region> sample=Samples/snare 24.wav key=36\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+        z.closeEntry();
+      }
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/kick/KICK.FLAC"));
+      z.write(Files.readAllBytes(new File("../../../desktop/test/kick24.flac").toPath()));
+      z.closeEntry();
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/snare 24.wav"));
+      z.write(b.array());
+      z.closeEntry();
+    }
+    ProjectIo.lastSfz = "";
+    app.projectIo.importSfz(android.net.Uri.fromFile(new File(home, "Rock.sfz")), "Rock.sfz");
+    String lone = ProjectIo.lastSfz;
+    short[] kickBefore = app.voices[0], snareBefore = app.voices[2];
+    final java.util.List<String> offered = new java.util.ArrayList<String>();
+    ProjectIo.sfzPick = kits -> {
+      offered.addAll(kits);
+      return "Kits/Rock.sfz";
+    };
+    ProjectIo.lastSfz = "";
+    app.projectIo.importSfz(android.net.Uri.fromFile(zip), "Test Kits.zip");
+    for (int i = 0; i < 400 && !(ProjectIo.lastSfz.startsWith("SFZ kit") || ProjectIo.lastSfz.startsWith("Could") || ProjectIo.lastSfz.startsWith("No ")); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    idle();
+    ProjectIo.sfzPick = null;
+    int keptPads = 0;
+    File kept = new File(app.getFilesDir(), "kit.sf2");
+    if (kept.isFile()) for (short[] v : AudioIo.parseSf2(Files.readAllBytes(kept.toPath()))) if (v != null) keptPads++;
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.KITS);
+    String report = logged.isEmpty() ? "" : Logs.text(logged.get(0));
+    AppSettings.setLogging(false);
+    out.append("lone .sfz: ").append(lone).append("\noffered ").append(offered).append(" | said: ").append(ProjectIo.lastSfz).append("\nkick ").append(app.voices[0] != kickBefore)
+        .append(", snare ").append(app.voices[2] != snareBefore).append(", clap not from the kit ").append(app.voices[3] != app.voices[2] && app.voices[3] != app.voices[0]).append(" | kit.sf2 pads ").append(keptPads)
+        .append(" | log: ").append(logged.isEmpty() ? "-" : logged.get(0).title).append('\n');
+    write("s175_sfz_kit", out.toString());
+    boolean ok = lone.startsWith("An SFZ kit needs its samples") && offered.equals(java.util.Arrays.asList("Kits/Jazz.sfz", "Kits/Rock.sfz"))
+        && ProjectIo.lastSfz.equals("SFZ kit \u00b7 Rock \u00b7 3 drums") && app.voices[0] != kickBefore && app.voices[2] != snareBefore && app.voices[3] != app.voices[2] && app.voices[3] != app.voices[0]
+        && keptPads >= 3 && report.contains("Kick (36): Kits/Samples/Kick/kick.flac");
+    if (!ok) throw new AssertionError(out.toString() + "\n" + report);
+  }
+
+  /** PyJav > Plugins on the phone: kit folders set, the kits found (SF2, SFZ), favourite and category kept, the types table, Use (SFZ onto the pads) and Test (a beat). */
+  @Test
+  public void s176_plugin_browser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PluginLibrary.reset();
+    File kits = new File(app.getCacheDir(), "my kits");
+    new File(kits, "Test").mkdirs();
+    Files.write(new File(kits, "Rock.sf2").toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Rock"));
+    short[] hit = new short[8000];
+    for (int i = 0; i < hit.length; i++) hit[i] = (short) (18000 * Math.exp(-i / 900.0) * Math.sin(i * 0.05));
+    Files.write(new File(kits, "Test/kick.wav").toPath(), AudioIo.encodeWav(hit, 44100));
+    Files.write(new File(kits, "Test/Jazz.sfz").toPath(), "<region> sample=kick.wav key=36\n".getBytes(StandardCharsets.UTF_8));
+    final java.util.Map<String, String> answers = new java.util.HashMap<String, String>();
+    answers.put("Folders", kits.getAbsolutePath());
+    answers.put("Category", "Drum kits");
+    PluginBrowser.answer = what -> answers.get(what);
+    PluginBrowser.type = PluginLibrary.ANY;
+    PluginBrowser.sort = PluginLibrary.SORTS[0];
+    PluginBrowser.favourites = false;
+    View row = app.findViewById(android.R.id.content).findViewWithTag("program-plugins");
+    if (row != null) row.performClick();
+    else PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-folders").performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    boolean rock = bv.findViewWithTag("browser-item:Rock") != null, jazz = bv.findViewWithTag("browser-item:Jazz") != null;
+    bv.findViewWithTag("browser-item:Rock").performClick();
+    idle();
+    PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-fav").performClick();
+    idle();
+    PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-set-category").performClick();
+    idle();
+    String info = String.valueOf(((TextView) PluginBrowser.page.getWindow().getDecorView().findViewWithTag("browser-info")).getText());
+    PluginBrowser.page.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !PluginBrowser.lastSaid.startsWith("Test beat"); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    String tested = PluginBrowser.lastSaid;
+    PluginBrowser.page.dismiss();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String line = String.valueOf(((TextView) bv.findViewWithTag("browser-item:Rock")).getText());
+    bv.findViewWithTag("browser-types").performClick();
+    idle();
+    String types = PluginBrowser.lastSaid;
+    android.app.Dialog typesDialog = ShadowDialog.getLatestDialog();
+    if (typesDialog != null && typesDialog != PluginBrowser.last) typesDialog.dismiss();
+    ProjectIo.lastSfz = "";
+    bv.findViewWithTag("browser-item:Jazz").performClick();
+    idle();
+    PluginBrowser.page.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && !ProjectIo.lastSfz.startsWith("SFZ kit") && !ProjectIo.lastSfz.startsWith("Could"); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    PluginBrowser.last.dismiss();
+    PluginBrowser.answer = null;
+    out.append("count: ").append(count).append(" | Rock ").append(rock).append(", Jazz ").append(jazz).append("\nRock: ").append(line).append(" | info: ").append(info.split("\n")[0])
+        .append("\ntest: ").append(tested).append("\ntypes: VST3 not here ").append(types.contains("VST3 (.vst3)  desktop: yes, Android: no  [not on this app]"))
+        .append(", SFZ here ").append(types.contains("SFZ (.sfz)  desktop: yes, Android: yes\n")).append("\nUse Jazz: ").append(ProjectIo.lastSfz).append('\n');
+    write("s176_plugin_browser", out.toString());
+    boolean ok = count.startsWith("2 of 2") && rock && jazz && line.equals("\u2605 Rock  [SF2]  Drum kits") && tested.startsWith("Test beat with Rock")
+        && types.contains("[not on this app]") && types.contains("SFZ (.sfz)  desktop: yes, Android: yes\n") && ProjectIo.lastSfz.equals("SFZ kit \u00b7 Jazz \u00b7 2 drums")
+        && new String(Files.readAllBytes(new File(app.getFilesDir(), "plugin-library.txt").toPath()), StandardCharsets.UTF_8).contains("\t1\tDrum kits\t");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

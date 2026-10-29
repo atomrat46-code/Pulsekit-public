@@ -43,6 +43,12 @@ public final class CrashLog {
       } catch (Throwable ignored) {
         // no log
       }
+      try {
+        // File > Logs too (Logging on).
+        Logs.error("Pulsekit stopped (thread " + thread.getName() + ")", error);
+      } catch (Throwable ignored) {
+        // no log
+      }
       if (this.before != null) this.before.uncaughtException(thread, error);
     }
   }

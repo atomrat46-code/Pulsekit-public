@@ -163,6 +163,17 @@ final class GeneralSettings {
                 filling[0] = false;
             });
         }, "pythons").start();
+        // Logs: written only while ticked (File > Logs shows them).
+        more.add(headline("Logs"));
+        final JCheckBox logging = new JCheckBox(Logs.SETTING, AppSettings.logging());
+        logging.setName("settings-logging");
+        logging.addActionListener(e -> {
+            AppSettings.setLogging(logging.isSelected());
+            if (logging.isSelected()) Logs.started("Pulsekit " + Looks.version() + " (desktop), logging turned on");
+            app.setNow(logging.isSelected() ? "Logging on: File > Logs shows what is written" : "Logging off: no log files are written");
+        });
+        more.add(logging);
+        more.add(note(Logs.SETTING_NOTE.replace("Logs shows", "Logs shows\n")));
         // Security: the settings master password.
         more.add(headline("Security"));
         final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());
@@ -191,7 +202,7 @@ final class GeneralSettings {
         more.add(note(AppSettings.MASTER_NOTE.replace("; unticked", ";\nunticked")));
         for (java.awt.Component c : more.getComponents()) ((javax.swing.JComponent) c).setAlignmentX(0f);
         // Settings master password: everything greyed until Unlock settings is given the password.
-        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, python, master);
+        final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, python, logging, master);
         final java.util.List<javax.swing.JComponent> all2 = new java.util.ArrayList<javax.swing.JComponent>(controls);
         for (java.awt.Component c : more.getComponents()) if (c instanceof JCheckBox && !all2.contains(c)) all2.add((JCheckBox) c);
         JPanel lockRow = unlockRow(app, dialog, () -> lock(all2));

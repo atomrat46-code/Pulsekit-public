@@ -93,6 +93,40 @@ public final class AppSettings {
     set("promptsTab", on);
   }
 
+  // ------------------------------------------------------------ Logging on (File > Logs)
+
+  /** Whether logs are written (off at first: no log files until it is ticked). */
+  public static boolean logging() {
+    return flag("logging", false);
+  }
+
+  public static void setLogging(boolean on) {
+    set("logging", on);
+  }
+
+  // ------------------------------------------------------------ Sound devices (File > Sound devices)
+
+  /** The output Pulsekit plays through (SoundDevices.Device.key()), or "" for the system default. */
+  public static synchronized String soundOut() {
+    String v = VALUES.get("soundOut");
+    return v == null ? "" : v;
+  }
+
+  /** Picked in File > Sound devices (not a General settings box: the master password does not lock it). */
+  public static synchronized void setSoundOut(String key) {
+    put("soundOut", key == null || key.trim().isEmpty() ? null : key.trim());
+  }
+
+  /** The MIDI output the drum tracks play through, or "" for Pulsekit's own synth. */
+  public static synchronized String midiOut() {
+    String v = VALUES.get("midiOut");
+    return v == null ? "" : v;
+  }
+
+  public static synchronized void setMidiOut(String key) {
+    put("midiOut", key == null || key.trim().isEmpty() ? null : key.trim());
+  }
+
   // ------------------------------------------------------------ Python (desktop)
 
   public static final String PYTHON = "Python for scripts";

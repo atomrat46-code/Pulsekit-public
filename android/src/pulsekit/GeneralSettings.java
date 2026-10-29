@@ -138,6 +138,22 @@ final class GeneralSettings {
         col.addView(python);
         if (apps.isEmpty()) col.addView(app.text("No Python app found (Pydroid 3, QPython): Pulsekit uses python3 when the phone has it.", 12, false));
         controls.add(python);
+        // Logs: written only while ticked (File > Logs shows them).
+        col.addView(headline(app, "Logs"));
+        final CheckBox logging = new CheckBox(app);
+        logging.setText(Logs.SETTING);
+        logging.setTag("settings-logging");
+        logging.setChecked(AppSettings.logging());
+        logging.setOnCheckedChangeListener((b, on) -> {
+            AppSettings.setLogging(on);
+            if (on) Logs.started("Pulsekit " + app.appVersion() + " (Android), logging turned on");
+            app.setNow(on ? "Logging on: File > Logs shows what is written" : "Logging off: no log files are written");
+        });
+        col.addView(logging);
+        controls.add(logging);
+        TextView loggingNote = app.text(Logs.SETTING_NOTE, 12, false);
+        loggingNote.setPadding(0, app.dp(4), 0, 0);
+        col.addView(loggingNote);
         // Security: the settings master password.
         col.addView(headline(app, "Security"));
         final CheckBox master = new CheckBox(app);

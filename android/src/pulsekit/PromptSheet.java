@@ -3215,6 +3215,7 @@ public final class PromptSheet {
         if (midi) col.addView(label(activity, "MIDI, played with the phone's General MIDI sounds (it has no drums for Pulsekit's kit).", 14, "#8A8B86", false));
       }
       MediaPlayer player = new MediaPlayer();
+      SoundOut.prefer(player);
       previewAudio = player;
       player.setDataSource(previewFile.getAbsolutePath());
       player.setOnPreparedListener(MediaPlayer::start);
@@ -3345,6 +3346,7 @@ public final class PromptSheet {
       previewFile = kit != null ? spill(activity, "preview.wav", AudioIo.encodeWav(kit, 22050), "wav")
           : spill(activity, midi && previewKindByName(name) != 4 ? "preview.mid" : name, bytes, midi ? "mid" : "mp3");
       MediaPlayer player = new MediaPlayer();
+      SoundOut.prefer(player);
       previewAudio = player;
       player.setDataSource(previewFile.getAbsolutePath());
       player.setOnPreparedListener(MediaPlayer::start);

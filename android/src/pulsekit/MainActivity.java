@@ -268,12 +268,34 @@ public class MainActivity extends UiKit {
 
     int shownHead = -1;
 
+    /** This process's start is in the logs already. */
+    static boolean logStarted;
+
+    /** The app's versionName ("" when it cannot be read). */
+    String appVersion() {
+        try {
+            return this.getPackageManager().getPackageInfo(this.getPackageName(), 0).versionName;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
         // General settings' Sogni tools and file types.
         AppSettings.load(this.getFilesDir());
+        // File > Logs: in files/logs, written while General settings > Logging on is ticked; this start once.
+        Logs.setDir(new java.io.File(this.getFilesDir(), "logs"));
+        // File > Sound devices: the output and the drum MIDI output picked.
+        SoundOut.init(this);
+        if (!logStarted) SoundOut.openDrumMidi(this);
+        if (!logStarted) {
+            logStarted = true;
+            Logs.started("Pulsekit " + appVersion() + " (Android " + Build.VERSION.RELEASE + ", API " + Build.VERSION.SDK_INT + ", "
+                + Build.MANUFACTURER + " " + Build.MODEL + ")");
+        }
         // The prompt library's key: the Android keystore.
         if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
         if (Build.VERSION.SDK_INT >= 21) {
@@ -911,6 +933,11 @@ public class MainActivity extends UiKit {
                 Toast.makeText((Context)this, (CharSequence)(Engine.TRACK_LABEL[n3] + " sample loaded"), (int)0).show();
                 return;
             }
+            if (n == 7 && Sfz.isKitName(DbImport.displayName(this, uri))) {
+                // An SFZ kit package onto the pads (a zip without a kit goes on as a zip).
+                this.projectIo.importSfz(uri, DbImport.displayName(this, uri));
+                return;
+            }
             if (n == 7 && ZipImport.isZip(DbImport.displayName(this, uri))) {
                 // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
                 ZipFlow.importZip(this, uri, DbImport.displayName(this, uri));
@@ -1202,6 +1229,16 @@ public class MainActivity extends UiKit {
         downloads.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         downloads.setTextColor(FG);
         downloads.setTag("file-downloads");
+        // The logs written while General settings > Logging on is ticked.
+        android.widget.TextView logs = this.text("Logs", 14, true);
+        logs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        logs.setTextColor(FG);
+        logs.setTag("file-logs");
+        // The outputs, inputs, MIDI and USB devices; Pulsekit's output and drum MIDI output.
+        android.widget.TextView sound = this.text("Sound devices", 14, true);
+        sound.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        sound.setTextColor(FG);
+        sound.setTag("file-sound-devices");
         // Playlists (.pls): the Editor and Viewer tabs.
         android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
         playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1220,6 +1257,8 @@ public class MainActivity extends UiKit {
         menu.addView(importRef);
         menu.addView(importResult);
         menu.addView(downloads);
+        menu.addView(logs);
+        menu.addView(sound);
         menu.addView(playlists);
         menu.addView(general);
         menu.addView(dbSettings);
@@ -1262,6 +1301,14 @@ public class MainActivity extends UiKit {
         downloads.setOnClickListener(v -> {
             pop.dismiss();
             DownloadsScreen.show(this);
+        });
+        logs.setOnClickListener(v -> {
+            pop.dismiss();
+            LogsScreen.show(this);
+        });
+        sound.setOnClickListener(v -> {
+            pop.dismiss();
+            SoundDevicesScreen.show(this);
         });
         playlists.setOnClickListener(v -> {
             pop.dismiss();

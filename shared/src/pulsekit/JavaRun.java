@@ -374,7 +374,10 @@ public final class JavaRun {
       @Override
       public void run() {
         track(live);
+        long started = System.currentTimeMillis();
         Result result = JavaRun.run(name, source, bytes, argv);
+        // File > Logs (Logging on): the run's arguments, exit code and output.
+        Logs.run(name, argv, result.code, result.log, started);
         live.done = true;
         if (listener != null) listener.onDone(result);
       }

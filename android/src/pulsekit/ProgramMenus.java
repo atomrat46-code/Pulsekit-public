@@ -58,6 +58,15 @@ final class ProgramMenus {
             row.addView(b, lp);
             this.buttons[i] = b;
         }
+        // The Plugin Browser: the kits Android plays, and which plugin types each app uses.
+        TextView plugins = app.action("Plugins", ELEV, FG, v -> PluginBrowser.show(app));
+        plugins.setTag("program-plugins");
+        plugins.setSingleLine(true);
+        plugins.setTextSize(13);
+        plugins.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, app.dp(40), 1.0f);
+        lp.setMargins(app.dp(6), 0, 0, 0);
+        row.addView(plugins, lp);
         return row;
     }
 

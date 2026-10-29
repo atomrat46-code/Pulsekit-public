@@ -224,6 +224,9 @@ public final class Pulsekit extends UiKit {
         if (Looks.version().length() > 0) this.setTitle("Pulsekit " + Looks.version());
         // General settings' Sogni tools and file types.
         AppSettings.load(PromptDb.dir());
+        // File > Logs: errors nothing caught, and this start (when Logging on is ticked).
+        Logs.catchErrors();
+        Logs.started("Pulsekit " + Looks.version() + " (desktop)");
         this.drumSets.add(Engine.DrumSet.originalSet());
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;
@@ -710,6 +713,14 @@ public final class Pulsekit extends UiKit {
             // The Sogni runs' downloads: pending, in progress, finished / failed.
             JMenuItem downloads = new JMenuItem("Downloads");
             downloads.addActionListener(e -> DownloadsScreen.show(this));
+            // The logs written while General settings > Logging on is ticked.
+            JMenuItem logs = new JMenuItem("Logs");
+            logs.setName("file-logs");
+            logs.addActionListener(e -> LogsScreen.show(this));
+            // The outputs, inputs, MIDI devices and drivers; Pulsekit's output and drum MIDI output.
+            JMenuItem sound = new JMenuItem("Sound devices");
+            sound.setName("file-sound-devices");
+            sound.addActionListener(e -> SoundDevicesScreen.show(this));
             // Playlists (.pls): the Editor and Viewer tabs.
             JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
             playlists.setName("file-playlists");
@@ -733,6 +744,8 @@ public final class Pulsekit extends UiKit {
             menu.add(saveCode);
             menu.add(saveCodeAs);
             menu.add(downloads);
+            menu.add(logs);
+            menu.add(sound);
             menu.add(playlists);
             menu.add(general);
             menu.add(dbSettings);

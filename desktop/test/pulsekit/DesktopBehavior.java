@@ -7916,6 +7916,487 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's Params: --map has Pulsekit's map files to pick (drum-kits.txt, put in
+   * ~/.pulsekit/maps) and Browse; a kit name typed in the run's arguments (--kit_name) is kept,
+   * and the next Params has it to pick.
+   */
+  void s165_vst_map_and_kit_lists() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    call("saveParams", "vst_render.py", "");
+    java.util.function.Function<String, String[]> rows = token -> {
+      try {
+        final JDialog[] d = new JDialog[1];
+        inspectNext = w -> d[0] = w;
+        answers.add("(keep)");
+        SwingUtilities.invokeLater(() -> {
+          try {
+            call("openParams");
+          } catch (Exception ex) {
+            errors.add(ex);
+          }
+        });
+        for (int i = 0; i < 100 && (d[0] == null || !d[0].isShowing()); i++) Thread.sleep(100);
+        Thread.sleep(300);
+        final String[] seen = new String[2];
+        edt(() -> {
+          seen[0] = (component(d[0], "params-choose:" + token) != null ? "Choose" : "-") + (component(d[0], "params-map-browse:" + token) != null ? " Browse" : "");
+        });
+        edt(() -> find(d[0].getContentPane(), "Cancel").doClick());
+        idle();
+        return seen;
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    String[] map = rows.apply("--map");
+    String[][] choices = VstLists.mapChoices();
+    boolean unpacked = new File(home, ".pulsekit/maps/drum-kits.txt").isFile();
+    String[] kitBefore = rows.apply("--kit_name");
+    VstLists.rememberKits("--plugin k.vst3 --kit_name \"Finnish Metal 2000\" --test");
+    String[] kitAfter = rows.apply("--kit_name");
+    this.out.append("--map row: ").append(map[0]).append(" | choices: ").append(java.util.Arrays.toString(choices[0])).append(" -> ").append(java.util.Arrays.toString(choices[1]))
+        .append(" | unpacked: ").append(unpacked).append("\n--kit_name row before: ").append(kitBefore[0]).append(" | after a run: ").append(kitAfter[0])
+        .append(" ").append(java.util.Arrays.toString(VstLists.kitNames())).append('\n');
+    boolean ok = map[0].equals("Choose Browse") && java.util.Arrays.asList(choices[0]).contains("drum-kits.txt (Pulsekit's)")
+        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("-") && kitAfter[0].equals("Choose")
+        && java.util.Arrays.asList(VstLists.kitNames()).equals(java.util.Arrays.asList("Finnish Metal 2000"));
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * File > Logs: nothing is written while General settings > Logging on is unticked; ticked, a
+   * program run (arguments, exit code, output) and the start are logged, a password argument
+   * hidden; the Logs window lists them by type, the newest first, shows, exports and deletes them.
+   */
+  void s166_logs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "take.wav");
+    short[] pcm = new short[22050];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 2 * Math.PI * 220 / 44100));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 44100));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Wav2Mp3.java");
+    final javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    Runnable runIt = () -> {
+      try {
+        edt(() -> log.setText(""));
+        edt(() -> call("setInputFile", wav));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    runIt.run();
+    int whileOff = Logs.entries(Logs.ALL).size();
+    // General settings > Logging on (another dialog first, the MIDI synth's message, is let go).
+    final boolean[] box = new boolean[2];
+    final boolean[] shown = new boolean[2];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if (!"General settings".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[0] = true;
+      javax.swing.JCheckBox c = (javax.swing.JCheckBox) component(w, "settings-logging");
+      box[0] = c != null && !c.isSelected() && c.getText().equals(Logs.SETTING);
+      if (c != null) c.doClick();
+      box[1] = AppSettings.logging();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[0]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    runIt.run();
+    Logs.run("Secret.java", java.util.Arrays.asList("--password", "hunter2", "--out", "a b.txt"), 1, "Failed: no", System.currentTimeMillis());
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    java.util.List<Logs.Entry> starts = Logs.entries(Logs.STARTS);
+    String runText = runs.size() > 1 ? Logs.text(runs.get(1)) : "";
+    String secretText = runs.size() > 0 ? Logs.text(runs.get(0)) : "";
+    this.out.append("while off: ").append(whileOff).append(" entries | box unticked first: ").append(box[0]).append(", on after a click: ").append(box[1])
+        .append("\nruns: ").append(runs.size()).append(" (newest: ").append(runs.isEmpty() ? "-" : runs.get(0).title).append("), starts: ").append(starts.size())
+        .append("\nsecret run args: ").append(secretText.replaceAll("(?s).*?(Arguments:[^\n]*).*", "$1")).append('\n');
+    // The Logs window: Program runs, the Wav2Mp3 run shown, exported, then deleted.
+    final File exported = new File(home, "logs-out.txt");
+    LogsScreen.exportTo = name -> exported;
+    LogsScreen.askDelete = false;
+    final String[] seen = new String[4];
+    hook[0] = w -> {
+      if (!"Logs".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[1] = true;
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> pick = (javax.swing.JComboBox<String>) component(w, "logs-type");
+      @SuppressWarnings("unchecked")
+      javax.swing.JList<Logs.Entry> list = (javax.swing.JList<Logs.Entry>) component(w, "logs-list");
+      seen[0] = "all: " + list.getModel().getSize();
+      pick.setSelectedItem(Logs.RUNS);
+      seen[0] += ", runs: " + list.getModel().getSize();
+      list.setSelectedIndex(1);
+      seen[1] = ((javax.swing.JTextArea) component(w, "logs-text")).getText();
+      ((javax.swing.JButton) component(w, "logs-export")).doClick();
+      ((javax.swing.JButton) component(w, "logs-delete")).doClick();
+      seen[2] = String.valueOf(list.getModel().getSize());
+      seen[3] = ((javax.swing.JLabel) component(w, "logs-state")).getText();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> LogsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[1]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    LogsScreen.exportTo = null;
+    LogsScreen.askDelete = true;
+    String exportedText = exported.isFile() ? new String(Files.readAllBytes(exported.toPath()), StandardCharsets.UTF_8) : "";
+    this.out.append("window: ").append(seen[0]).append(" | after Delete: ").append(seen[2]).append(" | ").append(seen[3])
+        .append("\nshown: ").append(seen[1].split("\n")[0]).append(" / ").append(seen[1].contains("Exit code: 0")).append(" | exported: ").append(exportedText.contains("Program: Wav2Mp3.java")).append('\n');
+    boolean ok = whileOff == 0 && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
+        && runText.contains("Exit code: 0") && runText.contains("Output:") && starts.size() >= 1 && secretText.contains("--password (hidden)") && !secretText.contains("hunter2")
+        && secretText.contains("\"a b.txt\"") && seen[1].startsWith("Type: Program runs") && seen[1].contains("Program: Wav2Mp3.java") && exportedText.contains("Program: Wav2Mp3.java")
+        && "1".equals(seen[2]) && seen[3].startsWith("1 entries");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + runText);
+  }
+
+  /**
+   * File > Sound devices: every group listed (Pulsekit's own synth among the MIDI outputs), a driver
+   * file picked with Browse listed under Drivers, an output kept that is not connected said and
+   * left for the default (Java Sound's default lines untouched), Use the default clearing it, the
+   * report and the logs (Logging on) holding what was found.
+   */
+  void s167_sound_devices() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    AppSettings.load(PromptDb.dir());
+    AppSettings.setLogging(true);
+    AppSettings.setSoundOut("Gone Interface | DirectSound");
+    SoundOut.apply();
+    String lineProp = String.valueOf(System.getProperty(SoundOut.LINE_KEY));
+    final File dll = new File(home, "asio-test.dll");
+    Files.write(dll.toPath(), new byte[] {'M', 'Z', 0, 0});
+    SoundDevicesScreen.browseTo = what -> dll;
+    final String[] seen = new String[6];
+    final boolean[] shown = new boolean[1];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if (!"Sound devices".equals(w.getTitle())) {
+        inspectNext = hook[0];
+        return;
+      }
+      shown[0] = true;
+      @SuppressWarnings("unchecked")
+      javax.swing.JList<Object> list = (javax.swing.JList<Object>) component(w, "sound-list");
+      StringBuilder heads = new StringBuilder();
+      int synthAt = -1;
+      for (int i = 0; i < list.getModel().getSize(); i++) {
+        Object o = list.getModel().getElementAt(i);
+        if (o instanceof String) heads.append(heads.length() == 0 ? "" : ", ").append(((String) o).replaceAll(" \\(\\d+\\)", ""));
+        else if (SoundDevices.MIDI_OUT.equals(((SoundDevices.Device) o).kind) && SoundDevices.SYNTH.equals(((SoundDevices.Device) o).driver)) synthAt = i;
+      }
+      seen[0] = heads.toString();
+      seen[1] = ((javax.swing.JLabel) component(w, "sound-now")).getText();
+      ((javax.swing.JButton) component(w, "sound-browse")).doClick();
+      StringBuilder drivers = new StringBuilder();
+      for (int i = 0; i < list.getModel().getSize(); i++) {
+        Object o = list.getModel().getElementAt(i);
+        if (o instanceof SoundDevices.Device && SoundDevices.DRIVERS.equals(((SoundDevices.Device) o).kind)) drivers.append(((SoundDevices.Device) o).name).append(' ');
+      }
+      seen[2] = drivers.toString().trim();
+      if (synthAt >= 0) {
+        list.setSelectedIndex(synthAt);
+        seen[3] = ((javax.swing.JTextArea) component(w, "sound-info")).getText().split("\n")[1] + " | use " + component(w, "sound-use").isEnabled()
+            + ", test " + component(w, "sound-test").isEnabled();
+      } else {
+        seen[3] = "no synth listed";
+      }
+      ((javax.swing.JButton) component(w, "sound-default")).doClick();
+      seen[4] = ((javax.swing.JLabel) component(w, "sound-now")).getText();
+      seen[5] = AppSettings.soundOut();
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> SoundDevicesScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && !shown[0]; i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    SoundDevicesScreen.browseTo = null;
+    String report = SoundDevices.report("", SoundOut.list());
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.SOUND);
+    StringBuilder titles = new StringBuilder();
+    for (Logs.Entry e : logged) titles.append(titles.length() == 0 ? "" : " / ").append(e.title.replaceAll("\\(\\d+\\)", "(n)"));
+    this.out.append("missing output, default line: ").append(lineProp).append("\ngroups: ").append(seen[0]).append("\nnow: ").append(seen[1].replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " "))
+        .append("\ndrivers after Browse: ").append(seen[2]).append("\nown synth: ").append(seen[3]).append("\nafter Use the default: ").append(seen[4].replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " "))
+        .append(" (kept: \"").append(seen[5]).append("\")\nlogged: ").append(titles).append('\n');
+    boolean ok = "null".equals(lineProp) && seen[0].equals(String.join(", ", SoundDevices.KINDS)) && seen[1].contains("Gone Interface | DirectSound") && seen[1].contains("is not connected")
+        && seen[2].contains("asio-test.dll") && seen[3].endsWith("| use false, test true") && "".equals(seen[5]) && seen[4].contains(SoundDevices.DEFAULT_OUT) && seen[4].contains(SoundDevices.OWN_SYNTH)
+        && report.contains("== " + SoundDevices.MIDI_OUT) && report.contains("asio-test.dll") && titles.toString().contains("Sound devices found")
+        && titles.toString().contains("Driver file picked") && titles.toString().contains("Back to the defaults");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + report);
+  }
+
+  /**
+   * SFZ kits: a .zip with two kits, the one picked onto the pads (a FLAC kick, a 24-bit snare, a hat
+   * from an #include), kept as kit.sf2 and in the logs; Midi2Wav plays the other
+   * kit of the package (--sf2 package.zip#kit.sfz).
+   */
+  void s168_sfz_kit() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    AppSettings.load(PromptDb.dir());
+    AppSettings.setLogging(true);
+    File zip = sfzPackage(home, new File(System.getProperty("pulsekit.test.dir", "."), "kick24.flac"));
+    final Pulsekit app = (Pulsekit) frame;
+    final short[] kickBefore = app.voices[0], snareBefore = app.voices[2], hatBefore = app.voices[5], clapBefore = app.voices[3];
+    final java.util.List<String> offered = new java.util.ArrayList<String>();
+    ProjectIo.sfzPick = kits -> {
+      offered.addAll(kits);
+      return "Kits/Rock.sfz";
+    };
+    boolean isKit = Sfz.isKit(zip);
+    edt(() -> app.projectIo.importSfz(zip));
+    for (int i = 0; i < 200 && !String.valueOf(app.nowPlaying.getText()).contains("SFZ kit \u00b7"); i++) Thread.sleep(50);
+    idle();
+    ProjectIo.sfzPick = null;
+    String said = String.valueOf(app.nowPlaying.getText()).trim();
+    boolean kick = app.voices[0] != kickBefore, snare = app.voices[2] != snareBefore, hat = app.voices[5] != hatBefore, clapKept = app.voices[3] == clapBefore;
+    File kept = new File(home, ".pulsekit/kit.sf2");
+    int keptPads = 0;
+    if (kept.isFile()) for (short[] v : AudioIo.parseSf2(Files.readAllBytes(kept.toPath()))) if (v != null) keptPads++;
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.KITS);
+    String report = logged.isEmpty() ? "" : Logs.text(logged.get(0));
+    this.out.append("kit: ").append(isKit).append(", offered ").append(offered).append("\nsaid: ").append(said).append("\npads changed: kick ").append(kick).append(", snare ").append(snare)
+        .append(", hat ").append(hat).append(", clap kept ").append(clapKept).append(" | kit.sf2 pads: ").append(keptPads).append("\nlog: ").append(logged.isEmpty() ? "-" : logged.get(0).title).append('\n');
+    for (String line : report.split("\n")) if (line.startsWith("Kick") || line.startsWith("Snare") || line.startsWith("Closed")) this.out.append("  ").append(line).append('\n');
+    // Midi2Wav with the package's other kit.
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("\"" + midi.getAbsolutePath() + "\" jazz.wav --sf2 \"" + zip.getAbsolutePath() + "#Kits/Jazz.sfz\" --rate 22050"));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(600);
+    idle();
+    answers.clear();
+    StringBuilder ran = new StringBuilder();
+    for (String line : String.valueOf(log.getText()).split("\n")) {
+      String t = line.trim().replaceAll("^\\d\\d:\\d\\d:\\d\\d ", "");
+      if (t.startsWith("SFZ kit") || t.startsWith("Succeeded") || t.startsWith("Failed")) ran.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    this.out.append("Midi2Wav:\n").append(ran);
+    boolean ok = isKit && offered.equals(java.util.Arrays.asList("Kits/Jazz.sfz", "Kits/Rock.sfz")) && said.contains("SFZ kit \u00b7 Rock \u00b7 4 drums") && kick && snare && hat && clapKept
+        && keptPads >= 4 && report.contains("Kick (36): Kits/Samples/Kick/kick.flac") && report.contains("Snare (38): Kits/Samples/snare 24.wav")
+        && report.contains("Closed hat (42): Kits/Samples/snare 24.wav") && ran.toString().contains("SFZ kit Jazz: played as a SoundFont") && ran.toString().contains("Succeeded");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + report + "\n" + log.getText());
+  }
+
+  /** A test SFZ package: Kits/Rock.sfz (FLAC kick, 24-bit snare, an #include'd hat) and Kits/Jazz.sfz, zipped. */
+  private static File sfzPackage(File home, File flac) throws Exception {
+    File zip = new File(home, "Test Kits.zip");
+    short[] snare = new short[11025];
+    for (int i = 0; i < snare.length; i++) snare[i] = (short) (20000 * Math.exp(-i / 1500.0) * Math.sin(i * 0.31 + Math.sin(i * 1.7)));
+    // A 24-bit snare: the 16-bit one with a low byte under it.
+    byte[] wav16 = AudioIo.encodeWav(snare, 44100);
+    int n = snare.length;
+    java.io.ByteArrayOutputStream w = new java.io.ByteArrayOutputStream();
+    java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(44 + n * 3).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    b.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + n * 3).put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16).putShort((short) 1).putShort((short) 1)
+        .putInt(44100).putInt(44100 * 3).putShort((short) 3).putShort((short) 24).put("data".getBytes(StandardCharsets.US_ASCII)).putInt(n * 3);
+    for (short v : snare) b.put((byte) 0x40).putShort(v);
+    w.write(b.array());
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      String[][] files = {
+        {"Kits/Rock.sfz", "// Rock kit\n#define $DIR Samples\n<control> default_path=$DIR/\n<group> key=c2\n<region> sample=Kick\\kick.flac lovel=1 hivel=127\n"
+            + "<group> key=38 seq_length=2\n<region> sample=snare 24.wav seq_position=1\n<region> sample=missing.wav seq_position=2\n#include \"hats.sfzh\"\n"},
+        {"Kits/hats.sfzh", "<region> sample=snare 24.wav key=f#2 locc4=0 hicc4=63 volume=-6\n"},
+        {"Kits/Jazz.sfz", "<region> sample=Samples/snare 24.wav key=36\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+        z.closeEntry();
+      }
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/kick/KICK.FLAC"));
+      z.write(Files.readAllBytes(flac.toPath()));
+      z.closeEntry();
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/snare 24.wav"));
+      z.write(w.toByteArray());
+      z.closeEntry();
+    }
+    return zip;
+  }
+
+  /**
+   * PyJav > Plugins, the Plugin Browser: folders per type (Folders\u2026), the plugins and kits found there
+   * (a VST3 bundle, a VST2, a CLAP, an SF2, an SFZ), favourite, category, group and tags (and the
+   * filters on them, kept in plugin-library.txt and shared with Params' Plugins list), My order,
+   * Types, a kit's test beat, Use (a VST3 into vst_render's --plugin, a CLAP said not to play).
+   */
+  void s169_plugin_browser() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File vst = new File(home, "plugins"), kits = new File(home, "my kits");
+    new File(vst, "Anarchy Drums.vst3/Contents").mkdirs();
+    new File(vst, "Maker/Deep").mkdirs();
+    Files.write(new File(vst, "Maker/Deep/Old Drums.dll").toPath(), new byte[] {'M', 'Z'});
+    Files.write(new File(vst, "Surge.clap").toPath(), new byte[] {0});
+    new File(kits, "Test").mkdirs();
+    Files.write(new File(kits, "Rock.sf2").toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Rock"));
+    short[] hit = new short[8000];
+    for (int i = 0; i < hit.length; i++) hit[i] = (short) (18000 * Math.exp(-i / 900.0) * Math.sin(i * 0.05));
+    Files.write(new File(kits, "Test/kick.wav").toPath(), AudioIo.encodeWav(hit, 44100));
+    Files.write(new File(kits, "Test/Jazz.sfz").toPath(), "<region> sample=kick.wav key=36\n".getBytes(StandardCharsets.UTF_8));
+    final Pulsekit app = (Pulsekit) frame;
+    PluginBrowser.testsQuiet = Boolean.TRUE;
+    final java.util.Map<String, String> answersFor = new java.util.HashMap<String, String>();
+    PluginBrowser.answer = what -> answersFor.get(what);
+    final JDialog[] browser = new JDialog[1];
+    final java.util.function.Consumer<JDialog>[] hook = newHook();
+    hook[0] = w -> {
+      if ("Plugin Browser".equals(w.getTitle())) browser[0] = w;
+      else inspectNext = hook[0];
+    };
+    idle();
+    inspectNext = hook[0];
+    answers.add("(keep)");
+    // PyJav's programs row: Plugins.
+    edt(() -> ((javax.swing.JButton) component(frame, "program-plugins")).doClick());
+    for (int i = 0; i < 100 && (browser[0] == null || !browser[0].isShowing()); i++) Thread.sleep(100);
+    idle();
+    final JDialog d = browser[0];
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<File> list = (javax.swing.JList<File>) component(d, "browser-list");
+    // Folders\u2026: the VST3 and VST2 types in "plugins", CLAP there too, the kits in "my kits".
+    final boolean[] saved = new boolean[1];
+    final java.util.function.Consumer<JDialog>[] folderHook = newHook();
+    folderHook[0] = w -> {
+      if (!"Plugin folders".equals(w.getTitle())) {
+        inspectNext = folderHook[0];
+        return;
+      }
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(w, "folders-type");
+      javax.swing.JTextArea paths = (javax.swing.JTextArea) component(w, "folders-paths");
+      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2}) {
+        type.setSelectedItem(t);
+        paths.setText(t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.LV2) ? "" : vst.getAbsolutePath());
+        if (t.equals(PluginLibrary.SF2)) {
+          answersFor.put("Folder", kits.getAbsolutePath());
+          ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        }
+      }
+      type.setSelectedItem(PluginLibrary.SFZ);
+      paths.setText(kits.getAbsolutePath());
+      ((javax.swing.JButton) component(w, "folders-save")).doClick();
+      saved[0] = true;
+    };
+    inspectNext = folderHook[0];
+    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "browser-folders")).doClick());
+    for (int i = 0; i < 100 && !saved[0]; i++) Thread.sleep(100);
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<String, File> pick = name -> {
+      for (int i = 0; i < list.getModel().getSize(); i++) if (PluginLibrary.name(list.getModel().getElementAt(i)).equals(name)) {
+        list.setSelectedIndex(i);
+        return list.getModel().getElementAt(i);
+      }
+      return null;
+    };
+    final java.util.function.Supplier<String> names = () -> {
+      StringBuilder b = new StringBuilder();
+      for (int i = 0; i < list.getModel().getSize(); i++) b.append(i == 0 ? "" : ", ").append(PluginLibrary.name(list.getModel().getElementAt(i)));
+      return b.toString();
+    };
+    edt(() -> {
+      seen.append("found: ").append(names.get()).append(" (").append(((javax.swing.JLabel) component(d, "browser-count")).getText()).append(")\n");
+      pick.apply("Rock");
+      ((javax.swing.JButton) component(d, "browser-fav")).doClick();
+      answersFor.put("Category", "Drum kits");
+      ((javax.swing.JButton) component(d, "browser-set-category")).doClick();
+      answersFor.put("Group", "Live");
+      ((javax.swing.JButton) component(d, "browser-set-group")).doClick();
+      answersFor.put("Tags", "metal, fast");
+      ((javax.swing.JButton) component(d, "browser-set-tags")).doClick();
+      pick.apply("Anarchy Drums");
+      ((javax.swing.JButton) component(d, "browser-set-category")).doClick();
+      seen.append("Rock line: ").append(PluginLibrary.line(pick.apply("Rock"))).append('\n');
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(d, "browser-type");
+      type.setSelectedItem(PluginLibrary.SFZ);
+      seen.append("type SFZ: ").append(names.get()).append('\n');
+      type.setSelectedItem(PluginLibrary.ANY);
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> cat = (javax.swing.JComboBox<String>) component(d, "browser-category");
+      cat.setSelectedItem("Drum kits");
+      seen.append("category Drum kits: ").append(names.get()).append('\n');
+      cat.setSelectedItem(PluginLibrary.ANY);
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> tag = (javax.swing.JComboBox<String>) component(d, "browser-tag");
+      tag.setSelectedItem("fast");
+      seen.append("tag fast: ").append(names.get()).append('\n');
+      tag.setSelectedItem(PluginLibrary.ANY);
+      ((javax.swing.JToggleButton) component(d, "browser-favourites")).doClick();
+      seen.append("favourites: ").append(names.get()).append('\n');
+      ((javax.swing.JToggleButton) component(d, "browser-favourites")).doClick();
+      ((javax.swing.JTextField) component(d, "browser-search")).setText("live");
+      seen.append("search live: ").append(names.get()).append('\n');
+      ((javax.swing.JTextField) component(d, "browser-search")).setText("");
+      // My order: Surge down to the end, then Old Drums up.
+      pick.apply("Old Drums");
+      ((javax.swing.JButton) component(d, "browser-up")).doClick();
+      seen.append("My order after Up on Old Drums: ").append(names.get()).append('\n');
+      ((javax.swing.JButton) component(d, "browser-types")).doClick();
+      seen.append("types: ").append(PluginBrowser.lastSaid.split("\n\n")[1].split("\n")[0]).append(" | ").append(PluginBrowser.lastSaid.contains("SFZ (.sfz)  desktop: yes, Android: yes")).append('\n');
+      pick.apply("Surge");
+      ((javax.swing.JButton) component(d, "browser-use")).doClick();
+      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append('\n');
+      pick.apply("Jazz");
+      ((javax.swing.JButton) component(d, "browser-test")).doClick();
+    });
+    for (int i = 0; i < 100 && !PluginBrowser.lastSaid.startsWith("Test beat"); i++) Thread.sleep(100);
+    seen.append("Test Jazz: ").append(PluginBrowser.lastSaid.replaceAll(", kit-test.*", "")).append('\n');
+    final String[] args = new String[1];
+    edt(() -> {
+      pick.apply("Anarchy Drums");
+      ((javax.swing.JButton) component(d, "browser-use")).doClick();
+      args[0] = app.pyJav.pyExtra.getText();
+      seen.append("Use Anarchy Drums: ").append(PluginBrowser.lastSaid).append(" | args ").append(args[0].replace(home.getAbsolutePath(), "~")).append('\n');
+      d.dispose();
+    });
+    idle();
+    PluginBrowser.answer = null;
+    PluginBrowser.testsQuiet = null;
+    String library = new String(Files.readAllBytes(new File(PromptDb.dir(), "plugin-library.txt").toPath()), StandardCharsets.UTF_8);
+    boolean shared = PluginsList.favourites().contains(new File(kits, "Rock.sf2").getAbsolutePath());
+    this.out.append(seen.toString().replace(home.getAbsolutePath(), "~")).append("library kept: ").append(library.split("\n").length).append(" plugins, favourite shared with Params' list: ").append(shared).append('\n');
+    String all = seen.toString();
+    boolean ok = all.contains("found: Anarchy Drums, Jazz, Old Drums, Rock, Surge (5 of 5)") && all.contains("Rock line: \u2605 Rock  [SF2]  Drum kits / Live  #metal #fast")
+        && all.contains("type SFZ: Jazz\n") && all.contains("category Drum kits: Anarchy Drums, Rock\n") && all.contains("tag fast: Rock\n") && all.contains("favourites: Rock\n")
+        && all.contains("search live: Rock\n") && all.contains("My order after Up on Old Drums: Anarchy Drums, Old Drums, Jazz, Rock, Surge") && all.contains("| true")
+        && all.contains("Use Surge: Surge: Listed only") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].startsWith("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath())
+        && shared && library.contains("Drum kits\tLive\tmetal,fast");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static java.util.function.Consumer<JDialog>[] newHook() {
+    return new java.util.function.Consumer[1];
+  }
+
   /** A popup menu's items: "Select all | Copy | Open in editor window". */
   private static String items(javax.swing.JPopupMenu menu) {
     StringBuilder sb = new StringBuilder();

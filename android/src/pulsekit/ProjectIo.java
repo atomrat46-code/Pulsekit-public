@@ -37,7 +37,7 @@ final class ProjectIo {
         app.importPane = app.col();
         app.importPane.setVisibility(8);
         app.importPane.addView((View)app.text("Import", 18, true));
-        TextView textView21 = app.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java\nSF2 \u00b7 drum samples onto pads\nPY \u00b7 Python script to edit", 14, false);
+        TextView textView21 = app.text("PRJ \u00b7 full project\nPKP \u00b7 plugin pack\nFSET \u00b7 patterns, Fillerns, and fills from one imported file\nMIDI \u00b7 pattern, Fillern or fill (named in the file)\nSNG \u00b7 song\nWAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java\nSF2 / SFZ \u00b7 drum samples onto pads (an SFZ kit: its .zip or .tar.gz)\nPY \u00b7 Python script to edit", 14, false);
         textView21.setTextColor(MUTED);
         textView21.setPadding(0, app.dp(8), 0, app.dp(16));
         app.importPane.addView((View)textView21);
@@ -471,6 +471,87 @@ final class ProjectIo {
         intent.addCategory("android.intent.category.OPENABLE");
         intent.setType("*/*");
         app.startActivityForResult(intent, 7);
+    }
+
+    /** The kit the tests pick (null: ask which when there are several). */
+    static java.util.function.Function<java.util.List<String>, String> sfzPick;
+    static volatile String lastSfz = "";
+
+    /**
+     * An SFZ kit package (.zip, .tar, .tar.gz) onto the pads: copied into the cache first (a kit is a .sfz
+     * and its sample folders), the kit asked when there are several. A .zip without a kit goes on as a zip.
+     * A lone .sfz cannot reach its samples through Android's file picker: the package is asked for.
+     */
+    void importSfz(final Uri uri, final String name) {
+        if (name.toLowerCase().endsWith(".sfz")) {
+            lastSfz = "An SFZ kit needs its samples: import the kit's .zip or .tar.gz (the .sfz with its sample folders)";
+            Toast.makeText((Context)app, (CharSequence)lastSfz, (int)1).show();
+            return;
+        }
+        app.setNow("Reading " + name + "\u2026");
+        new Thread(() -> {
+            final java.io.File dir = new java.io.File(app.getCacheDir(), "sfz-import");
+            final java.io.File copy = new java.io.File(dir, name.replaceAll("[\\\\/:]", "_"));
+            try {
+                dir.mkdirs();
+                for (java.io.File old : dir.listFiles() == null ? new java.io.File[0] : dir.listFiles()) if (!old.equals(copy)) old.delete();
+                try (InputStream in = app.getContentResolver().openInputStream(uri); java.io.OutputStream out = new java.io.FileOutputStream(copy)) {
+                    byte[] buf = new byte[1 << 16];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                }
+                final java.util.List<String> kits = Sfz.isKit(copy) ? Sfz.open(copy).kits() : new java.util.ArrayList<String>();
+                app.handler.post(() -> {
+                    if (kits.isEmpty()) {
+                        copy.delete();
+                        if (ZipImport.isZip(name)) {
+                            ZipFlow.importZip(app, uri, name);
+                        } else {
+                            lastSfz = "No .sfz kit in " + name;
+                            app.setNow(lastSfz);
+                        }
+                        return;
+                    }
+                    if (kits.size() == 1 || sfzPick != null) {
+                        this.loadSfz(copy, kits.size() == 1 ? kits.get(0) : sfzPick.apply(kits));
+                        return;
+                    }
+                    String[] items = new String[kits.size()];
+                    for (int i = 0; i < items.length; i++) items[i] = kits.get(i).replaceAll(".*/", "") + "  (" + kits.get(i) + ")";
+                    new android.app.AlertDialog.Builder(app).setTitle(name + ": which kit onto the pads?")
+                        .setItems(items, (d, w) -> this.loadSfz(copy, kits.get(w))).setNegativeButton("Cancel", null).show();
+                });
+            } catch (Exception ex) {
+                copy.delete();
+                app.handler.post(() -> {
+                    lastSfz = "Could not read " + name + ": " + ex.getMessage();
+                    app.setNow(lastSfz);
+                });
+            }
+        }, "pulsekit-sfz-copy").start();
+    }
+
+    void loadSfz(final java.io.File copy, final String sfz) {
+        if (sfz == null) return;
+        app.setNow("Loading SFZ kit " + sfz.replaceAll(".*/", "") + "\u2026");
+        new Thread(() -> {
+            try {
+                final Sfz.Kit kit = Sfz.load(copy, sfz);
+                final byte[] sf2 = kit.sf2();
+                app.handler.post(() -> {
+                    app.playback.applySf2(kit.voices);
+                    app.persistence.persistSf2(sf2);
+                    Logs.write(Logs.KITS, "SFZ kit " + kit.name + " (" + kit.pads + " pads)", kit.report);
+                    lastSfz = "SFZ kit \u00b7 " + kit.name + " \u00b7 " + kit.pads + " drums";
+                    app.setNow(lastSfz);
+                });
+            } catch (Exception ex) {
+                Logs.error("SFZ kit " + sfz + " not loaded", ex);
+                app.handler.post(() -> {
+                    lastSfz = "Could not load " + sfz + ": " + String.valueOf(ex.getMessage()).split("\n")[0];
+                    app.setNow(lastSfz);
+                });
+            }
+        }, "pulsekit-sfz").start();
     }
 
     byte[] readUri(Uri uri) throws Exception {

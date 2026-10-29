@@ -127,6 +127,7 @@ final class MidiOffer {
                 }
                 try {
                     player = new MediaPlayer();
+                    SoundOut.prefer(player);
                     player.setDataSource(wav.getAbsolutePath());
                     player.setOnCompletionListener(mp -> {
                         stop();

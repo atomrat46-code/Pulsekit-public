@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -84,6 +84,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   --plugin, --plugin2 and --plugin3. maps/drum-kits.txt (next to this script) has
                   the kits tested so far (Anarchy Drums).
   --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
+                  A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
+                  maps folder beside this script.
+  --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
+                  so it is given here. It goes in the files' names after the plugin's
+                  (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
+                  the zip) and in the report. --kit_name2, --kit_name3: --plugin2's and --plugin3's.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
                   deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
@@ -394,6 +400,27 @@ def scan():
         print("No plugins in the usual VST folders. Give the plugin's file with --plugin.")
     else:
         print("Succeeded: %d plugin%s" % (found, "" if found == 1 else "s"))
+
+
+def kit_tag(name, kit):
+    """The plugin's name as the output files carry it, with the kit loaded in it (--kit_name):
+    "Ugritone Drums (Finnish Metal 2000)"."""
+    tag = stem(name)
+    if kit and kit.strip():
+        tag += " (%s)" % re.sub(r'[\\/:*?"<>|]+', "_", kit.strip())
+    return tag
+
+
+def map_file(text):
+    """--map's file: as given, or a map file's bare name in ~/.pulsekit/maps or the maps folder beside
+    this script (Pulsekit puts its own map files there); else the text as it is (pairs)."""
+    if not text or os.path.isfile(text) or "=" in text:
+        return text
+    for d in (os.path.join(os.path.expanduser("~"), ".pulsekit", "maps"), os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps")):
+        f = os.path.join(d, text)
+        if os.path.isfile(f):
+            return f
+    return text
 
 
 def stem(path):
@@ -728,14 +755,15 @@ def map_for(text, plugin=None):
 def plugin_runs(argv, opts):
     """--plugin2/--plugin3: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
     --state only for the first, and --map2/--map3 as that plugin's --map (else --map for all)."""
-    plugins = [(opts["--plugin"], None)] + [(opts[k], opts[m]) for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")) if opts[k]]
+    plugins = [(opts["--plugin"], None, None)] + [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
     runs = []
-    for k, (plug, own_map) in enumerate(plugins):
+    for k, (plug, own_map, own_kit) in enumerate(plugins):
         one = []
         j = 0
         while j < len(argv):
             a = argv[j]
-            if a in ("--plugin2", "--plugin3", "--map2", "--map3") or (a == "--state" and k > 0) or (a == "--map" and own_map):
+            if a in ("--plugin2", "--plugin3", "--map2", "--map3", "--kit_name2", "--kit_name3") or (a == "--state" and k > 0) or (a == "--map" and own_map) \
+                    or (a == "--kit_name" and k > 0):
                 j += 2
                 continue
             if a == "--plugin":
@@ -746,6 +774,8 @@ def plugin_runs(argv, opts):
             j += 1
         if own_map:
             one += ["--map", own_map]
+        if own_kit:
+            one += ["--kit_name", own_kit]
         runs.append((plug, one))
     return runs
 
@@ -757,21 +787,21 @@ def lead_first(argv, opts):
     said = []
     out = list(argv)
     if not opts["--plugin"] and not opts["--carla"] and not opts["--drumgizmo"] and (opts["--plugin2"] or opts["--plugin3"]):
-        given = [(opts[k], opts[m]) for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")) if opts[k]]
+        given = [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
         rest = []
         j = 0
         while j < len(out):
-            if out[j] in ("--plugin2", "--plugin3", "--map2", "--map3", "--map"):
+            if out[j] in ("--plugin2", "--plugin3", "--map2", "--map3", "--map", "--kit_name", "--kit_name2", "--kit_name3"):
                 j += 2
                 continue
             rest.append(out[j])
             j += 1
         common = opts["--map"]
-        lead, lead_map = given[0]
-        rest += ["--plugin", lead] + (["--map", lead_map or common] if lead_map or common else [])
+        lead, lead_map, lead_kit = given[0]
+        rest += ["--plugin", lead] + (["--map", lead_map or common] if lead_map or common else []) + (["--kit_name", lead_kit] if lead_kit else [])
         if len(given) > 1:
-            second, second_map = given[1]
-            rest += ["--plugin2", second] + (["--map2", second_map or common] if second_map or common else [])
+            second, second_map, second_kit = given[1]
+            rest += ["--plugin2", second] + (["--map2", second_map or common] if second_map or common else []) + (["--kit_name2", second_kit] if second_kit else [])
         said.append("No --plugin: %s leads%s" % (os.path.basename(os.path.normpath(lead)),
                                                   ", %s after it" % os.path.basename(os.path.normpath(given[1][0])) if len(given) > 1 else ""))
         out = rest
@@ -1341,7 +1371,8 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--dir2": None, "--map2": None, "--map3": None}
+            "--plugin2": None, "--plugin3": None, "--dir2": None, "--map2": None, "--map3": None,
+            "--kit_name": None, "--kit_name2": None, "--kit_name3": None}
     switches = set()
     files = []
     i = 0
@@ -1367,9 +1398,9 @@ def main(argv):
     if moved:
         print(moved[1])
         return main(moved[0])
-    for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3")):
+    for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3"), ("--plugin2", "--kit_name2"), ("--plugin3", "--kit_name3")):
         if opts[m] and not opts[k]:
-            fail("%s is the map for %s: give %s too" % (m, k, k))
+            fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
     more = [opts[k] for k in ("--plugin2", "--plugin3") if opts[k]]
     if more:
         if not opts["--plugin"]:
@@ -1466,6 +1497,10 @@ def main(argv):
                 return (names[r] + os.sep if two else "") + os.path.relpath(path, r)
         return path
     test = "--test" in switches
+    # The plugin's name in the output files, with the kit loaded in it (--kit_name).
+    tag = kit_tag(name, opts["--kit_name"])
+    if opts["--kit_name"]:
+        print("Kit: %s (--kit_name)" % opts["--kit_name"])
     if test:
         if opts["--wav"]:
             fail("--test checks a MIDI's render; --wav has no MIDI to check against")
@@ -1478,7 +1513,7 @@ def main(argv):
         if not test:
             fail("--map is for --test: what the plugin plays for the MIDI's notes")
         try:
-            nmap, map_part = map_for(opts["--map"], name)
+            nmap, map_part = map_for(map_file(opts["--map"]), name)
         except (ValueError, OSError) as e:
             fail("--map: %s" % e)
     mp3_kbps = None
@@ -1599,7 +1634,7 @@ def main(argv):
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
                 os.makedirs(where)
-            kit_file = os.path.join(where, "vst-kit-%s.kit" % stem(name))
+            kit_file = os.path.join(where, "vst-kit-%s.kit" % tag)
             said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
             if said.startswith("Wrote "):
                 print("Kit: " + said[6:])
@@ -1610,7 +1645,7 @@ def main(argv):
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
                 os.makedirs(where)
-            out = os.path.join(where, "vst-check-%s.wav" % stem(name))
+            out = os.path.join(where, "vst-check-%s.wav" % tag)
             write_wav(out, check_audio, rate, bits)
             print("Wrote %s: %.1f s, the test beat" % (out, check_audio.shape[1] / float(rate)))
             print("Succeeded: %s plays" % os.path.basename(os.path.normpath(name)))
@@ -1637,7 +1672,7 @@ def main(argv):
         if note:
             print("Note: " + note)
         if not out:
-            out = "%s-%s.wav" % (stem(source), stem(name))
+            out = "%s-%s.wav" % (stem(source), tag)
         if opts["--outdir"]:
             if not os.path.isdir(opts["--outdir"]):
                 os.makedirs(opts["--outdir"])
@@ -1659,7 +1694,7 @@ def main(argv):
             if opts["--outdir"] and (not pls or roots.get(m) != folder):
                 # Subfolders are kept under --outdir (with two folders, under each one's name).
                 where = os.path.join(opts["--outdir"], os.path.dirname(rel(m)))
-            o = os.path.join(where, "%s-%s.wav" % (stem(m), stem(name)))
+            o = os.path.join(where, "%s-%s.wav" % (stem(m), tag))
             # --skip_existing: a WAV a stopped run made is kept, when it is whole.
             if skip and whole_wav(o) and silent_render(o, rate):
                 again_log.kept(shown(o), "the WAV made before is silent")
@@ -1706,7 +1741,8 @@ def main(argv):
     plugin_name = name
     if test:
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
-                  "Plugin: %s%s" % (os.path.basename(os.path.normpath(name)), ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
+                                      ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
@@ -1764,7 +1800,7 @@ def main(argv):
         print("")
         print(text)
         where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1])))
-        rep = os.path.join(where, "vst-test-%s.txt" % stem(plugin_name))
+        rep = os.path.join(where, "vst-test-%s.txt" % kit_tag(plugin_name, opts["--kit_name"]))
         with open(rep, "w") as f:
             f.write(text + "\n")
         print("Wrote %s" % rep)
@@ -1792,7 +1828,7 @@ def main(argv):
     where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1]))) if batch_done else None
     limit_mb = zip_mb if "--zip" in switches or "--zip_nowav" in switches or zip_mb else (ask_zip() if batch is not None or test else None)
     if where and limit_mb is not None:
-        made = make_zip(where, stem(plugin_name), argv, folder if batch is not None else None,
+        made = make_zip(where, tag, argv, folder if batch is not None else None,
                         [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
                         [o for _, o in batch_done], dms, rep, opts, None if by_name else bpm, limit_mb, "--zip_nowav" in switches,
                         rel if two else None)
