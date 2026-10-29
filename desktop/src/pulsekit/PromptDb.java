@@ -1209,7 +1209,8 @@ final class PromptDb {
             tmp.getParentFile().mkdirs();
             Files.write(tmp.toPath(), bytes);
             tmp.deleteOnExit();
-            java.awt.Desktop.getDesktop().open(tmp);
+            if (SoundClip.plays(tmp)) SoundClip.window(app, tmp);
+            else java.awt.Desktop.getDesktop().open(tmp);
             app.setNow("Opened " + file.name);
         } catch (Exception ex) {
             app.setNow("No app opens " + file.name);

@@ -648,6 +648,8 @@ public final class ProgramParams {
       p.label = "Edit: open the plugin's window first (load a kit, close it: the settings are saved)";
     } else if (p.token.equals("--scan")) {
       p.label = "List the installed plugins (then stop)";
+    } else if (p.token.equals("--check")) {
+      p.label = "Check only: a test beat through each plugin (does it play with its settings?), its WAV written";
     } else if (p.token.equals("--dir")) {
       p.dir = true;
       p.label = "Render every MIDI in this folder (instead of one)";
@@ -672,9 +674,11 @@ public final class ProgramParams {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
     } else if (p.token.equals("--snare-leak")) {
       p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
+    } else if (p.token.equals("--no-kit")) {
+      p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "Anarchy Drums: 45=46,41=none; empty: as the MIDI has them";
+      p.hint = "Anarchy Drums: 45=46,41=none (Programs/Python/maps/drum-kits.txt has it); empty: as the MIDI has them";
     } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
       p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";
@@ -1209,6 +1213,46 @@ public final class ProgramParams {
     return a + " " + b;
   }
 
+  /**
+   * A file or folder switch (vst_render's --plugin2, --dir2): its row can be left out of the run
+   * with its file kept (the row's Use box unticked), so it is back with one tick.
+   */
+  public static boolean canTurnOff(Param p) {
+    return p.flag && p.takesValue && (p.isFile() || p.dir);
+  }
+
+  /**
+   * Where the rows left out are kept beside the program's Params (its name with this after it), as
+   * their switches ("--plugin2 C:\\VST\\Riot.vst3 --dir2 F:\\fills"): the Params saved for the run
+   * have them not, so a run leaves them out; Params shows them again in their rows, unticked.
+   */
+  public static final String OFF_KEY = "#off";
+
+  /** The rows left out, switch → its file or folder, from what was kept beside the Params. */
+  public static Map<String, String> offValues(List<Param> ps, String kept) {
+    Map<String, String> out = new LinkedHashMap<String, String>();
+    if (kept == null) return out;
+    for (Map.Entry<String, String> e : read(ps, kept).entrySet()) {
+      Param p = find(ps, e.getKey());
+      if (p != null && canTurnOff(p) && e.getValue().length() > 0) out.put(e.getKey(), e.getValue());
+    }
+    return out;
+  }
+
+  /** The values the run is given: those of the rows left out (`off`) blank, so their switches are not in its arguments. */
+  public static String[] withoutOff(List<Param> ps, String[] values, java.util.Set<String> off) {
+    String[] out = values.clone();
+    for (int i = 0; i < ps.size(); i++) if (off.contains(ps.get(i).token) && canTurnOff(ps.get(i))) out[i] = "";
+    return out;
+  }
+
+  /** Only the rows left out (the others blank): what is kept beside the Params. */
+  public static String[] onlyOff(List<Param> ps, String[] values, java.util.Set<String> off) {
+    String[] out = new String[values.length];
+    for (int i = 0; i < ps.size(); i++) out[i] = off.contains(ps.get(i).token) && canTurnOff(ps.get(i)) ? values[i] : "";
+    return out;
+  }
+
   /** Field values from saved switches and the current arguments (saved switches win). */
   public static String[] values(List<Param> ps, String saved, String extra) {
     Map<String, String> fromSaved = read(ps, saved);
@@ -1282,14 +1326,48 @@ public final class ProgramParams {
     return sb.toString();
   }
 
-  /** As DrumMidiArgs.merge, for any program: saved switches replace the program's switches in the arguments. */
+  /**
+   * The run's arguments from the Arguments field and the program's saved Params: a switch of the
+   * program's typed in the field (a --plugin added by hand) keeps its value; the saved Params give
+   * the others. The field's file arguments stay as they are.
+   */
   public static String merge(List<Param> ps, String extra, String saved) {
     if (ps == null || ps.isEmpty()) return DrumMidiArgs.merge(extra, saved);
     if (saved == null) return extra == null ? "" : extra.trim();
-    String kept = strip(ps, extra);
-    if (saved.trim().length() == 0) return kept;
-    if (kept.length() == 0) return saved.trim();
-    return kept + " " + saved.trim();
+    StringBuilder sb = new StringBuilder(strip(ps, extra));
+    append(sb, typed(ps, extra));
+    append(sb, without(ps, saved, read(ps, extra).keySet()));
+    return sb.toString();
+  }
+
+  /** The program's switches in the arguments (with their values), as typed. */
+  public static String typed(List<Param> ps, String extra) {
+    List<String> words = JavaRun.split(extra);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < words.size(); i++) {
+      Param p = find(ps, words.get(i));
+      if (p == null || !p.flag) continue;
+      append(sb, p.token);
+      if (p.takesValue && i + 1 < words.size() && !words.get(i + 1).startsWith("-")) append(sb, quote(words.get(++i)));
+    }
+    return sb.toString();
+  }
+
+  /** The switches with the ones in `tokens` (and their values) left out. */
+  static String without(List<Param> ps, String switches, java.util.Set<String> tokens) {
+    List<String> words = JavaRun.split(switches);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < words.size(); i++) {
+      Param p = find(ps, words.get(i));
+      boolean value = p != null && p.takesValue && i + 1 < words.size() && !words.get(i + 1).startsWith("-");
+      if (p != null && tokens.contains(p.token)) {
+        if (value) i++;
+        continue;
+      }
+      append(sb, quote(words.get(i)));
+      if (value) append(sb, quote(words.get(++i)));
+    }
+    return sb.toString();
   }
 
   private static Param find(List<Param> ps, String token) {

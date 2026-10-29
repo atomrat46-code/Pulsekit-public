@@ -466,7 +466,8 @@ final class DownloadsScreen {
                 app.setNow("Could not read " + item.name);
             }
         } else {
-            try {
+            if (SoundClip.plays(f)) SoundClip.window(app, f);
+            else try {
                 java.awt.Desktop.getDesktop().open(f);
             } catch (Exception ex) {
                 app.setNow("No preview for " + item.name);

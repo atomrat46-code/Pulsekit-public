@@ -703,6 +703,11 @@ public final class MediaDir {
     }
   }
 
+  /** The ready screens' item (WAV, MP3 ready): the file into the prompt library, as a result or reference file. */
+  public static final String ADD_TO_DB = "Add to DB\u2026";
+  /** Its question: which of the library's files it is (a render is a result, most often). */
+  public static final String[] DB_KINDS = {"Result file", "Reference file"};
+
   /** Over the library's 128 MB: not read in whole for Add to DB. */
   public static boolean tooBig(long size) {
     return size > DB_MAX;

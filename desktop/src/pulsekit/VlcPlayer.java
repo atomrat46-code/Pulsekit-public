@@ -24,7 +24,7 @@ import javax.swing.JPanel;
  *
  * Only libvlc's C functions are called, through JNA; VLC itself is not bundled.
  */
-final class VlcPlayer {
+final class VlcPlayer implements MediaPlayer {
     /** The libvlc functions Pulsekit uses. */
     interface LibVlc extends Library {
         Pointer libvlc_new(int argc, String[] argv);
@@ -447,7 +447,7 @@ final class VlcPlayer {
         this.screen.visibleH = Math.max(1, (int) Math.round(h.getValue() * s));
     }
 
-    void play() {
+    public void play() {
         if (this.player == null) return;
         int state = lib.libvlc_media_player_get_state(this.player);
         // After the end (or Stop) Play starts again from the beginning.
@@ -455,19 +455,19 @@ final class VlcPlayer {
         lib.libvlc_media_player_play(this.player);
     }
 
-    void pause() {
+    public void pause() {
         if (this.player != null) lib.libvlc_media_player_set_pause(this.player, 1);
     }
 
-    void stop() {
+    public void stop() {
         if (this.player != null) lib.libvlc_media_player_stop(this.player);
     }
 
-    boolean playing() {
+    public boolean playing() {
         return this.player != null && lib.libvlc_media_player_is_playing(this.player) != 0;
     }
 
-    int state() {
+    public int state() {
         return this.player == null ? 0 : lib.libvlc_media_player_get_state(this.player);
     }
 
@@ -480,30 +480,30 @@ final class VlcPlayer {
         if (this.player != null) lib.libvlc_media_player_set_position(this.player, Math.max(0f, Math.min(1f, at)));
     }
 
-    long timeMs() {
+    public long timeMs() {
         return this.player == null ? 0 : Math.max(0, lib.libvlc_media_player_get_time(this.player));
     }
 
-    long lengthMs() {
+    public long lengthMs() {
         return this.player == null ? 0 : Math.max(0, lib.libvlc_media_player_get_length(this.player));
     }
 
     /** 0..100. */
-    void volume(int percent) {
+    public void volume(int percent) {
         if (this.player != null) lib.libvlc_audio_set_volume(this.player, Math.max(0, Math.min(100, percent)));
     }
 
     /** Playback speed: 1 as recorded, 0.5 half, 2 double. */
-    void rate(double speed) {
+    public void rate(double speed) {
         if (this.player != null) lib.libvlc_media_player_set_rate(this.player, (float) speed);
     }
 
-    void mute(boolean on) {
+    public void mute(boolean on) {
         if (this.player != null) lib.libvlc_audio_set_mute(this.player, on ? 1 : 0);
     }
 
     /** Stops and lets VLC go of the file (the dialog closed). */
-    void release() {
+    public void release() {
         Pointer p = this.player;
         this.player = null;
         if (p == null) return;

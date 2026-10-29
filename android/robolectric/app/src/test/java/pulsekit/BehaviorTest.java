@@ -4838,13 +4838,20 @@ public class BehaviorTest {
     for (int i = 0; i < 50 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
     out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
     if (!"DrumMidi_CRT.jar".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--dir, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // The DrumMidi run step 1 started really runs: its result (which sets the arguments shown too) is
+    // let in first, so it does not land on top of CompareHits' below.
+    for (int i = 0; i < 3000 && PyJav.RUNS.get() > 0; i++) {
+      idle();
+      Thread.sleep(20);
+    }
+    idle();
     // 2. As if DrumMidi --dir had run: CompareHits --batch follows.
     Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
     app.pyName = "DrumMidi_CRT.jar";
     app.pyJav.pkLastArgv = new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", dir.getAbsolutePath()));
     app.pyJav.pkShowPyResult(new JavaRun.Result("Succeeded: DrumMidi on 4 of 4 WAV files in batch-test (<wav>-dm.mid beside each)", new java.util.ArrayList<JavaRun.FileOut>(), 0));
     // The program is picked before its arguments are set: wait for both (a loaded machine is slower).
-    for (int i = 0; i < 250 && !("CompareHits.java".equals(get("pyName")) && String.valueOf(app.pyJav.pkLastArgv).startsWith("[--batch")); i++) {
+    for (int i = 0; i < 1500 && !("CompareHits.java".equals(get("pyName")) && String.valueOf(app.pyJav.pkLastArgv).startsWith("[--batch")); i++) {
       idle();
       Thread.sleep(20);
     }
@@ -10372,6 +10379,122 @@ public class BehaviorTest {
     AppSettings.setPythonPath("");
     write("s168_python_apps_hand_off", out.toString());
     if (!listOk || !handOk || !bpmOk) throw new AssertionError(out.toString());
+  }
+
+  /** vst_render's Params: Back (or a tap outside) keeps --plugin2/--plugin3 and --dir2 as OK does; Cancel leaves them as they were. */
+  @Test
+  public void s169_params_back_keeps() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin2 = -1, plugin3 = -1, dir2 = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--plugin2")) plugin2 = i;
+      if (ps.get(i).token.equals("--plugin3")) plugin3 = i;
+      if (ps.get(i).token.equals("--dir2")) dir2 = i;
+    }
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[plugin2] = "/vst/Artillery.vst3";
+    PyJavParams.shownValues[plugin3] = "/vst/Anarchy Drums.vst3";
+    PyJavParams.shownValues[dir2] = "/midi/patterns";
+    PyJavParams.shown.cancel();
+    idle();
+    String kept = PyJavParams.load(app, "vst_render.py");
+    out.append("after Back: ").append(kept).append('\n');
+    // Cancel: what was picked meanwhile is left out.
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[dir2] = "/midi/other";
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    String after = PyJavParams.load(app, "vst_render.py");
+    out.append("after Cancel: ").append(after).append('\n');
+    PyJavParams.store(app, "vst_render.py", "");
+    write("s169_params_back_keeps", out.toString());
+    if (!kept.contains("--plugin2 /vst/Artillery.vst3") || !kept.contains("--plugin3") || !kept.contains("Anarchy Drums.vst3") || !kept.contains("--dir2 /midi/patterns")
+        || !after.equals(kept)) throw new AssertionError(out.toString());
+  }
+
+  /** Output's lines with the times they came: while the run goes (runningLog) and after (the command line as it was, a timeout note at the end time). */
+  @Test
+  public void s170_output_times() throws Exception {
+    StringBuilder out = new StringBuilder();
+    JavaRun.Live live = new JavaRun.Live();
+    live.add("Plugin: Anarchy Drums\nWrote f0-");
+    live.add("a.wav: 1.1 s\n");
+    String during = JavaRun.runningLog(live, System.currentTimeMillis());
+    String log = "$ python3 vst_render.py --dir in\n" + live.text() + "\nScript timed out (no output for 600 s).";
+    String after = JavaRun.stampedLog(live, log, System.currentTimeMillis());
+    String clock = "\\d\\d:\\d\\d:\\d\\d";
+    out.append("during: ").append(during.replaceAll(clock, "hh:mm:ss").replaceAll("\\d+:\\d\\d", "m:ss").replace('\n', '|')).append('\n');
+    out.append("after: ").append(after.replaceAll(clock, "hh:mm:ss").replace('\n', '|')).append('\n');
+    out.append("raw kept: ").append(live.text().replace('\n', '|')).append('\n');
+    write("s170_output_times", out.toString());
+    boolean ok = during.matches("(?s)Running\u2026 .*\\n\\n" + clock + " Plugin: Anarchy Drums\\n" + clock + " Wrote f0-a\\.wav: 1\\.1 s")
+        && after.matches("(?s)\\$ python3 vst_render\\.py --dir in\\n" + clock + " Plugin: Anarchy Drums\\n" + clock + " Wrote f0-a\\.wav: 1\\.1 s\\n\\n" + clock + " Script timed out \\(no output for 600 s\\)\\.")
+        && live.text().equals("Plugin: Anarchy Drums\nWrote f0-a.wav: 1.1 s\n");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** WAV ready's Add to DB…: Result file puts the render in the prompt library's result files. */
+  @Test
+  public void s171_wav_ready_add_to_db() throws Exception {
+    StringBuilder out = new StringBuilder();
+    short[] tone = new short[22050 / 2];
+    for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
+    byte[] wav = AudioIo.encodeWav(tone, 22050);
+    AudioOffer.offer(app, "vst-check-Kars.wav", wav);
+    idle();
+    View root = AudioOffer.last.getWindow().getDecorView();
+    View item = root.findViewWithTag("audio-item:" + MediaDir.ADD_TO_DB);
+    out.append("WAV ready lists Add to DB: ").append(item != null).append('\n');
+    if (item != null) item.performClick();
+    idle();
+    if (AudioOffer.lastDbAsk != null) AudioOffer.lastDbAsk.getListView().performItemClick(AudioOffer.lastDbAsk.getListView().getChildAt(0), 0, 0);
+    idle();
+    android.app.Dialog group = ShadowDialog.getLatestDialog();
+    if (group != null && group != AudioOffer.lastDbAsk && group != AudioOffer.last) group.dismiss();
+    idle();
+    java.util.List<String> results = new java.util.ArrayList<String>();
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) results.add(f.name);
+    out.append("said: ").append(AudioOffer.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    AudioOffer.last.dismiss();
+    write("s171_wav_ready_add_to_db", out.toString());
+    if (item == null || !"vst-check-Kars.wav is in the DB as a result file".equals(AudioOffer.lastDbAdd) || !results.contains("vst-check-Kars.wav")) throw new AssertionError(out.toString());
+  }
+
+  /** vst_render's Params: a row's Use box unticked leaves its plugin out of the saved Params (kept beside them); opened again it is there, unticked. */
+  @Test
+  public void s172_params_use_box() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin2 = -1;
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--plugin2")) plugin2 = i;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.store(app, "vst_render.py" + ProgramParams.OFF_KEY, "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    PyJavParams.shownValues[plugin2] = "/vst/Riot.vst3";
+    View v = PyJavParams.shown.getWindow().getDecorView();
+    ((android.widget.CheckBox) v.findViewWithTag("params-use:--plugin2")).setChecked(false);
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String saved = PyJavParams.load(app, "vst_render.py");
+    String kept = PyJavParams.load(app, "vst_render.py" + ProgramParams.OFF_KEY);
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View again = PyJavParams.shown.getWindow().getDecorView();
+    boolean ticked = ((android.widget.CheckBox) again.findViewWithTag("params-use:--plugin2")).isChecked();
+    String value = PyJavParams.shownValues[plugin2];
+    PyJavParams.shown.dismiss();
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.store(app, "vst_render.py" + ProgramParams.OFF_KEY, "");
+    out.append("saved [").append(saved).append("] kept [").append(kept).append("] opened again: ").append(value).append(" ticked ").append(ticked).append('\n');
+    write("s172_params_use_box", out.toString());
+    if (saved.contains("--plugin2") || !"--plugin2 /vst/Riot.vst3".equals(kept) || ticked || !"/vst/Riot.vst3".equals(value)) throw new AssertionError(out.toString());
   }
 
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
