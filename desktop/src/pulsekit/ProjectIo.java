@@ -49,7 +49,7 @@ final class ProjectIo {
         JLabel jLabel = new JLabel("Import");
         jLabel.setFont(new Font("SansSerif", 1, 20));
         jLabel.setForeground(FG);
-        JLabel jLabel2 = new JLabel("<html><body style='width:420px;color:#8A8B86'>PRJ \u00b7 full project<br>PKP \u00b7 plugin pack<br>FSET \u00b7 patterns, Fillerns, and fills from one imported file<br>MIDI \u00b7 pattern, Fillern or fill (named in the file)<br>SNG \u00b7 song<br>WAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java<br>SF2 \u00b7 drum samples onto pads<br>PY / JAVA / JAR / CLASS \u00b7 program for PyJav</body></html>");
+        JLabel jLabel2 = new JLabel("<html><body style='width:420px;color:#8A8B86'>PRJ \u00b7 full project<br>PKP \u00b7 plugin pack<br>FSET \u00b7 patterns, Fillerns, and fills from one imported file<br>MIDI \u00b7 pattern, Fillern or fill (named in the file)<br>SNG \u00b7 song<br>WAV / MP3 \u00b7 input file for a PyJav program such as MidiDrumGen.java<br>SF2 / SFZ \u00b7 drum samples onto pads (an SFZ kit: its .sfz, or its .zip / .tar.gz)<br>PY / JAVA / JAR / CLASS \u00b7 program for PyJav</body></html>");
         jPanel2.add(jLabel);
         jPanel2.add(Box.createVerticalStrut(8));
         jPanel2.add(jLabel2);
@@ -836,11 +836,16 @@ final class ProjectIo {
 
     void openFile() {
         JFileChooser jFileChooser = new JFileChooser();
-        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, Hydrogen, Reaper, WAV, MP3, SoundFont, Python, Java, JavaScript, prompt, project, plugin, file set, zip", "sng", "mid", "midi", "h2song", "h2pattern", "xml", "rpp", "wav", "wave", "mp3", "sf2", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset", "zip"));
+        jFileChooser.setFileFilter(new FileNameExtensionFilter("MIDI, song, Hydrogen, Reaper, WAV, MP3, SoundFont, SFZ kit, Python, Java, JavaScript, prompt, project, plugin, file set, zip", "sng", "mid", "midi", "h2song", "h2pattern", "xml", "rpp", "wav", "wave", "mp3", "sf2", "sfz", "tar", "gz", "tgz", "py", "java", "class", "jar", "js", "mjs", "ts", "tsx", "prompt", "prj", "pkp", "fset", "zip"));
         if (jFileChooser.showOpenDialog(app) != 0) {
             return;
         }
         File file = jFileChooser.getSelectedFile();
+        // An SFZ kit (a .sfz beside its samples, or a .zip / .tar.gz with kits in it): its samples onto the pads.
+        if (Sfz.isKitName(file.getName()) && (file.getName().toLowerCase().endsWith(".sfz") || Sfz.isKit(file))) {
+            this.importSfz(file);
+            return;
+        }
         // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
         if (ZipImport.isZip(file.getName())) {
             ZipFlow.importZip(app, file);
@@ -860,6 +865,56 @@ final class ProjectIo {
         catch (Exception exception) {
             JOptionPane.showMessageDialog(app, "Could not read that file: " + exception.getMessage());
         }
+    }
+
+    /** The kit the tests pick (null: ask which when there are several). */
+    static java.util.function.Function<java.util.List<String>, String> sfzPick;
+
+    /** An SFZ kit onto the pads, as an SF2 is: which kit of a package (asked when there are several), loaded off the window's thread. */
+    void importSfz(final File file) {
+        final java.util.List<String> kits;
+        try {
+            kits = Sfz.open(file).kits();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(app, "Could not read that kit: " + ex.getMessage());
+            return;
+        }
+        if (kits.isEmpty()) {
+            JOptionPane.showMessageDialog(app, "No .sfz kit in " + file.getName());
+            return;
+        }
+        final String pick = kits.size() == 1 ? kits.get(0) : sfzPick != null ? sfzPick.apply(kits)
+            : (String) JOptionPane.showInputDialog(app, file.getName() + " has " + kits.size() + " kits. Which one onto the pads?", "SFZ kit",
+                JOptionPane.QUESTION_MESSAGE, null, kits.toArray(), kits.get(0));
+        if (pick == null) return;
+        app.setNow("Loading SFZ kit " + pick + "\u2026");
+        new Thread(() -> {
+            try {
+                final Sfz.Kit kit = Sfz.load(file, pick);
+                javax.swing.SwingUtilities.invokeLater(() -> this.applySfz(kit));
+            } catch (Exception ex) {
+                Logs.error("SFZ kit " + pick + " not loaded", ex);
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    app.setNow("Could not load " + pick + ": " + ex.getMessage().split("\n")[0]);
+                    lastSfzError = ex.getMessage();
+                });
+            }
+        }, "pulsekit-sfz").start();
+    }
+
+    /** What the last SFZ load said went wrong (the tests read it). */
+    static volatile String lastSfzError = "";
+
+    /** The kit's samples onto the pads (the others keep theirs), kept as kit.sf2 for the next start. */
+    void applySfz(Sfz.Kit kit) {
+        for (int i = 0; i < app.voices.length && i < kit.voices.length; ++i) {
+            if (kit.voices[i] != null) app.voices[i] = kit.voices[i];
+        }
+        app.playback.fillMissingVoices();
+        app.playback.reloadDrumBank();
+        app.persistence.persistSf2(kit.sf2());
+        Logs.write(Logs.KITS, "SFZ kit " + kit.name + " (" + kit.pads + " pads)", kit.report);
+        app.setNow("SFZ kit \u00b7 " + kit.name + " \u00b7 " + kit.pads + " drums");
     }
 
     void ingest(byte[] byArray, String string) throws Exception {

@@ -933,6 +933,11 @@ public class MainActivity extends UiKit {
                 Toast.makeText((Context)this, (CharSequence)(Engine.TRACK_LABEL[n3] + " sample loaded"), (int)0).show();
                 return;
             }
+            if (n == 7 && Sfz.isKitName(DbImport.displayName(this, uri))) {
+                // An SFZ kit package onto the pads (a zip without a kit goes on as a zip).
+                this.projectIo.importSfz(uri, DbImport.displayName(this, uri));
+                return;
+            }
             if (n == 7 && ZipImport.isZip(DbImport.displayName(this, uri))) {
                 // A zip package: its password, then extract it (into a folder, the DB, both) or keep it in the DB.
                 ZipFlow.importZip(this, uri, DbImport.displayName(this, uri));

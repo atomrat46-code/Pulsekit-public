@@ -8145,6 +8145,102 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString() + "\n" + report);
   }
 
+  /**
+   * SFZ kits: a .zip with two kits, the one picked onto the pads (a FLAC kick, a 24-bit snare, a hat
+   * from an #include), kept as kit.sf2 and in the logs; Midi2Wav plays the other
+   * kit of the package (--sf2 package.zip#kit.sfz).
+   */
+  void s168_sfz_kit() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    AppSettings.load(PromptDb.dir());
+    AppSettings.setLogging(true);
+    File zip = sfzPackage(home, new File(System.getProperty("pulsekit.test.dir", "."), "kick24.flac"));
+    final Pulsekit app = (Pulsekit) frame;
+    final short[] kickBefore = app.voices[0], snareBefore = app.voices[2], hatBefore = app.voices[5], clapBefore = app.voices[3];
+    final java.util.List<String> offered = new java.util.ArrayList<String>();
+    ProjectIo.sfzPick = kits -> {
+      offered.addAll(kits);
+      return "Kits/Rock.sfz";
+    };
+    boolean isKit = Sfz.isKit(zip);
+    edt(() -> app.projectIo.importSfz(zip));
+    for (int i = 0; i < 200 && !String.valueOf(app.nowPlaying.getText()).contains("SFZ kit \u00b7"); i++) Thread.sleep(50);
+    idle();
+    ProjectIo.sfzPick = null;
+    String said = String.valueOf(app.nowPlaying.getText()).trim();
+    boolean kick = app.voices[0] != kickBefore, snare = app.voices[2] != snareBefore, hat = app.voices[5] != hatBefore, clapKept = app.voices[3] == clapBefore;
+    File kept = new File(home, ".pulsekit/kit.sf2");
+    int keptPads = 0;
+    if (kept.isFile()) for (short[] v : AudioIo.parseSf2(Files.readAllBytes(kept.toPath()))) if (v != null) keptPads++;
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.KITS);
+    String report = logged.isEmpty() ? "" : Logs.text(logged.get(0));
+    this.out.append("kit: ").append(isKit).append(", offered ").append(offered).append("\nsaid: ").append(said).append("\npads changed: kick ").append(kick).append(", snare ").append(snare)
+        .append(", hat ").append(hat).append(", clap kept ").append(clapKept).append(" | kit.sf2 pads: ").append(keptPads).append("\nlog: ").append(logged.isEmpty() ? "-" : logged.get(0).title).append('\n');
+    for (String line : report.split("\n")) if (line.startsWith("Kick") || line.startsWith("Snare") || line.startsWith("Closed")) this.out.append("  ").append(line).append('\n');
+    // Midi2Wav with the package's other kit.
+    int[][] cells = new int[12][16];
+    for (int i = 0; i < 16; i += 4) cells[0][i] = 100;
+    File midi = new File(home, "groove.mid");
+    Files.write(midi.toPath(), Engine.encodeMidi(cells, 120));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "Midi2Wav.java");
+    idle();
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> log.setText(""));
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("\"" + midi.getAbsolutePath() + "\" jazz.wav --sf2 \"" + zip.getAbsolutePath() + "#Kits/Jazz.sfz\" --rate 22050"));
+    answers.add("Close");
+    edt(() -> call("runPython"));
+    for (int i = 0; i < 400 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+    Thread.sleep(600);
+    idle();
+    answers.clear();
+    StringBuilder ran = new StringBuilder();
+    for (String line : String.valueOf(log.getText()).split("\n")) {
+      String t = line.trim().replaceAll("^\\d\\d:\\d\\d:\\d\\d ", "");
+      if (t.startsWith("SFZ kit") || t.startsWith("Succeeded") || t.startsWith("Failed")) ran.append("  ").append(t.replace(home.getAbsolutePath(), "~")).append('\n');
+    }
+    this.out.append("Midi2Wav:\n").append(ran);
+    boolean ok = isKit && offered.equals(java.util.Arrays.asList("Kits/Jazz.sfz", "Kits/Rock.sfz")) && said.contains("SFZ kit \u00b7 Rock \u00b7 4 drums") && kick && snare && hat && clapKept
+        && keptPads >= 4 && report.contains("Kick (36): Kits/Samples/Kick/kick.flac") && report.contains("Snare (38): Kits/Samples/snare 24.wav")
+        && report.contains("Closed hat (42): Kits/Samples/snare 24.wav") && ran.toString().contains("SFZ kit Jazz: played as a SoundFont") && ran.toString().contains("Succeeded");
+    if (!ok) throw new AssertionError(this.out.toString() + "\n" + report + "\n" + log.getText());
+  }
+
+  /** A test SFZ package: Kits/Rock.sfz (FLAC kick, 24-bit snare, an #include'd hat) and Kits/Jazz.sfz, zipped. */
+  private static File sfzPackage(File home, File flac) throws Exception {
+    File zip = new File(home, "Test Kits.zip");
+    short[] snare = new short[11025];
+    for (int i = 0; i < snare.length; i++) snare[i] = (short) (20000 * Math.exp(-i / 1500.0) * Math.sin(i * 0.31 + Math.sin(i * 1.7)));
+    // A 24-bit snare: the 16-bit one with a low byte under it.
+    byte[] wav16 = AudioIo.encodeWav(snare, 44100);
+    int n = snare.length;
+    java.io.ByteArrayOutputStream w = new java.io.ByteArrayOutputStream();
+    java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(44 + n * 3).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    b.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + n * 3).put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16).putShort((short) 1).putShort((short) 1)
+        .putInt(44100).putInt(44100 * 3).putShort((short) 3).putShort((short) 24).put("data".getBytes(StandardCharsets.US_ASCII)).putInt(n * 3);
+    for (short v : snare) b.put((byte) 0x40).putShort(v);
+    w.write(b.array());
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      String[][] files = {
+        {"Kits/Rock.sfz", "// Rock kit\n#define $DIR Samples\n<control> default_path=$DIR/\n<group> key=c2\n<region> sample=Kick\\kick.flac lovel=1 hivel=127\n"
+            + "<group> key=38 seq_length=2\n<region> sample=snare 24.wav seq_position=1\n<region> sample=missing.wav seq_position=2\n#include \"hats.sfzh\"\n"},
+        {"Kits/hats.sfzh", "<region> sample=snare 24.wav key=f#2 locc4=0 hicc4=63 volume=-6\n"},
+        {"Kits/Jazz.sfz", "<region> sample=Samples/snare 24.wav key=36\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+        z.closeEntry();
+      }
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/kick/KICK.FLAC"));
+      z.write(Files.readAllBytes(flac.toPath()));
+      z.closeEntry();
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/snare 24.wav"));
+      z.write(w.toByteArray());
+      z.closeEntry();
+    }
+    return zip;
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

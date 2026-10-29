@@ -483,11 +483,11 @@ public final class ProgramParams {
       p.label = "Its subfolders too";
     } else if (p.token.equals("--kits")) {
       p.dir = true;
-      p.label = "Batch kits: every SoundFont in this folder (with the one above)";
+      p.label = "Batch kits: every SoundFont and SFZ kit (.sf2, .sfz) in this folder (with the one above)";
       p.hint = "empty: the SoundFont above, else Pulsekit's kit";
     } else if (p.token.equals("--sf2")) {
-      p.label = "SoundFont (.sf2)";
-      p.hint = "empty: Pulsekit's kit (the active drum set)";
+      p.label = "SoundFont (.sf2) or SFZ kit (.sfz, .zip, .tar.gz)";
+      p.hint = "empty: Pulsekit's kit (the active drum set); one kit of a package: package.zip#folder/kit.sfz";
       p.refs = true;
     } else if (p.token.equals("--rate")) {
       p.label = "Sample rate";

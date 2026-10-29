@@ -1140,7 +1140,7 @@ public final class AudioIo {
     return voices;
   }
 
-  private static int nameToTrack(String nm) {
+  static int nameToTrack(String nm) {
     String low = nm.toLowerCase();
     if (low.contains("double") || low.contains("dkick") || low.contains("pedal")) return Engine.track("dkick");
     if (low.contains("kick") || low.contains("bd") || low.contains("bass")) return Engine.track("kick");
@@ -1161,7 +1161,7 @@ public final class AudioIo {
     return -1;
   }
 
-  private static int drumCap(int t) {
+  static int drumCap(int t) {
     String id = t >= 0 && t < Engine.TRACK_ID.length ? Engine.TRACK_ID[t] : "";
     if ("chh".equals(id)) return SR / 6;
     if ("rim".equals(id)) return SR / 5;
@@ -1205,6 +1205,11 @@ public final class AudioIo {
       if (o + 1 >= d.length || o + 1 >= smplOff + smplLen) break;
       raw[s] = (short) ((d[o] & 0xff) | (d[o + 1] << 8));
     }
+    return shapeDrum(raw, maxFrames, tom);
+  }
+
+  /** A drum hit as the pads play it: the silence before it off, its tail kept short, its level evened (SF2 and SFZ kits). */
+  static short[] shapeDrum(short[] raw, int maxFrames, boolean tom) {
     int peak = samplePeak(raw);
     if (peak < 400) return null;
     int thresh = Math.max(80, peak / 40);

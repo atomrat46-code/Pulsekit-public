@@ -10604,6 +10604,70 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** SFZ kits: a lone .sfz asks for its package; a .zip with two kits, the one picked onto the pads (FLAC kick, 24-bit snare), kept as kit.sf2 and in the logs. */
+  @Test
+  public void s175_sfz_kit() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    AppSettings.setLogging(true);
+    File home = app.getCacheDir();
+    File zip = new File(home, "Test Kits.zip");
+    short[] snare = new short[11025];
+    for (int i = 0; i < snare.length; i++) snare[i] = (short) (20000 * Math.exp(-i / 1500.0) * Math.sin(i * 0.31 + Math.sin(i * 1.7)));
+    int n = snare.length;
+    java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(44 + n * 3).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    b.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + n * 3).put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16).putShort((short) 1).putShort((short) 1)
+        .putInt(44100).putInt(44100 * 3).putShort((short) 3).putShort((short) 24).put("data".getBytes(StandardCharsets.US_ASCII)).putInt(n * 3);
+    for (short v : snare) b.put((byte) 0x40).putShort(v);
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      String[][] files = {
+        {"Kits/Rock.sfz", "<control> default_path=Samples/\n<group> key=c2\n<region> sample=Kick\\kick.flac\n<region> sample=snare 24.wav key=38\n"},
+        {"Kits/Jazz.sfz", "<region> sample=Samples/snare 24.wav key=36\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+        z.closeEntry();
+      }
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/kick/KICK.FLAC"));
+      z.write(Files.readAllBytes(new File("../../../desktop/test/kick24.flac").toPath()));
+      z.closeEntry();
+      z.putNextEntry(new java.util.zip.ZipEntry("Kits/Samples/snare 24.wav"));
+      z.write(b.array());
+      z.closeEntry();
+    }
+    ProjectIo.lastSfz = "";
+    app.projectIo.importSfz(android.net.Uri.fromFile(new File(home, "Rock.sfz")), "Rock.sfz");
+    String lone = ProjectIo.lastSfz;
+    short[] kickBefore = app.voices[0], snareBefore = app.voices[2];
+    final java.util.List<String> offered = new java.util.ArrayList<String>();
+    ProjectIo.sfzPick = kits -> {
+      offered.addAll(kits);
+      return "Kits/Rock.sfz";
+    };
+    ProjectIo.lastSfz = "";
+    app.projectIo.importSfz(android.net.Uri.fromFile(zip), "Test Kits.zip");
+    for (int i = 0; i < 400 && !(ProjectIo.lastSfz.startsWith("SFZ kit") || ProjectIo.lastSfz.startsWith("Could") || ProjectIo.lastSfz.startsWith("No ")); i++) {
+      idle();
+      Thread.sleep(25);
+    }
+    idle();
+    ProjectIo.sfzPick = null;
+    int keptPads = 0;
+    File kept = new File(app.getFilesDir(), "kit.sf2");
+    if (kept.isFile()) for (short[] v : AudioIo.parseSf2(Files.readAllBytes(kept.toPath()))) if (v != null) keptPads++;
+    java.util.List<Logs.Entry> logged = Logs.entries(Logs.KITS);
+    String report = logged.isEmpty() ? "" : Logs.text(logged.get(0));
+    AppSettings.setLogging(false);
+    out.append("lone .sfz: ").append(lone).append("\noffered ").append(offered).append(" | said: ").append(ProjectIo.lastSfz).append("\nkick ").append(app.voices[0] != kickBefore)
+        .append(", snare ").append(app.voices[2] != snareBefore).append(", clap not from the kit ").append(app.voices[3] != app.voices[2] && app.voices[3] != app.voices[0]).append(" | kit.sf2 pads ").append(keptPads)
+        .append(" | log: ").append(logged.isEmpty() ? "-" : logged.get(0).title).append('\n');
+    write("s175_sfz_kit", out.toString());
+    boolean ok = lone.startsWith("An SFZ kit needs its samples") && offered.equals(java.util.Arrays.asList("Kits/Jazz.sfz", "Kits/Rock.sfz"))
+        && ProjectIo.lastSfz.equals("SFZ kit \u00b7 Rock \u00b7 3 drums") && app.voices[0] != kickBefore && app.voices[2] != snareBefore && app.voices[3] != app.voices[2] && app.voices[3] != app.voices[0]
+        && keptPads >= 3 && report.contains("Kick (36): Kits/Samples/Kick/kick.flac");
+    if (!ok) throw new AssertionError(out.toString() + "\n" + report);
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

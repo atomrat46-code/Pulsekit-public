@@ -21,7 +21,9 @@ import java.util.TreeMap;
  *   drums.mid   the MIDI file (format 0 or 1). Its drum channel (10) is played; a file with no
  *               notes there is played as drums whole.
  *   output.wav  the WAV made; <drums>2wav.wav when it is not given.
- *   --sf2       the SoundFont (.sf2): its drum kit (bank 128), else its first preset. In Pulsekit,
+ *   --sf2       the SoundFont (.sf2): its drum kit (bank 128), else its first preset. An SFZ kit
+ *               too: its .sfz, or a .zip / .tar.gz package (package.zip#folder/kit.sfz for one of
+ *               its kits), played with the sample each General MIDI drum takes. In Pulsekit,
  *               PyJav gives Pulsekit's own kit (the active drum set, as File > Export SF2 writes it)
  *               when none is chosen. A drum note the SoundFont has no sound for is played with the
  *               nearest General MIDI drum it has (an open hat for a pedal hat...), else left out.
@@ -34,7 +36,7 @@ import java.util.TreeMap;
  *               that MIDI and the song (with suggestions for DrumMidi's switches), and the MIDI
  *               played against DrumMidi's (what it missed or added).
  *   --dir       plays every MIDI file in the folder instead (--recursive: its subfolders too), with
- *               every kit: --sf2 and each SoundFont in --kits <folder>. Each WAV is
+ *               every kit: --sf2 and each SoundFont (.sf2, .sfz) in --kits <folder>. Each WAV is
  *               <midi>-<kit>.wav beside its MIDI, as vst_render.py --dir names them. With --test,
  *               Pulsekit then runs DrumMidi_CRT --dir on the WAVs and CompareHits --batch on the
  *               folder (a MidiDrumGen --count or MidiBatch folder: its batch.txt lists the grooves).
@@ -119,11 +121,14 @@ public class Midi2Wav {
             System.out.println("Failed: give the SoundFont with --sf2 (in Pulsekit, PyJav gives Pulsekit's kit when none is chosen)");
             return 2;
         }
-        File font = new File(sf2);
+        // An SFZ kit: "kit.sfz", or "package.zip#folder/kit.sfz" for one kit of a package.
+        File font = new File(sf2.indexOf('#') > 0 ? sf2.substring(0, sf2.lastIndexOf('#')) : sf2);
         if (!font.isFile()) {
             System.out.println("Failed: no SoundFont " + sf2);
             return 1;
         }
+        font = asSf2(sf2, font);
+        if (font == null) return 1;
         if (output == null || output.length() == 0) output = in.getName().replaceAll("(?i)\\.midi?$", "") + "2wav.wav";
         if (!output.toLowerCase(Locale.ROOT).endsWith(".wav")) output = output + ".wav";
         File out = inWork(output);
@@ -154,7 +159,10 @@ public class Midi2Wav {
                 return 1;
             }
             Arrays.sort(in);
-            for (File f : in) if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".sf2") && !fonts.contains(f)) fonts.add(f);
+            for (File f : in) {
+                String low = f.getName().toLowerCase(Locale.ROOT);
+                if (f.isFile() && (low.endsWith(".sf2") || low.endsWith(".sfz")) && !fonts.contains(f)) fonts.add(f);
+            }
         }
         if (fonts.isEmpty()) {
             System.out.println("Failed: give the SoundFont with --sf2, or a folder of them with --kits (in Pulsekit, PyJav gives Pulsekit's kit when none is chosen)");
@@ -174,10 +182,12 @@ public class Midi2Wav {
         }
         System.out.println("Midi2Wav: " + midis.size() + " MIDI file" + (midis.size() == 1 ? "" : "s") + " in " + dir.getName() + " with " + fonts.size() + " kit" + (fonts.size() == 1 ? "" : "s"));
         int done = 0;
-        for (File font : fonts) {
+        for (File given : fonts) {
+            File font = asSf2(given.getPath(), given);
+            if (font == null) continue;
             SoundFont sf = new SoundFont(font);
             try {
-                String kit = font.getName().replaceAll("(?i)\\.sf2$", "").replaceAll("[^A-Za-z0-9._ -]+", "_");
+                String kit = given.getName().replaceAll("(?i)\\.sf[2z]$", "").replaceAll("[^A-Za-z0-9._ -]+", "_");
                 for (File m : midis) {
                     if (Thread.currentThread().isInterrupted()) throw new IllegalStateException("Aborted");
                     File out = new File(m.getParentFile(), m.getName().replaceAll("(?i)\\.midi?$", "") + "-" + kit + ".wav");
@@ -193,6 +203,38 @@ public class Midi2Wav {
         }
         System.out.println("Succeeded: " + done + " of " + midis.size() * fonts.size() + " WAV files in " + dir.getName());
         return done > 0 ? 0 : 1;
+    }
+
+    /**
+     * An SFZ kit (.sfz beside its samples, or a .zip / .tar.gz package, "#kit.sfz" naming one of its kits)
+     * as a SoundFont in the temporary folder, made by Pulsekit's SFZ reader; a .sf2 as it is. Null: it failed (said).
+     */
+    static File asSf2(String spec, File font) {
+        String low = font.getName().toLowerCase(Locale.ROOT);
+        if (!low.endsWith(".sfz") && !low.endsWith(".zip") && !low.endsWith(".tar") && !low.endsWith(".gz") && !low.endsWith(".tgz")) return font;
+        try {
+            Class<?> sfz = Class.forName("pulsekit.Sfz");
+            byte[] bytes = (byte[]) sfz.getMethod("toSf2", String.class).invoke(null, spec);
+            String kit = (spec.indexOf('#') > 0 ? spec.substring(spec.lastIndexOf('#') + 1) : font.getName()).replaceAll(".*[/\\\\]", "")
+                .replaceAll("(?i)\\.(sfz|zip|tar|tgz|tar\\.gz|gz)$", "").replaceAll("[^A-Za-z0-9._ -]+", "_");
+            File tmp = new File(System.getProperty("java.io.tmpdir"), "midi2wav-" + kit + ".sf2");
+            FileOutputStream out = new FileOutputStream(tmp);
+            try {
+                out.write(bytes);
+            } finally {
+                out.close();
+            }
+            tmp.deleteOnExit();
+            System.out.println("SFZ kit " + kit + ": played as a SoundFont of its pads (" + bytes.length / 1024 + " KB)");
+            return tmp;
+        } catch (ClassNotFoundException ex) {
+            System.out.println("Failed: an SFZ kit is read by Pulsekit: run Midi2Wav from PyJav (or with Pulsekit.jar on the class path)");
+        } catch (java.lang.reflect.InvocationTargetException ex) {
+            System.out.println("Failed: SFZ kit " + spec + ": " + ex.getCause().getMessage());
+        } catch (Exception ex) {
+            System.out.println("Failed: SFZ kit " + spec + ": " + ex);
+        }
+        return null;
     }
 
     static void midisIn(File dir, boolean recursive, List<File> into) {

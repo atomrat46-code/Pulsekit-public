@@ -26,11 +26,13 @@ public final class Logs {
   public static final String ERRORS = "Errors";
   public static final String SOUND = "Sound devices";
   public static final String STARTS = "Pulsekit starts";
-  public static final String[] TYPES = {RUNS, ERRORS, SOUND, STARTS};
+  /** SFZ and SF2 kits loaded onto the pads: which sample each pad took. */
+  public static final String KITS = "Kits";
+  public static final String[] TYPES = {RUNS, ERRORS, SOUND, KITS, STARTS};
   /** The type list's first choice: the entries of every type. */
   public static final String ALL = "All logs";
   public static final String SETTING = "Logging on (File > Logs)";
-  public static final String SETTING_NOTE = "Ticked, Pulsekit writes logs (program runs, errors, sound devices, its starts) that File > Logs "
+  public static final String SETTING_NOTE = "Ticked, Pulsekit writes logs (program runs, errors, sound devices, kits, its starts) that File > Logs "
       + "shows, exports and copies; unticked, no log files are written.";
   public static final String EMPTY = "No logs yet. Tick General settings > Logging on, then run what you want logged.";
   static final int KEEP = 200;
