@@ -4838,6 +4838,13 @@ public class BehaviorTest {
     for (int i = 0; i < 50 && !"DrumMidi_CRT.jar".equals(get("pyName")); i++) idle();
     out.append("then ").append(get("pyName")).append(" ").append(String.valueOf(app.pyJav.pkLastArgv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
     if (!"DrumMidi_CRT.jar".equals(get("pyName")) || !String.valueOf(app.pyJav.pkLastArgv).equals("[--dir, " + dir.getAbsolutePath() + "]")) throw new AssertionError(out.toString());
+    // The DrumMidi run step 1 started really runs: its result (which sets the arguments shown too) is
+    // let in first, so it does not land on top of CompareHits' below.
+    for (int i = 0; i < 3000 && PyJav.RUNS.get() > 0; i++) {
+      idle();
+      Thread.sleep(20);
+    }
+    idle();
     // 2. As if DrumMidi --dir had run: CompareHits --batch follows.
     Midi2WavTest.startBatch("Succeeded: 4 of 4 WAV files", argv);
     app.pyName = "DrumMidi_CRT.jar";
