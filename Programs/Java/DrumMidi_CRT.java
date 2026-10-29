@@ -442,6 +442,15 @@ public class DrumMidi_CRT{
     }
 
     static void run(String[] args) throws Exception {
+        // --learn-kit <render> <times.txt> <out.kit>: a kit's kick and toms, from vst_render's test beat.
+        if (args.length > 0 && "--learn-kit".equals(args[0])) {
+            if (args.length < 4) {
+                finish("Failed: --learn-kit needs the test beat's render, its notes' times (seconds and note on each line) and the .kit file to write");
+                return;
+            }
+            KitProfile.learn(new File(args[1]), new File(args[2]), new File(args[3]));
+            return;
+        }
         List<String> rest = new ArrayList<String>();
         for (int i = 0; i < args.length; i++) {
             String a = args[i] == null ? "" : args[i].trim();
@@ -467,7 +476,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log <logfile>] [--dir <folder>] [--recursive]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -484,6 +493,8 @@ public class DrumMidi_CRT{
         boolean writeToms = true;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
+        // A kit profile (vst_render's test beat, --learn-kit): its kick and toms tell the hits found apart.
+        KitProfile kit = null;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -497,6 +508,7 @@ public class DrumMidi_CRT{
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--snare-leak".equals(opt)) snareLeak = true;
+            else if ("--kit".equals(opt)) kit = KitProfile.read(new File(args[++i]));
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -508,7 +520,8 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : ""));
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "")
+                + (kit != null ? " --kit " + kit.name : ""));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -838,6 +851,7 @@ public class DrumMidi_CRT{
         if (cymbals && !bass) riddenCrashes(hits, shape, fps);
         if (cymbals) ringingCrashes(hits, shape, fps);
         if (writeToms && !bassTones && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
+        if (kit != null) kit.sort(hits, audio.samples, sr);
         if (writeToms) tomClicks(hits);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
@@ -1788,6 +1802,183 @@ public class DrumMidi_CRT{
 
     static int frame(double time, double sr, int n) {
         return Math.max(0, Math.min(n - 1, (int) Math.round(time * sr / HOP)));
+    }
+
+    /**
+     * A kit's own kick and toms (vst_render plays each of them alone in its test beat; --learn-kit
+     * keeps their sound): the 40-800 Hz spectrum of each, KIT_BANDS log-spaced bands over the first
+     * KIT_FRAMES frames of a KIT_N window (a fine look at the low end), in log level, its mean taken
+     * off. A kick or tom found takes the note whose spectrum is nearest its own: in a fill most of
+     * the "kicks" can be toms, and the song alone does not say what this kit's kick sounds like.
+     */
+    static final int KIT_BANDS = 16, KIT_FRAMES = 2, KIT_N = 4096;
+    static final double KIT_LO = 40, KIT_HI = 800;
+    static final double[] KIT_WINDOW = new double[KIT_N];
+    static {
+        for (int n = 0; n < KIT_N; n++) KIT_WINDOW[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (KIT_N - 1));
+    }
+    /** A tom in the test beat under KIT_SILENT of the kick's level is not played by this kit. */
+    static final double KIT_SILENT = 0.05;
+
+    static final class KitProfile {
+        final String name;
+        final List<Integer> notes = new ArrayList<Integer>();
+        final List<double[]> spectra = new ArrayList<double[]>();
+
+        KitProfile(String name) {
+            this.name = name;
+        }
+
+        /** The spectrum (see KIT_BANDS) of the sound starting at `time`, and its level (index KIT_BANDS); null where the audio ends. */
+        static double[] spectrum(double[] x, double sr, double time) {
+            int start = (int) Math.round(time * sr);
+            if (start < 0 || start + (KIT_FRAMES - 1) * HOP + KIT_N > x.length) return null;
+            double[] edges = new double[KIT_BANDS + 1];
+            for (int i = 0; i <= KIT_BANDS; i++) edges[i] = KIT_LO * Math.pow(KIT_HI / KIT_LO, i / (double) KIT_BANDS);
+            int b0 = (int) Math.floor(KIT_LO * KIT_N / sr), b1 = (int) Math.ceil(KIT_HI * KIT_N / sr);
+            double[] band = new double[KIT_BANDS];
+            int[] count = new int[KIT_BANDS];
+            for (int f = 0; f < KIT_FRAMES; f++) {
+                int a = start + f * HOP;
+                for (int b = b0; b <= b1; b++) {
+                    double hz = b * sr / KIT_N;
+                    int k = 0;
+                    while (k < KIT_BANDS - 1 && hz >= edges[k + 1]) k++;
+                    if (hz < edges[0] || hz >= edges[KIT_BANDS]) continue;
+                    // One bin of the window's DFT, its phase turned on step by step.
+                    double re = 0, im = 0, w = 2 * Math.PI * b / KIT_N, c = Math.cos(w), sn = Math.sin(w), cr = 1, ci = 0;
+                    for (int n = 0; n < KIT_N; n++) {
+                        double v = x[a + n] * KIT_WINDOW[n];
+                        re += v * cr;
+                        im -= v * ci;
+                        double t = cr * c - ci * sn;
+                        ci = cr * sn + ci * c;
+                        cr = t;
+                    }
+                    band[k] += Math.sqrt(re * re + im * im);
+                    count[k]++;
+                }
+            }
+            double[] out = new double[KIT_BANDS + 1];
+            double level = 0, mean = 0;
+            for (int k = 0; k < KIT_BANDS; k++) {
+                double v = count[k] > 0 ? band[k] / count[k] : 0;
+                level += v;
+                out[k] = Math.log(v + 1e-12);
+                mean += out[k] / KIT_BANDS;
+            }
+            double norm = 0;
+            for (int k = 0; k < KIT_BANDS; k++) {
+                out[k] -= mean;
+                norm += out[k] * out[k];
+            }
+            norm = Math.sqrt(norm);
+            if (norm <= 0) return null;
+            for (int k = 0; k < KIT_BANDS; k++) out[k] /= norm;
+            out[KIT_BANDS] = level;
+            return out;
+        }
+
+        static double like(double[] a, double[] b) {
+            double s = 0;
+            for (int k = 0; k < KIT_BANDS; k++) s += a[k] * b[k];
+            return s;
+        }
+
+        /** --learn-kit: the kick's and toms' spectra from the test beat's render, its notes' times in `times`. */
+        static void learn(File render, File times, File out) throws Exception {
+            Audio audio = readAudio(render);
+            List<Integer> order = new ArrayList<Integer>();
+            java.util.Map<Integer, double[]> sum = new java.util.HashMap<Integer, double[]>();
+            java.util.Map<Integer, Integer> count = new java.util.HashMap<Integer, Integer>();
+            for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
+                String[] w = line.trim().split("\\s+");
+                if (w.length < 2 || w[0].startsWith("#")) continue;
+                int note = Integer.parseInt(w[1]);
+                if (note != KICK_NOTE && !isTomNote(note)) continue;
+                double[] v = spectrum(audio.samples, audio.sampleRate, Double.parseDouble(w[0]));
+                if (v == null) continue;
+                Integer key = Integer.valueOf(note);
+                if (!sum.containsKey(key)) {
+                    sum.put(key, new double[KIT_BANDS + 1]);
+                    count.put(key, Integer.valueOf(0));
+                    order.add(key);
+                }
+                double[] s = sum.get(key);
+                for (int k = 0; k <= KIT_BANDS; k++) s[k] += v[k];
+                count.put(key, Integer.valueOf(count.get(key).intValue() + 1));
+            }
+            Integer kick = Integer.valueOf(KICK_NOTE);
+            if (!sum.containsKey(kick)) {
+                finish("Failed: the test beat has no kick to learn (36)");
+                return;
+            }
+            double kickLevel = sum.get(kick)[KIT_BANDS] / count.get(kick).intValue();
+            StringBuilder sb = new StringBuilder("# DrumMidi kit profile (--learn-kit " + render.getName() + "): note, then its " + KIT_BANDS
+                + " band spectrum " + num(KIT_LO) + "-" + num(KIT_HI) + " Hz\n");
+            List<String> kept = new ArrayList<String>(), left = new ArrayList<String>();
+            for (Integer n : order) {
+                double[] s = sum.get(n);
+                int c = count.get(n).intValue();
+                if (n.intValue() != KICK_NOTE && s[KIT_BANDS] / c < KIT_SILENT * kickLevel) {
+                    left.add(String.valueOf(n));
+                    continue;
+                }
+                double norm = 0;
+                for (int k = 0; k < KIT_BANDS; k++) norm += s[k] * s[k];
+                norm = Math.sqrt(norm);
+                sb.append(n);
+                for (int k = 0; k < KIT_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", s[k] / norm));
+                sb.append('\n');
+                kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
+            }
+            java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
+            finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left)));
+        }
+
+        static KitProfile read(File f) throws Exception {
+            KitProfile k = new KitProfile(f.getName());
+            for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
+                String[] w = line.trim().split("\\s+");
+                if (w.length < KIT_BANDS + 1 || w[0].startsWith("#")) continue;
+                double[] v = new double[KIT_BANDS + 1];
+                for (int i = 0; i < KIT_BANDS; i++) v[i] = Double.parseDouble(w[i + 1]);
+                k.notes.add(Integer.valueOf(w[0]));
+                k.spectra.add(v);
+            }
+            if (!k.notes.contains(Integer.valueOf(KICK_NOTE)) || k.notes.size() < 2) throw new IllegalArgumentException(f.getName() + " is not a kit profile with a kick and a tom");
+            return k;
+        }
+
+        /** Each kick or tom found becomes the profile's nearest one: the kick, or a tom (written as DrumMidi's floor, mid or rack tom). */
+        void sort(List<Hit> hits, double[] x, double sr) {
+            int moved = 0;
+            for (int i = 0; i < hits.size(); i++) {
+                Hit h = hits.get(i);
+                if (h.note != KICK_NOTE && h.note != FLOOR_TOM && h.note != MID_TOM && h.note != RACK_TOM) continue;
+                double[] v = spectrum(x, sr, h.time);
+                if (v == null) continue;
+                int best = -1;
+                double top = -2;
+                for (int j = 0; j < notes.size(); j++) {
+                    double l = like(v, spectra.get(j));
+                    if (l > top) {
+                        top = l;
+                        best = notes.get(j).intValue();
+                    }
+                }
+                int note = best == KICK_NOTE ? KICK_NOTE : best <= 43 ? FLOOR_TOM : best <= 47 ? MID_TOM : RACK_TOM;
+                if (note != h.note) {
+                    hits.set(i, new Hit(h.time, note, h.strength));
+                    moved++;
+                }
+            }
+            note("Kit " + name + ": " + moved + " kick" + (moved == 1 ? "" : "s") + " and toms told apart again");
+        }
+    }
+
+    static boolean isTomNote(int n) {
+        return n == 41 || n == 43 || n == 45 || n == 47 || n == 48 || n == 50;
     }
 
     /** The song's loud snares' body spectrum (120-450 Hz), to tell its ghost notes from toms. */

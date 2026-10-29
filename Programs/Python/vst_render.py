@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -49,7 +49,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   close the window, and its settings are saved (to --state, else
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
-  --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42) through the
+  --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42; then the kick
+                  and each tom alone) through the
                   plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
                   plugin play with these settings? Every run does that check first, and a plugin that
                   is silent for it is skipped (with --plugin2/--plugin3 the next one goes on): load
@@ -69,6 +70,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
   --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
                   (its --snare-leak): fewer false hats on the snare, some real ones lost.
+  --no-kit        with --test: no kit profile. Otherwise the test beat's kick and toms (each played
+                  alone, as --map says the plugin plays them) are learned by DrumMidi (--learn-kit)
+                  into vst-kit-<plugin>.kit (in --outdir, else here), and DrumMidi tells the kicks
+                  and toms it finds apart by them (--kit).
   --map notes     with --test: what the plugin really plays for the MIDI's notes, so the report
                   compares DrumMidi with that: 45=46,41=none,57=49 (a note to another, or none: the
                   plugin plays nothing there, or nothing the test should count). Or a text file of
@@ -958,9 +963,21 @@ def collect(folder, recursive):
 AUDIO_ENDS = (".wav", ".wave", ".mp3", ".flac", ".ogg")
 
 
+# The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
+# alone, KIT_HITS times, half a second apart.
+KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
+KIT_HITS = 3
+
+
+def kit_times():
+    """The kick and toms of the test beat, alone: (seconds, note), at its 120 BPM."""
+    return [(2.0 + 0.5 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
+
+
 def check_midi(folder):
     """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
-    beats, closed hats (42) on the eighths, on the drum channel; returns its path."""
+    beats, closed hats (42) on the eighths, on the drum channel; then the kick and each tom alone
+    (kit_times); returns its path."""
     events = []
     for k in range(8):
         tick = k * 240
@@ -968,6 +985,10 @@ def check_midi(folder):
         for n in notes:
             events.append((tick, 0x99, n, 100))
             events.append((tick + 120, 0x89, n, 0))
+    for t, n in kit_times():
+        tick = int(round(t * 960))
+        events.append((tick, 0x99, n, 100))
+        events.append((tick + 120, 0x89, n, 0))
     events.sort(key=lambda e: (e[0], e[1] == 0x99))
     data, last = bytearray(), 0
     for tick, status, note, vel in events:
@@ -983,6 +1004,30 @@ def check_midi(folder):
     with open(path, "wb") as f:
         f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480) + b"MTrk" + struct.pack(">I", len(data)) + bytes(data))
     return path
+
+
+def learn_kit(java, jar, audio, rate, bits, nmap, out):
+    """DrumMidi --learn-kit on the test beat's render: the kit's kick and toms as the plugin plays them
+    (--map: a note played as another drum, or not at all, is not learned), into `out`. Returns
+    DrumMidi's line, or why not."""
+    import subprocess
+    import tempfile
+    work = tempfile.mkdtemp(prefix="vst-kit-")
+    wav = os.path.join(work, "check.wav")
+    write_wav(wav, audio, rate, bits)
+    times = os.path.join(work, "check-times.txt")
+    with open(times, "w") as f:
+        for t, n in kit_times():
+            m = nmap.get(n, n)
+            if m is not None and (m == 36 or m in TOMS):
+                f.write("%.4f %d\n" % (t, m))
+    try:
+        r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", "--learn-kit", wav, times, os.path.abspath(out)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+    except Exception as e:
+        return "DrumMidi_CRT did not run (%s)" % e
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    return lines[-1] if lines else "DrumMidi_CRT said nothing"
 
 
 def silent_note(note, gizmo, carla):
@@ -1308,7 +1353,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1535,6 +1580,7 @@ def main(argv):
     late = chain.latency()
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
+    kit_file = None
     if not opts["--wav"]:
         # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
@@ -1548,6 +1594,18 @@ def main(argv):
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
         peak = float(np.max(np.abs(check_audio)))
         print("Plugin check: the test beat plays (peak %.1f dBFS)" % (20 * np.log10(max(peak, 1e-9))))
+        # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
+        if "--no-kit" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and (test or "--check" in switches):
+            where = opts["--outdir"] or "."
+            if not os.path.isdir(where):
+                os.makedirs(where)
+            kit_file = os.path.join(where, "vst-kit-%s.kit" % stem(name))
+            said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
+            if said.startswith("Wrote "):
+                print("Kit: " + said[6:])
+            else:
+                kit_file = None
+                print("Kit: not learned (%s); the test goes on without it" % said)
         if "--check" in switches:
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
@@ -1668,7 +1726,8 @@ def main(argv):
                 kept_dm.kept(os.path.basename(dm))
                 said = None
             else:
-                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else []), said)
+                found = drum_midi(opts["--java"], opts["--drummidi"], o, dm, (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else [])
+                                  + (["--kit", kit_file] if kit_file else []), said)
             if os.path.isfile(dm):
                 dms.append(dm)
             name = os.path.basename(o)
