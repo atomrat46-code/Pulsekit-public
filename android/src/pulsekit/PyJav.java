@@ -1157,6 +1157,12 @@ final class PyJav {
         final java.util.List<String> resume = pulsekit.JavaRun.resumeArgs(app.pyName, src, log, argv);
         if (resume != null && log != null && log.indexOf("Failed") >= 0) {
             if (saveRun) resume.add(pulsekit.PromptKeep.SAVE_RUN);
+            // The run ended while Pulsekit's screen was closed (the phone locked, another app): no dialog on it.
+            if (app.isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && app.isDestroyed())) {
+                app.setNow("Failed; its workflow " + pulsekit.JavaRun.workflowOf(resume) + " can be resumed from File > Downloads");
+                return;
+            }
+            try {
             pkAskResume = new android.app.AlertDialog.Builder(app).setTitle("Resume " + app.pyName + "?")
                 .setMessage(pulsekit.JavaRun.resumeQuestion(log, resume))
                 .setPositiveButton("Resume", (d, w) -> {
@@ -1168,6 +1174,11 @@ final class PyJav {
                     this.pkRunPyJav();
                 })
                 .setNegativeButton("No", null).show();
+            } catch (RuntimeException closed) {
+                // The window went away as it was shown (WindowManager.BadTokenException): said instead.
+                pulsekit.Logs.error("Resume question not shown", closed);
+                app.setNow("Failed; its workflow " + pulsekit.JavaRun.workflowOf(resume) + " can be resumed from File > Downloads");
+            }
         }
     }
 
