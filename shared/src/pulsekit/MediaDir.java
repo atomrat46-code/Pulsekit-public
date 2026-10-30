@@ -703,6 +703,61 @@ public final class MediaDir {
     }
   }
 
+  /**
+   * A picture's item when Sogni's picture tools are shown (General settings: Show Sogni tools, and not
+   * only the music tools and chat) and it needs no upscaling (UpscaleCheck): the picture into a recent
+   * Sogni program as its Reference file 1 or 2 (ProcessRefDialog), ready to Run.
+   */
+  public static final String PROCESS_REF = "Process as a Sogni reference";
+
+  /** Whether a picture offers PROCESS_REF: `head` its first bytes (its size is read from them). */
+  public static boolean processRef(File settings, String name, byte[] head) {
+    if (kind(name) != PICTURE || !AppSettings.showSogni() || AppSettings.musicOnly()) return false;
+    return UpscaleCheck.size(head) != null && UpscaleCheck.question(settings, name, head) == null;
+  }
+
+  /** The first bytes of a file (a picture's size is in them), or null. */
+  public static byte[] head(File f) {
+    if (f == null || !f.isFile()) return null;
+    try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+      byte[] b = new byte[(int) Math.min(f.length(), HEAD)];
+      int got = 0;
+      for (int n; got < b.length && (n = in.read(b, got, b.length - got)) > 0; ) got += n;
+      return b;
+    } catch (java.io.IOException ex) {
+      return null;
+    }
+  }
+
+  /** How much of a picture is read for its size (a JPEG's comes after its EXIF). */
+  public static final int HEAD = 256 * 1024;
+
+  /** A menu's items in alphabetical order (case and a leading mark such as \u2605 aside). */
+  public static String[] sorted(String[] items) {
+    String[] out = items.clone();
+    java.util.Arrays.sort(out, (a, b) -> sortKey(a).compareTo(sortKey(b)));
+    return out;
+  }
+
+  /** The order `sorted` puts a menu's items in, as their old places (for menus built with their actions beside them). */
+  public static int[] sortedOrder(List<? extends CharSequence> items) {
+    Integer[] at = new Integer[items.size()];
+    for (int i = 0; i < at.length; i++) at[i] = i;
+    java.util.Arrays.sort(at, (a, b) -> sortKey(String.valueOf(items.get(a))).compareTo(sortKey(String.valueOf(items.get(b)))));
+    int[] out = new int[at.length];
+    for (int i = 0; i < at.length; i++) out[i] = at[i];
+    return out;
+  }
+
+  static String sortKey(String item) {
+    return item.replaceAll("^[^\\p{L}\\p{N}]+", "").toLowerCase(java.util.Locale.ROOT);
+  }
+
+  /** An item's place in menu(listed, kind) (Add to DB…, the default playlist, Upscale), which those items are picked by; -1 for others. */
+  public static int baseIndex(boolean listed, int kind, String item) {
+    return java.util.Arrays.asList(menu(listed, kind)).indexOf(item);
+  }
+
   /** The ready screens' item (WAV, MP3 ready): the file into the prompt library, as a result or reference file. */
   public static final String ADD_TO_DB = "Add to DB\u2026";
   /** Its question: which of the library's files it is (a render is a result, most often). */

@@ -3477,7 +3477,7 @@ public class BehaviorTest {
     }
     out.append("Convert drum hits into MIDI: ").append(get("pyName")).append(", input ").append(new File(String.valueOf(((PyJav) get("pyJav")).pkPyInputPath)).getName()).append('\n');
     MediaDir.filter = filterWas;
-    if (ed == null || !edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !out.toString().contains("Open in MIDI editor | Render with SF2 | Play with default SoundFont")) throw new AssertionError(out.toString());
+    if (ed == null || !edited.isFile() || !"DrumMidi_CRT.jar".equals(get("pyName")) || !(out.toString().contains("Open in MIDI editor") && out.toString().contains("Render with SF2") && out.toString().contains("Play with default SoundFont"))) throw new AssertionError(out.toString());
     write("s138_media_midi_items", out.toString());
   }
 
@@ -4691,7 +4691,8 @@ public class BehaviorTest {
     dv.get().findViewWithTag("media-card:a.png").performLongClick();
     idle();
     out.append("long press: ").append(MediaBrowser.lastMenu != null ? listItems(MediaBrowser.lastMenu) : MediaBrowser.dragging != null ? "dragging" : "nothing").append('\n');
-    if (MediaBrowser.lastMenu == null || !listItems(MediaBrowser.lastMenu).contains("Tags\u2026 | Category\u2026")) throw new AssertionError(out.toString());
+    // (The menu is in alphabetical order: Category… and Tags… are not side by side.)
+    if (MediaBrowser.lastMenu == null || !listItems(MediaBrowser.lastMenu).contains("Tags\u2026") || !listItems(MediaBrowser.lastMenu).contains("Category\u2026")) throw new AssertionError(out.toString());
     MediaBrowser.lastMenu.dismiss();
     // Tags…: none yet; New tag… adds two, then they show ticked.
     b.tags(entry.apply("a.png"));
@@ -8774,8 +8775,9 @@ public class BehaviorTest {
     String videoMenu = listItems(PromptSheet.lastFileMenu);
     boolean cancel = PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE) != null && "Cancel".contentEquals(PromptSheet.lastFileMenu.getButton(DialogInterface.BUTTON_NEGATIVE).getText());
     out.append("video's menu: ").append(videoMenu).append(" | Cancel ").append(cancel).append('\n');
-    int add = java.util.Arrays.asList(videoMenu.split(" \\| ")).indexOf(Playlist.ADD);
-    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(add + 1);
+    // (In alphabetical order: Add to default playlist by its name.)
+    int add = java.util.Arrays.asList(videoMenu.split(" \\| ")).indexOf(Playlist.ADD_DEFAULT);
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFileMenu).clickOnItem(add);
     idle();
     out.append("Add to default playlist: ").append(((TextView) get("now")).getText()).append('\n');
     boolean galleryOk = videoMenu.contains(Playlist.ADD) && videoMenu.contains(Playlist.ADD_DEFAULT) && cancel && Playlist.load(dir, Playlist.DEFAULT).items.size() == 1;
@@ -10770,7 +10772,9 @@ public class BehaviorTest {
       {"deeper", "{\"status\":\"success\",\"data\":{\"result\":{\"run\":{\"id\":\"wf_c\"}}}}", "{\"data\":{\"workflows\":[]}}"},
       {"listed", "{\"status\":\"success\",\"data\":{\"accepted\":true}}",
           "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_old\",\"createdAt\":\"2026-01-01T00:00:00Z\"},{\"workflowId\":\"wf_new\",\"createdAt\":\"" + now + "\"}]}}"},
-      {"none", "{\"status\":\"success\",\"data\":{\"accepted\":true}}", "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_old\",\"createdAt\":\"2026-01-01T00:00:00Z\"}]}}"}};
+      {"none", "{\"status\":\"success\",\"data\":{\"accepted\":true}}", "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_old\",\"createdAt\":\"2026-01-01T00:00:00Z\"}]}}"},
+      {"a word", "{\"status\":\"success\",\"data\":{\"workflow\":{\"id\":\"require\",\"status\":\"waiting\"}}}",
+          "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_real\",\"createdAt\":\"" + now + "\"}]}}"}};
     StringBuilder out = new StringBuilder();
     String[] got = new String[cases.length];
     for (int i = 0; i < cases.length; i++) {
@@ -10787,8 +10791,84 @@ public class BehaviorTest {
     SogniApi.answer = null;
     write("s178_sogni_workflow_id", out.toString());
     boolean ok = "wf_a".equals(got[0]) && "wf_b".equals(got[1]) && "wf_c".equals(got[2]) && "wf_new".equals(got[3])
-        && got[4].equals("failed: Sogni did not return a workflow id (its reply: status, data{accepted})");
+        && got[4].equals("failed: Sogni did not return a workflow id (its reply: status, data{accepted})") && "wf_real".equals(got[5])
+        // Resume is not offered for a word in the id's place, nor after Sogni said it has no such workflow.
+        && JavaRun.resumeArgs("SogniMusic.java", "", "Workflow: require\nFailed: Sogni API error 404: Creative workflow not found", new java.util.ArrayList<String>()) == null
+        && JavaRun.resumeArgs("SogniMusic.java", "", "Workflow: wf_abc\nFailed: Sogni API error 404: Creative workflow not found", new java.util.ArrayList<String>()) == null
+        && JavaRun.resumeArgs("SogniMusic.java", "", "Workflow: wf_abc\nFailed: Timed out", new java.util.ArrayList<String>()) != null;
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** Media browser: a 4:7 picture's long-press menu has Process as a Sogni reference (a 4:3 one, to upscale first, has not), in alphabetical order; the item opens the reference dialog. */
+  @Test
+  public void s179_process_ref_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    File media = new File(app.getCacheDir(), "refpics");
+    media.mkdirs();
+    Files.write(new File(media, "tall.png").toPath(), plainPng(400, 700));
+    Files.write(new File(media, "wide.png").toPath(), plainPng(640, 480));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:tall.png").performLongClick();
+    idle();
+    java.util.List<String> tall = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    MediaBrowser.lastMenu.dismiss();
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    java.util.List<String> wide = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    MediaBrowser.lastMenu.dismiss();
+    java.util.List<String> sorted = new java.util.ArrayList<String>(tall);
+    sorted.sort((x, y) -> MediaDir.sortKey(x).compareTo(MediaDir.sortKey(y)));
+    bv.findViewWithTag("media-card:tall.png").performLongClick();
+    idle();
+    ProcessRefDialog.last = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(tall.indexOf(MediaDir.PROCESS_REF));
+    for (int i = 0; i < 100; i++) {
+      idle();
+      android.app.Dialog d = ShadowDialog.getLatestDialog();
+      if (ProcessRefDialog.last != null || (d instanceof AlertDialog && d != MediaBrowser.lastMenu && d != b.dialog)) break;
+      Thread.sleep(20);
+    }
+    android.app.Dialog shown = ShadowDialog.getLatestDialog();
+    String said = shown instanceof AlertDialog && org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage() != null ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage()) : "";
+    boolean opened = ProcessRefDialog.last != null || said.startsWith("No program that takes pictures");
+    if (shown != null) shown.dismiss();
+    b.dialog.dismiss();
+    out.append("4:7 menu: ").append(String.join(" | ", tall)).append("\n4:3 has it: ").append(wide.contains(MediaDir.PROCESS_REF)).append(" | sorted: ").append(tall.equals(sorted))
+        .append(" | item opened the reference dialog: ").append(opened).append('\n');
+    write("s179_process_ref_menu", out.toString());
+    if (!tall.contains(MediaDir.PROCESS_REF) || wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened) throw new AssertionError(out.toString());
+  }
+
+  /** A black w×h PNG (8-bit RGB), written byte by byte (no AWT here). */
+  private static byte[] plainPng(int w, int h) throws Exception {
+    java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
+    byte[] row = new byte[1 + w * 3];
+    for (int y = 0; y < h; y++) raw.write(row);
+    java.io.ByteArrayOutputStream z = new java.io.ByteArrayOutputStream();
+    try (java.util.zip.DeflaterOutputStream d = new java.util.zip.DeflaterOutputStream(z)) {
+      d.write(raw.toByteArray());
+    }
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    png.write(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+    java.nio.ByteBuffer ihdr = java.nio.ByteBuffer.allocate(13).putInt(w).putInt(h).put((byte) 8).put((byte) 2).put((byte) 0).put((byte) 0).put((byte) 0);
+    pngChunk(png, "IHDR", ihdr.array());
+    pngChunk(png, "IDAT", z.toByteArray());
+    pngChunk(png, "IEND", new byte[0]);
+    return png.toByteArray();
+  }
+
+  private static void pngChunk(java.io.ByteArrayOutputStream out, String type, byte[] data) throws Exception {
+    out.write(java.nio.ByteBuffer.allocate(4).putInt(data.length).array());
+    byte[] t = type.getBytes(StandardCharsets.US_ASCII);
+    out.write(t);
+    out.write(data);
+    java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+    crc.update(t);
+    crc.update(data);
+    out.write(java.nio.ByteBuffer.allocate(4).putInt((int) crc.getValue()).array());
   }
 
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */

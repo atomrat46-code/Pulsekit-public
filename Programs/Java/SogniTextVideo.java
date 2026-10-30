@@ -868,15 +868,25 @@ public final class SogniTextVideo {
       Map<String, Object> wf = workflowOf(reply);
       String id = str(wf.get("workflowId"));
       if (id == null) id = str(wf.get("id"));
+      // Only a real id (a word such as "require" in its place is not one: Resume could never find it).
+      String odd = id != null && !validId(id) ? id : null;
+      if (odd != null) id = null;
       // Elsewhere in the reply (another shape of it), else the workflow Sogni lists as just started.
       if (id == null) id = workflowIdIn(reply, 0);
       if (id == null) {
-        System.out.println("Note: Sogni's reply had no workflow id where it used to be (" + shapeOf(reply, 0) + "); looking for the workflow just started");
+        System.out.println("Note: Sogni's reply had no workflow id where it used to be (" + (odd != null ? "\"" + odd + "\" in its place; " : "") + shapeOf(reply, 0) + "); looking for the workflow just started");
         id = this.newestWorkflow(started);
         if (id != null) System.out.println("Workflow " + id + " (the newest one on Sogni)");
       }
       if (id == null) throw new IOException("Sogni did not return a workflow id (its reply: " + shapeOf(reply, 0) + ")");
       return id;
+    }
+
+    /** Whether a text can be a workflow id: "wf_…", or 12 or more letters, digits, - and _ with a digit among them (not a word such as "require"). */
+    static boolean validId(String id) {
+      if (id == null) return false;
+      if (id.startsWith("wf_") && id.length() > 3) return true;
+      return id.length() >= 12 && id.matches("[A-Za-z0-9_-]+") && id.matches(".*[0-9].*");
     }
 
     /** A workflow id anywhere in a reply: workflowId, workflow_id, or an id starting "wf_" (the shallowest first). */
@@ -886,7 +896,7 @@ public final class SogniTextVideo {
       if (o instanceof Map) {
         Map<String, Object> m = (Map<String, Object>) o;
         String[] keys = {"workflowId", "workflow_id", "workflowID"};
-        for (String k : keys) if (m.get(k) instanceof String && ((String) m.get(k)).length() > 0) return (String) m.get(k);
+        for (String k : keys) if (m.get(k) instanceof String && validId((String) m.get(k))) return (String) m.get(k);
         if (m.get("id") instanceof String && ((String) m.get("id")).startsWith("wf_")) return (String) m.get("id");
         for (Object v : m.values()) {
           String found = workflowIdIn(v, depth + 1);

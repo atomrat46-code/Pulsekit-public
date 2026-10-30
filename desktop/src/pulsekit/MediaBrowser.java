@@ -979,15 +979,29 @@ final class MediaBrowser {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
-        final String[] items = MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true);
+        final boolean inList = this.listed.contains(f.getAbsolutePath());
+        String[] built = MediaDir.menu(inList, entry.kind, this.chooser == null, entry.name, true);
+        // A picture that needs no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+        if (entry.kind == MediaDir.PICTURE && MediaDir.processRef(PromptDb.dir(), entry.name, MediaDir.head(f))) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.PROCESS_REF;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(entry));
-        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
+        for (int i = 0; i < built.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(built[i])) built[i] = FileFavourites.REMOVE_SHORT;
+        // In alphabetical order; the first items are picked by their old place (slot).
+        final String[] items = MediaDir.sorted(built);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
+            final int slot = MediaDir.baseIndex(inList, entry.kind, items[i]);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
-            item.setName("media-menu:" + i);
+            item.setName("media-menu:" + (slot >= 0 ? String.valueOf(slot) : items[i]));
+            if (MediaDir.PROCESS_REF.equals(items[i])) {
+                item.addActionListener(e -> ProcessRefDialog.open(app, f));
+                menu.add(item);
+                continue;
+            }
             if (FileFavourites.ADD_SHORT.equals(items[i]) || FileFavourites.REMOVE_SHORT.equals(items[i])) {
                 item.setName("media-menu:favourite");
                 item.addActionListener(e -> {
@@ -1032,7 +1046,7 @@ final class MediaBrowser {
             }
             item.addActionListener(e -> {
                 // A picture smaller than the last upscaled one, or not 4:7: asked first whether to upscale it.
-                if ((which == 0 || which == 1) && entry.kind == MediaDir.PICTURE && !MediaDir.tooBig(f.length())) {
+                if ((slot == 0 || slot == 1) && entry.kind == MediaDir.PICTURE && !MediaDir.tooBig(f.length())) {
                     String q;
                     try {
                         q = UpscaleCheck.question(PromptDb.dir(), entry.name, Files.readAllBytes(f.toPath()));
@@ -1041,7 +1055,7 @@ final class MediaBrowser {
                     }
                     if (q != null) {
                         Object[] options = {"Upscale first", "Add as it is", "Cancel"};
-                        int ans = javax.swing.JOptionPane.showOptionDialog(card, q, which == 1 ? "Add to DB result files" : "Add to DB Reference files",
+                        int ans = javax.swing.JOptionPane.showOptionDialog(card, q, slot == 1 ? "Add to DB result files" : "Add to DB Reference files",
                             javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
                         if (ans == 0) {
                             app.setNow(this.menuPicked(entry, f, MediaDir.UPSCALE_ITEM));
@@ -1050,12 +1064,12 @@ final class MediaBrowser {
                         if (ans != 1) return;
                     }
                 }
-                String said = this.menuPicked(entry, f, which);
+                String said = this.menuPicked(entry, f, slot);
                 app.setNow(said);
                 // In the DB: then which group it goes in (No group: none).
-                if ((which == 0 || which == 1) && said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, entry.name, f.length());
+                if ((slot == 0 || slot == 1) && said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, entry.name, f.length());
                 // Added to (or taken out of) the playlist: its card's ☰ badge follows at once.
-                if (which == 2 && card instanceof JButton) {
+                if (slot == 2 && card instanceof JButton) {
                     JButton b = (JButton) card;
                     b.setText(this.caption(entry, b.getIcon() != null ? null : mark(entry)));
                 }
@@ -1064,10 +1078,11 @@ final class MediaBrowser {
         }
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
         if (entry.kind == MediaDir.PICTURE || entry.kind == MediaDir.VIDEO || entry.kind == MediaDir.SOUND) {
-            // Right under Add to (or Remove from) default playlist.
-            int under = java.util.Arrays.asList(MediaDir.menu(this.listed.contains(f.getAbsolutePath()), entry.kind, this.chooser == null, entry.name, true)).indexOf(this.listed.contains(f.getAbsolutePath()) ? MediaDir.MENU_LISTED[2] : MediaDir.MENU[2]);
+            // In its alphabetical place among the items.
             javax.swing.JMenu add = PlaylistWindow.addMenu(app, f.getAbsolutePath(), entry.name);
-            if (under >= 0 && under + 1 <= menu.getComponentCount()) menu.insert(add, under + 1);
+            int at = 0;
+            while (at < items.length && MediaDir.sortKey(items[at]).compareTo(MediaDir.sortKey(add.getText())) < 0) at++;
+            if (at <= menu.getComponentCount()) menu.insert(add, at);
             else menu.add(add);
         }
         this.lastMenu = menu;

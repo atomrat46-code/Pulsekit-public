@@ -61,6 +61,48 @@ public final class UpscaleCheck {
     return name + " is " + wh[0] + "×" + wh[1] + ": " + why + ".\n\nUpscale it first (ImageUpscaler), or add it as it is?";
   }
 
+  /** The shapes ImageUpscaler's --aspect is offered, upright and lying. */
+  static final int[][] SHAPES = {{4, 7}, {7, 4}, {1, 1}, {4, 3}, {3, 4}, {3, 2}, {2, 3}, {16, 9}, {9, 16}, {4, 5}, {5, 4}, {21, 9}};
+  /** Up to this much cut off, Pulsekit's own 4:7 (or 7:4) is suggested before the shape that cuts least. */
+  static final double OWN_SHAPE_CUT = 0.15;
+
+  /** How much of a w×h picture cropping to a:b cuts off (0 to 1). */
+  public static double cut(int w, int h, int a, int b) {
+    double r = w / (double) h, t = a / (double) b;
+    return 1 - Math.min(r, t) / Math.max(r, t);
+  }
+
+  /**
+   * ImageUpscaler's --aspect for a w×h picture: {value, why}. Pulsekit's 4:7 (7:4 for a lying
+   * picture) when cropping to it cuts at most 15%; else the shape that cuts least (its own when it
+   * is one of them). Null for an unknown size.
+   */
+  public static String[] suggestAspect(int w, int h) {
+    if (w <= 0 || h <= 0) return null;
+    int[] own = w > h ? new int[] {7, 4} : new int[] {4, 7};
+    double ownCut = cut(w, h, own[0], own[1]);
+    int[] best = own;
+    double bestCut = ownCut;
+    if (ownCut > OWN_SHAPE_CUT) {
+      for (int[] s : SHAPES) {
+        double c = cut(w, h, s[0], s[1]);
+        if (c < bestCut - 1e-9) {
+          best = s;
+          bestCut = c;
+        }
+      }
+    }
+    String value = best[0] + ":" + best[1];
+    String why = "the picture is " + w + "\u00d7" + h + " (" + MediaSize.aspect(w, h) + ")";
+    if (best == own) why += bestCut < 0.005 ? ", already Pulsekit's " + value : "; " + value + " (Pulsekit's shape for Sogni) cuts " + percent(bestCut);
+    else why += "; " + value + " cuts least (" + percent(bestCut) + "), Pulsekit's " + own[0] + ":" + own[1] + " would cut " + percent(ownCut);
+    return new String[] {value, why};
+  }
+
+  private static String percent(double f) {
+    return Math.round(f * 100) + "%";
+  }
+
   /** A PNG's, JPEG's or WebP's {width, height} from its header; null for anything else. */
   public static int[] size(byte[] d) {
     if (d == null || d.length < 30) return null;
