@@ -280,7 +280,7 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
-    if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+    if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni, testing);
     String input = musicInput(prompt, duration, bpm, keyscale, timesig, model, lyrics);
     if (workflowId != null) say("Fetching the result of workflow " + workflowId);
     else say("Music: " + prompt);
@@ -345,11 +345,27 @@ public final class SogniMusic {
    */
   static String musicInput(String prompt, double duration, double bpm, String keyscale, int timesig, String model, String lyrics) {
     if (!"music3".equals(model)) return SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
-    StringBuilder p = new StringBuilder(prompt);
-    if (bpm > 0) p.append(" Tempo: ").append(SogniApi.number(bpm)).append(" BPM.");
-    if (keyscale != null) p.append(" Key: ").append(keyscale).append('.');
-    if (timesig > 0) p.append(" Time signature: ").append(timesig == 6 ? "6/8" : timesig + "/4").append('.');
-    return SogniApi.musicInput("Pulsekit music", p.toString(), Math.min(duration, 300), 0, null, 0, model, lyrics);
+    // Tempo, key and meter lead the prompt, where Music 3 heeds them most ("120 BPM, C major, 4/4. Solo drum kit...").
+    List<String> lead = new ArrayList<String>();
+    if (bpm > 0) lead.add(SogniApi.number(bpm) + " BPM");
+    if (keyscale != null) lead.add(keyscale);
+    if (timesig > 0) lead.add(timesig == 6 ? "6/8" : timesig + "/4");
+    String p = lead.isEmpty() ? prompt : String.join(", ", lead) + ". " + prompt;
+    // Its length is a ceiling: an instrumental without sections ends early (25 s of 120), so it gets a section skeleton.
+    String sections = lyrics != null && lyrics.trim().length() > 0 ? lyrics : music3Sections(duration);
+    return SogniApi.musicInput("Pulsekit music", p, Math.min(duration, 300), 0, null, 0, model, sections);
+  }
+
+  /** Music 3's section tags for an instrumental of about `duration` seconds, one per line: enough of them to fill it. */
+  static String music3Sections(double duration) {
+    List<String> s = new ArrayList<String>();
+    s.add("[Intro]");
+    // About 20 s a section.
+    int middle = Math.max(3, (int) Math.round(Math.min(duration, 300) / 20.0) - 2);
+    String[] cycle = {"[Verse]", "[Chorus]", "[Verse]", "[Chorus]", "[Bridge]", "[Chorus]"};
+    for (int i = 0; i < middle; i++) s.add(cycle[i % cycle.length]);
+    s.add("[Outro]");
+    return String.join("\n", s);
   }
 
   /**
@@ -358,9 +374,10 @@ public final class SogniMusic {
    * ranks them ("Compared: <model> <file>" lines name them).
    */
   static int compare(SogniApi api, List<String> models, String out, String genre, String prompt, double duration, double bpm, String keyscale,
-      int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
+      int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni, boolean testing) throws Exception {
     say("Music: " + prompt);
     say("Comparing " + models.size() + " models (each is a run of its own, paid for): " + String.join(", ", models));
+    if (testing) say("Note: --test checks one track; with --compare_models each track is measured and ranked instead (--compare_to_file_sets makes their drum MIDI)");
     if (models.contains("music3") && duration > 300) say("Note: music3 makes at most 300 s, so its track is shorter");
     if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
     List<String> ids = new ArrayList<String>();

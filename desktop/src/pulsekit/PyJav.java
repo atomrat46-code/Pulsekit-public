@@ -1245,7 +1245,8 @@ final class PyJav {
     boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
         Midi2WavTest t = Midi2WavTest.current();
         if (Midi2WavTest.musicSteps(name, argv, true)) {
-            if (!verdict.startsWith("Succeeded")) return false;
+            // A comparison is measured and ranked instead (MusicCompare): the one-track test does not apply.
+            if (!verdict.startsWith("Succeeded") || MusicCompare.wanted(name, argv)) return false;
             t = Midi2WavTest.startMusic(argv, wav != null && wav.getName().toLowerCase().endsWith(".wav") ? wav : null, this.loadParams("DrumMidi_CRT.jar"));
             if (t == null) {
                 this.testNote("Test stopped: no WAV was made of the track");
