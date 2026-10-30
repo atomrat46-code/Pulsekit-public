@@ -10990,6 +10990,17 @@ public class BehaviorTest {
     idle();
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     View dv = d.getWindow().getDecorView();
+    // Every row's label, as the phone shows them (the random-style rows among them).
+    StringBuilder rows = new StringBuilder();
+    java.util.List<View> stack = new java.util.ArrayList<View>();
+    stack.add(dv);
+    while (!stack.isEmpty()) {
+      View v = stack.remove(0);
+      if (v instanceof TextView && !(v instanceof android.widget.EditText) && String.valueOf(((TextView) v).getText()).contains("--")) rows.append(((TextView) v).getText()).append(" / ");
+      if (v instanceof android.view.ViewGroup) for (int k = 0; k < ((android.view.ViewGroup) v).getChildCount(); k++) stack.add(((android.view.ViewGroup) v).getChildAt(k));
+    }
+    out.append("rows: ").append(rows).append('\n');
+    boolean shown = rows.toString().contains("--random") && rows.toString().contains("--styles") && rows.toString().contains("--seed");
     android.widget.Button browse = (android.widget.Button) dv.findViewWithTag("params-dir:--batchdir");
     android.widget.Button clear = (android.widget.Button) dv.findViewWithTag("params-clear:--batchdir");
     int gapBrowse = browse == null ? -1 : ((android.widget.LinearLayout.LayoutParams) browse.getLayoutParams()).leftMargin;
@@ -11015,7 +11026,7 @@ public class BehaviorTest {
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
-        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed;
+        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
     if (!ok) throw new AssertionError(out.toString());
   }
 
