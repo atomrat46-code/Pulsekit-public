@@ -9,7 +9,8 @@ import java.util.Set;
 /**
  * SogniMusic --zip: everything a run made, gathered as it goes (the tracks, their WAVs, DrumMidi's
  * MIDI and results.txt, the models' ranking, each run's log), then written into one zip in
- * Download when the last step is over, to send in one go.
+ * Download when the last step is over, to send in one go; split into parts of at most 25 MB
+ * when it is bigger (sending often stops at 30 MB).
  */
 public final class RunZip {
   public static final String FLAG = "--zip";
@@ -74,6 +75,36 @@ public final class RunZip {
 
   public synchronized List<ZipPack.Source> sources() {
     return new ArrayList<ZipPack.Source>(this.sources);
+  }
+
+  /** The most a part holds (sending often stops at 30 MB): a bigger run is split into parts of its own. */
+  public static final long PART = 25L * 1024 * 1024;
+
+  /**
+   * The files split into zips of at most `limit` bytes each (their sizes before zipping: WAVs and
+   * MP3s barely shrink), in their order; a file bigger than that alone goes in a part of its own.
+   */
+  public synchronized List<List<ZipPack.Source>> parts(long limit) {
+    List<List<ZipPack.Source>> out = new ArrayList<List<ZipPack.Source>>();
+    List<ZipPack.Source> part = new ArrayList<ZipPack.Source>();
+    long used = 0;
+    for (ZipPack.Source s : this.sources) {
+      long size = s.data != null ? s.data.length : s.file != null ? s.file.length() : 0;
+      if (!part.isEmpty() && used + size > limit) {
+        out.add(part);
+        part = new ArrayList<ZipPack.Source>();
+        used = 0;
+      }
+      part.add(s);
+      used += size;
+    }
+    if (!part.isEmpty()) out.add(part);
+    return out;
+  }
+
+  /** A part's file name: the run's name alone when it is one zip, else "<name>-part1of2.zip". */
+  public String partName(int i, int of) {
+    return of <= 1 ? this.name : this.name.replaceAll("\\.zip$", "") + "-part" + (i + 1) + "of" + of + ".zip";
   }
 
   public synchronized int size() {

@@ -790,19 +790,27 @@ final class PyJav {
         if (z == null) return;
         this.pkAddLogLine("Zipping " + z.size() + " files into " + z.name + "…");
         new Thread(() -> {
-            String text;
+            StringBuilder text = new StringBuilder();
             java.io.File tmp = new java.io.File(app.getCacheDir(), "run-zip.zip");
             try {
-                pulsekit.ZipPack.write(tmp, z.sources(), null);
-                String where = ArtJava.publish(app, z.name, java.nio.file.Files.readAllBytes(tmp.toPath()));
-                text = where == null ? "Could not save " + z.name : "Zipped " + z.size() + " files: saved " + where;
+                // Parts of at most 25 MB each (sending often stops at 30 MB), each a zip of its own.
+                java.util.List<java.util.List<pulsekit.ZipPack.Source>> parts = z.parts(pulsekit.RunZip.PART);
+                for (int i = 0; i < parts.size(); i++) {
+                    pulsekit.ZipPack.write(tmp, parts.get(i), null);
+                    String name = z.partName(i, parts.size());
+                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()));
+                    text.append(text.length() == 0 ? "" : "\n").append(where == null ? "Could not save " + name
+                        : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
+                }
             } catch (Throwable ex) {
-                text = "Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
             } finally {
                 tmp.delete();
             }
-            final String shown = text;
-            app.runOnUiThread(() -> this.pkAddLogLine(shown));
+            final String shown = text.toString();
+            app.runOnUiThread(() -> {
+                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+            });
         }, "pulsekit-run-zip").start();
     }
 

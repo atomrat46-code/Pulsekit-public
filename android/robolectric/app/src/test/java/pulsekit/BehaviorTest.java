@@ -10956,8 +10956,24 @@ public class BehaviorTest {
     boolean chainOk = run.equals("SogniMusic run 8") && c.run.equals("SogniMusic run 3") && first.get(1).equals("SogniMusic run 3 turbo.mid") && first.contains("120")
         && second.get(1).equals("SogniMusic run 3 sft.mid") && end == null && stepNow && c.made.equals(java.util.Arrays.asList("SogniMusic run 3 turbo", "SogniMusic run 3 sft"))
         && MusicCompare.chain() == null && Engine.importSource("SogniMusic run 3 music3.mid").equals("SogniMusic run 3 music3");
+    // --zip: split into parts of at most 25 MB (sending often stops at 30 MB), each a zip of its own.
+    RunZip z = RunZip.start(log);
+    z.add("a.wav", new byte[12 * 1024 * 1024]);
+    z.add("b.wav", new byte[12 * 1024 * 1024]);
+    z.add("c.wav", new byte[12 * 1024 * 1024]);
+    z.addLog("SogniMusic.java", "", "Succeeded");
+    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+    StringBuilder sizes = new StringBuilder();
+    for (int i = 0; i < parts.size(); i++) {
+      sizes.append(i == 0 ? "" : ", ").append(z.partName(i, parts.size())).append(": ");
+      for (ZipPack.Source src : parts.get(i)) sizes.append(src.path).append(' ');
+    }
+    RunZip.finish();
+    out.append("zip parts: ").append(sizes).append('\n');
+    boolean split = parts.size() == 2 && parts.get(0).size() == 2 && parts.get(1).size() == 2 && z.partName(1, 2).equals("sogni-Rock-1-part2of2.zip")
+        && z.partName(0, 1).equals("sogni-Rock-1.zip");
     write("s181_sogni_music_compare_models", out.toString());
-    if (!ranked || compare == null || !chainOk) throw new AssertionError(out.toString());
+    if (!ranked || compare == null || !chainOk || !split) throw new AssertionError(out.toString());
   }
 
   /** A PNG with one more chunk before its IEND. */

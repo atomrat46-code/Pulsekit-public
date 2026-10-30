@@ -1433,21 +1433,29 @@ final class PyJav {
         if (z == null) return;
         this.testNote("Zipping " + z.size() + " files into " + z.name + "…");
         new Thread(() -> {
-            String text;
+            StringBuilder text = new StringBuilder();
             try {
                 File tmp = File.createTempFile("run-zip", ".zip");
                 try {
-                    ZipPack.write(tmp, z.sources(), null);
-                    File saved = this.saveProgramFile(z.name, Files.readAllBytes(tmp.toPath()));
-                    text = saved == null ? "Could not save " + z.name : "Zipped " + z.size() + " files: saved " + saved.getPath();
+                    // Parts of at most 25 MB each (sending often stops at 30 MB), each a zip of its own.
+                    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+                    for (int i = 0; i < parts.size(); i++) {
+                        ZipPack.write(tmp, parts.get(i), null);
+                        String name = z.partName(i, parts.size());
+                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()));
+                        text.append(text.length() == 0 ? "" : "\n").append(saved == null ? "Could not save " + name
+                            : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + saved.getPath());
+                    }
                 } finally {
                     tmp.delete();
                 }
             } catch (Throwable ex) {
-                text = "Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
             }
-            final String shown = text;
-            SwingUtilities.invokeLater(() -> this.testNote(shown));
+            final String shown = text.toString();
+            SwingUtilities.invokeLater(() -> {
+                for (String line : shown.split("\n")) this.testNote(line);
+            });
         }, "pulsekit-run-zip").start();
     }
 
