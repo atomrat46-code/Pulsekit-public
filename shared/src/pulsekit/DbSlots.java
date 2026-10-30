@@ -132,16 +132,26 @@ public final class DbSlots {
     MediaDir.deleteAll(work);
     File inside = new File(work, ZIP_FOLDER);
     try {
+      WorkProgress.at("Copying the DB out unencrypted", 0);
       PromptVault.exportPlain(dir, inside);
       PromptVault copy = PromptVault.openAt(inside);
       String name = active(dir);
       String info = "name=" + name + "\nmade=" + System.currentTimeMillis() + "\ncontents=" + copy.summary() + "\n";
       Files.write(new File(inside, INFO).toPath(), info.getBytes(StandardCharsets.UTF_8));
+      WorkProgress.at("Zipping with the password", bytesIn(inside));
       ZipPack.write(zip, ZipPack.folder(inside), password);
       return "Sent the DB " + name + " (" + copy.summary() + ", " + Playlist.sizeText(zip.length()) + ") to " + zip.getName() + ", with a password";
     } finally {
       MediaDir.deleteAll(work);
     }
+  }
+
+  /** The bytes of a folder's files, its folders' too. */
+  static long bytesIn(File folder) {
+    long total = 0;
+    File[] kids = folder.listFiles();
+    if (kids != null) for (File k : kids) total += k.isDirectory() ? bytesIn(k) : k.length();
+    return total;
   }
 
   /** A DB zip's name: "pulsekit-db-Main-20261020.zip". */
@@ -176,6 +186,9 @@ public final class DbSlots {
     Unpacked u = new Unpacked();
     u.folder = work;
     u.name = zipName == null ? "" : zipName.replaceAll("(?i)\\.zip$", "").replaceFirst("^pulsekit-db-", "").replaceAll("-\\d{8}-\\d{4}$", "");
+    long bytes = 0;
+    for (ZipPack.Entry e : ZipPack.files(entries)) if (PromptVault.isDbFile(e.fileName())) bytes += e.size;
+    if (bytes > 0) WorkProgress.at("Unpacking the DB", bytes);
     for (ZipPack.Entry e : ZipPack.files(entries)) {
       String n = e.fileName();
       if (!PromptVault.isDbFile(n) && !INFO.equals(n)) continue;
@@ -195,6 +208,7 @@ public final class DbSlots {
       for (ZipPack.Entry e : ZipPack.files(entries)) {
         if (!AppBackup.DB_ZIP.equals(e.fileName())) continue;
         File inner = new File(tmp, "backup-inner-" + AppBackup.DB_ZIP);
+        WorkProgress.at("Taking the prompt library out of the backup", e.size);
         try {
           ZipPack.extract(zip, e, password, inner);
           Unpacked in = unpack(inner, zipName, password, tmp);
@@ -238,6 +252,7 @@ public final class DbSlots {
 
   /** What it links to that is not there left out (saved); how many. */
   public static int prune(Unpacked u) throws Exception {
+    WorkProgress.at("Leaving out links to files that are not here", 0);
     return PromptVault.openAt(u.folder).prune();
   }
 
@@ -253,6 +268,7 @@ public final class DbSlots {
   /** The unpacked DB as a new secondary DB `name` (unique); its name. With `encrypt`, encrypted with this app's key. */
   public static String addSecondary(File dir, Unpacked u, String name, boolean encrypt) throws Exception {
     String n = uniqueName(dir, name);
+    WorkProgress.at(encrypt ? "Encrypting the DB into place" : "Moving the DB into place", 0);
     File home = new File(new File(dir, FOLDER), n);
     move(u.folder, home);
     if (encrypt) encryptAt(dir, n);
@@ -266,6 +282,7 @@ public final class DbSlots {
    * or "" when it was empty and left out.
    */
   public static String makeMain(File dir, Unpacked u, boolean encrypt) throws Exception {
+    WorkProgress.at(encrypt ? "Encrypting the DB into place as the main DB" : "Moving the DB into place as the main DB", 0);
     PromptVault.forget();
     String kept = "";
     boolean empty;

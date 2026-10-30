@@ -37,9 +37,9 @@ final class DbSettings {
     }
 
     /** What an import came to, in a dialog of its own, as on Android. */
-    static void told(Pulsekit app, String text) {
+    static void told(Pulsekit app, String title, String text) {
         said(app, text);
-        javax.swing.JOptionPane.showMessageDialog(app, text, DbSlots.IMPORT, javax.swing.JOptionPane.PLAIN_MESSAGE);
+        javax.swing.JOptionPane.showMessageDialog(app, text, title, javax.swing.JOptionPane.PLAIN_MESSAGE);
     }
 
     static void show(final Pulsekit app) {
@@ -193,12 +193,12 @@ final class DbSettings {
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File(DbSlots.zipName(dir)));
         if (chooser.showSaveDialog(parent) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
-        File zip = chooser.getSelectedFile();
-        if (!zip.getName().toLowerCase().endsWith(".zip")) zip = new File(zip.getParentFile(), zip.getName() + ".zip");
+        File picked = chooser.getSelectedFile();
+        final File zip = picked.getName().toLowerCase().endsWith(".zip") ? picked : new File(picked.getParentFile(), picked.getName() + ".zip");
         try {
-            said(app, DbSlots.export(dir, zip, pw, tmp()));
+            told(app, DbSlots.SEND, WorkProgressDialog.run(parent, DbSlots.SEND, 2, () -> DbSlots.export(dir, zip, pw, tmp())));
         } catch (Exception ex) {
-            said(app, "Could not send the DB to a zip: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            told(app, DbSlots.SEND, "Could not send the DB to a zip: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
         }
     }
 
@@ -235,7 +235,8 @@ final class DbSettings {
                     if (answer != null) return;
                 }
             }
-            DbSlots.Unpacked u = DbSlots.unpack(zip, name, pw, tmp());
+            final char[] password = pw;
+            DbSlots.Unpacked u = WorkProgressDialog.run(parent, DbSlots.IMPORT + ": " + name, 1, () -> DbSlots.unpack(zip, name, password, tmp()));
             while (u.needsKey) {
                 String typed;
                 File keyFile = null;
@@ -286,17 +287,19 @@ final class DbSettings {
                 }
                 main = ans == 1;
             }
-            boolean encrypt = PromptVault.encrypted(dir);
-            int gone = DbSlots.prune(u);
-            String links = gone > 0 ? "; " + gone + (gone == 1 ? " link" : " links") + " to files that are not here left out" : "";
-            if (main) {
-                String kept = DbSlots.makeMain(dir, u, encrypt);
-                told(app, "The imported DB is the main DB now" + (kept.length() > 0 ? " (the one before is kept as " + kept + ")" : "") + links);
-            } else {
-                told(app, "Imported the DB as " + DbSlots.addSecondary(dir, u, u.name, encrypt) + " (Use picks it)" + links);
-            }
+            final boolean encrypt = PromptVault.encrypted(dir), asMain = main;
+            final DbSlots.Unpacked placed = u;
+            told(app, DbSlots.IMPORT, WorkProgressDialog.run(parent, DbSlots.IMPORT + ": " + name, 2, () -> {
+                int gone = DbSlots.prune(placed);
+                String links = gone > 0 ? "; " + gone + (gone == 1 ? " link" : " links") + " to files that are not here left out" : "";
+                if (asMain) {
+                    String kept = DbSlots.makeMain(dir, placed, encrypt);
+                    return "The imported DB is the main DB now" + (kept.length() > 0 ? " (the one before is kept as " + kept + ")" : "") + links;
+                }
+                return "Imported the DB as " + DbSlots.addSecondary(dir, placed, placed.name, encrypt) + " (Use picks it)" + links;
+            }));
         } catch (Exception ex) {
-            told(app, "Could not import " + name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            told(app, DbSlots.IMPORT, "Could not import " + name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
         } finally {
             zip.delete();
         }

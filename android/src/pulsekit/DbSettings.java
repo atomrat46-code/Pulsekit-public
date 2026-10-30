@@ -36,10 +36,29 @@ final class DbSettings {
         android.widget.Toast.makeText(app, text, android.widget.Toast.LENGTH_LONG).show();
     }
 
-    /** What an import came to, in a dialog of its own (a toast is easily missed behind the DB settings). */
-    static void told(MainActivity app, String text) {
+    /** What an import or export came to, in a dialog of its own (a toast is easily missed); the DB settings back first. */
+    static void told(MainActivity app, String title, String text) {
+        back(app);
         said(app, text);
-        lastAsk = new AlertDialog.Builder(app).setTitle(DbSlots.IMPORT).setMessage(text).setPositiveButton("OK", null).show();
+        lastAsk = new AlertDialog.Builder(app).setTitle(title).setMessage(text).setPositiveButton("OK", null).show();
+    }
+
+    /** The DB settings hidden while an import asks its questions (so none of them is under it). */
+    static boolean hidden;
+
+    static void hide() {
+        if (last != null && last.isShowing()) {
+            last.hide();
+            hidden = true;
+        }
+    }
+
+    /** The DB settings shown again after an import, as they are now. */
+    static void back(MainActivity app) {
+        if (!hidden || last == null) return;
+        hidden = false;
+        last.show();
+        again(app);
     }
 
     static void show(final MainActivity app) {
@@ -179,7 +198,7 @@ final class DbSettings {
         col.addView(fromFile, lp);
         lastAsk = new AlertDialog.Builder(app).setTitle(title).setView(col)
             .setPositiveButton("OK", null)
-            .setNegativeButton("Cancel", null).show();
+            .setNegativeButton("Cancel", (d, w) -> back(app)).show();
         lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String typed = pw.getText().toString();
             if (typed.length() < min) {
@@ -251,15 +270,19 @@ final class DbSettings {
         if (pw == null) return;
         app.setNow("Sending the DB to a zip…");
         PyJav.KEEPING.incrementAndGet();
+        final WorkProgressDialog shown = WorkProgressDialog.show(app, DbSlots.SEND, 3);
         new Thread(() -> {
+            WorkProgress.NOW.set(shown.progress);
             String text;
             File zip = new File(app.getCacheDir(), "db-send.zip");
             try {
                 text = DbSlots.export(app.getFilesDir(), zip, pw, app.getCacheDir());
+                WorkProgress.at("Saving the zip", zip.length());
                 java.io.OutputStream os = app.getContentResolver().openOutputStream(to);
                 if (os == null) throw new java.io.IOException("could not write the zip there");
-                try {
-                    java.nio.file.Files.copy(zip.toPath(), os);
+                try (java.io.InputStream in = WorkProgress.counted(new java.io.FileInputStream(zip))) {
+                    byte[] buf = new byte[65536];
+                    for (int n; (n = in.read(buf)) > 0; ) os.write(buf, 0, n);
                 } finally {
                     os.close();
                 }
@@ -269,11 +292,13 @@ final class DbSettings {
                 text = "Could not send the DB to a zip: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
             } finally {
                 zip.delete();
+                WorkProgress.NOW.remove();
             }
-            final String shown = text;
+            final String result = text;
             app.handler.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
-                said(app, shown);
+                shown.close();
+                told(app, DbSlots.SEND, result);
             });
         }, "pulsekit-db-export").start();
     }
@@ -290,12 +315,13 @@ final class DbSettings {
 
     /** The zip copied into Pulsekit's temp folder; its password asked when it has one. */
     static void importZip(final MainActivity app, final Uri uri) {
+        hide();
         try {
             importName = DbImport.displayName(app, uri);
             importZip = copyIn(app, uri, "db-import.zip");
             opened(app, importZip, importName);
         } catch (Exception ex) {
-            said(app, "Could not read the zip: " + ex.getMessage());
+            told(app, DbSlots.IMPORT, "Could not read the zip: " + ex.getMessage());
         }
     }
 
@@ -307,7 +333,7 @@ final class DbSettings {
         try {
             entries = ZipPack.list(zip);
         } catch (Exception ex) {
-            said(app, "Could not read " + name + ": " + ex.getMessage());
+            told(app, DbSlots.IMPORT, "Could not read " + name + ": " + ex.getMessage());
             return;
         }
         if (!ZipPack.encrypted(entries)) {
@@ -327,17 +353,22 @@ final class DbSettings {
 
     static void unpack(final MainActivity app, final char[] pw) {
         app.setNow("Unpacking " + importName + "…");
+        final WorkProgressDialog shown = WorkProgressDialog.show(app, DbSlots.IMPORT + ": " + importName, 1);
         new Thread(() -> {
+            WorkProgress.NOW.set(shown.progress);
             String failed = null;
             try {
                 unpacked = DbSlots.unpack(importZip, importName, pw, app.getCacheDir());
             } catch (Throwable ex) {
                 failed = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            } finally {
+                WorkProgress.NOW.remove();
             }
             final String why = failed;
             app.handler.post(() -> {
+                shown.close();
                 if (why != null) {
-                    told(app, "Could not import " + importName + ": " + why);
+                    told(app, DbSlots.IMPORT, "Could not import " + importName + ": " + why);
                     return;
                 }
                 if (unpacked.needsKey) askKey(app);
@@ -364,7 +395,7 @@ final class DbSettings {
         col.addView(file);
         lastAsk = new AlertDialog.Builder(app).setTitle(importName).setView(col)
             .setPositiveButton("OK", (d, w) -> keyFrom(app, hex.getText().toString(), null))
-            .setNegativeButton("Cancel", (d, w) -> said(app, "Not imported: " + importName)).show();
+            .setNegativeButton("Cancel", (d, w) -> told(app, DbSlots.IMPORT, "Not imported: " + importName)).show();
     }
 
     static void keyFrom(MainActivity app, String typed, File keyFile) {
@@ -390,7 +421,7 @@ final class DbSettings {
         lastAsk = new AlertDialog.Builder(app).setTitle(DbSlots.AS_TITLE)
             .setSingleChoiceItems(DbSlots.AS, 0, (d, w) -> row[0] = w)
             .setPositiveButton("OK", (d, w) -> placeAs(app, row[0] == 1))
-            .setNegativeButton("Cancel", (d, w) -> said(app, "Not imported: " + importName)).show();
+            .setNegativeButton("Cancel", (d, w) -> told(app, DbSlots.IMPORT, "Not imported: " + importName)).show();
     }
 
     static void placeAs(final MainActivity app, final boolean main) {
@@ -398,7 +429,9 @@ final class DbSettings {
         final boolean encrypt = PromptVault.encrypted(dir);
         app.setNow("Importing the DB…");
         PyJav.KEEPING.incrementAndGet();
+        final WorkProgressDialog shown = WorkProgressDialog.show(app, DbSlots.IMPORT + ": " + importName, 2);
         new Thread(() -> {
+            WorkProgress.NOW.set(shown.progress);
             String text;
             try {
                 int gone = DbSlots.prune(unpacked);
@@ -414,13 +447,15 @@ final class DbSettings {
                 text = "Could not import the DB: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
             } finally {
                 if (importZip != null) importZip.delete();
+                WorkProgress.NOW.remove();
             }
-            final String shown = text;
+            final String result = text;
             app.handler.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
+                shown.close();
                 PromptSheet.reopen(app);
                 again(app);
-                told(app, shown);
+                told(app, DbSlots.IMPORT, result);
             });
         }, "pulsekit-db-import").start();
     }

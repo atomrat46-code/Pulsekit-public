@@ -11106,6 +11106,10 @@ public class BehaviorTest {
       idle();
     }
     String fromBackup = DbSettings.lastSaid;
+    // Its progress was shown while it ran: the last step, and that window closed.
+    String lastStep = WorkProgressDialog.last == null ? "" : WorkProgressDialog.last.progress.stepText();
+    boolean progressShown = lastStep.startsWith("Step 2 of 2: Encrypting the DB into place") && !WorkProgressDialog.last.dialog.isShowing();
+    out.append("progress: ").append(lastStep).append(" | closed when done: ").append(progressShown).append('\n');
     boolean toldInDialog = DbSettings.lastAsk.isShowing() && DbSlots.IMPORT.equals(String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle()))
         && String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getMessage()).equals(fromBackup);
     DbSettings.lastAsk.dismiss();
@@ -11121,7 +11125,7 @@ public class BehaviorTest {
     write("s183_backup_and_restore", out.toString());
     boolean ok = noSecrets && inside.containsAll(java.util.Arrays.asList(AppBackup.SETTINGS, AppBackup.SETS, AppBackup.PLAYLISTS, AppBackup.SOGNI, AppBackup.DB))
         && AppBackup.needsPassword(zip) && "refused".equals(wrong) && filesBack && after.equals(before)
-        && fromBackup != null && fromBackup.startsWith("Imported the DB as backup") && toldInDialog && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
+        && fromBackup != null && fromBackup.startsWith("Imported the DB as backup") && toldInDialog && progressShown && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
     if (!ok) throw new AssertionError(out.toString());
   }
 

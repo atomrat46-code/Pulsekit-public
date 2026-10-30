@@ -6568,7 +6568,14 @@ public final class DesktopBehavior {
     edt(() -> list.setSelectedItem(DbSlots.MAIN));
     edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
     out.append("Import: ").append(imported).append(" | DBs ").append(DbSlots.names(dir)).append(" | Use Pulse -> ").append(inUse).append('\n');
-    boolean importOk = imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
+    // Sending and importing showed their progress in a window while they ran.
+    String seen;
+    synchronized (dialogs) {
+      seen = this.out + String.join("\n", dialogs);
+    }
+    boolean progressShown = seen.contains("dialog \"" + DbSlots.SEND + "\"") && seen.contains("dialog \"" + DbSlots.IMPORT + ": pulsekit-db-Pulse");
+    out.append("progress windows shown: ").append(progressShown).append('\n');
+    boolean importOk = progressShown && imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
     // Another computer's DB: its key typed.
     PromptVault.Keys own = PromptVault.keys;
     final byte[] other = new byte[32];
