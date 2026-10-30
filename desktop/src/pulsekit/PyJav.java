@@ -1015,14 +1015,24 @@ final class PyJav {
                         this.testNote("Saved " + w.getPath());
                     }
                 }
+                // SogniMusic --zip: what the run made (and its WAV) gathered for one zip, written when its last step is over.
+                if (result.code == 0 && RunZip.wanted(name, argv)) {
+                    RunZip z = RunZip.start(result.log);
+                    this.zipAdd(z, name, "", result);
+                    if (musicWav != null) z.add(musicWav.getName(), musicWav);
+                    if (!MusicCompare.wanted(name, argv)) this.zipFinish();
+                }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
                 // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
                 if (MusicCompare.chainStep(name)) {
+                    MusicCompare.Chain chain = MusicCompare.chain();
+                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
                     else {
                         MusicCompare.stopChain();
                         this.testNote("File sets stopped: DrumMidi_CRT did not succeed");
+                        this.zipFinish();
                     }
                 }
                 // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
@@ -1383,22 +1393,62 @@ final class PyJav {
                 for (String[] t : MusicCompare.tracks(log)) {
                     File mp3 = files.get(t[1]);
                     File wav = mp3 == null ? null : this.asWav(mp3);
-                    if (wav != null && wav.getName().toLowerCase().endsWith(".wav")) wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+                    if (wav != null && wav.getName().toLowerCase().endsWith(".wav")) {
+                        wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+                        if (RunZip.current() != null) RunZip.current().add(wav.getName(), wav);
+                    }
                 }
             }
             SwingUtilities.invokeLater(() -> {
                 for (String line : shown.split("\n")) this.testNote(line);
                 if (kept != null) this.testNote("Saved " + kept.getPath());
-                if (!argv.contains(MusicCompare.TO_FILE_SETS)) return;
+                if (kept != null && RunZip.current() != null) RunZip.current().add(kept.getName(), kept);
+                if (!argv.contains(MusicCompare.TO_FILE_SETS)) {
+                    this.zipFinish();
+                    return;
+                }
                 MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"));
-                if (c == null) this.testNote("No WAVs for DrumMidi: no file sets made");
-                else {
+                if (c == null) {
+                    this.testNote("No WAVs for DrumMidi: no file sets made");
+                    this.zipFinish();
+                } else {
                     c.report = shown;
                     this.testNote("File sets: DrumMidi_CRT on each track, into " + c.run + " <model>");
                     this.chainNext();
                 }
             });
         }, "pulsekit-compare-models").start();
+    }
+
+    /** --zip: a run's files and its log into the zip being gathered (`about`: what the run made, for its log's name). */
+    void zipAdd(RunZip z, String program, String about, PythonRun.Result result) {
+        if (z == null || result == null) return;
+        for (PythonRun.FileOut f : result.files) z.add(f.name, f.bytes);
+        z.addLog(program, about, result.log);
+    }
+
+    /** --zip: the files gathered written into one zip in the program files folder (Downloads), off the screen's thread. */
+    void zipFinish() {
+        final RunZip z = RunZip.finish();
+        if (z == null) return;
+        this.testNote("Zipping " + z.size() + " files into " + z.name + "…");
+        new Thread(() -> {
+            String text;
+            try {
+                File tmp = File.createTempFile("run-zip", ".zip");
+                try {
+                    ZipPack.write(tmp, z.sources(), null);
+                    File saved = this.saveProgramFile(z.name, Files.readAllBytes(tmp.toPath()));
+                    text = saved == null ? "Could not save " + z.name : "Zipped " + z.size() + " files: saved " + saved.getPath();
+                } finally {
+                    tmp.delete();
+                }
+            } catch (Throwable ex) {
+                text = "Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            }
+            final String shown = text;
+            SwingUtilities.invokeLater(() -> this.testNote(shown));
+        }, "pulsekit-run-zip").start();
     }
 
     /** The comparison's next DrumMidi_CRT run (its MIDI named for the file set it makes), or the chain's end. */
@@ -1409,6 +1459,7 @@ final class PyJav {
         if (drumArgs == null) {
             this.testNote("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
             for (String line : c.report.split("\n")) if (line.length() > 0) this.testNote(line);
+            this.zipFinish();
             return;
         }
         this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setName(c.model()));

@@ -44,6 +44,9 @@ import java.util.Map;
  * --compare_to_file_sets each track also goes through DrumMidi_CRT into a file set of its own,
  * "SogniMusic run N <model>", so the models' drum MIDI can be compared too.
  *
+ * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
+ * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
+ *
  * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
  * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
  * switches suggested for a mix when other instruments were asked for), then CompareHits on the WAV,
@@ -175,6 +178,8 @@ public final class SogniMusic {
       else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
       // PyJav's, after a comparison: each track through DrumMidi into a file set of its own.
       else if (a.equals("--compare_to_file_sets")) continue;
+      // PyJav's: everything the run makes (tracks, WAVs, MIDI, results, logs) zipped into Download at the end.
+      else if (a.equals("--zip")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -440,7 +445,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--zip] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**

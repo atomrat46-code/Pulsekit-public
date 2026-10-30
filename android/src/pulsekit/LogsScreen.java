@@ -7,9 +7,10 @@ import android.widget.TextView;
 import java.util.List;
 
 /**
- * File > Logs: the log entries (Logs) of the type picked (chips), the newest first. A tap opens the
- * entry: its text can be selected and copied (a long press selects; Copy takes the whole entry),
- * saved (Export) or deleted; Export all saves every entry of the list into one text file.
+ * File > Logs: the log entries (Logs) of the type picked (chips, each with its count), the newest
+ * first. A tap opens the entry: its text can be selected and copied (a long press selects; Copy
+ * takes the whole entry), saved (Export), deleted or closed; Export all saves every entry of the
+ * list into one text file.
  */
 final class LogsScreen {
     private LogsScreen() {}
@@ -37,7 +38,8 @@ final class LogsScreen {
         types[0] = Logs.ALL;
         System.arraycopy(Logs.TYPES, 0, types, 1, Logs.TYPES.length);
         for (final String t : types) {
-            TextView chip = app.pill(t, t.equals(type), v -> {
+            // Each type with how many entries it has: "Program runs (12)".
+            TextView chip = app.pill(t + " (" + Logs.entries(t).size() + ")", t.equals(type), v -> {
                 type = t;
                 fill(app, col);
             });
@@ -71,7 +73,7 @@ final class LogsScreen {
         }
     }
 
-    /** One entry: its text (selectable), Copy, Export, Delete. */
+    /** One entry: its text (selectable), Copy, Export, Close; Delete above the text. */
     static void open(final MainActivity app, final Logs.Entry e, final Runnable deleted) {
         final String text = Logs.text(e);
         TextView body = app.text(text, 11, false);
@@ -79,8 +81,21 @@ final class LogsScreen {
         body.setTypeface(android.graphics.Typeface.MONOSPACE);
         body.setTextIsSelectable(true);
         body.setPadding(app.dp(14), app.dp(8), app.dp(14), app.dp(8));
+        LinearLayout col = app.col();
+        // A dialog has three buttons: Copy, Export and Close; Delete sits above the text.
+        LinearLayout top = app.row();
+        top.setPadding(app.dp(14), app.dp(4), app.dp(14), 0);
+        TextView delete = app.outline("Delete", false, v -> {
+            if (entry != null) entry.dismiss();
+            app.setNow("Deleted " + Logs.delete(java.util.Collections.singletonList(e)) + " log entry");
+            deleted.run();
+        });
+        delete.setTag("logs-delete");
+        top.addView(delete);
+        col.addView(top);
+        col.addView(body);
         ScrollView scroll = new ScrollView(app);
-        scroll.addView(body);
+        scroll.addView(col);
         if (entry != null && entry.isShowing()) entry.dismiss();
         entry = new AlertDialog.Builder(app).setTitle(e.type + ": " + e.title).setView(scroll)
             .setPositiveButton("Copy", (d, w) -> {
@@ -89,10 +104,7 @@ final class LogsScreen {
                 app.setNow("Copied the log entry (" + text.length() + " characters)");
             })
             .setNeutralButton("Export", (d, w) -> SaveText.save(app, Logs.exportName(e.type), text))
-            .setNegativeButton("Delete", (d, w) -> {
-                app.setNow("Deleted " + Logs.delete(java.util.Collections.singletonList(e)) + " log entry");
-                deleted.run();
-            })
+            .setNegativeButton("Close", null)
             .create();
         entry.show();
     }

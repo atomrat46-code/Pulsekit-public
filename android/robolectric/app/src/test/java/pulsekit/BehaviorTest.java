@@ -10544,6 +10544,8 @@ public class BehaviorTest {
     idle();
     lv = LogsScreen.last.getWindow().getDecorView();
     String state = String.valueOf(((TextView) lv.findViewWithTag("logs-state")).getText());
+    // Each type's chip says how many entries it has.
+    String chip = String.valueOf(((TextView) lv.findViewWithTag("logs-type:" + Logs.RUNS)).getText());
     View line = runs.isEmpty() ? null : lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName());
     if (line != null) line.performClick();
     idle();
@@ -10554,22 +10556,30 @@ public class BehaviorTest {
     idle();
     android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
     String copied = clips.getPrimaryClip() == null ? "" : String.valueOf(clips.getPrimaryClip().getItemAt(0).getText());
+    // Close shuts the entry and keeps it; Delete (above the text) deletes it.
     if (line != null) line.performClick();
     idle();
+    String closeText = LogsScreen.entry == null ? "" : String.valueOf(LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).getText());
     if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean closed = LogsScreen.entry != null && !LogsScreen.entry.isShowing() && Logs.entries(Logs.RUNS).size() == 1;
+    if (line != null) line.performClick();
+    idle();
+    if (LogsScreen.entry != null) LogsScreen.entry.getWindow().getDecorView().findViewWithTag("logs-delete").performClick();
     idle();
     int after = Logs.entries(Logs.RUNS).size();
     LogsScreen.last.dismiss();
     AppSettings.setLogging(false);
     out.append("screen: ").append(state).append(" | entry: ").append(text.split("\n")[0]).append(", selectable ").append(selectable)
-        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n');
+        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n')
+        .append("chip: ").append(chip).append(" | ").append(closeText).append(" keeps it: ").append(closed).append('\n');
     write("s173_logs", out.toString());
     // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
     String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
     boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
         && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
         && text.contains("Output:\n" + second.log)
-        && selectable && copied.equals(text) && after == 0;
+        && selectable && copied.equals(text) && after == 0 && chip.equals(Logs.RUNS + " (1)") && closeText.equals("Close") && closed;
     if (!ok) throw new AssertionError(out.toString() + "\n" + text);
   }
 

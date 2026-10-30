@@ -40,6 +40,13 @@ final class LogsScreen {
         final JComboBox<String> pick = new JComboBox<String>(types);
         pick.setName("logs-type");
         pick.setSelectedItem(type);
+        // Each type with how many entries it has: "Program runs (12)" (counted when the list opens).
+        pick.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(JList<?> l, Object v, int i, boolean sel, boolean focus) {
+                return super.getListCellRendererComponent(l, v + " (" + Logs.entries(String.valueOf(v)).size() + ")", i, sel, focus);
+            }
+        });
         final JLabel state = new JLabel();
         state.setName("logs-state");
         final DefaultListModel<Logs.Entry> model = new DefaultListModel<Logs.Entry>();
