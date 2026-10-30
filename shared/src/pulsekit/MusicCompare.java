@@ -138,7 +138,15 @@ public final class MusicCompare {
 
   /** A SogniMusic run that compared models, or made random styles' tracks. */
   public static boolean wanted(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(RANDOM));
+    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(RANDOM) || modelList(argv));
+  }
+
+  /** --model with a list (turbo,sft or all) and no --compare_models: SogniMusic compares them. */
+  static boolean modelList(List<String> argv) {
+    int i = argv.indexOf("--model");
+    if (i < 0 || i + 1 >= argv.size() || argv.contains(FLAG)) return false;
+    String m = argv.get(i + 1).trim();
+    return m.matches(".*[,; ].*") || m.equalsIgnoreCase("all");
   }
 
   /** The tracks a comparison wrote, as "model<TAB>file" pairs, from its "Compared: model file" lines. */

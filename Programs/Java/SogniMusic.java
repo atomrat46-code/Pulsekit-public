@@ -256,8 +256,19 @@ public final class SogniMusic {
       say("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
       return 2;
     }
+    // A list in --model (turbo,sft or all) is a comparison, as --compare_models is, when that is left empty.
+    if (compareModels == null && model != null && (model.matches(".*[,; ].*") || model.trim().equalsIgnoreCase("all"))) {
+      if (randomCount != 0) {
+        say("Failed: --random makes each style with one model: give --model turbo, sft or music3");
+        return 2;
+      }
+      compareModels = model;
+      say("Note: --model " + model + " lists models: they are compared (as --compare_models)");
+      String[] firstOne = model.trim().toLowerCase(java.util.Locale.ROOT).split("[,; ]+");
+      model = firstOne.length == 0 || firstOne[0].equals("all") ? "turbo" : firstOne[0];
+    }
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
-      say("Failed: --model is turbo, sft or music3");
+      say("Failed: --model is turbo, sft or music3 (a list, such as turbo,sft, compares them)");
       return 2;
     }
     List<String> models = new ArrayList<String>();

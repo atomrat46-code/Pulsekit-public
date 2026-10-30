@@ -11008,10 +11008,14 @@ public class BehaviorTest {
     java.util.List<String> own = JavaRun.argvFor(app.programMenus.bundledSource("SogniMusic.java"), 120, "rock", 4, 0, "--random 3 --styles Funk|Metal");
     out.append("styles passed: ").append(styles.split("\\|").length).append(" (first ").append(styles.split("\\|")[0]).append(") | own kept: ")
         .append(own.get(own.indexOf("--styles") + 1)).append(", once: ").append(own.indexOf("--styles") == own.lastIndexOf("--styles")).append('\n');
+    // A list in --model is a comparison, as --compare_models is.
+    boolean listed = MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo,sft")) && MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "all"))
+        && !MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo"));
+    out.append("--model list compared: ").append(listed).append('\n');
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
-        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles");
+        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed;
     if (!ok) throw new AssertionError(out.toString());
   }
 
