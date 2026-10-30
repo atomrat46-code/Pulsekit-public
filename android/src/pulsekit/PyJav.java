@@ -755,7 +755,10 @@ final class PyJav {
                 report = "Could not compare the models' tracks: " + ex;
             }
             final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            // Kept beside the tracks (Download): the log under the run is gone after the next run.
+            final String kept = report == null ? null : ArtJava.publish(app, pulsekit.MusicCompare.reportName(log), report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             app.runOnUiThread(() -> {
+                if (kept != null) this.pkAddLogLine("saved " + kept);
                 for (String line : shown.split("\n")) this.pkAddLogLine(line);
                 // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
                 if (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) {

@@ -8601,10 +8601,14 @@ public final class DesktopBehavior {
           out.append("  ").append(t.replaceAll("\\d+ BPM", "<n> BPM").replaceAll("drums \\d+%", "drums <n>%").replaceAll("score \\d+", "score <n>")).append('\n');
       }
       out.append("models asked: ").append(asked).append('\n');
+      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-ranking.txt");
+      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-ranking.txt");
+      boolean rankingKept = ranking.isFile() && new String(Files.readAllBytes(ranking.toPath()), StandardCharsets.UTF_8).contains("Model comparison");
+      out.append("ranking saved: ").append(rankingKept).append('\n');
       // (SogniMusic's own "Compared:" lines may be gone by now: each DrumMidi run has its own log; the ranking is shown again.)
       boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-\\w+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-\\w+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
           && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
-          && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain;
+          && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain && rankingKept;
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

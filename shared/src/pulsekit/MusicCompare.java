@@ -122,6 +122,14 @@ public final class MusicCompare {
     chain = null;
   }
 
+  /** The ranking's file name, beside the tracks: sogni-Rock-6f1262f1-ranking.txt (from the first track's name). */
+  public static String reportName(String log) {
+    List<String[]> t = tracks(log);
+    String first = t.isEmpty() ? "sogni-music" : t.get(0)[1].replaceAll("\\.[A-Za-z0-9]{2,4}$", "");
+    if (!t.isEmpty() && first.endsWith("-" + t.get(0)[0])) first = first.substring(0, first.length() - t.get(0)[0].length() - 1);
+    return first + "-ranking.txt";
+  }
+
   /** A SogniMusic run that compared models. */
   public static boolean wanted(String program, List<String> argv) {
     return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);

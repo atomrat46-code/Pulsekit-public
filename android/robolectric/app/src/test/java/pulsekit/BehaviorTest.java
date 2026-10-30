@@ -10926,7 +10926,9 @@ public class BehaviorTest {
     String report = MusicCompare.of(java.util.Arrays.asList("--drums_only", "--bpm", "120", "--duration", "30", MusicCompare.FLAG, "turbo,sft"), log,
         name -> AudioIo.parseWav(name.endsWith("turbo.wav") ? clean : synth));
     out.append(report.replace('\u00b7', '|')).append('\n');
-    boolean ranked = report != null && report.contains("1. turbo") && report.contains("2. sft") && report.contains("120 BPM (as asked)") && report.contains("Best: turbo");
+    String rankingName = MusicCompare.reportName(log);
+    out.append("ranking file: ").append(rankingName).append('\n');
+    boolean ranked = rankingName.equals("sogni-Rock-1-ranking.txt") && report != null && report.contains("1. turbo") && report.contains("2. sft") && report.contains("120 BPM (as asked)") && report.contains("Best: turbo");
     // SogniMusic's Params list the option.
     ProgramParams.Param compare = null;
     for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) if (p.token.equals(MusicCompare.FLAG)) compare = p;

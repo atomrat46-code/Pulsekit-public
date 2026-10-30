@@ -1375,6 +1375,8 @@ final class PyJav {
                 report = "Could not compare the models' tracks: " + ex;
             }
             final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            // Kept beside the tracks (Downloads): the log under the run is gone after the next run.
+            final File kept = report == null ? null : this.saveProgramFile(MusicCompare.reportName(log), report.getBytes(StandardCharsets.UTF_8));
             // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
             final java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
             if (argv.contains(MusicCompare.TO_FILE_SETS)) {
@@ -1386,6 +1388,7 @@ final class PyJav {
             }
             SwingUtilities.invokeLater(() -> {
                 for (String line : shown.split("\n")) this.testNote(line);
+                if (kept != null) this.testNote("Saved " + kept.getPath());
                 if (!argv.contains(MusicCompare.TO_FILE_SETS)) return;
                 MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"));
                 if (c == null) this.testNote("No WAVs for DrumMidi: no file sets made");
