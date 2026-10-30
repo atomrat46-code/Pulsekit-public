@@ -55,6 +55,7 @@ final class PyJav {
         this.pkEditorCaption.setTag("pyjav-editor-caption");
         this.pkEditorCaption.setPadding(0, app.dp(14), 0, app.dp(4));
         app.pyEditor = new EditText((Context)app);
+        app.codeSave.watch(app.pyEditor);
         app.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
         app.pyEditor.setTypeface(Typeface.MONOSPACE);
         app.pyEditor.setTextColor(FG);

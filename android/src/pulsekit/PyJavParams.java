@@ -75,6 +75,7 @@ public final class PyJavParams {
       }
     }
     final EditText[] fields = new EditText[ps.size()];
+    shownFields = fields;
     // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
     final android.widget.CheckBox[] checks = new android.widget.CheckBox[ps.size()];
     int pad = dp(activity, 12);
@@ -662,11 +663,60 @@ public final class PyJavParams {
         android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
         return;
       }
+      // A definitions file (App:, Prompt:, Loras:, ---- between them): its fields fill their rows.
+      if (ParamDefs.looksLike(text) && defsFrom(activity, field, file.getName(), text)) return;
       field.setText(text);
       field.setSelection(0);
     } catch (Exception ex) {
       android.widget.Toast.makeText(activity, "Could not read " + file.getName(), android.widget.Toast.LENGTH_LONG).show();
     }
+  }
+
+  /**
+   * A definitions file for the Params shown: the one for this program fills its rows (several: a
+   * choice first). False when it holds no definitions (the text goes into the prompt as it is).
+   */
+  static boolean defsFrom(final Activity activity, final EditText prompt, String fileName, String text) {
+    final List<ProgramParams.Param> ps = shownParams;
+    java.util.Set<String> tokens = new java.util.HashSet<String>();
+    if (ps != null) for (ProgramParams.Param p : ps) tokens.add(p.token);
+    List<ParamDefs.Def> all = ParamDefs.parse(text, tokens);
+    if (all.isEmpty()) return false;
+    final List<ParamDefs.Def> mine = ParamDefs.forProgram(all, shownFor);
+    if (mine.isEmpty()) {
+      android.widget.Toast.makeText(activity, fileName + " is for " + ParamDefs.apps(all) + ", not " + shownFor, android.widget.Toast.LENGTH_LONG).show();
+      return true;
+    }
+    if (mine.size() == 1) {
+      fillDef(activity, prompt, mine.get(0));
+      return true;
+    }
+    String[] labels = new String[mine.size()];
+    for (int i = 0; i < labels.length; i++) labels[i] = mine.get(i).label();
+    lastDefs = new AlertDialog.Builder(activity).setTitle(fileName + ": " + mine.size() + " definitions")
+        .setItems(labels, (d, w) -> fillDef(activity, prompt, mine.get(w)))
+        .setNegativeButton("Cancel", null).show();
+    return true;
+  }
+
+  /** A definition's fields into the Params' rows (the prompt into its field); those the program has not are said. */
+  static void fillDef(Activity activity, EditText prompt, ParamDefs.Def d) {
+    List<String> filled = new java.util.ArrayList<String>(), missing = new java.util.ArrayList<String>();
+    for (java.util.Map.Entry<String, String> e : d.fields.entrySet()) {
+      EditText target = null;
+      if (shownParams != null && shownFields != null) {
+        for (int i = 0; i < shownParams.size() && i < shownFields.length; i++) if (shownParams.get(i).token.equals(e.getKey())) target = shownFields[i];
+      }
+      if (target == null && e.getKey().equals("--prompt")) target = prompt;
+      if (target == null) {
+        missing.add(e.getKey());
+        continue;
+      }
+      target.setText(e.getValue());
+      filled.add(e.getKey());
+    }
+    android.widget.Toast.makeText(activity, "Filled " + String.join(", ", filled) + (missing.isEmpty() ? "" : "; " + shownFor + " has no " + String.join(", ", missing)),
+        android.widget.Toast.LENGTH_LONG).show();
   }
 
   /** The picker's file, copied into PyJav's input folder, for the waiting file row (or prompt field). */
@@ -687,6 +737,10 @@ public final class PyJavParams {
 
   /** The Params shown (their rows, values and file rows' labels): a video picked for a picture row fills its frames in. */
   static List<ProgramParams.Param> shownParams;
+  /** The text fields of the Params shown last (a definitions file fills several: ParamDefs). */
+  static EditText[] shownFields;
+  /** The choice of definitions shown last, for the tests. */
+  static AlertDialog lastDefs;
   static String[] shownValues;
   static TextView[] shownLabels;
 

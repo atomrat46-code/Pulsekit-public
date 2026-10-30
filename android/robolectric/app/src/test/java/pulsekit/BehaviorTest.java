@@ -11101,6 +11101,105 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A few thoughts: a definitions file (App:, Prompt:, Loras:, ---- between them) fills SogniPedit's
+   * Params rows; a song's long-press Save song / Save song as writes its .sng and .mid; File > Exit
+   * lists the code editor's unsaved edit and asks.
+   */
+  @Test
+  public void s184_param_defs_save_song_exit() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String defs = "App: SogniPedit\nPrompt: a portrait in soft window light,\n  film grain\nLoras: skin-detail:0.8\n----\nPrompt: the second one\nNote: kept in the prompt\nLoras: film-look:0.5\n----\nApp: SogniVideo\nPrompt: a video one\n";
+    java.util.Set<String> tokens = new java.util.HashSet<String>(java.util.Arrays.asList("--prompt", "--loras", "--skin_detail"));
+    java.util.List<ParamDefs.Def> all = ParamDefs.parse(defs, tokens);
+    java.util.List<ParamDefs.Def> mine = ParamDefs.forProgram(all, "SogniPedit.java");
+    out.append("definitions: ").append(all.size()).append(", for SogniPedit ").append(mine.size()).append(" | apps ").append(ParamDefs.apps(all)).append('\n');
+    out.append("second: ").append(mine.get(1).fields).append('\n');
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText promptField = null, lorasField = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) promptField = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) lorasField = PyJavParams.shownFields[i];
+    }
+    File f = new File(app.getCacheDir(), "pedit-defs.txt");
+    Files.write(f.toPath(), defs.getBytes(StandardCharsets.UTF_8));
+    PyJavParams.promptFrom(app, promptField, f);
+    idle();
+    AlertDialog choice = PyJavParams.lastDefs;
+    int choices = choice == null ? 0 : choice.getListView().getAdapter().getCount();
+    org.robolectric.Shadows.shadowOf(choice).clickOnItem(0);
+    idle();
+    out.append("choice of ").append(choices).append(" | prompt: ").append(promptField.getText().toString().replace("\n", "\\n"))
+        .append(" | loras: ").append(lorasField.getText()).append('\n');
+    boolean filled = choices == 2 && promptField.getText().toString().startsWith("a portrait in soft window light,") && "skin-detail:0.8".equals(lorasField.getText().toString());
+    d.dismiss();
+    idle();
+    // Save song / Save song as from the song's long-press menu.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Kept Song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "song");
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    String name = songs.get(0).name;
+    root().findViewWithTag("song-chip:" + name).performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean listed = itemIndex(menu, SongFiles.SAVE) >= 0 && itemIndex(menu, SongFiles.SAVE_AS) >= 0;
+    SongEditor.lastSaved = null;
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, SongFiles.SAVE));
+    for (int i = 0; i < 100 && SongEditor.lastSaved == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String saved = SongEditor.lastSaved;
+    out.append("menu has Save song, Save song as: ").append(listed).append(" | saved: ").append(saved != null && saved.contains(".sng") && saved.contains(".mid")).append('\n');
+    root().findViewWithTag("song-chip:" + name).performLongClick();
+    idle();
+    menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, SongFiles.SAVE_AS));
+    idle();
+    ((android.widget.EditText) SongEditor.lastSaveAs.getWindow().getDecorView().findViewWithTag("save-song-as-name")).setText("Renamed Song");
+    SongEditor.lastSaved = null;
+    SongEditor.lastSaveAs.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100 && SongEditor.lastSaved == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String savedAs = SongEditor.lastSaved;
+    out.append("save as: renamed ").append(songs.get(0).name).append(" | ").append(savedAs != null && savedAs.contains("Renamed Song.sng") && savedAs.contains("Renamed Song.mid")).append('\n');
+    // File > Exit: a typed edit in the code editor is listed; nothing listed once it is saved.
+    call("show", "py");
+    idle();
+    android.widget.EditText editor = (android.widget.EditText) get("pyEditor");
+    editor.requestFocus();
+    editor.append("\n// an edit\n");
+    idle();
+    ExitScreen.keepRunning = true;
+    ExitScreen.exited = false;
+    java.util.List<String> open = ExitScreen.unsaved(app);
+    ExitScreen.show(app);
+    idle();
+    String asked = ExitScreen.last == null ? "" : String.valueOf(org.robolectric.Shadows.shadowOf(ExitScreen.last).getMessage());
+    ExitScreen.last.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("unsaved: ").append(open).append(" | asked: ").append(asked.contains("Do you want to save the changes?")).append(" | exit without saving: ").append(ExitScreen.exited).append('\n');
+    write("s184_param_defs_save_song_exit", out.toString());
+    boolean ok = all.size() == 3 && mine.size() == 2 && "SogniPedit, SogniVideo".equals(ParamDefs.apps(all)) && mine.get(1).fields.get("--prompt").contains("Note: kept in the prompt")
+        && filled && listed && saved != null && saved.contains(".mid") && "Renamed Song".equals(songs.get(0).name) && savedAs != null && savedAs.contains("Renamed Song.sng")
+        && open.size() == 1 && open.get(0).startsWith("Code editor: SogniPedit") && ExitScreen.exited;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

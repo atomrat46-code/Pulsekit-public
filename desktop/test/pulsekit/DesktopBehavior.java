@@ -8735,6 +8735,69 @@ public final class DesktopBehavior {
     if (!noSecrets || !filesBack || !after.equals(before) || !said.startsWith("Backed up")) throw new AssertionError(this.out.toString() + "\n" + said);
   }
 
+  /**
+   * A few thoughts, as on Android: a definitions file (App:, Prompt:, Loras:, ---- between them)
+   * fills SogniPedit's Params rows; a song's Save song / Save song as writes its .sng and .mid;
+   * File > Exit lists the code editor's unsaved edit and asks.
+   */
+  void s175_param_defs_save_song_exit() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String defs = "App: SogniPedit\nPrompt: a portrait in soft window light,\n  film grain\nLoras: skin-detail:0.8\n----\nPrompt: the second one\nLoras: film-look:0.5\n----\nApp: SogniVideo\nPrompt: a video one\n";
+    final File f = new File(home, "pedit-defs.txt");
+    Files.write(f.toPath(), defs.getBytes(StandardCharsets.UTF_8));
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final String[] got = new String[2];
+    PyJav.pickDef = 1;
+    inspectNext = d -> {
+      javax.swing.JTextArea prompt = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) if (pj.shownParams.get(i).token.equals("--prompt")) prompt = pj.shownAreas[i];
+      pj.promptFrom(prompt, f);
+      got[0] = prompt.getText();
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        if (!pj.shownParams.get(i).token.equals("--loras")) continue;
+        got[1] = pj.shownAreas[i] != null ? pj.shownAreas[i].getText() : pj.shownFields[i].getText();
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pickDef = null;
+    this.out.append("second definition: prompt ").append(got[0]).append(" | loras ").append(got[1]).append('\n');
+    boolean filled = "the second one".equals(got[0]) && "film-look:0.5".equals(got[1]);
+    // Save song / Save song as.
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Kept Song.mid");
+    @SuppressWarnings("unchecked")
+    final List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    final SongEditor se = (SongEditor) get("songEditor");
+    final Engine.ImportedSong song = songs.get(songs.size() - 1);
+    edt(() -> se.saveSongFiles(song));
+    String saved = SongEditor.lastSaved;
+    SongEditor.saveAsName = "Renamed Song";
+    edt(() -> se.saveSongAs(song));
+    SongEditor.saveAsName = null;
+    String savedAs = SongEditor.lastSaved;
+    boolean files = saved.contains(".sng") && saved.contains(".mid") && savedAs.contains("Renamed Song.sng") && savedAs.contains("Renamed Song.mid")
+        && new File(savedAs.substring(6, savedAs.indexOf(".sng") + 4)).isFile();
+    this.out.append("save song: .sng and .mid ").append(files).append(" | renamed ").append(song.name).append('\n');
+    // File > Exit: a loaded program is no edit; a typed one is listed and asked about.
+    final Pulsekit app = (Pulsekit) frame;
+    boolean cleanAfterLoad = ExitScreen.unsaved(app).isEmpty();
+    app.codeSave.dirty = true;
+    List<String> open = ExitScreen.unsaved(app);
+    ExitScreen.keepRunning = true;
+    ExitScreen.exited = false;
+    ExitScreen.answer = 1;
+    edt(() -> ExitScreen.show(app));
+    ExitScreen.answer = null;
+    app.codeSave.dirty = false;
+    this.out.append("after load nothing unsaved: ").append(cleanAfterLoad).append(" | unsaved: ").append(open).append(" | asked: ")
+        .append(ExitScreen.asked != null && ExitScreen.asked.contains("Do you want to save the changes?")).append(" | exit without saving: ").append(ExitScreen.exited).append('\n');
+    if (!filled || !files || !"Renamed Song".equals(song.name) || !cleanAfterLoad || open.size() != 1 || !open.get(0).startsWith("Code editor: SogniPedit") || !ExitScreen.exited)
+      throw new AssertionError(this.out.toString());
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

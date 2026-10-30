@@ -1279,6 +1279,12 @@ public class MainActivity extends UiKit {
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
+        // Exit: the editors' unsaved edits asked about first (ExitCheck).
+        android.widget.TextView exit = this.text(ExitCheck.EXIT, 14, true);
+        exit.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        exit.setTextColor(FG);
+        exit.setTag("file-exit");
+        menu.addView(exit);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
         pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
@@ -1335,6 +1341,10 @@ public class MainActivity extends UiKit {
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
+        exit.setOnClickListener(v -> {
+            pop.dismiss();
+            ExitScreen.show(this);
+        });
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 

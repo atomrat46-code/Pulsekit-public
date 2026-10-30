@@ -59,6 +59,24 @@ final class CodeSave {
         this.saveAs();
     }
 
+    /** Edited by hand (typing or pasting while the editor has focus) since it was loaded or saved (File > Exit asks). */
+    boolean dirty;
+
+    /** Watches the editor: an edit while it has focus is a change; text put in while it has not (a program loaded) is not. */
+    void watch(javax.swing.JTextArea editor) {
+        editor.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                CodeSave.this.dirty = editor.isFocusOwner();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                CodeSave.this.dirty = editor.isFocusOwner();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {}
+        });
+    }
+
     void saveAs() {
         JFileChooser chooser = new JFileChooser();
         File dir = this.target != null && this.target.getParentFile() != null ? this.target.getParentFile() : chooser.getCurrentDirectory();
@@ -80,6 +98,7 @@ final class CodeSave {
         try {
             Files.write(file.toPath(), this.text().getBytes(StandardCharsets.UTF_8));
             app.setNow("Saved " + file.getName());
+            this.dirty = false;
             return true;
         } catch (Exception ex) {
             app.setNow("Could not save " + file.getName());

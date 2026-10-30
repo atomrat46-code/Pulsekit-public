@@ -1162,8 +1162,43 @@ final class SongEditor {
         del.addActionListener(e -> this.confirmDeleteSong(song));
         menu.add(dup);
         menu.add(del);
+        // The song as files: a Pulsekit .sng and a MIDI (Save song as names them, and the song).
+        javax.swing.JMenuItem save = new javax.swing.JMenuItem(SongFiles.SAVE);
+        save.setName("song-save");
+        save.addActionListener(e -> this.saveSongFiles(song));
+        javax.swing.JMenuItem saveAs = new javax.swing.JMenuItem(SongFiles.SAVE_AS);
+        saveAs.setName("song-save-as");
+        saveAs.addActionListener(e -> this.saveSongAs(song));
+        menu.add(save);
+        menu.add(saveAs);
         MenuCancel.add(menu);
         menu.show(at, x, y);
+    }
+
+    /** What Save song said last, for the tests; the name Save song as uses in the tests (null: ask). */
+    static String lastSaved;
+    static String saveAsName;
+
+    /** Save song: the song's .sng and .mid into the program files folder (else Downloads). */
+    void saveSongFiles(Engine.ImportedSong song) {
+        StringBuilder said = new StringBuilder();
+        for (Object[] f : SongFiles.files(song, song.name)) {
+            java.io.File saved = app.pyJav.saveProgramFile((String) f[0], (byte[]) f[1]);
+            said.append(said.length() == 0 ? "Saved " : " and ").append(saved == null ? "(not " + f[0] + ")" : saved.getPath());
+        }
+        lastSaved = said.toString();
+        app.setNow(lastSaved);
+    }
+
+    /** Save song as: a new name for the song (it is renamed), then its files under it. */
+    void saveSongAs(Engine.ImportedSong song) {
+        String n = saveAsName != null ? saveAsName : (String) javax.swing.JOptionPane.showInputDialog(app, "Name", SongFiles.SAVE_AS,
+            javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, song.name);
+        if (n == null || n.trim().length() == 0) return;
+        song.name = n.trim();
+        app.persistence.persistLearned();
+        this.refreshSong();
+        this.saveSongFiles(song);
     }
 
     /** Song menu > Info: length, bars, patterns, fills, Fillerns, tempo, file set and style. */

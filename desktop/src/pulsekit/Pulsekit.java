@@ -757,6 +757,11 @@ public final class Pulsekit extends UiKit {
             menu.add(midi);
             menu.add(compare);
             menu.add(help);
+            // Exit: the editors' unsaved edits asked about first (ExitCheck).
+            JMenuItem exit = new JMenuItem(ExitCheck.EXIT);
+            exit.setName("file-exit");
+            exit.addActionListener(e -> ExitScreen.show(this));
+            menu.add(exit);
             MenuCancel.add(menu);
             menu.show(jButton, 0, jButton.getHeight());
         });

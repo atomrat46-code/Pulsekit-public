@@ -1102,14 +1102,60 @@ final class SongEditor {
         if (set != null && app.fileSets.fileSetStyleOn("f:" + set)) items.add("Change style");
         items.add("Duplicate song");
         items.add("Delete song");
+        // The song as files in Download: a Pulsekit .sng and a MIDI (Save song as names them, and the song).
+        items.add(SongFiles.SAVE);
+        items.add(SongFiles.SAVE_AS);
         new android.app.AlertDialog.Builder((Context)app)
             .setTitle((CharSequence)song.name)
             .setItems(items.toArray(new CharSequence[0]), (d, which) -> {
                 String item = items.get(which);
                 if ("Info".equals(item)) this.showSongInfo(song);
+                else if (SongFiles.SAVE.equals(item)) this.saveSongFiles(song);
+                else if (SongFiles.SAVE_AS.equals(item)) this.saveSongAs(song);
                 else if ("Change style".equals(item)) FileSetClicks.promptChangeStyle(app, "f:" + set, set, song);
                 else if ("Duplicate song".equals(item)) this.duplicateSong(song);
                 else this.confirmDeleteSong(song);
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Save song: the song's .sng and .mid into Download (off the screen's thread). */
+    void saveSongFiles(final Engine.ImportedSong song) {
+        final Object[][] files = SongFiles.files(song, song.name);
+        new Thread(() -> {
+            StringBuilder said = new StringBuilder();
+            for (Object[] f : files) {
+                String where = ArtJava.publish(app, (String) f[0], (byte[]) f[1]);
+                said.append(said.length() == 0 ? "Saved " : " and ").append(where == null ? "(not " + f[0] + ")" : where);
+            }
+            final String shown = said.toString();
+            app.handler.post(() -> {
+                lastSaved = shown;
+                app.setNow(shown);
+                android.widget.Toast.makeText(app, shown, 1).show();
+            });
+        }, "pulsekit-save-song").start();
+    }
+
+    /** What Save song said last, for the tests. */
+    static volatile String lastSaved;
+    /** The name asked last, for the tests. */
+    static android.app.AlertDialog lastSaveAs;
+
+    /** Save song as: a new name for the song (it is renamed), then its files under it. */
+    void saveSongAs(final Engine.ImportedSong song) {
+        final android.widget.EditText name = new android.widget.EditText((Context)app);
+        name.setText(song.name);
+        name.setSelectAllOnFocus(true);
+        name.setTag("save-song-as-name");
+        lastSaveAs = new android.app.AlertDialog.Builder((Context)app).setTitle(SongFiles.SAVE_AS).setView(name)
+            .setPositiveButton("Save", (d, w) -> {
+                String n = name.getText().toString().trim();
+                if (n.length() == 0) return;
+                song.name = n;
+                app.persistence.persistLearned();
+                this.refreshSong();
+                this.saveSongFiles(song);
             })
             .setNegativeButton("Cancel", null).show();
     }

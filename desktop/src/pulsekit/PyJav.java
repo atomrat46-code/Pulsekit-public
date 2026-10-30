@@ -212,6 +212,7 @@ final class PyJav {
         argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, extraScroll.getPreferredSize().height + 6));
         north.add(argsRow);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
+        app.codeSave.watch(app.pyEditor);
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
         app.pyEditor.setBackground(ELEV);
         app.pyEditor.setForeground(FG);
@@ -1157,6 +1158,13 @@ final class PyJav {
         }
     }
 
+    /** The Params shown last: their switches and text rows (a definitions file fills several). */
+    java.util.List<ProgramParams.Param> shownParams;
+    JTextField[] shownFields;
+    javax.swing.JTextArea[] shownAreas;
+    /** The tests: the definition picked when a file has several (null: ask). */
+    static Integer pickDef;
+
     /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
     void promptFrom(javax.swing.JTextArea area, File file) {
         try {
@@ -1165,11 +1173,57 @@ final class PyJav {
                 app.setNow(file.getName() + " has no text");
                 return;
             }
+            // A definitions file (App:, Prompt:, Loras:, ---- between them): its fields fill their rows.
+            if (ParamDefs.looksLike(text) && this.defsFrom(area, file.getName(), text)) return;
             area.setText(text);
             area.setCaretPosition(0);
         } catch (Exception ex) {
             app.setNow("Could not read " + file.getName());
         }
+    }
+
+    /** A definitions file for the Params shown: the one for this program fills its rows (several: a choice). False: no definitions. */
+    boolean defsFrom(javax.swing.JTextArea prompt, String fileName, String text) {
+        java.util.Set<String> tokens = new java.util.HashSet<String>();
+        if (this.shownParams != null) for (ProgramParams.Param p : this.shownParams) tokens.add(p.token);
+        java.util.List<ParamDefs.Def> all = ParamDefs.parse(text, tokens);
+        if (all.isEmpty()) return false;
+        String program = app.pyName;
+        java.util.List<ParamDefs.Def> mine = ParamDefs.forProgram(all, program);
+        if (mine.isEmpty()) {
+            app.setNow(fileName + " is for " + ParamDefs.apps(all) + ", not " + program);
+            return true;
+        }
+        ParamDefs.Def d = mine.get(0);
+        if (mine.size() > 1) {
+            String[] labels = new String[mine.size()];
+            for (int i = 0; i < labels.length; i++) labels[i] = mine.get(i).label();
+            int at = pickDef != null ? pickDef : java.util.Arrays.asList(labels).indexOf(JOptionPane.showInputDialog(app, fileName + ": " + mine.size() + " definitions",
+                "Definitions", JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]));
+            if (at < 0) return true;
+            d = mine.get(at);
+        }
+        java.util.List<String> filled = new java.util.ArrayList<String>(), missing = new java.util.ArrayList<String>();
+        for (java.util.Map.Entry<String, String> e : d.fields.entrySet()) {
+            javax.swing.text.JTextComponent target = null;
+            if (this.shownParams != null) {
+                for (int i = 0; i < this.shownParams.size(); i++) {
+                    if (!this.shownParams.get(i).token.equals(e.getKey())) continue;
+                    if (this.shownAreas != null && i < this.shownAreas.length && this.shownAreas[i] != null) target = this.shownAreas[i];
+                    else if (this.shownFields != null && i < this.shownFields.length && this.shownFields[i] != null) target = this.shownFields[i];
+                }
+            }
+            if (target == null && e.getKey().equals("--prompt")) target = prompt;
+            if (target == null) {
+                missing.add(e.getKey());
+                continue;
+            }
+            target.setText(e.getValue());
+            target.setCaretPosition(0);
+            filled.add(e.getKey());
+        }
+        app.setNow("Filled " + String.join(", ", filled) + (missing.isEmpty() ? "" : "; " + program + " has no " + String.join(", ", missing)));
+        return true;
     }
 
     /** The first of the computer's usual VST3 and VST2 folders that exists (vst_render.py's plugin rows), else null. */
@@ -2453,6 +2507,10 @@ final class PyJav {
         final JTextField[] fields = new JTextField[ps.size()];
         // A prompt or system text: a wrapping area of a few lines that scrolls.
         final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
+        // A definitions file (ParamDefs) fills several rows: the Params' rows kept for it.
+        this.shownParams = ps;
+        this.shownFields = fields;
+        this.shownAreas = areas;
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
