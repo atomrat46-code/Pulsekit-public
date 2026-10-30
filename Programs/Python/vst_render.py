@@ -58,8 +58,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and the first three renders silent stop the plugin's run.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
-                  SogniMusic's zips (--zip, made on the phone) in the folder, or one given as --dir, are
-                  unpacked first: their MIDI files (the parts of a split zip together) go into
+                  SogniMusic's zips (--zip, made on the phone) in the folder (--recursive: in its
+                  subfolders too), or one given as --dir, are unpacked first: their MIDI files (the parts of a split zip together) go into
                   <zip>-midi/ beside them and are rendered with the rest.
   --dir2          a second folder (fills here, longer patterns there): its MIDI files rendered in the
                   same run. In --outdir each folder's WAVs go under its own name (fills/..., patterns/...).
@@ -1031,23 +1031,27 @@ def unzip_midis(zips, into):
     return sorted(out)
 
 
-def sogni_zips(folder, only=None):
-    """SogniMusic's zips in the folder (or only the one named `only`, with its parts), unpacked:
-    {"<base>-midi" folder: its MIDI files}, the parts of a split zip into one folder. Each is said,
-    with how many MIDI files it gave."""
+def sogni_zips(folder, only=None, recursive=False):
+    """SogniMusic's zips in the folder (with --recursive, in its subfolders too; or only the one named
+    `only`, with its parts), unpacked: {"<base>-midi" folder beside them: its MIDI files}, the parts
+    of a split zip into one folder. Each is said, with how many MIDI files it gave."""
     groups = {}
-    for n in sorted(os.listdir(folder)):
-        p = os.path.join(folder, n)
-        if only and zip_base(p) != only:
-            continue
-        if n.lower().endswith(".zip") and os.path.isfile(p) and sogni_zip(p):
-            groups.setdefault(zip_base(p), []).append(p)
+    for root, dirs, names in os.walk(folder):
+        dirs.sort()
+        for n in sorted(names):
+            p = os.path.join(root, n)
+            if only and zip_base(p) != only:
+                continue
+            if n.lower().endswith(".zip") and sogni_zip(p):
+                groups.setdefault((root, zip_base(p)), []).append(p)
+        if not recursive:
+            break
     out = {}
-    for base, parts in sorted(groups.items()):
-        into = os.path.join(folder, base + "-midi")
+    for (root, base), parts in sorted(groups.items()):
+        into = os.path.join(root, base + "-midi")
         midis = unzip_midis(parts, into)
-        print("SogniMusic zip %s%s: %d MIDI file%s into %s" % (base, " (%d parts)" % len(parts) if len(parts) > 1 else "",
-              len(midis), "" if len(midis) == 1 else "s", os.path.basename(into)))
+        print("SogniMusic zip %s%s: %d MIDI file%s into %s" % (os.path.relpath(os.path.join(root, base), folder), " (%d parts)" % len(parts) if len(parts) > 1 else "",
+              len(midis), "" if len(midis) == 1 else "s", os.path.relpath(into, folder)))
         out[into] = midis
     return out
 
@@ -1521,7 +1525,7 @@ def main(argv):
         batch = pls_midis(folder) if pls else ([] if one_zip else collect(folder, "--recursive" in switches))
         # SogniMusic's zips: their MIDI files (an <zip>-midi folder made earlier is replaced, not counted twice).
         if not pls:
-            for into, midis in sogni_zips(folder, one_zip).items():
+            for into, midis in sogni_zips(folder, one_zip, "--recursive" in switches and not one_zip).items():
                 batch = [m for m in batch if not m.startswith(into + os.sep)] + midis
         if pls:
             folder = os.path.dirname(os.path.abspath(folder))
