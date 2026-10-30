@@ -1848,7 +1848,11 @@ public final class SogniPadd {
 
     // ---- HTTP ----
 
+    /** The tests' Sogni: "METHOD path" to the reply (null: the real one). */
+    static java.util.function.Function<String, Object> answer;
+
     Object request(String method, String path, String body) throws IOException {
+      if (answer != null) return answer.apply(method + " " + path);
       HttpURLConnection c = this.open(method, path);
       if (body != null) {
         c.setDoOutput(true);
