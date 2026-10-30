@@ -165,6 +165,7 @@ public final class SogniHistory {
     StringBuilder sb = new StringBuilder();
     for (String l : lines) sb.append(l).append('\n');
     try {
+      if (f.getParentFile() != null && !f.getParentFile().isDirectory()) f.getParentFile().mkdirs();
       FileOutputStream out = new FileOutputStream(f);
       try {
         out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
