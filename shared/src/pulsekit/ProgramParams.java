@@ -339,6 +339,12 @@ public final class ProgramParams {
       p.label = "File (text, MIDI, picture, audio or video)";
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
+    if (p.takesValue && p.token.equals("--compare_models")) {
+      p.label = "Compare models: the same request on each, ranked (each is a paid run)";
+      p.choices = new String[] {"turbo,sft", "turbo,music3", "sft,music3", "all"};
+      p.hint = "turbo,sft,music3 or all; empty: one model (--model)";
+    }
+    if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Compared tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.takesValue && p.token.equals("--batchdir")) {
       p.dir = true;

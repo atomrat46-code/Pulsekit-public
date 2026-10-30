@@ -28,6 +28,100 @@ public final class MusicCompare {
     public String problem;
   }
 
+  /** With --compare_models: each model's track also goes through DrumMidi_CRT into a file set of its own. */
+  public static final String TO_FILE_SETS = "--compare_to_file_sets";
+
+  /** The file sets' name: "SogniMusic run N" (N one more than the highest run among the file sets). */
+  public static String runName(List<String> fileSets) {
+    int n = 0;
+    if (fileSets != null) {
+      for (String s : fileSets) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("SogniMusic run (\\d+)( .*)?").matcher(s == null ? "" : s);
+        if (m.matches()) n = Math.max(n, Integer.parseInt(m.group(1)));
+      }
+    }
+    return "SogniMusic run " + (n + 1);
+  }
+
+  /**
+   * --compare_to_file_sets: DrumMidi_CRT on each model's WAV in turn, its MIDI named
+   * "SogniMusic run N <model>.mid" so the file set it makes has that name. PyJav starts the next run
+   * when one ends (next), until all are done.
+   */
+  public static final class Chain {
+    public final String run;
+    final MusicExpect expect;
+    final String saved;
+    /** "model<TAB>wav path", in the ranking's order. */
+    final List<String[]> tracks = new ArrayList<String[]>();
+    int at = -1;
+    public final List<String> made = new ArrayList<String>();
+    /** The models' ranking, shown again when the chain ends (each DrumMidi run has its own log). */
+    public String report = "";
+
+    Chain(String run, MusicExpect expect, String saved) {
+      this.run = run;
+      this.expect = expect;
+      this.saved = saved;
+    }
+
+    /** The file set's name for a model. */
+    public String setName(String model) {
+      return run + " " + model;
+    }
+
+    /** DrumMidi_CRT's arguments for the next track, or null when all are done (the chain ends). */
+    public synchronized List<String> next() {
+      if (at >= 0 && at < tracks.size()) made.add(setName(tracks.get(at)[0]));
+      at++;
+      if (at >= tracks.size()) {
+        if (chain == this) chain = null;
+        return null;
+      }
+      String[] t = tracks.get(at);
+      return expect.drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+    }
+
+    /** The model now in DrumMidi. */
+    public synchronized String model() {
+      return at >= 0 && at < tracks.size() ? tracks.get(at)[0] : "";
+    }
+
+    public int size() {
+      return tracks.size();
+    }
+
+    public int index() {
+      return at + 1;
+    }
+  }
+
+  /** The chain going on, or null. */
+  static Chain chain;
+
+  /** Starts a chain on the WAVs given ("model", path pairs); null when there are none. `saved` is DrumMidi's saved switches. */
+  public static synchronized Chain startChain(List<String> argv, List<String> fileSets, List<String[]> wavs, String saved) {
+    if (wavs == null || wavs.isEmpty()) return null;
+    Chain c = new Chain(runName(fileSets), MusicExpect.of(argv), saved);
+    c.tracks.addAll(wavs);
+    chain = c;
+    return c;
+  }
+
+  public static synchronized Chain chain() {
+    return chain;
+  }
+
+  /** Whether a run that just ended was the chain's DrumMidi_CRT (PyJav then starts the next). */
+  public static synchronized boolean chainStep(String program) {
+    return chain != null && chain.at >= 0 && "DrumMidi_CRT.jar".equals(program);
+  }
+
+  /** Ends a chain (Stop, or a run that failed). */
+  public static synchronized void stopChain() {
+    chain = null;
+  }
+
   /** A SogniMusic run that compared models. */
   public static boolean wanted(String program, List<String> argv) {
     return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);

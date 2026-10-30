@@ -8577,12 +8577,24 @@ public final class DesktopBehavior {
       call("selectListedProgram", "Java", "SogniMusic.java");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       edt(() -> log.setText(""));
-      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--genre Rock --drums_only --bpm 120 --duration 10 --compare_models turbo,sft --no_wav --key_file \""
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--genre Rock --drums_only --bpm 120 --duration 10 --compare_models turbo,sft --compare_to_file_sets --no_wav --key_file \""
           + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       String text = "";
       for (int i = 0; i < 1200 && !(text = log.getText()).contains("Drums % is") && !text.contains("Could not compare"); i++) Thread.sleep(100);
       idle();
+      String compared = text;
+      // --compare_to_file_sets: DrumMidi_CRT on each track, each into its own file set.
+      for (int i = 0; i < 1800 && !((text = log.getText()).contains("File sets made:") && text.contains("Drums % is")) && !text.contains("File sets stopped"); i++) Thread.sleep(100);
+      idle();
+      List<String> sets = new ArrayList<String>();
+      for (String src : Engine.fileSetSources(((Pulsekit) frame).learned, ((Pulsekit) frame).learnedFills)) if (src.startsWith("SogniMusic run")) sets.add(src);
+      Collections.sort(sets);
+      out.append("chain: ").append(text.replaceAll("(?s).*(File sets (made|stopped)[^\\n]*).*", "$1")).append('\n');
+      boolean rankingAgain = text.indexOf("Model comparison") > text.indexOf("File sets made:") && text.indexOf("File sets made:") >= 0;
+      out.append("ranking shown again at the end: ").append(rankingAgain).append('\n');
+      out.append("file sets: ").append(sets).append('\n');
+      text = compared + "\n" + text;
       for (String line : text.split("\n")) {
         String t = line.trim();
         if (t.startsWith("Comparing") || t.startsWith("Compared:") || t.startsWith("Succeeded") || t.startsWith("Model comparison") || t.matches("\\d\\. .*") || t.startsWith("Best:"))
@@ -8590,7 +8602,8 @@ public final class DesktopBehavior {
       }
       out.append("models asked: ").append(asked).append('\n');
       boolean ok = text.contains("Compared: turbo ") && text.contains("Compared: sft ") && text.contains("Model comparison") && text.contains("Best: ")
-          && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft");
+          && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
+          && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain;
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

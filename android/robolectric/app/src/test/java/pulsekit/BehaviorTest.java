@@ -10931,8 +10931,21 @@ public class BehaviorTest {
     ProgramParams.Param compare = null;
     for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) if (p.token.equals(MusicCompare.FLAG)) compare = p;
     out.append("Params: ").append(compare == null ? "-" : compare.label + " " + (compare.choices == null ? "" : java.util.Arrays.toString(compare.choices))).append('\n');
+    // --compare_to_file_sets: the run's number follows the file sets there are; DrumMidi runs once a track, its MIDI named for its file set.
+    String run = MusicCompare.runName(java.util.Arrays.asList("Rock", "SogniMusic run 2 turbo", "SogniMusic run 7 sft"));
+    MusicCompare.Chain c = MusicCompare.startChain(java.util.Arrays.asList("--drums_only", "--bpm", "120"), java.util.Arrays.asList("SogniMusic run 2 turbo"),
+        java.util.Arrays.asList(new String[] {"turbo", "/x/a.wav"}, new String[] {"sft", "/x/b.wav"}), "");
+    java.util.List<String> first = c.next();
+    boolean stepNow = MusicCompare.chainStep("DrumMidi_CRT.jar");
+    java.util.List<String> second = c.next();
+    java.util.List<String> end = c.next();
+    out.append("run: ").append(run).append(" | chain ").append(c.run).append(": ").append(first).append(" then ").append(second).append(" then ").append(end)
+        .append(" | made ").append(c.made).append(" | chain over ").append(MusicCompare.chain() == null).append('\n');
+    boolean chainOk = run.equals("SogniMusic run 8") && c.run.equals("SogniMusic run 3") && first.get(1).equals("SogniMusic run 3 turbo.mid") && first.contains("120")
+        && second.get(1).equals("SogniMusic run 3 sft.mid") && end == null && stepNow && c.made.equals(java.util.Arrays.asList("SogniMusic run 3 turbo", "SogniMusic run 3 sft"))
+        && MusicCompare.chain() == null && Engine.importSource("SogniMusic run 3 music3.mid").equals("SogniMusic run 3 music3");
     write("s181_sogni_music_compare_models", out.toString());
-    if (!ranked || compare == null) throw new AssertionError(out.toString());
+    if (!ranked || compare == null || !chainOk) throw new AssertionError(out.toString());
   }
 
   /** A PNG with one more chunk before its IEND. */

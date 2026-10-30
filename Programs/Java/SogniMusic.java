@@ -38,6 +38,12 @@ import java.util.Map;
  * drum kit alone, percussion only..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  *
+ * --compare_models turbo,sft,music3 (or all) makes the same request with each model, each a run of
+ * its own (paid for), its track named with the model (sogni-Rock-6f1262f1-turbo.mp3). PyJav then
+ * measures the tracks (the drums' share of the sound, the tempo, the length) and ranks them. With
+ * --compare_to_file_sets each track also goes through DrumMidi_CRT into a file set of its own,
+ * "SogniMusic run N <model>", so the models' drum MIDI can be compared too.
+ *
  * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
  * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
  * switches suggested for a mix when other instruments were asked for), then CompareHits on the WAV,
@@ -167,6 +173,8 @@ public final class SogniMusic {
       }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
       else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
+      // PyJav's, after a comparison: each track through DrumMidi into a file set of its own.
+      else if (a.equals("--compare_to_file_sets")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -415,7 +423,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**

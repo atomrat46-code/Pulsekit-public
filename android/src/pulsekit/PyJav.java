@@ -757,8 +757,69 @@ final class PyJav {
             final String shown = report == null ? "Fewer than two tracks to compare" : report;
             app.runOnUiThread(() -> {
                 for (String line : shown.split("\n")) this.pkAddLogLine(line);
+                // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
+                if (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) {
+                    this.pkCompareReport = shown;
+                    this.pkCompareWavs(argv, result, pulsekit.MusicCompare.tracks(log), 0, new java.util.ArrayList<String[]>());
+                }
             });
         }, "pulsekit-compare-models").start();
+    }
+
+    /** The comparison's ranking, kept for the end of its file sets' chain. */
+    String pkCompareReport;
+
+    /** --compare_to_file_sets: the compared tracks made WAVs one by one (`i` on), then the DrumMidi chain starts. */
+    void pkCompareWavs(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final java.util.List<String[]> tracks, final int i, final java.util.List<String[]> wavs) {
+        if (i >= tracks.size()) {
+            pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"));
+            if (c == null) this.pkAddLogLine("No WAVs for DrumMidi: no file sets made");
+            else {
+                c.report = this.pkCompareReport == null ? "" : this.pkCompareReport;
+                this.pkAddLogLine("File sets: DrumMidi_CRT on each track, into " + c.run + " <model>");
+                this.pkChainNext();
+            }
+            return;
+        }
+        final String[] t = tracks.get(i);
+        byte[] mp3 = null;
+        if (result != null && result.files != null) {
+            for (int k = 0; k < result.files.size(); k++) {
+                pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(k);
+                if (t[1].equals(f.name)) mp3 = f.bytes;
+            }
+        }
+        String path = mp3 == null ? null : AudioOffer.useAsInput(app, t[1], mp3);
+        if (path == null) {
+            this.pkAddLogLine("Could not use " + t[1] + " for its file set");
+            this.pkCompareWavs(argv, result, tracks, i + 1, wavs);
+            return;
+        }
+        this.pkAddLogLine("Making a WAV of " + t[1] + "…");
+        AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
+            if (wav == null) this.pkAddLogLine("Could not make a WAV of " + t[1] + (why == null ? "" : ": " + why));
+            else wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+            this.pkCompareWavs(argv, result, tracks, i + 1, wavs);
+        });
+    }
+
+    /** The comparison's next DrumMidi_CRT run (its MIDI named for the file set it makes), or the chain's end. */
+    void pkChainNext() {
+        pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.chain();
+        if (c == null) return;
+        final java.util.List<String> drumArgs = c.next();
+        if (drumArgs == null) {
+            this.pkAddLogLine("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
+            for (String line : c.report.split("\n")) if (line.length() > 0) this.pkAddLogLine(line);
+            return;
+        }
+        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setName(c.model()));
+        app.handler.post(() -> {
+            this.pkPyInputPath = null;
+            app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+            this.pkForcedArgs = drumArgs;
+            this.pkRunPyJav();
+        });
     }
 
     /** A track's sound: a WAV read as it is, else decoded as Android plays it (MP3); null when it cannot be. */
@@ -1575,6 +1636,14 @@ final class PyJav {
         final String madeLog = log;
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
+        // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
+        if (pulsekit.MusicCompare.chainStep(program)) {
+            if (ok) this.pkChainNext();
+            else {
+                pulsekit.MusicCompare.stopChain();
+                this.pkAddLogLine("File sets stopped: DrumMidi_CRT did not succeed");
+            }
+        }
         // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
         if (ok && pulsekit.MusicCompare.wanted(program, argv)) this.pkCompareModels(argv, made, madeLog);
         // A run of a batch (BatchRun): what it made is saved, not shown; the next run follows.

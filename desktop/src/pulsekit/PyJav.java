@@ -1017,6 +1017,14 @@ final class PyJav {
                 }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
+                // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
+                if (MusicCompare.chainStep(name)) {
+                    if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
+                    else {
+                        MusicCompare.stopChain();
+                        this.testNote("File sets stopped: DrumMidi_CRT did not succeed");
+                    }
+                }
                 // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
                 if (result.code == 0 && MusicCompare.wanted(name, argv)) this.compareModels(argv, savedAudio, result.log);
                 if (!testing && !inBatch && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
@@ -1366,10 +1374,46 @@ final class PyJav {
                 report = "Could not compare the models' tracks: " + ex;
             }
             final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
+            final java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+            if (argv.contains(MusicCompare.TO_FILE_SETS)) {
+                for (String[] t : MusicCompare.tracks(log)) {
+                    File mp3 = files.get(t[1]);
+                    File wav = mp3 == null ? null : this.asWav(mp3);
+                    if (wav != null && wav.getName().toLowerCase().endsWith(".wav")) wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+                }
+            }
             SwingUtilities.invokeLater(() -> {
                 for (String line : shown.split("\n")) this.testNote(line);
+                if (!argv.contains(MusicCompare.TO_FILE_SETS)) return;
+                MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"));
+                if (c == null) this.testNote("No WAVs for DrumMidi: no file sets made");
+                else {
+                    c.report = shown;
+                    this.testNote("File sets: DrumMidi_CRT on each track, into " + c.run + " <model>");
+                    this.chainNext();
+                }
             });
         }, "pulsekit-compare-models").start();
+    }
+
+    /** The comparison's next DrumMidi_CRT run (its MIDI named for the file set it makes), or the chain's end. */
+    void chainNext() {
+        MusicCompare.Chain c = MusicCompare.chain();
+        if (c == null) return;
+        final java.util.List<String> drumArgs = c.next();
+        if (drumArgs == null) {
+            this.testNote("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
+            for (String line : c.report.split("\n")) if (line.length() > 0) this.testNote(line);
+            return;
+        }
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setName(c.model()));
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+            this.forcedArgs = drumArgs;
+            this.runPython();
+        });
     }
 
     private void testNote(String line) {
