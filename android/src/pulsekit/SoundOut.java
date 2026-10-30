@@ -131,7 +131,7 @@ final class SoundOut {
         return null;
     }
 
-    /** A player plays through the output picked (the system's routing when none, or it is unplugged). */
+    /** A player plays through the output picked (the system's routing when none, or it is unplugged), at Pulsekit's playback volume. */
     static void prefer(Object player) {
         try {
             AudioDeviceInfo d = chosen(ctx);
@@ -140,6 +140,34 @@ final class SoundOut {
         } catch (Throwable ignored) {
             // the system's routing
         }
+        if (player != null) {
+            synchronized (PLAYERS) {
+                PLAYERS.put(player, Boolean.TRUE);
+            }
+            volume(player);
+        }
+    }
+
+    /** The players given to prefer (kept while they live), so a new playback volume reaches them at once. */
+    private static final java.util.Map<Object, Boolean> PLAYERS = new java.util.WeakHashMap<Object, Boolean>();
+
+    static void volume(Object player) {
+        float v = InputLevel.volume(AppSettings.playVolume());
+        try {
+            if (player instanceof AudioTrack) ((AudioTrack) player).setVolume(v);
+            else if (player instanceof MediaPlayer) ((MediaPlayer) player).setVolume(v, v);
+        } catch (Throwable ignored) {
+            // a released player
+        }
+    }
+
+    /** Sound devices > Playback volume changed: every live player at the new volume. */
+    static void volumeChanged() {
+        java.util.List<Object> all;
+        synchronized (PLAYERS) {
+            all = new ArrayList<Object>(PLAYERS.keySet());
+        }
+        for (Object p : all) volume(p);
     }
 
     /** Test: a 440 Hz tone through the output, a snare to the MIDI output. */

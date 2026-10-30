@@ -11276,6 +11276,89 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Sound devices: Playback volume and Recording level sliders kept in the settings, the volume on
+   * Pulsekit's players; an input's Test asks for the microphone first, then shows the level of
+   * what it hears (a tone here, at the recording level), records, stops, plays and saves a WAV.
+   */
+  @Test
+  public void s186_input_test_and_levels() throws Exception {
+    StringBuilder out = new StringBuilder();
+    double[] quiet = InputLevel.levels(new short[100], 100);
+    short[] loud = new short[100];
+    java.util.Arrays.fill(loud, (short) 16384);
+    InputLevel.gain(loud, 100, 300);
+    out.append("silence: ").append(InputLevel.text(quiet)).append(" | half scale x3: ").append(InputLevel.text(InputLevel.levels(loud, 100))).append('\n');
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    android.widget.SeekBar vol = (android.widget.SeekBar) sv.findViewWithTag("sound-play-volume");
+    android.widget.SeekBar rec = (android.widget.SeekBar) sv.findViewWithTag("sound-record-level");
+    vol.setProgress(40);
+    rec.setProgress(200);
+    out.append("sliders: ").append(((TextView) sv.findViewWithTag("sound-play-volume-label")).getText()).append(", ")
+        .append(((TextView) sv.findViewWithTag("sound-record-level-label")).getText()).append(" | kept ").append(AppSettings.playVolume()).append("/").append(AppSettings.recordLevel()).append('\n');
+    android.media.AudioTrack track = new android.media.AudioTrack(3, 22050, 4, 2, 4096, 1);
+    SoundOut.prefer(track);
+    vol.setProgress(70);
+    SoundDevicesScreen.last.dismiss();
+    SoundDevices.Device mic = new SoundDevices.Device(SoundDevices.IN, "Test microphone", "built-in microphone", "");
+    // No microphone permission yet: asked for.
+    org.robolectric.Shadows.shadowOf(app.getApplication()).denyPermissions(android.Manifest.permission.RECORD_AUDIO);
+    InputTestScreen.show(app, mic);
+    idle();
+    String asked = InputTestScreen.lastSaid;
+    org.robolectric.Shadows.shadowOf(app.getApplication()).grantPermissions(android.Manifest.permission.RECORD_AUDIO);
+    // The input hears a tone at a quarter of full scale.
+    org.robolectric.shadows.ShadowAudioRecord.setSource(new org.robolectric.shadows.ShadowAudioRecord.AudioRecordSource() {
+      int phase;
+
+      @Override
+      public int readInShortArray(short[] buf, int off, int n, boolean blocking) {
+        for (int i = 0; i < n; i++) buf[off + i] = (short) (8192 * Math.sin(2 * Math.PI * 440 * (phase++) / 44100.0));
+        try {
+          Thread.sleep(n * 1000L / 44100);
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+        }
+        return n;
+      }
+    });
+    InputTestScreen.show(app, mic);
+    idle();
+    View iv = InputTestScreen.last.getWindow().getDecorView();
+    iv.findViewWithTag("input-record").performClick();
+    for (int i = 0; i < 100 && InputTestScreen.recordedSamples < 22050; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    iv.findViewWithTag("input-stop").performClick();
+    idle();
+    String level = InputTestScreen.lastSaid;
+    int samples = InputTestScreen.recordedSamples;
+    String state = String.valueOf(((TextView) iv.findViewWithTag("input-state")).getText());
+    InputTestScreen.lastSaid = "";
+    iv.findViewWithTag("input-save").performClick();
+    for (int i = 0; i < 100 && !InputTestScreen.lastSaid.startsWith("Saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String saved = InputTestScreen.lastSaid;
+    boolean buttons = iv.findViewWithTag("input-play") != null && iv.findViewWithTag("input-meter") != null;
+    InputTestScreen.last.dismiss();
+    org.robolectric.shadows.ShadowAudioRecord.clearSource();
+    out.append("without permission: ").append(asked).append('\n');
+    out.append("heard: ").append(level.replaceAll("-?[0-9]+\\.[0-9] dBFS", "<db>")).append(" | recorded at least 0.5 s: ").append(samples >= 22050)
+        .append(" | ").append(state.replaceAll("[0-9]+\\.[0-9] s", "<s>")).append(" | saved: ").append(saved.contains(".wav")).append('\n');
+    write("s186_input_test_and_levels", out.toString());
+    AppSettings.setPlayVolume(100);
+    AppSettings.setRecordLevel(100);
+    boolean ok = InputLevel.text(quiet).endsWith("no signal") && InputLevel.text(InputLevel.levels(loud, 100)).contains("clipping")
+        && AppSettings.playVolume() == 100 && InputTestScreen.ASK_MIC.equals(asked) && level.contains(": signal") && samples >= 22050
+        && state.startsWith("Recorded ") && saved.startsWith("Saved") && saved.contains(".wav") && buttons;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

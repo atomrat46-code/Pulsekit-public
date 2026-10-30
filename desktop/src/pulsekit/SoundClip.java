@@ -54,6 +54,7 @@ final class SoundClip implements MediaPlayer {
         }
         Clip c = AudioSystem.getClip();
         c.open(new AudioInputStream(new ByteArrayInputStream(pcm), format, pcm.length / format.getFrameSize()));
+        SoundOut.volume(c);
         c.addLineListener(e -> {
             if (e.getType() == javax.sound.sampled.LineEvent.Type.STOP && c.getFramePosition() >= c.getFrameLength() - 1) this.ended = true;
         });

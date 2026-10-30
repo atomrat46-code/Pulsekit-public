@@ -1863,6 +1863,7 @@ final class PyJav {
                     if (clip == null) {
                         clip = javax.sound.sampled.AudioSystem.getClip();
                         clip.open(new javax.sound.sampled.AudioFormat(22050f, 16, 1, true, false), pcmBytes, 0, pcmBytes.length);
+                        SoundOut.volume(clip);
                     }
                     clip.setFramePosition(0);
                     clip.start();

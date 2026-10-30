@@ -490,6 +490,7 @@ final class FileSets {
         try {
             javax.sound.sampled.Clip c = midiClips.call();
             c.open(new javax.sound.sampled.AudioFormat(22050, 16, 1, true, false), raw, 0, raw.length);
+            SoundOut.volume(c);
             if (fromMs > 0) c.setMicrosecondPosition(fromMs * 1000L);
             c.start();
             this.midiClip = c;

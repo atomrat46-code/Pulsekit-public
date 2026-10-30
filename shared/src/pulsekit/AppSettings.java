@@ -144,6 +144,35 @@ public final class AppSettings {
     put("midiOut", key == null || key.trim().isEmpty() ? null : key.trim());
   }
 
+  // ------------------------------------------------------------ Levels (File > Sound devices)
+
+  /** Pulsekit's players' volume, percent (100: as they are). */
+  public static synchronized int playVolume() {
+    return percent("playVolume", 100, 100);
+  }
+
+  public static synchronized void setPlayVolume(int p) {
+    put("playVolume", String.valueOf(Math.max(0, Math.min(100, p))));
+  }
+
+  /** The gain on what Pulsekit records, percent (100: as it comes; up to 400). */
+  public static synchronized int recordLevel() {
+    return percent("recordLevel", 100, 400);
+  }
+
+  public static synchronized void setRecordLevel(int p) {
+    put("recordLevel", String.valueOf(Math.max(0, Math.min(400, p))));
+  }
+
+  private static synchronized int percent(String key, int otherwise, int max) {
+    String v = VALUES.get(key);
+    try {
+      return v == null ? otherwise : Math.max(0, Math.min(max, Integer.parseInt(v.trim())));
+    } catch (NumberFormatException ex) {
+      return otherwise;
+    }
+  }
+
   // ------------------------------------------------------------ Python (desktop)
 
   public static final String PYTHON = "Python for scripts";

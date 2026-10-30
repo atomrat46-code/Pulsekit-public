@@ -125,6 +125,11 @@ final class SoundDevicesScreen {
             Object v = list.getSelectedValue();
             if (!(v instanceof SoundDevices.Device)) return;
             final SoundDevices.Device d = (SoundDevices.Device) v;
+            // An input: a window with a level meter, Record, Stop, Play and Save.
+            if (SoundDevices.IN.equals(d.kind)) {
+                InputTestScreen.show(app, dialog, d);
+                return;
+            }
             test.setEnabled(false);
             app.setNow("Testing " + d.name + "\u2026");
             new Thread(() -> {
@@ -182,6 +187,15 @@ final class SoundDevicesScreen {
         JPanel north = new JPanel(new BorderLayout());
         north.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
         north.add(now, BorderLayout.CENTER);
+        // Pulsekit's own levels: its players' volume, the gain on what it records.
+        JPanel levels = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        levels.add(level(app, InputLevel.PLAYBACK, "sound-play-volume", 100, AppSettings.playVolume(), p -> {
+            AppSettings.setPlayVolume(p);
+            SoundOut.volumeChanged();
+        }));
+        levels.add(level(app, InputLevel.RECORDING, "sound-record-level", 400, AppSettings.recordLevel(), AppSettings::setRecordLevel));
+        levels.setToolTipText(InputLevel.LEVELS_NOTE);
+        north.add(levels, BorderLayout.SOUTH);
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
         for (JButton b : new JButton[] {use, reset, test, system, browse, copy, refresh, close}) south.add(b);
         JPanel content = new JPanel(new BorderLayout(0, 6));
@@ -193,6 +207,24 @@ final class SoundDevicesScreen {
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         dialog.setVisible(true);
+    }
+
+    /** A level: its name and percent, and a slider (0 to `max` percent) that keeps what is set. */
+    static JPanel level(final Pulsekit app, final String name, String tag, int max, int now, final java.util.function.IntConsumer set) {
+        final javax.swing.JLabel label = new javax.swing.JLabel(name + ": " + now + "%");
+        label.setName(tag + "-label");
+        final javax.swing.JSlider slider = new javax.swing.JSlider(0, max, now);
+        slider.setName(tag);
+        slider.setPreferredSize(new Dimension(180, slider.getPreferredSize().height));
+        slider.addChangeListener(e -> {
+            label.setText(name + ": " + slider.getValue() + "%");
+            set.accept(slider.getValue());
+            if (!slider.getValueIsAdjusting()) app.setNow(name + " " + slider.getValue() + "%");
+        });
+        JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        p.add(label);
+        p.add(slider);
+        return p;
     }
 
     /** The report's first lines: Pulsekit's build, the system and Java. */

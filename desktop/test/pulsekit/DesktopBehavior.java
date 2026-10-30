@@ -8845,6 +8845,45 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * Sound devices, as on Android: Playback volume and Recording level sliders kept in the settings;
+   * an input's Test opens a window with a level meter, Record, Stop, Play and Save, and says when
+   * the input is not there.
+   */
+  void s177_input_test_and_levels() throws Exception {
+    final String[] seen = new String[2];
+    inspectNext = w -> {
+      ((javax.swing.JSlider) component(w, "sound-play-volume")).setValue(40);
+      ((javax.swing.JSlider) component(w, "sound-record-level")).setValue(200);
+      seen[0] = ((javax.swing.JLabel) component(w, "sound-play-volume-label")).getText() + ", " + ((javax.swing.JLabel) component(w, "sound-record-level-label")).getText();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> SoundDevicesScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && seen[0] == null; i++) Thread.sleep(100);
+    idle();
+    String kept = AppSettings.playVolume() + "/" + AppSettings.recordLevel();
+    SoundDevices.Device gone = new SoundDevices.Device(SoundDevices.IN, "Gone Microphone", "DirectSound", "");
+    InputTestScreen.lastSaid = "";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> InputTestScreen.show((Pulsekit) frame, frame, gone));
+    for (int i = 0; i < 100 && !InputTestScreen.lastSaid.startsWith("Could not listen"); i++) Thread.sleep(50);
+    idle();
+    final JDialog t = InputTestScreen.last;
+    boolean parts = t != null && component(t, "input-meter") != null && component(t, "input-record") != null && component(t, "input-stop") != null
+        && component(t, "input-play") != null && component(t, "input-save") != null;
+    edt(() -> ((javax.swing.AbstractButton) component(t, "input-play")).doClick());
+    seen[1] = ((javax.swing.JLabel) component(t, "input-state")).getText();
+    edt(() -> t.dispose());
+    AppSettings.setPlayVolume(100);
+    AppSettings.setRecordLevel(100);
+    this.out.append("sliders: ").append(seen[0]).append(" | kept ").append(kept).append('\n')
+        .append("test window: ").append(t == null ? "none" : t.getTitle()).append(" | parts ").append(parts).append(" | ").append(InputTestScreen.lastSaid)
+        .append(" | Play with nothing recorded: ").append(seen[1]).append('\n');
+    boolean ok = "Playback volume: 40%, Recording level: 200%".equals(seen[0]) && "40/200".equals(kept) && parts
+        && InputTestScreen.lastSaid.equals("Could not listen to Gone Microphone: Gone Microphone is not connected") && "Record something first".equals(seen[1]);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

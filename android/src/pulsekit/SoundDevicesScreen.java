@@ -40,6 +40,12 @@ final class SoundDevicesScreen {
             + (SoundDevices.missing(found).isEmpty() ? "" : "\n" + SoundDevices.missing(found).trim()), 13, false);
         now.setTag("sound-now");
         col.addView(now);
+        // Pulsekit's own levels: its players' volume, the gain on what it records.
+        col.addView(level(app, InputLevel.PLAYBACK, "sound-play-volume", 100, AppSettings.playVolume(), p -> {
+            AppSettings.setPlayVolume(p);
+            SoundOut.volumeChanged();
+        }));
+        col.addView(level(app, InputLevel.RECORDING, "sound-record-level", 400, AppSettings.recordLevel(), AppSettings::setRecordLevel));
         LinearLayout buttons = app.row();
         TextView reset = app.outline("Use the default", false, v -> {
             AppSettings.setSoundOut("");
@@ -120,11 +126,14 @@ final class SoundDevicesScreen {
         }
         if (SoundDevices.OUT.equals(d.kind) || SoundDevices.MIDI_OUT.equals(d.kind)) {
             b.setNeutralButton("Test", null);
+        } else if (SoundDevices.IN.equals(d.kind)) {
+            // An input's Test: a level meter, Record, Stop, Play and Save.
+            b.setNeutralButton("Test", (x, w) -> InputTestScreen.show(app, d));
         }
         device = b.create();
         device.show();
         android.widget.Button test = device.getButton(AlertDialog.BUTTON_NEUTRAL);
-        if (test != null) {
+        if (test != null && !SoundDevices.IN.equals(d.kind)) {
             // Test leaves the device open: what it said is added below.
             test.setOnClickListener(v -> {
                 test.setEnabled(false);
@@ -137,6 +146,33 @@ final class SoundDevicesScreen {
                 }));
             });
         }
+    }
+
+    /** A level: its name and percent, and a slider (0 to `max` percent) that keeps what is set. */
+    static LinearLayout level(final MainActivity app, final String name, String tag, int max, int now, final java.util.function.IntConsumer set) {
+        LinearLayout box = app.col();
+        box.setPadding(0, app.dp(6), 0, 0);
+        final TextView label = app.text(name + ": " + now + "%", 13, false);
+        label.setTag(tag + "-label");
+        android.widget.SeekBar bar = new android.widget.SeekBar(app);
+        bar.setMax(max);
+        bar.setProgress(now);
+        bar.setTag(tag);
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar s, int p, boolean user) {
+                label.setText(name + ": " + p + "%");
+                set.accept(p);
+            }
+
+            public void onStartTrackingTouch(android.widget.SeekBar s) {}
+
+            public void onStopTrackingTouch(android.widget.SeekBar s) {
+                app.setNow(name + " " + s.getProgress() + "%");
+            }
+        });
+        box.addView(label);
+        box.addView(bar);
+        return box;
     }
 
     static String header(MainActivity app) {
