@@ -10760,6 +10760,37 @@ public class BehaviorTest {
     if (!text.equals(name) || !ownLine || !oneLine || !wide) throw new AssertionError(out);
   }
 
+  /** Sogni's workflow id in a start reply of any shape: the documented one, workflow_id, deeper, else the workflow Sogni lists as just started; none at all says the reply's fields. */
+  @Test
+  public void s178_sogni_workflow_id() throws Exception {
+    final String now = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.ROOT) {{ setTimeZone(java.util.TimeZone.getTimeZone("UTC")); }}.format(new java.util.Date());
+    String[][] cases = {
+      {"documented", "{\"status\":\"success\",\"data\":{\"workflow\":{\"workflowId\":\"wf_a\",\"status\":\"queued\"}}}", "{\"data\":{\"workflows\":[]}}"},
+      {"workflow_id", "{\"status\":\"success\",\"data\":{\"workflow_id\":\"wf_b\"}}", "{\"data\":{\"workflows\":[]}}"},
+      {"deeper", "{\"status\":\"success\",\"data\":{\"result\":{\"run\":{\"id\":\"wf_c\"}}}}", "{\"data\":{\"workflows\":[]}}"},
+      {"listed", "{\"status\":\"success\",\"data\":{\"accepted\":true}}",
+          "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_old\",\"createdAt\":\"2026-01-01T00:00:00Z\"},{\"workflowId\":\"wf_new\",\"createdAt\":\"" + now + "\"}]}}"},
+      {"none", "{\"status\":\"success\",\"data\":{\"accepted\":true}}", "{\"data\":{\"workflows\":[{\"workflowId\":\"wf_old\",\"createdAt\":\"2026-01-01T00:00:00Z\"}]}}"}};
+    StringBuilder out = new StringBuilder();
+    String[] got = new String[cases.length];
+    for (int i = 0; i < cases.length; i++) {
+      final String[] c = cases[i];
+      SogniApi.answer = call -> SogniApi.parseJson(call.startsWith("POST") ? c[1] : c[2]);
+      SogniApi api = new SogniApi("https://example.invalid", "test");
+      try {
+        got[i] = api.start("{\"steps\":[]}", false, 0);
+      } catch (java.io.IOException ex) {
+        got[i] = "failed: " + ex.getMessage();
+      }
+      out.append(c[0]).append(": ").append(got[i]).append('\n');
+    }
+    SogniApi.answer = null;
+    write("s178_sogni_workflow_id", out.toString());
+    boolean ok = "wf_a".equals(got[0]) && "wf_b".equals(got[1]) && "wf_c".equals(got[2]) && "wf_new".equals(got[3])
+        && got[4].equals("failed: Sogni did not return a workflow id (its reply: status, data{accepted})");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A label's width in DejaVu Sans Bold, in ems (i and l narrow, capitals wide). */
   private static float boldWidth(String text) {
     float em = 0;

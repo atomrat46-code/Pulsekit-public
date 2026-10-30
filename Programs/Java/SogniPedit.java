@@ -925,11 +925,105 @@ public final class SogniPedit {
       if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
       if (noFilter) body.append(",\"safe_content_filter\":false");
       body.append('}');
-      Map<String, Object> wf = workflowOf(this.request("POST", "/v1/creative-agent/workflows", body.toString()));
+      long started = System.currentTimeMillis();
+      Object reply = this.request("POST", "/v1/creative-agent/workflows", body.toString());
+      Map<String, Object> wf = workflowOf(reply);
       String id = str(wf.get("workflowId"));
       if (id == null) id = str(wf.get("id"));
-      if (id == null) throw new IOException("Sogni did not return a workflow id");
+      // Elsewhere in the reply (another shape of it), else the workflow Sogni lists as just started.
+      if (id == null) id = workflowIdIn(reply, 0);
+      if (id == null) {
+        System.out.println("Note: Sogni's reply had no workflow id where it used to be (" + shapeOf(reply, 0) + "); looking for the workflow just started");
+        id = this.newestWorkflow(started);
+        if (id != null) System.out.println("Workflow " + id + " (the newest one on Sogni)");
+      }
+      if (id == null) throw new IOException("Sogni did not return a workflow id (its reply: " + shapeOf(reply, 0) + ")");
       return id;
+    }
+
+    /** A workflow id anywhere in a reply: workflowId, workflow_id, or an id starting "wf_" (the shallowest first). */
+    @SuppressWarnings("unchecked")
+    static String workflowIdIn(Object o, int depth) {
+      if (o == null || depth > 6) return null;
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String[] keys = {"workflowId", "workflow_id", "workflowID"};
+        for (String k : keys) if (m.get(k) instanceof String && ((String) m.get(k)).length() > 0) return (String) m.get(k);
+        if (m.get("id") instanceof String && ((String) m.get("id")).startsWith("wf_")) return (String) m.get("id");
+        for (Object v : m.values()) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      }
+      return null;
+    }
+
+    /** A reply's fields without their values ("status, data{workflow{status, input}}"), for the log. */
+    @SuppressWarnings("unchecked")
+    static String shapeOf(Object o, int depth) {
+      if (o instanceof List) return "[" + (((List<Object>) o).isEmpty() || depth > 3 ? "" : shapeOf(((List<Object>) o).get(0), depth + 1)) + "]";
+      if (!(o instanceof Map)) return o == null ? "nothing" : "a value";
+      StringBuilder sb = new StringBuilder();
+      for (Map.Entry<String, Object> e : ((Map<String, Object>) o).entrySet()) {
+        if (sb.length() > 0) sb.append(", ");
+        sb.append(e.getKey());
+        if (depth < 3 && (e.getValue() instanceof Map || e.getValue() instanceof List)) sb.append(e.getValue() instanceof Map ? "{" + shapeOf(e.getValue(), depth + 1) + "}" : shapeOf(e.getValue(), depth + 1));
+      }
+      return sb.toString();
+    }
+
+    /** The newest workflow Sogni lists that started at most two minutes before `since` (null: none, or the list failed). */
+    @SuppressWarnings("unchecked")
+    String newestWorkflow(long since) {
+      try {
+        Object r = this.request("GET", "/v1/creative-agent/workflows?limit=10", null);
+        Object data = r instanceof Map ? ((Map<String, Object>) r).get("data") : null;
+        Object list = data instanceof Map ? ((Map<String, Object>) data).get("workflows") : data instanceof List ? data : null;
+        if (!(list instanceof List)) return null;
+        String best = null;
+        long bestAt = Long.MIN_VALUE;
+        for (Object o : (List<Object>) list) {
+          if (!(o instanceof Map)) continue;
+          Map<String, Object> w = (Map<String, Object>) o;
+          String id = str(w.get("workflowId"));
+          if (id == null) id = str(w.get("id"));
+          if (id == null) continue;
+          long at = timeOf(w.get("createdAt") != null ? w.get("createdAt") : w.get("created_at"));
+          if (at > 0 && at < since - 120000) continue;
+          // Without times the list's first (newest) is taken.
+          if (best == null || at > bestAt) {
+            best = id;
+            bestAt = at;
+          }
+          if (at <= 0) break;
+        }
+        return best;
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** A time as Sogni writes it: milliseconds, seconds, or "2026-10-30T12:34:56.789Z"; 0 when unknown. */
+    static long timeOf(Object v) {
+      if (v instanceof Number) {
+        long n = ((Number) v).longValue();
+        return n < 100000000000L ? n * 1000 : n;
+      }
+      if (!(v instanceof String)) return 0;
+      String t = ((String) v).trim();
+      if (t.length() < 19) return 0;
+      try {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ROOT);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return f.parse(t.substring(0, 19)).getTime();
+      } catch (java.text.ParseException ex) {
+        return 0;
+      }
     }
 
     /** The workflow record. */
