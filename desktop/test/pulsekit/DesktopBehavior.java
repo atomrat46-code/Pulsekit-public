@@ -8627,6 +8627,76 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * SogniMusic --random 2 --styles Funk|Metal: a track of each style on a fake Sogni, measured,
+   * each into its file set (SogniMusic run 1 Funk, ... Metal) and all zipped (sogni-random-7.zip).
+   */
+  void s173_sogni_music_random() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> prompts = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_rnd\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) prompts.add(body.replaceAll(".*\"prompt\":\"([^\"]*)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_rnd" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 2 --styles \"Funk|Metal\" --seed 7 --compare_to_file_sets --zip --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !((text = log.getText()).contains("File sets made:") && text.contains("Zipped ")) && !text.contains("File sets stopped")
+          && !text.contains("Could not zip") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      List<String> sets = new ArrayList<String>();
+      for (String src : Engine.fileSetSources(((Pulsekit) frame).learned, ((Pulsekit) frame).learnedFills)) if (src.startsWith("SogniMusic run")) sets.add(src);
+      Collections.sort(sets);
+      File zip = new File(home, "Downloads/sogni-random-7.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-random-7.zip");
+      List<String> inZip = new ArrayList<String>();
+      if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
+      Collections.sort(inZip);
+      boolean styled = prompts.size() == 2 && prompts.stream().anyMatch(p -> p.contains("Funk drum pattern")) && prompts.stream().anyMatch(p -> p.contains("Metal drum pattern"));
+      out.append("prompts: ").append(prompts.size()).append(", styles in them: ").append(styled).append('\n');
+      out.append("file sets: ").append(sets).append('\n');
+      out.append("zip: ").append(inZip.toString().replaceAll("rnd\\d", "rnd<n>")).append('\n');
+      boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 Funk", "SogniMusic run 1 Metal")) && text.contains("Random styles")
+          && inZip.contains("SogniMusic run 1 Funk.mid") && inZip.contains("SogniMusic run 1 Metal.mid") && inZip.contains("sogni-random-7-ranking.txt");
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

@@ -44,6 +44,10 @@ import java.util.Map;
  * --compare_to_file_sets each track also goes through DrumMidi_CRT into a file set of its own,
  * "SogniMusic run N <model>", so the models' drum MIDI can be compared too.
  *
+ * --random N makes N tracks, each in a style drawn from --styles ("Rock|Funk|Metal"; PyJav passes
+ * Pulsekit's style list), no style twice until all are used (--seed repeats a draw). They are
+ * measured, made into file sets (--compare_to_file_sets) and zipped (--zip) as a comparison is.
+ *
  * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
  * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
  *
@@ -162,6 +166,9 @@ public final class SogniMusic {
     boolean savePrompt = false;
     boolean deleteFromSogni = false;
     String compareModels = null;
+    int randomCount = 0;
+    String styleList = null;
+    long seed = System.currentTimeMillis() % 100000;
     // Off only when asked, on every run.
     SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
@@ -176,6 +183,9 @@ public final class SogniMusic {
       }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
       else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
+      else if (a.equals("--random") && i + 1 < args.length) randomCount = (int) number(a, args[++i]);
+      else if (a.equals("--styles") && i + 1 < args.length) styleList = args[++i];
+      else if (a.equals("--seed") && i + 1 < args.length) seed = (long) number(a, args[++i]);
       // PyJav's, after a comparison: each track through DrumMidi into a file set of its own.
       else if (a.equals("--compare_to_file_sets")) continue;
       // PyJav's: everything the run makes (tracks, WAVs, MIDI, results, logs) zipped into Download at the end.
@@ -218,12 +228,13 @@ public final class SogniMusic {
     if (testing && !drumsOnly && !(instruments != null && instruments.toLowerCase().matches("(?s).*(drum|kit|percussion).*"))) {
       say("Warning: --test checks the drums DrumMidi finds in the track; add --drums_only, or drums in --instruments (\"drums, bass\")");
     }
-    boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
+    boolean steered = randomCount > 0 || drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
     if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {
       say("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
       return 2;
     }
+    String userPrompt = prompt;
     prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
     if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
     if (keyscale != null && keyscale.trim().length() > 0) {
@@ -278,6 +289,24 @@ public final class SogniMusic {
       File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt + settingsLine(bpm, duration, timesig, keyscale));
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
+    List<String> styles = new ArrayList<String>();
+    if (randomCount != 0) {
+      if (randomCount < 1 || randomCount > 50) {
+        say("Failed: --random makes 1 to 50 tracks");
+        return 2;
+      }
+      if (!models.isEmpty() || workflowId != null) {
+        say("Failed: --random makes its own runs: leave out --compare_models and --workflow");
+        return 2;
+      }
+      // The styles to draw from: --styles (PyJav passes Pulsekit's style list), else the --genre given.
+      for (String st : (styleList == null ? "" : styleList).split("[|;,]")) if (st.trim().length() > 0 && !styles.contains(st.trim())) styles.add(st.trim());
+      if (styles.isEmpty() && genre != null && genre.trim().length() > 0) styles.add(genre.trim());
+      if (styles.isEmpty()) {
+        say("Failed: --random needs styles to draw from: --styles \"Rock|Funk|Metal\" (PyJav gives Pulsekit's list)");
+        return 2;
+      }
+    }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
       say("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
@@ -285,6 +314,7 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
+    if (randomCount > 0) return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, model, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
     if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni, testing);
     String input = musicInput(prompt, duration, bpm, keyscale, timesig, model, lyrics);
     if (workflowId != null) say("Fetching the result of workflow " + workflowId);
@@ -384,15 +414,48 @@ public final class SogniMusic {
     say("Comparing " + models.size() + " models (each is a run of its own, paid for): " + String.join(", ", models));
     if (testing) say("Note: --test checks one track; with --compare_models each track is measured and ranked instead (--compare_to_file_sets makes their drum MIDI)");
     if (models.contains("music3") && duration > 300) say("Note: music3 makes at most 300 s, so its track is shorter");
+    List<String[]> jobs = new ArrayList<String[]>();
+    for (String m : models) jobs.add(new String[] {m, m, prompt, genre});
+    return runAll(api, jobs, out, true, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+  }
+
+  /**
+   * --random N: N tracks, each in a style drawn from `styles` (no style twice until all are used),
+   * all started at once, each named for its style (sogni-Funk-6f1262f1.mp3). PyJav measures them
+   * as it does a comparison ("Compared: <style> <file>"), and --compare_to_file_sets and --zip work the same.
+   */
+  static int random(SogniApi api, int count, List<String> styles, long seed, String userPrompt, boolean drumsOnly, String instruments, String model,
+      double duration, double bpm, String keyscale, int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
+    java.util.Random r = new java.util.Random(seed);
+    List<String> bag = new ArrayList<String>();
+    List<String[]> jobs = new ArrayList<String[]>();
+    for (int i = 0; i < count; i++) {
+      if (bag.isEmpty()) bag.addAll(styles);
+      String style = bag.remove(r.nextInt(bag.size()));
+      String p = musicPrompt(userPrompt, style, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
+      jobs.add(new String[] {promptName(style).substring(6), model, p, style});
+    }
+    say("Random styles: " + count + " tracks with " + model + " (each is a run of its own, paid for), seed " + seed);
+    for (String[] j : jobs) say("Style " + j[3] + ": " + j[2]);
+    return runAll(api, jobs, null, false, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+  }
+
+  /**
+   * Several runs at once, `jobs` as {label, model, prompt, genre}: all started, then each waited for
+   * and downloaded. `oneName`: every track takes the first run's name and its label
+   * (sogni-Rock-6f1262f1-turbo.mp3); else each is named for its own genre and run.
+   */
+  static int runAll(SogniApi api, List<String[]> jobs, String out, boolean oneName, double duration, double bpm, String keyscale, int timesig,
+      String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
     if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
     List<String> ids = new ArrayList<String>();
-    for (String m : models) {
+    for (String[] j : jobs) {
       try {
-        String id = api.start(musicInput(prompt, duration, bpm, keyscale, timesig, m, lyrics), confirm, maxCost);
-        say("Model " + m + ": workflow " + id);
+        String id = api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
+        say((oneName ? "Model " : "Style ") + j[0] + ": workflow " + id);
         ids.add(id);
       } catch (Exception ex) {
-        say("Model " + m + " did not start: " + ex.getMessage());
+        say((oneName ? "Model " : "Style ") + j[0] + " did not start: " + ex.getMessage());
         ids.add(null);
       }
     }
@@ -400,9 +463,10 @@ public final class SogniMusic {
     // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
     String first = null;
     for (String id : ids) if (first == null && id != null) first = id;
-    String base = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(genre, first == null ? "" : first);
-    for (int i = 0; i < models.size(); i++) {
-      String m = models.get(i), id = ids.get(i);
+    String shared = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], first == null ? "" : first);
+    for (int i = 0; i < jobs.size(); i++) {
+      String label = jobs.get(i)[0], id = ids.get(i);
+      String what = (oneName ? "Model " : "Style ") + label;
       if (id == null) continue;
       try {
         Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
@@ -412,13 +476,14 @@ public final class SogniMusic {
         });
         List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
         if (audio.isEmpty()) {
-          say("Model " + m + " made no audio: " + why(api, id, wf));
+          say(what + " made no audio: " + why(api, id, wf));
           continue;
         }
         String url = SogniApi.str(audio.get(0).get("url"));
         String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
-        File file = inWork(base + "-" + m + ext);
-        for (int n = 1; file.exists(); n++) file = inWork(base + "-" + m + "(" + n + ")" + ext);
+        String base = oneName ? shared + "-" + label : trackName(jobs.get(i)[3], id);
+        File file = inWork(base + ext);
+        for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
         byte[] data = api.download(url);
         FileOutputStream fos = new FileOutputStream(file);
         try {
@@ -427,15 +492,15 @@ public final class SogniMusic {
           fos.close();
         }
         say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-        say("Compared: " + m + " " + file.getName());
+        say("Compared: " + label + " " + file.getName());
         made.add(file.getName());
         if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
       } catch (Exception ex) {
-        say("Model " + m + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
+        say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
       }
     }
     if (made.isEmpty()) {
-      say("Failed: no model made a track");
+      say("Failed: no track was made");
       return 1;
     }
     resultFile = made.get(0);
@@ -445,7 +510,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--zip] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**

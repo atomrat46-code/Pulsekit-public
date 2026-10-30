@@ -124,15 +124,21 @@ public final class MusicCompare {
 
   /** The ranking's file name, beside the tracks: sogni-Rock-6f1262f1-ranking.txt (from the first track's name). */
   public static String reportName(String log) {
+    // --random: sogni-random-<seed>-ranking.txt (its tracks each have a style of their own).
+    java.util.regex.Matcher seed = java.util.regex.Pattern.compile("Random styles: .*seed (\\d+)").matcher(log == null ? "" : log);
+    if (seed.find()) return "sogni-random-" + seed.group(1) + "-ranking.txt";
     List<String[]> t = tracks(log);
     String first = t.isEmpty() ? "sogni-music" : t.get(0)[1].replaceAll("\\.[A-Za-z0-9]{2,4}$", "");
     if (!t.isEmpty() && first.endsWith("-" + t.get(0)[0])) first = first.substring(0, first.length() - t.get(0)[0].length() - 1);
     return first + "-ranking.txt";
   }
 
-  /** A SogniMusic run that compared models. */
+  /** SogniMusic --random N: N tracks of random styles, measured (and made into file sets, zipped) as a comparison is. */
+  public static final String RANDOM = "--random";
+
+  /** A SogniMusic run that compared models, or made random styles' tracks. */
   public static boolean wanted(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);
+    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(RANDOM));
   }
 
   /** The tracks a comparison wrote, as "model<TAB>file" pairs, from its "Compared: model file" lines. */
@@ -171,7 +177,8 @@ public final class MusicCompare {
         takes.add(measure(t[0], t[1], sound));
       }
     }
-    return takes.size() < 2 ? null : report(MusicExpect.of(argv), takes);
+    boolean random = argv != null && argv.contains(RANDOM);
+    return takes.size() < (random ? 1 : 2) ? null : report(MusicExpect.of(argv), takes, random ? "Random styles" : "Model comparison");
   }
 
   /** Measures a track. */
@@ -291,6 +298,11 @@ public final class MusicCompare {
 
   /** The tracks scored and ranked, best first, and the report's text. */
   public static String report(MusicExpect e, List<Take> takes) {
+    return report(e, takes, "Model comparison");
+  }
+
+  /** The report under its title ("Model comparison", "Random styles"). */
+  public static String report(MusicExpect e, List<Take> takes, String title) {
     for (Take t : takes) {
       if (t.problem != null) {
         t.score = -1;
@@ -306,7 +318,7 @@ public final class MusicCompare {
     if (e.drumsOnly) asked.add("drums only");
     if (e.bpm > 0) asked.add(MusicExpect.SogniTime.num(e.bpm) + " BPM");
     if (e.duration > 0) asked.add(MusicExpect.SogniTime.num(e.duration) + " s");
-    StringBuilder sb = new StringBuilder("Model comparison" + (asked.isEmpty() ? "" : " (asked: " + MusicExpect.join(asked) + ")") + ":\n");
+    StringBuilder sb = new StringBuilder(title + (asked.isEmpty() ? "" : " (asked: " + MusicExpect.join(asked) + ")") + ":\n");
     int place = 1;
     for (Take t : ranked) {
       sb.append(place++).append(". ").append(t.model).append(": ").append(t.file);

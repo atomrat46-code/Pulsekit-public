@@ -459,9 +459,15 @@ public final class JavaRun {
       argv.add("--bpm");
       argv.add(Integer.toString(bpm));
     }
-    if (src.contains("--style") && !given.contains("--style")) {
+    // --style itself, not --styles (SogniMusic's and MidiDrumGen's list of them).
+    if (src.matches("(?s).*--style(?![A-Za-z_]).*") && !given.contains("--style")) {
       argv.add("--style");
       argv.add(style == null ? "house" : style);
+    }
+    // SogniMusic --random: the styles it draws from are Pulsekit's (StyleDb), unless --styles names some.
+    if (src.contains("--random") && given.contains("--random") && src.contains("--styles") && !given.contains("--styles")) {
+      argv.add("--styles");
+      argv.add(String.join("|", StyleDb.names()));
     }
     if (src.contains("--genre") && !given.contains("--genre")) {
       // The app's style by name (House, Drum & Bass...).

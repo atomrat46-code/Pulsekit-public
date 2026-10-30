@@ -121,6 +121,8 @@ public final class ProgramParams {
     boolean videoFrames = has(out, "--first") && has(out, "--last") && has(out, "--every");
     // MidiBatch: MIDI files from a folder or a list into a batch folder, copied or joined at random.
     boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
+    // SogniMusic: music on Sogni, compared between models or made in random styles.
+    boolean sogniMusic = has(out, "--compare_models") && has(out, "--random");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -145,6 +147,7 @@ public final class ProgramParams {
       if (videoFrames) knownVideoFrames(p);
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
+      if (sogniMusic) knownSogniMusic(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -589,6 +592,21 @@ public final class ProgramParams {
     } else if (p.token.equals("--styles")) {
       p.label = "Batch styles (comma list)";
       p.hint = "empty: every style; e.g. rock,funk,metal";
+    }
+  }
+
+  private static void knownSogniMusic(Param p) {
+    if (p.takesValue && p.token.equals("--random")) {
+      p.label = "Random styles: this many tracks, each a style from the list (each is a paid run)";
+      p.hint = "e.g. 5; empty: one track (--genre)";
+    }
+    if (p.takesValue && p.token.equals("--styles")) {
+      p.label = "Random styles from (| list)";
+      p.hint = "empty: every Pulsekit style; e.g. Rock|Funk|Metal";
+    }
+    if (p.takesValue && p.token.equals("--seed")) {
+      p.label = "Random seed (the same seed draws the same styles)";
+      p.hint = "empty: a new draw each run";
     }
   }
 

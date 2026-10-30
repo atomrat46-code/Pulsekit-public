@@ -10976,6 +10976,45 @@ public class BehaviorTest {
     if (!ranked || compare == null || !chainOk || !split) throw new AssertionError(out.toString());
   }
 
+  /**
+   * SogniMusic: its Params' folder row (Use, Browse, Clear) has room between them; --random,
+   * --styles and --seed are labelled; PyJav gives --random Pulsekit's style list.
+   */
+  @Test
+  public void s182_sogni_music_random_and_spacing() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.Button browse = (android.widget.Button) dv.findViewWithTag("params-dir:--batchdir");
+    android.widget.Button clear = (android.widget.Button) dv.findViewWithTag("params-clear:--batchdir");
+    int gapBrowse = browse == null ? -1 : ((android.widget.LinearLayout.LayoutParams) browse.getLayoutParams()).leftMargin;
+    int gapClear = clear == null ? -1 : ((android.widget.LinearLayout.LayoutParams) clear.getLayoutParams()).leftMargin;
+    d.dismiss();
+    out.append("batch folder row gaps: Browse ").append(gapBrowse).append(", Clear ").append(gapClear).append('\n');
+    java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) {
+      if (p.token.equals("--random") || p.token.equals("--styles") || p.token.equals("--seed") || p.token.equals("--zip")) labels.put(p.token, p.label);
+    }
+    out.append("labels: ").append(labels).append('\n');
+    // --random without --styles: Pulsekit's style list; with --styles: the ones given.
+    java.util.List<String> argv = JavaRun.argvFor(app.programMenus.bundledSource("SogniMusic.java"), 120, "rock", 4, 0, "--random 3 --drums_only");
+    int at = argv.indexOf("--styles");
+    String styles = at < 0 ? "" : argv.get(at + 1);
+    java.util.List<String> own = JavaRun.argvFor(app.programMenus.bundledSource("SogniMusic.java"), 120, "rock", 4, 0, "--random 3 --styles Funk|Metal");
+    out.append("styles passed: ").append(styles.split("\\|").length).append(" (first ").append(styles.split("\\|")[0]).append(") | own kept: ")
+        .append(own.get(own.indexOf("--styles") + 1)).append(", once: ").append(own.indexOf("--styles") == own.lastIndexOf("--styles")).append('\n');
+    write("s182_sogni_music_random_and_spacing", out.toString());
+    boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
+        && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
+        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

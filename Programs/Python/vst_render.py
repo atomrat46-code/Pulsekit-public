@@ -58,6 +58,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and the first three renders silent stop the plugin's run.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
+                  SogniMusic's zips (--zip, made on the phone) in the folder, or one given as --dir, are
+                  unpacked first: their MIDI files (the parts of a split zip together) go into
+                  <zip>-midi/ beside them and are rendered with the rest.
   --dir2          a second folder (fills here, longer patterns there): its MIDI files rendered in the
                   same run. In --outdir each folder's WAVs go under its own name (fills/..., patterns/...).
   --skip_existing with --dir: a MIDI whose WAV is already there (from a run that was stopped) is not
@@ -123,6 +126,7 @@ DAW once they are installed and activated on the computer.
 """
 import json
 import os
+import zipfile
 import re
 import struct
 import sys
@@ -993,6 +997,61 @@ def collect(folder, recursive):
 AUDIO_ENDS = (".wav", ".wave", ".mp3", ".flac", ".ogg")
 
 
+def sogni_zip(path):
+    """Whether a zip is SogniMusic's (--zip): it holds the run's log, "SogniMusic log.txt" (in the first part)
+    or, in a later part of a split one, DrumMidi's MIDI of it ("SogniMusic run N <model>.mid")."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = [os.path.basename(n) for n in z.namelist()]
+    except (zipfile.BadZipFile, OSError):
+        return False
+    return "SogniMusic log.txt" in names or any(re.match(r"SogniMusic run \d+ .+\.midi?$", n) for n in names)
+
+
+def zip_base(path):
+    """A zip's name without ".zip" and a part number: sogni-Funk-d85a09ac-part1of2.zip -> sogni-Funk-d85a09ac."""
+    return re.sub(r"-part\d+of\d+$", "", stem(path))
+
+
+def unzip_midis(zips, into):
+    """The MIDI files of SogniMusic's zips (each part of a split one) written into `into`; their paths."""
+    os.makedirs(into, exist_ok=True)
+    out = []
+    for path in zips:
+        with zipfile.ZipFile(path) as z:
+            for n in z.namelist():
+                base = os.path.basename(n)
+                if not base.lower().endswith((".mid", ".midi")):
+                    continue
+                to = os.path.join(into, base)
+                with z.open(n) as src, open(to, "wb") as dst:
+                    dst.write(src.read())
+                if to not in out:
+                    out.append(to)
+    return sorted(out)
+
+
+def sogni_zips(folder, only=None):
+    """SogniMusic's zips in the folder (or only the one named `only`, with its parts), unpacked:
+    {"<base>-midi" folder: its MIDI files}, the parts of a split zip into one folder. Each is said,
+    with how many MIDI files it gave."""
+    groups = {}
+    for n in sorted(os.listdir(folder)):
+        p = os.path.join(folder, n)
+        if only and zip_base(p) != only:
+            continue
+        if n.lower().endswith(".zip") and os.path.isfile(p) and sogni_zip(p):
+            groups.setdefault(zip_base(p), []).append(p)
+    out = {}
+    for base, parts in sorted(groups.items()):
+        into = os.path.join(folder, base + "-midi")
+        midis = unzip_midis(parts, into)
+        print("SogniMusic zip %s%s: %d MIDI file%s into %s" % (base, " (%d parts)" % len(parts) if len(parts) > 1 else "",
+              len(midis), "" if len(midis) == 1 else "s", os.path.basename(into)))
+        out[into] = midis
+    return out
+
+
 # The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
 # alone, KIT_HITS times, half a second apart.
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
@@ -1445,6 +1504,13 @@ def main(argv):
     if gizmo and stem(gizmo).lower() == "drumkit":
         name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
     folder = opts["--dir"]
+    # One of SogniMusic's zips as --dir: it (and its other parts) unpacked beside it, and its MIDI files rendered.
+    one_zip = None
+    if folder and folder.lower().endswith(".zip") and os.path.isfile(folder):
+        if not sogni_zip(folder):
+            fail("%s is not a SogniMusic zip (--zip makes one)" % folder)
+        one_zip = zip_base(folder)
+        folder = os.path.dirname(os.path.abspath(folder))
     # A playlist (.pls) for the folder: its MIDI files (PlayList --midi makes one).
     pls = bool(folder) and folder.lower().endswith(".pls") and os.path.isfile(folder)
     if folder:
@@ -1452,7 +1518,11 @@ def main(argv):
             fail("no folder %s" % folder)
         if opts["--wav"]:
             fail("--dir plays MIDI files; --wav is for one WAV")
-        batch = pls_midis(folder) if pls else collect(folder, "--recursive" in switches)
+        batch = pls_midis(folder) if pls else ([] if one_zip else collect(folder, "--recursive" in switches))
+        # SogniMusic's zips: their MIDI files (an <zip>-midi folder made earlier is replaced, not counted twice).
+        if not pls:
+            for into, midis in sogni_zips(folder, one_zip).items():
+                batch = [m for m in batch if not m.startswith(into + os.sep)] + midis
         if pls:
             folder = os.path.dirname(os.path.abspath(folder))
         roots = {m: folder for m in batch}

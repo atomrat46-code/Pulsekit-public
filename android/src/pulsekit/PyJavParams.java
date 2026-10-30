@@ -182,6 +182,7 @@ public final class PyJavParams {
           row.addView(clear);
         }
         useBox(activity, p, i, row, chosen, uses, off);
+        spaced(activity, row);
         box.addView(row);
         box.addView(nameLine(activity, chosen));
         continue;
@@ -790,15 +791,19 @@ public final class PyJavParams {
     return ProgramParams.merge(ProgramParams.parse(programText), extra, saved);
   }
 
-  /** A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...). */
+  /**
+   * A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...; a
+   * folder's Use, Browse and Clear read as one word, "UseBrowseClear").
+   */
   static LinearLayout spaced(Activity activity, LinearLayout row) {
+    row.setPadding(row.getPaddingLeft(), Math.max(row.getPaddingTop(), dp(activity, 4)), row.getPaddingRight(), row.getPaddingBottom());
     for (int i = 1; i < row.getChildCount(); i++) {
       android.view.View c = row.getChildAt(i);
       if (!(c instanceof android.widget.Button)) continue;
       android.view.ViewGroup.LayoutParams lp = c.getLayoutParams();
       LinearLayout.LayoutParams m = lp instanceof LinearLayout.LayoutParams ? (LinearLayout.LayoutParams) lp
           : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-      m.leftMargin = dp(activity, 8);
+      m.leftMargin = dp(activity, row.getChildAt(i - 1) instanceof android.widget.CheckBox ? 16 : 8);
       c.setLayoutParams(m);
     }
     return row;
