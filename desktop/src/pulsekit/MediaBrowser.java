@@ -986,6 +986,12 @@ final class MediaBrowser {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.PROCESS_REF;
         }
+        // A made file carrying its Sogni job id: Sogni job id (and the workflow that made it).
+        final String job = MediaDir.sogniJob(f, entry.name);
+        if (job != null) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.SOGNI_JOB;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(entry));
@@ -999,6 +1005,11 @@ final class MediaBrowser {
             item.setName("media-menu:" + (slot >= 0 ? String.valueOf(slot) : items[i]));
             if (MediaDir.PROCESS_REF.equals(items[i])) {
                 item.addActionListener(e -> ProcessRefDialog.open(app, f));
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.SOGNI_JOB.equals(items[i])) {
+                item.addActionListener(e -> SogniJobDialog.show(app, job));
                 menu.add(item);
                 continue;
             }

@@ -10049,13 +10049,13 @@ public class BehaviorTest {
     out.append("inputs: gone ").append(gone).append(", restored ").append(back).append(" (missing ").append(missing).append(") | no library: ").append(InputOrigins.missingNote(stillGone)).append('\n');
     boolean inputsOk = gone && missing.isEmpty() && back && stillGone.equals(java.util.Collections.singletonList("beach.png"));
     // Unexpected end of stream reconnects; any failure with a workflow can be resumed.
-    String log = "Workflow: wf-77\nFailed: Unexpected end of stream\n";
+    String log = "Workflow: wf_77\nFailed: Unexpected end of stream\n";
     java.util.List<String> again = JavaRun.reconnectArgs("SogniPedit.java", "", log, java.util.Arrays.asList("--prompt", "sky"));
-    java.util.List<String> resume = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-78\nFailed: Sogni said no\n", java.util.Arrays.asList("--prompt", "sky"));
-    java.util.List<String> none = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf-79\nSucceeded\n", java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf_78\nFailed: Sogni said no\n", java.util.Arrays.asList("--prompt", "sky"));
+    java.util.List<String> none = JavaRun.resumeArgs("SogniPedit.java", "", "Workflow: wf_79\nSucceeded\n", java.util.Arrays.asList("--prompt", "sky"));
     out.append("reconnect ").append(again).append(" | resume ").append(resume).append(" | succeeded ").append(none).append('\n');
     out.append("question: ").append(JavaRun.resumeQuestion("Failed: Sogni said no", resume).replace('\n', ' ')).append('\n');
-    boolean resumeOk = again != null && again.contains("wf-77") && resume != null && resume.contains("wf-78") && none == null;
+    boolean resumeOk = again != null && again.contains("wf_77") && resume != null && resume.contains("wf_78") && none == null;
     // Workflow ids: running while it downloads, completed when it succeeds.
     SogniHistory.init(new File(dir, "sogni"));
     SogniHistory.started("wf-80", "SogniPedit.java", 1000L);
@@ -10840,6 +10840,74 @@ public class BehaviorTest {
         .append(" | item opened the reference dialog: ").append(opened).append('\n');
     write("s179_process_ref_menu", out.toString());
     if (!tall.contains(MediaDir.PROCESS_REF) || wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s180_sogni_job_ids() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AppSettings.load(app.getFilesDir());
+    // The job id in plain text (an escaped JSON prompt), a PNG's compressed zTXt and iTXt, and an ID3 tag's UTF-16.
+    String plain = SogniApi.jobIn("{\\\"max_tokens\\\": 600, \\\"_sogni_job\\\": \\\"d326d017-03aa-4b1c-9f00-1234567890ab\\\"}".getBytes(StandardCharsets.ISO_8859_1));
+    java.io.ByteArrayOutputStream z = new java.io.ByteArrayOutputStream();
+    try (java.util.zip.DeflaterOutputStream d = new java.util.zip.DeflaterOutputStream(z)) {
+      d.write("{\"prompt\": {\"_sogni_job\": \"aaaa1111-bbbb\"}}".getBytes(StandardCharsets.UTF_8));
+    }
+    java.io.ByteArrayOutputStream ztxt = new java.io.ByteArrayOutputStream();
+    ztxt.write("prompt".getBytes(StandardCharsets.US_ASCII));
+    ztxt.write(new byte[] {0, 0});
+    ztxt.write(z.toByteArray());
+    String zPng = SogniApi.jobIn(withChunk(plainPng(40, 70), "zTXt", ztxt.toByteArray()));
+    java.io.ByteArrayOutputStream itxt = new java.io.ByteArrayOutputStream();
+    itxt.write("prompt".getBytes(StandardCharsets.US_ASCII));
+    itxt.write(new byte[] {0, 1, 0, 0, 0});
+    itxt.write(z.toByteArray());
+    String iPng = SogniApi.jobIn(withChunk(plainPng(40, 70), "iTXt", itxt.toByteArray()));
+    byte[] id3 = ("ID3\u0003\u0000\u0000TXXX" + "\"_sogni_job\": \"cccc2222-dddd\"").getBytes(StandardCharsets.UTF_16LE);
+    String mp3 = SogniApi.jobIn(id3);
+    String none = SogniApi.jobIn(plainPng(40, 70));
+    out.append("plain ").append(plain).append(" | zTXt ").append(zPng).append(" | iTXt ").append(iPng).append(" | UTF-16 ").append(mp3).append(" | none ").append(none).append('\n');
+    boolean readOk = "d326d017-03aa-4b1c-9f00-1234567890ab".equals(plain) && "aaaa1111-bbbb".equals(zPng) && "aaaa1111-bbbb".equals(iPng) && "cccc2222-dddd".equals(mp3) && none == null;
+    // A run's "Sogni job:" lines are kept with its workflow.
+    SogniHistory.init(new File(app.getFilesDir(), "sogni"));
+    SogniHistory.jobs("Workflow: wf_job1\nSogni job: aaaa1111-bbbb\nSucceeded: x.png\n", "wf_job1");
+    String kept = SogniHistory.jobText("aaaa1111-bbbb").replace('\n', ' ');
+    String unknown = SogniHistory.jobText("eeee3333-ffff").replace('\n', ' ');
+    out.append("kept: ").append(kept).append("\nunknown: ").append(unknown).append('\n');
+    boolean keptOk = kept.contains("Workflow: wf_job1") && unknown.contains("not in Pulsekit's list");
+    // The Media browser's menu: Sogni job id for a made picture, not for a plain one; it shows the id.
+    File media = new File(app.getCacheDir(), "jobpics");
+    media.mkdirs();
+    Files.write(new File(media, "made.png").toPath(), withChunk(plainPng(400, 700), "zTXt", ztxt.toByteArray()));
+    Files.write(new File(media, "plain.png").toPath(), plainPng(400, 700));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:plain.png").performLongClick();
+    idle();
+    boolean plainHas = listItems(MediaBrowser.lastMenu).contains(MediaDir.SOGNI_JOB);
+    MediaBrowser.lastMenu.dismiss();
+    bv.findViewWithTag("media-card:made.png").performLongClick();
+    idle();
+    java.util.List<String> made = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    SogniJobDialog.last = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(made.indexOf(MediaDir.SOGNI_JOB));
+    idle();
+    String shown = SogniJobDialog.last == null ? "" : String.valueOf(org.robolectric.Shadows.shadowOf(SogniJobDialog.last).getMessage()).replace('\n', ' ');
+    if (SogniJobDialog.last != null) SogniJobDialog.last.dismiss();
+    b.dialog.dismiss();
+    out.append("menu: made ").append(made.contains(MediaDir.SOGNI_JOB)).append(", plain ").append(plainHas).append(" | shown: ").append(shown).append('\n');
+    boolean menuOk = made.contains(MediaDir.SOGNI_JOB) && !plainHas && shown.contains("aaaa1111-bbbb") && shown.contains("wf_job1");
+    write("s180_sogni_job_ids", out.toString());
+    if (!readOk || !keptOk || !menuOk) throw new AssertionError(out.toString());
+  }
+
+  /** A PNG with one more chunk before its IEND. */
+  private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    out.write(png, 0, png.length - 12);
+    pngChunk(out, type, data);
+    pngChunk(out, "IEND", new byte[0]);
+    return out.toByteArray();
   }
 
   /** A black w×h PNG (8-bit RGB), written byte by byte (no AWT here). */

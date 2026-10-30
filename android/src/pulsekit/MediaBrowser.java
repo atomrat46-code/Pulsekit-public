@@ -1873,6 +1873,12 @@ final class MediaBrowser {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.PROCESS_REF;
         }
+        // A made file carrying its Sogni job id: Sogni job id (and the workflow that made it).
+        final String job = e.dbId == 0 ? SogniJobDialog.of(this.app, e.id, e.name) : null;
+        if (job != null) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaDir.SOGNI_JOB;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
@@ -1898,6 +1904,7 @@ final class MediaBrowser {
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
                 else if (MediaDir.PROCESS_REF.equals(items[which])) this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file));
+                else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
             .setNegativeButton("Cancel", null)

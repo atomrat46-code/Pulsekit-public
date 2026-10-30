@@ -944,11 +944,11 @@ public final class SogniPedit {
       return id;
     }
 
-    /** Whether a text can be a workflow id: "wf_…", or 12 or more letters, digits, - and _ with a digit among them (not a word such as "require"). */
+    /** Whether a text can be a workflow id: "wf_…", or letters, digits, - and _ with a digit among them (not a word such as "require"). */
     static boolean validId(String id) {
       if (id == null) return false;
       if (id.startsWith("wf_") && id.length() > 3) return true;
-      return id.length() >= 12 && id.matches("[A-Za-z0-9_-]+") && id.matches(".*[0-9].*");
+      return id.matches("[A-Za-z0-9_-]+") && id.matches(".*[0-9].*");
     }
 
     /** A workflow id anywhere in a reply: workflowId, workflow_id, or an id starting "wf_" (the shallowest first). */
@@ -1862,7 +1862,11 @@ public final class SogniPedit {
       int code = c.getResponseCode();
       if (code / 100 != 2) throw failure(c, code);
       try {
-        return readCounting(c.getInputStream(), c.getContentLengthLong());
+        byte[] data = readCounting(c.getInputStream(), c.getContentLengthLong());
+        // The Sogni job id it carries: PyJav keeps it with the run's workflow (SogniHistory.jobs).
+        String job = jobIn(data);
+        if (job != null) System.out.println("Sogni job: " + job);
+        return data;
       } finally {
         c.disconnect();
       }
@@ -2309,6 +2313,106 @@ public final class SogniPedit {
       StringBuilder sb = new StringBuilder();
       for (String[] k : known) sb.append(sb.length() > 0 ? ", " : "").append(k[1]).append(" (").append(k[0]).append(')');
       return sb.toString();
+    }
+    /**
+     * The Sogni job id a made file carries in its metadata ("_sogni_job" in the prompt Sogni writes into
+     * a PNG/JPEG/WebP text chunk, an MP3's ID3 tag or an MP4's tags), or null. Plain, UTF-16 (ID3) and
+     * compressed (PNG zTXt/iTXt) text are read.
+     */
+    public static String jobIn(byte[] data) {
+      if (data == null) return null;
+      String job = jobAfter(data, data.length);
+      if (job != null) return job;
+      // UTF-16 text (ID3 frames): the same bytes without their zeros.
+      byte[] narrow = new byte[data.length];
+      int n = 0;
+      for (byte b : data) if (b != 0) narrow[n++] = b;
+      job = jobAfter(narrow, n);
+      if (job != null) return job;
+      // A PNG's compressed text chunks.
+      if (data.length > 8 && (data[0] & 0xff) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') {
+        int at = 8;
+        while (at + 8 <= data.length) {
+          int len = ((data[at] & 0xff) << 24) | ((data[at + 1] & 0xff) << 16) | ((data[at + 2] & 0xff) << 8) | (data[at + 3] & 0xff);
+          String type = new String(data, at + 4, 4, StandardCharsets.ISO_8859_1);
+          if (len < 0 || at + 8 + len > data.length) break;
+          if (type.equals("zTXt") || type.equals("iTXt")) {
+            int s = at + 8, end = s + len, k = s;
+            while (k < end && data[k] != 0) k++;
+            int from = -1;
+            if (type.equals("zTXt")) from = k + 2;
+            else if (k + 2 < end && data[k + 1] == 1) {
+              int z = k + 3;
+              for (int field = 0; field < 2 && z < end; z++) if (data[z] == 0) field++;
+              from = z;
+            }
+            if (from > s && from < end) {
+              byte[] text = inflate(data, from, end - from);
+              job = text == null ? null : jobAfter(text, text.length);
+              if (job != null) return job;
+            }
+          }
+          if (type.equals("IEND")) break;
+          at += 12 + len;
+        }
+      }
+      return null;
+    }
+
+    /** jobIn of a file's first and last 2 MB (an MP4's tags may be at its end). */
+    public static String jobIn(File f) {
+      if (f == null || !f.isFile()) return null;
+      try {
+        java.io.RandomAccessFile in = new java.io.RandomAccessFile(f, "r");
+        try {
+          long size = in.length();
+          int part = 2 * 1024 * 1024;
+          byte[] head = new byte[(int) Math.min(size, part)];
+          in.readFully(head);
+          String job = jobIn(head);
+          if (job != null || size <= part) return job;
+          byte[] tail = new byte[(int) Math.min(size - part, part)];
+          in.seek(size - tail.length);
+          in.readFully(tail);
+          return jobIn(tail);
+        } finally {
+          in.close();
+        }
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** The id after the first "_sogni_job" key in `data` (quotes, escapes, ':' and '=' skipped). */
+    static String jobAfter(byte[] data, int length) {
+      String text = new String(data, 0, length, StandardCharsets.ISO_8859_1);
+      for (int at = text.indexOf("_sogni_job"); at >= 0; at = text.indexOf("_sogni_job", at + 1)) {
+        int i = at + 10;
+        while (i < text.length() && "\"\\': =\t".indexOf(text.charAt(i)) >= 0) i++;
+        int s = i;
+        while (i < text.length() && (Character.isLetterOrDigit(text.charAt(i)) || text.charAt(i) == '-' || text.charAt(i) == '_') && text.charAt(i) < 128) i++;
+        if (i - s >= 8) return text.substring(s, i);
+      }
+      return null;
+    }
+
+    static byte[] inflate(byte[] data, int from, int length) {
+      java.util.zip.Inflater z = new java.util.zip.Inflater();
+      try {
+        z.setInput(data, from, length);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        while (!z.finished() && out.size() < 4 * 1024 * 1024) {
+          int n = z.inflate(buf);
+          if (n == 0 && (z.needsInput() || z.needsDictionary())) break;
+          out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+      } catch (java.util.zip.DataFormatException ex) {
+        return null;
+      } finally {
+        z.end();
+      }
     }
     // --- SogniApi end ---
   }

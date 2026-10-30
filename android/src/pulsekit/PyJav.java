@@ -1427,6 +1427,8 @@ final class PyJav {
             this.pkShowWorkflow(pulsekit.SogniDownloads.workflowIn(log));
             // Params' --workflow list: completed when it downloaded, failed else.
             pulsekit.SogniHistory.finished(pulsekit.SogniDownloads.workflowIn(log), log.indexOf("Succeeded") >= 0);
+            // The Sogni job ids its files carry, kept with the workflow (a file's menu: Sogni job id).
+            pulsekit.SogniHistory.jobs(log, pulsekit.SogniDownloads.workflowIn(log));
         }
         // The prompt library work runs in the background: storing a large result (a 10 s video)
         // re-encrypts the whole library, which on the main thread froze the app ("not responding").

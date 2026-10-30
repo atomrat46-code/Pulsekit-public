@@ -6713,9 +6713,9 @@ public final class DesktopBehavior {
     String running = SogniHistory.entries().get(0).status;
     SogniHistory.finished("wf-90", true);
     String completed = SogniHistory.entries().get(0).status;
-    java.util.List<String> resume = JavaRun.resumeArgs("SogniVideo.java", "", "Workflow: wf-91\nFailed: Unexpected end of stream\n", java.util.Arrays.asList("--prompt", "walk"));
+    java.util.List<String> resume = JavaRun.resumeArgs("SogniVideo.java", "", "Workflow: wf_91\nFailed: Unexpected end of stream\n", java.util.Arrays.asList("--prompt", "walk"));
     out.append("workflow: ").append(running).append(" -> ").append(completed).append(" | resume ").append(resume).append('\n');
-    boolean wfOk = "running".equals(running) && "completed".equals(completed) && resume != null && resume.contains("wf-91");
+    boolean wfOk = "running".equals(running) && "completed".equals(completed) && resume != null && resume.contains("wf_91");
     if (!slidersOk || !recentOk || !categoryOk || !wfOk) throw new AssertionError(out.toString());
   }
 
@@ -8464,6 +8464,74 @@ public final class DesktopBehavior {
     boolean ok = tallMenu.contains(MediaDir.PROCESS_REF) && !wideMenu.contains(MediaDir.PROCESS_REF) && !musicMenu.contains(MediaDir.PROCESS_REF)
         && tallMenu.equals(sortedTall) && asked && tip != null && tip[0].equals("4:3") && tipTall != null && tipTall[0].equals("4:7");
     if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * Sogni job ids: read from a made picture's compressed text chunk, kept with a run's workflow
+   * ("Sogni job:" lines), and the Media browser's Sogni job id item (only on a made file) shows both.
+   */
+  void s171_sogni_job_ids() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pics = new File(home, "jobpics");
+    pics.mkdirs();
+    final File made = new File(pics, "made.png"), plain = new File(pics, "plain.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", plain);
+    byte[] png = Files.readAllBytes(plain.toPath());
+    java.io.ByteArrayOutputStream z = new java.io.ByteArrayOutputStream();
+    try (java.util.zip.DeflaterOutputStream d = new java.util.zip.DeflaterOutputStream(z)) {
+      d.write("{\"prompt\": {\"_sogni_job\": \"aaaa1111-bbbb\"}}".getBytes(StandardCharsets.UTF_8));
+    }
+    java.io.ByteArrayOutputStream chunk = new java.io.ByteArrayOutputStream();
+    chunk.write("prompt".getBytes(StandardCharsets.US_ASCII));
+    chunk.write(new byte[] {0, 0});
+    chunk.write(z.toByteArray());
+    byte[] data = chunk.toByteArray();
+    java.io.ByteArrayOutputStream withJob = new java.io.ByteArrayOutputStream();
+    withJob.write(png, 0, png.length - 12);
+    withJob.write(java.nio.ByteBuffer.allocate(4).putInt(data.length).array());
+    withJob.write("zTXt".getBytes(StandardCharsets.US_ASCII));
+    withJob.write(data);
+    java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+    crc.update("zTXt".getBytes(StandardCharsets.US_ASCII));
+    crc.update(data);
+    withJob.write(java.nio.ByteBuffer.allocate(4).putInt((int) crc.getValue()).array());
+    withJob.write(png, png.length - 12, 12);
+    Files.write(made.toPath(), withJob.toByteArray());
+    AppSettings.load(PromptDb.dir());
+    SogniHistory.init(PromptDb.dir());
+    SogniHistory.jobs("Workflow: wf_job1\nSogni job: aaaa1111-bbbb\nSucceeded: made.png\n", "wf_job1");
+    String read = SogniApi.jobIn(made), none = SogniApi.jobIn(plain);
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    java.util.function.Function<File, java.util.List<String>> menuOf = f -> {
+      final MediaDir.Entry e = new MediaDir.Entry();
+      e.name = f.getName();
+      e.id = f.getAbsolutePath();
+      e.kind = MediaDir.PICTURE;
+      e.size = f.length();
+      try {
+        edt(() -> mb.menu(e, f, new javax.swing.JButton(), 0, 0));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      java.util.List<String> out = new java.util.ArrayList<String>();
+      for (Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && !MenuCancel.is(c)) out.add(((javax.swing.JMenuItem) c).getText());
+      return out;
+    };
+    boolean plainHas = menuOf.apply(plain).contains(MediaDir.SOGNI_JOB);
+    edt(() -> mb.lastMenu.setVisible(false));
+    boolean madeHas = menuOf.apply(made).contains(MediaDir.SOGNI_JOB);
+    javax.swing.JMenuItem jobItem = null;
+    for (Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.SOGNI_JOB.equals(((javax.swing.JMenuItem) c).getText())) jobItem = (javax.swing.JMenuItem) c;
+    final javax.swing.JMenuItem item = jobItem;
+    if (item != null) SwingUtilities.invokeLater(item::doClick);
+    for (int i = 0; i < 30 && !this.out.toString().contains("Workflow: wf_job1"); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    boolean shown = this.out.toString().contains("Sogni job: aaaa1111-bbbb") && this.out.toString().contains("Workflow: wf_job1");
+    this.out.append("read ").append(read).append(" | plain ").append(none).append(" | menu: made ").append(madeHas).append(", plain ").append(plainHas)
+        .append(" | dialog shown ").append(shown).append('\n');
+    if (!"aaaa1111-bbbb".equals(read) || none != null || !madeHas || plainHas || !shown) throw new AssertionError(this.out.toString());
   }
 
   @SuppressWarnings("unchecked")

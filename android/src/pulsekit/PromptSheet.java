@@ -2180,6 +2180,12 @@ public final class PromptSheet {
         items.add(MediaDir.PROCESS_REF);
         runs.add(() -> ProcessRefDialog.open((MainActivity) activity, name, bytes));
       }
+      // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
+      final String job = AppSettings.showSogni() ? SogniApi.jobIn(bytes) : null;
+      if (job != null) {
+        items.add(MediaDir.SOGNI_JOB);
+        runs.add(() -> SogniJobDialog.show((MainActivity) activity, job));
+      }
     }
     // A MIDI: the MIDI editor, Render with SF2, Play with default SoundFont; a sound: Convert drum hits into MIDI (as the Media browser has them).
     String[] kinds = activity instanceof MainActivity ? MediaDir.kindItems(name, false) : new String[0];

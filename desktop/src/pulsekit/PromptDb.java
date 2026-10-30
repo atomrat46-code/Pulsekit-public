@@ -1371,6 +1371,14 @@ final class PromptDb {
                 });
                 menu.add(process);
             }
+            // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
+            final String job = AppSettings.showSogni() ? SogniApi.jobIn(picture) : null;
+            if (job != null) {
+                JMenuItem jobItem = new JMenuItem(MediaDir.SOGNI_JOB);
+                jobItem.setName("gallery-sogni-job");
+                jobItem.addActionListener(e -> SogniJobDialog.show(app, job));
+                menu.add(jobItem);
+            }
         }
         // A MIDI: the MIDI editor, Render with SF2 or plugin, Play with default SoundFont; a sound: Convert drum hits into MIDI.
         for (final String kindItem : MediaDir.kindItems(file.name, true)) {

@@ -716,6 +716,16 @@ public final class MediaDir {
     return UpscaleCheck.size(head) != null && UpscaleCheck.question(settings, name, head) == null;
   }
 
+  /** A made file's item when Sogni tools are shown and it carries a Sogni job id: the id (and its workflow), with Copy. */
+  public static final String SOGNI_JOB = "Sogni job id";
+
+  /** The Sogni job id a picture, video or sound file carries, when Sogni tools are shown; else null. */
+  public static String sogniJob(File f, String name) {
+    int k = kind(name);
+    if (!AppSettings.showSogni() || (k != PICTURE && k != VIDEO && k != SOUND)) return null;
+    return SogniApi.jobIn(f);
+  }
+
   /** The first bytes of a file (a picture's size is in them), or null. */
   public static byte[] head(File f) {
     if (f == null || !f.isFile()) return null;

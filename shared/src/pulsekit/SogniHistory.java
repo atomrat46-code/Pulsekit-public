@@ -138,6 +138,73 @@ public final class SogniHistory {
     write(list);
   }
 
+  /** Sogni job ids ("Sogni job: <id>" lines, printed after each download) and the workflow that made them. */
+  public static final int MAX_JOBS = 500;
+
+  static File jobsFile() {
+    return file == null ? null : new File(file.getParentFile(), "sogni_jobs.txt");
+  }
+
+  /** Keeps the job ids a run's log names with the workflow it names (newest first). */
+  public static synchronized void jobs(String log, String workflow) {
+    File f = jobsFile();
+    if (f == null || log == null || workflow == null || workflow.trim().length() == 0) return;
+    List<String> found = new ArrayList<String>();
+    for (String line : log.split("\n")) {
+      String t = line.trim();
+      if (t.startsWith("Sogni job: ") && t.length() > 11 && !found.contains(t.substring(11).trim())) found.add(t.substring(11).trim());
+    }
+    if (found.isEmpty()) return;
+    List<String> lines = new ArrayList<String>();
+    for (String job : found) lines.add(clean(job) + "\t" + clean(workflow.trim()));
+    for (String old : readJobs(f)) {
+      String job = old.split("\t", -1)[0];
+      if (!found.contains(job)) lines.add(old);
+    }
+    while (lines.size() > MAX_JOBS) lines.remove(lines.size() - 1);
+    StringBuilder sb = new StringBuilder();
+    for (String l : lines) sb.append(l).append('\n');
+    try {
+      FileOutputStream out = new FileOutputStream(f);
+      try {
+        out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+      } finally {
+        out.close();
+      }
+    } catch (IOException ignored) {
+      // the list stays as it was
+    }
+  }
+
+  /** The workflow that made a Sogni job, or null when Pulsekit did not keep it. */
+  public static synchronized String workflowOfJob(String job) {
+    File f = jobsFile();
+    if (f == null || job == null) return null;
+    for (String l : readJobs(f)) {
+      String[] p = l.split("\t", -1);
+      if (p.length >= 2 && p[0].equals(job.trim()) && p[1].length() > 0) return p[1];
+    }
+    return null;
+  }
+
+  static List<String> readJobs(File f) {
+    List<String> out = new ArrayList<String>();
+    if (!f.isFile()) return out;
+    try {
+      for (String l : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) if (l.indexOf('\t') > 0) out.add(l);
+    } catch (IOException ignored) {
+      // no list yet
+    }
+    return out;
+  }
+
+  /** The text shown for a made file's Sogni job: its id and, if kept, its workflow. */
+  public static String jobText(String job) {
+    String wf = workflowOfJob(job);
+    return "Sogni job: " + job + "\n" + (wf != null ? "Workflow: " + wf
+        : "Its workflow is not in Pulsekit's list (made elsewhere, or before Pulsekit kept job ids).");
+  }
+
   public static List<Entry> entries() {
     List<Entry> out = new ArrayList<Entry>();
     if (file == null || !file.isFile()) return out;

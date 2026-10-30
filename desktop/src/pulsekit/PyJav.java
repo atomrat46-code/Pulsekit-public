@@ -974,6 +974,8 @@ final class PyJav {
                     this.showWorkflow(SogniDownloads.workflowIn(result.log));
                     // Params' --workflow list: completed when it downloaded, failed else.
                     SogniHistory.finished(SogniDownloads.workflowIn(result.log), result.log.indexOf("Succeeded") >= 0);
+                    // The Sogni job ids its files carry, kept with the workflow (a file's menu: Sogni job id).
+                    SogniHistory.jobs(result.log, SogniDownloads.workflowIn(result.log));
                 }
                 // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
                 // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
