@@ -737,6 +737,51 @@ final class PyJav {
         }, "pulsekit-output-dir").start();
     }
 
+    /** SogniMusic --compare_models: each model's track measured in the background, then the ranking under the log. */
+    void pkCompareModels(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final String log) {
+        this.pkAddLogLine("Measuring the models' tracks…");
+        new Thread(() -> {
+            String report;
+            try {
+                report = pulsekit.MusicCompare.of(argv, log, name -> {
+                    if (result == null || result.files == null) return null;
+                    for (int i = 0; i < result.files.size(); i++) {
+                        pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                        if (name.equals(f.name)) return pkSound(f.bytes);
+                    }
+                    return null;
+                });
+            } catch (Throwable ex) {
+                report = "Could not compare the models' tracks: " + ex;
+            }
+            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            app.runOnUiThread(() -> {
+                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+            });
+        }, "pulsekit-compare-models").start();
+    }
+
+    /** A track's sound: a WAV read as it is, else decoded as Android plays it (MP3); null when it cannot be. */
+    pulsekit.AudioIo.Pcm pkSound(byte[] data) {
+        if (data == null) return null;
+        if ("wav".equals(pulsekit.AudioIo.sniff(data))) return pulsekit.AudioIo.parseWav(data);
+        java.io.File tmp = null;
+        try {
+            tmp = java.io.File.createTempFile("compare", ".mp3", app.getCacheDir());
+            java.nio.file.Files.write(tmp.toPath(), data);
+            try (java.io.FileInputStream in = new java.io.FileInputStream(tmp)) {
+                ProjectIo.Decoded d = ProjectIo.decodeNative(in.getFD());
+                float[] x = new float[d.mono.length];
+                for (int i = 0; i < x.length; i++) x[i] = d.mono[i] / 32768f;
+                return new pulsekit.AudioIo.Pcm(x, d.rate);
+            }
+        } catch (Exception ex) {
+            return null;
+        } finally {
+            if (tmp != null) tmp.delete();
+        }
+    }
+
     /** A line under the run's log (kept when the log is still this run's). */
     void pkAddLogLine(String line) {
         String now = this.pkRunLog == null ? "" : this.pkRunLog;
@@ -1530,6 +1575,8 @@ final class PyJav {
         final String madeLog = log;
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
+        // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
+        if (ok && pulsekit.MusicCompare.wanted(program, argv)) this.pkCompareModels(argv, made, madeLog);
         // A run of a batch (BatchRun): what it made is saved, not shown; the next run follows.
         final pulsekit.BatchQueue batch = pulsekit.BatchQueue.current();
         final boolean inBatch = batch != null && batch.takes(program) && !batch.joining;

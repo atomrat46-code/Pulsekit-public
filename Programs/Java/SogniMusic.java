@@ -152,6 +152,7 @@ public final class SogniMusic {
     String genre = null;
     boolean savePrompt = false;
     boolean deleteFromSogni = false;
+    String compareModels = null;
     // Off only when asked, on every run.
     SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
@@ -165,6 +166,7 @@ public final class SogniMusic {
         timesig = timesig(timesigText);
       }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
+      else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -234,6 +236,26 @@ public final class SogniMusic {
       say("Failed: --model is turbo, sft or music3");
       return 2;
     }
+    List<String> models = new ArrayList<String>();
+    if (compareModels != null) {
+      String list = compareModels.trim().toLowerCase(java.util.Locale.ROOT);
+      for (String m : (list.equals("all") ? "turbo,sft,music3" : list).split("[,; ]+")) {
+        if (m.length() == 0 || models.contains(m)) continue;
+        if (!"turbo".equals(m) && !"sft".equals(m) && !"music3".equals(m)) {
+          say("Failed: --compare_models lists turbo, sft and music3 (or all), not " + m);
+          return 2;
+        }
+        models.add(m);
+      }
+      if (models.size() < 2) {
+        say("Failed: --compare_models needs two or more models, such as turbo,sft (or all)");
+        return 2;
+      }
+      if (workflowId != null) {
+        say("Failed: --compare_models starts new runs, so leave out --workflow");
+        return 2;
+      }
+    }
     if (duration < 10 || duration > 600) {
       say("Failed: --duration is 10 to 600 seconds");
       return 2;
@@ -250,7 +272,8 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
-    String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
+    if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+    String input = musicInput(prompt, duration, bpm, keyscale, timesig, model, lyrics);
     if (workflowId != null) say("Fetching the result of workflow " + workflowId);
     else say("Music: " + prompt);
     say("Model " + model + ", " + SogniApi.number(duration) + " s"
@@ -308,9 +331,91 @@ public final class SogniMusic {
     return 0;
   }
 
+  /**
+   * The request for one model. Music 3 has no tempo, key or time-signature controls, so they go
+   * into its prompt, and it makes at most 300 s.
+   */
+  static String musicInput(String prompt, double duration, double bpm, String keyscale, int timesig, String model, String lyrics) {
+    if (!"music3".equals(model)) return SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
+    StringBuilder p = new StringBuilder(prompt);
+    if (bpm > 0) p.append(" Tempo: ").append(SogniApi.number(bpm)).append(" BPM.");
+    if (keyscale != null) p.append(" Key: ").append(keyscale).append('.');
+    if (timesig > 0) p.append(" Time signature: ").append(timesig == 6 ? "6/8" : timesig + "/4").append('.');
+    return SogniApi.musicInput("Pulsekit music", p.toString(), Math.min(duration, 300), 0, null, 0, model, lyrics);
+  }
+
+  /**
+   * --compare_models: the same request made by each model listed, all started at once, each track
+   * saved with its model in its name (sogni-Rock-6f1262f1-turbo.mp3). PyJav then measures them and
+   * ranks them ("Compared: <model> <file>" lines name them).
+   */
+  static int compare(SogniApi api, List<String> models, String out, String genre, String prompt, double duration, double bpm, String keyscale,
+      int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
+    say("Music: " + prompt);
+    say("Comparing " + models.size() + " models (each is a run of its own, paid for): " + String.join(", ", models));
+    if (models.contains("music3") && duration > 300) say("Note: music3 makes at most 300 s, so its track is shorter");
+    if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
+    List<String> ids = new ArrayList<String>();
+    for (String m : models) {
+      try {
+        String id = api.start(musicInput(prompt, duration, bpm, keyscale, timesig, m, lyrics), confirm, maxCost);
+        say("Model " + m + ": workflow " + id);
+        ids.add(id);
+      } catch (Exception ex) {
+        say("Model " + m + " did not start: " + ex.getMessage());
+        ids.add(null);
+      }
+    }
+    List<String> made = new ArrayList<String>();
+    // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
+    String first = null;
+    for (String id : ids) if (first == null && id != null) first = id;
+    String base = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(genre, first == null ? "" : first);
+    for (int i = 0; i < models.size(); i++) {
+      String m = models.get(i), id = ids.get(i);
+      if (id == null) continue;
+      try {
+        Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
+          public void line(String s) {
+            say(s);
+          }
+        });
+        List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
+        if (audio.isEmpty()) {
+          say("Model " + m + " made no audio: " + why(api, id, wf));
+          continue;
+        }
+        String url = SogniApi.str(audio.get(0).get("url"));
+        String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
+        File file = inWork(base + "-" + m + ext);
+        for (int n = 1; file.exists(); n++) file = inWork(base + "-" + m + "(" + n + ")" + ext);
+        byte[] data = api.download(url);
+        FileOutputStream fos = new FileOutputStream(file);
+        try {
+          fos.write(data);
+        } finally {
+          fos.close();
+        }
+        say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+        say("Compared: " + m + " " + file.getName());
+        made.add(file.getName());
+        if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
+      } catch (Exception ex) {
+        say("Model " + m + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
+      }
+    }
+    if (made.isEmpty()) {
+      say("Failed: no model made a track");
+      return 1;
+    }
+    resultFile = made.get(0);
+    say("Succeeded: " + String.join(", ", made));
+    return 0;
+  }
+
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**

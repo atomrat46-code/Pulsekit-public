@@ -1017,6 +1017,8 @@ final class PyJav {
                 }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
+                // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
+                if (result.code == 0 && MusicCompare.wanted(name, argv)) this.compareModels(argv, savedAudio, result.log);
                 if (!testing && !inBatch && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
                 File frame = result.code == 0 && "VideoFrames.java".equals(name) && argv.contains("--upscale") ? this.firstFrame(savedPictures, argv, result.log) : null;
@@ -1342,6 +1344,32 @@ final class PyJav {
         // Another program ran in between: the test is over.
         Midi2WavTest.stop();
         return false;
+    }
+
+    /** SogniMusic --compare_models: each model's track (as saved) measured in the background, then the ranking under the log. */
+    void compareModels(final java.util.List<String> argv, final java.util.Map<String, File> saved, final String log) {
+        this.testNote("Measuring the models' tracks…");
+        final java.util.Map<String, File> files = new java.util.HashMap<String, File>(saved);
+        new Thread(() -> {
+            String report;
+            try {
+                report = MusicCompare.of(argv, log, name -> {
+                    File f = files.get(name);
+                    try {
+                        byte[] data = f == null ? null : Files.readAllBytes(f.toPath());
+                        return data == null ? null : "wav".equals(AudioIo.sniff(data)) ? AudioIo.parseWav(data) : Mp3Decode.parse(data);
+                    } catch (Exception ex) {
+                        return null;
+                    }
+                });
+            } catch (Throwable ex) {
+                report = "Could not compare the models' tracks: " + ex;
+            }
+            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            SwingUtilities.invokeLater(() -> {
+                for (String line : shown.split("\n")) this.testNote(line);
+            });
+        }, "pulsekit-compare-models").start();
     }
 
     private void testNote(String line) {

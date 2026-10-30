@@ -10906,6 +10906,35 @@ public class BehaviorTest {
     if (!readOk || !keptOk || !menuOk) throw new AssertionError(out.toString());
   }
 
+  @Test
+  public void s181_sogni_music_compare_models() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Drum hits alone, and the same hits over a held bass note and its fifth (what a "drums only" track with a synth sounds like).
+    int sr = 22050;
+    float[] drums = new float[sr * 30], mixed = new float[sr * 30];
+    java.util.Random r = new java.util.Random(1);
+    for (int beat = 0; beat < 60; beat++) {
+      int at = beat * sr / 2;
+      for (int i = 0; i < 3000 && at + i < drums.length; i++) {
+        double t = i / (double) sr;
+        drums[at + i] += beat % 2 == 0 ? (float) (0.8 * Math.exp(-t * 30) * Math.sin(2 * Math.PI * 60 * t)) : (float) (0.5 * Math.exp(-t * 40) * (r.nextFloat() * 2 - 1));
+      }
+    }
+    for (int i = 0; i < mixed.length; i++) mixed[i] = drums[i] + (float) (0.3 * Math.sin(2 * Math.PI * 65.4 * i / sr) + 0.15 * Math.sin(2 * Math.PI * 196 * i / sr));
+    final byte[] clean = AudioIo.encodeWav(AudioIo.floatsToShorts(drums), sr), synth = AudioIo.encodeWav(AudioIo.floatsToShorts(mixed), sr);
+    String log = "Compared: sft sogni-Rock-1-sft.wav\nCompared: turbo sogni-Rock-1-turbo.wav\nSucceeded: sogni-Rock-1-sft.wav, sogni-Rock-1-turbo.wav\n";
+    String report = MusicCompare.of(java.util.Arrays.asList("--drums_only", "--bpm", "120", "--duration", "30", MusicCompare.FLAG, "turbo,sft"), log,
+        name -> AudioIo.parseWav(name.endsWith("turbo.wav") ? clean : synth));
+    out.append(report.replace('\u00b7', '|')).append('\n');
+    boolean ranked = report != null && report.contains("1. turbo") && report.contains("2. sft") && report.contains("120 BPM (as asked)") && report.contains("Best: turbo");
+    // SogniMusic's Params list the option.
+    ProgramParams.Param compare = null;
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) if (p.token.equals(MusicCompare.FLAG)) compare = p;
+    out.append("Params: ").append(compare == null ? "-" : compare.label + " " + (compare.choices == null ? "" : java.util.Arrays.toString(compare.choices))).append('\n');
+    write("s181_sogni_music_compare_models", out.toString());
+    if (!ranked || compare == null) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
