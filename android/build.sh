@@ -64,6 +64,9 @@ cp "$OUT/base.apk" "$OUT/unsigned.apk"
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 KS="${KEYSTORE:-debug.keystore}"
 if [ ! -f "$KS" ]; then
+  # A new key: the phone takes this APK only after Pulsekit is uninstalled. Put the kept key
+  # (pulsekit-signing-key.keystore, SHA-256 7D:E9:57:70...) here as android/debug.keystore first.
+  echo "WARNING: no $KS: making a new signing key; an installed Pulsekit will not update to this APK (restore the kept key first)" >&2
   keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
