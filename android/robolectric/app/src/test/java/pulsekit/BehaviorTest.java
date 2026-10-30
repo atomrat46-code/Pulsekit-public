@@ -1205,7 +1205,12 @@ public class BehaviorTest {
     idle();
     View strip = root().findViewWithTag("song-strip");
     out.append("song list scrolls sideways: ").append(strip instanceof android.widget.HorizontalScrollView).append('\n');
+    // The names stay in view while the part list scrolls to follow the playing part (not inside that list).
+    boolean inList = false;
+    for (android.view.ViewParent p = strip == null ? null : strip.getParent(); p != null; p = p.getParent()) if (p instanceof android.widget.ScrollView) inList = true;
+    out.append("song names above the part list: ").append(strip != null && !inList).append('\n');
     write("s39_make_song_names_after_file_set", out.toString());
+    if (strip == null || inList) throw new AssertionError(out.toString());
   }
 
   /** File set menu > Compare hits: results shown, kept under the file set, and still there after a restart. */

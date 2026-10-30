@@ -43,6 +43,8 @@ public final class CompareHits {
   /** Everything printed, for --log. */
   static final StringBuilder report = new StringBuilder();
   static String logPath;
+  /** The folder a relative --log is written in: the first input's (or --batch's). */
+  static java.io.File logDir;
   /** --no-toms, or DrumMidi's MIDI made with it: toms are left out on both sides. */
   static boolean noToms;
   static final String DEFAULT_LOG = "CompareHits_test_results.txt";
@@ -73,6 +75,8 @@ public final class CompareHits {
     if (logPath != null) {
       try {
         java.io.File f = new java.io.File(logPath);
+        // A bare name (--log results.txt) goes beside the first input: the phone's current folder is read-only.
+        if (!f.isAbsolute() && logDir != null) f = new java.io.File(logDir, logPath);
         java.io.File parent = f.getAbsoluteFile().getParentFile();
         if (parent != null && !parent.isDirectory()) parent.mkdirs();
         java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
@@ -117,6 +121,8 @@ public final class CompareHits {
       }
       files.add(a);
     }
+    java.io.File base = batchDir != null ? new java.io.File(batchDir) : files.isEmpty() ? null : new java.io.File(files.get(0));
+    if (base != null) logDir = base.getAbsoluteFile().isDirectory() ? base.getAbsoluteFile() : base.getAbsoluteFile().getParentFile();
     if (batchDir != null) {
       runBatch(batchDir);
       return;

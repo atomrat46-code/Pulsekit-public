@@ -166,6 +166,9 @@ public class MainActivity extends UiKit {
 
     LinearLayout songCards;
 
+    /** The imported songs' names, above the part list (which scrolls to follow the playing part). */
+    LinearLayout songNames;
+
     LinearLayout knobsRow;
 
     LinearLayout toolsRow;

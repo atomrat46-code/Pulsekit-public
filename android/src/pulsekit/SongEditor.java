@@ -117,6 +117,9 @@ final class SongEditor {
         app.timeline = app.row();
         horizontalScrollView5.addView((View)app.timeline);
         app.songPane.addView((View)horizontalScrollView5);
+        // The song names stay in view while the part list below follows the playing part.
+        app.songNames = app.col();
+        app.songPane.addView((View)app.songNames);
         ScrollView scrollView2 = new ScrollView((Context)app);
         app.songCards = app.col();
         scrollView2.addView((View)app.songCards);
@@ -949,6 +952,7 @@ final class SongEditor {
         }
         app.timeline.removeAllViews();
         app.songCards.removeAllViews();
+        if (app.songNames != null) app.songNames.removeAllViews();
         if ("imported".equals(app.songLane) && !app.importedSongs.isEmpty()) {
             List<String> sources = Engine.fileSetSources(app.learned, app.learnedFills);
             LinearLayout linearLayout = app.row();
@@ -971,7 +975,7 @@ final class SongEditor {
             songStrip.setHorizontalScrollBarEnabled(false);
             songStrip.setTag((Object)"song-strip");
             songStrip.addView((View)linearLayout);
-            app.songCards.addView((View)songStrip);
+            (app.songNames != null ? app.songNames : app.songCards).addView((View)songStrip);
             final View chosen = app.importedSongId == null ? null : linearLayout.getChildAt(Math.max(0, this.importedSongIndex()));
             if (chosen != null) songStrip.post(() -> songStrip.scrollTo(Math.max(0, chosen.getLeft() - app.dp(16)), 0));
         }

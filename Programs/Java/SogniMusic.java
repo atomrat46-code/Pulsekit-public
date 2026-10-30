@@ -34,8 +34,8 @@ import java.util.Map;
  * (tempo, duration, time signature, key) follows the prompt. It is written before the key is
  * checked, so a prompt can be exported without one.
  *
- * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
- * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
+ * --drums_only and --instruments write the instrumentation into the prompt ("drums only, acoustic
+ * drum kit alone, percussion only..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  *
  * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
@@ -497,7 +497,8 @@ public final class SogniMusic {
       if (g.length() > 0) sb.append(", ").append(g).append(" drum pattern");
       if (style.length() > 0) sb.append(", ").append(style);
       else if (g.length() == 0) sb.append(", tight groove");
-      sb.append(". Kick, snare, hi-hat and cymbals only: no bass, no guitar, no keys, no synths, no melody, no chords, no vocals. Dry, clear drum recording.");
+      // Only drum words: a music model hears "no synths" as "synths" (Sogni has no negative prompt).
+      sb.append(". Acoustic drum kit alone: kick drum, snare drum, hi-hat, toms, crash and ride cymbals. Percussion only, unaccompanied drummer, dry studio drum recording, instrumental.");
       return sb.toString();
     }
     if (g.length() > 0) style = style.length() > 0 ? g + ", " + style : g;
