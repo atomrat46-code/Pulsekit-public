@@ -11087,6 +11087,29 @@ public class BehaviorTest {
         && new File(root, "sogni/sogni_workflows.txt").isFile() && new File(prefs, "pulsekit.xml").isFile();
     out.append("wrong password: ").append(wrong).append(" | restore: ").append(back).append(" | files back: ").append(filesBack)
         .append(" | prompt library before ").append(before).append(", after ").append(after).append('\n');
+    // The backup itself picked in Database settings > Import db zip: its prompt library comes in, and what came of it is a dialog.
+    File again = new File(app.getCacheDir(), "in/pulsekit-backup-20261030-1500.zip");
+    again.getParentFile().mkdirs();
+    Files.copy(zip.toPath(), again.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    DbSettings.opened(app, again, again.getName());
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pass1234");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String fromBackup = DbSettings.lastSaid;
+    boolean toldInDialog = DbSettings.lastAsk.isShowing() && DbSlots.IMPORT.equals(String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle()))
+        && String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getMessage()).equals(fromBackup);
+    DbSettings.lastAsk.dismiss();
+    out.append("Import db zip of the backup: ").append(fromBackup).append(" | shown in a dialog: ").append(toldInDialog).append('\n');
     // The menu item opens the dialog with its parts ticked as set.
     BackupScreen.show(app);
     idle();
@@ -11097,7 +11120,8 @@ public class BehaviorTest {
     out.append("dialog: ").append(ticks.toString().trim()).append('\n');
     write("s183_backup_and_restore", out.toString());
     boolean ok = noSecrets && inside.containsAll(java.util.Arrays.asList(AppBackup.SETTINGS, AppBackup.SETS, AppBackup.PLAYLISTS, AppBackup.SOGNI, AppBackup.DB))
-        && AppBackup.needsPassword(zip) && "refused".equals(wrong) && filesBack && after.equals(before) && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
+        && AppBackup.needsPassword(zip) && "refused".equals(wrong) && filesBack && after.equals(before)
+        && fromBackup != null && fromBackup.startsWith("Imported the DB as backup") && toldInDialog && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
     if (!ok) throw new AssertionError(out.toString());
   }
 

@@ -36,6 +36,12 @@ final class DbSettings {
         android.widget.Toast.makeText(app, text, android.widget.Toast.LENGTH_LONG).show();
     }
 
+    /** What an import came to, in a dialog of its own (a toast is easily missed behind the DB settings). */
+    static void told(MainActivity app, String text) {
+        said(app, text);
+        lastAsk = new AlertDialog.Builder(app).setTitle(DbSlots.IMPORT).setMessage(text).setPositiveButton("OK", null).show();
+    }
+
     static void show(final MainActivity app) {
         final File dir = app.getFilesDir();
         LinearLayout col = app.col();
@@ -331,7 +337,7 @@ final class DbSettings {
             final String why = failed;
             app.handler.post(() -> {
                 if (why != null) {
-                    said(app, "Could not import " + importName + ": " + why);
+                    told(app, "Could not import " + importName + ": " + why);
                     return;
                 }
                 if (unpacked.needsKey) askKey(app);
@@ -413,8 +419,8 @@ final class DbSettings {
             app.handler.post(() -> {
                 PyJav.KEEPING.decrementAndGet();
                 PromptSheet.reopen(app);
-                said(app, shown);
                 again(app);
+                told(app, shown);
             });
         }, "pulsekit-db-import").start();
     }

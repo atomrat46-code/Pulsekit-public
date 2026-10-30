@@ -36,6 +36,12 @@ final class DbSettings {
         app.setNow(text);
     }
 
+    /** What an import came to, in a dialog of its own, as on Android. */
+    static void told(Pulsekit app, String text) {
+        said(app, text);
+        javax.swing.JOptionPane.showMessageDialog(app, text, DbSlots.IMPORT, javax.swing.JOptionPane.PLAIN_MESSAGE);
+    }
+
     static void show(final Pulsekit app) {
         final File dir = PromptDb.dir();
         final JDialog dialog = new JDialog(app, DbSlots.TITLE, true);
@@ -285,12 +291,12 @@ final class DbSettings {
             String links = gone > 0 ? "; " + gone + (gone == 1 ? " link" : " links") + " to files that are not here left out" : "";
             if (main) {
                 String kept = DbSlots.makeMain(dir, u, encrypt);
-                said(app, "The imported DB is the main DB now" + (kept.length() > 0 ? " (the one before is kept as " + kept + ")" : "") + links);
+                told(app, "The imported DB is the main DB now" + (kept.length() > 0 ? " (the one before is kept as " + kept + ")" : "") + links);
             } else {
-                said(app, "Imported the DB as " + DbSlots.addSecondary(dir, u, u.name, encrypt) + " (Use picks it)" + links);
+                told(app, "Imported the DB as " + DbSlots.addSecondary(dir, u, u.name, encrypt) + " (Use picks it)" + links);
             }
         } catch (Exception ex) {
-            said(app, "Could not import " + name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            told(app, "Could not import " + name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
         } finally {
             zip.delete();
         }

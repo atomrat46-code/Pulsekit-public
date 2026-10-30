@@ -190,6 +190,21 @@ public final class DbSlots {
     }
     boolean plain = new File(work, PromptVault.PLAIN_NAME).isFile();
     boolean enc = new File(work, PromptVault.ENCRYPTED_NAME).isFile();
+    // A Pulsekit backup (File > Back up Pulsekit): its prompt library is the DB zip inside it.
+    if (!plain && !enc) {
+      for (ZipPack.Entry e : ZipPack.files(entries)) {
+        if (!AppBackup.DB_ZIP.equals(e.fileName())) continue;
+        File inner = new File(tmp, "backup-inner-" + AppBackup.DB_ZIP);
+        try {
+          ZipPack.extract(zip, e, password, inner);
+          Unpacked in = unpack(inner, zipName, password, tmp);
+          if (in.name.equals(u.name)) in.name = u.name.replaceFirst("^pulsekit-", "");
+          return in;
+        } finally {
+          inner.delete();
+        }
+      }
+    }
     if (!plain && !enc) {
       MediaDir.deleteAll(work);
       throw new IllegalArgumentException(zipName + " has no Pulsekit DB in it");
