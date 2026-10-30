@@ -114,11 +114,11 @@ final class InputTestScreen {
             playing = false;
         });
         last.show();
-        listen(app, d, level, meter, peak);
+        listen(app, last, d, level, meter, peak);
     }
 
     /** What the input hears, read on a thread of its own while the window is open; the meter updated about ten times a second. */
-    static void listen(final MainActivity app, final SoundDevices.Device d, final TextView level, final ProgressBar meter, final ProgressBar peak) {
+    static void listen(final MainActivity app, final AlertDialog window, final SoundDevices.Device d, final TextView level, final ProgressBar meter, final ProgressBar peak) {
         new Thread(() -> {
             AudioRecord rec = null;
             try {
@@ -128,7 +128,8 @@ final class InputTestScreen {
                 if (info != null) rec.setPreferredDevice(info);
                 rec.startRecording();
                 short[] buf = new short[InputLevel.RATE / 10];
-                while (open) {
+                // Ended with its window (closed, or another Test opened): nothing more is posted to the screen.
+                while (open && last == window && window.isShowing()) {
                     int n = rec.read(buf, 0, buf.length);
                     if (n < 0) throw new IllegalStateException("the input gave error " + n);
                     if (n == 0) {

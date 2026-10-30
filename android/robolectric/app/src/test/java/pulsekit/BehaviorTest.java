@@ -11346,6 +11346,9 @@ public class BehaviorTest {
     String saved = InputTestScreen.lastSaid;
     boolean buttons = iv.findViewWithTag("input-play") != null && iv.findViewWithTag("input-meter") != null;
     InputTestScreen.last.dismiss();
+    idle();
+    Thread.sleep(300);
+    idle();
     org.robolectric.shadows.ShadowAudioRecord.clearSource();
     out.append("without permission: ").append(asked).append('\n');
     out.append("heard: ").append(level.replaceAll("-?[0-9]+\\.[0-9] dBFS", "<db>")).append(" | recorded at least 0.5 s: ").append(samples >= 22050)

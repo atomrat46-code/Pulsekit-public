@@ -119,12 +119,13 @@ final class InputTestScreen {
         length = 0;
         recordedSamples = 0;
         last = dialog;
-        listen(d, level, meter, peak);
+        // Listening once the window is up (modeless: it returns at once).
         dialog.setVisible(true);
+        listen(dialog, d, level, meter, peak);
     }
 
     /** What the input hears, read on a thread of its own while the window is open; the meter about ten times a second. */
-    static void listen(final SoundDevices.Device d, final JLabel level, final JProgressBar meter, final JProgressBar peak) {
+    static void listen(final JDialog window, final SoundDevices.Device d, final JLabel level, final JProgressBar meter, final JProgressBar peak) {
         new Thread(() -> {
             TargetDataLine line = null;
             try {
@@ -136,7 +137,8 @@ final class InputTestScreen {
                 line.start();
                 byte[] raw = new byte[InputLevel.RATE / 10 * 2];
                 short[] buf = new short[raw.length / 2];
-                while (open) {
+                // Ended with its window (closed, or another Test opened).
+                while (open && last == window && window.isDisplayable()) {
                     int got = line.read(raw, 0, raw.length);
                     int n = got / 2;
                     for (int i = 0; i < n; i++) buf[i] = (short) ((raw[2 * i] & 0xff) | (raw[2 * i + 1] << 8));
