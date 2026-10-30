@@ -186,7 +186,8 @@ final class GeneralSettings {
         scroll.addView(col);
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app)
-            .setTitle("General settings")
+            // With the version installed ("General settings · Pulsekit 286.0"): the app shows it nowhere else.
+            .setTitle("General settings" + (app.appVersion().length() > 0 ? " \u00b7 Pulsekit " + app.appVersion() : ""))
             .setView(scroll)
             .setPositiveButton("Close", null)
             .show();
