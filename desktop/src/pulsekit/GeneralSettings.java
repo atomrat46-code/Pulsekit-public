@@ -174,6 +174,8 @@ final class GeneralSettings {
         });
         more.add(logging);
         more.add(note(Logs.SETTING_NOTE.replace("Logs shows", "Logs shows\n")));
+        // Storage: what Pulsekit's folders take; temporary files cleared now or when old.
+        final java.util.List<javax.swing.JComponent> storage = StorageScreen.addTo(app, more);
         // Security: the settings master password.
         more.add(headline("Security"));
         final JCheckBox master = new JCheckBox(AppSettings.MASTER, AppSettings.masterOn());
@@ -205,6 +207,7 @@ final class GeneralSettings {
         final java.util.List<javax.swing.JComponent> controls = java.util.Arrays.asList(ask, vlc, sogni, music, promptsTab, modernLook, python, logging, master);
         final java.util.List<javax.swing.JComponent> all2 = new java.util.ArrayList<javax.swing.JComponent>(controls);
         for (java.awt.Component c : more.getComponents()) if (c instanceof JCheckBox && !all2.contains(c)) all2.add((JCheckBox) c);
+        all2.addAll(storage);
         JPanel lockRow = unlockRow(app, dialog, () -> lock(all2));
         if (lockRow != null) middle.add(lockRow, BorderLayout.NORTH);
         lock(all2);

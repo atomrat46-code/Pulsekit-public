@@ -227,6 +227,8 @@ public final class Pulsekit extends UiKit {
         // File > Logs: errors nothing caught, and this start (when Logging on is ticked).
         Logs.catchErrors();
         Logs.started("Pulsekit " + Looks.version() + " (desktop)");
+        // General settings > Storage: temporary files older than the days set deleted.
+        StorageScreen.startup(this);
         this.drumSets.add(Engine.DrumSet.originalSet());
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;

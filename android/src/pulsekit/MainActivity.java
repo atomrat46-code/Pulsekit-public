@@ -291,6 +291,8 @@ public class MainActivity extends UiKit {
         AppSettings.load(this.getFilesDir());
         // File > Logs: in files/logs, written while General settings > Logging on is ticked; this start once.
         Logs.setDir(new java.io.File(this.getFilesDir(), "logs"));
+        // General settings > Storage: temporary files older than the days set deleted, once a start.
+        if (!logStarted) StorageScreen.startup(this);
         // File > Sound devices: the output and the drum MIDI output picked.
         SoundOut.init(this);
         if (!logStarted) SoundOut.openDrumMidi(this);

@@ -11228,6 +11228,54 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * General settings > Storage: the folders' sizes; temporary files older than the days set deleted
+   * when Pulsekit starts (newer ones kept); Clear temporary files deletes them all; the prompt library
+   * and settings never touched; the input folder never in a backup.
+   */
+  @Test
+  public void s185_storage_and_temporary_files() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File in = new File(app.getCacheDir(), "pyjav-in");
+    in.mkdirs();
+    File old = new File(in, "old-video.mp4");
+    File fresh = new File(in, "fresh-video.mp4");
+    Files.write(old.toPath(), new byte[300000]);
+    Files.write(fresh.toPath(), new byte[200000]);
+    old.setLastModified(System.currentTimeMillis() - 20 * 86400000L);
+    File kept = new File(app.getFilesDir(), "learned.json");
+    Files.write(kept.toPath(), "{}".getBytes(StandardCharsets.UTF_8));
+    String auto = Storage.clearOld(StorageScreen.places(app), AppSettings.tempDays());
+    out.append("days set at first: ").append(AppSettings.tempDays()).append(" | at the start: ").append(auto).append(" | old gone ").append(!old.exists())
+        .append(", fresh kept ").append(fresh.isFile()).append('\n');
+    GeneralSettings.show(app);
+    for (int i = 0; i < 200 && StorageScreen.lastSizes == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    String sizes = String.valueOf(((TextView) gv.findViewWithTag("storage-sizes")).getText());
+    out.append("sizes:\n").append(sizes.replaceAll("[0-9.]+ (KB|MB|bytes|GB)", "<size>")).append('\n');
+    boolean listed = sizes.contains("Program inputs and outputs: ") && sizes.contains("(temporary)") && sizes.contains("Prompt library (all DBs): ") && sizes.contains("All: ");
+    StorageScreen.lastSaid = null;
+    gv.findViewWithTag("storage-clear").performClick();
+    idle();
+    StorageScreen.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && StorageScreen.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    GeneralSettings.last.dismiss();
+    out.append("clear: ").append(StorageScreen.lastSaid).append(" | fresh gone ").append(!fresh.exists()).append(", settings kept ").append(kept.isFile()).append('\n');
+    boolean notBacked = AppBackup.partOf("pyjav-in/x.mp4") == null && AppBackup.partOf("thumbs/a.bin") == null;
+    out.append("input folder in a backup: ").append(!notBacked).append('\n');
+    write("s185_storage_and_temporary_files", out.toString());
+    boolean ok = AppSettings.tempDays() == 14 && auto != null && auto.startsWith("Deleted 1 temporary file older than 14 days") && !old.exists() && listed
+        && StorageScreen.lastSaid != null && StorageScreen.lastSaid.startsWith("Deleted ") && !fresh.exists() && kept.isFile() && notBacked;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

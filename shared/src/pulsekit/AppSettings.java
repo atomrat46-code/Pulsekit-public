@@ -104,6 +104,23 @@ public final class AppSettings {
     set("logging", on);
   }
 
+  // ------------------------------------------------------------ Storage (General settings)
+
+  /** Temporary files older than these days are deleted when Pulsekit starts (0: never). */
+  public static synchronized int tempDays() {
+    String v = VALUES.get("tempDays");
+    try {
+      return v == null ? Storage.DEFAULT_DAYS : Math.max(0, Integer.parseInt(v.trim()));
+    } catch (NumberFormatException ex) {
+      return Storage.DEFAULT_DAYS;
+    }
+  }
+
+  public static synchronized void setTempDays(int days) {
+    if (locked()) return;
+    put("tempDays", String.valueOf(Math.max(0, days)));
+  }
+
   // ------------------------------------------------------------ Sound devices (File > Sound devices)
 
   /** The output Pulsekit plays through (SoundDevices.Device.key()), or "" for the system default. */

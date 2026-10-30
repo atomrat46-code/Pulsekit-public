@@ -8805,6 +8805,46 @@ public final class DesktopBehavior {
       throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * General settings > Storage, as on Android: the folders' sizes; temporary files older than the
+   * days set deleted when Pulsekit starts (newer ones kept); Clear temporary files deletes them all;
+   * the prompt library and settings never touched.
+   */
+  void s176_storage_and_temporary_files() throws Exception {
+    File in = new File(PromptDb.dir(), "pyjav-in");
+    in.mkdirs();
+    File old = new File(in, "old-video.mp4");
+    File fresh = new File(in, "fresh-video.mp4");
+    Files.write(old.toPath(), new byte[300000]);
+    Files.write(fresh.toPath(), new byte[200000]);
+    old.setLastModified(System.currentTimeMillis() - 20 * 86400000L);
+    File kept = new File(PromptDb.dir(), "favourite-categories.txt");
+    Files.write(kept.toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    String auto = Storage.clearOld(StorageScreen.places(), AppSettings.tempDays());
+    String sizes = String.join("\n", Storage.lines(StorageScreen.places()));
+    this.out.append("days set at first: ").append(AppSettings.tempDays()).append(" | at the start: ").append(auto).append(" | old gone ").append(!old.exists())
+        .append(", fresh kept ").append(fresh.isFile()).append('\n');
+    this.out.append("sizes:\n").append(sizes.replaceAll("[0-9.]+ (KB|MB|bytes|GB)", "<size>")).append('\n');
+    // General settings shows the section; Clear temporary files deletes the rest.
+    final Pulsekit app = (Pulsekit) frame;
+    final JDialog[] shown = new JDialog[1];
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    for (int i = 0; i < 100 && shown[0] == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) shown[0] = (JDialog) w;
+    }
+    StorageScreen.answer = true;
+    edt(() -> ((javax.swing.AbstractButton) component(shown[0], "storage-clear")).doClick());
+    StorageScreen.answer = null;
+    edt(() -> shown[0].dispose());
+    this.out.append("clear: ").append(StorageScreen.lastSaid).append(" | fresh gone ").append(!fresh.exists()).append(", settings kept ").append(kept.isFile()).append('\n');
+    boolean ok = AppSettings.tempDays() == 14 && auto != null && auto.startsWith("Deleted 1 temporary file older than 14 days") && !old.exists()
+        && sizes.contains("Program inputs and outputs: ") && sizes.contains("(temporary)") && shown[0] != null && StorageScreen.lastSaid != null
+        && StorageScreen.lastSaid.startsWith("Deleted ") && !fresh.exists() && kept.isFile();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

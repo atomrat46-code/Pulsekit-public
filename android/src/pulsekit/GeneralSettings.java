@@ -154,6 +154,8 @@ final class GeneralSettings {
         TextView loggingNote = app.text(Logs.SETTING_NOTE, 12, false);
         loggingNote.setPadding(0, app.dp(4), 0, 0);
         col.addView(loggingNote);
+        // Storage: what Pulsekit's folders take; temporary files cleared now or when old.
+        StorageScreen.addTo(app, col, controls);
         // Security: the settings master password.
         col.addView(headline(app, "Security"));
         final CheckBox master = new CheckBox(app);

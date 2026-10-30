@@ -70,6 +70,8 @@ public final class AppBackup {
     if (low.startsWith(DbSlots.FOLDER + "/") || PromptVault.isDbFile(name) || name.equals(DbSlots.ACTIVE)) return null;
     if (name.endsWith(".key") || name.contains("credentials") || name.equals("sealed.salt") || name.endsWith(".tmp")) return null;
     if (low.startsWith("cache/") || low.startsWith("tmp/") || low.contains("/cache/")) return null;
+    // The desktop's program input folder (temporary, can be gigabytes) and its video previews (made again).
+    if (low.startsWith("pyjav-in/") || low.startsWith("thumbs/")) return null;
     if (low.startsWith("logs/") || name.equals("crash-log.txt")) return LOGS;
     if (low.startsWith(Playlist.FOLDER + "/")) return PLAYLISTS;
     if (low.startsWith("sogni/") || name.startsWith("sogni")) return SOGNI;
