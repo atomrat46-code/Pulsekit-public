@@ -1354,6 +1354,31 @@ final class PromptDb {
             JMenuItem upscale = new JMenuItem("Upscale/Resize image");
             upscale.addActionListener(e -> this.upscale(file));
             menu.add(upscale);
+            // Needing no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+            final byte[] picture = this.bytesOf(file);
+            if (MediaDir.processRef(dir(), file.name, picture)) {
+                JMenuItem process = new JMenuItem(MediaDir.PROCESS_REF);
+                process.setName("gallery-process-ref");
+                process.addActionListener(e -> {
+                    try {
+                        File kept = new File(new File(dir(), "process-ref"), PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
+                        kept.getParentFile().mkdirs();
+                        Files.write(kept.toPath(), picture);
+                        ProcessRefDialog.open(app, kept);
+                    } catch (Exception ex) {
+                        app.setNow("Could not keep " + file.name + " for the next program");
+                    }
+                });
+                menu.add(process);
+            }
+            // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
+            final String job = AppSettings.showSogni() ? SogniApi.jobIn(picture) : null;
+            if (job != null) {
+                JMenuItem jobItem = new JMenuItem(MediaDir.SOGNI_JOB);
+                jobItem.setName("gallery-sogni-job");
+                jobItem.addActionListener(e -> SogniJobDialog.show(app, job));
+                menu.add(jobItem);
+            }
         }
         // A MIDI: the MIDI editor, Render with SF2 or plugin, Play with default SoundFont; a sound: Convert drum hits into MIDI.
         for (final String kindItem : MediaDir.kindItems(file.name, true)) {
@@ -1364,9 +1389,19 @@ final class PromptDb {
         }
         menu.add(rename);
         menu.add(delete);
+        sortMenu(menu);
         this.lastFileMenu = menu;
         MenuCancel.add(menu);
         if (card.isShowing()) menu.show(card, card.getWidth() / 2, card.getHeight() / 2);
+    }
+
+    /** A thumbnail's menu in alphabetical order (its items and submenus by their text; separators left out). */
+    static void sortMenu(javax.swing.JPopupMenu menu) {
+        List<javax.swing.JMenuItem> items = new ArrayList<javax.swing.JMenuItem>();
+        for (java.awt.Component c : menu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.add((javax.swing.JMenuItem) c);
+        items.sort((a, b) -> MediaDir.sortKey(a.getText()).compareTo(MediaDir.sortKey(b.getText())));
+        menu.removeAll();
+        for (javax.swing.JMenuItem i : items) menu.add(i);
     }
 
     /** A stored file's bytes; none when the library cannot be read. */
@@ -1781,6 +1816,9 @@ final class PromptDb {
     File lastCapture;
 
     /** C: the frame shown (paused) saved as a PNG in the SC folder beside the video (made when it is not there). */
+    /** The tests' answer to C's Process as a Sogni reference question ("Yes", "No"; null asks). */
+    static java.util.function.Function<String, String> processAnswer;
+
     void captureFrame(String name, File video, VlcPlayer player) {
         java.awt.image.BufferedImage img = player.screen.frame;
         if (img == null) {
@@ -1857,7 +1895,21 @@ final class PromptDb {
                 heldC[0] = false;
                 return;
             }
+            this.lastCapture = null;
             this.captureFrame(name, video, player);
+            // A frame that needs no upscaling: asked whether it goes on as a Sogni reference.
+            final File shot = this.lastCapture;
+            if (shot != null && MediaDir.processRef(dir(), shot.getName(), MediaDir.head(shot))) {
+                String yes = processAnswer != null ? processAnswer.apply(shot.getName()) : null;
+                int ans = yes != null ? ("Yes".equals(yes) ? javax.swing.JOptionPane.YES_OPTION : javax.swing.JOptionPane.NO_OPTION)
+                    : javax.swing.JOptionPane.showConfirmDialog(capture, shot.getName() + " needs no upscaling. Process it as a reference of a Sogni program\n"
+                        + "(the program and prompt, then Reference file 1 or 2)?", MediaDir.PROCESS_REF, javax.swing.JOptionPane.YES_NO_OPTION);
+                if (ans == javax.swing.JOptionPane.YES_OPTION) {
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
+                    if (w != null) w.dispose();
+                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+                }
+            }
         });
         capture.addMouseListener(new java.awt.event.MouseAdapter() {
             javax.swing.Timer hold;

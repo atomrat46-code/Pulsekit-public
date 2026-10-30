@@ -974,6 +974,8 @@ final class PyJav {
                     this.showWorkflow(SogniDownloads.workflowIn(result.log));
                     // Params' --workflow list: completed when it downloaded, failed else.
                     SogniHistory.finished(SogniDownloads.workflowIn(result.log), result.log.indexOf("Succeeded") >= 0);
+                    // The Sogni job ids its files carry, kept with the workflow (a file's menu: Sogni job id).
+                    SogniHistory.jobs(result.log, SogniDownloads.workflowIn(result.log));
                 }
                 // A prompt sheet the run saved (--saveprompt) goes into the prompt library, with its pictures and result;
                 // MidiDrumGen's MIDI and SogniMusic's track too, when Drum Midi Settings says so.
@@ -2237,6 +2239,19 @@ final class PyJav {
         return true;
     }
 
+    /** ImageUpscaler's input picture (the first argument that is a picture file): its --aspect suggestion, or null. */
+    String[] aspectTip() {
+        if (this.pyExtra == null) return null;
+        for (String a : JavaRun.split(this.pyExtra.getText())) {
+            if (a.startsWith("--")) continue;
+            File f = new File(a);
+            if (!f.isFile() || MediaDir.kind(f.getName()) != MediaDir.PICTURE) continue;
+            int[] wh = UpscaleCheck.size(MediaDir.head(f));
+            return wh == null ? null : UpscaleCheck.suggestAspect(wh[0], wh[1]);
+        }
+        return null;
+    }
+
     void openParams() {
         final String program = app.pyName == null || app.pyName.isEmpty() ? "program" : app.pyName;
         if (this.mustWait(program, false)) return;
@@ -2252,6 +2267,23 @@ final class PyJav {
             } else if (p.token.startsWith("--kit_name")) {
                 String[] kits = VstLists.kitNames();
                 if (kits.length > 0) p.choices = kits;
+            } else if (p.token.equals("--aspect") && "ImageUpscaler.java".equals(program)) {
+                // ImageUpscaler: the shape suggested for the input picture, first in the list.
+                String[] tip = this.aspectTip();
+                if (tip != null && p.choices != null) {
+                    java.util.List<String> labels = new java.util.ArrayList<String>(java.util.Arrays.asList(p.choices));
+                    java.util.List<String> values = new java.util.ArrayList<String>(java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices));
+                    int at = values.indexOf(tip[0]);
+                    if (at >= 0) {
+                        labels.remove(at);
+                        values.remove(at);
+                    }
+                    labels.add(0, tip[0] + " (suggested)");
+                    values.add(0, tip[0]);
+                    p.choices = labels.toArray(new String[0]);
+                    p.choiceValues = values.toArray(new String[0]);
+                    p.hint = "suggested " + tip[0] + ": " + tip[1];
+                }
             }
         }
         if (ps.isEmpty()) {

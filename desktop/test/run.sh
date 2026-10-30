@@ -13,7 +13,8 @@ javac --release 8 -nowarn -cp "$JAR" -d build/classes pulsekit/DesktopBehavior.j
 JAVA="${JAVA:-java}"
 if [ -z "$DISPLAY" ]; then
   # Start Xvfb unless one is running on :93 (a lock file alone may be left from a stopped one).
-  if ! { [ -e /tmp/.X93-lock ] && kill -0 "$(tr -d ' ' < /tmp/.X93-lock)" 2>/dev/null; }; then
+  # (Its process must be an Xvfb: after a restart another process can have the lock's number.)
+  if ! { [ -e /tmp/.X93-lock ] && ps -p "$(tr -d ' ' < /tmp/.X93-lock)" -o comm= 2>/dev/null | grep -q Xvfb; }; then
     rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
     Xvfb :93 -screen 0 1400x1000x24 >/dev/null 2>&1 &
     sleep 2

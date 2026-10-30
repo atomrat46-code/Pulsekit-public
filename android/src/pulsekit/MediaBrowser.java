@@ -1846,17 +1846,46 @@ final class MediaBrowser {
     /** The menu shown last, for the tests. */
     static AlertDialog lastMenu;
 
+    /** A file's first bytes (MediaDir.HEAD; a picture's size is in them): a path, or a document address. */
+    byte[] head(MediaDir.Entry e) {
+        java.io.File f = new java.io.File(e.id == null ? "" : e.id);
+        if (f.isFile()) return MediaDir.head(f);
+        try (java.io.InputStream in = this.app.getContentResolver().openInputStream(Uri.parse(e.id))) {
+            if (in == null) return null;
+            byte[] b = new byte[MediaDir.HEAD];
+            int got = 0;
+            for (int n; got < b.length && (n = in.read(b, got, b.length - got)) > 0; ) got += n;
+            return java.util.Arrays.copyOf(b, got);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
         final String[] menuItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
         boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
-        final String[] items = playable ? MediaDir.withPlaylistItem(menuItems, Playlist.ADD) : menuItems;
+        String[] withPlaylist = playable ? MediaDir.withPlaylistItem(menuItems, Playlist.ADD) : menuItems;
+        // A picture that needs no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+        if (e.kind == MediaDir.PICTURE && e.dbId == 0 && MediaDir.processRef(this.app.getFilesDir(), e.name, this.head(e))) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaDir.PROCESS_REF;
+        }
+        // A made file carrying its Sogni job id: Sogni job id (and the workflow that made it).
+        final String job = e.dbId == 0 ? SogniJobDialog.of(this.app, e.id, e.name) : null;
+        if (job != null) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaDir.SOGNI_JOB;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
-        for (int i = 0; i < items.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(items[i])) items[i] = FileFavourites.REMOVE_SHORT;
+        for (int i = 0; i < withPlaylist.length; i++) if (fav && FileFavourites.ADD_SHORT.equals(withPlaylist[i])) withPlaylist[i] = FileFavourites.REMOVE_SHORT;
+        // In alphabetical order; the first items are picked by their old place (baseIndex).
+        final String[] items = MediaDir.sorted(withPlaylist);
+        final boolean listed = MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id);
         lastMenu = new AlertDialog.Builder(this.app)
             .setTitle(e.name)
             .setItems(items, (d, which) -> {
@@ -1874,7 +1903,9 @@ final class MediaBrowser {
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
-                else this.pick(e, which);
+                else if (MediaDir.PROCESS_REF.equals(items[which])) this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file));
+                else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
+                else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
             .setNegativeButton("Cancel", null)
             .show();
@@ -3113,6 +3144,9 @@ final class MediaBrowser {
         this.app.setNow("Capturing the frame at " + clock((int) ms) + "\u2026");
         new Thread(() -> {
             String said;
+            // The frame saved, for Process as a Sogni reference (C pressed shortly).
+            final byte[][] saved = new byte[1][];
+            final String[] savedName = new String[1];
             MediaMetadataRetriever media = new MediaMetadataRetriever();
             try {
                 if (disk) media.setDataSource(e.id);
@@ -3124,6 +3158,8 @@ final class MediaBrowser {
                 String name = MediaDir.frameName(e.name, ms);
                 said = "Saved the frame as " + saveInto(this.app, where, MediaDir.FRAMES_DIR, name, "image/png", png.toByteArray());
                 p.captured = name;
+                saved[0] = png.toByteArray();
+                savedName[0] = name;
                 if (upscale) {
                     // C held: the frame goes on to ImageUpscaler as its input.
                     File dir = new File(this.app.getCacheDir(), "pyjav-in");
@@ -3149,8 +3185,21 @@ final class MediaBrowser {
             this.main.post(() -> {
                 this.app.setNow(shown);
                 android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
+                // A frame that needs no upscaling: asked whether it goes on as a Sogni reference.
+                if (!upscale && saved[0] != null && MediaDir.processRef(this.app.getFilesDir(), savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0]);
             });
         }, "pulsekit-capture").start();
+    }
+
+    /** The question shown last after C (for the tests). */
+    static AlertDialog lastProcessAsk;
+
+    /** C's frame needs no upscaling: Process it as a Sogni reference? Yes opens the program and prompt list. */
+    void askProcessRef(final String name, final byte[] png) {
+        lastProcessAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF)
+            .setMessage(name + " needs no upscaling. Process it as a reference of a Sogni program (the program and prompt, then Reference file 1 or 2)?")
+            .setPositiveButton("Yes", (d, w) -> ProcessRefDialog.open(this.app, name, png))
+            .setNegativeButton("No", null).show();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */

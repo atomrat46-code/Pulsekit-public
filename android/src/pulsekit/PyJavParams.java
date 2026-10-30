@@ -181,9 +181,9 @@ public final class PyJavParams {
           });
           row.addView(clear);
         }
-        row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         useBox(activity, p, i, row, chosen, uses, off);
         box.addView(row);
+        box.addView(nameLine(activity, chosen));
         continue;
       }
       if (p.isFile()) {
@@ -239,7 +239,6 @@ public final class PyJavParams {
           });
           row.addView(clear);
         }
-        row.addView(chosen, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         if (p.join) {
           // SogniVideo's Join with this video: the file buttons work only when it is ticked; unticked
           // leaves the video out. PyJav unticks it after every run.
@@ -271,6 +270,7 @@ public final class PyJavParams {
         }
         useBox(activity, p, i, row, chosen, uses, off);
         box.addView(spaced(activity, row));
+        box.addView(nameLine(activity, chosen));
         if (ProgramParams.previewsPicture(p)) {
           // Preview: a thumbnail of the picked picture pops up; greyed while no picture is picked.
           final android.widget.Button preview = new android.widget.Button(activity);
@@ -534,6 +534,18 @@ public final class PyJavParams {
       dialog.setView(image);
     }
     lastParamsPreview = dialog.show();
+  }
+
+  /**
+   * The file or folder picked, on its own line under the row's buttons: the whole width for it, one
+   * line, a long name shortened in the middle (its start and its ending, ".png", stay).
+   */
+  static TextView nameLine(Activity activity, TextView chosen) {
+    chosen.setSingleLine(true);
+    chosen.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+    chosen.setPadding(dp(activity, 12), 0, dp(activity, 8), dp(activity, 4));
+    chosen.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    return chosen;
   }
 
   static String fileLabel(String path) {

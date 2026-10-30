@@ -1024,11 +1024,115 @@ public final class SogniVideo {
       if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
       if (noFilter) body.append(",\"safe_content_filter\":false");
       body.append('}');
-      Map<String, Object> wf = workflowOf(this.request("POST", "/v1/creative-agent/workflows", body.toString()));
+      long started = System.currentTimeMillis();
+      Object reply = this.request("POST", "/v1/creative-agent/workflows", body.toString());
+      Map<String, Object> wf = workflowOf(reply);
       String id = str(wf.get("workflowId"));
       if (id == null) id = str(wf.get("id"));
-      if (id == null) throw new IOException("Sogni did not return a workflow id");
+      // Only a real id (a word such as "require" in its place is not one: Resume could never find it).
+      String odd = id != null && !validId(id) ? id : null;
+      if (odd != null) id = null;
+      // Elsewhere in the reply (another shape of it), else the workflow Sogni lists as just started.
+      if (id == null) id = workflowIdIn(reply, 0);
+      if (id == null) {
+        System.out.println("Note: Sogni's reply had no workflow id where it used to be (" + (odd != null ? "\"" + odd + "\" in its place; " : "") + shapeOf(reply, 0) + "); looking for the workflow just started");
+        id = this.newestWorkflow(started);
+        if (id != null) System.out.println("Workflow " + id + " (the newest one on Sogni)");
+      }
+      if (id == null) throw new IOException("Sogni did not return a workflow id (its reply: " + shapeOf(reply, 0) + ")");
       return id;
+    }
+
+    /** Whether a text can be a workflow id: "wf_…", or letters, digits, - and _ with a digit among them (not a word such as "require"). */
+    static boolean validId(String id) {
+      if (id == null) return false;
+      if (id.startsWith("wf_") && id.length() > 3) return true;
+      return id.matches("[A-Za-z0-9_-]+") && id.matches(".*[0-9].*");
+    }
+
+    /** A workflow id anywhere in a reply: workflowId, workflow_id, or an id starting "wf_" (the shallowest first). */
+    @SuppressWarnings("unchecked")
+    static String workflowIdIn(Object o, int depth) {
+      if (o == null || depth > 6) return null;
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String[] keys = {"workflowId", "workflow_id", "workflowID"};
+        for (String k : keys) if (m.get(k) instanceof String && validId((String) m.get(k))) return (String) m.get(k);
+        if (m.get("id") instanceof String && ((String) m.get("id")).startsWith("wf_")) return (String) m.get("id");
+        for (Object v : m.values()) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      }
+      return null;
+    }
+
+    /** A reply's fields without their values ("status, data{workflow{status, input}}"), for the log. */
+    @SuppressWarnings("unchecked")
+    static String shapeOf(Object o, int depth) {
+      if (o instanceof List) return "[" + (((List<Object>) o).isEmpty() || depth > 3 ? "" : shapeOf(((List<Object>) o).get(0), depth + 1)) + "]";
+      if (!(o instanceof Map)) return o == null ? "nothing" : "a value";
+      StringBuilder sb = new StringBuilder();
+      for (Map.Entry<String, Object> e : ((Map<String, Object>) o).entrySet()) {
+        if (sb.length() > 0) sb.append(", ");
+        sb.append(e.getKey());
+        if (depth < 3 && (e.getValue() instanceof Map || e.getValue() instanceof List)) sb.append(e.getValue() instanceof Map ? "{" + shapeOf(e.getValue(), depth + 1) + "}" : shapeOf(e.getValue(), depth + 1));
+      }
+      return sb.toString();
+    }
+
+    /** The newest workflow Sogni lists that started at most two minutes before `since` (null: none, or the list failed). */
+    @SuppressWarnings("unchecked")
+    String newestWorkflow(long since) {
+      try {
+        Object r = this.request("GET", "/v1/creative-agent/workflows?limit=10", null);
+        Object data = r instanceof Map ? ((Map<String, Object>) r).get("data") : null;
+        Object list = data instanceof Map ? ((Map<String, Object>) data).get("workflows") : data instanceof List ? data : null;
+        if (!(list instanceof List)) return null;
+        String best = null;
+        long bestAt = Long.MIN_VALUE;
+        for (Object o : (List<Object>) list) {
+          if (!(o instanceof Map)) continue;
+          Map<String, Object> w = (Map<String, Object>) o;
+          String id = str(w.get("workflowId"));
+          if (id == null) id = str(w.get("id"));
+          if (id == null) continue;
+          long at = timeOf(w.get("createdAt") != null ? w.get("createdAt") : w.get("created_at"));
+          if (at > 0 && at < since - 120000) continue;
+          // Without times the list's first (newest) is taken.
+          if (best == null || at > bestAt) {
+            best = id;
+            bestAt = at;
+          }
+          if (at <= 0) break;
+        }
+        return best;
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** A time as Sogni writes it: milliseconds, seconds, or "2026-10-30T12:34:56.789Z"; 0 when unknown. */
+    static long timeOf(Object v) {
+      if (v instanceof Number) {
+        long n = ((Number) v).longValue();
+        return n < 100000000000L ? n * 1000 : n;
+      }
+      if (!(v instanceof String)) return 0;
+      String t = ((String) v).trim();
+      if (t.length() < 19) return 0;
+      try {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ROOT);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return f.parse(t.substring(0, 19)).getTime();
+      } catch (java.text.ParseException ex) {
+        return 0;
+      }
     }
 
     /** The workflow record. */
@@ -1857,7 +1961,11 @@ public final class SogniVideo {
       int code = c.getResponseCode();
       if (code / 100 != 2) throw failure(c, code);
       try {
-        return readCounting(c.getInputStream(), c.getContentLengthLong());
+        byte[] data = readCounting(c.getInputStream(), c.getContentLengthLong());
+        // The Sogni job id it carries: PyJav keeps it with the run's workflow (SogniHistory.jobs).
+        String job = jobIn(data);
+        if (job != null) System.out.println("Sogni job: " + job);
+        return data;
       } finally {
         c.disconnect();
       }
@@ -1925,7 +2033,11 @@ public final class SogniVideo {
 
     // ---- HTTP ----
 
+    /** The tests' Sogni: "METHOD path" to the reply (null: the real one). */
+    static java.util.function.Function<String, Object> answer;
+
     Object request(String method, String path, String body) throws IOException {
+      if (answer != null) return answer.apply(method + " " + path);
       HttpURLConnection c = this.open(method, path);
       if (body != null) {
         c.setDoOutput(true);
@@ -2300,6 +2412,106 @@ public final class SogniVideo {
       StringBuilder sb = new StringBuilder();
       for (String[] k : known) sb.append(sb.length() > 0 ? ", " : "").append(k[1]).append(" (").append(k[0]).append(')');
       return sb.toString();
+    }
+    /**
+     * The Sogni job id a made file carries in its metadata ("_sogni_job" in the prompt Sogni writes into
+     * a PNG/JPEG/WebP text chunk, an MP3's ID3 tag or an MP4's tags), or null. Plain, UTF-16 (ID3) and
+     * compressed (PNG zTXt/iTXt) text are read.
+     */
+    public static String jobIn(byte[] data) {
+      if (data == null) return null;
+      String job = jobAfter(data, data.length);
+      if (job != null) return job;
+      // UTF-16 text (ID3 frames): the same bytes without their zeros.
+      byte[] narrow = new byte[data.length];
+      int n = 0;
+      for (byte b : data) if (b != 0) narrow[n++] = b;
+      job = jobAfter(narrow, n);
+      if (job != null) return job;
+      // A PNG's compressed text chunks.
+      if (data.length > 8 && (data[0] & 0xff) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') {
+        int at = 8;
+        while (at + 8 <= data.length) {
+          int len = ((data[at] & 0xff) << 24) | ((data[at + 1] & 0xff) << 16) | ((data[at + 2] & 0xff) << 8) | (data[at + 3] & 0xff);
+          String type = new String(data, at + 4, 4, StandardCharsets.ISO_8859_1);
+          if (len < 0 || at + 8 + len > data.length) break;
+          if (type.equals("zTXt") || type.equals("iTXt")) {
+            int s = at + 8, end = s + len, k = s;
+            while (k < end && data[k] != 0) k++;
+            int from = -1;
+            if (type.equals("zTXt")) from = k + 2;
+            else if (k + 2 < end && data[k + 1] == 1) {
+              int z = k + 3;
+              for (int field = 0; field < 2 && z < end; z++) if (data[z] == 0) field++;
+              from = z;
+            }
+            if (from > s && from < end) {
+              byte[] text = inflate(data, from, end - from);
+              job = text == null ? null : jobAfter(text, text.length);
+              if (job != null) return job;
+            }
+          }
+          if (type.equals("IEND")) break;
+          at += 12 + len;
+        }
+      }
+      return null;
+    }
+
+    /** jobIn of a file's first and last 2 MB (an MP4's tags may be at its end). */
+    public static String jobIn(File f) {
+      if (f == null || !f.isFile()) return null;
+      try {
+        java.io.RandomAccessFile in = new java.io.RandomAccessFile(f, "r");
+        try {
+          long size = in.length();
+          int part = 2 * 1024 * 1024;
+          byte[] head = new byte[(int) Math.min(size, part)];
+          in.readFully(head);
+          String job = jobIn(head);
+          if (job != null || size <= part) return job;
+          byte[] tail = new byte[(int) Math.min(size - part, part)];
+          in.seek(size - tail.length);
+          in.readFully(tail);
+          return jobIn(tail);
+        } finally {
+          in.close();
+        }
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** The id after the first "_sogni_job" key in `data` (quotes, escapes, ':' and '=' skipped). */
+    static String jobAfter(byte[] data, int length) {
+      String text = new String(data, 0, length, StandardCharsets.ISO_8859_1);
+      for (int at = text.indexOf("_sogni_job"); at >= 0; at = text.indexOf("_sogni_job", at + 1)) {
+        int i = at + 10;
+        while (i < text.length() && "\"\\': =\t".indexOf(text.charAt(i)) >= 0) i++;
+        int s = i;
+        while (i < text.length() && (Character.isLetterOrDigit(text.charAt(i)) || text.charAt(i) == '-' || text.charAt(i) == '_') && text.charAt(i) < 128) i++;
+        if (i - s >= 8) return text.substring(s, i);
+      }
+      return null;
+    }
+
+    static byte[] inflate(byte[] data, int from, int length) {
+      java.util.zip.Inflater z = new java.util.zip.Inflater();
+      try {
+        z.setInput(data, from, length);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        while (!z.finished() && out.size() < 4 * 1024 * 1024) {
+          int n = z.inflate(buf);
+          if (n == 0 && (z.needsInput() || z.needsDictionary())) break;
+          out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+      } catch (java.util.zip.DataFormatException ex) {
+        return null;
+      } finally {
+        z.end();
+      }
     }
     // --- SogniApi end ---
   }

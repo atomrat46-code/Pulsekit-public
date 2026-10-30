@@ -306,6 +306,8 @@ public final class JavaRun {
       if (t.startsWith("Succeeded")) ok = true;
     }
     if (ok || id == null || id.length() == 0 || id.indexOf(' ') >= 0) return null;
+    // Not a workflow id ("require"), or Sogni has no such workflow: resuming could only fail again.
+    if (!SogniApi.validId(id) || log.matches("(?s).*Failed:[^\n]*(?i:error 404|workflow not found).*")) return null;
     boolean stopped = log.indexOf("Timed out") >= 0
         || log.matches("(?s).*Failed:[^\n]*(?i:unable to resolve host|connection (reset|refused|abort)|software caused connection abort|network is unreachable|socket|timeout|unexpected end of stream|end of stream|premature eof|connection closed).*");
     if (!stopped && !anyFailure) return null;

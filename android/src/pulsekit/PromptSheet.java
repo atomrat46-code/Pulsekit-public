@@ -2059,8 +2059,19 @@ public final class PromptSheet {
         toast(activity, ex);
       }
     }));
-    lastFileMenu = new AlertDialog.Builder(activity).setTitle(file.name)
-        .setItems(items.toArray(new CharSequence[0]), (d, pick) -> runs.get(pick).run()).setNegativeButton("Cancel", null).show();
+    lastFileMenu = sortedMenu(activity, file.name, items, runs);
+  }
+
+  /** A thumbnail's menu with its items in alphabetical order (each with its action). */
+  private static AlertDialog sortedMenu(Activity activity, String title, java.util.List<CharSequence> items, java.util.List<Runnable> runs) {
+    int[] order = MediaDir.sortedOrder(items);
+    final CharSequence[] shown = new CharSequence[order.length];
+    final Runnable[] acts = new Runnable[order.length];
+    for (int i = 0; i < order.length; i++) {
+      shown[i] = items.get(order[i]);
+      acts[i] = runs.get(order[i]);
+    }
+    return new AlertDialog.Builder(activity).setTitle(title).setItems(shown, (d, pick) -> acts[pick].run()).setNegativeButton("Cancel", null).show();
   }
 
   /** A stored file's size, by its place in the library (0 when it is not there). */
@@ -2163,6 +2174,18 @@ public final class PromptSheet {
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
+      // Needing no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+      final byte[] bytes = vault.fileBytes(versionId, which);
+      if (MediaDir.processRef(activity.getFilesDir(), name, bytes)) {
+        items.add(MediaDir.PROCESS_REF);
+        runs.add(() -> ProcessRefDialog.open((MainActivity) activity, name, bytes));
+      }
+      // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
+      final String job = AppSettings.showSogni() ? SogniApi.jobIn(bytes) : null;
+      if (job != null) {
+        items.add(MediaDir.SOGNI_JOB);
+        runs.add(() -> SogniJobDialog.show((MainActivity) activity, job));
+      }
     }
     // A MIDI: the MIDI editor, Render with SF2, Play with default SoundFont; a sound: Convert drum hits into MIDI (as the Media browser has them).
     String[] kinds = activity instanceof MainActivity ? MediaDir.kindItems(name, false) : new String[0];
@@ -2179,11 +2202,8 @@ public final class PromptSheet {
     runs.add(rename);
     items.add("Delete");
     runs.add(delete);
-    // Every file (a video too) gets the whole list: favourites, group, playlists, tags, category.
-    lastFileMenu = new AlertDialog.Builder(activity)
-        .setTitle(name)
-        .setItems(items.toArray(new CharSequence[0]), (dialog, pick) -> runs.get(pick).run())
-        .setNegativeButton("Cancel", null).show();
+    // Every file (a video too) gets the whole list: favourites, group, playlists, tags, category (in alphabetical order).
+    lastFileMenu = sortedMenu(activity, name, items, runs);
   }
 
   /** Upscale/Resize image: the stored picture copied into PyJav's input folder, ImageUpscaler with it as its input, its Params open. */
