@@ -866,6 +866,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) DbSettings.picked(this, n, intent.getData());
             return;
         }
+        if (n == BackupScreen.OPEN_BACKUP) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) BackupScreen.picked(this, intent.getData());
+            return;
+        }
         if (n == ZipFlow.PICK_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) ZipFlow.folderPicked(this, intent.getData());
@@ -1242,6 +1247,11 @@ public class MainActivity extends UiKit {
         sound.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         sound.setTextColor(FG);
         sound.setTag("file-sound-devices");
+        // What uninstalling would delete, kept in a zip, and back from one (AppBackup).
+        android.widget.TextView backup = this.text(AppBackup.BACKUP + " / restore", 14, true);
+        backup.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        backup.setTextColor(FG);
+        backup.setTag("file-backup");
         // Playlists (.pls): the Editor and Viewer tabs.
         android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
         playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1262,6 +1272,7 @@ public class MainActivity extends UiKit {
         menu.addView(downloads);
         menu.addView(logs);
         menu.addView(sound);
+        menu.addView(backup);
         menu.addView(playlists);
         menu.addView(general);
         menu.addView(dbSettings);
@@ -1312,6 +1323,10 @@ public class MainActivity extends UiKit {
         sound.setOnClickListener(v -> {
             pop.dismiss();
             SoundDevicesScreen.show(this);
+        });
+        backup.setOnClickListener(v -> {
+            pop.dismiss();
+            BackupScreen.show(this);
         });
         playlists.setOnClickListener(v -> {
             pop.dismiss();

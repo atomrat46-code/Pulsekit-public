@@ -8697,6 +8697,44 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * File > Back up Pulsekit / restore on the desktop: ~/.pulsekit's settings,
+   * patterns, playlists, Sogni history and prompt library into a zip with a password (no API key,
+   * no DB key or DB files in it), all of it back after it was gone.
+   */
+  void s174_backup_and_restore() throws Exception {
+    File root = PromptDb.dir();
+    Files.write(new File(root, "learned.json").toPath(), "{\"patterns\":[\"kept groove\"]}".getBytes(StandardCharsets.UTF_8));
+    new File(root, "playlists").mkdirs();
+    Files.write(new File(root, "playlists/drums.pls").toPath(), "[playlist]\nFile1=a.wav\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "favourite-categories.txt").toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    new File(root, "sogni").mkdirs();
+    Files.write(new File(root, "sogni/sogni_credentials").toPath(), "SOGNI_API_KEY=secret\n".getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptVault.open(root);
+    long kept = vault.addPrompt(vault.categories().get(0).id, "Kept prompt");
+    vault.addVersion(kept, "Kept prompt", "", "funk groove", "", "", null, "", null, "", null, "ai", "");
+    String before = vault.summary();
+    java.util.Set<String> all = new java.util.LinkedHashSet<String>(java.util.Arrays.asList(AppBackup.PARTS));
+    File zip = new File(System.getProperty("user.home"), "backup-test.zip");
+    String said = AppBackup.backup(root, null, all, "pass1234".toCharArray(), zip, BackupScreen.tmp(), "test");
+    List<String> names = new ArrayList<String>();
+    for (ZipPack.Entry e : ZipPack.list(zip)) names.add(e.name);
+    boolean noSecrets = names.stream().noneMatch(n -> n.contains("credentials") || n.endsWith(".key") || PromptVault.isDbFile(n.substring(n.lastIndexOf('/') + 1)));
+    new File(root, "learned.json").delete();
+    new File(root, "playlists/drums.pls").delete();
+    new File(root, "favourite-categories.txt").delete();
+    for (File f : root.listFiles()) if (PromptVault.isDbFile(f.getName())) f.delete();
+    PromptVault.forget();
+    String back = AppBackup.restore(zip, "pass1234".toCharArray(), all, root, null, BackupScreen.tmp());
+    PromptVault.forget();
+    String after = PromptVault.open(root).summary();
+    boolean filesBack = new File(root, "learned.json").isFile() && new File(root, "playlists/drums.pls").isFile() && new File(root, "favourite-categories.txt").isFile();
+    this.out.append("no API key, DB key or DB file in it: ").append(noSecrets).append('\n')
+        .append("restore: ").append(back.replaceAll("\\d+ files", "<n> files")).append(" | files back: ").append(filesBack)
+        .append(" | prompt library before ").append(before).append(", after ").append(after).append('\n');
+    if (!noSecrets || !filesBack || !after.equals(before) || !said.startsWith("Backed up")) throw new AssertionError(this.out.toString() + "\n" + said);
+  }
+
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
     return new java.util.function.Consumer[1];

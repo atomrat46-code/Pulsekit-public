@@ -721,6 +721,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem sound = new JMenuItem("Sound devices");
             sound.setName("file-sound-devices");
             sound.addActionListener(e -> SoundDevicesScreen.show(this));
+            // What reinstalling would lose, kept in a zip, and back from one (AppBackup).
+            JMenuItem backup = new JMenuItem(AppBackup.BACKUP + " / restore");
+            backup.setName("file-backup");
+            backup.addActionListener(e -> BackupScreen.show(this));
             // Playlists (.pls): the Editor and Viewer tabs.
             JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
             playlists.setName("file-playlists");
@@ -746,6 +750,7 @@ public final class Pulsekit extends UiKit {
             menu.add(downloads);
             menu.add(logs);
             menu.add(sound);
+            menu.add(backup);
             menu.add(playlists);
             menu.add(general);
             menu.add(dbSettings);

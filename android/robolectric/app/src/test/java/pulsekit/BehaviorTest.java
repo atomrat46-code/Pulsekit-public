@@ -11030,6 +11030,77 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * File > Back up Pulsekit / restore: what uninstalling deletes (settings, patterns and file sets,
+   * playlists, Sogni history, the prompt library) into a zip with a password, the API key and the
+   * DB's own files never in it, then all of it back after it was gone.
+   */
+  @Test
+  public void s183_backup_and_restore() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File root = app.getFilesDir();
+    File prefs = BackupScreen.prefsDir(app);
+    prefs.mkdirs();
+    Files.write(new File(root, "learned.json").toPath(), "{\"patterns\":[\"kept groove\"]}".getBytes(StandardCharsets.UTF_8));
+    new File(root, "playlists").mkdirs();
+    Files.write(new File(root, "playlists/drums.pls").toPath(), "[playlist]\nFile1=a.wav\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "favourite-categories.txt").toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    new File(root, "sogni").mkdirs();
+    Files.write(new File(root, "sogni/sogni_workflows.txt").toPath(), "wf_1\t1\tcompleted\tx\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "sogni/sogni_credentials").toPath(), "SOGNI_API_KEY=secret\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(prefs, "pulsekit.xml").toPath(), "<map><string name=\"style\">funk</string></map>".getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptVault.open(root);
+    long cat = vault.categories().get(0).id;
+    long kept = vault.addPrompt(cat, "Kept prompt");
+    vault.addVersion(kept, "Kept prompt", "", "funk groove", "", "", null, "", null, "", null, "ai", "");
+    String before = vault.summary();
+    java.util.Set<String> all = new java.util.LinkedHashSet<String>(java.util.Arrays.asList(AppBackup.PARTS));
+    File zip = new File(app.getCacheDir(), "test-backup.zip");
+    String said = AppBackup.backup(root, prefs, all, "pass1234".toCharArray(), zip, app.getCacheDir(), "test");
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (ZipPack.Entry e : ZipPack.list(zip)) names.add(e.name);
+    boolean noSecrets = names.stream().noneMatch(n -> n.contains("credentials") || PromptVault.isDbFile(n.substring(n.lastIndexOf('/') + 1)));
+    java.util.Set<String> inside = AppBackup.partsIn(zip);
+    out.append("backup: ").append(said.replaceAll("\\([^)]*KB\\)|\\([^)]*MB\\)|\\([^)]* bytes\\)", "(<size>)")).append('\n');
+    out.append("parts in it: ").append(inside).append(" | password needed: ").append(AppBackup.needsPassword(zip)).append(" | no API key or DB file in it: ").append(noSecrets).append('\n');
+    // Uninstalled: the files gone.
+    new File(root, "learned.json").delete();
+    new File(root, "playlists/drums.pls").delete();
+    new File(root, "favourite-categories.txt").delete();
+    new File(root, "sogni/sogni_workflows.txt").delete();
+    new File(prefs, "pulsekit.xml").delete();
+    for (File f : root.listFiles()) if (PromptVault.isDbFile(f.getName())) f.delete();
+    PromptVault.forget();
+    String wrong;
+    try {
+      AppBackup.restore(zip, "nope".toCharArray(), all, root, prefs, app.getCacheDir());
+      wrong = "restored";
+    } catch (ZipPack.WrongPassword ex) {
+      wrong = "refused";
+    }
+    String back = AppBackup.restore(zip, "pass1234".toCharArray(), all, root, prefs, app.getCacheDir());
+    PromptVault.forget();
+    String after = PromptVault.open(root).summary();
+    boolean filesBack = new String(Files.readAllBytes(new File(root, "learned.json").toPath()), StandardCharsets.UTF_8).contains("kept groove")
+        && new File(root, "playlists/drums.pls").isFile() && new File(root, "favourite-categories.txt").isFile()
+        && new File(root, "sogni/sogni_workflows.txt").isFile() && new File(prefs, "pulsekit.xml").isFile();
+    out.append("wrong password: ").append(wrong).append(" | restore: ").append(back).append(" | files back: ").append(filesBack)
+        .append(" | prompt library before ").append(before).append(", after ").append(after).append('\n');
+    // The menu item opens the dialog with its parts ticked as set.
+    BackupScreen.show(app);
+    idle();
+    View bv = BackupScreen.last.getWindow().getDecorView();
+    StringBuilder ticks = new StringBuilder();
+    for (String p : AppBackup.PARTS) ticks.append(p).append(((android.widget.CheckBox) bv.findViewWithTag("backup-part:" + p)).isChecked() ? "+ " : "- ");
+    BackupScreen.last.dismiss();
+    out.append("dialog: ").append(ticks.toString().trim()).append('\n');
+    write("s183_backup_and_restore", out.toString());
+    boolean ok = noSecrets && inside.containsAll(java.util.Arrays.asList(AppBackup.SETTINGS, AppBackup.SETS, AppBackup.PLAYLISTS, AppBackup.SOGNI, AppBackup.DB))
+        && AppBackup.needsPassword(zip) && "refused".equals(wrong) && filesBack && after.equals(before) && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
