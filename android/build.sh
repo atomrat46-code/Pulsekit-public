@@ -60,15 +60,15 @@ javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none \
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT/dex" && zip -q -j ../unsigned.apk classes*.dex)
 
-# 3b. The CLAP host (native/: clap_render.c, called through clap_jni.c by ClapService), for arm64
+# 3b. The plugin hosts (native/: clap_render.c, lv2_render.c, called through host_jni.c by ClapService), for arm64
 # phones, built with the NDK (ndk;29 in the SDK, or ANDROID_NDK_HOME). Without an NDK the APK is
 # built without it, and Plugins says the phone has no CLAP host.
 NDK="${ANDROID_NDK_HOME:-$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1)}"
 CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
 if [ -n "$NDK" ] && [ -x "$CC" ]; then
   mkdir -p "$OUT/native/lib/arm64-v8a"
-  "$CC" -shared -fPIC -O2 -Wall -Inative -Inative/clap -Wl,-z,max-page-size=16384 \
-    -o "$OUT/native/lib/arm64-v8a/libpulsekitclap.so" native/clap_render.c native/clap_jni.c -ldl -lm -llog
+  "$CC" -shared -fPIC -O2 -Wall -Inative -Inative/clap -Inative/lv2 -Wl,-z,max-page-size=16384 \
+    -o "$OUT/native/lib/arm64-v8a/libpulsekitclap.so" native/clap_render.c native/lv2_render.c native/midi_wav.c native/host_jni.c -ldl -lm -llog
   # Stored, not compressed: Android maps the library from the APK as it is.
   (cd "$OUT/native" && zip -q -0 -r ../unsigned.apk lib)
 else

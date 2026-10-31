@@ -11540,6 +11540,148 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * LV2 on the phone: Import LV2 takes the bundles of an aap-lv2 APK (assets/lv2/<bundle>.lv2 and
+   * lib/arm64-v8a) into Pulsekit's own folder (a bundle built for a computer left out, with why),
+   * the libraries the plugins need into _libs; the .ttl read (an instrument, an effect, their
+   * ports); a bundle's page lists them, one picked; Test plays the tune through the instrument,
+   * a test beat through the effect (the host in its own process stood in for).
+   */
+  @Test
+  public void s189_lv2_on_the_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    byte[] arm = new byte[64];
+    arm[0] = 0x7F;
+    arm[1] = 'E';
+    arm[2] = 'L';
+    arm[3] = 'F';
+    arm[18] = (byte) 183;
+    byte[] x86 = arm.clone();
+    x86[18] = 62;
+    String manifest = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        + "<http://example.org/synth> a lv2:Plugin, lv2:InstrumentPlugin ; lv2:binary <Synth.so> ; rdfs:seeAlso <Synth.ttl> .\n"
+        + "<http://example.org/echo>\n\ta lv2:Plugin ;\n\tlv2:binary <Echo.so> ;\n\trdfs:seeAlso <Echo.ttl> .\n";
+    String synth = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix atom: <http://lv2plug.in/ns/ext/atom#> .\n@prefix doap: <http://usefulinc.com/ns/doap#> .\n"
+        + "@prefix urid: <http://lv2plug.in/ns/ext/urid#> .\n# a comment\n"
+        + "<http://example.org/synth> doap:name \"Test \\\"Synth\\\"\"@en ; lv2:requiredFeature urid:map ;\n"
+        + " lv2:port [ a lv2:InputPort , atom:AtomPort ; atom:bufferType atom:Sequence ; atom:supports <http://lv2plug.in/ns/ext/midi#MidiEvent> ; lv2:index 0 ; lv2:symbol \"midi\" ; lv2:name \"MIDI\" ] ,\n"
+        + "  [ a lv2:OutputPort , lv2:AudioPort ; lv2:index 1 ; lv2:symbol \"out\" ; lv2:name \"Out\" ] ,\n"
+        + "  [ a lv2:InputPort , lv2:ControlPort ; lv2:index 2 ; lv2:symbol \"cutoff\" ; lv2:name \"Cutoff\" ; lv2:default 0.75 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ] .\n";
+    String echo = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix doap: <http://usefulinc.com/ns/doap#> .\n"
+        + "<http://example.org/echo> doap:name \"\"\"Test Echo\"\"\" ;\n lv2:port [ a lv2:AudioPort, lv2:InputPort ; lv2:index 0 ; lv2:symbol \"in\" ] ,"
+        + " [ a lv2:AudioPort, lv2:OutputPort ; lv2:index 1 ; lv2:symbol \"out\" ] , [ a lv2:ControlPort, lv2:InputPort ; lv2:index 2 ; lv2:symbol \"time\" ; lv2:default 3e-1 ] .\n";
+    File apk = new File(app.getCacheDir(), "aap-test.apk");
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(apk))) {
+      String[][] files = {{"assets/lv2/test.lv2/manifest.ttl", manifest}, {"assets/lv2/test.lv2/Synth.ttl", synth}, {"assets/lv2/test.lv2/Echo.ttl", echo},
+          {"assets/lv2/desk.lv2/manifest.ttl", "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n<http://example.org/desk> a lv2:Plugin ; lv2:binary <Desk.so> .\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+      }
+      for (String lib : new String[] {"Synth.so", "Echo.so", "libc++_shared.so", "Desk.so"}) {
+        z.putNextEntry(new java.util.zip.ZipEntry("lib/arm64-v8a/" + lib));
+        z.write(lib.equals("Desk.so") ? x86 : arm);
+      }
+    }
+    String said = Lv2Host.importZip(app, apk, "aap-test.apk");
+    File root = Lv2Host.dir(app);
+    out.append("import: ").append(said).append('\n');
+    out.append("files: ").append(java.util.Arrays.toString(new File(root, "test.lv2").list() == null ? new String[0] : sorted(new File(root, "test.lv2").list())))
+        .append(" | _libs ").append(java.util.Arrays.toString(sorted(Lv2Host.libs(app).list()))).append(" | desk kept ").append(new File(root, "desk.lv2").exists()).append('\n');
+    java.util.List<Lv2Bundle.Plugin> ps = Lv2Bundle.read(new File(root, "test.lv2"));
+    StringBuilder read = new StringBuilder();
+    for (Lv2Bundle.Plugin p : ps) {
+      read.append(p.name).append(" (").append(p.role()).append(", ").append(p.binary.getName()).append(", kinds ").append(java.util.Arrays.toString(p.kinds()))
+          .append(", outs ").append(java.util.Arrays.toString(p.outs())).append(", values ").append(java.util.Arrays.toString(p.values())).append(") ");
+    }
+    out.append("read: ").append(read.toString().trim()).append('\n');
+    // The host stood in for.
+    final java.util.List<String> jobs = new java.util.ArrayList<String>();
+    ClapHost.direct = (what, job) -> {
+      jobs.add(what + " " + job.getString("id") + " midi=" + new File(job.getString("midi", "")).getName() + " wav=" + new File(job.getString("wavIn", "")).getName()
+          + " libdir=" + new File(job.getString("libdir")).getName());
+      try {
+        Files.write(new File(job.getString("wav")).toPath(), AudioIo.encodeWav(new short[4410], 44100));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      android.os.Bundle b = new android.os.Bundle();
+      b.putBoolean("ok", true);
+      b.putString("info", "played it into 1.0 s (peak 50%)");
+      return b;
+    };
+    PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-type:" + PluginLibrary.LV2).performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    boolean importButton = bv.findViewWithTag("browser-import-lv2") != null;
+    if (bv.findViewWithTag("browser-item:test") == null) throw new AssertionError(out + "browser: " + count + " | all " + PluginBrowser.all);
+    bv.findViewWithTag("browser-item:test").performClick();
+    idle();
+    View pv = PluginBrowser.page.getWindow().getDecorView();
+    String first = String.valueOf(((TextView) pv.findViewWithTag("lv2-plugin:Test \"Synth\"")).getText());
+    String positive = String.valueOf(PluginBrowser.page.getButton(DialogInterface.BUTTON_POSITIVE).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText()).contains("saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    pv.findViewWithTag("lv2-plugin:Test Echo").performClick();
+    String picked = String.valueOf(((TextView) pv.findViewWithTag("lv2-plugin:Test Echo")).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && jobs.size() < 2; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    Thread.sleep(100);
+    idle();
+    String info = String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText());
+    PluginBrowser.page.dismiss();
+    PluginBrowser.last.dismiss();
+    ClapHost.direct = null;
+    if (PluginBrowser.player != null) PluginBrowser.player.release();
+    out.append("browser: ").append(count).append(" | Import LV2 ").append(importButton).append(" | page button ").append(positive).append(" | first row: ").append(first)
+        .append(" | after a tap: ").append(picked).append('\n').append("jobs: ").append(jobs).append('\n');
+    // Real aap-lv2 APKs, when given (PULSEKIT_AAP_APKS: paths with ':' between): imported, their bundles read.
+    String real = System.getenv("PULSEKIT_AAP_APKS");
+    if (real != null) {
+      for (String path : real.split(":")) {
+        out.append("real ").append(new File(path).getName()).append(": ").append(Lv2Host.importZip(app, new File(path), new File(path).getName())).append('\n');
+      }
+      for (String b : sorted(root.list())) {
+        if (!b.endsWith(".lv2") || b.equals("test.lv2")) continue;
+        int inst = 0, fx = 0;
+        for (Lv2Bundle.Plugin p : Lv2Bundle.read(new File(root, b))) {
+          if (p.takesMidi()) inst++;
+          else fx++;
+          if (!p.binary.isFile()) out.append("  missing library ").append(p.binary.getName()).append('\n');
+        }
+        out.append("  ").append(b).append(": ").append(inst).append(" instruments, ").append(fx).append(" others\n");
+      }
+      out.append("  _libs: ").append(java.util.Arrays.toString(sorted(Lv2Host.libs(app).list()))).append('\n');
+    }
+    write("s189_lv2_on_the_phone", out.toString());
+    boolean ok = said.startsWith("Imported 2 LV2 plugins (test); left out desk.lv2 (Desk.so is built for a computer (x86-64), not arm64)")
+        && new File(root, "test.lv2/Synth.so").isFile() && new File(Lv2Host.libs(app), "libc++_shared.so").isFile() && !new File(Lv2Host.libs(app), "Synth.so").exists()
+        && !new File(root, "desk.lv2").exists()
+        && read.toString().contains("Test \"Synth\" (instrument, Synth.so, kinds [2, 0, 1], outs [0, 1, 0], values [0.0, 0.0, 0.75])")
+        && read.toString().contains("Test Echo (effect, Echo.so, kinds [0, 0, 1], outs [0, 1, 0], values [0.0, 0.0, 0.3])")
+        && count.startsWith("1 of ") && importButton && "Render…".equals(positive) && first.startsWith("◉ Test \"Synth\"  · instrument")
+        && picked.startsWith("◉ Test Echo  · effect") && jobs.size() == 2
+        && jobs.get(0).equals("3 http://example.org/synth midi=lv2-test.mid wav= libdir=_libs") && jobs.get(1).equals("3 http://example.org/echo midi= wav=lv2-test-beat.wav libdir=_libs")
+        && info.contains("Test Echo played it into 1.0 s");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  private static String[] sorted(String[] a) {
+    if (a == null) return new String[0];
+    java.util.Arrays.sort(a);
+    return a;
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

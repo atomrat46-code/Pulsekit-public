@@ -36,6 +36,7 @@ final class PluginBrowser {
     static void show(final MainActivity app) {
         PluginLibrary.load(app.getFilesDir());
         PluginLibrary.androidClapDir = ClapHost.dir(app).getAbsolutePath();
+        PluginLibrary.androidLv2Dir = Lv2Host.dir(app).getAbsolutePath();
         LinearLayout col = app.col();
         col.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
         ScrollView scroll = new ScrollView(app);
@@ -68,7 +69,7 @@ final class PluginBrowser {
         col.removeAllViews();
         final Runnable again = () -> fill(app, col);
         LinearLayout types = app.row();
-        for (final String t : new String[] {PluginLibrary.ANY, PluginLibrary.SF2, PluginLibrary.SFZ, PluginLibrary.CLAP}) {
+        for (final String t : new String[] {PluginLibrary.ANY, PluginLibrary.SF2, PluginLibrary.SFZ, PluginLibrary.CLAP, PluginLibrary.LV2}) {
             TextView chip = app.pill(t, t.equals(type), v -> {
                 type = t;
                 again.run();
@@ -111,6 +112,10 @@ final class PluginBrowser {
         TextView importClap = app.outline("Import .clap", false, v -> pickFile(app, ClapHost.IMPORT_CLAP, "Pick a .clap built for Android (arm64)"));
         importClap.setTag("browser-import-clap");
         tools.addView(importClap);
+        // Import LV2: the bundles of an aap-lv2 APK (or a zip of .lv2 folders) built for Android.
+        TextView importLv2 = app.outline("Import LV2", false, v -> pickFile(app, Lv2Host.IMPORT_LV2, "Pick an aap-lv2 APK, or a zip of LV2 bundles built for Android"));
+        importLv2.setTag("browser-import-lv2");
+        tools.addView(importLv2);
         TextView typesInfo = app.outline("Types", false, v -> {
             lastSaid = PluginLibrary.typesTable(true);
             new AlertDialog.Builder(app).setTitle("Plugin and kit types").setMessage(lastSaid).setPositiveButton("Close", null).show();
@@ -170,7 +175,39 @@ final class PluginBrowser {
             reopen.run();
         }), "browser-down"));
         col.addView(app.chipStrip(row));
-        if (PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) {
+        final boolean lv2 = PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.LV2);
+        final List<Lv2Bundle.Plugin> lv2Plugins = new ArrayList<Lv2Bundle.Plugin>();
+        if (lv2) {
+            // The bundle's plugins: one picked plays (Test, Render…).
+            try {
+                lv2Plugins.addAll(Lv2Bundle.read(f));
+            } catch (Exception ex) {
+                info.append("\n\nNot readable: " + ex.getMessage());
+            }
+            col.addView(app.sectionLabel("PLUGINS IN IT (" + lv2Plugins.size() + ")"));
+            final List<TextView> rows = new ArrayList<TextView>();
+            final Runnable mark = () -> {
+                Lv2Bundle.Plugin on = chosenLv2(f, lv2Plugins);
+                for (int i = 0; i < rows.size(); i++) {
+                    Lv2Bundle.Plugin p = lv2Plugins.get(i);
+                    rows.get(i).setText((p == on ? "\u25C9 " : "\u25CB ") + p.name + "  \u00b7 " + p.role()
+                        + (p.missingFeatures().isEmpty() ? "" : "  (needs " + String.join(", ", p.missingFeatures()) + ")"));
+                }
+            };
+            for (final Lv2Bundle.Plugin p : lv2Plugins) {
+                TextView r = app.text(p.name, 14, false);
+                r.setTag("lv2-plugin:" + p.name);
+                r.setPadding(0, app.dp(6), 0, app.dp(6));
+                r.setOnClickListener(v -> {
+                    LV2_CHOSEN.put(f.getAbsolutePath(), p.uri);
+                    mark.run();
+                });
+                rows.add(r);
+                col.addView(r);
+            }
+            mark.run();
+        }
+        if (lv2 || PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) {
             // The last render (Test, Render MIDI…) played again, paused or stopped.
             LinearLayout transport = app.row();
             transport.addView(tagged(app.outline("\u25B6 Play", false, v -> say(app, playLast())), "clap-play"));
@@ -183,7 +220,7 @@ final class PluginBrowser {
         if (page != null && page.isShowing()) page.dismiss();
         boolean clap = PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP);
         page = new AlertDialog.Builder(app).setTitle(PluginLibrary.name(f)).setView(scroll)
-            .setPositiveButton(clap ? "Render MIDI\u2026" : "Use", (d, w) -> use(app, f))
+            .setPositiveButton(clap ? "Render MIDI\u2026" : lv2 ? "Render\u2026" : "Use", (d, w) -> use(app, f))
             .setNeutralButton("Test", null)
             .setNegativeButton("Close", null).create();
         page.show();
@@ -193,6 +230,15 @@ final class PluginBrowser {
             say(app, s);
             test.setEnabled(true);
         });
+        if (lv2) {
+            test.setOnClickListener(v -> {
+                Lv2Bundle.Plugin p = chosenLv2(f, lv2Plugins);
+                if (p == null) return;
+                test.setEnabled(false);
+                testLv2(app, p, show);
+            });
+            return;
+        }
         if (clap) {
             // Its plugins (ids, names), read by the host.
             ClapHost.list(app, f, b -> info.append("\n\n" + (b.getBoolean("ok") ? "Plugins in it:\n" + b.getString("list", "").trim().replace("\t", "  ") : "Not readable: " + b.getString("info"))));
@@ -218,14 +264,52 @@ final class PluginBrowser {
 
     /** A MIDI file through the CLAP plugin: the WAV saved into Download and played; what was done to `said`. */
     static void renderClap(final MainActivity app, final File f, final File midi, final String name, final java.util.function.Consumer<String> said) {
-        final File wav = new File(app.getCacheDir(), "clap-render.wav");
         say(app, "Playing " + midi.getName() + " through " + PluginLibrary.name(f) + "\u2026");
-        ClapHost.render(app, f, "", midi, wav, 2.0, 1.0, b -> {
+        renderOut(app, PluginLibrary.name(f), name, (wav, done) -> ClapHost.render(app, f, "", midi, wav, 2.0, 1.0, done), said);
+    }
+
+    /** The bundle's plugin picked on its page (the first instrument, else the first, until one is tapped). */
+    static final java.util.Map<String, String> LV2_CHOSEN = new java.util.HashMap<String, String>();
+
+    static Lv2Bundle.Plugin chosenLv2(File bundle, List<Lv2Bundle.Plugin> ps) {
+        String uri = LV2_CHOSEN.get(bundle.getAbsolutePath());
+        for (Lv2Bundle.Plugin p : ps) if (p.uri.equals(uri)) return p;
+        for (Lv2Bundle.Plugin p : ps) if (p.takesMidi()) return p;
+        return ps.isEmpty() ? null : ps.get(0);
+    }
+
+    /** LV2 Test: an instrument plays the test tune; an effect gets a test beat through it. */
+    static void testLv2(final MainActivity app, final Lv2Bundle.Plugin p, final java.util.function.Consumer<String> said) {
+        try {
+            if (p.takesMidi()) {
+                File midi = new File(app.getCacheDir(), "lv2-test.mid");
+                java.nio.file.Files.write(midi.toPath(), ClapHost.testMelody());
+                renderLv2(app, p, midi, null, "lv2-test-" + p.name, said);
+            } else {
+                File beat = new File(app.getCacheDir(), "lv2-test-beat.wav");
+                java.nio.file.Files.write(beat.toPath(), AudioIo.encodeWav(Lv2Host.testBeat(), ClapHost.RATE));
+                renderLv2(app, p, null, beat, "lv2-test-" + p.name, said);
+            }
+        } catch (Exception ex) {
+            said.accept("Could not test " + p.name + ": " + ex.getMessage());
+        }
+    }
+
+    static void renderLv2(final MainActivity app, final Lv2Bundle.Plugin p, final File midi, final File wavIn, final String name, final java.util.function.Consumer<String> said) {
+        say(app, "Playing " + (midi != null ? midi.getName() : wavIn.getName()) + " through " + p.name + "\u2026");
+        renderOut(app, p.name, name, (wav, done) -> Lv2Host.render(app, p, midi, wavIn, wav, midi != null ? 2.0 : 1.0, done), said);
+    }
+
+    /** A render into Pulsekit's temp folder: the WAV saved into Download and played; what was done to `said`. */
+    static void renderOut(final MainActivity app, final String plugin, final String name,
+        final java.util.function.BiConsumer<File, java.util.function.Consumer<android.os.Bundle>> run, final java.util.function.Consumer<String> said) {
+        final File wav = new File(app.getCacheDir(), "plugin-render-" + System.nanoTime() + ".wav");
+        run.accept(wav, b -> {
             if (!b.getBoolean("ok")) {
-                said.accept(PluginLibrary.name(f) + ": " + b.getString("info"));
+                said.accept(plugin + ": " + b.getString("info"));
                 return;
             }
-            final String info = b.getString("info");
+            final String info = b.getString("info").startsWith(plugin) ? b.getString("info") : plugin + " " + b.getString("info");
             new Thread(() -> {
                 String where;
                 try {
@@ -249,6 +333,8 @@ final class PluginBrowser {
 
     /** A WAV played through Pulsekit's output (File > Sound devices), at its playback volume. */
     static void play(File wav) {
+        // The render before: saved in Download already, its temp copy not needed.
+        if (lastWav != null && !lastWav.equals(wav) && lastWav.getName().startsWith("plugin-render-")) lastWav.delete();
         lastWav = wav;
         paused = false;
         try {
@@ -290,8 +376,9 @@ final class PluginBrowser {
         return "Stopped";
     }
 
-    /** The CLAP plugin Render MIDI… waits on a MIDI file for. */
+    /** The CLAP plugin Render MIDI… waits on a MIDI file for; the LV2 plugin Render… waits on a MIDI file or a WAV for. */
     static File pendingClap;
+    static Lv2Bundle.Plugin pendingLv2;
 
     static void pickFile(MainActivity app, int code, String what) {
         android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
@@ -317,6 +404,35 @@ final class PluginBrowser {
             } catch (Exception ex) {
                 say(app, "Not imported: " + ex.getMessage());
                 android.widget.Toast.makeText(app, lastSaid, android.widget.Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        if (code == Lv2Host.IMPORT_LV2) {
+            try {
+                String said = Lv2Host.importBundles(app, uri, name);
+                rescan();
+                say(app, said);
+                android.widget.Toast.makeText(app, said, android.widget.Toast.LENGTH_LONG).show();
+                if (last != null && last.isShowing()) show(app);
+            } catch (Exception ex) {
+                say(app, "Not imported: " + ex.getMessage());
+                android.widget.Toast.makeText(app, lastSaid, android.widget.Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        final Lv2Bundle.Plugin lv2 = pendingLv2;
+        pendingLv2 = null;
+        if (lv2 != null) {
+            try {
+                boolean midi = code == ClapHost.RENDER_MIDI;
+                File in = DbSettings.copyIn(app, uri, midi ? "lv2-input.mid" : "lv2-input.wav");
+                String base = name == null ? "input" : name.replaceAll("(?i)\\.(midi?|wave?)$", "");
+                renderLv2(app, lv2, midi ? in : null, midi ? null : in, base + "-" + lv2.name, s -> {
+                    say(app, s);
+                    android.widget.Toast.makeText(app, s, android.widget.Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception ex) {
+                say(app, "Could not read " + name + ": " + ex.getMessage());
             }
             return;
         }
@@ -348,6 +464,19 @@ final class PluginBrowser {
         } else if (t != null && t.name.equals(PluginLibrary.SFZ)) {
             app.projectIo.loadSfz(f, f.getName());
             say(app, "Loading " + PluginLibrary.name(f) + " onto the pads\u2026");
+        } else if (t != null && t.name.equals(PluginLibrary.LV2)) {
+            // Render…: the plugin picked on the page; an instrument takes a MIDI file, an effect a WAV.
+            List<Lv2Bundle.Plugin> ps;
+            try {
+                ps = Lv2Bundle.read(f);
+            } catch (Exception ex) {
+                say(app, PluginLibrary.name(f) + ": " + ex.getMessage());
+                return;
+            }
+            pendingLv2 = chosenLv2(f, ps);
+            if (pendingLv2 == null) return;
+            boolean midi = pendingLv2.takesMidi();
+            pickFile(app, midi ? ClapHost.RENDER_MIDI : Lv2Host.PROCESS_WAV, (midi ? "Pick the MIDI file to play through " : "Pick the WAV to play through ") + pendingLv2.name);
         } else if (t != null && t.name.equals(PluginLibrary.CLAP)) {
             // Render MIDI…: a MIDI file picked, played through it into a WAV.
             pendingClap = f;

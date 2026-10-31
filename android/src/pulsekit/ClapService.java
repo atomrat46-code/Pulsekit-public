@@ -10,16 +10,12 @@ import android.os.Message;
 import android.os.Messenger;
 
 /**
- * The CLAP host (libpulsekitclap.so) in a process of its own (":clap" in the manifest): a plugin
- * that crashes ends this process, not Pulsekit. ClapHost sends it a job (list a .clap's plugins,
- * render a MIDI file through one) and gets the answer back.
+ * The plugin hosts (libpulsekitclap.so: CLAP and LV2) in a process of their own (":clap" in the
+ * manifest): a plugin that crashes ends this process, not Pulsekit. ClapHost sends it a job (list a
+ * .clap's plugins, render a MIDI file or a WAV through a CLAP or LV2 plugin) and gets the answer.
  */
 public final class ClapService extends Service {
-    static final int LIST = 1, RENDER = 2;
-
-    static native String nativeList(String path);
-
-    static native String nativeRender(String path, String id, String midi, String wav, int rate, double tail, double volume);
+    static final int LIST = 1, RENDER = 2, RENDER_LV2 = 3;
 
     private static String loadError;
     private static boolean loaded;
@@ -47,8 +43,11 @@ public final class ClapService extends Service {
             out.putString("info", missing);
             return out;
         }
-        String said = what == LIST ? nativeList(job.getString("path"))
-            : nativeRender(job.getString("path"), job.getString("id", ""), job.getString("midi"), job.getString("wav"), job.getInt("rate", 44100),
+        String said = what == LIST ? NativeHost.clapList(job.getString("path"))
+            : what == RENDER_LV2 ? NativeHost.lv2Render(job.getString("path"), job.getString("id"), job.getString("bundle"), job.getString("libdir"),
+                job.getIntArray("kinds"), job.getIntArray("outs"), job.getFloatArray("values"), job.getString("midi", ""), job.getString("wavIn", ""),
+                job.getString("wav"), job.getInt("rate", 44100), job.getDouble("tail", 2.0), job.getDouble("volume", 1.0))
+            : NativeHost.clapRender(job.getString("path"), job.getString("id", ""), job.getString("midi"), job.getString("wav"), job.getInt("rate", 44100),
                 job.getDouble("tail", 2.0), job.getDouble("volume", 1.0));
         int tab = said.indexOf('\t');
         int n = Integer.parseInt(said.substring(0, tab));

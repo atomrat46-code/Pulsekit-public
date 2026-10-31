@@ -50,14 +50,15 @@ public final class PluginLibrary {
     new Type(VST3, new String[] {".vst3"}, true, false, "vst_render.py plays MIDI through it (Test, Edit settings for its kit); desktop only: Android cannot load VST plugins."),
     new Type(VST2, new String[] {".dll", ".vst", ".so"}, true, false, "vst_render.py plays MIDI through it (Test, Edit settings); desktop only."),
     new Type(AU, new String[] {".component"}, true, false, "vst_render.py plays MIDI through it on macOS (Test, Edit settings)."),
-    new Type(LV2, new String[] {".lv2"}, true, false, "Played through Carla: save a Carla project with the plugin in it, then vst_render.py --carla <project>. Listed, not tested here."),
+    new Type(LV2, new String[] {".lv2"}, true, true, "Desktop: played through Carla (save a Carla project with the plugin in it, then vst_render.py --carla <project>). "
+        + "Android: Import LV2 takes the bundles of an aap-lv2 APK (or a zip of .lv2 folders built for Android); a bundle's page plays MIDI through an instrument or a WAV through an effect."),
     new Type(CLAP, new String[] {".clap"}, true, true, "Desktop: vst_render.py plays MIDI through it in Carla's Carla-Rack (Carla 2.6 or newer; Test, Edit settings). "
         + "Android: Import .clap takes one built for Android (arm64); Test plays a tune through it, Render MIDI\u2026 plays a MIDI file into a WAV."),
     new Type(SF2, new String[] {".sf2"}, true, true, "A SoundFont: Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders MIDI with it."),
     new Type(SFZ, new String[] {".sfz"}, true, true, "An SFZ kit (its samples beside it): Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders with it.")};
 
-  /** Android: Pulsekit's CLAP folder (files/clap), set when the browser opens. */
-  public static String androidClapDir;
+  /** Android: Pulsekit's CLAP and LV2 folders (files/clap, files/lv2), set when the browser opens. */
+  public static String androidClapDir, androidLv2Dir;
 
   public static Type type(String name) {
     for (Type t : TYPES) if (t.name.equals(name)) return t;
@@ -78,7 +79,7 @@ public final class PluginLibrary {
       sb.append(t.name).append(" (").append(String.join(", ", t.ends)).append(")  desktop: ").append(t.desktop ? "yes" : "no").append(", Android: ").append(t.android ? "yes" : "no")
           .append(t.usable(onAndroid) ? "" : "  [not on this app]").append("\n  ").append(t.how).append("\n\n");
     }
-    sb.append("Android plays drum kits (SF2, SFZ) on the pads and CLAP plugins built for Android; VST, AU and LV2 plugins are desktop code, which Android apps cannot load.");
+    sb.append("Android plays drum kits (SF2, SFZ) on the pads, and CLAP and LV2 plugins built for Android; VST and AU plugins are desktop code, which Android apps cannot load.");
     return sb.toString();
   }
 
@@ -236,9 +237,11 @@ public final class PluginLibrary {
       for (String p : folders(t.name, onAndroid, home)) walk(new File(p), 0, t, found);
       // Android loads a plugin's code only from Pulsekit's own folder: its CLAP folders' plugins are copied there (ClapHost).
       if (onAndroid && t.name.equals(CLAP)) {
-        found.removeIf(f -> androidClapDir == null || !f.getAbsolutePath().startsWith(androidClapDir));
+        found.removeIf(f -> typeOf(f) == t && (androidClapDir == null || !f.getAbsolutePath().startsWith(androidClapDir)));
         if (androidClapDir != null) walk(new File(androidClapDir), 0, t, found);
       }
+      // LV2 too: the bundles Import LV2 put in Pulsekit's folder.
+      if (onAndroid && t.name.equals(LV2) && androidLv2Dir != null) walk(new File(androidLv2Dir), 0, t, found);
     }
     if (more != null) for (File f : more) if (f != null && typeOf(f) != null && f.exists()) found.add(f.getAbsoluteFile());
     return new ArrayList<File>(found);

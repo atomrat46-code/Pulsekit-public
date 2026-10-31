@@ -5,5 +5,5 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 out="${TMPDIR:-/tmp}/pulsekit-clap-test"
-cc -O2 -Wall -I"$here" -I"$here/clap" -o "$out" "$here/test_main.c" "$here/clap_render.c" -ldl -lm
+cc -O2 -Wall -I"$here" -I"$here/clap" -o "$out" "$here/test_main.c" "$here/clap_render.c" "$here/midi_wav.c" -ldl -lm
 if [ $# -ge 2 ]; then "$out" "$1" "$2" clap-test.wav; else "$out" "$1"; fi
