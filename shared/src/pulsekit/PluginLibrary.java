@@ -51,9 +51,13 @@ public final class PluginLibrary {
     new Type(VST2, new String[] {".dll", ".vst", ".so"}, true, false, "vst_render.py plays MIDI through it (Test, Edit settings); desktop only."),
     new Type(AU, new String[] {".component"}, true, false, "vst_render.py plays MIDI through it on macOS (Test, Edit settings)."),
     new Type(LV2, new String[] {".lv2"}, true, false, "Played through Carla: save a Carla project with the plugin in it, then vst_render.py --carla <project>. Listed, not tested here."),
-    new Type(CLAP, new String[] {".clap"}, true, false, "vst_render.py plays MIDI through it in Carla's Carla-Rack (Carla 2.6 or newer; Test, Edit settings); desktop only."),
+    new Type(CLAP, new String[] {".clap"}, true, true, "Desktop: vst_render.py plays MIDI through it in Carla's Carla-Rack (Carla 2.6 or newer; Test, Edit settings). "
+        + "Android: Import .clap takes one built for Android (arm64); Test plays a tune through it, Render MIDI\u2026 plays a MIDI file into a WAV."),
     new Type(SF2, new String[] {".sf2"}, true, true, "A SoundFont: Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders MIDI with it."),
     new Type(SFZ, new String[] {".sfz"}, true, true, "An SFZ kit (its samples beside it): Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders with it.")};
+
+  /** Android: Pulsekit's CLAP folder (files/clap), set when the browser opens. */
+  public static String androidClapDir;
 
   public static Type type(String name) {
     for (Type t : TYPES) if (t.name.equals(name)) return t;
@@ -74,7 +78,7 @@ public final class PluginLibrary {
       sb.append(t.name).append(" (").append(String.join(", ", t.ends)).append(")  desktop: ").append(t.desktop ? "yes" : "no").append(", Android: ").append(t.android ? "yes" : "no")
           .append(t.usable(onAndroid) ? "" : "  [not on this app]").append("\n  ").append(t.how).append("\n\n");
     }
-    sb.append("Android plays drum kits (SF2, SFZ) on the pads; VST, AU, LV2 and CLAP plugins are native desktop code, which Android apps cannot load.");
+    sb.append("Android plays drum kits (SF2, SFZ) on the pads and CLAP plugins built for Android; VST, AU and LV2 plugins are desktop code, which Android apps cannot load.");
     return sb.toString();
   }
 
@@ -104,6 +108,8 @@ public final class PluginLibrary {
     String pf = System.getenv("ProgramFiles") != null ? System.getenv("ProgramFiles") : "C:\\Program Files";
     String common = System.getenv("CommonProgramFiles") != null ? System.getenv("CommonProgramFiles") : pf + "\\Common Files";
     if (onAndroid) {
+      // Android loads a plugin's code only from Pulsekit's own folder (Import .clap puts it there).
+      if (type.equals(CLAP) && androidClapDir != null) out.add(androidClapDir);
       if (type.equals(SF2) || type.equals(SFZ)) {
         out.add(home + "/Download");
         out.add(home + "/Download/Pulsekit/kits");

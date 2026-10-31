@@ -804,6 +804,12 @@ public class MainActivity extends UiKit {
     }
 
     protected void onActivityResult(int n, int n2, Intent intent) {
+        if (n == ClapHost.IMPORT_CLAP || n == ClapHost.RENDER_MIDI) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) PluginBrowser.picked(this, n, intent.getData());
+            else if (n == ClapHost.RENDER_MIDI) PluginBrowser.pendingClap = null;
+            return;
+        }
         if (n == PluginBrowser.PICK_KIT_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) PluginBrowser.folderPicked(this, intent.getData());

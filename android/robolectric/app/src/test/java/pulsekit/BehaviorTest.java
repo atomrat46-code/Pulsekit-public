@@ -11416,6 +11416,104 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * CLAP on the phone: Import .clap takes a plugin built for Android (arm64) into Pulsekit's own
+   * folder, read-only, and refuses a Linux or Windows one; the Plugin Browser lists it under CLAP;
+   * its page lists its plugins and Test plays the test tune through it into a WAV (the host in
+   * its own process stood in for here).
+   */
+  @Test
+  public void s188_clap_on_the_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File in = new File(app.getCacheDir(), "in");
+    in.mkdirs();
+    byte[] arm = new byte[64];
+    arm[0] = 0x7F;
+    arm[1] = 'E';
+    arm[2] = 'L';
+    arm[3] = 'F';
+    arm[18] = (byte) 183;
+    byte[] x86 = arm.clone();
+    x86[18] = 62;
+    byte[] pe = new byte[64];
+    pe[0] = 'M';
+    pe[1] = 'Z';
+    String[] said = new String[3];
+    byte[][] files = {x86, pe, arm};
+    String[] names = {"Vitsel-linux.clap", "Vitsel-windows.clap", "Vitsel.clap"};
+    File imported = null;
+    for (int i = 0; i < 3; i++) {
+      File f = new File(in, names[i]);
+      Files.write(f.toPath(), files[i]);
+      try {
+        imported = ClapHost.importClap(app, android.net.Uri.fromFile(f), names[i]);
+        said[i] = "imported";
+      } catch (Exception ex) {
+        said[i] = ex.getMessage();
+      }
+    }
+    out.append("Linux build: ").append(said[0]).append("\nWindows build: ").append(said[1]).append("\nAndroid build: ").append(said[2])
+        .append(" | read-only ").append(imported != null && !Files.getPosixFilePermissions(imported.toPath()).contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE)).append(" | in ").append(imported == null ? "" : imported.getParentFile().getName()).append('\n');
+    // The host stood in for: its list, and a render that writes a WAV of the tune's length.
+    final java.util.List<String> jobs = new java.util.ArrayList<String>();
+    ClapHost.direct = (what, job) -> {
+      android.os.Bundle b = new android.os.Bundle();
+      b.putBoolean("ok", true);
+      if (what == ClapService.LIST) {
+        jobs.add("list " + new File(job.getString("path")).getName());
+        b.putString("list", "dev.example.vitsel\tVitsel\tme\n");
+        return b;
+      }
+      jobs.add("render " + new File(job.getString("midi")).getName() + " at " + job.getInt("rate"));
+      try {
+        Files.write(new File(job.getString("wav")).toPath(), AudioIo.encodeWav(new short[44100], 44100));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      b.putString("info", "Vitsel played 14 MIDI events into 6.0 s (CLAP notes, peak 12%)");
+      return b;
+    };
+    PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-type:" + PluginLibrary.CLAP).performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    View item = bv.findViewWithTag("browser-item:Vitsel");
+    out.append("CLAP in the browser: ").append(count).append(" | Import .clap button ").append(bv.findViewWithTag("browser-import-clap") != null).append('\n');
+    item.performClick();
+    for (int i = 0; i < 100 && jobs.isEmpty(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    idle();
+    View pv = PluginBrowser.page.getWindow().getDecorView();
+    String positive = String.valueOf(PluginBrowser.page.getButton(DialogInterface.BUTTON_POSITIVE).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText()).contains("saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String info = String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText());
+    PluginBrowser.page.dismiss();
+    PluginBrowser.last.dismiss();
+    ClapHost.direct = null;
+    if (PluginBrowser.player != null) PluginBrowser.player.release();
+    byte[] tune = ClapHost.testMelody();
+    out.append("page button: ").append(positive).append(" | jobs: ").append(jobs).append('\n')
+        .append("page: ").append(info.substring(info.indexOf("Plugins in it")).replace('\n', ' ')).append('\n')
+        .append("test tune: ").append(tune.length).append(" bytes, ").append(new String(tune, 0, 4, StandardCharsets.US_ASCII)).append('\n');
+    write("s188_clap_on_the_phone", out.toString());
+    Files.write(new File("build/snapshots/clap-test-tune.mid").toPath(), tune);
+    boolean ok = said[0].contains("built for a Linux computer (x86-64), not for an Android phone (arm64)") && said[1].contains("is not a plugin built for Android")
+        && "imported".equals(said[2]) && imported != null && !Files.getPosixFilePermissions(imported.toPath()).contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE) && imported.getParentFile().getName().equals("clap")
+        && count.startsWith("1 of ") && "Render MIDI…".equals(positive) && jobs.contains("list Vitsel.clap") && jobs.contains("render clap-test.mid at 44100")
+        && info.contains("Plugins in it:\ndev.example.vitsel  Vitsel  me") && info.contains("Vitsel played 14 MIDI events") && info.contains("saved ")
+        && new String(tune, 0, 4, StandardCharsets.US_ASCII).equals("MThd");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

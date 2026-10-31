@@ -35,6 +35,7 @@ final class PluginBrowser {
 
     static void show(final MainActivity app) {
         PluginLibrary.load(app.getFilesDir());
+        PluginLibrary.androidClapDir = ClapHost.dir(app).getAbsolutePath();
         LinearLayout col = app.col();
         col.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
         ScrollView scroll = new ScrollView(app);
@@ -55,7 +56,7 @@ final class PluginBrowser {
         col.removeAllViews();
         final Runnable again = () -> fill(app, col);
         LinearLayout types = app.row();
-        for (final String t : new String[] {PluginLibrary.ANY, PluginLibrary.SF2, PluginLibrary.SFZ}) {
+        for (final String t : new String[] {PluginLibrary.ANY, PluginLibrary.SF2, PluginLibrary.SFZ, PluginLibrary.CLAP}) {
             TextView chip = app.pill(t, t.equals(type), v -> {
                 type = t;
                 again.run();
@@ -94,6 +95,10 @@ final class PluginBrowser {
         }));
         folders.setTag("browser-folders");
         tools.addView(folders);
+        // Import .clap: a CLAP plugin built for Android, copied into Pulsekit's own folder.
+        TextView importClap = app.outline("Import .clap", false, v -> pickFile(app, ClapHost.IMPORT_CLAP, "Pick a .clap built for Android (arm64)"));
+        importClap.setTag("browser-import-clap");
+        tools.addView(importClap);
         TextView typesInfo = app.outline("Types", false, v -> {
             lastSaid = PluginLibrary.typesTable(true);
             new AlertDialog.Builder(app).setTitle("Plugin and kit types").setMessage(lastSaid).setPositiveButton("Close", null).show();
@@ -156,16 +161,126 @@ final class PluginBrowser {
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
         if (page != null && page.isShowing()) page.dismiss();
+        boolean clap = PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP);
         page = new AlertDialog.Builder(app).setTitle(PluginLibrary.name(f)).setView(scroll)
-            .setPositiveButton("Use", (d, w) -> use(app, f))
+            .setPositiveButton(clap ? "Render MIDI\u2026" : "Use", (d, w) -> use(app, f))
             .setNeutralButton("Test", null)
             .setNegativeButton("Close", null).create();
         page.show();
-        android.widget.Button test = page.getButton(AlertDialog.BUTTON_NEUTRAL);
-        test.setOnClickListener(v -> test(app, f, s -> app.runOnUiThread(() -> {
+        final android.widget.Button test = page.getButton(AlertDialog.BUTTON_NEUTRAL);
+        final java.util.function.Consumer<String> show = s -> app.runOnUiThread(() -> {
             info.append("\n\n" + s);
             say(app, s);
-        })));
+            test.setEnabled(true);
+        });
+        if (clap) {
+            // Its plugins (ids, names), read by the host.
+            ClapHost.list(app, f, b -> info.append("\n\n" + (b.getBoolean("ok") ? "Plugins in it:\n" + b.getString("list", "").trim().replace("\t", "  ") : "Not readable: " + b.getString("info"))));
+            test.setOnClickListener(v -> {
+                test.setEnabled(false);
+                testClap(app, f, show);
+            });
+            return;
+        }
+        test.setOnClickListener(v -> test(app, f, show));
+    }
+
+    /** CLAP Test: the test tune played through it into a WAV in Download, and played. */
+    static void testClap(final MainActivity app, final File f, final java.util.function.Consumer<String> said) {
+        try {
+            File midi = new File(app.getCacheDir(), "clap-test.mid");
+            java.nio.file.Files.write(midi.toPath(), ClapHost.testMelody());
+            renderClap(app, f, midi, "clap-test-" + PluginLibrary.name(f), said);
+        } catch (Exception ex) {
+            said.accept("Could not test " + PluginLibrary.name(f) + ": " + ex.getMessage());
+        }
+    }
+
+    /** A MIDI file through the CLAP plugin: the WAV saved into Download and played; what was done to `said`. */
+    static void renderClap(final MainActivity app, final File f, final File midi, final String name, final java.util.function.Consumer<String> said) {
+        final File wav = new File(app.getCacheDir(), "clap-render.wav");
+        say(app, "Playing " + midi.getName() + " through " + PluginLibrary.name(f) + "\u2026");
+        ClapHost.render(app, f, "", midi, wav, 2.0, 1.0, b -> {
+            if (!b.getBoolean("ok")) {
+                said.accept(PluginLibrary.name(f) + ": " + b.getString("info"));
+                return;
+            }
+            final String info = b.getString("info");
+            new Thread(() -> {
+                String where;
+                try {
+                    where = ArtJava.publish(app, name.replaceAll("[\\\\/:*?\"<>|]+", "_") + ".wav", java.nio.file.Files.readAllBytes(wav.toPath()));
+                } catch (Exception ex) {
+                    where = null;
+                }
+                final String saved = where;
+                app.runOnUiThread(() -> {
+                    play(wav);
+                    said.accept(info + (saved == null ? "" : "; saved " + saved));
+                });
+            }, "pulsekit-clap-save").start();
+        });
+    }
+
+    static android.media.MediaPlayer player;
+
+    /** A WAV played through Pulsekit's output (File > Sound devices), at its playback volume. */
+    static void play(File wav) {
+        try {
+            if (player != null) player.release();
+            player = new android.media.MediaPlayer();
+            player.setDataSource(wav.getAbsolutePath());
+            SoundOut.prefer(player);
+            player.prepare();
+            player.start();
+        } catch (Throwable ignored) {
+            // saved; not played
+        }
+    }
+
+    /** The CLAP plugin Render MIDI… waits on a MIDI file for. */
+    static File pendingClap;
+
+    static void pickFile(MainActivity app, int code, String what) {
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            app.startActivityForResult(intent, code);
+            app.setNow(what);
+        } catch (Exception ex) {
+            say(app, "No file picker on this phone: " + ex.getMessage());
+        }
+    }
+
+    /** The pickers' files (MainActivity.onActivityResult): a .clap imported, or the MIDI file to render. */
+    static void picked(final MainActivity app, int code, android.net.Uri uri) {
+        String name = DbImport.displayName(app, uri);
+        if (code == ClapHost.IMPORT_CLAP) {
+            try {
+                File f = ClapHost.importClap(app, uri, name);
+                rescan();
+                say(app, "Imported " + f.getName() + ": it is in the Plugin Browser (CLAP)");
+                if (last != null && last.isShowing()) show(app);
+            } catch (Exception ex) {
+                say(app, "Not imported: " + ex.getMessage());
+                android.widget.Toast.makeText(app, lastSaid, android.widget.Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        final File clap = pendingClap;
+        pendingClap = null;
+        if (clap == null) return;
+        try {
+            File midi = DbSettings.copyIn(app, uri, "clap-input.mid");
+            String base = name == null ? "song" : name.replaceAll("(?i)\\.midi?$", "");
+            renderClap(app, clap, midi, base + "-" + PluginLibrary.name(clap), s -> {
+                say(app, s);
+                android.widget.Toast.makeText(app, s, android.widget.Toast.LENGTH_LONG).show();
+            });
+        } catch (Exception ex) {
+            say(app, "Could not read " + name + ": " + ex.getMessage());
+        }
     }
 
     /** Use: the kit onto the pads (as File > Import does). */
@@ -181,6 +296,10 @@ final class PluginBrowser {
         } else if (t != null && t.name.equals(PluginLibrary.SFZ)) {
             app.projectIo.loadSfz(f, f.getName());
             say(app, "Loading " + PluginLibrary.name(f) + " onto the pads\u2026");
+        } else if (t != null && t.name.equals(PluginLibrary.CLAP)) {
+            // Render MIDI…: a MIDI file picked, played through it into a WAV.
+            pendingClap = f;
+            pickFile(app, ClapHost.RENDER_MIDI, "Pick the MIDI file to play through " + PluginLibrary.name(f));
         } else {
             say(app, PluginLibrary.name(f) + ": " + (t == null ? "not a kit" : t.how));
         }
