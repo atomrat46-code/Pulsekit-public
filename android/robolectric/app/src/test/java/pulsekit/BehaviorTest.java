@@ -11673,7 +11673,70 @@ public class BehaviorTest {
         && count.startsWith("1 of ") && importButton && "Render…".equals(positive) && first.startsWith("◉ Test \"Synth\"  · instrument")
         && picked.startsWith("◉ Test Echo  · effect") && jobs.size() == 2
         && jobs.get(0).equals("3 http://example.org/synth midi=lv2-test.mid wav= libdir=_libs") && jobs.get(1).equals("3 http://example.org/echo midi= wav=lv2-test-beat.wav libdir=_libs")
-        && info.contains("Test Echo played it into 1.0 s") && transport;
+        && info.contains("Test Echo played it into 1.0 s") && transport
+        && !new File(app.getCacheDir(), "lv2-test.mid").exists() && !new File(app.getCacheDir(), "lv2-test-beat.wav").exists();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params: Save (bottom left) keeps the prompt and LoRAs as the program's section in the
+   * prompt library (saved once: the same again is said so); Browse sections lists them, and a section
+   * picked over unsaved entries asks first; the sections are in the DB file after it is read again.
+   */
+  @Test
+  public void s191_sogni_sections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText prompt = null, loras = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) prompt = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) loras = PyJavParams.shownFields[i];
+    }
+    View dv = d.getWindow().getDecorView();
+    String saveText = String.valueOf(d.getButton(DialogInterface.BUTTON_NEUTRAL).getText());
+    boolean browseButton = dv.findViewWithTag("params-sections:--prompt") != null;
+    prompt.setText("a portrait in soft window light,\nfilm grain");
+    loras.setText("skin-detail:0.8");
+    d.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String first = PyJavParams.sectionSaid;
+    d.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String again = PyJavParams.sectionSaid;
+    boolean stillOpen = d.isShowing();
+    // Other entries, not saved: Browse sections, the section picked, Load without saving.
+    prompt.setText("something else");
+    loras.setText("");
+    dv.findViewWithTag("params-sections:--prompt").performClick();
+    idle();
+    if (PyJavParams.lastSections == null) throw new AssertionError("save: " + first + " | again: " + again + " | browse: " + PyJavParams.sectionSaid);
+    int listed = PyJavParams.lastSections.getListView().getAdapter().getCount();
+    String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(0));
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    idle();
+    String asked = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).getMessage());
+    PyJavParams.lastSections.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String loaded = prompt.getText() + " | " + loras.getText();
+    d.dismiss();
+    PromptVault.forget();
+    java.util.List<PromptVault.SogniSection> kept = PromptVault.open(app.getFilesDir()).sogniSections("SogniPedit");
+    out.append("Save button: ").append(saveText).append(" | Browse sections: ").append(browseButton).append('\n')
+        .append("save: ").append(first.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append("\nagain: ").append(again.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"))
+        .append(" | Params still open: ").append(stillOpen).append('\n')
+        .append("listed ").append(listed).append(": ").append(row.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append("\nasked: ").append(asked).append("\nloaded: ").append(loaded)
+        .append("\nin the DB after reading it again: ").append(kept.size()).append(kept.isEmpty() ? "" : " " + kept.get(0).text.replace("\n", " / ")).append('\n');
+    write("s191_sogni_sections", out.toString());
+    boolean ok = "Save".equals(saveText) && browseButton && first.startsWith("Saved a SogniPedit section: a portrait in soft window light, film grain \u00b7 loras")
+        && again.startsWith("This section is saved already") && stillOpen && listed == 1 && asked.equals(SogniSections.ASK)
+        && loaded.equals("a portrait in soft window light, film grain | skin-detail:0.8") && kept.size() == 1
+        && kept.get(0).text.equals("Prompt: a portrait in soft window light, film grain\nLoras: skin-detail:0.8\n");
     if (!ok) throw new AssertionError(out.toString());
   }
 

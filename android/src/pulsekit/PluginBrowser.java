@@ -269,7 +269,7 @@ final class PluginBrowser {
     /** A MIDI file through the CLAP plugin: the WAV saved into Download and played; what was done to `said`. */
     static void renderClap(final MainActivity app, final File f, final File midi, final String name, final java.util.function.Consumer<String> said) {
         say(app, "Playing " + midi.getName() + " through " + PluginLibrary.name(f) + "\u2026");
-        renderOut(app, PluginLibrary.name(f), name, (wav, done) -> ClapHost.render(app, f, "", midi, wav, 2.0, 1.0, done), said);
+        renderOut(app, PluginLibrary.name(f), name, (wav, done) -> ClapHost.render(app, f, "", midi, wav, 2.0, 1.0, done), said, midi);
     }
 
     /** The bundle's plugin picked on its page (the first instrument, else the first, until one is tapped). */
@@ -301,15 +301,21 @@ final class PluginBrowser {
 
     static void renderLv2(final MainActivity app, final Lv2Bundle.Plugin p, final File midi, final File wavIn, final String name, final java.util.function.Consumer<String> said) {
         say(app, "Playing " + (midi != null ? midi.getName() : wavIn.getName()) + " through " + p.name + "\u2026");
-        renderOut(app, p.name, name, (wav, done) -> Lv2Host.render(app, p, midi, wavIn, wav, midi != null ? 2.0 : 1.0, done), said);
+        renderOut(app, p.name, name, (wav, done) -> Lv2Host.render(app, p, midi, wavIn, wav, midi != null ? 2.0 : 1.0, done), said, midi, wavIn);
     }
 
-    /** A render into Pulsekit's temp folder: the WAV saved into Download and played; what was done to `said`. */
+    /**
+     * A render into Pulsekit's temp folder: the WAV saved into Download and played; what was done to
+     * `said`. The `inputs` (the test tune, a picked file's copy) are deleted once it is done.
+     */
     static void renderOut(final MainActivity app, final String plugin, final String name,
-        final java.util.function.BiConsumer<File, java.util.function.Consumer<android.os.Bundle>> run, final java.util.function.Consumer<String> said) {
+        final java.util.function.BiConsumer<File, java.util.function.Consumer<android.os.Bundle>> run, final java.util.function.Consumer<String> said,
+        final File... inputs) {
         final File wav = new File(app.getCacheDir(), "plugin-render-" + System.nanoTime() + ".wav");
         run.accept(wav, b -> {
+            for (File in : inputs) if (in != null) in.delete();
             if (!b.getBoolean("ok")) {
+                wav.delete();
                 said.accept(plugin + ": " + b.getString("info"));
                 return;
             }

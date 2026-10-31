@@ -1158,6 +1158,113 @@ final class PyJav {
         }
     }
 
+    /** What Save or Browse sections said last; the tests' answers (a section's index to load; 0 save first, 1 load, 2 cancel). */
+    static volatile String sectionSaid = "";
+    static Integer pickSection;
+    static Integer askSave;
+
+    private void sectionSay(String text) {
+        sectionSaid = text;
+        app.setNow(text);
+    }
+
+    /** A row's value now (its text area, else its field). */
+    static java.util.Map<String, String> sectionFields(java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        String[] now = new String[ps.size()];
+        for (int i = 0; i < now.length; i++) now[i] = areas[i] != null ? areas[i].getText() : fields[i] != null ? fields[i].getText() : "";
+        return SogniSections.fields(ps, now);
+    }
+
+    /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
+    boolean saveSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.sectionSay("Nothing to save: the prompt and the other rows are empty");
+            return false;
+        }
+        try {
+            String text = SogniSections.text(now);
+            PromptVault.SogniSection same = PromptDb.vault().findSogniSection(program, text);
+            if (same != null) {
+                this.sectionSay("This section is saved already: " + SogniSections.label(same));
+                if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.SAVE, JOptionPane.PLAIN_MESSAGE);
+                return true;
+            }
+            PromptVault.SogniSection sec = PromptDb.vault().addSogniSection(program, text);
+            this.sectionSay("Saved a " + program + " section: " + SogniSections.label(sec));
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not save the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
+    void browseSections(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.List<PromptVault.SogniSection> all;
+        try {
+            all = PromptDb.vault().sogniSections(program);
+        } catch (Exception ex) {
+            this.sectionSay("Could not read the sections: " + ex.getMessage());
+            return;
+        }
+        if (all.isEmpty()) {
+            this.sectionSay("No " + program + " sections yet: Save keeps the entries as one");
+            if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.BROWSE, JOptionPane.PLAIN_MESSAGE);
+            return;
+        }
+        int chosen;
+        boolean delete = false;
+        if (pickSection != null) chosen = pickSection;
+        else {
+            javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
+            for (PromptVault.SogniSection sec : all) model.addElement(SogniSections.label(sec));
+            javax.swing.JList<String> list = new javax.swing.JList<String>(model);
+            list.setName("sections-list");
+            list.setSelectedIndex(0);
+            list.setVisibleRowCount(Math.min(12, all.size()));
+            Object[] options = {"Load", "Delete", "Cancel"};
+            int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
+                JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            chosen = list.getSelectedIndex();
+            if (ans == 1) delete = true;
+            else if (ans != 0) return;
+        }
+        if (chosen < 0 || chosen >= all.size()) return;
+        PromptVault.SogniSection sec = all.get(chosen);
+        if (delete) {
+            try {
+                PromptDb.vault().deleteSogniSection(sec.id);
+                this.sectionSay("Deleted: " + SogniSections.label(sec));
+            } catch (Exception ex) {
+                this.sectionSay("Could not delete it: " + ex.getMessage());
+            }
+            return;
+        }
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        boolean saved;
+        try {
+            saved = now.isEmpty() || PromptDb.vault().findSogniSection(program, SogniSections.text(now)) != null;
+        } catch (Exception ex) {
+            saved = false;
+        }
+        if (!saved) {
+            Object[] options = {SogniSections.SAVE_FIRST, SogniSections.DONT_SAVE, "Cancel"};
+            int ans = askSave != null ? askSave : JOptionPane.showOptionDialog(at, SogniSections.ASK, SogniSections.BROWSE, JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans == 0 && !this.saveSection(at, program, ps, fields, areas)) return;
+            if (ans != 0 && ans != 1) return;
+        }
+        java.util.Map<String, String> f = SogniSections.read(sec.text);
+        for (int i = 0; i < ps.size(); i++) {
+            if (!SogniSections.kept(ps.get(i))) continue;
+            String v = f.get(ps.get(i).token);
+            if (areas[i] != null) areas[i].setText(v == null ? "" : v);
+            else if (fields[i] != null) fields[i].setText(v == null ? "" : v);
+        }
+        this.sectionSay("Loaded: " + SogniSections.label(sec));
+    }
+
     /** The Params shown last: their switches and text rows (a definitions file fills several). */
     java.util.List<ProgramParams.Param> shownParams;
     JTextField[] shownFields;
@@ -2774,6 +2881,13 @@ final class PyJav {
                     picks.add(db);
                     picks.add(prompts);
                     picks.add(recent);
+                    if (SogniSections.shown(program)) {
+                        // Browse sections: the program's saved Params (Save at the bottom), one picked into the rows.
+                        JButton sections = new JButton(SogniSections.BROWSE);
+                        sections.setName("params-sections:" + p.token);
+                        sections.addActionListener(e -> this.browseSections(sections, SogniSections.app(program), ps, fields, areas));
+                        picks.add(sections);
+                    }
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;
@@ -2884,6 +2998,15 @@ final class PyJav {
         formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
             Math.min(formSize.height, Math.max(PARAMS_MIN_FORM, room))));
         box.add(formScroll, BorderLayout.CENTER);
+        if (SogniSections.shown(program)) {
+            // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
+            JButton saveSection = new JButton(SogniSections.SAVE);
+            saveSection.setName("params-save-section");
+            saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
+            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+            south.add(saveSection);
+            box.add(south, BorderLayout.SOUTH);
+        }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;

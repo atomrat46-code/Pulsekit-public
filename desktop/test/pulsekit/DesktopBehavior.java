@@ -8982,6 +8982,53 @@ public final class DesktopBehavior {
         && said.contains("--plugin x.clap: --clap Test Synth.clap, --plugin /fake/CarlaRack.vst3");
     if (!ok) throw new AssertionError(this.out.toString());
   }
+  /**
+   * Sogni Params, as on Android: Save (bottom left) keeps the prompt and LoRAs as the program's
+   * section (the same again is said so); Browse sections over unsaved entries asks, then loads it.
+   */
+  void s179_sogni_sections() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final String[] seen = new String[4];
+    PyJav.pickSection = 0;
+    PyJav.askSave = 1;
+    inspectNext = d -> {
+      javax.swing.JTextArea prompt = null, loras = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        javax.swing.text.JTextComponent c = pj.shownAreas[i] != null ? pj.shownAreas[i] : pj.shownFields[i];
+        if (pj.shownParams.get(i).token.equals("--prompt")) prompt = (javax.swing.JTextArea) c;
+        if (pj.shownParams.get(i).token.equals("--loras") && c instanceof javax.swing.JTextArea) loras = (javax.swing.JTextArea) c;
+      }
+      javax.swing.text.JTextComponent lorasRow = loras;
+      if (lorasRow == null) for (int i = 0; i < pj.shownParams.size(); i++) if (pj.shownParams.get(i).token.equals("--loras")) lorasRow = pj.shownFields[i];
+      prompt.setText("a portrait in soft window light,\nfilm grain");
+      lorasRow.setText("skin-detail:0.8");
+      ((javax.swing.AbstractButton) component(d, "params-save-section")).doClick();
+      seen[0] = PyJav.sectionSaid;
+      ((javax.swing.AbstractButton) component(d, "params-save-section")).doClick();
+      seen[1] = PyJav.sectionSaid;
+      prompt.setText("something else");
+      lorasRow.setText("");
+      ((javax.swing.AbstractButton) component(d, "params-sections:--prompt")).doClick();
+      seen[2] = PyJav.sectionSaid;
+      seen[3] = prompt.getText() + " | " + lorasRow.getText();
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pickSection = null;
+    PyJav.askSave = null;
+    java.util.List<PromptVault.SogniSection> kept = PromptDb.vault().sogniSections("SogniPedit");
+    String when = "\\d+\\.\\d+\\. \\d+:\\d+";
+    this.out.append("save: ").append(String.valueOf(seen[0]).replaceAll(when, "<when>")).append("\nagain: ").append(String.valueOf(seen[1]).replaceAll(when, "<when>"))
+        .append("\nbrowse: ").append(String.valueOf(seen[2]).replaceAll(when, "<when>")).append("\nloaded: ").append(seen[3])
+        .append("\nin the DB: ").append(kept.size()).append('\n');
+    boolean ok = seen[0] != null && seen[0].startsWith("Saved a SogniPedit section: a portrait in soft window light, film grain")
+        && seen[1].startsWith("This section is saved already") && seen[2].startsWith("Loaded: a portrait")
+        && seen[3].equals("a portrait in soft window light, film grain | skin-detail:0.8") && kept.size() == 1;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
 
 
   @SuppressWarnings("unchecked")

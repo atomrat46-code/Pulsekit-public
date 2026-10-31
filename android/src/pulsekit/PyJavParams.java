@@ -376,7 +376,20 @@ public final class PyJavParams {
             target.setSelection(0);
           }).setNegativeButton("Cancel", null).show();
         });
-        box.addView(recent);
+        if (SogniSections.shown(name)) {
+          // Browse sections: the program's saved Params (Save at the bottom), one picked into the rows.
+          LinearLayout more = new LinearLayout(activity);
+          more.setOrientation(LinearLayout.HORIZONTAL);
+          more.addView(recent);
+          android.widget.Button sections = new android.widget.Button(activity);
+          sections.setText(SogniSections.BROWSE);
+          sections.setTag("params-sections:" + p.token);
+          sections.setOnClickListener(v -> browseSections(activity, SogniSections.app(name), ps, fields));
+          more.addView(sections);
+          box.addView(spaced(activity, more));
+        } else {
+          box.addView(recent);
+        }
         continue;
       }
       if (p.choices != null && p.choices.length > 0) {
@@ -457,11 +470,14 @@ public final class PyJavParams {
         }
       }
     };
-    shown = new AlertDialog.Builder(activity)
+    AlertDialog.Builder built = new AlertDialog.Builder(activity)
         .setTitle("Parameters · " + name)
         .setView(scroll)
         .setNegativeButton("Cancel", null)
-        .setPositiveButton("OK", save)
+        .setPositiveButton("OK", save);
+    // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
+    if (SogniSections.shown(name)) built.setNeutralButton(SogniSections.SAVE, null);
+    shown = built
         // Back (or a tap outside) closes it as OK does, what was picked kept; Cancel leaves it all as it was.
         .setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
           @Override
@@ -470,6 +486,113 @@ public final class PyJavParams {
           }
         })
         .show();
+    android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+  }
+
+  /** What Save or Browse sections said last, and the list shown last, for the tests. */
+  static volatile String sectionSaid = "";
+  static AlertDialog lastSections;
+
+  /** The section rows' values now. */
+  static java.util.Map<String, String> sectionFields(List<ProgramParams.Param> ps, EditText[] fields) {
+    String[] now = new String[ps.size()];
+    for (int i = 0; i < now.length; i++) now[i] = fields[i] == null || fields[i].getText() == null ? "" : fields[i].getText().toString();
+    return SogniSections.fields(ps, now);
+  }
+
+  static void sectionSay(Activity activity, String text) {
+    sectionSaid = text;
+    android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_LONG).show();
+  }
+
+  /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
+  static boolean saveSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
+      return false;
+    }
+    try {
+      PromptVault vault = PromptVault.open(activity.getFilesDir());
+      String text = SogniSections.text(now);
+      PromptVault.SogniSection same = vault.findSogniSection(program, text);
+      if (same != null) {
+        sectionSay(activity, "This section is saved already: " + SogniSections.label(same));
+        return true;
+      }
+      PromptVault.SogniSection sec = vault.addSogniSection(program, text);
+      sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(sec));
+      return true;
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not save the section: " + ex.getMessage());
+      return false;
+    }
+  }
+
+  /** Browse sections: the program's saved sections; one picked fills the rows (the entries now saved first, when asked). */
+  static void browseSections(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields) {
+    final List<PromptVault.SogniSection> all;
+    try {
+      all = PromptVault.open(activity.getFilesDir()).sogniSections(program);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not read the sections: " + ex.getMessage());
+      return;
+    }
+    if (all.isEmpty()) {
+      sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
+      return;
+    }
+    String[] rows = new String[all.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(all.get(i));
+    lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
+        .setItems(rows, (d, w) -> pickSection(activity, program, ps, fields, all.get(w)))
+        .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
+        .setNegativeButton("Cancel", null).show();
+  }
+
+  static void pickSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    boolean saved;
+    try {
+      saved = now.isEmpty() || PromptVault.open(activity.getFilesDir()).findSogniSection(program, SogniSections.text(now)) != null;
+    } catch (Exception ex) {
+      saved = false;
+    }
+    if (saved) {
+      loadSection(activity, ps, fields, sec);
+      return;
+    }
+    lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE).setMessage(SogniSections.ASK)
+        .setPositiveButton(SogniSections.SAVE_FIRST, (d, w) -> {
+          if (saveSection(activity, program, ps, fields)) loadSection(activity, ps, fields, sec);
+        })
+        .setNeutralButton(SogniSections.DONT_SAVE, (d, w) -> loadSection(activity, ps, fields, sec))
+        .setNegativeButton("Cancel", null).show();
+  }
+
+  /** The section's entries into the rows; the kept rows it does not set emptied. */
+  static void loadSection(Activity activity, List<ProgramParams.Param> ps, EditText[] fields, PromptVault.SogniSection sec) {
+    java.util.Map<String, String> f = SogniSections.read(sec.text);
+    for (int i = 0; i < ps.size() && i < fields.length; i++) {
+      if (fields[i] == null || !SogniSections.kept(ps.get(i))) continue;
+      String v = f.get(ps.get(i).token);
+      fields[i].setText(v == null ? "" : v);
+    }
+    sectionSay(activity, "Loaded: " + SogniSections.label(sec));
+  }
+
+  static void deleteSections(final Activity activity, final String program, final List<PromptVault.SogniSection> all) {
+    String[] rows = new String[all.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(all.get(i));
+    lastSections = new AlertDialog.Builder(activity).setTitle("Delete a " + program + " section").setItems(rows, (d, w) -> {
+      try {
+        PromptVault.open(activity.getFilesDir()).deleteSogniSection(all.get(w).id);
+        sectionSay(activity, "Deleted: " + rows[w]);
+      } catch (Exception ex) {
+        sectionSay(activity, "Could not delete it: " + ex.getMessage());
+      }
+    }).setNegativeButton("Cancel", null).show();
   }
 
   /**
