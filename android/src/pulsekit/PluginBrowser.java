@@ -42,12 +42,24 @@ final class PluginBrowser {
         scroll.addView(col);
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app).setTitle("Plugin Browser").setView(scroll).setPositiveButton("Close", null).create();
-        rescan();
+        rescan(app);
         fill(app, col);
         last.show();
     }
 
+    /** What the CLAP folders' copying said last ("" when nothing new). */
+    static String clapSynced = "";
+
     static void rescan() {
+        rescan(null);
+    }
+
+    /** The lists found again; with the app, the CLAP folders' new plugins copied into Pulsekit's own folder first. */
+    static void rescan(MainActivity app) {
+        if (app != null) {
+            clapSynced = ClapHost.sync(app, PluginLibrary.folders(PluginLibrary.CLAP, true, home()));
+            if (clapSynced.length() > 0) say(app, clapSynced);
+        }
         all.clear();
         all.addAll(PluginLibrary.scan(true, home(), null));
     }
@@ -90,7 +102,7 @@ final class PluginBrowser {
         col.addView(find);
         LinearLayout tools = app.row();
         TextView folders = app.outline("Folders", false, v -> folders(app, () -> {
-            rescan();
+            rescan(app);
             again.run();
         }));
         folders.setTag("browser-folders");
@@ -106,7 +118,7 @@ final class PluginBrowser {
         typesInfo.setTag("browser-types");
         tools.addView(typesInfo);
         TextView rescan = app.outline("Rescan", false, v -> {
-            rescan();
+            rescan(app);
             again.run();
         });
         rescan.setTag("browser-rescan");
@@ -158,6 +170,14 @@ final class PluginBrowser {
             reopen.run();
         }), "browser-down"));
         col.addView(app.chipStrip(row));
+        if (PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) {
+            // The last render (Test, Render MIDI…) played again, paused or stopped.
+            LinearLayout transport = app.row();
+            transport.addView(tagged(app.outline("\u25B6 Play", false, v -> say(app, playLast())), "clap-play"));
+            transport.addView(tagged(app.outline("\u2759\u2759 Pause", false, v -> say(app, pauseLast())), "clap-pause"));
+            transport.addView(tagged(app.outline("\u25A0 Stop", false, v -> say(app, stopLast())), "clap-stop"));
+            col.addView(app.chipStrip(transport));
+        }
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
         if (page != null && page.isShowing()) page.dismiss();
@@ -223,9 +243,14 @@ final class PluginBrowser {
     }
 
     static android.media.MediaPlayer player;
+    /** The WAV rendered last (Play plays it again); whether the player is paused. */
+    static File lastWav;
+    static boolean paused;
 
     /** A WAV played through Pulsekit's output (File > Sound devices), at its playback volume. */
     static void play(File wav) {
+        lastWav = wav;
+        paused = false;
         try {
             if (player != null) player.release();
             player = new android.media.MediaPlayer();
@@ -236,6 +261,33 @@ final class PluginBrowser {
         } catch (Throwable ignored) {
             // saved; not played
         }
+    }
+
+    /** Play: a paused render goes on; else the last render from its start. */
+    static String playLast() {
+        if (player != null && paused) {
+            player.start();
+            paused = false;
+            return "Playing on";
+        }
+        if (lastWav == null || !lastWav.isFile()) return "Nothing rendered yet: Test or Render MIDI\u2026 first";
+        play(lastWav);
+        return "Playing the last render";
+    }
+
+    static String pauseLast() {
+        if (player == null || paused || !player.isPlaying()) return "Not playing";
+        player.pause();
+        paused = true;
+        return "Paused: Play goes on";
+    }
+
+    static String stopLast() {
+        if (player == null) return "Not playing";
+        player.release();
+        player = null;
+        paused = false;
+        return "Stopped";
     }
 
     /** The CLAP plugin Render MIDI… waits on a MIDI file for. */
@@ -383,9 +435,10 @@ final class PluginBrowser {
         }
         LinearLayout col = app.col();
         col.setPadding(app.dp(18), app.dp(8), app.dp(18), 0);
-        final String[] kinds = {PluginLibrary.SF2, PluginLibrary.SFZ};
+        // CLAP: folders its plugins are copied from (Android runs a plugin only from Pulsekit's own folder).
+        final String[] kinds = {PluginLibrary.SF2, PluginLibrary.SFZ, PluginLibrary.CLAP};
         final List<List<String>> lists = new ArrayList<List<String>>();
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < kinds.length; i++) {
             final List<String> paths = new ArrayList<String>(PluginLibrary.folders(kinds[i], true, home()));
             lists.add(paths);
             col.addView(app.sectionLabel(kinds[i] + " FOLDERS (" + paths.size() + ")"));
@@ -394,10 +447,14 @@ final class PluginBrowser {
             shown.setTag("kit-folders:" + kinds[i]);
             final TextView head = (TextView) col.getChildAt(col.getChildCount() - 1);
             final String kind = kinds[i];
+            // A CLAP folder is kept as the picker's folder (Android lets Pulsekit read it), shown as its path.
+            final boolean asTree = kind.equals(PluginLibrary.CLAP);
             final Runnable refresh = () -> {
-                List<String> items = paths.isEmpty() ? java.util.Collections.singletonList(FolderPaths.NONE) : paths;
+                List<String> items = new ArrayList<String>();
+                for (String p : paths) items.add(shown(p));
+                if (items.isEmpty()) items.add(FolderPaths.NONE);
                 int at = Math.max(0, Math.min(shown.getSelectedItemPosition(), items.size() - 1));
-                shown.setAdapter(new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_dropdown_item, new ArrayList<String>(items)));
+                shown.setAdapter(new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_dropdown_item, items));
                 shown.setSelection(at);
                 head.setText(kind + " FOLDERS (" + paths.size() + ")");
             };
@@ -408,12 +465,12 @@ final class PluginBrowser {
                 if (!paths.contains(p)) paths.add(p);
                 refresh.run();
                 shown.setSelection(paths.indexOf(p));
-            }));
+            }, asTree));
             add.setTag("kit-folder-add:" + kind);
             TextView change = app.outline(FolderPaths.CHANGE, false, v -> {
                 if (paths.isEmpty()) return;
                 final int at = shown.getSelectedItemPosition();
-                changeFolder(app, paths.get(at), p -> {
+                changeFolder(app, paths.get(at), asTree, p -> {
                     if (p.length() == 0) paths.remove(at);
                     else paths.set(at, p);
                     refresh.run();
@@ -433,7 +490,7 @@ final class PluginBrowser {
         scroll.addView(col);
         lastFolders = new AlertDialog.Builder(app).setTitle("Kit folders").setView(scroll)
             .setPositiveButton("Save", (d, w) -> {
-                for (int i = 0; i < 2; i++) {
+                for (int i = 0; i < kinds.length; i++) {
                     List<String> paths = lists.get(i);
                     PluginLibrary.setFolders(kinds[i], paths.equals(PluginLibrary.defaults(kinds[i], true, home())) ? null : paths);
                 }
@@ -450,12 +507,25 @@ final class PluginBrowser {
     /** For the tests: the Kit folders window and the Change window shown last. */
     static AlertDialog lastFolders;
     static AlertDialog lastChange;
-    /** Where the folder picked goes (Add folder…, Change…'s Browse…). */
+    /** Where the folder picked goes (Add folder…, Change…'s Browse…), and whether as the picker's folder (content://) or its path. */
     static java.util.function.Consumer<String> pendingFolder;
+    static boolean pendingAsTree;
 
-    /** Android's folder picker; the folder picked (as its path) goes to `got`. */
-    static void pickFolder(MainActivity app, java.util.function.Consumer<String> got) {
+    /** A folder as the list shows it: its path (a picked folder's too). */
+    static String shown(String p) {
+        if (!p.startsWith("content://")) return p;
+        try {
+            String path = FolderPaths.fromDocId(android.provider.DocumentsContract.getTreeDocumentId(android.net.Uri.parse(p)));
+            return path == null ? p : path;
+        } catch (Exception ex) {
+            return p;
+        }
+    }
+
+    /** Android's folder picker; the folder picked (as its path, or `asTree` the picker's folder) goes to `got`. */
+    static void pickFolder(MainActivity app, java.util.function.Consumer<String> got, boolean asTree) {
         pendingFolder = got;
+        pendingAsTree = asTree;
         android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {
@@ -476,6 +546,11 @@ final class PluginBrowser {
             // read through its path; the permission only helps
         }
         String path = FolderPaths.fromDocId(android.provider.DocumentsContract.getTreeDocumentId(tree));
+        if (pendingAsTree) {
+            got.accept(tree.toString());
+            say(app, "Folder " + (path == null ? tree.toString() : path));
+            return;
+        }
         if (path == null) {
             say(app, "That folder is not on the phone's storage: pick one under Internal storage or the memory card");
             return;
@@ -485,18 +560,26 @@ final class PluginBrowser {
     }
 
     /** Change…: the path to edit, or Browse… for another folder in its place; OK keeps it (empty: removed). */
-    static void changeFolder(final MainActivity app, String path, final java.util.function.Consumer<String> done) {
+    static void changeFolder(final MainActivity app, String path, final boolean asTree, final java.util.function.Consumer<String> done) {
         LinearLayout col = app.col();
         col.setPadding(app.dp(18), app.dp(8), app.dp(18), 0);
         final EditText field = new EditText(app);
-        field.setText(path);
+        // A picked folder is kept as it is unless its path is typed over.
+        final String[] picked = {path};
+        field.setText(shown(path));
         field.setTag("kit-folder-path");
         col.addView(field);
-        TextView browse = app.outline(FolderPaths.BROWSE, false, v -> pickFolder(app, field::setText));
+        TextView browse = app.outline(FolderPaths.BROWSE, false, v -> pickFolder(app, p -> {
+            picked[0] = p;
+            field.setText(shown(p));
+        }, asTree));
         browse.setTag("kit-folder-browse");
         col.addView(browse);
         lastChange = new AlertDialog.Builder(app).setTitle("Change folder").setView(col)
-            .setPositiveButton("OK", (d, w) -> done.accept(field.getText().toString().trim()))
+            .setPositiveButton("OK", (d, w) -> {
+                String typed = field.getText().toString().trim();
+                done.accept(typed.equals(shown(picked[0])) ? picked[0] : typed);
+            })
             .setNegativeButton("Cancel", null).show();
     }
 

@@ -11496,8 +11496,34 @@ public class BehaviorTest {
       idle();
     }
     String info = String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText());
+    // The render played again, paused, stopped.
+    pv.findViewWithTag("clap-stop").performClick();
+    String stopped = PluginBrowser.lastSaid;
+    pv.findViewWithTag("clap-play").performClick();
+    String played = PluginBrowser.lastSaid;
+    pv.findViewWithTag("clap-stop").performClick();
+    out.append("Stop: ").append(stopped).append(" | Play: ").append(played).append('\n');
     PluginBrowser.page.dismiss();
     PluginBrowser.last.dismiss();
+    // Kit folders' CLAP folder: its Android plugin copied into Pulsekit's own folder, the Linux one not.
+    File shared = new File(app.getCacheDir(), "shared-clap/synths");
+    shared.mkdirs();
+    Files.write(new File(shared, "Other.clap").toPath(), arm);
+    Files.write(new File(shared, "Desk.clap").toPath(), x86);
+    PluginLibrary.setFolders(PluginLibrary.CLAP, java.util.Collections.singletonList(shared.getParent()));
+    PluginBrowser.rescan(app);
+    String synced = PluginBrowser.clapSynced;
+    StringBuilder listed = new StringBuilder();
+    java.util.List<String> clapNames = new java.util.ArrayList<String>();
+    for (File f : PluginBrowser.all) if (PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) clapNames.add(f.getName());
+    java.util.Collections.sort(clapNames);
+    for (String n : clapNames) listed.append(n).append(' ');
+    PluginBrowser.rescan(app);
+    String again = PluginBrowser.clapSynced;
+    PluginLibrary.setFolders(PluginLibrary.CLAP, null);
+    out.append("CLAP folder: ").append(synced).append(" | listed ").append(listed.toString().trim()).append(" | again: \"").append(again).append("\"\n");
+    boolean folderOk = synced.equals("Copied 1 CLAP plugin from the CLAP folders; not for this phone: Desk.clap") && listed.toString().trim().equals("Other.clap Vitsel.clap")
+        && again.equals("") && "Stopped".equals(stopped) && "Playing the last render".equals(played);
     ClapHost.direct = null;
     if (PluginBrowser.player != null) PluginBrowser.player.release();
     byte[] tune = ClapHost.testMelody();
@@ -11510,7 +11536,7 @@ public class BehaviorTest {
         && "imported".equals(said[2]) && imported != null && !Files.getPosixFilePermissions(imported.toPath()).contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE) && imported.getParentFile().getName().equals("clap")
         && count.startsWith("1 of ") && "Render MIDI…".equals(positive) && jobs.contains("list Vitsel.clap") && jobs.contains("render clap-test.mid at 44100")
         && info.contains("Plugins in it:\ndev.example.vitsel  Vitsel  me") && info.contains("Vitsel played 14 MIDI events") && info.contains("saved ")
-        && new String(tune, 0, 4, StandardCharsets.US_ASCII).equals("MThd");
+        && new String(tune, 0, 4, StandardCharsets.US_ASCII).equals("MThd") && folderOk;
     if (!ok) throw new AssertionError(out.toString());
   }
 

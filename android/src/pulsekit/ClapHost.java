@@ -73,6 +73,79 @@ final class ClapHost {
         return to;
     }
 
+    /**
+     * Kit folders' CLAP folders: the .clap files in them (a folder picked with Android's picker, or
+     * a path) copied into Pulsekit's CLAP folder when new or changed, 4 folders deep. What was done
+     * ("" when nothing new).
+     */
+    private static final java.util.Set<String> REFUSED = new java.util.HashSet<String>();
+
+    static String sync(Context c, java.util.List<String> folders) {
+        int copied = 0;
+        java.util.List<String> refused = new java.util.ArrayList<String>();
+        for (String f : folders) {
+            java.util.List<Object[]> found = new java.util.ArrayList<Object[]>();
+            try {
+                if (f.startsWith("content://")) {
+                    Uri tree = Uri.parse(f);
+                    findInTree(c, tree, android.provider.DocumentsContract.getTreeDocumentId(tree), 0, found);
+                } else {
+                    findInFolder(new File(f), 0, found);
+                }
+            } catch (Exception ex) {
+                continue;
+            }
+            for (Object[] one : found) {
+                String name = (String) one[0];
+                long size = (Long) one[1];
+                File have = new File(dir(c), name);
+                if (have.isFile() && have.length() == size) continue;
+                // A file already found not to be for this phone is said once (until it changes).
+                if (REFUSED.contains(name + "\t" + size)) continue;
+                try {
+                    importClap(c, (Uri) one[2], name);
+                    copied++;
+                } catch (Exception ex) {
+                    refused.add(name);
+                    REFUSED.add(name + "\t" + size);
+                }
+            }
+        }
+        if (copied == 0 && refused.isEmpty()) return "";
+        return (copied > 0 ? "Copied " + copied + " CLAP " + (copied == 1 ? "plugin" : "plugins") + " from the CLAP folders" : "")
+            + (refused.isEmpty() ? "" : (copied > 0 ? "; " : "") + "not for this phone: " + String.join(", ", refused));
+    }
+
+    private static void findInFolder(File d, int depth, java.util.List<Object[]> out) {
+        File[] kids = d.listFiles();
+        if (kids == null) return;
+        for (File k : kids) {
+            if (k.isFile() && k.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".clap")) out.add(new Object[] {k.getName(), k.length(), Uri.fromFile(k)});
+            else if (k.isDirectory() && depth < PluginLibrary.DEPTH && !k.getName().startsWith(".")) findInFolder(k, depth + 1, out);
+        }
+    }
+
+    private static void findInTree(Context c, Uri tree, String doc, int depth, java.util.List<Object[]> out) {
+        android.database.Cursor cur = c.getContentResolver().query(android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, doc),
+            new String[] {android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE, android.provider.DocumentsContract.Document.COLUMN_SIZE}, null, null, null);
+        if (cur == null) return;
+        java.util.List<String> sub = new java.util.ArrayList<String>();
+        try {
+            while (cur.moveToNext()) {
+                String id = cur.getString(0), name = cur.getString(1), mime = cur.getString(2);
+                if (android.provider.DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    if (depth < PluginLibrary.DEPTH && name != null && !name.startsWith(".")) sub.add(id);
+                } else if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".clap")) {
+                    out.add(new Object[] {name, cur.isNull(3) ? -1L : cur.getLong(3), android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)});
+                }
+            }
+        } finally {
+            cur.close();
+        }
+        for (String id : sub) findInTree(c, tree, id, depth + 1, out);
+    }
+
     /** The plugins of a .clap: "id\tname\tvendor" lines, to `done` (on the screen's thread). */
     static void list(Context c, File clap, Consumer<Bundle> done) {
         Bundle job = new Bundle();

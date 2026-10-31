@@ -108,8 +108,6 @@ public final class PluginLibrary {
     String pf = System.getenv("ProgramFiles") != null ? System.getenv("ProgramFiles") : "C:\\Program Files";
     String common = System.getenv("CommonProgramFiles") != null ? System.getenv("CommonProgramFiles") : pf + "\\Common Files";
     if (onAndroid) {
-      // Android loads a plugin's code only from Pulsekit's own folder (Import .clap puts it there).
-      if (type.equals(CLAP) && androidClapDir != null) out.add(androidClapDir);
       if (type.equals(SF2) || type.equals(SFZ)) {
         out.add(home + "/Download");
         out.add(home + "/Download/Pulsekit/kits");
@@ -236,6 +234,11 @@ public final class PluginLibrary {
     for (Type t : TYPES) {
       if (onAndroid && !t.android) continue;
       for (String p : folders(t.name, onAndroid, home)) walk(new File(p), 0, t, found);
+      // Android loads a plugin's code only from Pulsekit's own folder: its CLAP folders' plugins are copied there (ClapHost).
+      if (onAndroid && t.name.equals(CLAP)) {
+        found.removeIf(f -> androidClapDir == null || !f.getAbsolutePath().startsWith(androidClapDir));
+        if (androidClapDir != null) walk(new File(androidClapDir), 0, t, found);
+      }
     }
     if (more != null) for (File f : more) if (f != null && typeOf(f) != null && f.exists()) found.add(f.getAbsoluteFile());
     return new ArrayList<File>(found);
