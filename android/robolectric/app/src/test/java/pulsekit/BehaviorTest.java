@@ -11362,6 +11362,60 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Plugins > Folders (Kit folders): each kit type's folders in a list; Add folder… takes a folder
+   * from Android's folder picker (as its path), Change… edits the one shown or browses another in
+   * its place, Delete removes it; Save keeps the lists.
+   */
+  @Test
+  public void s187_kit_folders_list() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String paths = FolderPaths.fromDocId("primary:Music/sfz") + " | " + FolderPaths.fromDocId("1A2B-3C4D:kits/") + " | " + FolderPaths.fromDocId("primary:")
+        + " | " + FolderPaths.fromDocId("raw:/storage/emulated/0/Download/kits");
+    out.append("picked as paths: ").append(paths).append('\n');
+    final boolean[] saved = new boolean[1];
+    PluginBrowser.answer = null;
+    PluginBrowser.folders(app, () -> saved[0] = true);
+    idle();
+    View fv = PluginBrowser.lastFolders.getWindow().getDecorView();
+    android.widget.Spinner sf2 = (android.widget.Spinner) fv.findViewWithTag("kit-folders:" + PluginLibrary.SF2);
+    int before = sf2.getAdapter().getCount();
+    // Delete them all, then Add folder… from the picker.
+    for (int i = 0; i < 10 && !FolderPaths.NONE.equals(sf2.getAdapter().getItem(0)); i++) {
+      fv.findViewWithTag("kit-folder-delete:" + PluginLibrary.SF2).performClick();
+      idle();
+    }
+    String emptied = String.valueOf(sf2.getAdapter().getItem(0));
+    fv.findViewWithTag("kit-folder-add:" + PluginLibrary.SF2).performClick();
+    idle();
+    PluginBrowser.folderPicked(app, android.provider.DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Music/sf2"));
+    idle();
+    String added = String.valueOf(sf2.getSelectedItem());
+    // Change…: Browse… puts another folder in the field, OK takes it.
+    fv.findViewWithTag("kit-folder-change:" + PluginLibrary.SF2).performClick();
+    idle();
+    View cv = PluginBrowser.lastChange.getWindow().getDecorView();
+    String inField = String.valueOf(((android.widget.EditText) cv.findViewWithTag("kit-folder-path")).getText());
+    cv.findViewWithTag("kit-folder-browse").performClick();
+    idle();
+    PluginBrowser.folderPicked(app, android.provider.DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Download/My kits"));
+    idle();
+    PluginBrowser.lastChange.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String changed = String.valueOf(sf2.getSelectedItem());
+    PluginBrowser.lastFolders.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    java.util.List<String> kept = PluginLibrary.folders(PluginLibrary.SF2, true, PluginBrowser.home());
+    out.append("SF2 folders at first: ").append(before).append(" | after Delete: ").append(emptied).append(" | Add folder: ").append(added)
+        .append(" | Change shows ").append(inField).append(", browsed: ").append(changed).append(" | saved ").append(saved[0]).append(": ").append(kept).append('\n');
+    write("s187_kit_folders_list", out.toString());
+    PluginLibrary.setFolders(PluginLibrary.SF2, null);
+    boolean ok = paths.equals("/storage/emulated/0/Music/sfz | /storage/1A2B-3C4D/kits | /storage/emulated/0 | /storage/emulated/0/Download/kits")
+        && before > 0 && FolderPaths.NONE.equals(emptied) && "/storage/emulated/0/Music/sf2".equals(added) && "/storage/emulated/0/Music/sf2".equals(inField)
+        && "/storage/emulated/0/Download/My kits".equals(changed) && saved[0] && kept.equals(java.util.Collections.singletonList("/storage/emulated/0/Download/My kits"));
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A PNG with one more chunk before its IEND. */
   private static byte[] withChunk(byte[] png, String type, byte[] data) throws Exception {
     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

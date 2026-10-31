@@ -264,18 +264,58 @@ final class PluginBrowser {
         }
         LinearLayout col = app.col();
         col.setPadding(app.dp(18), app.dp(8), app.dp(18), 0);
-        final EditText[] fields = new EditText[2];
         final String[] kinds = {PluginLibrary.SF2, PluginLibrary.SFZ};
+        final List<List<String>> lists = new ArrayList<List<String>>();
         for (int i = 0; i < 2; i++) {
-            col.addView(app.sectionLabel(kinds[i] + " FOLDERS (ONE A LINE)"));
-            fields[i] = new EditText(app);
-            fields[i].setText(String.join("\n", PluginLibrary.folders(kinds[i], true, home())));
-            col.addView(fields[i]);
+            final List<String> paths = new ArrayList<String>(PluginLibrary.folders(kinds[i], true, home()));
+            lists.add(paths);
+            col.addView(app.sectionLabel(kinds[i] + " FOLDERS (" + paths.size() + ")"));
+            // Its folders in a list; Add folder… browses for one, Change… edits or browses the one shown, Delete removes it.
+            final android.widget.Spinner shown = new android.widget.Spinner(app);
+            shown.setTag("kit-folders:" + kinds[i]);
+            final TextView head = (TextView) col.getChildAt(col.getChildCount() - 1);
+            final String kind = kinds[i];
+            final Runnable refresh = () -> {
+                List<String> items = paths.isEmpty() ? java.util.Collections.singletonList(FolderPaths.NONE) : paths;
+                int at = Math.max(0, Math.min(shown.getSelectedItemPosition(), items.size() - 1));
+                shown.setAdapter(new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_dropdown_item, new ArrayList<String>(items)));
+                shown.setSelection(at);
+                head.setText(kind + " FOLDERS (" + paths.size() + ")");
+            };
+            refresh.run();
+            col.addView(shown);
+            LinearLayout row = app.row();
+            TextView add = app.outline(FolderPaths.ADD, false, v -> pickFolder(app, p -> {
+                if (!paths.contains(p)) paths.add(p);
+                refresh.run();
+                shown.setSelection(paths.indexOf(p));
+            }));
+            add.setTag("kit-folder-add:" + kind);
+            TextView change = app.outline(FolderPaths.CHANGE, false, v -> {
+                if (paths.isEmpty()) return;
+                final int at = shown.getSelectedItemPosition();
+                changeFolder(app, paths.get(at), p -> {
+                    if (p.length() == 0) paths.remove(at);
+                    else paths.set(at, p);
+                    refresh.run();
+                });
+            });
+            change.setTag("kit-folder-change:" + kind);
+            TextView delete = app.outline(FolderPaths.DELETE, false, v -> {
+                if (paths.isEmpty()) return;
+                paths.remove(shown.getSelectedItemPosition());
+                refresh.run();
+            });
+            delete.setTag("kit-folder-delete:" + kind);
+            for (TextView b : new TextView[] {add, change, delete}) row.addView(b);
+            col.addView(app.chipStrip(row));
         }
-        new AlertDialog.Builder(app).setTitle("Kit folders").setView(col)
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(col);
+        lastFolders = new AlertDialog.Builder(app).setTitle("Kit folders").setView(scroll)
             .setPositiveButton("Save", (d, w) -> {
                 for (int i = 0; i < 2; i++) {
-                    List<String> paths = lines(fields[i].getText().toString());
+                    List<String> paths = lists.get(i);
                     PluginLibrary.setFolders(kinds[i], paths.equals(PluginLibrary.defaults(kinds[i], true, home())) ? null : paths);
                 }
                 saved.run();
@@ -284,6 +324,60 @@ final class PluginBrowser {
                 for (String k : kinds) PluginLibrary.setFolders(k, null);
                 saved.run();
             })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    static final int PICK_KIT_FOLDER = 94;
+    /** For the tests: the Kit folders window and the Change window shown last. */
+    static AlertDialog lastFolders;
+    static AlertDialog lastChange;
+    /** Where the folder picked goes (Add folder…, Change…'s Browse…). */
+    static java.util.function.Consumer<String> pendingFolder;
+
+    /** Android's folder picker; the folder picked (as its path) goes to `got`. */
+    static void pickFolder(MainActivity app, java.util.function.Consumer<String> got) {
+        pendingFolder = got;
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            app.startActivityForResult(intent, PICK_KIT_FOLDER);
+        } catch (Exception ex) {
+            say(app, "No folder picker on this phone: " + ex.getMessage());
+        }
+    }
+
+    /** The picker's folder (MainActivity.onActivityResult): its path to where it was asked for. */
+    static void folderPicked(MainActivity app, android.net.Uri tree) {
+        java.util.function.Consumer<String> got = pendingFolder;
+        pendingFolder = null;
+        if (tree == null || got == null) return;
+        try {
+            app.getContentResolver().takePersistableUriPermission(tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+            // read through its path; the permission only helps
+        }
+        String path = FolderPaths.fromDocId(android.provider.DocumentsContract.getTreeDocumentId(tree));
+        if (path == null) {
+            say(app, "That folder is not on the phone's storage: pick one under Internal storage or the memory card");
+            return;
+        }
+        got.accept(path);
+        say(app, "Folder " + path);
+    }
+
+    /** Change…: the path to edit, or Browse… for another folder in its place; OK keeps it (empty: removed). */
+    static void changeFolder(final MainActivity app, String path, final java.util.function.Consumer<String> done) {
+        LinearLayout col = app.col();
+        col.setPadding(app.dp(18), app.dp(8), app.dp(18), 0);
+        final EditText field = new EditText(app);
+        field.setText(path);
+        field.setTag("kit-folder-path");
+        col.addView(field);
+        TextView browse = app.outline(FolderPaths.BROWSE, false, v -> pickFolder(app, field::setText));
+        browse.setTag("kit-folder-browse");
+        col.addView(browse);
+        lastChange = new AlertDialog.Builder(app).setTitle("Change folder").setView(col)
+            .setPositiveButton("OK", (d, w) -> done.accept(field.getText().toString().trim()))
             .setNegativeButton("Cancel", null).show();
     }
 

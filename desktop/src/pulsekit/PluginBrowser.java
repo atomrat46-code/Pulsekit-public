@@ -377,7 +377,32 @@ final class PluginBrowser {
         return state.isFile() ? "\nSettings (kit, patch) saved with Edit settings: vst_render plays with them." : "\nNo settings saved with Edit settings: it plays with its own defaults.";
     }
 
-    /** Folders\u2026: each type's folders (one a line), Add folder\u2026, Defaults; true when saved. */
+    /** A folder browsed for (the tests: answer "Folder"); its path, or null. */
+    static String pickFolder(java.awt.Component parent, String from) {
+        if (answer != null) return answer.apply("Folder");
+        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(from == null ? null : new File(from));
+        fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+        return fc.showOpenDialog(parent) == javax.swing.JFileChooser.APPROVE_OPTION ? fc.getSelectedFile().getAbsolutePath() : null;
+    }
+
+    /** Change…: the path to edit, or Browse… for another folder in its place; the new path ("" removes it), or null. */
+    static String changeFolder(java.awt.Component parent, String path) {
+        if (answer != null) return answer.apply("Change " + path);
+        final javax.swing.JTextField field = new javax.swing.JTextField(path, 40);
+        field.setName("folder-path");
+        JButton browse = button(FolderPaths.BROWSE, "folder-browse");
+        browse.addActionListener(e -> {
+            String got = pickFolder(field, field.getText().trim());
+            if (got != null) field.setText(got);
+        });
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.add(field, BorderLayout.CENTER);
+        row.add(browse, BorderLayout.EAST);
+        int ok = javax.swing.JOptionPane.showConfirmDialog(parent, row, "Change folder", javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE);
+        return ok == javax.swing.JOptionPane.OK_OPTION ? field.getText().trim() : null;
+    }
+
+    /** Folders\u2026: each type's folders in a list with Add folder\u2026, Change\u2026 and Delete, Defaults; true when saved. */
     static boolean foldersDialog(java.awt.Window owner) {
         final JDialog d = new JDialog(owner, "Plugin folders", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         d.setName("plugin-folders");
@@ -385,39 +410,59 @@ final class PluginBrowser {
         for (int i = 0; i < names.length; i++) names[i] = PluginLibrary.TYPES[i].name;
         final JComboBox<String> type = new JComboBox<String>(names);
         type.setName("folders-type");
-        final JTextArea paths = new JTextArea(8, 50);
-        paths.setName("folders-paths");
-        final java.util.Map<String, String> edited = new java.util.LinkedHashMap<String, String>();
-        final String[] shownType = {names[0]};
-        final Runnable show = () -> {
+        // The type's folders in a list: Add folder… browses for one, Change… edits or browses the one shown, Delete removes it.
+        final javax.swing.DefaultComboBoxModel<String> model = new javax.swing.DefaultComboBoxModel<String>();
+        final JComboBox<String> paths = new JComboBox<String>(model);
+        paths.setName("folders-list");
+        paths.setPrototypeDisplayValue("/a/rather/long/path/to/where/the/plugins/or/kits/are/kept");
+        final java.util.Map<String, List<String>> edited = new java.util.LinkedHashMap<String, List<String>>();
+        final java.util.function.Supplier<List<String>> now = () -> {
             String t = (String) type.getSelectedItem();
-            shownType[0] = t;
-            paths.setText(edited.containsKey(t) ? edited.get(t) : String.join("\n", PluginLibrary.folders(t, false, home())));
+            if (!edited.containsKey(t)) edited.put(t, new ArrayList<String>(PluginLibrary.folders(t, false, home())));
+            return edited.get(t);
         };
-        type.addActionListener(e -> {
-            edited.put(shownType[0], paths.getText());
-            show.run();
-        });
-        JButton add = button("Add folder\u2026", "folders-add"), defaults = button("Defaults", "folders-defaults"), save = button("Save", "folders-save"), cancel = button("Cancel", "folders-cancel");
+        final java.util.function.IntConsumer show = at -> {
+            List<String> list = now.get();
+            model.removeAllElements();
+            for (String p : list) model.addElement(p);
+            if (!list.isEmpty()) paths.setSelectedIndex(Math.max(0, Math.min(at, list.size() - 1)));
+        };
+        type.addActionListener(e -> show.accept(0));
+        JButton add = button(FolderPaths.ADD, "folders-add"), change = button(FolderPaths.CHANGE, "folders-change"), delete = button(FolderPaths.DELETE, "folders-delete");
+        JButton defaults = button("Defaults", "folders-defaults"), save = button("Save", "folders-save"), cancel = button("Cancel", "folders-cancel");
         add.addActionListener(e -> {
-            String got;
-            if (answer != null) got = answer.apply("Folder");
-            else {
-                javax.swing.JFileChooser fc = new javax.swing.JFileChooser();
-                fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-                got = fc.showOpenDialog(d) == javax.swing.JFileChooser.APPROVE_OPTION ? fc.getSelectedFile().getAbsolutePath() : null;
-            }
-            if (got != null) paths.setText((paths.getText().trim() + "\n" + got).trim());
+            String got = pickFolder(d, null);
+            if (got == null) return;
+            List<String> list = now.get();
+            if (!list.contains(got)) list.add(got);
+            show.accept(list.indexOf(got));
         });
-        defaults.addActionListener(e -> paths.setText(String.join("\n", PluginLibrary.defaults((String) type.getSelectedItem(), false, home()))));
+        change.addActionListener(e -> {
+            int at = paths.getSelectedIndex();
+            if (at < 0) return;
+            List<String> list = now.get();
+            String got = changeFolder(d, list.get(at));
+            if (got == null) return;
+            if (got.length() == 0) list.remove(at);
+            else list.set(at, got);
+            show.accept(at);
+        });
+        delete.addActionListener(e -> {
+            int at = paths.getSelectedIndex();
+            if (at < 0) return;
+            now.get().remove(at);
+            show.accept(at);
+        });
+        defaults.addActionListener(e -> {
+            String t = (String) type.getSelectedItem();
+            edited.put(t, new ArrayList<String>(PluginLibrary.defaults(t, false, home())));
+            show.accept(0);
+        });
         final boolean[] saved = {false};
         save.addActionListener(e -> {
-            edited.put(shownType[0], paths.getText());
-            for (java.util.Map.Entry<String, String> me : edited.entrySet()) {
-                List<String> list = new ArrayList<String>();
-                for (String l : me.getValue().split("\n")) if (l.trim().length() > 0) list.add(l.trim());
-                boolean same = list.equals(PluginLibrary.defaults(me.getKey(), false, home()));
-                PluginLibrary.setFolders(me.getKey(), same ? null : list);
+            for (java.util.Map.Entry<String, List<String>> me : edited.entrySet()) {
+                boolean same = me.getValue().equals(PluginLibrary.defaults(me.getKey(), false, home()));
+                PluginLibrary.setFolders(me.getKey(), same ? null : new ArrayList<String>(me.getValue()));
             }
             saved[0] = true;
             d.dispose();
@@ -426,16 +471,19 @@ final class PluginBrowser {
         JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         north.add(new JLabel("Type"));
         north.add(type);
-        north.add(new JLabel("  one folder a line; its subfolders are looked through too (" + PluginLibrary.DEPTH + " deep)"));
+        north.add(new JLabel("  its subfolders are looked through too (" + PluginLibrary.DEPTH + " deep)"));
+        JPanel middle = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        middle.add(paths);
+        for (JButton b : new JButton[] {add, change, delete}) middle.add(b);
         JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
-        for (JButton b : new JButton[] {add, defaults, save, cancel}) south.add(b);
+        for (JButton b : new JButton[] {defaults, save, cancel}) south.add(b);
         JPanel box = new JPanel(new BorderLayout(0, 6));
         box.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         box.add(north, BorderLayout.NORTH);
-        box.add(new JScrollPane(paths), BorderLayout.CENTER);
+        box.add(middle, BorderLayout.CENTER);
         box.add(south, BorderLayout.SOUTH);
         d.setContentPane(box);
-        show.run();
+        show.accept(0);
         d.pack();
         d.setLocationRelativeTo(owner);
         d.setVisible(true);

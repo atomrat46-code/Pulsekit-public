@@ -8291,6 +8291,7 @@ public final class DesktopBehavior {
     final javax.swing.JList<File> list = (javax.swing.JList<File>) component(d, "browser-list");
     // Folders\u2026: the VST3 and VST2 types in "plugins", CLAP there too, the kits in "my kits".
     final boolean[] saved = new boolean[1];
+    final String[] foldersShown = new String[1];
     final java.util.function.Consumer<JDialog>[] folderHook = newHook();
     folderHook[0] = w -> {
       if (!"Plugin folders".equals(w.getTitle())) {
@@ -8299,17 +8300,22 @@ public final class DesktopBehavior {
       }
       @SuppressWarnings("unchecked")
       javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(w, "folders-type");
-      javax.swing.JTextArea paths = (javax.swing.JTextArea) component(w, "folders-paths");
-      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2}) {
+      javax.swing.JComboBox<?> paths = (javax.swing.JComboBox<?>) component(w, "folders-list");
+      // Each type's list: Delete empties it, Add folder… browses ("Folder"), Change… edits the one shown.
+      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2, PluginLibrary.SFZ}) {
         type.setSelectedItem(t);
-        paths.setText(t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.LV2) ? "" : vst.getAbsolutePath());
-        if (t.equals(PluginLibrary.SF2)) {
-          answersFor.put("Folder", kits.getAbsolutePath());
-          ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        while (paths.getItemCount() > 0) ((javax.swing.JButton) component(w, "folders-delete")).doClick();
+        if (t.equals(PluginLibrary.LV2)) continue;
+        boolean kit = t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.SFZ);
+        answersFor.put("Folder", kit ? home.getAbsolutePath() : vst.getAbsolutePath());
+        ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        if (kit) {
+          answersFor.put("Change " + home.getAbsolutePath(), kits.getAbsolutePath());
+          ((javax.swing.JButton) component(w, "folders-change")).doClick();
         }
       }
-      type.setSelectedItem(PluginLibrary.SFZ);
-      paths.setText(kits.getAbsolutePath());
+      type.setSelectedItem(PluginLibrary.SF2);
+      foldersShown[0] = paths.getItemCount() + " " + paths.getSelectedItem();
       ((javax.swing.JButton) component(w, "folders-save")).doClick();
       saved[0] = true;
     };
@@ -8317,6 +8323,9 @@ public final class DesktopBehavior {
     SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "browser-folders")).doClick());
     for (int i = 0; i < 100 && !saved[0]; i++) Thread.sleep(100);
     idle();
+    // SF2's list after Add folder… and Change…: one folder, the kits.
+    this.out.append("SF2 folders in the list: ").append(foldersShown[0] == null ? "none" : foldersShown[0].replace(home.getAbsolutePath(), "~")).append('\n');
+    if (!("1 " + kits.getAbsolutePath()).equals(foldersShown[0])) throw new AssertionError(this.out.toString());
     final StringBuilder seen = new StringBuilder();
     final java.util.function.Function<String, File> pick = name -> {
       for (int i = 0; i < list.getModel().getSize(); i++) if (PluginLibrary.name(list.getModel().getElementAt(i)).equals(name)) {
