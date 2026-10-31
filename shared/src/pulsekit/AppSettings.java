@@ -144,6 +144,15 @@ public final class AppSettings {
     put("midiOut", key == null || key.trim().isEmpty() ? null : key.trim());
   }
 
+  /** Which input port of the MIDI output the drums go to (a device with several: an AAP plugin app has one an instrument). */
+  public static synchronized int midiOutPort() {
+    return percent("midiOutPort", 0, 255);
+  }
+
+  public static synchronized void setMidiOutPort(int port) {
+    put("midiOutPort", port <= 0 ? null : String.valueOf(port));
+  }
+
   // ------------------------------------------------------------ Levels (File > Sound devices)
 
   /** Pulsekit's players' volume, percent (100: as they are). */

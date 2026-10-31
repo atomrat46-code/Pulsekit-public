@@ -11629,6 +11629,7 @@ public class BehaviorTest {
       Thread.sleep(20);
       idle();
     }
+    boolean transport = pv.findViewWithTag("clap-play") != null && pv.findViewWithTag("clap-pause") != null && pv.findViewWithTag("clap-stop") != null;
     pv.findViewWithTag("lv2-plugin:Test Echo").performClick();
     String picked = String.valueOf(((TextView) pv.findViewWithTag("lv2-plugin:Test Echo")).getText());
     PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
@@ -11672,8 +11673,30 @@ public class BehaviorTest {
         && count.startsWith("1 of ") && importButton && "Render…".equals(positive) && first.startsWith("◉ Test \"Synth\"  · instrument")
         && picked.startsWith("◉ Test Echo  · effect") && jobs.size() == 2
         && jobs.get(0).equals("3 http://example.org/synth midi=lv2-test.mid wav= libdir=_libs") && jobs.get(1).equals("3 http://example.org/echo midi= wav=lv2-test-beat.wav libdir=_libs")
-        && info.contains("Test Echo played it into 1.0 s");
+        && info.contains("Test Echo played it into 1.0 s") && transport;
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** Sound devices: Own drum sounds puts the drums back on Pulsekit's own sounds (the MIDI output and its port cleared), the audio output kept. */
+  @Test
+  public void s190_own_drum_sounds() throws Exception {
+    AppSettings.setSoundOut("Speaker | built-in speaker");
+    AppSettings.setMidiOut("MDA | virtual MIDI");
+    AppSettings.setMidiOutPort(2);
+    String before = AppSettings.midiOut() + " port " + AppSettings.midiOutPort();
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    sv.findViewWithTag("sound-midi-default").performClick();
+    idle();
+    String now = String.valueOf(((TextView) SoundDevicesScreen.last.getWindow().getDecorView().findViewWithTag("sound-now")).getText());
+    SoundDevicesScreen.last.dismiss();
+    String out = "before: " + before + " | after: \"" + AppSettings.midiOut() + "\" port " + AppSettings.midiOutPort() + ", audio " + AppSettings.soundOut() + "\n" + now + "\n";
+    write("s190_own_drum_sounds", out);
+    boolean ok = before.equals("MDA | virtual MIDI port 2") && AppSettings.midiOut().isEmpty() && AppSettings.midiOutPort() == 0
+        && AppSettings.soundOut().equals("Speaker | built-in speaker") && now.contains("Drum MIDI output: " + SoundDevices.OWN_SYNTH);
+    AppSettings.setSoundOut("");
+    if (!ok) throw new AssertionError(out);
   }
 
   private static String[] sorted(String[] a) {

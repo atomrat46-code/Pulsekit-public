@@ -58,6 +58,13 @@ final class SoundDevicesScreen {
         });
         reset.setTag("sound-default");
         buttons.addView(reset);
+        // Only the drums back to Pulsekit's own sounds (the audio output kept).
+        TextView ownDrums = app.outline("Own drum sounds", false, v -> {
+            useOwnDrums(app);
+            fill(app, col);
+        });
+        ownDrums.setTag("sound-midi-default");
+        buttons.addView(ownDrums);
         TextView system = app.outline("System sound settings", false, v -> {
             try {
                 app.startActivity(new android.content.Intent(android.provider.Settings.ACTION_SOUND_SETTINGS));
@@ -102,11 +109,50 @@ final class SoundDevicesScreen {
         body.setTag("sound-info");
         body.setTextIsSelectable(true);
         body.setPadding(app.dp(18), app.dp(8), app.dp(18), app.dp(8));
+        LinearLayout content = app.col();
+        content.addView(body);
         ScrollView scroll = new ScrollView(app);
-        scroll.addView(body);
+        scroll.addView(content);
         if (device != null && device.isShowing()) device.dismiss();
         AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(d.name).setView(scroll).setNegativeButton("Close", null);
-        if (SoundDevices.usable(d) && !SoundDevices.used(d)) {
+        // A MIDI output with several input ports (an AAP plugin app: one an instrument): which one the drums go to.
+        if (SoundDevices.MIDI_OUT.equals(d.kind)) {
+            final java.util.List<String[]> ports = SoundOut.inputPorts(app, d);
+            if (ports.size() > 1) {
+                LinearLayout box = app.col();
+                box.setPadding(app.dp(18), 0, app.dp(18), app.dp(8));
+                box.addView(app.sectionLabel("DRUMS GO TO PORT"));
+                LinearLayout chips = app.row();
+                for (final String[] port : ports) {
+                    final int number = Integer.parseInt(port[0]);
+                    boolean on = number == AppSettings.midiOutPort();
+                    TextView chip = app.pill(port[0] + (port[1].isEmpty() ? "" : ": " + port[1]), on, v -> {
+                        AppSettings.setMidiOutPort(number);
+                        if (SoundDevices.used(d)) SoundOut.openDrumMidi(app);
+                        app.setNow("The drums go to " + d.name + "'s port " + port[0] + (port[1].isEmpty() ? "" : " (" + port[1] + ")"));
+                        if (device != null) device.dismiss();
+                        open(app, d, changed);
+                    });
+                    chip.setTag("sound-port:" + port[0]);
+                    chips.addView(chip);
+                }
+                box.addView(app.chipStrip(chips));
+                content.addView(box);
+            }
+        }
+        if (SoundDevices.used(d)) {
+            // In use: Stop using puts the default back (the phone's routing, or Pulsekit's own drum sounds).
+            b.setPositiveButton("Stop using", (x, w) -> {
+                if (SoundDevices.MIDI_OUT.equals(d.kind)) useOwnDrums(app);
+                else {
+                    AppSettings.setSoundOut("");
+                    SoundOut.prefer(app.track);
+                    SoundDevices.log("Back to the default output", SoundDevices.DEFAULT_OUT);
+                    app.setNow("Pulsekit plays through the phone's own routing");
+                }
+                changed.run();
+            });
+        } else if (SoundDevices.usable(d)) {
             b.setPositiveButton("Use for Pulsekit", (x, w) -> {
                 boolean midi = SoundDevices.MIDI_OUT.equals(d.kind);
                 String said;
@@ -173,6 +219,15 @@ final class SoundDevicesScreen {
         box.addView(label);
         box.addView(bar);
         return box;
+    }
+
+    /** The drums back to Pulsekit's own sounds (no MIDI output). */
+    static void useOwnDrums(MainActivity app) {
+        AppSettings.setMidiOut("");
+        AppSettings.setMidiOutPort(0);
+        SoundOut.closeDrumMidi();
+        SoundDevices.log("Drums back to Pulsekit's own sounds", SoundDevices.OWN_SYNTH);
+        app.setNow("The drums play with Pulsekit's own sounds");
     }
 
     static String header(MainActivity app) {

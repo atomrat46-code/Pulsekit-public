@@ -51,7 +51,7 @@ final class SoundOut {
                     String name = midiName(info);
                     String about = "Manufacturer: " + info.getProperties().getString(MidiDeviceInfo.PROPERTY_MANUFACTURER, "-") + "\nProduct: "
                         + info.getProperties().getString(MidiDeviceInfo.PROPERTY_PRODUCT, "-") + "\nId: " + info.getId() + "\nInput ports: " + info.getInputPortCount()
-                        + ", output ports: " + info.getOutputPortCount();
+                        + ", output ports: " + info.getOutputPortCount() + portNames(info);
                     // Pulsekit sends to a device's input port: that device is a MIDI output for Pulsekit.
                     if (info.getInputPortCount() > 0) out.add(new SoundDevices.Device(SoundDevices.MIDI_OUT, name, midiType(info.getType()), about));
                     if (info.getOutputPortCount() > 0) out.add(new SoundDevices.Device(SoundDevices.MIDI_IN, name, midiType(info.getType()), about));
@@ -115,6 +115,42 @@ final class SoundOut {
         String n = info.getProperties().getString(MidiDeviceInfo.PROPERTY_NAME);
         if (n == null) n = info.getProperties().getString(MidiDeviceInfo.PROPERTY_PRODUCT);
         return n == null ? "MIDI device " + info.getId() : n;
+    }
+
+    /** The input ports' names ("\n  0: DX10"...), when the device names them. */
+    static String portNames(MidiDeviceInfo info) {
+        StringBuilder sb = new StringBuilder();
+        for (MidiDeviceInfo.PortInfo p : info.getPorts()) {
+            if (p.getType() != MidiDeviceInfo.PortInfo.TYPE_INPUT) continue;
+            sb.append("\n  ").append(p.getPortNumber()).append(": ").append(p.getName() == null || p.getName().isEmpty() ? "(no name)" : p.getName());
+        }
+        return sb.length() == 0 ? "" : "\nIts input ports:" + sb;
+    }
+
+    /** The input ports of a MIDI output device: {number, name}. */
+    static java.util.List<String[]> inputPorts(Context c, SoundDevices.Device d) {
+        java.util.List<String[]> out = new ArrayList<String[]>();
+        MidiDeviceInfo info = midiInfo(c, d);
+        if (info == null) return out;
+        for (MidiDeviceInfo.PortInfo p : info.getPorts()) {
+            if (p.getType() == MidiDeviceInfo.PortInfo.TYPE_INPUT) out.add(new String[] {String.valueOf(p.getPortNumber()), p.getName() == null ? "" : p.getName()});
+        }
+        return out;
+    }
+
+    static MidiDeviceInfo midiInfo(Context c, SoundDevices.Device d) {
+        MidiManager mm = c == null ? null : (MidiManager) c.getSystemService(Context.MIDI_SERVICE);
+        if (mm == null) return null;
+        for (MidiDeviceInfo info : mm.getDevices()) if (midiName(info).equals(d.name) && info.getInputPortCount() > 0) return info;
+        return null;
+    }
+
+    /** The port wanted, else the first of the others that opens (an input port opens once: one in use by another app is not free). */
+    static MidiInputPort openPort(android.media.midi.MidiDevice device, int wanted) {
+        int n = device.getInfo().getInputPortCount();
+        MidiInputPort p = wanted >= 0 && wanted < n ? device.openInputPort(wanted) : null;
+        for (int i = 0; p == null && i < n; i++) if (i != wanted) p = device.openInputPort(i);
+        return p;
     }
 
     static String midiType(int t) {
@@ -220,30 +256,56 @@ final class SoundOut {
                 said.accept(d.name + " is not connected");
                 return;
             }
+            // The drum output itself: its port is open already (a port opens once), so the snare goes there.
+            final MidiInputPort open = drumPort;
+            if (open != null && SoundDevices.used(d)) {
+                new Thread(() -> {
+                    try {
+                        snare(open);
+                        said.accept("Sent a snare (note 38, channel 10) to " + d.name + " (port " + drumPortNumber + ", the drums' port)");
+                    } catch (Exception ex) {
+                        said.accept("Test failed on " + d.name + ": " + ex);
+                    }
+                }, "midi-test").start();
+                return;
+            }
             mm.openDevice(found, device -> {
                 if (device == null) {
                     said.accept("Could not open " + d.name);
                     return;
                 }
-                try {
-                    MidiInputPort port = device.openInputPort(0);
-                    port.send(new byte[] {(byte) 0x99, 38, 110}, 0, 3);
-                    Thread.sleep(300);
-                    port.send(new byte[] {(byte) 0x89, 38, 0}, 0, 3);
-                    port.close();
-                    device.close();
-                    said.accept("Sent a snare (note 38, channel 10) to " + d.name);
-                } catch (Exception ex) {
-                    said.accept("Test failed on " + d.name + ": " + ex);
-                }
+                new Thread(() -> {
+                    try {
+                        MidiInputPort port = openPort(device, SoundDevices.used(d) ? AppSettings.midiOutPort() : 0);
+                        if (port == null) {
+                            said.accept("Test failed on " + d.name + ": none of its " + device.getInfo().getInputPortCount() + " input ports opened (in use by another app?)");
+                            device.close();
+                            return;
+                        }
+                        snare(port);
+                        int number = port.getPortNumber();
+                        port.close();
+                        device.close();
+                        said.accept("Sent a snare (note 38, channel 10) to " + d.name + " (port " + number + ")");
+                    } catch (Exception ex) {
+                        said.accept("Test failed on " + d.name + ": " + ex);
+                    }
+                }, "midi-test").start();
             }, new android.os.Handler(android.os.Looper.getMainLooper()));
         } catch (Throwable ex) {
             said.accept("Test failed on " + d.name + ": " + ex);
         }
     }
 
-    /** The drum MIDI output's open port (null: Pulsekit's own sounds play the drums). */
+    /** The drum MIDI output's open port (null: Pulsekit's own sounds play the drums), and its number. */
     static volatile MidiInputPort drumPort;
+    static volatile int drumPortNumber = -1;
+
+    static void snare(MidiInputPort port) throws Exception {
+        port.send(new byte[] {(byte) 0x99, 38, 110}, 0, 3);
+        Thread.sleep(300);
+        port.send(new byte[] {(byte) 0x89, 38, 0}, 0, 3);
+    }
     static android.media.midi.MidiDevice drumDevice;
 
     /** Opens the MIDI output picked for the drum tracks (closing the one before); none: the own sounds. */
@@ -269,8 +331,11 @@ final class SoundOut {
                     return;
                 }
                 drumDevice = device;
-                drumPort = device.openInputPort(0);
-                SoundDevices.log("Drum MIDI output opened", key + (drumPort == null ? ": its input port 0 did not open" : ""));
+                int wanted = AppSettings.midiOutPort();
+                drumPort = openPort(device, wanted);
+                drumPortNumber = drumPort == null ? -1 : drumPort.getPortNumber();
+                SoundDevices.log("Drum MIDI output opened", key + (drumPort == null ? ": none of its input ports opened"
+                    : ", port " + drumPortNumber + (drumPortNumber != wanted ? " (port " + wanted + " did not open)" : "")));
             }, new android.os.Handler(android.os.Looper.getMainLooper()));
         } catch (Throwable ex) {
             SoundDevices.log("Drum MIDI output not opened", key + ": " + ex);
@@ -285,6 +350,7 @@ final class SoundOut {
             // closed
         }
         drumPort = null;
+        drumPortNumber = -1;
         drumDevice = null;
     }
 

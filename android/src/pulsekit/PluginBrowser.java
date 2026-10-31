@@ -184,6 +184,8 @@ final class PluginBrowser {
             } catch (Exception ex) {
                 info.append("\n\nNot readable: " + ex.getMessage());
             }
+            // Play, Pause, Stop on top: a bundle can list many plugins.
+            col.addView(transport(app));
             col.addView(app.sectionLabel("PLUGINS IN IT (" + lv2Plugins.size() + ")"));
             final List<TextView> rows = new ArrayList<TextView>();
             final Runnable mark = () -> {
@@ -207,14 +209,7 @@ final class PluginBrowser {
             }
             mark.run();
         }
-        if (lv2 || PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) {
-            // The last render (Test, Render MIDI…) played again, paused or stopped.
-            LinearLayout transport = app.row();
-            transport.addView(tagged(app.outline("\u25B6 Play", false, v -> say(app, playLast())), "clap-play"));
-            transport.addView(tagged(app.outline("\u2759\u2759 Pause", false, v -> say(app, pauseLast())), "clap-pause"));
-            transport.addView(tagged(app.outline("\u25A0 Stop", false, v -> say(app, stopLast())), "clap-stop"));
-            col.addView(app.chipStrip(transport));
-        }
+        if (PluginLibrary.typeOf(f) != null && PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) col.addView(transport(app));
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
         if (page != null && page.isShowing()) page.dismiss();
@@ -249,6 +244,15 @@ final class PluginBrowser {
             return;
         }
         test.setOnClickListener(v -> test(app, f, show));
+    }
+
+    /** The last render (Test, Render…) played again, paused or stopped. */
+    static android.view.View transport(final MainActivity app) {
+        LinearLayout row = app.row();
+        row.addView(tagged(app.outline("\u25B6 Play", false, v -> say(app, playLast())), "clap-play"));
+        row.addView(tagged(app.outline("\u2759\u2759 Pause", false, v -> say(app, pauseLast())), "clap-pause"));
+        row.addView(tagged(app.outline("\u25A0 Stop", false, v -> say(app, stopLast())), "clap-stop"));
+        return app.chipStrip(row);
     }
 
     /** CLAP Test: the test tune played through it into a WAV in Download, and played. */
