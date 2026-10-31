@@ -162,7 +162,7 @@ final class PluginBrowser {
             final File f = list.getSelectedValue();
             if (f == null) return;
             PluginLibrary.Type t = PluginLibrary.typeOf(f);
-            if (t == null || !t.desktop || t.name.equals(PluginLibrary.LV2) || t.name.equals(PluginLibrary.CLAP)) {
+            if (t == null || !t.desktop || t.name.equals(PluginLibrary.LV2)) {
                 say.accept("Nothing to test for " + PluginLibrary.name(f) + ": " + (t == null ? "" : t.how));
                 return;
             }
@@ -348,7 +348,8 @@ final class PluginBrowser {
             app.projectIo.importSfz(f);
             return "Loading " + PluginLibrary.name(f) + " onto the pads\u2026";
         }
-        if (t.name.equals(PluginLibrary.LV2) || t.name.equals(PluginLibrary.CLAP)) return PluginLibrary.name(f) + ": " + t.how;
+        if (t.name.equals(PluginLibrary.LV2)) return PluginLibrary.name(f) + ": " + t.how;
+        // A CLAP plugin: vst_render.py's --plugin takes it too, and plays it in Carla's rack (--clap).
         app.programMenus.selectListedProgram("Python", "vst_render.py");
         if (app.pyJav.pyExtra != null) app.pyJav.pyExtra.setText(withPlugin(app.pyJav.pyExtra.getText(), f.getAbsolutePath()));
         app.showView("py");
@@ -372,7 +373,7 @@ final class PluginBrowser {
     /** For VSTs: whether Edit settings saved a kit or patch for it. */
     static String stateNote(File f) {
         PluginLibrary.Type t = PluginLibrary.typeOf(f);
-        if (t == null || !(t.name.equals(PluginLibrary.VST3) || t.name.equals(PluginLibrary.VST2) || t.name.equals(PluginLibrary.AU))) return "";
+        if (t == null || !(t.name.equals(PluginLibrary.VST3) || t.name.equals(PluginLibrary.VST2) || t.name.equals(PluginLibrary.AU) || t.name.equals(PluginLibrary.CLAP))) return "";
         File state = PluginsList.stateFile(f);
         return state.isFile() ? "\nSettings (kit, patch) saved with Edit settings: vst_render plays with them." : "\nNo settings saved with Edit settings: it plays with its own defaults.";
     }

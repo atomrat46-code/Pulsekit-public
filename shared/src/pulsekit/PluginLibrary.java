@@ -51,7 +51,7 @@ public final class PluginLibrary {
     new Type(VST2, new String[] {".dll", ".vst", ".so"}, true, false, "vst_render.py plays MIDI through it (Test, Edit settings); desktop only."),
     new Type(AU, new String[] {".component"}, true, false, "vst_render.py plays MIDI through it on macOS (Test, Edit settings)."),
     new Type(LV2, new String[] {".lv2"}, true, false, "Played through Carla: save a Carla project with the plugin in it, then vst_render.py --carla <project>. Listed, not tested here."),
-    new Type(CLAP, new String[] {".clap"}, true, false, "Listed only: no CLAP host in Pulsekit yet (vst_render's DawDreamer and pedalboard load VST3 and AU)."),
+    new Type(CLAP, new String[] {".clap"}, true, false, "vst_render.py plays MIDI through it in Carla's Carla-Rack (Carla 2.6 or newer; Test, Edit settings); desktop only."),
     new Type(SF2, new String[] {".sf2"}, true, true, "A SoundFont: Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders MIDI with it."),
     new Type(SFZ, new String[] {".sfz"}, true, true, "An SFZ kit (its samples beside it): Use puts its drums onto the pads; Test plays a beat with it; Midi2Wav.java --sf2 renders with it.")};
 

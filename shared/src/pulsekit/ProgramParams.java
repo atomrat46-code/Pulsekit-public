@@ -631,6 +631,14 @@ public final class ProgramParams {
       p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
       p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
       p.ext = "any";
+    } else if (p.token.equals("--clap")) {
+      p.label = "CLAP plugin (.clap): Carla's rack plays it (Carla 2.6 or newer)";
+      p.hint = "the plugin above can stay empty; Edit opens the rack with it";
+      p.ext = "any";
+      p.plugin = true;
+    } else if (p.token.equals("--clap_id")) {
+      p.label = "CLAP plugin id (a .clap with several plugins; --scan lists them)";
+      p.hint = "empty: the file's first plugin";
     } else if (p.token.equals("--drumgizmo")) {
       p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";
       p.hint = "free kits at drumgizmo.org; the plugin above stays empty";

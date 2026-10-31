@@ -8381,7 +8381,7 @@ public final class DesktopBehavior {
       seen.append("types: ").append(PluginBrowser.lastSaid.split("\n\n")[1].split("\n")[0]).append(" | ").append(PluginBrowser.lastSaid.contains("SFZ (.sfz)  desktop: yes, Android: yes")).append('\n');
       pick.apply("Surge");
       ((javax.swing.JButton) component(d, "browser-use")).doClick();
-      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append('\n');
+      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append(" | args ").append(app.pyJav.pyExtra.getText().replace(home.getAbsolutePath(), "~")).append('\n');
       pick.apply("Jazz");
       ((javax.swing.JButton) component(d, "browser-test")).doClick();
     });
@@ -8405,7 +8405,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("found: Anarchy Drums, Jazz, Old Drums, Rock, Surge (5 of 5)") && all.contains("Rock line: \u2605 Rock  [SF2]  Drum kits / Live  #metal #fast")
         && all.contains("type SFZ: Jazz\n") && all.contains("category Drum kits: Anarchy Drums, Rock\n") && all.contains("tag fast: Rock\n") && all.contains("favourites: Rock\n")
         && all.contains("search live: Rock\n") && all.contains("My order after Up on Old Drums: Anarchy Drums, Old Drums, Jazz, Rock, Surge") && all.contains("| true")
-        && all.contains("Use Surge: Surge: Listed only") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].startsWith("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath())
+        && all.contains("Use Surge: vst_render.py plays through Surge (--plugin): give the MIDI, then Run | args --plugin ~/plugins/Surge.clap\n") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].equals("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath() + "\"")
         && shared && library.contains("Drum kits\tLive\tmetal,fast");
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -8892,6 +8892,97 @@ public final class DesktopBehavior {
         && InputTestScreen.lastSaid.equals("Could not listen to Gone Microphone: Gone Microphone is not connected") && "Record something first".equals(seen[1]);
     if (!ok) throw new AssertionError(this.out.toString());
   }
+  /**
+   * vst_render --clap (and --plugin x.clap): a CLAP plugin's ids read from its clap_entry, the
+   * plugin put into Carla's Carla-Rack as Carla writes a CLAP plugin (Binary, Identifier), a wrong
+   * --clap_id refused, --plugin x.clap played as --clap in the rack. A tiny CLAP library is
+   * compiled for it (with cc; skipped where there is no C compiler).
+   */
+  void s178_vst_render_clap() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "clap-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File src = new File(dir, "two.c");
+    Files.write(src.toPath(), (""
+        + "#include <stdint.h>\n"
+        + "#include <stdbool.h>\n"
+        + "#include <string.h>\n"
+        + "typedef struct { uint32_t major, minor, revision; } v_t;\n"
+        + "typedef struct { v_t v; const char *id, *name, *vendor, *url, *manual_url, *support_url, *version, *description; const char *const *features; } desc_t;\n"
+        + "typedef struct fac { uint32_t (*count)(const struct fac*); const desc_t *(*get)(const struct fac*, uint32_t); void *create; } fac_t;\n"
+        + "static const char *const feats[] = {\"instrument\", 0};\n"
+        + "static const desc_t d[2] = {{{1,2,2},\"org.pulsekit.testdrums\",\"Test Drums\",\"Pulsekit\",\"\",\"\",\"\",\"1.0\",\"\",feats},{{1,2,2},\"org.pulsekit.testbass\",\"Test Bass\",\"Pulsekit\",\"\",\"\",\"\",\"1.0\",\"\",feats}};\n"
+        + "static uint32_t count(const fac_t *f) { return 2; }\n"
+        + "static const desc_t *get(const fac_t *f, uint32_t i) { return i < 2 ? &d[i] : 0; }\n"
+        + "static const fac_t factory = {count, get, 0};\n"
+        + "static bool init(const char *p) { return true; }\n"
+        + "static void deinit(void) {}\n"
+        + "static const void *get_factory(const char *id) { return strcmp(id, \"clap.plugin-factory\") == 0 ? &factory : 0; }\n"
+        + "typedef struct { v_t v; bool (*init)(const char*); void (*deinit)(void); const void *(*get_factory)(const char*); } entry_t;\n"
+        + "__attribute__((visibility(\"default\"))) const entry_t clap_entry = {{1,2,2}, init, deinit, get_factory};\n"
+        + "\n").getBytes(StandardCharsets.UTF_8));
+    File clap = new File(dir, "Test Synth.clap");
+    String cc = PythonRun.runFor(java.util.Arrays.asList("cc", "-shared", "-fPIC", "-o", clap.getAbsolutePath(), src.getAbsolutePath()), 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--clap")) label = q.label + (q.plugin ? " (plugin)" : "");
+    String how = PluginLibrary.type(PluginLibrary.CLAP).how;
+    this.out.append("Params: ").append(label).append("\nPlugin Browser: ").append(how).append('\n');
+    if (!clap.isFile()) {
+      this.out.append("no C compiler here (").append(cc).append("): the CLAP part is not run\n");
+      if (!label.startsWith("CLAP plugin (.clap)")) throw new AssertionError(this.out.toString());
+      return;
+    }
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    String check = ""
+        + "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "clap, d = sys.argv[2], sys.argv[3]\n"
+        + "\n"
+        + "class Rack:\n"
+        + "    \"\"\"Carla-Rack's state as the VST keeps it: a head, the project's length, its XML.\"\"\"\n"
+        + "    def __init__(self):\n"
+        + "        self.xml = b\"<?xml version='1.0' encoding='UTF-8'?>\\n<!DOCTYPE CARLA-PROJECT>\\n<CARLA-PROJECT VERSION='2.6'>\\n</CARLA-PROJECT>\\n\\0\"\n"
+        + "    def save_state(self, path):\n"
+        + "        open(path, 'wb').write(b'CcnK' + len(self.xml).to_bytes(4, 'big') + self.xml)\n"
+        + "    def load_state(self, path):\n"
+        + "        raw = open(path, 'rb').read()\n"
+        + "        self.xml = raw[raw.find(b'<?xml'):]\n"
+        + "\n"
+        + "r = Rack()\n"
+        + "print(vr.clap_plugins(clap))\n"
+        + "print(vr.clap_state(r, clap, 'org.pulsekit.testbass'))\n"
+        + "print('rack has %d plugin, Identifier %s' % (vr.rack_plugins(r), b'<Identifier>org.pulsekit.testbass</Identifier>' in r.xml))\n"
+        + "try:\n"
+        + "    vr.clap_pick(clap, 'nope')\n"
+        + "except SystemExit as e:\n"
+        + "    print('wrong id: %s' % e)\n"
+        + "seen = {}\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        seen.update(opts)\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "vr.carla_rack = lambda: '/fake/CarlaRack.vst3'\n"
+        + "try:\n"
+        + "    vr.main([os.path.join(d, 'x.mid'), '--plugin', clap])\n"
+        + "except SystemExit:\n"
+        + "    pass\n"
+        + "print('--plugin x.clap: --clap %s, --plugin %s' % (os.path.basename(seen.get('--clap') or ''), seen.get('--plugin')))\n"
+        + "\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), clap.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replace(dir.getAbsolutePath(), "~")).append('\n');
+    boolean ok = label.equals("CLAP plugin (.clap): Carla's rack plays it (Carla 2.6 or newer) (plugin)") && how.contains("Carla-Rack")
+        && said.contains("[('org.pulsekit.testdrums', 'Test Drums'), ('org.pulsekit.testbass', 'Test Bass')]")
+        && said.contains("CLAP plugin: Test Bass (org.pulsekit.testbass) in Carla-Rack") && said.contains("rack has 1 plugin, Identifier True")
+        && said.contains("Test Synth.clap has no plugin nope (it has org.pulsekit.testdrums, org.pulsekit.testbass)")
+        && said.contains("--plugin x.clap: --clap Test Synth.clap, --plugin /fake/CarlaRack.vst3");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
 
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {
