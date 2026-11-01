@@ -541,58 +541,53 @@ public final class SogniMusic {
   static int runAll(SogniApi api, List<String[]> jobs, String out, boolean oneName, double duration, double bpm, String keyscale, int timesig,
       String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
     if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
+    // Sogni runs at most MAX_ACTIVE workflows of an account at once: the rest wait, and each starts
+    // when one before it is over (a start Sogni turns away for that reason is tried again later).
     List<String> ids = new ArrayList<String>();
-    for (String[] j : jobs) {
-      try {
-        // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
-        String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
-            Integer.parseInt(j[6]), j[1], lyrics), confirm, maxCost) : api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
-        say((oneName ? "Model " : "Style ") + j[0] + ": workflow " + id);
-        ids.add(id);
-      } catch (Exception ex) {
-        say((oneName ? "Model " : "Style ") + j[0] + " did not start: " + ex.getMessage());
-        ids.add(null);
-      }
-    }
+    for (int i = 0; i < jobs.size(); i++) ids.add(null);
+    boolean[] failed = new boolean[jobs.size()];
+    List<Integer> active = new ArrayList<Integer>();
     List<String> made = new ArrayList<String>();
-    // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
-    String first = null;
-    for (String id : ids) if (first == null && id != null) first = id;
-    String shared = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], first == null ? "" : first);
-    for (int i = 0; i < jobs.size(); i++) {
-      String label = jobs.get(i)[0], id = ids.get(i);
-      String what = (oneName ? "Model " : "Style ") + label;
-      if (id == null) continue;
-      try {
-        Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
-          public void line(String s) {
-            say(s);
-          }
-        });
-        List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
-        if (audio.isEmpty()) {
-          say(what + " made no audio: " + why(api, id, wf));
-          continue;
-        }
-        String url = SogniApi.str(audio.get(0).get("url"));
-        String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
-        String base = oneName ? shared + "-" + label : trackName(jobs.get(i)[3], id) + (jobs.get(i).length > 8 && jobs.get(i)[8].length() > 0 ? "-" + jobs.get(i)[8] : "");
-        File file = inWork(base + ext);
-        for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
-        byte[] data = api.download(url);
-        FileOutputStream fos = new FileOutputStream(file);
+    String[] shared = {null};
+    int next = 0;
+    int waited = 0;
+    if (jobs.size() > MAX_ACTIVE) say(jobs.size() + " runs, " + MAX_ACTIVE + " at a time (Sogni's limit): each starts when one before it is over");
+    while (next < jobs.size() || !active.isEmpty()) {
+      boolean full = false;
+      while (next < jobs.size() && active.size() < MAX_ACTIVE && !full) {
+        String[] j = jobs.get(next);
         try {
-          fos.write(data);
-        } finally {
-          fos.close();
+          // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
+          String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
+              Integer.parseInt(j[6]), j[1], lyrics), confirm, maxCost) : api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
+          say((oneName ? "Model " : "Style ") + j[0] + ": workflow " + id + (jobs.size() > MAX_ACTIVE ? " (" + (next + 1) + " of " + jobs.size() + ")" : ""));
+          ids.set(next, id);
+          active.add(next);
+          // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
+          if (shared[0] == null) shared[0] = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], id);
+          next++;
+          waited = 0;
+        } catch (Exception ex) {
+          if (tooManyActive(ex) && (!active.isEmpty() || waited < 20)) {
+            // Others of the account's runs are going on: wait for one of these (or a while) and try again.
+            full = true;
+            if (active.isEmpty()) {
+              if (waited == 0) say("Sogni has " + MAX_ACTIVE + " runs going on already: waiting to start " + j[0]);
+              waited++;
+              Thread.sleep(30000L);
+            }
+          } else {
+            say((oneName ? "Model " : "Style ") + j[0] + " did not start: " + ex.getMessage());
+            failed[next] = true;
+            next++;
+          }
         }
-        say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-        say("Compared: " + label + " " + file.getName());
-        made.add(file.getName());
-        if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
-      } catch (Exception ex) {
-        say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
       }
+      if (active.isEmpty()) continue;
+      // The oldest run going on: waited for, downloaded, and its place given to the next.
+      int i = active.remove(0);
+      String file = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
+      if (file != null) made.add(file);
     }
     if (made.isEmpty()) {
       say("Failed: no track was made");
@@ -601,6 +596,52 @@ public final class SogniMusic {
     resultFile = made.get(0);
     say("Succeeded: " + String.join(", ", made));
     return 0;
+  }
+
+  /** At most this many of an account's Sogni workflows run at once (Sogni turns away more). */
+  static final int MAX_ACTIVE = 10;
+
+  /** Whether Sogni turned a start away for the account's runs going on ("409 Too many active creative workflows"). */
+  static boolean tooManyActive(Exception ex) {
+    String m = ex.getMessage() == null ? "" : ex.getMessage();
+    return m.contains("Too many active") || m.contains("409") && m.toLowerCase(java.util.Locale.ROOT).contains("active");
+  }
+
+  /** A run's track: waited for, downloaded and written; its file's name, or null when it made none. */
+  static String finishRun(SogniApi api, String[] job, String id, boolean oneName, String shared, boolean deleteFromSogni) {
+    String label = job[0];
+    String what = (oneName ? "Model " : "Style ") + label;
+    try {
+      Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
+        public void line(String s) {
+          say(s);
+        }
+      });
+      List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
+      if (audio.isEmpty()) {
+        say(what + " made no audio: " + why(api, id, wf));
+        return null;
+      }
+      String url = SogniApi.str(audio.get(0).get("url"));
+      String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
+      String base = oneName ? shared + "-" + label : trackName(job[3], id) + (job.length > 8 && job[8].length() > 0 ? "-" + job[8] : "");
+      File file = inWork(base + ext);
+      for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
+      byte[] data = api.download(url);
+      FileOutputStream fos = new FileOutputStream(file);
+      try {
+        fos.write(data);
+      } finally {
+        fos.close();
+      }
+      say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+      say("Compared: " + label + " " + file.getName());
+      if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
+      return file.getName();
+    } catch (Exception ex) {
+      say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
+      return null;
+    }
   }
 
   static void usage() {

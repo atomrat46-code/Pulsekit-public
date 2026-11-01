@@ -21,6 +21,20 @@ public final class RunZip {
   /** The run gave --zip_delete. */
   public boolean deleteAfter;
   final List<ZipPack.Source> sources = new ArrayList<ZipPack.Source>();
+  /** Copies of zipped files kept elsewhere (a path, or Android's content:// address): --zip_delete deletes them too. */
+  final List<String> copies = new ArrayList<String>();
+
+  /** Deletes a content:// file (set by the Android app): its size, or -1 when it could not be deleted. */
+  public interface ContentDeleter {
+    long delete(String uri);
+  }
+
+  public static ContentDeleter contentDeleter;
+
+  /** A copy of a zipped file kept elsewhere (Download's copy of a track): deleted with --zip_delete. */
+  public synchronized void addCopy(String where) {
+    if (where != null && where.length() > 0) this.copies.add(where);
+  }
   final Set<String> paths = new HashSet<String>();
 
   RunZip(String name) {
@@ -52,6 +66,26 @@ public final class RunZip {
     for (ZipPack.Source s : this.sources) {
       File f = s.file;
       if (f == null || !done.add(f.getAbsoluteFile()) || !f.isFile()) continue;
+      long size = f.length();
+      if (f.delete()) {
+        n++;
+        bytes += size;
+      }
+    }
+    // The copies saved elsewhere of what the zip holds (the tracks and MIDI in Download, the tracks given to DrumMidi).
+    Set<String> gone = new HashSet<String>();
+    for (String where : this.copies) {
+      if (!gone.add(where)) continue;
+      if (where.startsWith("content:")) {
+        long size = contentDeleter == null ? -1 : contentDeleter.delete(where);
+        if (size >= 0) {
+          n++;
+          bytes += size;
+        }
+        continue;
+      }
+      File f = new File(where);
+      if (!done.add(f.getAbsoluteFile()) || !f.isFile()) continue;
       long size = f.length();
       if (f.delete()) {
         n++;
