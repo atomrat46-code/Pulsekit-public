@@ -26,6 +26,10 @@
 
 [Ugritone Drums]
 # KVLT Drums 2 (its file is Ugritone Drums): every tom rings (41-48), but 35 and the side
-# stick 37 are silent.
+# stick 37 are silent. Its Midinote settings: kick 36, toms 48 47 45 43 41, snare 38, hats 42
+# (closed) 44 (pedal) 46 (semi open) 32 (wide open), crash 49 and 57, ride 51 and bell 53,
+# china 52 and 61; 50 and 58 are the crashes' chokes (they only stop the crash): nothing to count.
 35=none
 37=none
+50=none
+58=none
