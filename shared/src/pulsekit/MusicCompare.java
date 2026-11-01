@@ -58,6 +58,8 @@ public final class MusicCompare {
     public final List<String> made = new ArrayList<String>();
     /** The models' ranking, shown again when the chain ends (each DrumMidi run has its own log). */
     public String report = "";
+    /** A --random run's chain: its file sets are made without the Make a song question (No). */
+    public boolean random;
 
     Chain(String run, MusicExpect expect, String saved) {
       this.run = run;
@@ -104,8 +106,14 @@ public final class MusicCompare {
     if (wavs == null || wavs.isEmpty()) return null;
     Chain c = new Chain(runName(fileSets), MusicExpect.of(argv), saved);
     c.tracks.addAll(wavs);
+    c.random = argv != null && argv.contains("--random");
     chain = c;
     return c;
+  }
+
+  /** Whether a file set now made is a --random run's (its chain going on): no Make a song question, as No. */
+  public static synchronized boolean quietSongs() {
+    return chain != null && chain.random && chain.at < chain.tracks.size();
   }
 
   public static synchronized Chain chain() {

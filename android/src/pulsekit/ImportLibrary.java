@@ -841,7 +841,7 @@ final class ImportLibrary {
             // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
             java.util.ArrayList song = new java.util.ArrayList(pulsekit.Engine.songFromFileSet(set));
             // Midi2Wav's test makes the song without asking: CompareHits compares it.
-            if (this.quietSet) {
+            if (this.quietSet || pulsekit.MusicCompare.quietSongs()) {
                 // Add to composer stack: the set's patterns go on the stack, no song asked about.
             } else if (!song.isEmpty() && pulsekit.Midi2WavTest.makesSong()) {
                 app.songEditor.addImportedMidiSong(stem, song);

@@ -345,7 +345,7 @@ public final class ProgramParams {
     if (p.takesValue && p.token.equals("--compare_models")) {
       p.label = "Compare models: the same request on each, ranked (each is a paid run)";
       p.choices = new String[] {"turbo,sft", "turbo,music3", "sft,music3", "all"};
-      p.hint = "turbo,sft,music3 or all; empty: one model (--model)";
+      p.hint = "empty: the models Model lists (turbo,sft), or one";
     }
     if (p.flag && p.token.equals("--zip")) p.label = "Zip it all: tracks, WAVs, MIDI, results and logs into one zip in Download";
     if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Compared tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
@@ -596,6 +596,14 @@ public final class ProgramParams {
   }
 
   private static void knownSogniMusic(Param p) {
+    if (p.takesValue && p.token.equals("--duration")) {
+      p.label = "Duration in seconds: 10 to 600";
+      p.hint = "empty: 30; with Random: drawn for each track, 30 to 90";
+    }
+    if (p.takesValue && p.token.equals("--bpm")) p.hint = "empty: Pulsekit's tempo; with Random: one that suits each track's style";
+    if (p.takesValue && p.token.equals("--keyscale")) p.hint = "e.g. C major, A minor (or C, Am); empty with Random: drawn for each track";
+    if (p.takesValue && p.token.equals("--timesig")) p.hint = "2, 3, 4 or 6; empty with Random: drawn for each track (mostly 4)";
+    if (p.takesValue && p.token.equals("--model")) p.hint = "turbo, sft or music3; a list (turbo,sft) compares them, or makes each Random track with each";
     if (p.takesValue && p.token.equals("--random")) {
       p.label = "Random styles: this many tracks, each a style from the list (each is a paid run)";
       p.hint = "e.g. 5; empty: one track (--genre)";

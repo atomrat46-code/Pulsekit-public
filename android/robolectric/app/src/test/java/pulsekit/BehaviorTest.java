@@ -11009,7 +11009,7 @@ public class BehaviorTest {
     out.append("batch folder row gaps: Browse ").append(gapBrowse).append(", Clear ").append(gapClear).append('\n');
     java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
     for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) {
-      if (p.token.equals("--random") || p.token.equals("--styles") || p.token.equals("--seed") || p.token.equals("--zip")) labels.put(p.token, p.label);
+      if (p.token.equals("--random") || p.token.equals("--styles") || p.token.equals("--seed") || p.token.equals("--zip") || p.token.equals("--duration")) labels.put(p.token, p.label);
     }
     out.append("labels: ").append(labels).append('\n');
     // --random without --styles: Pulsekit's style list; with --styles: the ones given.
@@ -11023,8 +11023,20 @@ public class BehaviorTest {
     boolean listed = MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo,sft")) && MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "all"))
         && !MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo"));
     out.append("--model list compared: ").append(listed).append('\n');
+    // A --random run's file sets: no Make a song question; a comparison's still asks.
+    java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+    wavs.add(new String[] {"Funk", "/x/a.wav"});
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--random", "2"), new java.util.ArrayList<String>(), wavs, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietRandom = pulsekit.MusicCompare.quietSongs();
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--compare_models", "all"), new java.util.ArrayList<String>(), wavs, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietCompare = pulsekit.MusicCompare.quietSongs();
+    pulsekit.MusicCompare.chain().next();
+    out.append("Make a song asked: random run ").append(!quietRandom).append(", comparison ").append(!quietCompare).append('\n');
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
+        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
         && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
     if (!ok) throw new AssertionError(out.toString());
