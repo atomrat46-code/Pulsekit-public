@@ -10201,14 +10201,25 @@ public class BehaviorTest {
     idle();
     View importedScroll = root.findViewWithTag("imported-scroll");
     int screenH = app.getResources().getDisplayMetrics().heightPixels;
-    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.IMPORTED_SHARE));
+    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.importedShare()));
     boolean importedCapped = importedScroll.getHeight() > 0 && importedScroll.getHeight() <= cap && app.importedHost.getHeight() > importedScroll.getHeight()
-        && app.gridScroll.getHeight() >= 4 * app.dp(36);
+        // (The test's screen is a short one: a phone's keeps more rows.)
+        && app.gridScroll.getHeight() >= 2 * app.dp(36);
     out.append("Imported with 15 sets: ").append(importedScroll.getHeight()).append(" px of ").append(app.importedHost.getHeight()).append(" (cap ").append(cap)
         .append(", screen ").append(screenH).append(") | grid ").append(app.gridScroll.getHeight()).append(" px\n");
+    // More: the list taller (the grid smaller); Less: back.
+    int before = importedScroll.getHeight();
+    root.findViewWithTag("imported-more").performClick();
+    idle();
+    int taller = importedScroll.getHeight();
+    String moreText = String.valueOf(((TextView) root.findViewWithTag("imported-more")).getText());
+    root.findViewWithTag("imported-more").performClick();
+    idle();
+    boolean moreOk = taller > before && "Less".equals(moreText) && importedScroll.getHeight() == before && !StyleLibrary.importedTall;
+    out.append("More: ").append(before).append(" -> ").append(taller).append(" px, then Less: ").append(importedScroll.getHeight()).append('\n');
     app.importedHost.removeViews(1, 15);
     boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
-    drumOk &= importedCapped && noBarAtStart;
+    drumOk &= importedCapped && noBarAtStart && moreOk;
     // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
     File dir = app.getFilesDir();
     AppSettings.load(dir);
