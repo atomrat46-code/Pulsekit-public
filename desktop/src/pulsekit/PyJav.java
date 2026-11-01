@@ -675,7 +675,11 @@ final class PyJav {
         final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
         final String savedNow = this.loadParams(app.pyName);
         final String extra = ProgramParams.merge(runParams, field, savedNow);
-        if ("vst_render.py".equals(name)) VstLists.rememberKits(extra);
+        if ("vst_render.py".equals(name)) {
+            VstLists.rememberKits(extra);
+            // Pulsekit's map files where vst_render finds them (~/.pulsekit/maps): --test uses drum-kits.txt when --map is empty.
+            VstLists.unpackMaps();
+        }
         // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
         if (savedNow != null && ProgramParams.typed(runParams, field).length() > 0)
             this.saveParams(app.pyName, ProgramParams.build(runParams, ProgramParams.values(runParams, ProgramParams.typed(runParams, extra), "")));

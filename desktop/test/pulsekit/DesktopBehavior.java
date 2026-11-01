@@ -7346,8 +7346,8 @@ public final class DesktopBehavior {
         + "for bad in ('45', '45=x', '200=46'):\n"
         + "    try: vr.note_map(bad); print('kept', bad)\n"
         + "    except ValueError as e: print('refused', e)\n";
-    // Pulsekit's drum-kits.txt where vst_render looks for a map's bare name (~/.pulsekit/maps): with --map empty, --test uses its section for the plugin.
-    File maps = new File(System.getProperty("user.home"), ".pulsekit/maps");
+    // Pulsekit's drum-kits.txt where vst_render looks for a map's bare name (the maps folder beside it): with --map empty, --test uses its section for the plugin.
+    File maps = new File(dir, "maps");
     maps.mkdirs();
     Files.write(new File(maps, "drum-kits.txt").toPath(), ProgramFiles.read("Python", "maps/drum-kits.txt"));
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
