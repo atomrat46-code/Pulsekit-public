@@ -12,13 +12,17 @@
 41=none
 35=none
 37=none
+# 50 is the China choke (Routing tab: it only stops the china), not a tom: nothing to count.
+50=none
 
 [Riot Drums]
 # Ugritone's note map as in Anarchy: 45 a hat (its level hardly rises at it, DrumMidi writes
-# a hat), 41 and 35 silent.
+# a hat), 41 and 35 silent. Its Routing tab: toms 48, 47, 43; hats 44, 42, 45 (semi open), 46;
+# 50 the China choke (it only stops the china): nothing to count.
 45=46
 41=none
 35=none
+50=none
 
 [Ugritone Drums]
 # KVLT Drums 2 (its file is Ugritone Drums): every tom rings (41-48), but 35 and the side

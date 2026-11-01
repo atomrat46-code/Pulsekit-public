@@ -2812,6 +2812,25 @@ final class PyJav {
                             rememberVstFolder(picked.getParentFile());
                         });
                         picks.add(plugins);
+                        // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
+                        // as the Plugins list's Edit settings does, without going there.
+                        JButton editSettings = new JButton("Edit settings");
+                        editSettings.setName("params-plugin-edit:" + p.token);
+                        editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
+                        editSettings.addActionListener(e -> {
+                            if (values[index].length() == 0 || !new File(values[index]).exists()) {
+                                app.setNow("Choose a plugin first (" + p.token + ")");
+                                return;
+                            }
+                            File plug = new File(values[index]);
+                            editSettings.setEnabled(false);
+                            app.setNow(PluginsList.testing(plug, true));
+                            PluginsList.test(this, plug, true, log -> {
+                                editSettings.setEnabled(true);
+                                app.setNow(PluginsList.summary(log));
+                            });
+                        });
+                        picks.add(editSettings);
                     }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
