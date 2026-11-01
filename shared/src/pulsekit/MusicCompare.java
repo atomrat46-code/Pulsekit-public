@@ -135,6 +135,24 @@ public final class MusicCompare {
     public int index() {
       return at + 1;
     }
+
+    /** The chain's end in one message: the tracks, and each file set made with its MIDI files. */
+    public synchronized String summary() {
+      int n = tracks.size();
+      StringBuilder sb = new StringBuilder();
+      sb.append("Succeeded: ").append(n).append(n == 1 ? " track" : " tracks").append(" into ").append(made.size())
+          .append(made.size() == 1 ? " file set" : " file sets").append('\n');
+      for (String set : made) {
+        sb.append('\n').append(set);
+        for (Map.Entry<String, List<Object[]>> e : held.entrySet()) {
+          if (!setName(e.getKey()).equals(set)) continue;
+          sb.append(" (").append(e.getValue().size()).append(e.getValue().size() == 1 ? " MIDI file)" : " MIDI files)");
+          for (Object[] m : e.getValue()) sb.append("\n  ").append(m[0]);
+        }
+        sb.append('\n');
+      }
+      return sb.toString().trim();
+    }
   }
 
   /** The chain going on, or null. */

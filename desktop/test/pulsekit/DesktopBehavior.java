@@ -8630,9 +8630,10 @@ public final class DesktopBehavior {
       Collections.sort(inZip);
       out.append("zip: ").append(inZip).append('\n');
       List<String> want = java.util.Arrays.asList("DrumMidi_CRT SogniMusic run 1 sft log.txt", "DrumMidi_CRT SogniMusic run 1 turbo log.txt", "SogniMusic log.txt",
-          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-ranking.txt", "sogni-Rock-cmp1-sft.mp3", "sogni-Rock-cmp1-sft.wav",
-          "sogni-Rock-cmp1-turbo.mp3", "sogni-Rock-cmp1-turbo.wav");
-      boolean zipped = inZip.containsAll(want);
+          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-ranking.txt", "sogni-Rock-cmp1-sft.mp3",
+          "sogni-Rock-cmp1-turbo.mp3");
+      // The tracks' WAVs (Pulsekit's copies for measuring) stay out: their MP3s are there.
+      boolean zipped = inZip.containsAll(want) && !inZip.contains("sogni-Rock-cmp1-sft.wav") && !inZip.contains("sogni-Rock-cmp1-turbo.wav");
       // (SogniMusic's own "Compared:" lines may be gone by now: each DrumMidi run has its own log; the ranking is shown again.)
       boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-\\w+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-\\w+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
           && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
@@ -8743,7 +8744,7 @@ public final class DesktopBehavior {
       out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
       boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
           && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
-          && text.contains("(2 tracks)") && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
+          && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
           && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00")
           && songMade[0].matches("(Funk|Metal)-turbo [1-9]\\d* SogniMusic run 1 turbo") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);

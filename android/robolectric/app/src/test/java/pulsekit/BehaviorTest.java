@@ -10990,8 +10990,17 @@ public class BehaviorTest {
     }
     RunZip.finish();
     out.append("zip parts: ").append(sizes).append('\n');
+    // A track's WAV stays out of the zip when its MP3 is in it (the WAV is Pulsekit's copy for measuring).
+    RunZip w = RunZip.start(log);
+    w.add("sogni-Funk-1-sft.mp3", new byte[100]);
+    w.add("sogni-Funk-1-sft.wav", new byte[100]);
+    w.add("other.wav", new byte[100]);
+    java.util.List<String> zippedNames = new java.util.ArrayList<String>();
+    for (ZipPack.Source src : w.parts(RunZip.PART).get(0)) zippedNames.add(src.path);
+    RunZip.finish();
+    out.append("zipped with an MP3: ").append(zippedNames).append('\n');
     boolean split = parts.size() == 2 && parts.get(0).size() == 2 && parts.get(1).size() == 2 && z.partName(1, 2).equals("sogni-Rock-1-part2of2.zip")
-        && z.partName(0, 1).equals("sogni-Rock-1.zip");
+        && z.partName(0, 1).equals("sogni-Rock-1.zip") && zippedNames.equals(java.util.Arrays.asList("sogni-Funk-1-sft.mp3", "other.wav")) && w.size() == 2;
     write("s181_sogni_music_compare_models", out.toString());
     if (!ranked || compare == null || !chainOk || !split) throw new AssertionError(out.toString());
   }
@@ -11817,6 +11826,10 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     boolean asked = d != null && d.isShowing() && "Make a song?".equals(String.valueOf(org.robolectric.Shadows.shadowOf(d).getTitle()));
     out.append("Make a song asked: ").append(asked).append('\n');
+    // One dialog at the end, listing every file set and its MIDI files (not a toast a DrumMidi run).
+    AlertDialog done = (AlertDialog) call("pkChainDoneDialog");
+    String doneText = done == null ? "" : String.valueOf(((TextView) done.findViewById(android.R.id.message)).getText());
+    out.append("end dialog: ").append(doneText.replace('\n', '/')).append('\n');
     String run = c.run;
     // The set keeps its tracks' MIDI files, each with the patterns from it.
     java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(run + " turbo");
@@ -11900,6 +11913,7 @@ public class BehaviorTest {
         && rows.equals(java.util.Arrays.asList("rock-turbo.mid", "funk-turbo.mid", "house-turbo.mid")) && clocks.size() == 3 && clocks.get(0).matches("00:00 / 00:(0[1-9]|[1-5]\\d)")
         && chipsAfterFirst.size() == 2 && turboNames.containsAll(chipsAfterFirst) && joinedRows == 0 && kept
         && fillernRows == 3 && fillernAdds == 3 && fillRows == 3
+        && done != null && doneText.startsWith("Succeeded: 6 tracks into 2 file sets") && doneText.contains(c.run + " turbo (3 MIDI files)") && doneText.contains("rock-turbo.mid")
         && one && rockSong != null && rockSong.name.equals("rock-turbo") && !rockSong.parts.isEmpty() && (run + " turbo").equals(rockSong.fileSet)
         && askTitle.equals("Make 3 songs?") && app.importedSongs.size() == songsBefore + 4
         && songNames.contains("funk-turbo") && songNames.contains("house-turbo");

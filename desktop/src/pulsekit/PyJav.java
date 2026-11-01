@@ -1645,6 +1645,9 @@ final class PyJav {
             this.testNote("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
             for (String line : c.report.split("\n")) if (line.length() > 0) this.testNote(line);
             this.zipFinish();
+            // One message for the whole chain: what it made (after the zip has started, so it does not wait).
+            final String summary = c.summary();
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE));
             return;
         }
         this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));

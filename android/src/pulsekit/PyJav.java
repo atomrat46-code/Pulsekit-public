@@ -869,6 +869,11 @@ final class PyJav {
             this.pkAddLogLine("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
             for (String line : c.report.split("\n")) if (line.length() > 0) this.pkAddLogLine(line);
             this.pkZipFinish();
+            final String summary = c.summary();
+            app.handler.post(() -> {
+                this.pkChainDone = new android.app.AlertDialog.Builder(app).setTitle("Succeeded").setMessage(summary)
+                    .setPositiveButton("Close", null).show();
+            });
             return;
         }
         this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
@@ -878,6 +883,13 @@ final class PyJav {
             this.pkForcedArgs = drumArgs;
             this.pkRunPyJav();
         });
+    }
+
+    /** The dialog at a chain's end (what it made), for the tests. */
+    android.app.AlertDialog pkChainDone;
+
+    android.app.AlertDialog pkChainDoneDialog() {
+        return this.pkChainDone;
     }
 
     /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
@@ -1603,7 +1615,8 @@ final class PyJav {
         log = status + "\n" + log;
         if (this.pkPyHint != null) this.pkPyHint.setText(status);
         app.setNow(status);
-        android.widget.Toast.makeText(app, status, 1).show();
+        // A comparison's or random run's DrumMidi runs: one dialog when the chain is over, not a toast a run.
+        if (!pulsekit.MusicCompare.chainStep(app.pyName)) android.widget.Toast.makeText(app, status, 1).show();
         this.pkSaveInventedOutput(log);
         String seen = this.pkShown(log);
         if (this.pkPyLog != null) this.pkPyLog.setText(seen);
