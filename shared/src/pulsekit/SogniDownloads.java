@@ -440,6 +440,30 @@ public final class SogniDownloads {
     return state + " \u00b7 " + r.when() + (going ? " \u00b7 " + elapsed(r, now) + ", " + reason(r) : "") + (s.length() == 0 ? "" : " \u00b7 " + s);
   }
 
+  /** Runs opened or closed in the list (a run's caption toggles its files), by run id. */
+  public static final java.util.Map<Long, Boolean> OPEN = new java.util.concurrent.ConcurrentHashMap<Long, Boolean>();
+
+  /** A run is open (its files shown) as last toggled; else when it is the newest of the list or has few files. */
+  public static boolean isOpen(Run r, List<Run> list) {
+    Boolean b = OPEN.get(r.id);
+    if (b != null) return b.booleanValue();
+    if (r.items.size() <= 5) return true;
+    long newest = Long.MIN_VALUE;
+    if (list != null) for (Run x : list) newest = Math.max(newest, x.started);
+    return r.started >= newest;
+  }
+
+  public static void toggle(Run r, List<Run> list) {
+    OPEN.put(r.id, !isOpen(r, list));
+  }
+
+  /** A run's caption: an arrow when it has files (open or closed), its program (when no headings say it), the run, and how many files. */
+  public static String caption(Run r, boolean program, List<Run> list) {
+    int n = shownItems(r).size();
+    String arrow = n == 0 ? "" : isOpen(r, list) ? "\u25be " : "\u25b8 ";
+    return arrow + (program ? r.programName() + " \u00b7 " : "") + runLabel(r) + (n == 0 ? "" : " \u00b7 " + n + (n == 1 ? " file" : " files"));
+  }
+
   /** The tab's title: "In progress (1)". */
   public static String tabLabel(String state) {
     String name = PROGRESS.equals(state) ? "In progress" : PENDING.equals(state) ? "Pending" : "Finished / failed";

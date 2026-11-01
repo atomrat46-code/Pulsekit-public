@@ -98,7 +98,7 @@ final class DownloadsScreen {
         for (java.awt.Component k : c.getComponents()) {
             if (k instanceof JLabel && k.getName() != null && k.getName().startsWith("downloads-run:")) {
                 SogniDownloads.Run r = SogniDownloads.run(Long.parseLong(k.getName().substring(14)));
-                if (r != null) ((JLabel) k).setText(SogniDownloads.runLabel(r));
+                if (r != null) ((JLabel) k).setText(SogniDownloads.caption(r, Boolean.TRUE.equals(((JLabel) k).getClientProperty("program")), SogniDownloads.tab(tab)));
             } else if (k instanceof java.awt.Container) {
                 refreshTimes((java.awt.Container) k);
             }
@@ -171,9 +171,23 @@ final class DownloadsScreen {
                 body.add(head);
             }
             // Without program headings (Sort by newest, oldest, type) each run says its program.
-            JLabel line = new JLabel((headings ? "" : r.programName() + " \u00b7 ") + SogniDownloads.runLabel(r));
+            // The caption opens and closes the run's files (and says how many there are).
+            final boolean open = SogniDownloads.isOpen(r, runs);
+            final JLabel line = new JLabel(SogniDownloads.caption(r, !headings, runs));
             line.setName("downloads-run:" + r.id);
+            line.putClientProperty("program", !headings);
             line.setAlignmentX(0.0f);
+            if (!SogniDownloads.shownItems(r).isEmpty()) {
+                line.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+                line.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mouseClicked(java.awt.event.MouseEvent e) {
+                        if (!SwingUtilities.isLeftMouseButton(e)) return;
+                        SogniDownloads.toggle(r, runs);
+                        fill(app, body);
+                    }
+                });
+            }
             if (SogniDownloads.PROGRESS.equals(r.state) || SogniDownloads.PENDING.equals(r.state)) {
                 // Mark as ready: a run the app lost track of (it never says it is over) is let go.
                 JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -190,7 +204,7 @@ final class DownloadsScreen {
                 row.add(ready);
                 row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
                 body.add(row);
-                for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
+                if (open) for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
                 continue;
             }
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
@@ -214,7 +228,7 @@ final class DownloadsScreen {
                 row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
                 body.add(row);
             }
-            for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
+            if (open) for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) body.add(itemButton(app, body, r, item));
         }
         body.revalidate();
         body.repaint();

@@ -916,7 +916,9 @@ final class StyleLibrary {
         pack.setOpaque(false);
         pack.setLayout(new BoxLayout(pack, BoxLayout.Y_AXIS));
         pack.setAlignmentX(0f);
-        JButton head = app.chip((open ? "\u25BE " : "\u25B8 ") + shown + " \u00b7 " + count, selected);
+        // A set made of several MIDI files says how many too ("· 118 · 50 MIDI").
+        int midis = key != null && key.startsWith("f:") ? Engine.fileSetTracks(key.substring(2)).size() : 0;
+        JButton head = app.chip((open ? "\u25BE " : "\u25B8 ") + shown + " \u00b7 " + count + (midis > 0 ? " \u00b7 " + midis + " MIDI" : ""), selected);
         head.putClientProperty("pack", key);
         head.addActionListener(e -> {
             app.openPacks.put(key, !this.packOpen(key, selected));

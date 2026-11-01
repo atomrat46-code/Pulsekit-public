@@ -278,7 +278,9 @@ final class ImportLibrary {
 
     void addImportPackBase(LinearLayout linearLayout, String string, String string2, int n, boolean bl, Runnable runnable, Runnable runnable2, Consumer<FlowLayout> consumer) {
         boolean bl2 = this.packOpen(string, bl);
-        TextView textView = app.pill((bl2 ? "\u25be " : "\u25b8 ") + string2 + " \u00b7 " + n, bl, view -> {
+        // A set made of several MIDI files says how many too ("· 118 · 50 MIDI").
+        int midis = string.startsWith("f:") ? Engine.fileSetTracks(string.substring(2)).size() : 0;
+        TextView textView = app.pill((bl2 ? "\u25be " : "\u25b8 ") + string2 + " \u00b7 " + n + (midis > 0 ? " \u00b7 " + midis + " MIDI" : ""), bl, view -> {
             this.openPacks.put(string, !this.packOpen(string, bl));
             this.rebuildImported();
             this.rebuildImportedFills();

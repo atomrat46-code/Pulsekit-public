@@ -81,13 +81,16 @@ final class DownloadsScreen {
     }
 
     /** The In progress and Pending runs' lines again (their time). */
+    /** A run caption's tag: whether it says its program (no headings). */
+    private static final int PROGRAM_KEY = 0x7f0b0001;
+
     private static void refreshTimes(android.view.ViewGroup g) {
         for (int i = 0; i < g.getChildCount(); i++) {
             android.view.View k = g.getChildAt(i);
             Object tag = k.getTag();
             if (k instanceof TextView && tag instanceof String && ((String) tag).startsWith("downloads-run:")) {
                 SogniDownloads.Run r = SogniDownloads.run(Long.parseLong(((String) tag).substring(14)));
-                if (r != null) ((TextView) k).setText(SogniDownloads.runLabel(r));
+                if (r != null) ((TextView) k).setText(SogniDownloads.caption(r, Boolean.TRUE.equals(k.getTag(PROGRAM_KEY)), SogniDownloads.tab(tab)));
             } else if (k instanceof android.view.ViewGroup) {
                 refreshTimes((android.view.ViewGroup) k);
             }
@@ -187,10 +190,17 @@ final class DownloadsScreen {
                 col.addView(head);
             }
             // Without program headings (Sort by newest, oldest, type) each run says its program.
-            TextView line = app.text((headings ? "" : r.programName() + " \u00b7 ") + SogniDownloads.runLabel(r), 12, false);
+            // The caption opens and closes the run's files (and says how many there are).
+            final boolean open = SogniDownloads.isOpen(r, runs);
+            TextView line = app.text(SogniDownloads.caption(r, !headings, runs), 12, false);
             line.setTextColor(Color.parseColor("#8A8B86"));
             line.setTag("downloads-run:" + r.id);
+            line.setTag(PROGRAM_KEY, !headings);
             line.setPadding(app.dp(8), app.dp(4), 0, app.dp(2));
+            if (!SogniDownloads.shownItems(r).isEmpty()) line.setOnClickListener(v -> {
+                SogniDownloads.toggle(r, runs);
+                fill(app, col);
+            });
             if (SogniDownloads.FAILED.equals(r.state) || r.items.isEmpty()) {
                 // Held: Resume download (a failed run whose workflow is known), Clear.
                 line.setOnLongClickListener(v -> {
@@ -225,7 +235,7 @@ final class DownloadsScreen {
                 none.setPadding(app.dp(16), 0, 0, app.dp(4));
                 col.addView(none);
             }
-            for (final SogniDownloads.Item item : SogniDownloads.shownItems(r)) {
+            for (final SogniDownloads.Item item : open ? SogniDownloads.shownItems(r) : new java.util.ArrayList<SogniDownloads.Item>()) {
                 TextView row = app.text(item.name + "\n" + item.shown, 14, false);
                 row.setTag("downloads-item:" + item.name);
                 row.setPadding(app.dp(16), app.dp(8), app.dp(8), app.dp(8));

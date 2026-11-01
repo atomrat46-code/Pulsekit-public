@@ -11870,6 +11870,41 @@ public class BehaviorTest {
         chipsAfterFirst.addAll(names);
       }
     }
+    String turboHead = "";
+    for (int i = 0; i < host.getChildCount(); i++) {
+      View v = host.getChildAt(i);
+      if ("pack".equals(v.getTag()) && String.valueOf(((TextView) v).getText()).contains(run + " turbo")) turboHead = String.valueOf(((TextView) v).getText());
+    }
+    out.append("turbo caption: ").append(turboHead).append('\n');
+    // Downloads: a run's caption says how many files it has and opens or closes them; a big older run starts closed.
+    SogniDownloads.Run big = new SogniDownloads.Run();
+    big.id = 9101;
+    big.program = "SogniMusic.java";
+    big.started = 1000;
+    big.state = SogniDownloads.FINISHED;
+    for (int k = 0; k < 7; k++) {
+      SogniDownloads.Item it = new SogniDownloads.Item();
+      it.name = "sogni-" + k + ".mp3";
+      big.items.add(it);
+    }
+    SogniDownloads.Run newer = new SogniDownloads.Run();
+    newer.id = 9102;
+    newer.program = "SogniMusic.java";
+    newer.started = 2000;
+    newer.state = SogniDownloads.FINISHED;
+    for (int k = 0; k < 7; k++) {
+      SogniDownloads.Item it = new SogniDownloads.Item();
+      it.name = "sogni-new-" + k + ".mp3";
+      newer.items.add(it);
+    }
+    java.util.List<SogniDownloads.Run> both = java.util.Arrays.asList(newer, big);
+    boolean bigOpen = SogniDownloads.isOpen(big, both), newerOpen = SogniDownloads.isOpen(newer, both);
+    String bigCaption = SogniDownloads.caption(big, true, both);
+    SogniDownloads.toggle(big, both);
+    boolean bigOpened = SogniDownloads.isOpen(big, both);
+    SogniDownloads.OPEN.remove(big.id);
+    out.append("downloads: older big run open ").append(bigOpen).append(", newest open ").append(newerOpen).append(", caption \"").append(bigCaption)
+        .append("\", toggled open ").append(bigOpened).append('\n');
     out.append("rows: ").append(rows).append(" clocks ").append(clocks).append(" | first file's chips ").append(chipsAfterFirst).append(" | joined MIDI rows ").append(joinedRows).append('\n');
     // Kept over a restart (fset-audio): the files, their names and patterns, and the joined MIDI's name.
     File dir = new File(app.getCacheDir(), "fset-audio-s192");
@@ -11912,7 +11947,8 @@ public class BehaviorTest {
         && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
         && rows.equals(java.util.Arrays.asList("rock-turbo.mid", "funk-turbo.mid", "house-turbo.mid")) && clocks.size() == 3 && clocks.get(0).matches("00:00 / 00:(0[1-9]|[1-5]\\d)")
         && chipsAfterFirst.size() == 2 && turboNames.containsAll(chipsAfterFirst) && joinedRows == 0 && kept
-        && fillernRows == 3 && fillernAdds == 3 && fillRows == 3
+        && fillernRows == 3 && fillernAdds == 3 && fillRows == 3 && turboHead.endsWith("\u00b7 3 MIDI")
+        && !bigOpen && newerOpen && bigCaption.startsWith("\u25b8 SogniMusic \u00b7 Finished") && bigCaption.endsWith("\u00b7 7 files") && bigOpened
         && done != null && doneText.startsWith("Succeeded: 6 tracks into 2 file sets") && doneText.contains(c.run + " turbo (3 MIDI files)") && doneText.contains("rock-turbo.mid")
         && one && rockSong != null && rockSong.name.equals("rock-turbo") && !rockSong.parts.isEmpty() && (run + " turbo").equals(rockSong.fileSet)
         && askTitle.equals("Make 3 songs?") && app.importedSongs.size() == songsBefore + 4
