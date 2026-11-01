@@ -1875,6 +1875,7 @@ def main(argv):
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
     kit_file = None
+    kit_said = "not learned (--no-kit, or no test beat)"
     if not opts["--wav"]:
         # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
@@ -1896,9 +1897,11 @@ def main(argv):
             kit_file = os.path.join(where, "vst-kit-%s.kit" % tag)
             said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
             if said.startswith("Wrote "):
+                kit_said = said[6:]
                 print("Kit: " + said[6:])
             else:
                 kit_file = None
+                kit_said = "not learned (%s); the test went on without it" % said
                 print("Kit: not learned (%s); the test goes on without it" % said)
         if "--check" in switches:
             where = opts["--outdir"] or "."
@@ -2003,6 +2006,7 @@ def main(argv):
                   "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
                                       ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
+                  "Kit profile (the test beat's kick and toms): " + kit_said,
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         tested = 0

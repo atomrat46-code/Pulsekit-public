@@ -1827,8 +1827,12 @@ public class DrumMidi_CRT{
     static {
         for (int n = 0; n < KIT_N; n++) KIT_WINDOW[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (KIT_N - 1));
     }
-    /** A tom in the test beat under KIT_SILENT of the kick's level is not played by this kit. */
-    static final double KIT_SILENT = 0.05;
+    /**
+     * A tom in the test beat under KIT_SILENT of the kick's level (40-800 Hz) is not played by this kit.
+     * 1%: a metal kit's kick is loud below 800 Hz, so toms that ring can stay under 5% of it (KVLT's
+     * were all left out at 5%); a note a kit does not play is far quieter (only the other mics' bleed).
+     */
+    static final double KIT_SILENT = 0.01;
 
     static final class KitProfile {
         final String name;
@@ -1931,7 +1935,7 @@ public class DrumMidi_CRT{
                 double[] s = sum.get(n);
                 int c = count.get(n).intValue();
                 if (n.intValue() != KICK_NOTE && s[KIT_BANDS] / c < KIT_SILENT * kickLevel) {
-                    left.add(String.valueOf(n));
+                    left.add(n + " (" + String.format(java.util.Locale.ROOT, "%.1f", 100 * s[KIT_BANDS] / c / kickLevel) + "% of the kick)");
                     continue;
                 }
                 double norm = 0;
