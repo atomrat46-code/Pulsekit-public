@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -95,6 +95,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
                   A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
                   maps folder beside this script.
+  --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
+                  (Anarchy, Riot, Ugritone/KVLT) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
                   so it is given here. It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
@@ -836,6 +838,19 @@ def note_map(text, plugin=None):
 def map_key(name):
     """A plugin's or a map section's name to match on: letters and digits, lower case."""
     return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def default_map(plugin):
+    """The map --test uses when none is given: Pulsekit's drum-kits.txt, when it has a section for
+    the plugin (Anarchy, Riot, Ugritone/KVLT). (file, section), or (None, None)."""
+    known = map_file("drum-kits.txt")
+    if not os.path.isfile(known):
+        return None, None
+    try:
+        found, part = map_for(known, plugin)
+    except (ValueError, OSError):
+        return None, None
+    return (known, part) if part else (None, None)
 
 
 def map_for(text, plugin=None):
@@ -1589,7 +1604,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1746,6 +1761,13 @@ def main(argv):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     nmap = {}
     map_part = None
+    if test and not (opts["--map"] or "").strip() and "--no-map" not in switches and (opts["--plugin"] or opts["--clap"]):
+        # No --map given: the map Pulsekit keeps (drum-kits.txt) when it has a section for this plugin
+        # (Anarchy, Riot, Ugritone/KVLT): what the plugin really plays for the MIDI's notes.
+        known, part = default_map(name)
+        if known:
+            opts["--map"] = known
+            print("Map: drum-kits.txt, section [%s] (no --map given; --no-map leaves it out)" % part)
     if opts["--map"]:
         if not test:
             fail("--map is for --test: what the plugin plays for the MIDI's notes")

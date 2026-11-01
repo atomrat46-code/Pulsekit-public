@@ -720,7 +720,9 @@ public final class ProgramParams {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: as the MIDI has them";
+      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+    } else if (p.token.equals("--no-map")) {
+      p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
     } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
       p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";

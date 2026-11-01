@@ -11940,11 +11940,24 @@ public class BehaviorTest {
     for (Engine.ImportedSong so : app.importedSongs) songNames.add(so.name);
     out.append("one song: ").append(one).append(" ").append(rockSong == null ? "-" : rockSong.name + " (" + rockSong.parts.size() + " parts, set " + rockSong.fileSet + ")")
         .append(" | asked \"").append(askTitle).append("\" | songs ").append(songNames).append('\n');
+    // A --random run's DrumMidi runs at the tempo asked for each track's style (SogniMusic's "Style ...: Tempo: N BPM." lines).
+    java.util.List<String[]> tw = new java.util.ArrayList<String[]>();
+    tw.add(new String[] {"Ballad-6-8-turbo", "/x/b.wav"});
+    tw.add(new String[] {"Boom-Bap-sft", "/x/c.wav"});
+    MusicCompare.Chain tc = MusicCompare.startChain(java.util.Arrays.asList("--random", "2", "--model", "turbo,sft"), new java.util.ArrayList<String>(), tw, "--bpm 120 --sens 1.2",
+        "Random styles: 2 tracks\nStyle Ballad 6/8: Tempo: 61 BPM. Duration: 10 s. Time signature: 6/8. Key: C# major. \u00b7 drums\nStyle Boom Bap: Tempo: 84 BPM. Duration: 10 s. \u00b7 drums\n");
+    java.util.List<String> tFirst = tc.next();
+    Double tAsked = tc.askedBpm();
+    java.util.List<String> tSecond = tc.next();
+    MusicCompare.stopChain();
+    out.append("asked tempos: ").append(tFirst).append(" (").append(tAsked).append(") then ").append(tSecond).append('\n');
+    boolean tempoOk = tFirst.get(tFirst.indexOf("--bpm") + 1).equals("61") && tFirst.indexOf("--bpm") == tFirst.lastIndexOf("--bpm") && tFirst.contains("--sens")
+        && tAsked != null && tAsked.doubleValue() == 61 && tSecond.get(tSecond.indexOf("--bpm") + 1).equals("84");
     write("s192_random_run_file_set_per_model", out.toString());
     boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
         && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
         && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked
-        && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
+        && tempoOk && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
         && rows.equals(java.util.Arrays.asList("rock-turbo.mid", "funk-turbo.mid", "house-turbo.mid")) && clocks.size() == 3 && clocks.get(0).matches("00:00 / 00:(0[1-9]|[1-5]\\d)")
         && chipsAfterFirst.size() == 2 && turboNames.containsAll(chipsAfterFirst) && joinedRows == 0 && kept
         && fillernRows == 3 && fillernAdds == 3 && fillRows == 3 && turboHead.endsWith("\u00b7 3 MIDI")

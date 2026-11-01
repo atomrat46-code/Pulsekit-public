@@ -7342,9 +7342,14 @@ public final class DesktopBehavior {
         + "print('mapped', vr.mapped(played, m))\n"
         + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
         + "print('score', vr.score_line(rows))\n"
+        + "print('default', [(p, vr.default_map(p)[1]) for p in ('Riot Drums.vst3', 'Anarchy Drums.vst3', 'Ugritone Drums.vst3', 'Other Kit.vst3')])\n"
         + "for bad in ('45', '45=x', '200=46'):\n"
         + "    try: vr.note_map(bad); print('kept', bad)\n"
         + "    except ValueError as e: print('refused', e)\n";
+    // Pulsekit's drum-kits.txt where vst_render looks for a map's bare name (~/.pulsekit/maps): with --map empty, --test uses its section for the plugin.
+    File maps = new File(System.getProperty("user.home"), ".pulsekit/maps");
+    maps.mkdirs();
+    Files.write(new File(maps, "drum-kits.txt").toPath(), ProgramFiles.read("Python", "maps/drum-kits.txt"));
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), file.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 60, null).trim();
@@ -7358,7 +7363,8 @@ public final class DesktopBehavior {
         && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
         && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
         && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
-        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays");
+        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays")
+        && said.contains("default [('Riot Drums.vst3', 'Riot Drums'), ('Anarchy Drums.vst3', 'Anarchy Drums'), ('Ugritone Drums.vst3', 'Ugritone Drums'), ('Other Kit.vst3', None)]");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

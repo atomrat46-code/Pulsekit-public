@@ -62,6 +62,9 @@ public final class MusicCompare {
     public String report = "";
     /** A --random run's chain: its file sets are made without the Make a song question (No). */
     public boolean random;
+    /** A --random run's tempo asked for each style (its "Style <name>: Tempo: N BPM" line), by styleKey. */
+    final Map<String, Double> tempos = new LinkedHashMap<String, Double>();
+
     /** A --random run's model when it has one (its labels have no -model ending). */
     String single = "turbo";
     /** A --random run's DrumMidi MIDIs, kept until the chain ends: one file set a model, not one a track. */
@@ -98,7 +101,27 @@ public final class MusicCompare {
         return null;
       }
       String[] t = tracks.get(at);
-      return expect.drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+      List<String> args = expect.drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+      // A --random track: DrumMidi's grid at the tempo asked for its style (each track draws its own).
+      Double asked = askedBpm();
+      if (asked != null) {
+        int k = args.indexOf("--bpm");
+        if (k >= 0 && k + 1 < args.size()) args.set(k + 1, MusicExpect.SogniTime.num(asked.doubleValue()));
+        else {
+          args.add("--bpm");
+          args.add(MusicExpect.SogniTime.num(asked.doubleValue()));
+        }
+      }
+      return args;
+    }
+
+    /** The tempo asked for the track now in DrumMidi (a --random run's), or null. */
+    public synchronized Double askedBpm() {
+      if (!random || at < 0 || at >= tracks.size()) return null;
+      String label = tracks.get(at)[0];
+      String g = group(label);
+      String style = label.endsWith("-" + g) ? label.substring(0, label.length() - g.length() - 1) : label;
+      return tempos.get(styleKey(style));
     }
 
     /** The model now in DrumMidi. */
@@ -155,15 +178,38 @@ public final class MusicCompare {
     }
   }
 
+  /** A style's name as a key: "Ballad 6/8" and the label's "Ballad-6-8" alike. */
+  static String styleKey(String style) {
+    return (style == null ? "" : style).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+  }
+
+  /** The tempo SogniMusic asked for each style of a --random run, from its "Style <name>: Tempo: N BPM." lines. */
+  public static Map<String, Double> askedTempos(String log) {
+    Map<String, Double> out = new LinkedHashMap<String, Double>();
+    if (log == null) return out;
+    java.util.regex.Pattern p = java.util.regex.Pattern.compile("^Style (.+?): Tempo: ([0-9]+(?:\\.[0-9]+)?) BPM\\.");
+    for (String line : log.split("\n")) {
+      java.util.regex.Matcher m = p.matcher(line.trim());
+      if (m.find()) out.put(styleKey(m.group(1)), Double.valueOf(m.group(2)));
+    }
+    return out;
+  }
+
   /** The chain going on, or null. */
   static Chain chain;
 
   /** Starts a chain on the WAVs given ("model", path pairs); null when there are none. `saved` is DrumMidi's saved switches. */
   public static synchronized Chain startChain(List<String> argv, List<String> fileSets, List<String[]> wavs, String saved) {
+    return startChain(argv, fileSets, wavs, saved, null);
+  }
+
+  /** As above; `log` is SogniMusic's: a --random run's tempo asked for each style goes to its DrumMidi run (--bpm). */
+  public static synchronized Chain startChain(List<String> argv, List<String> fileSets, List<String[]> wavs, String saved, String log) {
     if (wavs == null || wavs.isEmpty()) return null;
     Chain c = new Chain(runName(fileSets), MusicExpect.of(argv), saved);
     c.tracks.addAll(wavs);
     c.random = argv != null && argv.contains("--random");
+    if (c.random) c.tempos.putAll(askedTempos(log));
     int mi = argv == null ? -1 : argv.indexOf("--model");
     if (mi >= 0 && mi + 1 < argv.size()) {
       String m = argv.get(mi + 1).trim().toLowerCase(java.util.Locale.ROOT);

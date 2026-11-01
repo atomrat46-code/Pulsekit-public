@@ -1583,7 +1583,7 @@ final class PyJav {
                     this.zipFinish();
                     return;
                 }
-                MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"));
+                MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"), log);
                 if (c == null) {
                     this.testNote("No WAVs for DrumMidi: no file sets made");
                     this.zipFinish();
@@ -1652,7 +1652,9 @@ final class PyJav {
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE));
             return;
         }
-        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
+        Double asked = c.askedBpm();
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model())
+            + (asked == null ? "" : " at the tempo asked, " + (asked.doubleValue() == Math.rint(asked.doubleValue()) ? Long.toString(asked.longValue()) : asked.toString()) + " BPM"));
         SwingUtilities.invokeLater(() -> {
             app.pyInputPath = null;
             app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
