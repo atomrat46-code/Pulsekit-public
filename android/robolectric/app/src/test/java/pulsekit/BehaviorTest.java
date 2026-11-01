@@ -11808,11 +11808,62 @@ public class BehaviorTest {
     AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
     boolean asked = d != null && d.isShowing() && "Make a song?".equals(String.valueOf(org.robolectric.Shadows.shadowOf(d).getTitle()));
     out.append("Make a song asked: ").append(asked).append('\n');
-    write("s192_random_run_file_set_per_model", out.toString());
     String run = c.run;
+    // The set keeps its tracks' MIDI files, each with the patterns from it.
+    java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(run + " turbo");
+    java.util.Set<String> covered = new java.util.HashSet<String>();
+    StringBuilder trackText = new StringBuilder();
+    for (Engine.FileSetTrack tr : tracks) {
+      covered.addAll(tr.patterns);
+      trackText.append(tr.name).append(" ").append(tr.patterns).append(" ").append(Engine.midiLengthMs(tr.midi)).append(" ms; ");
+    }
+    java.util.Set<String> turboNames = new java.util.HashSet<String>();
+    for (Engine.Learned l : app.learned) if ((run + " turbo").equals(Engine.sourceOf(l))) turboNames.add(l.name);
+    out.append("turbo tracks: ").append(trackText).append('\n');
+    // Opened in the list: a row a MIDI file, its length on the clock, its patterns under it.
+    app.show("pattern");
+    app.importLibrary.openPacks.put("f:" + run + " turbo", true);
+    app.importLibrary.rebuildImported();
+    idle();
+    java.util.List<String> rows = new java.util.ArrayList<String>();
+    java.util.List<String> clocks = new java.util.ArrayList<String>();
+    int joinedRows = 0;
+    android.view.ViewGroup host = app.importedHost;
+    boolean inTurbo = false;
+    java.util.List<String> chipsAfterFirst = new java.util.ArrayList<String>();
+    int seenRows = 0;
+    for (int i = 0; i < host.getChildCount(); i++) {
+      View v = host.getChildAt(i);
+      if ("pack".equals(v.getTag())) inTurbo = String.valueOf(((TextView) v).getText()).contains(run + " turbo");
+      if (!inTurbo) continue;
+      if ("sourcemidi".equals(v.getTag())) joinedRows++;
+      if ("trackmidi".equals(v.getTag())) {
+        seenRows++;
+        rows.add(String.valueOf(((TextView) v.findViewWithTag("trackmidi-name")).getText()));
+        clocks.add(String.valueOf(((TextView) v.findViewWithTag("midiclock")).getText()));
+      } else if (seenRows == 1 && v instanceof android.view.ViewGroup) {
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        collectChips(v, names);
+        chipsAfterFirst.addAll(names);
+      }
+    }
+    out.append("rows: ").append(rows).append(" clocks ").append(clocks).append(" | first file's chips ").append(chipsAfterFirst).append(" | joined MIDI rows ").append(joinedRows).append('\n');
+    // Kept over a restart (fset-audio): the files, their names and patterns, and the joined MIDI's name.
+    File dir = new File(app.getCacheDir(), "fset-audio-s192");
+    Engine.storeFileSetAudioDir(dir);
+    Engine.forgetFileSetAudio(run + " turbo");
+    Engine.loadFileSetAudioDir(dir);
+    java.util.List<Engine.FileSetTrack> back = Engine.fileSetTracks(run + " turbo");
+    boolean kept = back.size() == tracks.size() && back.get(0).name.equals(tracks.get(0).name) && back.get(0).patterns.equals(tracks.get(0).patterns)
+        && java.util.Arrays.equals(back.get(0).midi, tracks.get(0).midi) && Engine.fileSetMidiName(run + " turbo").equals(run + " turbo.mid");
+    out.append("kept over a restart: ").append(kept).append('\n');
+    write("s192_random_run_file_set_per_model", out.toString());
     boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
         && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
-        && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked;
+        && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked
+        && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
+        && rows.equals(java.util.Arrays.asList("rock-turbo.mid", "funk-turbo.mid", "house-turbo.mid")) && clocks.size() == 3 && clocks.get(0).matches("00:00 / 00:(0[1-9]|[1-5]\\d)")
+        && chipsAfterFirst.size() == 2 && turboNames.containsAll(chipsAfterFirst) && joinedRows == 0 && kept;
     if (!ok) throw new AssertionError(out.toString());
     } finally {
       // A failure must not leave the chain going: later tests' Make a song questions would be quiet.

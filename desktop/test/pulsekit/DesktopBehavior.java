@@ -8706,9 +8706,33 @@ public final class DesktopBehavior {
       out.append("prompts: ").append(prompts.size()).append(", styles in them: ").append(styled).append('\n');
       out.append("file sets: ").append(sets).append('\n');
       out.append("zip: ").append(inZip.toString().replaceAll("rnd\\d", "rnd<n>")).append('\n');
+      // The turbo set keeps its two MIDI files; opened, it lists them (with their lengths), each with its patterns.
+      List<String> trackNames = new ArrayList<String>();
+      for (Engine.FileSetTrack tr : Engine.fileSetTracks("SogniMusic run 1 turbo")) trackNames.add(tr.name);
+      Collections.sort(trackNames);
+      final int[] rowsSeen = {0};
+      final String[] clockSeen = {""};
+      edt(() -> {
+        ((Pulsekit) frame).openPacks.put("f:SogniMusic run 1 turbo", true);
+        call("refreshLearnedChips");
+        java.util.ArrayDeque<java.awt.Component> todo = new java.util.ArrayDeque<java.awt.Component>();
+        todo.add((java.awt.Component) get("importedBar"));
+        while (!todo.isEmpty()) {
+          java.awt.Component c = todo.poll();
+          if ("trackmidi".equals(c.getName()) && c.isVisible()) {
+            rowsSeen[0]++;
+            for (java.awt.Component k : ((java.awt.Container) c).getComponents()) if ("midiclock".equals(k.getName())) clockSeen[0] = ((javax.swing.JLabel) k).getText();
+          }
+          if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.add(k);
+        }
+      });
+      int trackRows = rowsSeen[0];
+      String trackClock = clockSeen[0];
+      out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
       boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
           && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
-          && text.contains("(2 tracks)") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
+          && text.contains("(2 tracks)") && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
+          && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

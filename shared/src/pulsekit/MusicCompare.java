@@ -65,7 +65,7 @@ public final class MusicCompare {
     /** A --random run's model when it has one (its labels have no -model ending). */
     String single = "turbo";
     /** A --random run's DrumMidi MIDIs, kept until the chain ends: one file set a model, not one a track. */
-    final Map<String, List<byte[]>> held = new LinkedHashMap<String, List<byte[]>>();
+    final Map<String, List<Object[]>> held = new LinkedHashMap<String, List<Object[]>>();
 
     Chain(String run, MusicExpect expect, String saved) {
       this.run = run;
@@ -110,16 +110,24 @@ public final class MusicCompare {
       return tracks.size();
     }
 
-    /** A --random run's kept MIDIs as one MIDI a model: {file name ("SogniMusic run 4 sft.mid"), the MIDI, the tracks' bars}. */
+    /**
+     * A --random run's kept MIDIs as one MIDI a model: {file name ("SogniMusic run 4 sft.mid"), the MIDI,
+     * the tracks' bars, the tracks' file names ("Funk-sft.mid"), the tracks' MIDIs}.
+     */
     public synchronized List<Object[]> heldSets() {
       List<Object[]> out = new ArrayList<Object[]>();
-      for (Map.Entry<String, List<byte[]>> e : held.entrySet()) {
+      for (Map.Entry<String, List<Object[]>> e : held.entrySet()) {
         List<Engine.MidiBars> bars = new ArrayList<Engine.MidiBars>();
-        for (byte[] m : e.getValue()) {
-          Engine.MidiBars b = Engine.parseMidiBars(m);
-          if (b != null && !b.bars.isEmpty()) bars.add(b);
+        List<String> names = new ArrayList<String>();
+        List<byte[]> midis = new ArrayList<byte[]>();
+        for (Object[] m : e.getValue()) {
+          Engine.MidiBars b = Engine.parseMidiBars((byte[]) m[1]);
+          if (b == null || b.bars.isEmpty()) continue;
+          bars.add(b);
+          names.add((String) m[0]);
+          midis.add((byte[]) m[1]);
         }
-        if (!bars.isEmpty()) out.add(new Object[] {setName(e.getKey()) + ".mid", joined(bars), bars});
+        if (!bars.isEmpty()) out.add(new Object[] {setName(e.getKey()) + ".mid", joined(bars), bars, names, midis});
       }
       return out;
     }
@@ -159,10 +167,11 @@ public final class MusicCompare {
   public static synchronized boolean hold(byte[] midi) {
     Chain c = chain;
     if (c == null || !c.random || midi == null || c.at < 0 || c.at >= c.tracks.size()) return false;
-    String g = c.group(c.tracks.get(c.at)[0]);
-    List<byte[]> list = c.held.get(g);
-    if (list == null) c.held.put(g, list = new ArrayList<byte[]>());
-    list.add(midi);
+    String label = c.tracks.get(c.at)[0];
+    String g = c.group(label);
+    List<Object[]> list = c.held.get(g);
+    if (list == null) c.held.put(g, list = new ArrayList<Object[]>());
+    list.add(new Object[] {label + ".mid", midi});
     return true;
   }
 

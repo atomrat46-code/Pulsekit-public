@@ -152,9 +152,25 @@ final class FileSets {
         try { p.release(); } catch (java.lang.Exception ignored) {}
     }
 
+    /** A file set's MIDI clocks: the MIDI each plays (its key) and its length, shown while another plays or none does. */
+    final java.util.WeakHashMap<android.widget.TextView, java.lang.String[]> pkClockKeys = new java.util.WeakHashMap<android.widget.TextView, java.lang.String[]>();
+
+    /** A clock for a MIDI row: "00:00 / its length" until it plays. */
+    android.widget.TextView midiClock(java.lang.String key, byte[] midi) {
+        java.lang.String len = mixTime(pulsekit.Engine.midiLengthMs(midi));
+        android.widget.TextView clock = app.text("00:00 / " + len, 11, false);
+        clock.setTag("midiclock");
+        clock.setTextColor(MUTED);
+        clock.setTypeface(android.graphics.Typeface.MONOSPACE);
+        this.pkClockKeys.put(clock, new java.lang.String[] {key, len});
+        return clock;
+    }
+
     void paintMidiClockOn(android.view.View v, java.lang.String label) {
         if (v instanceof android.widget.TextView && "midiclock".equals(v.getTag())) {
-            ((android.widget.TextView) v).setText(label);
+            java.lang.String[] kl = this.pkClockKeys.get(v);
+            // A row's clock runs while its MIDI plays; the others show their length.
+            ((android.widget.TextView) v).setText(kl == null || kl[0].equals(this.pkMidiSrc) ? label : "00:00 / " + kl[1]);
         }
         if (v instanceof android.view.ViewGroup) {
             android.view.ViewGroup g = (android.view.ViewGroup) v;
@@ -276,6 +292,17 @@ final class FileSets {
         java.lang.String src = key.substring(2);
         java.lang.String name = pulsekit.Engine.fileSetMidiName(src);
         if (name.length() == 0) return;
+        // A set made of several MIDI files lists them (each with its patterns) when it is open, not one joined MIDI.
+        if (!pulsekit.Engine.fileSetTracks(src).isEmpty()) {
+            for (int i = host.getChildCount() - 1; i >= 0; i--) {
+                android.view.View v = host.getChildAt(i);
+                if ("fileset-results".equals(v.getTag())) return;
+                if (v instanceof android.widget.TextView && "pack".equals(v.getTag())) break;
+            }
+            android.widget.LinearLayout results = this.pkResultsRow(src);
+            if (results != null) host.addView(results);
+            return;
+        }
         for (int i = host.getChildCount() - 1; i >= 0; i--) {
             android.view.View v = host.getChildAt(i);
             if ("sourcemidi".equals(v.getTag())) return;
@@ -289,17 +316,55 @@ final class FileSets {
         this.editOnLongPress(label, src);
         this.editOnLongPress(line, src);
         line.addView(label, app.flex(1));
-        android.widget.TextView clock = app.text("00:00 / 00:00", 11, false);
-        clock.setTag("midiclock");
-        clock.setTextColor(MUTED);
-        clock.setTypeface(android.graphics.Typeface.MONOSPACE);
-        line.addView(clock);
+        pulsekit.Engine.FileSetAudio au = pulsekit.Engine.fileSetAudioOf(src);
+        line.addView(this.midiClock(src, au == null ? null : au.sourceMidi));
         line.addView(app.outline("Play", false, pulsekit.FileSetClicks.filePlayMidi(app, src)));
         line.addView(app.outline("Pause", false, pulsekit.FileSetClicks.filePauseMidi(app)));
         line.addView(app.outline("Stop", false, pulsekit.FileSetClicks.fileStopMidi(app)));
         host.addView(line);
         android.widget.LinearLayout results = this.pkResultsRow(src);
         if (results != null) host.addView(results);
+    }
+
+    /** A MIDI file of a set made of several: its name, clock (its length until it plays), Play, Pause and Stop. */
+    android.widget.LinearLayout trackMidiRow(java.lang.String src, int index) {
+        java.util.List<pulsekit.Engine.FileSetTrack> tracks = pulsekit.Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return null;
+        final pulsekit.Engine.FileSetTrack tr = tracks.get(index);
+        final java.lang.String key = src + "#" + index;
+        android.widget.LinearLayout line = app.row();
+        line.setTag("trackmidi");
+        line.setPadding(app.dp(8), app.dp(4), 0, 0);
+        android.widget.TextView label = app.text(tr.name, 12, false);
+        label.setTextColor(MUTED);
+        label.setTag("trackmidi-name");
+        line.addView(label, app.flex(1));
+        line.addView(this.midiClock(key, tr.midi));
+        android.widget.TextView play = app.outline("Play", false, v -> this.playTrackMidi(key, tr));
+        play.setTag("trackmidi-play");
+        line.addView(play);
+        line.addView(app.outline("Pause", false, v -> this.pauseSourceMidi()));
+        line.addView(app.outline("Stop", false, v -> this.stopSourceMidi()));
+        return line;
+    }
+
+    /** Plays a set's MIDI file, or goes on where Pause left it. */
+    void playTrackMidi(java.lang.String key, pulsekit.Engine.FileSetTrack tr) {
+        if (key.equals(this.pkMidiSrc) && this.pkMidiPlayer != null && this.pkMidiPaused) {
+            try {
+                this.pkMidiPlayer.start();
+                this.pkMidiPaused = false;
+                this.startMidiClock();
+                app.setNow("Play");
+                return;
+            } catch (java.lang.Exception ignored) {}
+        }
+        if (tr.midi == null || tr.midi.length < 14) {
+            this.stopSourceMidi();
+            app.setNow("That MIDI file is missing");
+            return;
+        }
+        this.playMidiBytes(key, tr.midi, tr.name, 0);
     }
 
     /** A long press on the source MIDI's row opens its hits in the MIDI editor. */

@@ -302,13 +302,28 @@ final class ImportLibrary {
             return true;
         });
         linearLayout.addView((View)textView);
-        if (bl2) {
+        java.util.List<Engine.FileSetTrack> tracks = bl2 && this.pkTrackChips != null && string.startsWith("f:")
+            ? Engine.fileSetTracks(string.substring(2)) : new ArrayList<Engine.FileSetTrack>();
+        if (!tracks.isEmpty()) {
+            // A set made of several MIDI files: each file, then the patterns from it.
+            for (int i = 0; i < tracks.size(); i++) {
+                LinearLayout row = app.fileSets.trackMidiRow(string.substring(2), i);
+                if (row != null) linearLayout.addView((View)row);
+                FlowLayout flowLayout = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+                flowLayout.setSingleLine(true);
+                this.pkTrackChips.accept(flowLayout, tracks.get(i).patterns);
+                linearLayout.addView((View)app.chipStrip((View)flowLayout));
+            }
+        } else if (bl2) {
             FlowLayout flowLayout = new FlowLayout((Context)app, app.dp(6), app.dp(6));
             flowLayout.setSingleLine(true);
             consumer.accept(flowLayout);
             linearLayout.addView((View)app.chipStrip((View)flowLayout));
         }
     }
+
+    /** While the Pattern tab's list is made: a file set's pattern chips with the names given (a MIDI file's), for a set made of several files. */
+    java.util.function.BiConsumer<FlowLayout, java.util.List<String>> pkTrackChips;
 
     void rebuildImported() {
         if (app.importedHost == null) {
@@ -347,6 +362,15 @@ final class ImportLibrary {
             // On the Fillern tab a file set lists its Fillerns: patterns with a fill chosen for them.
             boolean fillerns = "combo".equals(app.view);
             int shown = fillerns ? this.fillernsOf(arrayList).size() : arrayList.size();
+            this.pkTrackChips = fillerns ? null : (flow, names) -> {
+                for (Engine.Learned learned : arrayList) {
+                    if (!names.contains(learned.name)) continue;
+                    TextView textView = app.pill(learned.name, false, view -> app.styleLibrary.loadStyle(learned.id, false));
+                    textView.setTag((Object)learned.id);
+                    app.styleLibrary.attachLearnedStyleMenu(textView, learned);
+                    flow.addView((View)textView);
+                }
+            };
             this.addImportPack(app.importedHost, packKey, string2, shown, bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
                 if (fillerns) {
                     this.addFillernChips(flowLayout, arrayList);
@@ -360,6 +384,7 @@ final class ImportLibrary {
                 }
             });
         }
+        this.pkTrackChips = null;
         app.styleLibrary.refreshStyles();
         this.refreshImportedFiles();
     }

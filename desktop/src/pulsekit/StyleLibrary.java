@@ -665,8 +665,38 @@ final class StyleLibrary {
                 kids.add(add);
             }
             String label = src.isEmpty() ? "Other" : src;
+            java.util.List<Engine.FileSetTrack> tracks = fillerns ? new ArrayList<Engine.FileSetTrack>() : Engine.fileSetTracks(src);
+            JPanel shown = kids;
+            if (!tracks.isEmpty()) {
+                // A set made of several MIDI files: each file, then the patterns from it.
+                shown = new JPanel();
+                shown.setOpaque(false);
+                shown.setLayout(new BoxLayout(shown, BoxLayout.Y_AXIS));
+                shown.setName("fileset-tracks");
+                for (int t = 0; t < tracks.size(); t++) {
+                    JPanel row = app.fileSets.trackMidiRow(src, t);
+                    if (row != null) shown.add(row);
+                    ChipStrip strip = new ChipStrip();
+                    for (java.awt.Component k : kids.getComponents()) {
+                        if (!(k instanceof JButton)) continue;
+                        Object id = ((JButton) k).getClientProperty("learned");
+                        Engine.Learned it = null;
+                        for (Engine.Learned x : setPatterns) if (x.id.equals(id)) it = x;
+                        if (it == null || !tracks.get(t).patterns.contains(it.name)) continue;
+                        final Engine.Learned it0 = it;
+                        JButton b = app.chip(it0.name, false);
+                        b.putClientProperty("style", it0.id);
+                        b.putClientProperty("learned", it0.id);
+                        b.addActionListener(e -> this.loadLearned(it0.id));
+                        app.onChipMenu(b, () -> this.learnedStyleMenu(it0));
+                        strip.add(b);
+                    }
+                    strip.setAlignmentX(0f);
+                    shown.add(strip);
+                }
+            }
             app.importedBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
-                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), kids));
+                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), shown));
         }
         if (!app.hiddenStyles.isEmpty()) {
             JButton b = app.chip("Hidden " + app.hiddenStyles.size(), false);
@@ -845,7 +875,9 @@ final class StyleLibrary {
             return m;
         });
         pack.add(head);
-        JPanel midi = key != null && key.startsWith("f:") ? app.fileSets.midiRow(key.substring(2)) : null;
+        // A set made of several MIDI files lists them (in its chips' place), not one joined MIDI.
+        boolean tracks = key != null && key.startsWith("f:") && !Engine.fileSetTracks(key.substring(2)).isEmpty();
+        JPanel midi = key != null && key.startsWith("f:") && !tracks ? app.fileSets.midiRow(key.substring(2)) : null;
         if (midi != null) {
             midi.setVisible(open);
             pack.add(midi);

@@ -1663,10 +1663,17 @@ final class PyJav {
         try {
             for (Object[] h : c.heldSets()) {
                 @SuppressWarnings("unchecked") java.util.List<Engine.MidiBars> tracks = (java.util.List<Engine.MidiBars>) h[2];
-                AudioIo.stageTracks(tracks);
+                @SuppressWarnings("unchecked") java.util.List<String> names = (java.util.List<String>) h[3];
+                @SuppressWarnings("unchecked") java.util.List<byte[]> midis = (java.util.List<byte[]>) h[4];
+                AudioIo.stageTracks(tracks, names, midis);
                 String r = app.importLibrary.applyProgramMidi((byte[]) h[1], (String) h[0]);
-                AudioIo.stageTracks(null);
+                AudioIo.stageTracks(null, null, null);
                 this.testNote(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+            // The tracks' MIDI files kept with the sets (fset-audio), the list showing them.
+            if (!c.heldSets().isEmpty()) {
+                app.fileSets.storeAudioDir();
+                app.styleLibrary.refreshLearnedChips();
             }
         } finally {
             MusicCompare.heldImport = false;

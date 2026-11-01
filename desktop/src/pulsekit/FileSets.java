@@ -438,14 +438,56 @@ final class FileSets {
         label.setForeground(FG);
         app.onRightClick(label, () -> MidiEditScreen.open(app, key));
         row.add(label);
-        JLabel clock = new JLabel("00:00 / 00:00");
-        clock.setName("midiclock");
-        clock.setForeground(MUTED);
-        clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        row.add(clock);
+        Engine.FileSetAudio au = Engine.fileSetAudioOf(key);
+        row.add(this.midiClock(key, au == null ? null : au.sourceMidi));
         JButton play = app.outline("Play", false);
         play.setName("sourcemidi-play");
         play.addActionListener(e -> this.playSourceMidi(key));
+        JButton pause = app.outline("Pause", false);
+        pause.addActionListener(e -> this.pauseSourceMidi());
+        JButton stop = app.outline("Stop", false);
+        stop.addActionListener(e -> this.stopSourceMidi());
+        row.add(play);
+        row.add(pause);
+        row.add(stop);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
+    /** A clock for a MIDI row: "00:00 / its length" until its MIDI plays. */
+    JLabel midiClock(String key, byte[] midi) {
+        String len = mixTime(Engine.midiLengthMs(midi));
+        JLabel clock = new JLabel("00:00 / " + len);
+        clock.setName("midiclock");
+        clock.putClientProperty("midikey", key);
+        clock.putClientProperty("midilen", len);
+        clock.setForeground(MUTED);
+        clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        return clock;
+    }
+
+    /** A MIDI file of a set made of several: its name, clock (its length until it plays), Play, Pause and Stop. */
+    JPanel trackMidiRow(String src, int index) {
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return null;
+        final Engine.FileSetTrack tr = tracks.get(index);
+        final String key = src + "#" + index;
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        row.setOpaque(false);
+        row.setAlignmentX(0f);
+        row.setName("trackmidi");
+        JLabel label = new JLabel(tr.name);
+        label.setName("trackmidi-name");
+        label.setForeground(MUTED);
+        row.add(label);
+        row.add(this.midiClock(key, tr.midi));
+        JButton play = app.outline("Play", false);
+        play.setName("trackmidi-play");
+        play.addActionListener(e -> {
+            if (key.equals(this.midiSrc) && this.midiClip != null && this.midiPaused) this.resumeSourceMidi();
+            else if (tr.midi == null || tr.midi.length < 14) app.setNow("That MIDI file is missing");
+            else this.playMidiBytes(key, tr.midi, tr.name, 0);
+        });
         JButton pause = app.outline("Pause", false);
         pause.addActionListener(e -> this.pauseSourceMidi());
         JButton stop = app.outline("Stop", false);
@@ -562,7 +604,12 @@ final class FileSets {
     }
 
     void paintMidiClockOn(java.awt.Component c, String label) {
-        if (c instanceof JLabel && "midiclock".equals(c.getName())) ((JLabel) c).setText(label);
+        if (c instanceof JLabel && "midiclock".equals(c.getName())) {
+            JLabel l = (JLabel) c;
+            Object key = l.getClientProperty("midikey");
+            // A row's clock runs while its MIDI plays; the others show their length.
+            l.setText(key == null || key.equals(this.midiSrc) ? label : "00:00 / " + l.getClientProperty("midilen"));
+        }
         if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) this.paintMidiClockOn(k, label);
     }
 
