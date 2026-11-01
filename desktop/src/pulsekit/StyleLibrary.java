@@ -665,8 +665,40 @@ final class StyleLibrary {
                 kids.add(add);
             }
             String label = src.isEmpty() ? "Other" : src;
+            java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+            JPanel shown = kids;
+            if (!tracks.isEmpty()) {
+                // A set made of several MIDI files: each file, then its patterns (or Fillerns).
+                shown = this.byTrack(src, tracks, (strip, tr) -> {
+                    List<Engine.Learned> mine = new ArrayList<Engine.Learned>();
+                    for (Engine.Learned it : setPatterns) {
+                        if (tr != null ? tr.patterns.contains(it.name) : !fromTrack(src, it.name, false)) mine.add(it);
+                    }
+                    int k = 0;
+                    for (Engine.Learned it : mine) {
+                        if (fillerns && this.selectedFillFor(this.patternKeyFor(it.id)) == null) continue;
+                        strip.add(this.learnedPackChip(it, fillerns));
+                        k++;
+                    }
+                    if (fillerns && (tr != null || !mine.isEmpty())) {
+                        if (k == 0) {
+                            JButton none = new JButton("No fillerns yet, create one");
+                            app.flatten(none);
+                            none.setBackground(BG);
+                            none.setForeground(MUTED);
+                            none.putClientProperty("role", "fillern-none");
+                            none.addActionListener(e -> this.createFillern(none, mine));
+                            strip.add(none);
+                        }
+                        JButton add = app.chip("+ Fillern", false);
+                        add.putClientProperty("role", "fillern-add");
+                        add.addActionListener(e -> this.createFillern(add, mine));
+                        strip.add(add);
+                    }
+                });
+            }
             app.importedBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
-                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), kids));
+                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), shown));
         }
         if (!app.hiddenStyles.isEmpty()) {
             JButton b = app.chip("Hidden " + app.hiddenStyles.size(), false);
@@ -746,8 +778,40 @@ final class StyleLibrary {
             addFill.addActionListener(e -> this.pickBuiltinFillFor(addFill, src));
             kids.add(addFill);
             String label = src.isEmpty() ? "Other" : src;
+            java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+            JPanel shown = kids;
+            if (!tracks.isEmpty()) {
+                // A set made of several MIDI files: each file, then its fills; + Fill with those added later.
+                shown = this.byTrack(src, tracks, (strip, tr) -> {
+                    int k = 0;
+                    for (Engine.LearnedFill it : app.learnedFills) {
+                        if (!src.equals(Engine.sourceOf(it))) continue;
+                        if (tr != null ? !tr.fills.contains(it.name) : fromTrack(src, it.name, true)) continue;
+                        final Engine.LearnedFill it0 = it;
+                        JButton b = app.chip(it0.name, false);
+                        b.putClientProperty("fill", "l:" + it0.id);
+                        b.putClientProperty("learned", it0.id);
+                        b.addActionListener(e -> this.loadLearnedFill(it0.id));
+                        app.onChipMenu(b, () -> this.learnedFillMenu(it0));
+                        strip.add(b);
+                        k++;
+                    }
+                    if (tr != null && k == 0) {
+                        javax.swing.JLabel none = new javax.swing.JLabel("No fills in this MIDI file");
+                        none.setForeground(MUTED);
+                        none.setName("track-fills-none");
+                        strip.add(none);
+                    }
+                    if (tr == null) {
+                        JButton add = app.chip("+ Fill", false);
+                        add.putClientProperty("role", "fills-add");
+                        add.addActionListener(e -> this.pickBuiltinFillFor(add, src));
+                        strip.add(add);
+                    }
+                });
+            }
             app.importedFillBar.add(this.importPack(src.isEmpty() ? "o:other" : "f:" + src, label, n, selected, "Delete file set",
-                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), kids));
+                () -> app.importLibrary.removeImportSource(src), () -> app.importLibrary.saveFset(src), shown));
         }
         if (!app.hiddenFills.isEmpty()) {
             JButton b = app.chip("Hidden " + app.hiddenFills.size(), false);
@@ -786,6 +850,53 @@ final class StyleLibrary {
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<String>();
         for (Engine.LearnedFill x : app.learnedFills) out.add(Engine.sourceOf(x));
         return out;
+    }
+
+    /** Whether a name is one of a set's MIDI files' (any of them), for what was added to the set later. */
+    static boolean fromTrack(String src, String name, boolean fill) {
+        for (Engine.FileSetTrack tr : Engine.fileSetTracks(src)) if ((fill ? tr.fills : tr.patterns).contains(name)) return true;
+        return false;
+    }
+
+    /** A set made of several MIDI files: each file's row, then its chips; then what was added to the set later (chips given null). */
+    JPanel byTrack(String src, java.util.List<Engine.FileSetTrack> tracks, java.util.function.BiConsumer<ChipStrip, Engine.FileSetTrack> chips) {
+        JPanel out = new JPanel();
+        out.setOpaque(false);
+        out.setLayout(new BoxLayout(out, BoxLayout.Y_AXIS));
+        out.setName("fileset-tracks");
+        for (int t = 0; t < tracks.size(); t++) {
+            JPanel row = app.fileSets.trackMidiRow(src, t);
+            if (row != null) out.add(row);
+            ChipStrip strip = new ChipStrip();
+            chips.accept(strip, tracks.get(t));
+            strip.setAlignmentX(0f);
+            out.add(strip);
+        }
+        ChipStrip rest = new ChipStrip();
+        chips.accept(rest, null);
+        if (rest.getComponentCount() > 0) {
+            javax.swing.JLabel head = new javax.swing.JLabel("Added to the file set");
+            head.setName("track-rest");
+            head.setForeground(MUTED);
+            head.setAlignmentX(0f);
+            out.add(head);
+            rest.setAlignmentX(0f);
+            out.add(rest);
+        }
+        return out;
+    }
+
+    /** A file set's pattern chip (on the Fillern tab, with its fill). */
+    JButton learnedPackChip(Engine.Learned it, boolean fillerns) {
+        String chipName = fillerns
+            ? it.name + " \u00b7 " + this.fillLabel(this.selectedFillFor(this.patternKeyFor(it.id))) + Engine.fillernModeNote(this.fillernModeOf(this.patternKeyFor(it.id)))
+            : it.name;
+        JButton b = app.chip(chipName, false);
+        b.putClientProperty("style", it.id);
+        b.putClientProperty("learned", it.id);
+        b.addActionListener(e -> this.loadLearned(it.id));
+        app.onChipMenu(b, () -> this.learnedStyleMenu(it));
+        return b;
     }
 
     boolean packOpen(String key, boolean fallback) {
@@ -845,7 +956,9 @@ final class StyleLibrary {
             return m;
         });
         pack.add(head);
-        JPanel midi = key != null && key.startsWith("f:") ? app.fileSets.midiRow(key.substring(2)) : null;
+        // A set made of several MIDI files lists them (in its chips' place), not one joined MIDI.
+        boolean tracks = key != null && key.startsWith("f:") && !Engine.fileSetTracks(key.substring(2)).isEmpty();
+        JPanel midi = key != null && key.startsWith("f:") && !tracks ? app.fileSets.midiRow(key.substring(2)) : null;
         if (midi != null) {
             midi.setVisible(open);
             pack.add(midi);

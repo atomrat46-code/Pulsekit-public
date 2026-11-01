@@ -845,20 +845,58 @@ public final class AudioIo {
 
   public static Engine.FileSet fileSetFromMidi(Engine.MidiBars bars, String name, String origin) {
     java.util.List<Engine.MidiBars> many = stagedTracks;
+    java.util.List<String> names = stagedNames;
+    java.util.List<byte[]> midis = stagedMidis;
     stagedTracks = null;  // used once, as the staged source MIDI is
-    if (many != null && !many.isEmpty()) return fileSetFromParts(partAnalysisFromMidis(many), name, origin);
-    return fileSetFromParts(partAnalysisFromMidi(bars), name, origin);
+    stagedNames = null;
+    stagedMidis = null;
+    if (many == null || many.isEmpty()) return fileSetFromParts(partAnalysisFromMidi(bars), name, origin);
+    // Each track's parts, counted, so the set knows which of its patterns and fills come from which MIDI file.
+    java.util.List<Integer> counts = new java.util.ArrayList<Integer>();
+    Engine.FileSet set = fileSetFromParts(partAnalysisFromMidis(many, counts), name, origin);
+    java.util.Set<String> pats = new java.util.HashSet<String>();
+    java.util.Set<String> fills = new java.util.HashSet<String>();
+    for (Engine.Learned l : set.patterns) pats.add(l.name);
+    for (Engine.LearnedFill f : set.fills) fills.add(f.name);
+    java.util.List<Engine.FileSetTrack> tracks = new java.util.ArrayList<Engine.FileSetTrack>();
+    int at = 0;
+    for (int t = 0; t < counts.size(); t++) {
+      Engine.FileSetTrack tr = new Engine.FileSetTrack();
+      tr.name = names != null && t < names.size() ? names.get(t) : "Track " + (t + 1) + ".mid";
+      tr.midi = midis != null && t < midis.size() ? midis.get(t) : null;
+      tr.firstPart = at;
+      tr.partCount = Math.max(0, Math.min(counts.get(t), set.parts.size() - at));
+      for (int k = 0; k < counts.get(t) && at < set.parts.size(); k++, at++) {
+        String n = set.parts.get(at).name;
+        if (n == null) continue;
+        if (pats.contains(n) && !tr.patterns.contains(n)) tr.patterns.add(n);
+        else if (fills.contains(n) && !tr.fills.contains(n)) tr.fills.add(n);
+      }
+      tracks.add(tr);
+    }
+    Engine.stagedTracks = tracks;
+    return set;
   }
 
   /** Several tracks for the next MIDI file set (a --random run's, a model's tracks in one set): their parts one after another. */
   static java.util.List<Engine.MidiBars> stagedTracks;
+  static java.util.List<String> stagedNames;
+  static java.util.List<byte[]> stagedMidis;
 
-  public static void stageTracks(java.util.List<Engine.MidiBars> tracks) {
+  /** The tracks (their bars, file names and MIDIs) of the next MIDI file set; null clears them. */
+  public static void stageTracks(java.util.List<Engine.MidiBars> tracks, java.util.List<String> names, java.util.List<byte[]> midis) {
     stagedTracks = tracks;
+    stagedNames = names;
+    stagedMidis = midis;
+    if (tracks == null) Engine.stagedTracks = null;  // a set that was not made: its tracks go to no other
+  }
+
+  public static PartAnalysis partAnalysisFromMidis(java.util.List<Engine.MidiBars> tracks) {
+    return partAnalysisFromMidis(tracks, null);
   }
 
   /** Tracks' parts one after another (a bar that comes back in any of them is the same pattern). */
-  public static PartAnalysis partAnalysisFromMidis(java.util.List<Engine.MidiBars> tracks) {
+  public static PartAnalysis partAnalysisFromMidis(java.util.List<Engine.MidiBars> tracks, java.util.List<Integer> counts) {
     PartAnalysis out = new PartAnalysis();
     float t = 0;
     for (Engine.MidiBars b : tracks) {
@@ -867,6 +905,7 @@ public final class AudioIo {
         out.bpm = a.bpm;
         out.styleId = a.styleId;
       }
+      if (counts != null) counts.add(a.parts.size());
       for (TrackPart p : a.parts) {
         p.index = out.parts.size();
         p.startSec += t;

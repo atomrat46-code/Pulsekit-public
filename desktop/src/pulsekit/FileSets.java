@@ -190,6 +190,22 @@ final class FileSets {
      */
     void makeFileSetSong(String key, String label) {
         String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        // A set made of several MIDI files: a song from each, after asking.
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (!tracks.isEmpty()) {
+            int n = tracks.size();
+            Object[] options = {"Make " + n, "Cancel"};
+            int ans = javax.swing.JOptionPane.showOptionDialog(app,
+                "Are you sure you want to make " + n + (n == 1 ? " song from the MIDI file" : " songs from the " + n + " MIDI files")
+                    + " this file set contains?\nEach goes under Imported, named for its MIDI file.",
+                "Make " + n + (n == 1 ? " song?" : " songs?"), javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans != 0) return;
+            int made = 0;
+            for (int i = 0; i < n; i++) if (this.makeTrackSong(src, label, i, false)) made++;
+            app.setNow("Made " + made + (made == 1 ? " song" : " songs") + " \u00b7 " + src);
+            return;
+        }
         java.util.List<Engine.ImportedSong> have = Engine.songsOfFileSet(src, label, app.importedSongs);
         if (have.isEmpty()) {
             this.makeFileSetSongNow(key, label);
@@ -205,6 +221,36 @@ final class FileSets {
         if (ans == 0) this.replaceFileSetSong(first, key, label);
         else if (ans == 1) this.makeFileSetSongNow(key, label);
         else if (ans == 2) this.openSong(first);
+    }
+
+    /** Make song for one MIDI file of a set made of several: its parts as a song named for it; false when it cannot be. */
+    boolean makeTrackSong(String src, String label, int index, boolean say) {
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return false;
+        Engine.FileSetTrack tr = tracks.get(index);
+        Engine.FileSet set = Engine.collectFset(src, label, app.learned, app.learnedFills, app.fillernPairs);
+        if (set == null) {
+            app.setNow("That file set is empty");
+            return false;
+        }
+        java.util.List<Engine.FileSetPart> stored = app.fileSetParts.get(src);
+        if (stored != null && !stored.isEmpty()) {
+            set.parts.clear();
+            set.parts.addAll(stored);
+        }
+        java.util.List<Engine.Part> song = Engine.trackSong(set, tr);
+        if (song.isEmpty()) {
+            app.setNow("Could not make a song from " + tr.name);
+            return false;
+        }
+        app.songEditor.addImportedSong(tr.songName(), song);
+        Engine.ImportedSong made = app.songEditor.importedSong();
+        if (made != null) {
+            made.fileSet = src;
+            app.persistence.persistLearned();
+        }
+        if (say) app.setNow("Made song \u00b7 " + tr.songName());
+        return true;
     }
 
     /** The song built from the file set, as Make song makes it; null (with a message) when it cannot be. */
@@ -438,14 +484,67 @@ final class FileSets {
         label.setForeground(FG);
         app.onRightClick(label, () -> MidiEditScreen.open(app, key));
         row.add(label);
-        JLabel clock = new JLabel("00:00 / 00:00");
-        clock.setName("midiclock");
-        clock.setForeground(MUTED);
-        clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        row.add(clock);
+        Engine.FileSetAudio au = Engine.fileSetAudioOf(key);
+        row.add(this.midiClock(key, au == null ? null : au.sourceMidi));
         JButton play = app.outline("Play", false);
         play.setName("sourcemidi-play");
         play.addActionListener(e -> this.playSourceMidi(key));
+        JButton pause = app.outline("Pause", false);
+        pause.addActionListener(e -> this.pauseSourceMidi());
+        JButton stop = app.outline("Stop", false);
+        stop.addActionListener(e -> this.stopSourceMidi());
+        row.add(play);
+        row.add(pause);
+        row.add(stop);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
+    /** A clock for a MIDI row: "00:00 / its length" until its MIDI plays. */
+    JLabel midiClock(String key, byte[] midi) {
+        String len = mixTime(Engine.midiLengthMs(midi));
+        JLabel clock = new JLabel("00:00 / " + len);
+        clock.setName("midiclock");
+        clock.putClientProperty("midikey", key);
+        clock.putClientProperty("midilen", len);
+        clock.setForeground(MUTED);
+        clock.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        return clock;
+    }
+
+    /** A MIDI file of a set made of several: its name, clock (its length until it plays), Play, Pause and Stop. */
+    JPanel trackMidiRow(String src, int index) {
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return null;
+        final Engine.FileSetTrack tr = tracks.get(index);
+        final String key = src + "#" + index;
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        row.setOpaque(false);
+        row.setAlignmentX(0f);
+        row.setName("trackmidi");
+        JLabel label = new JLabel(tr.name);
+        label.setName("trackmidi-name");
+        label.setForeground(MUTED);
+        label.setToolTipText("Right click: Make song");
+        // A right click: what can be done with this MIDI file (Make song).
+        GroupMenus.onRightClick(label, () -> {
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            javax.swing.JMenuItem make = new javax.swing.JMenuItem("Make song");
+            make.setName("trackmidi-make-song");
+            make.addActionListener(e -> this.makeTrackSong(src, src, index, true));
+            m.add(make);
+            MenuCancel.add(m);
+            m.show(label, 0, label.getHeight());
+        });
+        row.add(label);
+        row.add(this.midiClock(key, tr.midi));
+        JButton play = app.outline("Play", false);
+        play.setName("trackmidi-play");
+        play.addActionListener(e -> {
+            if (key.equals(this.midiSrc) && this.midiClip != null && this.midiPaused) this.resumeSourceMidi();
+            else if (tr.midi == null || tr.midi.length < 14) app.setNow("That MIDI file is missing");
+            else this.playMidiBytes(key, tr.midi, tr.name, 0);
+        });
         JButton pause = app.outline("Pause", false);
         pause.addActionListener(e -> this.pauseSourceMidi());
         JButton stop = app.outline("Stop", false);
@@ -562,7 +661,12 @@ final class FileSets {
     }
 
     void paintMidiClockOn(java.awt.Component c, String label) {
-        if (c instanceof JLabel && "midiclock".equals(c.getName())) ((JLabel) c).setText(label);
+        if (c instanceof JLabel && "midiclock".equals(c.getName())) {
+            JLabel l = (JLabel) c;
+            Object key = l.getClientProperty("midikey");
+            // A row's clock runs while its MIDI plays; the others show their length.
+            l.setText(key == null || key.equals(this.midiSrc) ? label : "00:00 / " + l.getClientProperty("midilen"));
+        }
         if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) this.paintMidiClockOn(k, label);
     }
 

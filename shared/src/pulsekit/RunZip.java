@@ -119,7 +119,7 @@ public final class RunZip {
     List<List<ZipPack.Source>> out = new ArrayList<List<ZipPack.Source>>();
     List<ZipPack.Source> part = new ArrayList<ZipPack.Source>();
     long used = 0;
-    for (ZipPack.Source s : this.sources) {
+    for (ZipPack.Source s : this.zipped()) {
       long size = s.data != null ? s.data.length : s.file != null ? s.file.length() : 0;
       if (!part.isEmpty() && used + size > limit) {
         out.add(part);
@@ -139,7 +139,26 @@ public final class RunZip {
   }
 
   public synchronized int size() {
-    return this.sources.size();
+    return this.zipped().size();
+  }
+
+  /**
+   * What goes in the zip: the files gathered, but not a track's WAV when its MP3 is there (the WAV
+   * is Pulsekit's copy for measuring; --zip_delete deletes it with the rest).
+   */
+  synchronized List<ZipPack.Source> zipped() {
+    Set<String> mp3 = new HashSet<String>();
+    for (ZipPack.Source s : this.sources) {
+      String p = s.path.toLowerCase(java.util.Locale.ROOT);
+      if (p.endsWith(".mp3")) mp3.add(p.substring(0, p.length() - 4));
+    }
+    List<ZipPack.Source> out = new ArrayList<ZipPack.Source>();
+    for (ZipPack.Source s : this.sources) {
+      String p = s.path.toLowerCase(java.util.Locale.ROOT);
+      if (p.endsWith(".wav") && mp3.contains(p.substring(0, p.length() - 4))) continue;
+      out.add(s);
+    }
+    return out;
   }
 
   String unique(String path) {

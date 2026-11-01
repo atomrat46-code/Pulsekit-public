@@ -2039,7 +2039,7 @@ public final class Engine {
   public static final int MAX_LEARNED = 256;
   public static final int MAX_VARIATED = 8;
   public static final int MAX_SONG = 256;
-  public static final int MAX_IMPORTED_SONGS = 8;
+  public static final int MAX_IMPORTED_SONGS = 200;
   public static final int MAX_MIDI_BARS = 256;
   public static final double[] TRACK_WEIGHT = {4, 3, 4, 1.2, 0.8, 2, 1, 0.8, 1.2, 0.7, 0.7, 0.7};
 
@@ -2892,7 +2892,86 @@ public final class Engine {
     public String combinedName = "";
     /** The last Compare hits results for this file set (HitCompare.RESULTS_FILE), or null. */
     public String results;
+    /** A file set made of several MIDI files (a SogniMusic --random run's model): each file and the patterns and fills from it. */
+    public final List<FileSetTrack> tracks = new ArrayList<FileSetTrack>();
   }
+
+  /** One MIDI file of a file set made of several, and the names of the set's patterns and fills it has. */
+  public static final class FileSetTrack {
+    public String name = "";
+    public byte[] midi;
+    public final List<String> patterns = new ArrayList<String>();
+    public final List<String> fills = new ArrayList<String>();
+    /** Its parts in the set's parts (the song order): from firstPart, partCount of them. */
+    public int firstPart;
+    public int partCount;
+
+    /** Its name without .mid, for its song ("Melodic-Techno-sft"). */
+    public String songName() {
+      return name.replaceAll("(?i)\\.midi?$", "");
+    }
+  }
+
+  /** The song of one MIDI file of a set made of several: the set's parts that came from it, as Make song makes a song. */
+  public static List<Part> trackSong(FileSet set, FileSetTrack tr) {
+    if (set == null || tr == null || tr.partCount <= 0 || tr.firstPart < 0 || tr.firstPart + tr.partCount > set.parts.size()) return new ArrayList<Part>();
+    FileSet one = new FileSet();
+    one.name = set.name;
+    one.origin = set.origin;
+    one.patterns.addAll(set.patterns);
+    one.fills.addAll(set.fills);
+    one.fillerns.addAll(set.fillerns);
+    float t0 = set.parts.get(tr.firstPart).startSec;
+    for (int i = tr.firstPart; i < tr.firstPart + tr.partCount; i++) {
+      FileSetPart p = set.parts.get(i);
+      FileSetPart c = new FileSetPart();
+      c.name = p.name;
+      c.kind = p.kind;
+      c.bpm = p.bpm;
+      c.tsNum = p.tsNum;
+      c.tsDen = p.tsDen;
+      c.styleLabel = p.styleLabel;
+      c.bars = p.bars;
+      c.startSec = p.startSec - t0;
+      c.endSec = p.endSec - t0;
+      c.hits = p.hits;
+      c.swing = p.swing;
+      c.density = p.density;
+      one.parts.add(c);
+    }
+    one.durationSec = one.parts.get(one.parts.size() - 1).endSec;
+    return songFromFileSet(one);
+  }
+
+  /** The MIDI files a file set was made of (empty for a set from one file). */
+  public static List<FileSetTrack> fileSetTracks(String source) {
+    FileSetAudio au = fileSetAudioOf(source);
+    if (au == null && source != null && source.startsWith("EP ")) au = fileSetAudioOf(source.substring(3));
+    return au == null ? new ArrayList<FileSetTrack>() : au.tracks;
+  }
+
+  public static void rememberFileSetTracks(String source, List<FileSetTrack> tracks) {
+    if (source == null || source.isEmpty() || tracks == null || tracks.isEmpty()) return;
+    FileSetAudio cur = fileSetAudio.get(source);
+    if (cur == null) {
+      cur = new FileSetAudio();
+      fileSetAudio.put(source, cur);
+    }
+    cur.tracks.clear();
+    cur.tracks.addAll(tracks);
+  }
+
+  /** A MIDI's length as Pulsekit plays it (its bars at its tempo), in ms; 0 when it has no notes. */
+  public static int midiLengthMs(byte[] midi) {
+    MidiBars b = midi == null || midi.length < 14 ? null : parseMidiBars(midi);
+    if (b == null || b.bars.isEmpty()) return 0;
+    double ms = 0;
+    for (int[][] bar : b.bars) ms += clampSteps(usedSteps(bar)) * 15000.0 / clampBpm(b.bpm);
+    return (int) Math.round(ms);
+  }
+
+  /** Tracks for the next file set made (staged by AudioIo.fileSetFromMidi, taken by attachStagedMidi). */
+  static List<FileSetTrack> stagedTracks;
 
   public static void rememberFileSetResults(String source, String text) {
     if (source == null || source.isEmpty() || text == null) return;
@@ -3107,6 +3186,9 @@ public final class Engine {
   }
 
   public static void attachStagedMidi(FileSet set) {
+    List<FileSetTrack> tracks = stagedTracks;
+    stagedTracks = null;
+    if (set != null && tracks != null) rememberFileSetTracks(set.name, tracks);
     if (set == null || stagedMidi == null || stagedMidi.length < 14) return;
     set.sourceMidi = stagedMidi;
     String file = stagedMidiName == null ? "" : stagedMidiName;
@@ -3185,9 +3267,10 @@ public final class Engine {
         File metaF = new File(kid, "meta.txt");
         if (!metaF.isFile()) continue;
         String meta = new String(Files.readAllBytes(metaF.toPath()), StandardCharsets.UTF_8);
-        int nl = meta.indexOf('\n');
-        String source = (nl < 0 ? meta : meta.substring(0, nl)).trim();
-        String combinedName = nl < 0 ? "" : meta.substring(nl + 1).trim();
+        String[] lines = meta.split("\n", -1);
+        String source = lines[0].trim();
+        String combinedName = lines.length > 1 ? lines[1].trim() : "";
+        String midiName = lines.length > 2 ? lines[2].trim() : "";
         byte[] sourceWav = null;
         byte[] combined = null;
         File sw = new File(kid, "source.wav");
@@ -3196,7 +3279,27 @@ public final class Engine {
         if (cw.isFile()) combined = Files.readAllBytes(cw.toPath());
         rememberFileSetAudio(source, sourceWav, combined, combinedName.isEmpty() ? null : combinedName);
         File mid = new File(kid, "source.mid");
-        if (mid.isFile()) rememberFileSetMidi(source, Files.readAllBytes(mid.toPath()), "source.mid");
+        if (mid.isFile()) rememberFileSetMidi(source, Files.readAllBytes(mid.toPath()), midiName.isEmpty() ? "source.mid" : midiName);
+        File tl = new File(kid, "tracks.txt");
+        if (tl.isFile()) {
+          List<FileSetTrack> tracks = new ArrayList<FileSetTrack>();
+          for (String line : new String(Files.readAllBytes(tl.toPath()), StandardCharsets.UTF_8).split("\n")) {
+            String[] f = line.split("\t", -1);
+            if (f.length < 4) continue;
+            File tf = new File(kid, new File(f[0]).getName());
+            FileSetTrack tr = new FileSetTrack();
+            tr.name = f[1];
+            tr.midi = tf.isFile() ? Files.readAllBytes(tf.toPath()) : null;
+            for (String n : f[2].split("\\|")) if (!n.isEmpty()) tr.patterns.add(n);
+            for (String n : f[3].split("\\|")) if (!n.isEmpty()) tr.fills.add(n);
+            if (f.length >= 6 && f[4].matches("\\d+") && f[5].matches("\\d+")) {
+              tr.firstPart = Integer.parseInt(f[4]);
+              tr.partCount = Integer.parseInt(f[5]);
+            }
+            tracks.add(tr);
+          }
+          rememberFileSetTracks(source, tracks);
+        }
         File res = new File(kid, HitCompare.RESULTS_FILE);
         if (res.isFile()) rememberFileSetResults(source, new String(Files.readAllBytes(res.toPath()), StandardCharsets.UTF_8));
         FileSetAudio loaded = fileSetAudioOf(source);
@@ -3224,11 +3327,13 @@ public final class Engine {
         boolean hasMix = au.combinedWav != null && au.combinedWav.length > 0;
         boolean hasMidi = au.sourceMidi != null && au.sourceMidi.length >= 14;
         boolean hasResults = au.results != null && !au.results.isEmpty();
-        if (!hasSource && !hasMix && !hasMidi && !hasResults) continue;
+        boolean hasTracks = !au.tracks.isEmpty();
+        if (!hasSource && !hasMix && !hasMidi && !hasResults && !hasTracks) continue;
         File kid = new File(dir, "a" + (i++));
         if (!kid.mkdirs() && !kid.isDirectory()) continue;
         String name = au.combinedName == null ? "" : au.combinedName.replace("\n", " ");
-        String meta = e.getKey().replace("\n", " ") + "\n" + name + "\n";
+        String midiName = au.sourceMidiName == null ? "" : au.sourceMidiName.replace("\n", " ");
+        String meta = e.getKey().replace("\n", " ") + "\n" + name + "\n" + midiName + "\n";
         Files.write(new File(kid, "meta.txt").toPath(), meta.getBytes(StandardCharsets.UTF_8));
         if (hasSource) Files.write(new File(kid, "source.wav").toPath(), au.sourceWav);
         if (hasMix) Files.write(new File(kid, "combined.wav").toPath(), au.combinedWav);
@@ -3236,6 +3341,18 @@ public final class Engine {
         if (au.bedWav != null && au.bedWav.length > 44) Files.write(new File(kid, "bed.wav").toPath(), au.bedWav);
         if (hasMidi) Files.write(new File(kid, "source.mid").toPath(), au.sourceMidi);
         if (hasResults) Files.write(new File(kid, HitCompare.RESULTS_FILE).toPath(), au.results.getBytes(StandardCharsets.UTF_8));
+        if (hasTracks) {
+          // tracks.txt: a line a MIDI file (file name, its name, patterns, fills; tab apart, names | apart).
+          StringBuilder list = new StringBuilder();
+          for (int t = 0; t < au.tracks.size(); t++) {
+            FileSetTrack tr = au.tracks.get(t);
+            String file = "track" + t + ".mid";
+            if (tr.midi != null) Files.write(new File(kid, file).toPath(), tr.midi);
+            list.append(file).append('\t').append(tr.name.replace("\t", " ").replace("\n", " ")).append('\t').append(String.join("|", tr.patterns))
+                .append('\t').append(String.join("|", tr.fills)).append('\t').append(tr.firstPart).append('\t').append(tr.partCount).append('\n');
+          }
+          Files.write(new File(kid, "tracks.txt").toPath(), list.toString().getBytes(StandardCharsets.UTF_8));
+        }
       }
     } catch (Exception ignored) { /* optional */ }
   }

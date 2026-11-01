@@ -302,12 +302,45 @@ final class ImportLibrary {
             return true;
         });
         linearLayout.addView((View)textView);
-        if (bl2) {
+        java.util.List<Engine.FileSetTrack> tracks = bl2 && this.pkTrackChips != null && string.startsWith("f:")
+            ? Engine.fileSetTracks(string.substring(2)) : new ArrayList<Engine.FileSetTrack>();
+        if (!tracks.isEmpty()) {
+            // A set made of several MIDI files: each file, then what came from it (patterns, Fillerns or fills).
+            for (int i = 0; i < tracks.size(); i++) {
+                LinearLayout row = app.fileSets.trackMidiRow(string.substring(2), i);
+                if (row != null) linearLayout.addView((View)row);
+                FlowLayout flowLayout = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+                flowLayout.setSingleLine(true);
+                this.pkTrackChips.accept(flowLayout, tracks.get(i));
+                linearLayout.addView((View)app.chipStrip((View)flowLayout));
+            }
+            // What was added to the set later (no MIDI file's), and its + buttons.
+            FlowLayout rest = new FlowLayout((Context)app, app.dp(6), app.dp(6));
+            rest.setSingleLine(true);
+            this.pkTrackChips.accept(rest, null);
+            if (rest.getChildCount() > 0) {
+                TextView head = app.text("Added to the file set", 12, false);
+                head.setTextColor(MUTED);
+                head.setTag((Object)"track-rest");
+                head.setPadding(app.dp(8), app.dp(4), 0, 0);
+                linearLayout.addView((View)head);
+                linearLayout.addView((View)app.chipStrip((View)rest));
+            }
+        } else if (bl2) {
             FlowLayout flowLayout = new FlowLayout((Context)app, app.dp(6), app.dp(6));
             flowLayout.setSingleLine(true);
             consumer.accept(flowLayout);
             linearLayout.addView((View)app.chipStrip((View)flowLayout));
         }
+    }
+
+    /** While the Pattern tab's list is made: a file set's pattern chips with the names given (a MIDI file's), for a set made of several files. */
+    java.util.function.BiConsumer<FlowLayout, Engine.FileSetTrack> pkTrackChips;
+
+    /** Whether a name is one of a set's MIDI files' (any of them), for what was added to the set later. */
+    static boolean fromTrack(String src, String name, boolean fill) {
+        for (Engine.FileSetTrack tr : Engine.fileSetTracks(src)) if ((fill ? tr.fills : tr.patterns).contains(name)) return true;
+        return false;
     }
 
     void rebuildImported() {
@@ -347,6 +380,23 @@ final class ImportLibrary {
             // On the Fillern tab a file set lists its Fillerns: patterns with a fill chosen for them.
             boolean fillerns = "combo".equals(app.view);
             int shown = fillerns ? this.fillernsOf(arrayList).size() : arrayList.size();
+            this.pkTrackChips = (flow, tr) -> {
+                // A MIDI file's patterns (or, with null, those added to the set later).
+                ArrayList<Engine.Learned> mine = new ArrayList<Engine.Learned>();
+                for (Engine.Learned learned : arrayList) {
+                    if (tr != null ? tr.patterns.contains(learned.name) : !fromTrack(string, learned.name, false)) mine.add(learned);
+                }
+                if (fillerns) {
+                    if (tr != null || !mine.isEmpty()) this.addFillernChips(flow, mine);
+                    return;
+                }
+                for (Engine.Learned learned : mine) {
+                    TextView textView = app.pill(learned.name, false, view -> app.styleLibrary.loadStyle(learned.id, false));
+                    textView.setTag((Object)learned.id);
+                    app.styleLibrary.attachLearnedStyleMenu(textView, learned);
+                    flow.addView((View)textView);
+                }
+            };
             this.addImportPack(app.importedHost, packKey, string2, shown, bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
                 if (fillerns) {
                     this.addFillernChips(flowLayout, arrayList);
@@ -360,6 +410,7 @@ final class ImportLibrary {
                 }
             });
         }
+        this.pkTrackChips = null;
         app.styleLibrary.refreshStyles();
         this.refreshImportedFiles();
     }
@@ -454,6 +505,31 @@ final class ImportLibrary {
             }
             String string2 = string.isEmpty() ? "Other" : string;
             String packKey = string.isEmpty() ? "o:other" : "f:" + string;
+            this.pkTrackChips = (flow, tr) -> {
+                // A MIDI file's fills; with null, those added to the set later and + Fill.
+                int shownFills = 0;
+                for (Engine.LearnedFill learnedFill : arrayList) {
+                    if (tr != null ? !tr.fills.contains(learnedFill.name) : fromTrack(string, learnedFill.name, true)) continue;
+                    String key = "l:" + learnedFill.id;
+                    TextView textView = app.pill(learnedFill.name, false, view -> app.styleLibrary.applyFill(key));
+                    textView.setTag((Object)key);
+                    app.styleLibrary.attachLearnedFillMenu(textView, learnedFill);
+                    flow.addView((View)textView);
+                    shownFills++;
+                }
+                if (tr != null && shownFills == 0) {
+                    TextView none = app.text("No fills in this MIDI file", 13, false);
+                    none.setTextColor(MUTED);
+                    none.setTag((Object)"track-fills-none");
+                    none.setPadding(app.dp(4), app.dp(10), app.dp(10), app.dp(10));
+                    flow.addView((View)none);
+                }
+                if (tr == null) {
+                    TextView add = app.pill("+ Fill", false, view -> app.styleLibrary.pickBuiltinFillFor(string));
+                    add.setTag((Object)"fills-add");
+                    flow.addView((View)add);
+                }
+            };
             this.addImportPack(app.importedFillHost, packKey, string2, arrayList.size(), bl, () -> this.removeImportSource(string), () -> this.saveFset(string), flowLayout -> {
                 for (Engine.LearnedFill learnedFill : arrayList) {
                     String key = "l:" + learnedFill.id;
@@ -475,6 +551,7 @@ final class ImportLibrary {
                 flowLayout.addView((View)add);
             });
         }
+        this.pkTrackChips = null;
         app.styleLibrary.refreshFills();
         this.refreshImportedFiles();
     }
