@@ -11034,9 +11034,21 @@ public class BehaviorTest {
     boolean quietCompare = pulsekit.MusicCompare.quietSongs();
     pulsekit.MusicCompare.chain().next();
     out.append("Make a song asked: random run ").append(!quietRandom).append(", comparison ").append(!quietCompare).append('\n');
+    // The file set's whole name (it was cut at 28 signs: "SogniMusic run 1 Melodic Tec").
+    String setName = Engine.stemNameFromMidi("SogniMusic run 1 Melodic-Techno-sft.mid");
+    // --zip_delete: the files the zip holds deleted, what was made in memory not on disk anyway.
+    File zipped = new File(app.getCacheDir(), "sogni-Funk-1.mp3");
+    Files.write(zipped.toPath(), new byte[2048]);
+    RunZip rz = RunZip.start("Compared: Funk sogni-Funk-1.mp3\n", java.util.Arrays.asList("--random", "1", "--zip_delete"));
+    rz.add(zipped.getName(), zipped);
+    rz.add("results.txt", "x".getBytes(StandardCharsets.UTF_8));
+    String deleted = rz.deleteZipped();
+    RunZip.finish();
+    out.append("file set name: ").append(setName).append(" | zip_delete: ").append(rz.deleteAfter).append(", ").append(deleted).append(", gone ").append(!zipped.exists()).append('\n');
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
         && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare
+        && setName.equals("SogniMusic run 1 Melodic Techno sft") && rz.deleteAfter && deleted.startsWith("Deleted the 1 zipped file") && !zipped.exists()
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
         && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
     if (!ok) throw new AssertionError(out.toString());

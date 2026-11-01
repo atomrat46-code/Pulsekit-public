@@ -348,6 +348,7 @@ public final class ProgramParams {
       p.hint = "empty: the models Model lists (turbo,sft), or one";
     }
     if (p.flag && p.token.equals("--zip")) p.label = "Zip it all: tracks, WAVs, MIDI, results and logs into one zip in Download";
+    if (p.flag && p.token.equals("--zip_delete")) p.label = "Then delete the zipped files (the zip and Pulsekit's file sets stay)";
     if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Compared tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.takesValue && p.token.equals("--batchdir")) {

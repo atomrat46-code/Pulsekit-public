@@ -803,6 +803,8 @@ final class PyJav {
                     text.append(text.length() == 0 ? "" : "\n").append(where == null ? "Could not save " + name
                         : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
                 }
+                // --zip_delete: only when every part is saved.
+                if (z.deleteAfter && !text.toString().contains("Could not save")) text.append("\n").append(z.deleteZipped());
             } catch (Throwable ex) {
                 text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
             } finally {
@@ -1690,7 +1692,7 @@ final class PyJav {
         final pulsekit.JavaRun.Result made = result;
         final String madeLog = log;
         // SogniMusic --zip: what the run makes is gathered for one zip (written when its last step is over).
-        if (ok && pulsekit.RunZip.wanted(program, argv)) this.pkZipAdd(pulsekit.RunZip.start(madeLog), program, "", made, madeLog);
+        if (ok && pulsekit.RunZip.wanted(program, argv)) this.pkZipAdd(pulsekit.RunZip.start(madeLog, argv), program, "", made, madeLog);
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
         // One track kept as no WAV (--no_wav): its zip now.

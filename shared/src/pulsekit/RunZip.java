@@ -14,8 +14,12 @@ import java.util.Set;
  */
 public final class RunZip {
   public static final String FLAG = "--zip";
+  /** --zip_delete: the files the zip holds deleted once every part of it is saved (the zip stays). */
+  public static final String DELETE = "--zip_delete";
 
   public final String name;
+  /** The run gave --zip_delete. */
+  public boolean deleteAfter;
   final List<ZipPack.Source> sources = new ArrayList<ZipPack.Source>();
   final Set<String> paths = new HashSet<String>();
 
@@ -27,7 +31,34 @@ public final class RunZip {
 
   /** A SogniMusic run asked to zip what it makes. */
   public static boolean wanted(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && argv != null && argv.contains(FLAG);
+    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(DELETE));
+  }
+
+  /** Starts gathering for a run (its log, its arguments: --zip_delete). */
+  public static synchronized RunZip start(String log, List<String> argv) {
+    RunZip z = start(log);
+    z.deleteAfter = argv != null && argv.contains(DELETE);
+    return z;
+  }
+
+  /**
+   * --zip_delete, once every part is saved: the files on disk the zip holds deleted (the tracks, WAVs,
+   * MIDI, results...; files made in memory were never on disk). What was done.
+   */
+  public synchronized String deleteZipped() {
+    int n = 0;
+    long bytes = 0;
+    Set<File> done = new HashSet<File>();
+    for (ZipPack.Source s : this.sources) {
+      File f = s.file;
+      if (f == null || !done.add(f.getAbsoluteFile()) || !f.isFile()) continue;
+      long size = f.length();
+      if (f.delete()) {
+        n++;
+        bytes += size;
+      }
+    }
+    return "Deleted the " + n + " zipped " + (n == 1 ? "file" : "files") + " (" + Playlist.sizeText(bytes) + "): the zip keeps them";
   }
 
   /** Starts gathering for a run whose log is `log`: the zip is named for its first track (sogni-Rock-6f1262f1.zip). */

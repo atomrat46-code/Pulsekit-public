@@ -1018,7 +1018,7 @@ final class PyJav {
                 }
                 // SogniMusic --zip: what the run made (and its WAV) gathered for one zip, written when its last step is over.
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
-                    RunZip z = RunZip.start(result.log);
+                    RunZip z = RunZip.start(result.log, argv);
                     this.zipAdd(z, name, "", result);
                     if (musicWav != null) z.add(musicWav.getName(), musicWav);
                     if (!MusicCompare.wanted(name, argv)) this.zipFinish();
@@ -1622,6 +1622,8 @@ final class PyJav {
                 } finally {
                     tmp.delete();
                 }
+                // --zip_delete: only when every part is saved.
+                if (z.deleteAfter && !text.toString().contains("Could not save")) text.append("\n").append(z.deleteZipped());
             } catch (Throwable ex) {
                 text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
             }

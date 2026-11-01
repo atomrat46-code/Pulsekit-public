@@ -54,6 +54,8 @@ import java.util.Map;
  *
  * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
  * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
+ * --zip_delete (with or without --zip): those files are deleted once the zip is saved; the zip
+ * and the file sets made in Pulsekit stay.
  *
  * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
  * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
@@ -203,6 +205,8 @@ public final class SogniMusic {
       else if (a.equals("--compare_to_file_sets")) continue;
       // PyJav's: everything the run makes (tracks, WAVs, MIDI, results, logs) zipped into Download at the end.
       else if (a.equals("--zip")) continue;
+      // PyJav's: with --zip, the files zipped deleted once the zip is saved.
+      else if (a.equals("--zip_delete")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -601,7 +605,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**
