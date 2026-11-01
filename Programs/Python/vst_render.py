@@ -1896,6 +1896,25 @@ def main(argv):
                 os.makedirs(where)
             kit_file = os.path.join(where, "vst-kit-%s.kit" % tag)
             said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
+            if "no tom played" in said:
+                # A sampler still loading its kit (KVLT takes long to load a preset) plays the first
+                # renders without some drums: the test beat again every 5 s, for up to 30 s, and the kit
+                # learned from the first with toms.
+                import time
+                waited = 0
+                while "no tom played" in said and waited < 30 and not STOP["asked"]:
+                    time.sleep(5)
+                    waited += 5
+                    try:
+                        again, _, _ = chain.render(np, midi=beat, tail=1.0)
+                    except ValueError:
+                        break
+                    again, _ = finish(np, again, volume)
+                    said = learn_kit(opts["--java"], opts["--drummidi"], again, rate, bits, nmap, kit_file)
+                    if "no tom played" not in said:
+                        check_audio = again
+                print("Kit: no tom in the first test beat (the kit still loading?); %s after %d s"
+                      % ("toms heard" if "no tom played" not in said else "still none", waited))
             if said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])
