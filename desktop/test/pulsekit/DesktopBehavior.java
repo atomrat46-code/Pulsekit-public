@@ -8644,8 +8644,9 @@ public final class DesktopBehavior {
   }
 
   /**
-   * SogniMusic --random 2 --styles Funk|Metal: a track of each style on a fake Sogni, measured,
-   * each into its file set (SogniMusic run 1 Funk, ... Metal) and all zipped (sogni-random-7.zip).
+   * SogniMusic --random 2 --styles Funk|Metal --model turbo,sft: a track of each style with each model
+   * on a fake Sogni, measured, the tracks into one file set a model (SogniMusic run 1 turbo, ... sft),
+   * not one a track, and all zipped (sogni-random-7.zip).
    */
   void s173_sogni_music_random() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -8686,7 +8687,7 @@ public final class DesktopBehavior {
       call("selectListedProgram", "Java", "SogniMusic.java");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       edt(() -> log.setText(""));
-      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 2 --styles \"Funk|Metal\" --seed 7 --compare_to_file_sets --zip --key_file \""
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 2 --styles \"Funk|Metal\" --model turbo,sft --seed 7 --compare_to_file_sets --zip --key_file \""
           + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
       edt(() -> call("runPython"));
       String text = "";
@@ -8701,12 +8702,13 @@ public final class DesktopBehavior {
       List<String> inZip = new ArrayList<String>();
       if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
       Collections.sort(inZip);
-      boolean styled = prompts.size() == 2 && prompts.stream().anyMatch(p -> p.contains("Funk drum pattern")) && prompts.stream().anyMatch(p -> p.contains("Metal drum pattern"));
+      boolean styled = prompts.size() == 4 && prompts.stream().anyMatch(p -> p.contains("Funk drum pattern")) && prompts.stream().anyMatch(p -> p.contains("Metal drum pattern"));
       out.append("prompts: ").append(prompts.size()).append(", styles in them: ").append(styled).append('\n');
       out.append("file sets: ").append(sets).append('\n');
       out.append("zip: ").append(inZip.toString().replaceAll("rnd\\d", "rnd<n>")).append('\n');
-      boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 Funk", "SogniMusic run 1 Metal")) && text.contains("Random styles")
-          && inZip.contains("SogniMusic run 1 Funk.mid") && inZip.contains("SogniMusic run 1 Metal.mid") && inZip.contains("sogni-random-7-ranking.txt");
+      boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
+          && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
+          && text.contains("(2 tracks)") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

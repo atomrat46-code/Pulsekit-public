@@ -240,6 +240,9 @@ final class ImportLibrary {
 
     String applyProgramMidi(byte[] data, String name) {
         try {
+            // A --random run's track: kept for its model's file set, made when the run's last track is done.
+            MusicCompare.Chain held = MusicCompare.chain();
+            if (MusicCompare.hold(data)) return "Import succeeded: kept for " + held.setFor(held.model());
             Engine.stageSourceMidi(data, name);
             Engine.MidiBars bars = Engine.parseMidiBars(data);
             boolean made = bars != null && this.learnFromSongImport(name, bars, true, "program");

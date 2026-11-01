@@ -1032,6 +1032,7 @@ final class PyJav {
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
                     else {
                         MusicCompare.stopChain();
+                        this.importHeld(chain);
                         this.testNote("File sets stopped: DrumMidi_CRT did not succeed");
                         this.zipFinish();
                     }
@@ -1640,18 +1641,36 @@ final class PyJav {
         if (c == null) return;
         final java.util.List<String> drumArgs = c.next();
         if (drumArgs == null) {
+            this.importHeld(c);
             this.testNote("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
             for (String line : c.report.split("\n")) if (line.length() > 0) this.testNote(line);
             this.zipFinish();
             return;
         }
-        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setName(c.model()));
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
         SwingUtilities.invokeLater(() -> {
             app.pyInputPath = null;
             app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
             this.forcedArgs = drumArgs;
             this.runPython();
         });
+    }
+
+    /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
+    void importHeld(MusicCompare.Chain c) {
+        if (c == null) return;
+        MusicCompare.heldImport = true;
+        try {
+            for (Object[] h : c.heldSets()) {
+                @SuppressWarnings("unchecked") java.util.List<Engine.MidiBars> tracks = (java.util.List<Engine.MidiBars>) h[2];
+                AudioIo.stageTracks(tracks);
+                String r = app.importLibrary.applyProgramMidi((byte[]) h[1], (String) h[0]);
+                AudioIo.stageTracks(null);
+                this.testNote(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+        } finally {
+            MusicCompare.heldImport = false;
+        }
     }
 
     private void testNote(String line) {

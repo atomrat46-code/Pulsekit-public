@@ -865,18 +865,36 @@ final class PyJav {
         if (c == null) return;
         final java.util.List<String> drumArgs = c.next();
         if (drumArgs == null) {
+            this.pkImportHeld(c);
             this.pkAddLogLine("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
             for (String line : c.report.split("\n")) if (line.length() > 0) this.pkAddLogLine(line);
             this.pkZipFinish();
             return;
         }
-        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setName(c.model()));
+        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
         app.handler.post(() -> {
             this.pkPyInputPath = null;
             app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
             this.pkForcedArgs = drumArgs;
             this.pkRunPyJav();
         });
+    }
+
+    /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
+    void pkImportHeld(pulsekit.MusicCompare.Chain c) {
+        if (c == null) return;
+        pulsekit.MusicCompare.heldImport = true;
+        try {
+            for (Object[] h : c.heldSets()) {
+                @SuppressWarnings("unchecked") java.util.List<pulsekit.Engine.MidiBars> tracks = (java.util.List<pulsekit.Engine.MidiBars>) h[2];
+                pulsekit.AudioIo.stageTracks(tracks);
+                String r = this.pkImportProgramMidi((byte[]) h[1], (String) h[0]);
+                pulsekit.AudioIo.stageTracks(null);
+                this.pkAddLogLine(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+        } finally {
+            pulsekit.MusicCompare.heldImport = false;
+        }
     }
 
     /** A track's sound: a WAV read as it is, else decoded as Android plays it (MP3); null when it cannot be. */
@@ -1427,6 +1445,9 @@ final class PyJav {
     public String pkImportProgramMidi(byte[] data, String name) {
         try {
             if (data == null || name == null) return "Import failed: no MIDI file";
+            // A --random run's track: kept for its model's file set, made when the run's last track is done.
+            pulsekit.MusicCompare.Chain held = pulsekit.MusicCompare.chain();
+            if (pulsekit.MusicCompare.hold(data)) return "Succeeded: kept for " + held.setFor(held.model());
             pulsekit.Engine.stageSourceMidi(data, name);
             String stem = pulsekit.Engine.stemNameFromMidi(name);
             pulsekit.Engine.MidiBars bars = pulsekit.Engine.parseMidiBars(data);
@@ -1704,6 +1725,7 @@ final class PyJav {
             if (ok) this.pkChainNext();
             else {
                 pulsekit.MusicCompare.stopChain();
+                this.pkImportHeld(chain);
                 this.pkAddLogLine("File sets stopped: DrumMidi_CRT did not succeed");
                 this.pkZipFinish();
             }

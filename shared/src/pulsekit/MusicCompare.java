@@ -2,7 +2,9 @@ package pulsekit;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 
 /**
@@ -60,6 +62,10 @@ public final class MusicCompare {
     public String report = "";
     /** A --random run's chain: its file sets are made without the Make a song question (No). */
     public boolean random;
+    /** A --random run's model when it has one (its labels have no -model ending). */
+    String single = "turbo";
+    /** A --random run's DrumMidi MIDIs, kept until the chain ends: one file set a model, not one a track. */
+    final Map<String, List<byte[]>> held = new LinkedHashMap<String, List<byte[]>>();
 
     Chain(String run, MusicExpect expect, String saved) {
       this.run = run;
@@ -72,9 +78,20 @@ public final class MusicCompare {
       return run + " " + model;
     }
 
+    /** A --random track's model, from its label ("Melodic-Techno-sft" is sft), else the run's one model. */
+    public String group(String label) {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile(".*-(turbo|sft|music3)").matcher(label == null ? "" : label);
+      return m.matches() ? m.group(1) : single;
+    }
+
+    /** The file set a track goes into: its own, or in a --random run its model's ("SogniMusic run 4 sft"). */
+    public String setFor(String label) {
+      return random ? setName(group(label)) : setName(label);
+    }
+
     /** DrumMidi_CRT's arguments for the next track, or null when all are done (the chain ends). */
     public synchronized List<String> next() {
-      if (at >= 0 && at < tracks.size()) made.add(setName(tracks.get(at)[0]));
+      if (at >= 0 && at < tracks.size() && !made.contains(setFor(tracks.get(at)[0]))) made.add(setFor(tracks.get(at)[0]));
       at++;
       if (at >= tracks.size()) {
         if (chain == this) chain = null;
@@ -93,6 +110,20 @@ public final class MusicCompare {
       return tracks.size();
     }
 
+    /** A --random run's kept MIDIs as one MIDI a model: {file name ("SogniMusic run 4 sft.mid"), the MIDI, the tracks' bars}. */
+    public synchronized List<Object[]> heldSets() {
+      List<Object[]> out = new ArrayList<Object[]>();
+      for (Map.Entry<String, List<byte[]>> e : held.entrySet()) {
+        List<Engine.MidiBars> bars = new ArrayList<Engine.MidiBars>();
+        for (byte[] m : e.getValue()) {
+          Engine.MidiBars b = Engine.parseMidiBars(m);
+          if (b != null && !b.bars.isEmpty()) bars.add(b);
+        }
+        if (!bars.isEmpty()) out.add(new Object[] {setName(e.getKey()) + ".mid", joined(bars), bars});
+      }
+      return out;
+    }
+
     public int index() {
       return at + 1;
     }
@@ -107,13 +138,47 @@ public final class MusicCompare {
     Chain c = new Chain(runName(fileSets), MusicExpect.of(argv), saved);
     c.tracks.addAll(wavs);
     c.random = argv != null && argv.contains("--random");
+    int mi = argv == null ? -1 : argv.indexOf("--model");
+    if (mi >= 0 && mi + 1 < argv.size()) {
+      String m = argv.get(mi + 1).trim().toLowerCase(java.util.Locale.ROOT);
+      if (m.matches("turbo|sft|music3")) c.single = m;
+    }
     chain = c;
     return c;
   }
 
   /** Whether a file set now made is a --random run's (its chain going on): no Make a song question, as No. */
   public static synchronized boolean quietSongs() {
-    return chain != null && chain.random && chain.at < chain.tracks.size();
+    return heldImport || chain != null && chain.random && chain.at < chain.tracks.size();
+  }
+
+  /** While a --random run's file sets a model are made, at the chain's end. */
+  public static volatile boolean heldImport;
+
+  /** Keeps a --random run's DrumMidi MIDI for its model's file set (true), instead of a file set a track. */
+  public static synchronized boolean hold(byte[] midi) {
+    Chain c = chain;
+    if (c == null || !c.random || midi == null || c.at < 0 || c.at >= c.tracks.size()) return false;
+    String g = c.group(c.tracks.get(c.at)[0]);
+    List<byte[]> list = c.held.get(g);
+    if (list == null) c.held.put(g, list = new ArrayList<byte[]>());
+    list.add(midi);
+    return true;
+  }
+
+  /** Tracks' bars one after another as one MIDI, each bar at its track's tempo and time signature. */
+  public static byte[] joined(List<Engine.MidiBars> tracks) {
+    List<Engine.Part> parts = new ArrayList<Engine.Part>();
+    for (Engine.MidiBars b : tracks) {
+      for (int[][] bar : b.bars) {
+        Engine.Part p = Engine.groove("Bar", b.bpm, bar, 1);
+        p.tsNum = b.tsNum;
+        p.tsDen = b.tsDen;
+        p.steps = Engine.barSteps(b.tsNum, b.tsDen);
+        parts.add(p);
+      }
+    }
+    return Engine.encodeSongMidi(parts);
   }
 
   public static synchronized Chain chain() {

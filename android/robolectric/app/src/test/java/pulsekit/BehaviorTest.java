@@ -11775,6 +11775,46 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** SogniMusic --random with two models: the tracks' MIDIs make one file set a model ("SogniMusic run 1 sft"), not one a track. */
+  @Test
+  public void s192_random_run_file_set_per_model() throws Exception {
+    String[] styles = {"rock", "funk", "disco"};
+    java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+    for (String st : styles) for (String m : new String[] {"turbo", "sft"}) wavs.add(new String[] {st + "-" + m, "/x/" + st + "-" + m + ".wav"});
+    java.util.List<String> before = Engine.fileSetSources(app.learned, app.learnedFills);
+    MusicCompare.Chain c = MusicCompare.startChain(java.util.Arrays.asList("--random", "3", "--model", "turbo,sft"), before, wavs, "");
+    StringBuilder out = new StringBuilder();
+    java.util.List<String> said = new java.util.ArrayList<String>();
+    for (int i = 0; i < wavs.size(); i++) {
+      c.next();
+      String label = c.model();
+      // DrumMidi's MIDI for the track: its style's groove, then the next style's, at its own tempo.
+      java.util.List<Engine.Part> parts = new java.util.ArrayList<Engine.Part>();
+      int bpm = 100 + 10 * i;
+      parts.add(Engine.groove("A", bpm, Engine.styleCells(Engine.styles().get(styles[i / 2])), 4));
+      parts.add(Engine.groove("B", bpm, Engine.styleCells(Engine.styles().get(styles[(i / 2 + 1) % 3])), 4));
+      said.add(String.valueOf(call("pkImportProgramMidi", Engine.encodeSongMidi(parts), c.setName(label) + ".mid")));
+    }
+    boolean noneYet = Engine.fileSetSources(app.learned, app.learnedFills).equals(before);
+    call("pkChainNext");
+    idle();
+    java.util.List<String> after = new java.util.ArrayList<String>(Engine.fileSetSources(app.learned, app.learnedFills));
+    after.removeAll(before);
+    java.util.Set<Integer> turboBpms = new java.util.TreeSet<Integer>();
+    for (Engine.Learned l : app.learned) if (c.setName("turbo").equals(Engine.sourceOf(l))) turboBpms.add(l.bpm);
+    out.append("said: ").append(said).append("\nnew file sets: ").append(after).append(" | made ").append(c.made).append(" | none before the end ").append(noneYet)
+        .append("\nturbo set tempos: ").append(turboBpms).append(" | chain over ").append(MusicCompare.chain() == null).append(" | quiet after ").append(MusicCompare.quietSongs()).append('\n');
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean asked = d != null && d.isShowing() && "Make a song?".equals(String.valueOf(org.robolectric.Shadows.shadowOf(d).getTitle()));
+    out.append("Make a song asked: ").append(asked).append('\n');
+    write("s192_random_run_file_set_per_model", out.toString());
+    String run = c.run;
+    boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
+        && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
+        && turboBpms.containsAll(java.util.Arrays.asList(100, 120)) && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Sound devices: Own drum sounds puts the drums back on Pulsekit's own sounds (the MIDI output and its port cleared), the audio output kept. */
   @Test
   public void s190_own_drum_sounds() throws Exception {
