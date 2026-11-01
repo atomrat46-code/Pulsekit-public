@@ -11778,17 +11778,18 @@ public class BehaviorTest {
   /** SogniMusic --random with two models: the tracks' MIDIs make one file set a model ("SogniMusic run 1 sft"), not one a track. */
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
-    String[] styles = {"rock", "funk", "disco"};
+    String[] styles = {"rock", "funk", "house"};
     java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
     for (String st : styles) for (String m : new String[] {"turbo", "sft"}) wavs.add(new String[] {st + "-" + m, "/x/" + st + "-" + m + ".wav"});
     java.util.List<String> before = Engine.fileSetSources(app.learned, app.learnedFills);
     MusicCompare.Chain c = MusicCompare.startChain(java.util.Arrays.asList("--random", "3", "--model", "turbo,sft"), before, wavs, "");
+    try {
     StringBuilder out = new StringBuilder();
     java.util.List<String> said = new java.util.ArrayList<String>();
     for (int i = 0; i < wavs.size(); i++) {
       c.next();
       String label = c.model();
-      // DrumMidi's MIDI for the track: its style's groove, then the next style's, at its own tempo.
+      // DrumMidi's MIDI for the track: its style's groove, then the next style's (a file set has one tempo, so the set's is one of theirs).
       java.util.List<Engine.Part> parts = new java.util.ArrayList<Engine.Part>();
       int bpm = 100 + 10 * i;
       parts.add(Engine.groove("A", bpm, Engine.styleCells(Engine.styles().get(styles[i / 2])), 4));
@@ -11811,8 +11812,12 @@ public class BehaviorTest {
     String run = c.run;
     boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
         && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
-        && turboBpms.containsAll(java.util.Arrays.asList(100, 120)) && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked;
+        && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked;
     if (!ok) throw new AssertionError(out.toString());
+    } finally {
+      // A failure must not leave the chain going: later tests' Make a song questions would be quiet.
+      MusicCompare.stopChain();
+    }
   }
 
   /** Sound devices: Own drum sounds puts the drums back on Pulsekit's own sounds (the MIDI output and its port cleared), the audio output kept. */

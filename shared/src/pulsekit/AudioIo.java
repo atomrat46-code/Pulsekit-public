@@ -850,7 +850,7 @@ public final class AudioIo {
     return fileSetFromParts(partAnalysisFromMidi(bars), name, origin);
   }
 
-  /** Several tracks for the next MIDI file set (a --random run's, a model's tracks in one set): each keeps its tempo. */
+  /** Several tracks for the next MIDI file set (a --random run's, a model's tracks in one set): their parts one after another. */
   static java.util.List<Engine.MidiBars> stagedTracks;
 
   public static void stageTracks(java.util.List<Engine.MidiBars> tracks) {
