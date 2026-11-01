@@ -762,7 +762,11 @@ final class PyJav {
             app.runOnUiThread(() -> {
                 if (kept != null) this.pkAddLogLine("saved " + kept);
                 for (String line : shown.split("\n")) this.pkAddLogLine(line);
-                if (ranked && pulsekit.RunZip.current() != null) pulsekit.RunZip.current().add(pulsekit.MusicCompare.reportName(log), shown.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                if (ranked && pulsekit.RunZip.current() != null) {
+                    pulsekit.RunZip.current().add(pulsekit.MusicCompare.reportName(log), shown.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    // Its copy in Download is the zip's: --zip_delete deletes it too.
+                    if (kept != null) pulsekit.RunZip.current().addCopy(ArtJava.SAVED.containsKey(kept) ? ArtJava.SAVED.get(kept) : kept);
+                }
                 if (!argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) this.pkZipFinish();
                 // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
                 if (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) {
@@ -783,6 +787,16 @@ final class PyJav {
             }
         }
         z.addLog(program, about, log);
+        // What the run saved in Download (or the chosen folder) of these files: --zip_delete deletes those copies too.
+        if (log != null) {
+            for (String line : log.split("\n")) {
+                String t = line.trim();
+                if (!t.startsWith("saved ")) continue;
+                String where = t.substring(6).trim();
+                String uri = ArtJava.SAVED.get(where);
+                z.addCopy(uri != null ? uri : where);
+            }
+        }
     }
 
     /** --zip: the files gathered written into one zip in Download (off the screen's thread). */
@@ -804,7 +818,24 @@ final class PyJav {
                         : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
                 }
                 // --zip_delete: only when every part is saved.
-                if (z.deleteAfter && !text.toString().contains("Could not save")) text.append("\n").append(z.deleteZipped());
+                if (z.deleteAfter && !text.toString().contains("Could not save")) {
+                    pulsekit.RunZip.contentDeleter = uri -> {
+                        try {
+                            android.net.Uri u = android.net.Uri.parse(uri);
+                            long size = 0;
+                            try (android.os.ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(u, "r")) {
+                                if (fd != null) size = fd.getStatSize();
+                            }
+                            boolean gone = android.provider.DocumentsContract.isDocumentUri(app, u)
+                                ? android.provider.DocumentsContract.deleteDocument(app.getContentResolver(), u)
+                                : app.getContentResolver().delete(u, null, null) > 0;
+                            return gone ? Math.max(0, size) : -1;
+                        } catch (Throwable ex) {
+                            return -1;
+                        }
+                    };
+                    text.append("\n").append(z.deleteZipped());
+                }
             } catch (Throwable ex) {
                 text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
             } finally {
@@ -843,6 +874,8 @@ final class PyJav {
             }
         }
         String path = mp3 == null ? null : AudioOffer.useAsInput(app, t[1], mp3);
+        // The copy given to DrumMidi is the zip's track too: --zip_delete deletes it.
+        if (path != null && pulsekit.RunZip.current() != null) pulsekit.RunZip.current().addCopy(path);
         if (path == null) {
             this.pkAddLogLine("Could not use " + t[1] + " for its file set");
             this.pkCompareWavs(argv, result, tracks, i + 1, wavs);

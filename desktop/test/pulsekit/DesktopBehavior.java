@@ -8753,6 +8753,83 @@ public final class DesktopBehavior {
     }
   }
   /**
+   * SogniMusic --random 6 --model turbo,sft: 12 runs on a fake Sogni that turns away an 11th active
+   * workflow (409, as Sogni does): at most 10 go on at once, each next one starts when one is over,
+   * and all 12 tracks are made.
+   */
+  void s181_sogni_music_ten_at_a_time() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final java.util.concurrent.atomic.AtomicInteger turnedAway = new java.util.concurrent.atomic.AtomicInteger();
+    final java.util.concurrent.atomic.AtomicInteger most = new java.util.concurrent.atomic.AtomicInteger();
+    final java.util.Set<String> done = Collections.synchronizedSet(new java.util.HashSet<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      readAll(ex.getRequestBody());
+      byte[] reply;
+      int code = 200;
+      String type = "application/json";
+      synchronized (done) {
+        if (path.endsWith("/events/stream")) {
+          type = "text/event-stream";
+          reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+        } else if (path.startsWith("/files/")) {
+          type = "audio/mpeg";
+          reply = track;
+        } else if (path.matches("/v1/creative-agent/workflows/wf_ten\\d+")) {
+          String id = path.substring(path.lastIndexOf('/') + 1);
+          done.add(id);
+          reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+              + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+        } else if (ex.getRequestMethod().equals("POST")) {
+          // Sogni's limit: 10 workflows of an account going on at once.
+          if (started.get() - done.size() >= 10) {
+            turnedAway.incrementAndGet();
+            code = 409;
+            reply = "{\"message\":\"Too many active creative workflows (10); wait for one to finish or cancel an existing workflow before starting another.\"}".getBytes(StandardCharsets.UTF_8);
+          } else {
+            int n = started.incrementAndGet();
+            most.set(Math.max(most.get(), n - done.size()));
+            reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_ten" + n + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+          }
+        } else {
+          reply = "{}".getBytes(StandardCharsets.UTF_8);
+        }
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(code, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 6 --model turbo,sft --styles \"Funk|Metal|Reggae\" --seed 3 --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !(text = log.getText()).contains("Succeeded:") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      int compared = 0;
+      for (String line : text.split("\n")) if (line.startsWith("Compared: ")) compared++;
+      out.append("started ").append(started.get()).append(", at most ").append(most.get()).append(" at once, turned away ").append(turnedAway.get())
+          .append(", tracks made ").append(compared).append(", ten at a time said: ").append(text.contains("10 at a time")).append('\n');
+      boolean ok = started.get() == 12 && most.get() <= 10 && compared == 12 && text.contains("12 runs, 10 at a time") && !text.contains("did not start");
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
    * SogniMusic --random 3 --model turbo,sft --styles "Funk, Hard Rock" with no tempo, key, meter or
    * length given: each drawn style made with both models (6 runs), each track's tempo, key, meter and
    * length drawn (the same for both models), its files named with the model.

@@ -1020,6 +1020,8 @@ final class PyJav {
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
                     RunZip z = RunZip.start(result.log, argv);
                     this.zipAdd(z, name, "", result);
+                    // The tracks saved in Downloads are the zip's: --zip_delete deletes them too.
+                    for (File copy : savedAudio.values()) z.addCopy(copy.getPath());
                     if (musicWav != null) z.add(musicWav.getName(), musicWav);
                     if (!MusicCompare.wanted(name, argv)) this.zipFinish();
                 }
