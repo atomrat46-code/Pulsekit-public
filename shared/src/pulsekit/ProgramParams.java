@@ -1067,6 +1067,24 @@ public final class ProgramParams {
   }
 
   /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */
+  /** SogniMusic's --styles row: its list can be read from a text file (Select file, Browse DB). */
+  public static boolean stylesFromFile(Param p) {
+    return p != null && p.flag && p.takesValue && p.token.equals("--styles");
+  }
+
+  /** A text file's styles as --styles takes them: one a line, or with | ; or , between ("#" lines left out); "Funk|Hard Rock|Metal". */
+  public static String styleList(String text) {
+    java.util.List<String> out = new java.util.ArrayList<String>();
+    for (String line : (text == null ? "" : text).split("\n")) {
+      if (line.trim().startsWith("#")) continue;
+      for (String s : line.split("[|;,]")) {
+        String t = s.trim();
+        if (t.length() > 0 && !out.contains(t)) out.add(t);
+      }
+    }
+    return String.join("|", out);
+  }
+
   public static boolean promptFromFile(Param p) {
     return p != null && p.flag && p.takesValue && !p.isFile() && p.token.equals("--prompt");
   }

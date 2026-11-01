@@ -1272,6 +1272,18 @@ final class PyJav {
     /** The tests: the definition picked when a file has several (null: ask). */
     static Integer pickDef;
 
+    /** A text file's styles into SogniMusic's --styles row ("Funk|Hard Rock|Metal"). */
+    void stylesFrom(JTextField field, File file) {
+        try {
+            String list = ProgramParams.styleList(ProgramParams.promptText(java.nio.file.Files.readAllBytes(file.toPath())));
+            field.setText(list);
+            int n = list.isEmpty() ? 0 : list.split("\\|").length;
+            app.setNow(n + (n == 1 ? " style" : " styles") + " from " + file.getName());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
+        }
+    }
+
     /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
     void promptFrom(javax.swing.JTextArea area, File file) {
         try {
@@ -2900,6 +2912,32 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (ProgramParams.stylesFromFile(p)) {
+                // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                JButton select = new JButton("Select file");
+                select.setName("params-styles-file:" + p.token);
+                select.addActionListener(e -> {
+                    JFileChooser chooser = new JFileChooser();
+                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md"));
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                    this.stylesFrom(field, chooser.getSelectedFile());
+                });
+                JButton db = new JButton("Browse DB");
+                db.setName("params-styles-db:" + p.token);
+                db.setEnabled(!PromptDb.allFiles(PromptDb.TEXTS).isEmpty());
+                db.addActionListener(e -> {
+                    DbFilter.current = "T";
+                    app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.stylesFrom(field, file));
+                });
+                picks.add(select);
+                picks.add(db);
+                row.add(field, BorderLayout.CENTER);
+                row.add(picks, BorderLayout.SOUTH);
+                form.add(row);
+                continue;
+            }
             if (p.choices != null && p.choices.length > 0) {
                 // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.
                 JPanel row = new JPanel(new BorderLayout(6, 0));

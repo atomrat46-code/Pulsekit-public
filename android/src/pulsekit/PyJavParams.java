@@ -328,6 +328,29 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (ProgramParams.stylesFromFile(p)) {
+        // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button select = new android.widget.Button(activity);
+        select.setText("Select file");
+        select.setTag("params-styles-file:" + p.token);
+        select.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(select);
+        android.widget.Button db = new android.widget.Button(activity);
+        db.setText("Browse DB");
+        db.setTag("params-styles-db:" + p.token);
+        db.setEnabled(!RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty());
+        db.setOnClickListener(v -> {
+          DbFilter.current = "T";
+          RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file));
+        });
+        row.addView(db);
+        box.addView(spaced(activity, row));
+        continue;
+      }
       if (ProgramParams.promptFromFile(p)) {
         // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
         box.addView(field);
@@ -784,6 +807,14 @@ public final class PyJavParams {
       String text = ProgramParams.promptText(out.toByteArray());
       if (text.length() == 0) {
         android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
+        return;
+      }
+      // SogniMusic's --styles: the file's styles as its list ("Funk|Hard Rock|Metal").
+      if ("params-field:--styles".equals(field.getTag())) {
+        String list = ProgramParams.styleList(text);
+        field.setText(list);
+        int n = list.isEmpty() ? 0 : list.split("\\|").length;
+        android.widget.Toast.makeText(activity, n + (n == 1 ? " style" : " styles") + " from " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
         return;
       }
       // A definitions file (App:, Prompt:, Loras:, ---- between them): its fields fill their rows.

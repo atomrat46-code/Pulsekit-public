@@ -454,8 +454,10 @@ public final class JavaRun {
       argv.addAll(given);
       return withKeyFile(src, argv);
     }
+    // SogniMusic --random draws the tempo, time signature and style of each track: the app's are not passed.
+    boolean drawn = src.contains("--random") && given.contains("--random");
     // A program whose --bpm is its own (vst_render's: the MIDI's tempo) says so; Pulsekit's tempo is not passed.
-    if (src.contains("--bpm") && !src.contains(NO_KIT_BPM) && !given.contains("--bpm")) {
+    if (src.contains("--bpm") && !src.contains(NO_KIT_BPM) && !given.contains("--bpm") && !drawn) {
       argv.add("--bpm");
       argv.add(Integer.toString(bpm));
     }
@@ -469,7 +471,7 @@ public final class JavaRun {
       argv.add("--styles");
       argv.add(String.join("|", StyleDb.names()));
     }
-    if (src.contains("--genre") && !given.contains("--genre")) {
+    if (src.contains("--genre") && !given.contains("--genre") && !drawn) {
       // The app's style by name (House, Drum & Bass...).
       Engine.Style st = Engine.styles().get(style == null ? "house" : style);
       argv.add("--genre");
@@ -483,7 +485,7 @@ public final class JavaRun {
       argv.add("--swing");
       argv.add(Integer.toString(Math.max(0, swing)));
     }
-    if (src.contains("--timesig") && !given.contains("--timesig") && tsNum > 0 && tsDen > 0 && !(tsNum == 4 && tsDen == 4)) {
+    if (src.contains("--timesig") && !given.contains("--timesig") && tsNum > 0 && tsDen > 0 && !(tsNum == 4 && tsDen == 4) && !drawn) {
       // The app's time signature (MidiDrumGen, SogniMusic); 4/4 is every program's own default.
       argv.add("--timesig");
       argv.add(tsNum + "/" + tsDen);

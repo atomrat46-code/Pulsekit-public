@@ -8712,6 +8712,76 @@ public final class DesktopBehavior {
       server.stop(0);
     }
   }
+  /**
+   * SogniMusic --random 3 --model turbo,sft --styles "Funk, Hard Rock" with no tempo, key, meter or
+   * length given: each drawn style made with both models (6 runs), each track's tempo, key, meter and
+   * length drawn (the same for both models), its files named with the model.
+   */
+  void s180_sogni_music_random_models_drawn() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> prompts = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_rnd\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) prompts.add(body.replaceAll(".*\"prompt\":\"([^\"]*)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_rnd" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --random 3 --model turbo,sft --styles \"Funk, Hard Rock\" --seed 7 --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !(text = log.getText()).contains("Succeeded:") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      List<String> styleLines = new ArrayList<String>();
+      for (String line : text.split("\n")) if (line.startsWith("Style ") && line.contains("BPM")) styleLines.add(line);
+      List<String> made = new ArrayList<String>();
+      for (String line : text.split("\n")) if (line.startsWith("Compared: ")) made.add(line.substring(10).replaceAll("[0-9a-f]{8}", "<id>"));
+      String summary = "";
+      for (String line : text.split("\n")) if (line.startsWith("Random styles: ")) summary = line;
+      out.append("starts: ").append(prompts.size()).append("\n").append(summary.replaceAll("seed \\d+", "seed N")).append('\n');
+      for (String l : styleLines) out.append(l.replaceAll("\\d+ BPM", "N BPM").replaceAll("Duration: \\d+ s", "Duration: N s").replaceAll("Key: [A-G][#b]? (major|minor)", "Key: K")
+          .replaceAll("Time signature: [0-9/]+", "Time signature: T").replaceAll(" \u00b7 .*", "")).append('\n');
+      out.append("made: ").append(made).append('\n');
+      boolean ok = prompts.size() == 6 && summary.contains("3 tracks, each made with turbo and sft (6 runs, each paid for)")
+          && summary.contains("drawn for each track: tempo, key, time signature, length") && styleLines.size() == 3
+          && styleLines.get(0).matches("Style [A-Za-z ]+: Tempo: \\d+ BPM\\. Duration: \\d+ s\\. Time signature: [0-9/]+\\. Key: [A-G][#b]? (major|minor)\\..*")
+          && made.size() == 6 && made.stream().filter(m -> m.contains("-turbo ")).count() == 3 && made.stream().filter(m -> m.contains("-sft ")).count() == 3
+          && made.stream().anyMatch(m -> m.contains("Hard")) && made.stream().anyMatch(m -> m.startsWith("Funk"));
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
 
   /**
    * File > Back up Pulsekit / restore on the desktop: ~/.pulsekit's settings,

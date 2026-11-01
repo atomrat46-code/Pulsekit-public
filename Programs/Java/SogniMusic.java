@@ -44,9 +44,13 @@ import java.util.Map;
  * --compare_to_file_sets each track also goes through DrumMidi_CRT into a file set of its own,
  * "SogniMusic run N <model>", so the models' drum MIDI can be compared too.
  *
- * --random N makes N tracks, each in a style drawn from --styles ("Rock|Funk|Metal"; PyJav passes
- * Pulsekit's style list), no style twice until all are used (--seed repeats a draw). They are
- * measured, made into file sets (--compare_to_file_sets) and zipped (--zip) as a comparison is.
+ * --random N makes N tracks, each in a style drawn from --styles ("Rock|Funk|Metal", or with commas
+ * or one a line; PyJav passes Pulsekit's style list), no style twice until all are used, then again
+ * (5 tracks from 3 styles: the 3, then 2 of them); --seed repeats a draw. A list in --model
+ * (turbo,sft) makes each drawn style with each model. --bpm, --keyscale, --timesig and --duration
+ * left out are drawn for each track too (a tempo that suits the style's name, any key, mostly 4/4,
+ * 30 to 90 s). They are measured, made into file sets (--compare_to_file_sets) and zipped (--zip)
+ * as a comparison is.
  *
  * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
  * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
@@ -168,18 +172,27 @@ public final class SogniMusic {
     String compareModels = null;
     int randomCount = 0;
     String styleList = null;
+    // Which settings were given (--random draws the others for each track).
+    boolean bpmGiven = false, keyGiven = false, timesigGiven = false, durationGiven = false;
     long seed = System.currentTimeMillis() % 100000;
     // Off only when asked, on every run.
     SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
-      else if (a.equals("--bpm") && i + 1 < args.length) bpm = number(a, args[++i]);
-      else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
-      else if (a.equals("--keyscale") && i + 1 < args.length) keyscale = args[++i];
-      else if (a.equals("--timesig") && i + 1 < args.length) {
+      else if (a.equals("--bpm") && i + 1 < args.length) {
+        bpm = number(a, args[++i]);
+        bpmGiven = true;
+      } else if (a.equals("--duration") && i + 1 < args.length) {
+        duration = number(a, args[++i]);
+        durationGiven = true;
+      } else if (a.equals("--keyscale") && i + 1 < args.length) {
+        keyscale = args[++i];
+        keyGiven = keyscale.trim().length() > 0;
+      } else if (a.equals("--timesig") && i + 1 < args.length) {
         timesigText = args[++i];
         timesig = timesig(timesigText);
+        timesigGiven = true;
       }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
       else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
@@ -257,16 +270,27 @@ public final class SogniMusic {
       return 2;
     }
     // A list in --model (turbo,sft or all) is a comparison, as --compare_models is, when that is left empty.
+    List<String> randomModels = new ArrayList<String>();
     if (compareModels == null && model != null && (model.matches(".*[,; ].*") || model.trim().equalsIgnoreCase("all"))) {
       if (randomCount != 0) {
-        say("Failed: --random makes each style with one model: give --model turbo, sft or music3");
-        return 2;
+        // --random with a list of models: each drawn style made with each of them.
+        for (String m : (model.trim().equalsIgnoreCase("all") ? "turbo,sft,music3" : model.trim().toLowerCase(java.util.Locale.ROOT)).split("[,; ]+")) {
+          if (m.length() == 0 || randomModels.contains(m)) continue;
+          if (!"turbo".equals(m) && !"sft".equals(m) && !"music3".equals(m)) {
+            say("Failed: --model lists turbo, sft and music3 (or all), not " + m);
+            return 2;
+          }
+          randomModels.add(m);
+        }
+        model = randomModels.isEmpty() ? "turbo" : randomModels.get(0);
+      } else {
+        compareModels = model;
+        say("Note: --model " + model + " lists models: they are compared (as --compare_models)");
+        String[] firstOne = model.trim().toLowerCase(java.util.Locale.ROOT).split("[,; ]+");
+        model = firstOne.length == 0 || firstOne[0].equals("all") ? "turbo" : firstOne[0];
       }
-      compareModels = model;
-      say("Note: --model " + model + " lists models: they are compared (as --compare_models)");
-      String[] firstOne = model.trim().toLowerCase(java.util.Locale.ROOT).split("[,; ]+");
-      model = firstOne.length == 0 || firstOne[0].equals("all") ? "turbo" : firstOne[0];
     }
+    if (randomModels.isEmpty()) randomModels.add(model);
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
       say("Failed: --model is turbo, sft or music3 (a list, such as turbo,sft, compares them)");
       return 2;
@@ -311,7 +335,7 @@ public final class SogniMusic {
         return 2;
       }
       // The styles to draw from: --styles (PyJav passes Pulsekit's style list), else the --genre given.
-      for (String st : (styleList == null ? "" : styleList).split("[|;,]")) if (st.trim().length() > 0 && !styles.contains(st.trim())) styles.add(st.trim());
+      for (String st : (styleList == null ? "" : styleList).split("[|;,\n]")) if (st.trim().length() > 0 && !styles.contains(st.trim())) styles.add(st.trim());
       if (styles.isEmpty() && genre != null && genre.trim().length() > 0) styles.add(genre.trim());
       if (styles.isEmpty()) {
         say("Failed: --random needs styles to draw from: --styles \"Rock|Funk|Metal\" (PyJav gives Pulsekit's list)");
@@ -325,7 +349,10 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
-    if (randomCount > 0) return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, model, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+    if (randomCount > 0) {
+      return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, randomModels, durationGiven ? duration : -1, bpmGiven ? bpm : -1,
+          keyGiven ? keyscale : null, timesigGiven ? timesig : -1, lyrics, confirm, maxCost, deleteFromSogni);
+    }
     if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni, testing);
     String input = musicInput(prompt, duration, bpm, keyscale, timesig, model, lyrics);
     if (workflowId != null) say("Fetching the result of workflow " + workflowId);
@@ -435,20 +462,71 @@ public final class SogniMusic {
    * all started at once, each named for its style (sogni-Funk-6f1262f1.mp3). PyJav measures them
    * as it does a comparison ("Compared: <style> <file>"), and --compare_to_file_sets and --zip work the same.
    */
-  static int random(SogniApi api, int count, List<String> styles, long seed, String userPrompt, boolean drumsOnly, String instruments, String model,
+  static int random(SogniApi api, int count, List<String> styles, long seed, String userPrompt, boolean drumsOnly, String instruments, List<String> models,
       double duration, double bpm, String keyscale, int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
     java.util.Random r = new java.util.Random(seed);
     List<String> bag = new ArrayList<String>();
     List<String[]> jobs = new ArrayList<String[]>();
+    List<String> drawn = new ArrayList<String>();
+    if (bpm < 0) drawn.add("tempo");
+    if (keyscale == null) drawn.add("key");
+    if (timesig < 0) drawn.add("time signature");
+    if (duration < 0) drawn.add("length");
     for (int i = 0; i < count; i++) {
       if (bag.isEmpty()) bag.addAll(styles);
       String style = bag.remove(r.nextInt(bag.size()));
       String p = musicPrompt(userPrompt, style, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
-      jobs.add(new String[] {promptName(style).substring(6), model, p, style});
+      // The settings left out, drawn for the track (the same for each model, so they compare).
+      double b = bpm >= 0 ? bpm : styleBpm(style, r);
+      String k = keyscale != null ? keyscale : randomKey(r);
+      int t = timesig >= 0 ? timesig : styleTimesig(style, r);
+      double d = duration >= 0 ? duration : 30 + r.nextInt(61);
+      for (String m : models) {
+        String label = promptName(style).substring(6) + (models.size() > 1 ? "-" + m : "");
+        jobs.add(new String[] {label, m, p, style, String.valueOf(b), k == null ? "" : k, String.valueOf(t), String.valueOf(d), models.size() > 1 ? m : ""});
+      }
     }
-    say("Random styles: " + count + " tracks with " + model + " (each is a run of its own, paid for), seed " + seed);
-    for (String[] j : jobs) say("Style " + j[3] + ": " + j[2]);
+    say("Random styles: " + count + " tracks" + (models.size() > 1 ? ", each made with " + String.join(" and ", models) : " with " + models.get(0)) + " ("
+        + jobs.size() + (jobs.size() == 1 ? " run" : " runs") + ", each paid for), seed " + seed + (drawn.isEmpty() ? "" : "; drawn for each track: " + String.join(", ", drawn)));
+    for (String[] j : jobs) {
+      if (models.size() > 1 && !j[8].equals(models.get(0))) continue;
+      say("Style " + j[3] + ": " + settingsLine(Double.parseDouble(j[4]), Double.parseDouble(j[7]), Integer.parseInt(j[6]), j[5].isEmpty() ? null : j[5]).trim()
+          + " \u00b7 " + j[2]);
+    }
     return runAll(api, jobs, null, false, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+  }
+
+  /** A tempo that suits a style's name (drum and bass fast, a ballad slow...), else one between 85 and 135. */
+  static double styleBpm(String style, java.util.Random r) {
+    String s = style.toLowerCase(java.util.Locale.ROOT);
+    int[][] ranges = {{170, 176}, {138, 142}, {136, 150}, {160, 190}, {120, 130}, {125, 135}, {84, 96}, {60, 76}, {68, 80}, {95, 105}, {100, 116}, {130, 150},
+        {150, 180}, {110, 125}, {90, 100}};
+    String[][] words = {{"dnb", "drum and bass", "drum & bass", "jungle", "neurofunk", "liquid", "darkstep", "atmospheric dnb"}, {"dubstep", "riddim"},
+        {"trance", "hardstyle"}, {"punk", "hardcore", "speed metal", "thrash", "breakcore", "gabber"}, {"house", "garage", "disco", "amapiano"},
+        {"techno", "electro", "complextro"}, {"hip-hop", "hip hop", "boom bap", "rap", "lo-fi", "lofi"}, {"ballad", "ambient", "chillout", "downtempo"},
+        {"reggae", "dub", "trip-hop", "trip hop", "chopped"}, {"funk", "soul", "r&b", "neo soul", "afrobeat"}, {"rock", "pop", "indie", "country", "blues"},
+        {"trap", "drill", "footwork"}, {"metal", "deathcore", "djent", "doom"}, {"latin", "salsa", "reggaeton", "dembow", "cumbia", "bachata", "baile"},
+        {"jazz", "swing", "bossa"}};
+    for (int i = 0; i < words.length; i++) {
+      for (String w : words[i]) if (s.contains(w)) return ranges[i][0] + r.nextInt(ranges[i][1] - ranges[i][0] + 1);
+    }
+    return 85 + r.nextInt(51);
+  }
+
+  static final String[] KEYS = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"};
+
+  /** Any of the 24 keys ("F# minor"). */
+  static String randomKey(java.util.Random r) {
+    return KEYS[r.nextInt(KEYS.length)] + (r.nextBoolean() ? " major" : " minor");
+  }
+
+  /** The beats a bar a style's name says (a 6/8, a waltz), else mostly 4: 4 (8 in 10), 3 or 6. */
+  static int styleTimesig(String style, java.util.Random r) {
+    String s = style.toLowerCase(java.util.Locale.ROOT);
+    if (s.contains("6/8")) return 6;
+    if (s.contains("3/4") || s.contains("waltz")) return 3;
+    int n = r.nextInt(10);
+    return n < 8 ? 4 : n == 8 ? 3 : 6;
   }
 
   /**
@@ -462,7 +540,9 @@ public final class SogniMusic {
     List<String> ids = new ArrayList<String>();
     for (String[] j : jobs) {
       try {
-        String id = api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
+        // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
+        String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
+            Integer.parseInt(j[6]), j[1], lyrics), confirm, maxCost) : api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
         say((oneName ? "Model " : "Style ") + j[0] + ": workflow " + id);
         ids.add(id);
       } catch (Exception ex) {
@@ -492,7 +572,7 @@ public final class SogniMusic {
         }
         String url = SogniApi.str(audio.get(0).get("url"));
         String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
-        String base = oneName ? shared + "-" + label : trackName(jobs.get(i)[3], id);
+        String base = oneName ? shared + "-" + label : trackName(jobs.get(i)[3], id) + (jobs.get(i).length > 8 && jobs.get(i)[8].length() > 0 ? "-" + jobs.get(i)[8] : "");
         File file = inWork(base + ext);
         for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
         byte[] data = api.download(url);
