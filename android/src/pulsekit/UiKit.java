@@ -26,6 +26,8 @@ abstract class UiKit extends Activity {
     static final int MUTED = Color.parseColor((String)"#8A8B86");
 
     static final int SUBTLE = Color.parseColor((String)"#5C5D59");
+    /** Section headings ("SF2 FOLDERS", "AUDIO INPUTS"): light enough to read on a dialog's grey. */
+    static final int HEADING = Color.parseColor((String)"#C4C5BF");
 
     static final int HIT = Color.parseColor((String)"#9AAB9C");
 
@@ -113,8 +115,8 @@ abstract class UiKit extends Activity {
     }
 
     TextView sectionLabel(String string) {
-        TextView textView = this.text(string, 11, true);
-        textView.setTextColor(SUBTLE);
+        TextView textView = this.text(string, 12, true);
+        textView.setTextColor(HEADING);
         textView.setPadding(0, this.dp(6), 0, this.dp(2));
         if (Build.VERSION.SDK_INT >= 21) {
             textView.setLetterSpacing(0.12f);

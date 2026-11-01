@@ -55,6 +55,7 @@ final class PyJav {
         this.pkEditorCaption.setTag("pyjav-editor-caption");
         this.pkEditorCaption.setPadding(0, app.dp(14), 0, app.dp(4));
         app.pyEditor = new EditText((Context)app);
+        app.codeSave.watch(app.pyEditor);
         app.pyEditor.setText((CharSequence)"#!/usr/bin/env python3\n\"\"\"Pulsekit drum script.\"\"\"\nprint(\"edit me\")\n");
         app.pyEditor.setTypeface(Typeface.MONOSPACE);
         app.pyEditor.setTextColor(FG);
@@ -737,6 +738,186 @@ final class PyJav {
         }, "pulsekit-output-dir").start();
     }
 
+    /** SogniMusic --compare_models: each model's track measured in the background, then the ranking under the log. */
+    void pkCompareModels(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final String log) {
+        this.pkAddLogLine("Measuring the models' tracks…");
+        new Thread(() -> {
+            String report;
+            try {
+                report = pulsekit.MusicCompare.of(argv, log, name -> {
+                    if (result == null || result.files == null) return null;
+                    for (int i = 0; i < result.files.size(); i++) {
+                        pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                        if (name.equals(f.name)) return pkSound(f.bytes);
+                    }
+                    return null;
+                });
+            } catch (Throwable ex) {
+                report = "Could not compare the models' tracks: " + ex;
+            }
+            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            final boolean ranked = report != null;
+            // Kept beside the tracks (Download): the log under the run is gone after the next run.
+            final String kept = report == null ? null : ArtJava.publish(app, pulsekit.MusicCompare.reportName(log), report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            app.runOnUiThread(() -> {
+                if (kept != null) this.pkAddLogLine("saved " + kept);
+                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+                if (ranked && pulsekit.RunZip.current() != null) pulsekit.RunZip.current().add(pulsekit.MusicCompare.reportName(log), shown.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                if (!argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) this.pkZipFinish();
+                // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
+                if (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS)) {
+                    this.pkCompareReport = shown;
+                    this.pkCompareWavs(argv, result, pulsekit.MusicCompare.tracks(log), 0, new java.util.ArrayList<String[]>());
+                }
+            });
+        }, "pulsekit-compare-models").start();
+    }
+
+    /** --zip: a run's files and its log into the zip being gathered (`about`: what the run made, for its log's name). */
+    void pkZipAdd(pulsekit.RunZip z, String program, String about, pulsekit.JavaRun.Result result, String log) {
+        if (z == null) return;
+        if (result != null && result.files != null) {
+            for (int i = 0; i < result.files.size(); i++) {
+                pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
+                z.add(f.name, f.bytes);
+            }
+        }
+        z.addLog(program, about, log);
+    }
+
+    /** --zip: the files gathered written into one zip in Download (off the screen's thread). */
+    void pkZipFinish() {
+        final pulsekit.RunZip z = pulsekit.RunZip.finish();
+        if (z == null) return;
+        this.pkAddLogLine("Zipping " + z.size() + " files into " + z.name + "…");
+        new Thread(() -> {
+            StringBuilder text = new StringBuilder();
+            java.io.File tmp = new java.io.File(app.getCacheDir(), "run-zip.zip");
+            try {
+                // Parts of at most 25 MB each (sending often stops at 30 MB), each a zip of its own.
+                java.util.List<java.util.List<pulsekit.ZipPack.Source>> parts = z.parts(pulsekit.RunZip.PART);
+                for (int i = 0; i < parts.size(); i++) {
+                    pulsekit.ZipPack.write(tmp, parts.get(i), null);
+                    String name = z.partName(i, parts.size());
+                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()));
+                    text.append(text.length() == 0 ? "" : "\n").append(where == null ? "Could not save " + name
+                        : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
+                }
+                // --zip_delete: only when every part is saved.
+                if (z.deleteAfter && !text.toString().contains("Could not save")) text.append("\n").append(z.deleteZipped());
+            } catch (Throwable ex) {
+                text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            } finally {
+                tmp.delete();
+            }
+            final String shown = text.toString();
+            app.runOnUiThread(() -> {
+                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+            });
+        }, "pulsekit-run-zip").start();
+    }
+
+    /** The comparison's ranking, kept for the end of its file sets' chain. */
+    String pkCompareReport;
+
+    /** --compare_to_file_sets: the compared tracks made WAVs one by one (`i` on), then the DrumMidi chain starts. */
+    void pkCompareWavs(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final java.util.List<String[]> tracks, final int i, final java.util.List<String[]> wavs) {
+        if (i >= tracks.size()) {
+            pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"));
+            if (c == null) {
+                this.pkAddLogLine("No WAVs for DrumMidi: no file sets made");
+                this.pkZipFinish();
+            } else {
+                c.report = this.pkCompareReport == null ? "" : this.pkCompareReport;
+                this.pkAddLogLine("File sets: DrumMidi_CRT on each track, into " + c.run + " <model>");
+                this.pkChainNext();
+            }
+            return;
+        }
+        final String[] t = tracks.get(i);
+        byte[] mp3 = null;
+        if (result != null && result.files != null) {
+            for (int k = 0; k < result.files.size(); k++) {
+                pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(k);
+                if (t[1].equals(f.name)) mp3 = f.bytes;
+            }
+        }
+        String path = mp3 == null ? null : AudioOffer.useAsInput(app, t[1], mp3);
+        if (path == null) {
+            this.pkAddLogLine("Could not use " + t[1] + " for its file set");
+            this.pkCompareWavs(argv, result, tracks, i + 1, wavs);
+            return;
+        }
+        this.pkAddLogLine("Making a WAV of " + t[1] + "…");
+        AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
+            if (wav == null) this.pkAddLogLine("Could not make a WAV of " + t[1] + (why == null ? "" : ": " + why));
+            else {
+                wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+                if (pulsekit.RunZip.current() != null) pulsekit.RunZip.current().add(wav.getName(), wav);
+            }
+            this.pkCompareWavs(argv, result, tracks, i + 1, wavs);
+        });
+    }
+
+    /** The comparison's next DrumMidi_CRT run (its MIDI named for the file set it makes), or the chain's end. */
+    void pkChainNext() {
+        pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.chain();
+        if (c == null) return;
+        final java.util.List<String> drumArgs = c.next();
+        if (drumArgs == null) {
+            this.pkImportHeld(c);
+            this.pkAddLogLine("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
+            for (String line : c.report.split("\n")) if (line.length() > 0) this.pkAddLogLine(line);
+            this.pkZipFinish();
+            return;
+        }
+        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
+        app.handler.post(() -> {
+            this.pkPyInputPath = null;
+            app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
+            this.pkForcedArgs = drumArgs;
+            this.pkRunPyJav();
+        });
+    }
+
+    /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
+    void pkImportHeld(pulsekit.MusicCompare.Chain c) {
+        if (c == null) return;
+        pulsekit.MusicCompare.heldImport = true;
+        try {
+            for (Object[] h : c.heldSets()) {
+                @SuppressWarnings("unchecked") java.util.List<pulsekit.Engine.MidiBars> tracks = (java.util.List<pulsekit.Engine.MidiBars>) h[2];
+                pulsekit.AudioIo.stageTracks(tracks);
+                String r = this.pkImportProgramMidi((byte[]) h[1], (String) h[0]);
+                pulsekit.AudioIo.stageTracks(null);
+                this.pkAddLogLine(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+        } finally {
+            pulsekit.MusicCompare.heldImport = false;
+        }
+    }
+
+    /** A track's sound: a WAV read as it is, else decoded as Android plays it (MP3); null when it cannot be. */
+    pulsekit.AudioIo.Pcm pkSound(byte[] data) {
+        if (data == null) return null;
+        if ("wav".equals(pulsekit.AudioIo.sniff(data))) return pulsekit.AudioIo.parseWav(data);
+        java.io.File tmp = null;
+        try {
+            tmp = java.io.File.createTempFile("compare", ".mp3", app.getCacheDir());
+            java.nio.file.Files.write(tmp.toPath(), data);
+            try (java.io.FileInputStream in = new java.io.FileInputStream(tmp)) {
+                ProjectIo.Decoded d = ProjectIo.decodeNative(in.getFD());
+                float[] x = new float[d.mono.length];
+                for (int i = 0; i < x.length; i++) x[i] = d.mono[i] / 32768f;
+                return new pulsekit.AudioIo.Pcm(x, d.rate);
+            }
+        } catch (Exception ex) {
+            return null;
+        } finally {
+            if (tmp != null) tmp.delete();
+        }
+    }
+
     /** A line under the run's log (kept when the log is still this run's). */
     void pkAddLogLine(String line) {
         String now = this.pkRunLog == null ? "" : this.pkRunLog;
@@ -1264,6 +1445,9 @@ final class PyJav {
     public String pkImportProgramMidi(byte[] data, String name) {
         try {
             if (data == null || name == null) return "Import failed: no MIDI file";
+            // A --random run's track: kept for its model's file set, made when the run's last track is done.
+            pulsekit.MusicCompare.Chain held = pulsekit.MusicCompare.chain();
+            if (pulsekit.MusicCompare.hold(data)) return "Succeeded: kept for " + held.setFor(held.model());
             pulsekit.Engine.stageSourceMidi(data, name);
             String stem = pulsekit.Engine.stemNameFromMidi(name);
             pulsekit.Engine.MidiBars bars = pulsekit.Engine.parseMidiBars(data);
@@ -1528,8 +1712,26 @@ final class PyJav {
         final boolean ok = status.startsWith("Succeeded");
         final pulsekit.JavaRun.Result made = result;
         final String madeLog = log;
+        // SogniMusic --zip: what the run makes is gathered for one zip (written when its last step is over).
+        if (ok && pulsekit.RunZip.wanted(program, argv)) this.pkZipAdd(pulsekit.RunZip.start(madeLog, argv), program, "", made, madeLog);
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
+        // One track kept as no WAV (--no_wav): its zip now.
+        if (ok && pulsekit.RunZip.wanted(program, argv) && !pulsekit.MusicCompare.wanted(program, argv) && !pulsekit.Midi2WavTest.musicToWav(program, argv)) this.pkZipFinish();
+        // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
+        if (pulsekit.MusicCompare.chainStep(program)) {
+            pulsekit.MusicCompare.Chain chain = pulsekit.MusicCompare.chain();
+            if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.setName(chain.model()), made, madeLog);
+            if (ok) this.pkChainNext();
+            else {
+                pulsekit.MusicCompare.stopChain();
+                this.pkImportHeld(chain);
+                this.pkAddLogLine("File sets stopped: DrumMidi_CRT did not succeed");
+                this.pkZipFinish();
+            }
+        }
+        // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
+        if (ok && pulsekit.MusicCompare.wanted(program, argv)) this.pkCompareModels(argv, made, madeLog);
         // A run of a batch (BatchRun): what it made is saved, not shown; the next run follows.
         final pulsekit.BatchQueue batch = pulsekit.BatchQueue.current();
         final boolean inBatch = batch != null && batch.takes(program) && !batch.joining;
@@ -1602,7 +1804,10 @@ final class PyJav {
                 }
             }
             String path = mp3 == null ? null : AudioOffer.useAsInput(app, mp3Name, mp3);
-            if (path == null) return false;
+            if (path == null) {
+                if (!pulsekit.MusicCompare.wanted(program, argv)) this.pkZipFinish();
+                return false;
+            }
             // --test, or --batchdir (DrumMidi's MIDI of the track into the shared batch folder): DrumMidi follows.
             final boolean test = pulsekit.Midi2WavTest.musicSteps(program, argv, false);
             final java.util.List<String> musicArgv = argv;
@@ -1611,6 +1816,7 @@ final class PyJav {
             AudioOffer.toWav(app, new java.io.File(path), (wav, why) -> {
                 if (wav == null) {
                     this.pkAddLogLine("Could not make a WAV of " + mp3Name + (why == null ? "" : ": " + why));
+                    this.pkZipFinish();
                     return;
                 }
                 try {
@@ -1619,6 +1825,9 @@ final class PyJav {
                 } catch (Exception ex) {
                     this.pkAddLogLine("Could not save " + wav.getName());
                 }
+                // --zip: the WAV joins the track; the zip is written now (a --test's own files are not in it).
+                if (pulsekit.RunZip.current() != null) pulsekit.RunZip.current().add(wav.getName(), wav);
+                this.pkZipFinish();
                 if (test) this.pkStartMusicTest(musicArgv, wav);
             });
             // The track is offered as usual unless the test takes the run.

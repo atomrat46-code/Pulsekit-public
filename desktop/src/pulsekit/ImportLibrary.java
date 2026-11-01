@@ -240,6 +240,9 @@ final class ImportLibrary {
 
     String applyProgramMidi(byte[] data, String name) {
         try {
+            // A --random run's track: kept for its model's file set, made when the run's last track is done.
+            MusicCompare.Chain held = MusicCompare.chain();
+            if (MusicCompare.hold(data)) return "Import succeeded: kept for " + held.setFor(held.model());
             Engine.stageSourceMidi(data, name);
             Engine.MidiBars bars = Engine.parseMidiBars(data);
             boolean made = bars != null && this.learnFromSongImport(name, bars, true, "program");
@@ -356,7 +359,7 @@ final class ImportLibrary {
         // The song from the file set: parts are named after its patterns and fills (Pattern 1, Fill 1, ...).
         List<Engine.Part> parts = new ArrayList<>(Engine.songFromFileSet(madeSet));
         // Midi2Wav's test makes the song without asking: CompareHits compares it.
-        if (this.quietSet) {
+        if (this.quietSet || pulsekit.MusicCompare.quietSongs()) {
             // Add to composer stack: the set's patterns go on the stack, no song asked about.
         } else if (!parts.isEmpty() && Midi2WavTest.makesSong()) {
             app.songEditor.addImportedSong(stem, parts);

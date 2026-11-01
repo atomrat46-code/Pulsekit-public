@@ -65,6 +65,17 @@ public final class PromptVault {
     int ref1Size, ref2Size, resultSize;
   }
 
+  /**
+   * A Sogni program's saved Params (its "section": Params > Save; Browse sections loads it): the
+   * program and its text rows as a definitions file has them (ParamDefs: "Prompt: ...", "Loras: ...").
+   */
+  public static final class SogniSection {
+    public long id;
+    public String app;
+    public String text;
+    public long created;
+  }
+
   private static final int MAGIC = 0x504B4442;
   private static final byte[] FILE_MAGIC = new byte[] {'P', 'K', 'V', '1'};
   private static final int MAX_BYTES = 128 * 1024 * 1024;
@@ -74,6 +85,7 @@ public final class PromptVault {
   private final List<Prompt> prompts = new ArrayList<Prompt>();
   private final List<Version> versions = new ArrayList<Version>();
   private final List<LibraryFile> library = new ArrayList<LibraryFile>();
+  private final List<SogniSection> sogniSections = new ArrayList<SogniSection>();
   private long nextId = 1;
 
   /**
@@ -1157,7 +1169,7 @@ public final class PromptVault {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
-    out.writeInt(8);
+    out.writeInt(9);
     blobsUsed.clear();
     out.writeInt(categories.size());
     for (int i = 0; i < categories.size(); i++) {
@@ -1210,7 +1222,8 @@ public final class PromptVault {
       writeUtf(out, version.resultText);
     }
     out.writeLong(nextId);
-    if (!library.isEmpty()) {
+    // Version 9: the library files, their dates and the Sogni sections always follow (counts of 0 too).
+    {
       out.writeInt(library.size());
       for (int i = 0; i < library.size(); i++) {
         LibraryFile image = library.get(i);
@@ -1231,6 +1244,13 @@ public final class PromptVault {
         out.writeLong(library.get(i).id);
         out.writeLong(library.get(i).created);
       }
+    }
+    out.writeInt(sogniSections.size());
+    for (SogniSection sec : sogniSections) {
+      out.writeLong(sec.id);
+      writeUtf(out, sec.app);
+      writeUtf(out, sec.text);
+      out.writeLong(sec.created);
     }
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
@@ -1272,7 +1292,7 @@ public final class PromptVault {
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
-    if (version < 1 || version > 8) throw new IllegalStateException("Prompt database is from a newer app");
+    if (version < 1 || version > 9) throw new IllegalStateException("Prompt database is from a newer app");
     fileVersion = version;
     int ncat = data.readInt();
     for (int i = 0; i < ncat; i++) {
@@ -1353,7 +1373,56 @@ public final class PromptVault {
         for (int i = 0; i < ndates && data.available() >= 16; i++) dates.put(data.readLong(), data.readLong());
         for (LibraryFile image : library) if (dates.containsKey(image.id)) image.created = dates.get(image.id);
       }
+      if (version >= 9 && data.available() >= 4) {
+        int nsec = data.readInt();
+        for (int i = 0; i < nsec; i++) {
+          SogniSection sec = new SogniSection();
+          sec.id = data.readLong();
+          sec.app = readUtf(data);
+          sec.text = readUtf(data);
+          sec.created = data.readLong();
+          sogniSections.add(sec);
+        }
+      }
     }
+  }
+
+  // ------------------------------------------------------------ Sogni sections (Params > Save, Browse sections)
+
+  /** A program's saved sections, newest first. */
+  public synchronized List<SogniSection> sogniSections(String app) {
+    List<SogniSection> out = new ArrayList<SogniSection>();
+    for (int i = sogniSections.size() - 1; i >= 0; i--) if (sogniSections.get(i).app.equalsIgnoreCase(app)) out.add(sogniSections.get(i));
+    return out;
+  }
+
+  /** The program's section with the same entries (SogniSections.same), or null. */
+  public synchronized SogniSection findSogniSection(String app, String text) {
+    for (SogniSection sec : sogniSections) if (sec.app.equalsIgnoreCase(app) && SogniSections.same(sec.text, text)) return sec;
+    return null;
+  }
+
+  /** The entries kept as the program's new section; null when the same is saved already. */
+  public synchronized SogniSection addSogniSection(String app, String text) throws Exception {
+    if (findSogniSection(app, text) != null) return null;
+    SogniSection sec = new SogniSection();
+    sec.id = nextId++;
+    sec.app = app;
+    sec.text = text;
+    sec.created = System.currentTimeMillis();
+    sogniSections.add(sec);
+    save();
+    return sec;
+  }
+
+  public synchronized boolean deleteSogniSection(long id) throws Exception {
+    for (int i = 0; i < sogniSections.size(); i++) {
+      if (sogniSections.get(i).id != id) continue;
+      sogniSections.remove(i);
+      save();
+      return true;
+    }
+    return false;
   }
 
   private static byte[] encrypt(byte[] plain) throws Exception {
@@ -1612,7 +1681,7 @@ public final class PromptVault {
 
   /** No prompts and no library files (the categories made at first do not count). */
   public synchronized boolean isEmpty() {
-    return prompts.isEmpty() && library.isEmpty();
+    return prompts.isEmpty() && library.isEmpty() && sogniSections.isEmpty();
   }
 
   /** "3 prompts, 4 versions, 12 files". */
@@ -1815,6 +1884,14 @@ public final class PromptVault {
           n.resultSize = n.resultBlob == null ? 0 : v.resultSize;
         }
         to.versions.add(n);
+      }
+      for (SogniSection sec : from.sogniSections) {
+        SogniSection n = new SogniSection();
+        n.id = sec.id;
+        n.app = sec.app;
+        n.text = sec.text;
+        n.created = sec.created;
+        to.sogniSections.add(n);
       }
       for (LibraryFile f : from.library) {
         LibraryFile n = new LibraryFile();

@@ -84,6 +84,7 @@ final class SavePromptDialog {
                     }
                     clip = javax.sound.sampled.AudioSystem.getClip();
                     clip.open(format, pcm, 0, pcm.length);
+                    SoundOut.volume(clip);
                 }
                 if (clip.isRunning()) {
                     clip.stop();

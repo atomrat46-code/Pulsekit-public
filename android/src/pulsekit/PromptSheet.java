@@ -231,6 +231,20 @@ public final class PromptSheet {
     }
   }
 
+  /** The open prompt's name when its fields differ from the version shown (not saved yet; File > Exit asks), else null. */
+  static String unsavedWhat() {
+    if (vault == null || promptId == 0 || prompt == null) return null;
+    PromptVault.Version v = loadedVersionId == 0 ? null : vault.version(loadedVersionId);
+    boolean differs = v == null ? text(prompt).trim().length() > 0
+        : !text(prompt).equals(n(v.body)) || !text(description).equals(n(v.description)) || !text(model).equals(n(v.model))
+            || !n(ref1Name).equals(n(v.ref1Name)) || !n(ref2Name).equals(n(v.ref2Name)) || !n(resultName).equals(n(v.resultName));
+    return differs ? (text(title).trim().length() > 0 ? text(title).trim() : "the prompt") : null;
+  }
+
+  private static String n(String s) {
+    return s == null ? "" : s;
+  }
+
   public static void save(Activity activity) {
     if (vault == null || promptId == 0) {
       toast(activity, "Open a prompt first");

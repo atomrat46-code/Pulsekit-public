@@ -2279,7 +2279,8 @@ public final class Engine {
     stem = stem.replaceAll("(?i)\\.(mid|midi|jar|zip|wav|wave|mp3|sng|fset|prj|pkp)$", "");
     stem = stem.replaceAll("[_-]+", " ").replaceAll("\\s+", " ").trim();
     if (stem.isEmpty() || stem.equalsIgnoreCase("document") || stem.equalsIgnoreCase("raw")) stem = "Import";
-    return stem.length() > 28 ? stem.substring(0, 28) : stem;
+    // Long enough for "SogniMusic run 12 Melodic Techno sft" (two names cut alike became "... 2").
+    return stem.length() > 48 ? stem.substring(0, 48).trim() : stem;
   }
 
   public static String fillNameFromFile(String filename, String kind) {
@@ -2307,7 +2308,8 @@ public final class Engine {
     stem = stem.replaceAll("(?i)\\s*\\b(fillern|pattern|fill|break|silent)\\s*$", "");
     stem = stem.replaceAll("\\s+", " ").trim();
     if (stem.isEmpty()) stem = "Import";
-    return stem.length() > 28 ? stem.substring(0, 28) : stem;
+    // Long enough for "SogniMusic run 12 Melodic Techno sft" (two names cut alike became "... 2").
+    return stem.length() > 48 ? stem.substring(0, 48).trim() : stem;
   }
 
   public static String midiFileName(String style, int bpm, String role, String fillLabel) {

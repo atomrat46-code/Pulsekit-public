@@ -1034,6 +1034,20 @@ final class PromptsPage {
         }
     }
 
+    /** The open prompt's name when its fields differ from the version shown (not saved yet; File > Exit asks), else null. */
+    String unsavedWhat() {
+        if (this.vault == null || this.promptId == 0 || this.promptBody == null) return null;
+        PromptVault.Version v = this.loadedVersionId == 0 ? null : this.vault.version(this.loadedVersionId);
+        boolean differs = v == null ? text(this.promptBody).trim().length() > 0
+            : !text(this.promptBody).equals(n(v.body)) || !text(this.promptDescription).equals(n(v.description)) || !text(this.promptModel).equals(n(v.model))
+                || !n(this.ref1Name).equals(n(v.ref1Name)) || !n(this.ref2Name).equals(n(v.ref2Name)) || !n(this.resultName).equals(n(v.resultName));
+        return differs ? this.titleText() : null;
+    }
+
+    private static String n(String s) {
+        return s == null ? "" : s;
+    }
+
     /** Save: the open version's fields and files replaced, under the same version (a prompt without one gets its first). */
     void saveInPlace() {
         PromptVault.Version shown = this.loadedVersionId == 0 ? null : this.vault.version(this.loadedVersionId);

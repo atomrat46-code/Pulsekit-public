@@ -135,6 +135,9 @@ final class Playback {
         if (this.synth == null) {
             return;
         }
+        // Sound devices > Playback volume: the synth's master volume.
+        SoundOut.synth = this.synth;
+        SoundOut.synthVolume();
         try {
             MidiChannel midiChannel = this.synth.getChannels()[9];
             if (midiChannel != null) {

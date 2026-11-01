@@ -27,6 +27,22 @@ final class CodeSave {
         this.app = app;
     }
 
+    /** Edited by hand (typing or pasting while the editor has focus) since it was loaded or saved (File > Exit asks). */
+    boolean dirty;
+
+    /** Watches the editor: an edit while it has focus is a change; text put in while it has not (a program loaded) is not. */
+    void watch(android.widget.EditText editor) {
+        editor.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void afterTextChanged(android.text.Editable e) {
+                CodeSave.this.dirty = editor.hasFocus();
+            }
+        });
+    }
+
     boolean canSave() {
         if (app.pkPyBytes != null) return false;
         String n = this.name().toLowerCase();
@@ -96,6 +112,7 @@ final class CodeSave {
                 out.close();
             }
             app.setNow("Saved " + this.name());
+            this.dirty = false;
             return true;
         } catch (Exception ex) {
             app.setNow("Could not save " + this.name());

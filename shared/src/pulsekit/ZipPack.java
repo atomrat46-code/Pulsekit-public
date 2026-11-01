@@ -71,9 +71,10 @@ public final class ZipPack {
     }
 
     InputStream open() throws IOException {
-      if (this.file != null) return new FileInputStream(this.file);
-      if (this.data != null) return new java.io.ByteArrayInputStream(this.data);
-      return this.opener.open();
+      // Its bytes counted as read, when the work is watched (WorkProgress).
+      if (this.file != null) return WorkProgress.counted(new FileInputStream(this.file));
+      if (this.data != null) return WorkProgress.counted(new java.io.ByteArrayInputStream(this.data));
+      return WorkProgress.counted(this.opener.open());
     }
   }
 
@@ -708,7 +709,10 @@ public final class ZipPack {
   private static void copyOut(InputStream in, OutputStream out) throws IOException {
     byte[] buf = new byte[65536];
     int n;
-    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+    while ((n = in.read(buf)) > 0) {
+      out.write(buf, 0, n);
+      WorkProgress.count(n);
+    }
   }
 
   private static void readFully(InputStream in, byte[] b) throws IOException {

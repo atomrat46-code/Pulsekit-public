@@ -6568,7 +6568,14 @@ public final class DesktopBehavior {
     edt(() -> list.setSelectedItem(DbSlots.MAIN));
     edt(() -> ((javax.swing.AbstractButton) component(d, "db-use")).doClick());
     out.append("Import: ").append(imported).append(" | DBs ").append(DbSlots.names(dir)).append(" | Use Pulse -> ").append(inUse).append('\n');
-    boolean importOk = imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
+    // Sending and importing showed their progress in a window while they ran.
+    String seen;
+    synchronized (dialogs) {
+      seen = this.out + String.join("\n", dialogs);
+    }
+    boolean progressShown = seen.contains("dialog \"" + DbSlots.SEND + "\"") && seen.contains("dialog \"" + DbSlots.IMPORT + ": pulsekit-db-Pulse");
+    out.append("progress windows shown: ").append(progressShown).append('\n');
+    boolean importOk = progressShown && imported != null && imported.startsWith("Imported the DB as Pulse") && inUse.equals("Pulse: " + before + ", encrypted true") && DbSlots.MAIN.equals(DbSlots.active(dir));
     // Another computer's DB: its key typed.
     PromptVault.Keys own = PromptVault.keys;
     final byte[] other = new byte[32];
@@ -8284,6 +8291,7 @@ public final class DesktopBehavior {
     final javax.swing.JList<File> list = (javax.swing.JList<File>) component(d, "browser-list");
     // Folders\u2026: the VST3 and VST2 types in "plugins", CLAP there too, the kits in "my kits".
     final boolean[] saved = new boolean[1];
+    final String[] foldersShown = new String[1];
     final java.util.function.Consumer<JDialog>[] folderHook = newHook();
     folderHook[0] = w -> {
       if (!"Plugin folders".equals(w.getTitle())) {
@@ -8292,17 +8300,22 @@ public final class DesktopBehavior {
       }
       @SuppressWarnings("unchecked")
       javax.swing.JComboBox<String> type = (javax.swing.JComboBox<String>) component(w, "folders-type");
-      javax.swing.JTextArea paths = (javax.swing.JTextArea) component(w, "folders-paths");
-      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2}) {
+      javax.swing.JComboBox<?> paths = (javax.swing.JComboBox<?>) component(w, "folders-list");
+      // Each type's list: Delete empties it, Add folder… browses ("Folder"), Change… edits the one shown.
+      for (String t : new String[] {PluginLibrary.VST3, PluginLibrary.VST2, PluginLibrary.LV2, PluginLibrary.CLAP, PluginLibrary.SF2, PluginLibrary.SFZ}) {
         type.setSelectedItem(t);
-        paths.setText(t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.LV2) ? "" : vst.getAbsolutePath());
-        if (t.equals(PluginLibrary.SF2)) {
-          answersFor.put("Folder", kits.getAbsolutePath());
-          ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        while (paths.getItemCount() > 0) ((javax.swing.JButton) component(w, "folders-delete")).doClick();
+        if (t.equals(PluginLibrary.LV2)) continue;
+        boolean kit = t.equals(PluginLibrary.SF2) || t.equals(PluginLibrary.SFZ);
+        answersFor.put("Folder", kit ? home.getAbsolutePath() : vst.getAbsolutePath());
+        ((javax.swing.JButton) component(w, "folders-add")).doClick();
+        if (kit) {
+          answersFor.put("Change " + home.getAbsolutePath(), kits.getAbsolutePath());
+          ((javax.swing.JButton) component(w, "folders-change")).doClick();
         }
       }
-      type.setSelectedItem(PluginLibrary.SFZ);
-      paths.setText(kits.getAbsolutePath());
+      type.setSelectedItem(PluginLibrary.SF2);
+      foldersShown[0] = paths.getItemCount() + " " + paths.getSelectedItem();
       ((javax.swing.JButton) component(w, "folders-save")).doClick();
       saved[0] = true;
     };
@@ -8310,6 +8323,9 @@ public final class DesktopBehavior {
     SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "browser-folders")).doClick());
     for (int i = 0; i < 100 && !saved[0]; i++) Thread.sleep(100);
     idle();
+    // SF2's list after Add folder… and Change…: one folder, the kits.
+    this.out.append("SF2 folders in the list: ").append(foldersShown[0] == null ? "none" : foldersShown[0].replace(home.getAbsolutePath(), "~")).append('\n');
+    if (!("1 " + kits.getAbsolutePath()).equals(foldersShown[0])) throw new AssertionError(this.out.toString());
     final StringBuilder seen = new StringBuilder();
     final java.util.function.Function<String, File> pick = name -> {
       for (int i = 0; i < list.getModel().getSize(); i++) if (PluginLibrary.name(list.getModel().getElementAt(i)).equals(name)) {
@@ -8365,7 +8381,7 @@ public final class DesktopBehavior {
       seen.append("types: ").append(PluginBrowser.lastSaid.split("\n\n")[1].split("\n")[0]).append(" | ").append(PluginBrowser.lastSaid.contains("SFZ (.sfz)  desktop: yes, Android: yes")).append('\n');
       pick.apply("Surge");
       ((javax.swing.JButton) component(d, "browser-use")).doClick();
-      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append('\n');
+      seen.append("Use Surge: ").append(PluginBrowser.lastSaid).append(" | args ").append(app.pyJav.pyExtra.getText().replace(home.getAbsolutePath(), "~")).append('\n');
       pick.apply("Jazz");
       ((javax.swing.JButton) component(d, "browser-test")).doClick();
     });
@@ -8389,7 +8405,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("found: Anarchy Drums, Jazz, Old Drums, Rock, Surge (5 of 5)") && all.contains("Rock line: \u2605 Rock  [SF2]  Drum kits / Live  #metal #fast")
         && all.contains("type SFZ: Jazz\n") && all.contains("category Drum kits: Anarchy Drums, Rock\n") && all.contains("tag fast: Rock\n") && all.contains("favourites: Rock\n")
         && all.contains("search live: Rock\n") && all.contains("My order after Up on Old Drums: Anarchy Drums, Old Drums, Jazz, Rock, Surge") && all.contains("| true")
-        && all.contains("Use Surge: Surge: Listed only") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].startsWith("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath())
+        && all.contains("Use Surge: vst_render.py plays through Surge (--plugin): give the MIDI, then Run | args --plugin ~/plugins/Surge.clap\n") && all.contains("Test Jazz: Test beat with Jazz") && args[0] != null && args[0].equals("--plugin \"" + new File(vst, "Anarchy Drums.vst3").getAbsolutePath() + "\"")
         && shared && library.contains("Drum kits\tLive\tmetal,fast");
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -8533,6 +8549,559 @@ public final class DesktopBehavior {
         .append(" | dialog shown ").append(shown).append('\n');
     if (!"aaaa1111-bbbb".equals(read) || none != null || !madeHas || plainHas || !shown) throw new AssertionError(this.out.toString());
   }
+
+  /**
+   * SogniMusic --compare_models turbo,sft: one run per model on a fake Sogni, each track saved with
+   * its model in its name, then PyJav measures them and ranks them under the run's log.
+   */
+  void s172_sogni_music_compare_models() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> asked = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_cmp\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) asked.add(body.replaceAll(".*\"model\":\"([a-z0-9]+)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_cmp" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--genre Rock --drums_only --bpm 120 --duration 10 --compare_models turbo,sft --compare_to_file_sets --zip --no_wav --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 1200 && !(text = log.getText()).contains("Drums % is") && !text.contains("Could not compare"); i++) Thread.sleep(100);
+      idle();
+      String compared = text;
+      // --compare_to_file_sets: DrumMidi_CRT on each track, each into its own file set.
+      for (int i = 0; i < 1800 && !((text = log.getText()).contains("File sets made:") && text.contains("Drums % is") && text.contains("Zipped ")) && !text.contains("File sets stopped")
+          && !text.contains("Could not zip"); i++) Thread.sleep(100);
+      idle();
+      List<String> sets = new ArrayList<String>();
+      for (String src : Engine.fileSetSources(((Pulsekit) frame).learned, ((Pulsekit) frame).learnedFills)) if (src.startsWith("SogniMusic run")) sets.add(src);
+      Collections.sort(sets);
+      out.append("chain: ").append(text.replaceAll("(?s).*(File sets (made|stopped)[^\\n]*).*", "$1")).append('\n');
+      boolean rankingAgain = text.indexOf("Model comparison") > text.indexOf("File sets made:") && text.indexOf("File sets made:") >= 0;
+      out.append("ranking shown again at the end: ").append(rankingAgain).append('\n');
+      out.append("file sets: ").append(sets).append('\n');
+      text = compared + "\n" + text;
+      for (String line : text.split("\n")) {
+        String t = line.trim();
+        if (t.startsWith("Comparing") || t.startsWith("Compared:") || t.startsWith("Succeeded") || t.startsWith("Model comparison") || t.matches("\\d\\. .*") || t.startsWith("Best:"))
+          out.append("  ").append(t.replaceAll("\\d+ BPM", "<n> BPM").replaceAll("drums \\d+%", "drums <n>%").replaceAll("score \\d+", "score <n>")).append('\n');
+      }
+      out.append("models asked: ").append(asked).append('\n');
+      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-ranking.txt");
+      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-ranking.txt");
+      boolean rankingKept = ranking.isFile() && new String(Files.readAllBytes(ranking.toPath()), StandardCharsets.UTF_8).contains("Model comparison");
+      out.append("ranking saved: ").append(rankingKept).append('\n');
+      // --zip: everything in one zip (the tracks, their WAVs, DrumMidi's MIDI and results, the ranking, the logs).
+      File zip = new File(home, "Downloads/sogni-Rock-cmp1.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-Rock-cmp1.zip");
+      List<String> inZip = new ArrayList<String>();
+      if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
+      Collections.sort(inZip);
+      out.append("zip: ").append(inZip).append('\n');
+      List<String> want = java.util.Arrays.asList("DrumMidi_CRT SogniMusic run 1 sft log.txt", "DrumMidi_CRT SogniMusic run 1 turbo log.txt", "SogniMusic log.txt",
+          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-ranking.txt", "sogni-Rock-cmp1-sft.mp3", "sogni-Rock-cmp1-sft.wav",
+          "sogni-Rock-cmp1-turbo.mp3", "sogni-Rock-cmp1-turbo.wav");
+      boolean zipped = inZip.containsAll(want);
+      // (SogniMusic's own "Compared:" lines may be gone by now: each DrumMidi run has its own log; the ranking is shown again.)
+      boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-\\w+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-\\w+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
+          && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
+          && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain && rankingKept && zipped;
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * SogniMusic --random 2 --styles Funk|Metal --model turbo,sft: a track of each style with each model
+   * on a fake Sogni, measured, the tracks into one file set a model (SogniMusic run 1 turbo, ... sft),
+   * not one a track, and all zipped (sogni-random-7.zip).
+   */
+  void s173_sogni_music_random() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> prompts = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_rnd\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) prompts.add(body.replaceAll(".*\"prompt\":\"([^\"]*)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_rnd" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 2 --styles \"Funk|Metal\" --model turbo,sft --seed 7 --compare_to_file_sets --zip --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !((text = log.getText()).contains("File sets made:") && text.contains("Zipped ")) && !text.contains("File sets stopped")
+          && !text.contains("Could not zip") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      List<String> sets = new ArrayList<String>();
+      for (String src : Engine.fileSetSources(((Pulsekit) frame).learned, ((Pulsekit) frame).learnedFills)) if (src.startsWith("SogniMusic run")) sets.add(src);
+      Collections.sort(sets);
+      File zip = new File(home, "Downloads/sogni-random-7.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-random-7.zip");
+      List<String> inZip = new ArrayList<String>();
+      if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
+      Collections.sort(inZip);
+      boolean styled = prompts.size() == 4 && prompts.stream().anyMatch(p -> p.contains("Funk drum pattern")) && prompts.stream().anyMatch(p -> p.contains("Metal drum pattern"));
+      out.append("prompts: ").append(prompts.size()).append(", styles in them: ").append(styled).append('\n');
+      out.append("file sets: ").append(sets).append('\n');
+      out.append("zip: ").append(inZip.toString().replaceAll("rnd\\d", "rnd<n>")).append('\n');
+      boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
+          && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
+          && text.contains("(2 tracks)") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+  /**
+   * SogniMusic --random 3 --model turbo,sft --styles "Funk, Hard Rock" with no tempo, key, meter or
+   * length given: each drawn style made with both models (6 runs), each track's tempo, key, meter and
+   * length drawn (the same for both models), its files named with the model.
+   */
+  void s180_sogni_music_random_models_drawn() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> prompts = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_rnd\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) prompts.add(body.replaceAll(".*\"prompt\":\"([^\"]*)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_rnd" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --random 3 --model turbo,sft --styles \"Funk, Hard Rock\" --seed 7 --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !(text = log.getText()).contains("Succeeded:") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      List<String> styleLines = new ArrayList<String>();
+      for (String line : text.split("\n")) if (line.startsWith("Style ") && line.contains("BPM")) styleLines.add(line);
+      List<String> made = new ArrayList<String>();
+      for (String line : text.split("\n")) if (line.startsWith("Compared: ")) made.add(line.substring(10).replaceAll("[0-9a-f]{8}", "<id>"));
+      String summary = "";
+      for (String line : text.split("\n")) if (line.startsWith("Random styles: ")) summary = line;
+      out.append("starts: ").append(prompts.size()).append("\n").append(summary.replaceAll("seed \\d+", "seed N")).append('\n');
+      for (String l : styleLines) out.append(l.replaceAll("\\d+ BPM", "N BPM").replaceAll("Duration: \\d+ s", "Duration: N s").replaceAll("Key: [A-G][#b]? (major|minor)", "Key: K")
+          .replaceAll("Time signature: [0-9/]+", "Time signature: T").replaceAll(" \u00b7 .*", "")).append('\n');
+      out.append("made: ").append(made).append('\n');
+      boolean ok = prompts.size() == 6 && summary.contains("3 tracks, each made with turbo and sft (6 runs, each paid for)")
+          && summary.contains("drawn for each track: tempo, key, time signature, length") && styleLines.size() == 3
+          && styleLines.get(0).matches("Style [A-Za-z ]+: Tempo: \\d+ BPM\\. Duration: \\d+ s\\. Time signature: [0-9/]+\\. Key: [A-G][#b]? (major|minor)\\..*")
+          && made.size() == 6 && made.stream().filter(m -> m.contains("-turbo ")).count() == 3 && made.stream().filter(m -> m.contains("-sft ")).count() == 3
+          && made.stream().anyMatch(m -> m.contains("Hard")) && made.stream().anyMatch(m -> m.startsWith("Funk"));
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * File > Back up Pulsekit / restore on the desktop: ~/.pulsekit's settings,
+   * patterns, playlists, Sogni history and prompt library into a zip with a password (no API key,
+   * no DB key or DB files in it), all of it back after it was gone.
+   */
+  void s174_backup_and_restore() throws Exception {
+    File root = PromptDb.dir();
+    Files.write(new File(root, "learned.json").toPath(), "{\"patterns\":[\"kept groove\"]}".getBytes(StandardCharsets.UTF_8));
+    new File(root, "playlists").mkdirs();
+    Files.write(new File(root, "playlists/drums.pls").toPath(), "[playlist]\nFile1=a.wav\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "favourite-categories.txt").toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    new File(root, "sogni").mkdirs();
+    Files.write(new File(root, "sogni/sogni_credentials").toPath(), "SOGNI_API_KEY=secret\n".getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptVault.open(root);
+    long kept = vault.addPrompt(vault.categories().get(0).id, "Kept prompt");
+    vault.addVersion(kept, "Kept prompt", "", "funk groove", "", "", null, "", null, "", null, "ai", "");
+    String before = vault.summary();
+    java.util.Set<String> all = new java.util.LinkedHashSet<String>(java.util.Arrays.asList(AppBackup.PARTS));
+    File zip = new File(System.getProperty("user.home"), "backup-test.zip");
+    String said = AppBackup.backup(root, null, all, "pass1234".toCharArray(), zip, BackupScreen.tmp(), "test");
+    List<String> names = new ArrayList<String>();
+    for (ZipPack.Entry e : ZipPack.list(zip)) names.add(e.name);
+    boolean noSecrets = names.stream().noneMatch(n -> n.contains("credentials") || n.endsWith(".key") || PromptVault.isDbFile(n.substring(n.lastIndexOf('/') + 1)));
+    new File(root, "learned.json").delete();
+    new File(root, "playlists/drums.pls").delete();
+    new File(root, "favourite-categories.txt").delete();
+    for (File f : root.listFiles()) if (PromptVault.isDbFile(f.getName())) f.delete();
+    PromptVault.forget();
+    String back = AppBackup.restore(zip, "pass1234".toCharArray(), all, root, null, BackupScreen.tmp());
+    PromptVault.forget();
+    String after = PromptVault.open(root).summary();
+    boolean filesBack = new File(root, "learned.json").isFile() && new File(root, "playlists/drums.pls").isFile() && new File(root, "favourite-categories.txt").isFile();
+    this.out.append("no API key, DB key or DB file in it: ").append(noSecrets).append('\n')
+        .append("restore: ").append(back.replaceAll("\\d+ files", "<n> files")).append(" | files back: ").append(filesBack)
+        .append(" | prompt library before ").append(before).append(", after ").append(after).append('\n');
+    if (!noSecrets || !filesBack || !after.equals(before) || !said.startsWith("Backed up")) throw new AssertionError(this.out.toString() + "\n" + said);
+  }
+
+  /**
+   * A few thoughts, as on Android: a definitions file (App:, Prompt:, Loras:, ---- between them)
+   * fills SogniPedit's Params rows; a song's Save song / Save song as writes its .sng and .mid;
+   * File > Exit lists the code editor's unsaved edit and asks.
+   */
+  void s175_param_defs_save_song_exit() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String defs = "App: SogniPedit\nPrompt: a portrait in soft window light,\n  film grain\nLoras: skin-detail:0.8\n----\nPrompt: the second one\nLoras: film-look:0.5\n----\nApp: SogniVideo\nPrompt: a video one\n";
+    final File f = new File(home, "pedit-defs.txt");
+    Files.write(f.toPath(), defs.getBytes(StandardCharsets.UTF_8));
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final String[] got = new String[2];
+    PyJav.pickDef = 1;
+    inspectNext = d -> {
+      javax.swing.JTextArea prompt = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) if (pj.shownParams.get(i).token.equals("--prompt")) prompt = pj.shownAreas[i];
+      pj.promptFrom(prompt, f);
+      got[0] = prompt.getText();
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        if (!pj.shownParams.get(i).token.equals("--loras")) continue;
+        got[1] = pj.shownAreas[i] != null ? pj.shownAreas[i].getText() : pj.shownFields[i].getText();
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pickDef = null;
+    this.out.append("second definition: prompt ").append(got[0]).append(" | loras ").append(got[1]).append('\n');
+    boolean filled = "the second one".equals(got[0]) && "film-look:0.5".equals(got[1]);
+    // Save song / Save song as.
+    answers.add("Yes");
+    call("ingest", Engine.encodeSongMidi(songParts()), "Kept Song.mid");
+    @SuppressWarnings("unchecked")
+    final List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    final SongEditor se = (SongEditor) get("songEditor");
+    final Engine.ImportedSong song = songs.get(songs.size() - 1);
+    edt(() -> se.saveSongFiles(song));
+    String saved = SongEditor.lastSaved;
+    SongEditor.saveAsName = "Renamed Song";
+    edt(() -> se.saveSongAs(song));
+    SongEditor.saveAsName = null;
+    String savedAs = SongEditor.lastSaved;
+    boolean files = saved.contains(".sng") && saved.contains(".mid") && savedAs.contains("Renamed Song.sng") && savedAs.contains("Renamed Song.mid")
+        && new File(savedAs.substring(6, savedAs.indexOf(".sng") + 4)).isFile();
+    this.out.append("save song: .sng and .mid ").append(files).append(" | renamed ").append(song.name).append('\n');
+    // File > Exit: a loaded program is no edit; a typed one is listed and asked about.
+    final Pulsekit app = (Pulsekit) frame;
+    boolean cleanAfterLoad = ExitScreen.unsaved(app).isEmpty();
+    app.codeSave.dirty = true;
+    List<String> open = ExitScreen.unsaved(app);
+    ExitScreen.keepRunning = true;
+    ExitScreen.exited = false;
+    ExitScreen.answer = 1;
+    edt(() -> ExitScreen.show(app));
+    ExitScreen.answer = null;
+    app.codeSave.dirty = false;
+    this.out.append("after load nothing unsaved: ").append(cleanAfterLoad).append(" | unsaved: ").append(open).append(" | asked: ")
+        .append(ExitScreen.asked != null && ExitScreen.asked.contains("Do you want to save the changes?")).append(" | exit without saving: ").append(ExitScreen.exited).append('\n');
+    if (!filled || !files || !"Renamed Song".equals(song.name) || !cleanAfterLoad || open.size() != 1 || !open.get(0).startsWith("Code editor: SogniPedit") || !ExitScreen.exited)
+      throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * General settings > Storage, as on Android: the folders' sizes; temporary files older than the
+   * days set deleted when Pulsekit starts (newer ones kept); Clear temporary files deletes them all;
+   * the prompt library and settings never touched.
+   */
+  void s176_storage_and_temporary_files() throws Exception {
+    File in = new File(PromptDb.dir(), "pyjav-in");
+    in.mkdirs();
+    File old = new File(in, "old-video.mp4");
+    File fresh = new File(in, "fresh-video.mp4");
+    Files.write(old.toPath(), new byte[300000]);
+    Files.write(fresh.toPath(), new byte[200000]);
+    old.setLastModified(System.currentTimeMillis() - 20 * 86400000L);
+    File kept = new File(PromptDb.dir(), "favourite-categories.txt");
+    Files.write(kept.toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    String auto = Storage.clearOld(StorageScreen.places(), AppSettings.tempDays());
+    String sizes = String.join("\n", Storage.lines(StorageScreen.places()));
+    this.out.append("days set at first: ").append(AppSettings.tempDays()).append(" | at the start: ").append(auto).append(" | old gone ").append(!old.exists())
+        .append(", fresh kept ").append(fresh.isFile()).append('\n');
+    this.out.append("sizes:\n").append(sizes.replaceAll("[0-9.]+ (KB|MB|bytes|GB)", "<size>")).append('\n');
+    // General settings shows the section; Clear temporary files deletes the rest.
+    final Pulsekit app = (Pulsekit) frame;
+    final JDialog[] shown = new JDialog[1];
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    for (int i = 0; i < 100 && shown[0] == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) shown[0] = (JDialog) w;
+    }
+    StorageScreen.answer = true;
+    edt(() -> ((javax.swing.AbstractButton) component(shown[0], "storage-clear")).doClick());
+    StorageScreen.answer = null;
+    edt(() -> shown[0].dispose());
+    this.out.append("clear: ").append(StorageScreen.lastSaid).append(" | fresh gone ").append(!fresh.exists()).append(", settings kept ").append(kept.isFile()).append('\n');
+    boolean ok = AppSettings.tempDays() == 14 && auto != null && auto.startsWith("Deleted 1 temporary file older than 14 days") && !old.exists()
+        && sizes.contains("Program inputs and outputs: ") && sizes.contains("(temporary)") && shown[0] != null && StorageScreen.lastSaid != null
+        && StorageScreen.lastSaid.startsWith("Deleted ") && !fresh.exists() && kept.isFile();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * Sound devices, as on Android: Playback volume and Recording level sliders kept in the settings;
+   * an input's Test opens a window with a level meter, Record, Stop, Play and Save, and says when
+   * the input is not there.
+   */
+  void s177_input_test_and_levels() throws Exception {
+    final String[] seen = new String[2];
+    inspectNext = w -> {
+      ((javax.swing.JSlider) component(w, "sound-play-volume")).setValue(40);
+      ((javax.swing.JSlider) component(w, "sound-record-level")).setValue(200);
+      seen[0] = ((javax.swing.JLabel) component(w, "sound-play-volume-label")).getText() + ", " + ((javax.swing.JLabel) component(w, "sound-record-level-label")).getText();
+    };
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> SoundDevicesScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 100 && seen[0] == null; i++) Thread.sleep(100);
+    idle();
+    String kept = AppSettings.playVolume() + "/" + AppSettings.recordLevel();
+    SoundDevices.Device gone = new SoundDevices.Device(SoundDevices.IN, "Gone Microphone", "DirectSound", "");
+    InputTestScreen.lastSaid = "";
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> InputTestScreen.show((Pulsekit) frame, frame, gone));
+    for (int i = 0; i < 100 && !InputTestScreen.lastSaid.startsWith("Could not listen"); i++) Thread.sleep(50);
+    idle();
+    final JDialog t = InputTestScreen.last;
+    boolean parts = t != null && component(t, "input-meter") != null && component(t, "input-record") != null && component(t, "input-stop") != null
+        && component(t, "input-play") != null && component(t, "input-save") != null;
+    edt(() -> ((javax.swing.AbstractButton) component(t, "input-play")).doClick());
+    seen[1] = ((javax.swing.JLabel) component(t, "input-state")).getText();
+    edt(() -> t.dispose());
+    AppSettings.setPlayVolume(100);
+    AppSettings.setRecordLevel(100);
+    this.out.append("sliders: ").append(seen[0]).append(" | kept ").append(kept).append('\n')
+        .append("test window: ").append(t == null ? "none" : t.getTitle()).append(" | parts ").append(parts).append(" | ").append(InputTestScreen.lastSaid)
+        .append(" | Play with nothing recorded: ").append(seen[1]).append('\n');
+    boolean ok = "Playback volume: 40%, Recording level: 200%".equals(seen[0]) && "40/200".equals(kept) && parts
+        && InputTestScreen.lastSaid.equals("Could not listen to Gone Microphone: Gone Microphone is not connected") && "Record something first".equals(seen[1]);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+  /**
+   * vst_render --clap (and --plugin x.clap): a CLAP plugin's ids read from its clap_entry, the
+   * plugin put into Carla's Carla-Rack as Carla writes a CLAP plugin (Binary, Identifier), a wrong
+   * --clap_id refused, --plugin x.clap played as --clap in the rack. A tiny CLAP library is
+   * compiled for it (with cc; skipped where there is no C compiler).
+   */
+  void s178_vst_render_clap() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "clap-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File src = new File(dir, "two.c");
+    Files.write(src.toPath(), (""
+        + "#include <stdint.h>\n"
+        + "#include <stdbool.h>\n"
+        + "#include <string.h>\n"
+        + "typedef struct { uint32_t major, minor, revision; } v_t;\n"
+        + "typedef struct { v_t v; const char *id, *name, *vendor, *url, *manual_url, *support_url, *version, *description; const char *const *features; } desc_t;\n"
+        + "typedef struct fac { uint32_t (*count)(const struct fac*); const desc_t *(*get)(const struct fac*, uint32_t); void *create; } fac_t;\n"
+        + "static const char *const feats[] = {\"instrument\", 0};\n"
+        + "static const desc_t d[2] = {{{1,2,2},\"org.pulsekit.testdrums\",\"Test Drums\",\"Pulsekit\",\"\",\"\",\"\",\"1.0\",\"\",feats},{{1,2,2},\"org.pulsekit.testbass\",\"Test Bass\",\"Pulsekit\",\"\",\"\",\"\",\"1.0\",\"\",feats}};\n"
+        + "static uint32_t count(const fac_t *f) { return 2; }\n"
+        + "static const desc_t *get(const fac_t *f, uint32_t i) { return i < 2 ? &d[i] : 0; }\n"
+        + "static const fac_t factory = {count, get, 0};\n"
+        + "static bool init(const char *p) { return true; }\n"
+        + "static void deinit(void) {}\n"
+        + "static const void *get_factory(const char *id) { return strcmp(id, \"clap.plugin-factory\") == 0 ? &factory : 0; }\n"
+        + "typedef struct { v_t v; bool (*init)(const char*); void (*deinit)(void); const void *(*get_factory)(const char*); } entry_t;\n"
+        + "__attribute__((visibility(\"default\"))) const entry_t clap_entry = {{1,2,2}, init, deinit, get_factory};\n"
+        + "\n").getBytes(StandardCharsets.UTF_8));
+    File clap = new File(dir, "Test Synth.clap");
+    String cc = PythonRun.runFor(java.util.Arrays.asList("cc", "-shared", "-fPIC", "-o", clap.getAbsolutePath(), src.getAbsolutePath()), 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--clap")) label = q.label + (q.plugin ? " (plugin)" : "");
+    String how = PluginLibrary.type(PluginLibrary.CLAP).how;
+    this.out.append("Params: ").append(label).append("\nPlugin Browser: ").append(how).append('\n');
+    if (!clap.isFile()) {
+      this.out.append("no C compiler here (").append(cc).append("): the CLAP part is not run\n");
+      if (!label.startsWith("CLAP plugin (.clap)")) throw new AssertionError(this.out.toString());
+      return;
+    }
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    String check = ""
+        + "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "clap, d = sys.argv[2], sys.argv[3]\n"
+        + "\n"
+        + "class Rack:\n"
+        + "    \"\"\"Carla-Rack's state as the VST keeps it: a head, the project's length, its XML.\"\"\"\n"
+        + "    def __init__(self):\n"
+        + "        self.xml = b\"<?xml version='1.0' encoding='UTF-8'?>\\n<!DOCTYPE CARLA-PROJECT>\\n<CARLA-PROJECT VERSION='2.6'>\\n</CARLA-PROJECT>\\n\\0\"\n"
+        + "    def save_state(self, path):\n"
+        + "        open(path, 'wb').write(b'CcnK' + len(self.xml).to_bytes(4, 'big') + self.xml)\n"
+        + "    def load_state(self, path):\n"
+        + "        raw = open(path, 'rb').read()\n"
+        + "        self.xml = raw[raw.find(b'<?xml'):]\n"
+        + "\n"
+        + "r = Rack()\n"
+        + "print(vr.clap_plugins(clap))\n"
+        + "print(vr.clap_state(r, clap, 'org.pulsekit.testbass'))\n"
+        + "print('rack has %d plugin, Identifier %s' % (vr.rack_plugins(r), b'<Identifier>org.pulsekit.testbass</Identifier>' in r.xml))\n"
+        + "try:\n"
+        + "    vr.clap_pick(clap, 'nope')\n"
+        + "except SystemExit as e:\n"
+        + "    print('wrong id: %s' % e)\n"
+        + "seen = {}\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        seen.update(opts)\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "vr.carla_rack = lambda: '/fake/CarlaRack.vst3'\n"
+        + "try:\n"
+        + "    vr.main([os.path.join(d, 'x.mid'), '--plugin', clap])\n"
+        + "except SystemExit:\n"
+        + "    pass\n"
+        + "print('--plugin x.clap: --clap %s, --plugin %s' % (os.path.basename(seen.get('--clap') or ''), seen.get('--plugin')))\n"
+        + "\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), clap.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replace(dir.getAbsolutePath(), "~")).append('\n');
+    boolean ok = label.equals("CLAP plugin (.clap): Carla's rack plays it (Carla 2.6 or newer) (plugin)") && how.contains("Carla-Rack")
+        && said.contains("[('org.pulsekit.testdrums', 'Test Drums'), ('org.pulsekit.testbass', 'Test Bass')]")
+        && said.contains("CLAP plugin: Test Bass (org.pulsekit.testbass) in Carla-Rack") && said.contains("rack has 1 plugin, Identifier True")
+        && said.contains("Test Synth.clap has no plugin nope (it has org.pulsekit.testdrums, org.pulsekit.testbass)")
+        && said.contains("--plugin x.clap: --clap Test Synth.clap, --plugin /fake/CarlaRack.vst3");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+  /**
+   * Sogni Params, as on Android: Save (bottom left) keeps the prompt and LoRAs as the program's
+   * section (the same again is said so); Browse sections over unsaved entries asks, then loads it.
+   */
+  void s179_sogni_sections() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final String[] seen = new String[4];
+    PyJav.pickSection = 0;
+    PyJav.askSave = 1;
+    inspectNext = d -> {
+      javax.swing.JTextArea prompt = null, loras = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        javax.swing.text.JTextComponent c = pj.shownAreas[i] != null ? pj.shownAreas[i] : pj.shownFields[i];
+        if (pj.shownParams.get(i).token.equals("--prompt")) prompt = (javax.swing.JTextArea) c;
+        if (pj.shownParams.get(i).token.equals("--loras") && c instanceof javax.swing.JTextArea) loras = (javax.swing.JTextArea) c;
+      }
+      javax.swing.text.JTextComponent lorasRow = loras;
+      if (lorasRow == null) for (int i = 0; i < pj.shownParams.size(); i++) if (pj.shownParams.get(i).token.equals("--loras")) lorasRow = pj.shownFields[i];
+      prompt.setText("a portrait in soft window light,\nfilm grain");
+      lorasRow.setText("skin-detail:0.8");
+      ((javax.swing.AbstractButton) component(d, "params-save-section")).doClick();
+      seen[0] = PyJav.sectionSaid;
+      ((javax.swing.AbstractButton) component(d, "params-save-section")).doClick();
+      seen[1] = PyJav.sectionSaid;
+      prompt.setText("something else");
+      lorasRow.setText("");
+      ((javax.swing.AbstractButton) component(d, "params-sections:--prompt")).doClick();
+      seen[2] = PyJav.sectionSaid;
+      seen[3] = prompt.getText() + " | " + lorasRow.getText();
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pickSection = null;
+    PyJav.askSave = null;
+    java.util.List<PromptVault.SogniSection> kept = PromptDb.vault().sogniSections("SogniPedit");
+    String when = "\\d+\\.\\d+\\. \\d+:\\d+";
+    this.out.append("save: ").append(String.valueOf(seen[0]).replaceAll(when, "<when>")).append("\nagain: ").append(String.valueOf(seen[1]).replaceAll(when, "<when>"))
+        .append("\nbrowse: ").append(String.valueOf(seen[2]).replaceAll(when, "<when>")).append("\nloaded: ").append(seen[3])
+        .append("\nin the DB: ").append(kept.size()).append('\n');
+    boolean ok = seen[0] != null && seen[0].startsWith("Saved a SogniPedit section: a portrait in soft window light, film grain")
+        && seen[1].startsWith("This section is saved already") && seen[2].startsWith("Loaded: a portrait")
+        && seen[3].equals("a portrait in soft window light, film grain | skin-detail:0.8") && kept.size() == 1;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+
 
   @SuppressWarnings("unchecked")
   private static java.util.function.Consumer<JDialog>[] newHook() {

@@ -104,6 +104,23 @@ public final class AppSettings {
     set("logging", on);
   }
 
+  // ------------------------------------------------------------ Storage (General settings)
+
+  /** Temporary files older than these days are deleted when Pulsekit starts (0: never). */
+  public static synchronized int tempDays() {
+    String v = VALUES.get("tempDays");
+    try {
+      return v == null ? Storage.DEFAULT_DAYS : Math.max(0, Integer.parseInt(v.trim()));
+    } catch (NumberFormatException ex) {
+      return Storage.DEFAULT_DAYS;
+    }
+  }
+
+  public static synchronized void setTempDays(int days) {
+    if (locked()) return;
+    put("tempDays", String.valueOf(Math.max(0, days)));
+  }
+
   // ------------------------------------------------------------ Sound devices (File > Sound devices)
 
   /** The output Pulsekit plays through (SoundDevices.Device.key()), or "" for the system default. */
@@ -125,6 +142,44 @@ public final class AppSettings {
 
   public static synchronized void setMidiOut(String key) {
     put("midiOut", key == null || key.trim().isEmpty() ? null : key.trim());
+  }
+
+  /** Which input port of the MIDI output the drums go to (a device with several: an AAP plugin app has one an instrument). */
+  public static synchronized int midiOutPort() {
+    return percent("midiOutPort", 0, 255);
+  }
+
+  public static synchronized void setMidiOutPort(int port) {
+    put("midiOutPort", port <= 0 ? null : String.valueOf(port));
+  }
+
+  // ------------------------------------------------------------ Levels (File > Sound devices)
+
+  /** Pulsekit's players' volume, percent (100: as they are). */
+  public static synchronized int playVolume() {
+    return percent("playVolume", 100, 100);
+  }
+
+  public static synchronized void setPlayVolume(int p) {
+    put("playVolume", String.valueOf(Math.max(0, Math.min(100, p))));
+  }
+
+  /** The gain on what Pulsekit records, percent (100: as it comes; up to 400). */
+  public static synchronized int recordLevel() {
+    return percent("recordLevel", 100, 400);
+  }
+
+  public static synchronized void setRecordLevel(int p) {
+    put("recordLevel", String.valueOf(Math.max(0, Math.min(400, p))));
+  }
+
+  private static synchronized int percent(String key, int otherwise, int max) {
+    String v = VALUES.get(key);
+    try {
+      return v == null ? otherwise : Math.max(0, Math.min(max, Integer.parseInt(v.trim())));
+    } catch (NumberFormatException ex) {
+      return otherwise;
+    }
   }
 
   // ------------------------------------------------------------ Python (desktop)

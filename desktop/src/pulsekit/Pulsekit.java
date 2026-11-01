@@ -227,6 +227,8 @@ public final class Pulsekit extends UiKit {
         // File > Logs: errors nothing caught, and this start (when Logging on is ticked).
         Logs.catchErrors();
         Logs.started("Pulsekit " + Looks.version() + " (desktop)");
+        // General settings > Storage: temporary files older than the days set deleted.
+        StorageScreen.startup(this);
         this.drumSets.add(Engine.DrumSet.originalSet());
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;
@@ -721,6 +723,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem sound = new JMenuItem("Sound devices");
             sound.setName("file-sound-devices");
             sound.addActionListener(e -> SoundDevicesScreen.show(this));
+            // What reinstalling would lose, kept in a zip, and back from one (AppBackup).
+            JMenuItem backup = new JMenuItem(AppBackup.BACKUP + " / restore");
+            backup.setName("file-backup");
+            backup.addActionListener(e -> BackupScreen.show(this));
             // Playlists (.pls): the Editor and Viewer tabs.
             JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
             playlists.setName("file-playlists");
@@ -746,12 +752,18 @@ public final class Pulsekit extends UiKit {
             menu.add(downloads);
             menu.add(logs);
             menu.add(sound);
+            menu.add(backup);
             menu.add(playlists);
             menu.add(general);
             menu.add(dbSettings);
             menu.add(midi);
             menu.add(compare);
             menu.add(help);
+            // Exit: the editors' unsaved edits asked about first (ExitCheck).
+            JMenuItem exit = new JMenuItem(ExitCheck.EXIT);
+            exit.setName("file-exit");
+            exit.addActionListener(e -> ExitScreen.show(this));
+            menu.add(exit);
             MenuCancel.add(menu);
             menu.show(jButton, 0, jButton.getHeight());
         });

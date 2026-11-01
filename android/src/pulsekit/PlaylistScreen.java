@@ -95,7 +95,11 @@ final class PlaylistScreen {
         Playlist.saveSettings(dir, s);
     }
 
+    /** Playlists changed since they were last written to their .pls (File > Exit asks), by name. */
+    static final java.util.Set<String> edited = new java.util.LinkedHashSet<String>();
+
     static void save(MainActivity app, Playlist p) {
+        edited.add(p.name);
         try {
             Playlist.save(app.getFilesDir(), p);
         } catch (Exception ex) {
@@ -555,6 +559,7 @@ final class PlaylistScreen {
                 out.close();
             }
             app.setNow("Saved " + p.name + Playlist.EXT);
+            edited.remove(p.name);
             return true;
         } catch (Exception ex) {
             app.setNow("Could not save " + p.name + Playlist.EXT + ": " + ex.getMessage());

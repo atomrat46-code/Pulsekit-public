@@ -34,9 +34,28 @@ import java.util.Map;
  * (tempo, duration, time signature, key) follows the prompt. It is written before the key is
  * checked, so a prompt can be exported without one.
  *
- * --drums_only and --instruments write the instrumentation into the prompt ("drums only, no bass,
- * no melody..."). Sogni has no stem or negative-prompt control, so this steers the model rather
+ * --drums_only and --instruments write the instrumentation into the prompt ("drums only, acoustic
+ * drum kit alone, percussion only..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
+ *
+ * --compare_models turbo,sft,music3 (or all) makes the same request with each model, each a run of
+ * its own (paid for), its track named with the model (sogni-Rock-6f1262f1-turbo.mp3). PyJav then
+ * measures the tracks (the drums' share of the sound, the tempo, the length) and ranks them. With
+ * --compare_to_file_sets each track also goes through DrumMidi_CRT into a file set of its own,
+ * "SogniMusic run N <model>", so the models' drum MIDI can be compared too.
+ *
+ * --random N makes N tracks, each in a style drawn from --styles ("Rock|Funk|Metal", or with commas
+ * or one a line; PyJav passes Pulsekit's style list), no style twice until all are used, then again
+ * (5 tracks from 3 styles: the 3, then 2 of them); --seed repeats a draw. A list in --model
+ * (turbo,sft) makes each drawn style with each model. --bpm, --keyscale, --timesig and --duration
+ * left out are drawn for each track too (a tempo that suits the style's name, any key, mostly 4/4,
+ * 30 to 90 s). They are measured, made into file sets (--compare_to_file_sets) and zipped (--zip)
+ * as a comparison is.
+ *
+ * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
+ * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
+ * --zip_delete (with or without --zip): those files are deleted once the zip is saved; the zip
+ * and the file sets made in Pulsekit stay.
  *
  * In Pulsekit, PyJav also keeps the track as a WAV (<track>.wav beside it) unless --no_wav. --test
  * then tests Pulsekit's drum import on it: DrumMidi_CRT on the WAV (with the tempo asked, and the
@@ -152,19 +171,42 @@ public final class SogniMusic {
     String genre = null;
     boolean savePrompt = false;
     boolean deleteFromSogni = false;
+    String compareModels = null;
+    int randomCount = 0;
+    String styleList = null;
+    // Which settings were given (--random draws the others for each track).
+    boolean bpmGiven = false, keyGiven = false, timesigGiven = false, durationGiven = false;
+    long seed = System.currentTimeMillis() % 100000;
     // Off only when asked, on every run.
     SogniApi.noFilter = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
-      else if (a.equals("--bpm") && i + 1 < args.length) bpm = number(a, args[++i]);
-      else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
-      else if (a.equals("--keyscale") && i + 1 < args.length) keyscale = args[++i];
-      else if (a.equals("--timesig") && i + 1 < args.length) {
+      else if (a.equals("--bpm") && i + 1 < args.length) {
+        bpm = number(a, args[++i]);
+        bpmGiven = true;
+      } else if (a.equals("--duration") && i + 1 < args.length) {
+        duration = number(a, args[++i]);
+        durationGiven = true;
+      } else if (a.equals("--keyscale") && i + 1 < args.length) {
+        keyscale = args[++i];
+        keyGiven = keyscale.trim().length() > 0;
+      } else if (a.equals("--timesig") && i + 1 < args.length) {
         timesigText = args[++i];
         timesig = timesig(timesigText);
+        timesigGiven = true;
       }
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i];
+      else if (a.equals("--compare_models") && i + 1 < args.length) compareModels = args[++i];
+      else if (a.equals("--random") && i + 1 < args.length) randomCount = (int) number(a, args[++i]);
+      else if (a.equals("--styles") && i + 1 < args.length) styleList = args[++i];
+      else if (a.equals("--seed") && i + 1 < args.length) seed = (long) number(a, args[++i]);
+      // PyJav's, after a comparison: each track through DrumMidi into a file set of its own.
+      else if (a.equals("--compare_to_file_sets")) continue;
+      // PyJav's: everything the run makes (tracks, WAVs, MIDI, results, logs) zipped into Download at the end.
+      else if (a.equals("--zip")) continue;
+      // PyJav's: with --zip, the files zipped deleted once the zip is saved.
+      else if (a.equals("--zip_delete")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
@@ -203,12 +245,13 @@ public final class SogniMusic {
     if (testing && !drumsOnly && !(instruments != null && instruments.toLowerCase().matches("(?s).*(drum|kit|percussion).*"))) {
       say("Warning: --test checks the drums DrumMidi finds in the track; add --drums_only, or drums in --instruments (\"drums, bass\")");
     }
-    boolean steered = drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
+    boolean steered = randomCount > 0 || drumsOnly || (instruments != null && instruments.trim().length() > 0) || (genre != null && genre.trim().length() > 0);
     if ((prompt == null || prompt.trim().length() == 0) && !steered && workflowId == null) {
       say("Failed: give --prompt, --genre, --drums_only or --instruments, for example --prompt \"funk groove, slap bass, tight drums\"");
       usage();
       return 2;
     }
+    String userPrompt = prompt;
     prompt = musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
     if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
     if (keyscale != null && keyscale.trim().length() > 0) {
@@ -230,9 +273,51 @@ public final class SogniMusic {
       say("Failed: --timesig is beats per bar: 2, 3, 4 or 6 (also written 2/4, 3/4, 4/4 or 6/8)");
       return 2;
     }
+    // A list in --model (turbo,sft or all) is a comparison, as --compare_models is, when that is left empty.
+    List<String> randomModels = new ArrayList<String>();
+    if (compareModels == null && model != null && (model.matches(".*[,; ].*") || model.trim().equalsIgnoreCase("all"))) {
+      if (randomCount != 0) {
+        // --random with a list of models: each drawn style made with each of them.
+        for (String m : (model.trim().equalsIgnoreCase("all") ? "turbo,sft,music3" : model.trim().toLowerCase(java.util.Locale.ROOT)).split("[,; ]+")) {
+          if (m.length() == 0 || randomModels.contains(m)) continue;
+          if (!"turbo".equals(m) && !"sft".equals(m) && !"music3".equals(m)) {
+            say("Failed: --model lists turbo, sft and music3 (or all), not " + m);
+            return 2;
+          }
+          randomModels.add(m);
+        }
+        model = randomModels.isEmpty() ? "turbo" : randomModels.get(0);
+      } else {
+        compareModels = model;
+        say("Note: --model " + model + " lists models: they are compared (as --compare_models)");
+        String[] firstOne = model.trim().toLowerCase(java.util.Locale.ROOT).split("[,; ]+");
+        model = firstOne.length == 0 || firstOne[0].equals("all") ? "turbo" : firstOne[0];
+      }
+    }
+    if (randomModels.isEmpty()) randomModels.add(model);
     if (!"turbo".equals(model) && !"sft".equals(model) && !"music3".equals(model)) {
-      say("Failed: --model is turbo, sft or music3");
+      say("Failed: --model is turbo, sft or music3 (a list, such as turbo,sft, compares them)");
       return 2;
+    }
+    List<String> models = new ArrayList<String>();
+    if (compareModels != null) {
+      String list = compareModels.trim().toLowerCase(java.util.Locale.ROOT);
+      for (String m : (list.equals("all") ? "turbo,sft,music3" : list).split("[,; ]+")) {
+        if (m.length() == 0 || models.contains(m)) continue;
+        if (!"turbo".equals(m) && !"sft".equals(m) && !"music3".equals(m)) {
+          say("Failed: --compare_models lists turbo, sft and music3 (or all), not " + m);
+          return 2;
+        }
+        models.add(m);
+      }
+      if (models.size() < 2) {
+        say("Failed: --compare_models needs two or more models, such as turbo,sft (or all)");
+        return 2;
+      }
+      if (workflowId != null) {
+        say("Failed: --compare_models starts new runs, so leave out --workflow");
+        return 2;
+      }
     }
     if (duration < 10 || duration > 600) {
       say("Failed: --duration is 10 to 600 seconds");
@@ -243,6 +328,24 @@ public final class SogniMusic {
       File sheet = savePrompt(promptName(genre), "Sogni " + model, prompt + settingsLine(bpm, duration, timesig, keyscale));
       say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
     }
+    List<String> styles = new ArrayList<String>();
+    if (randomCount != 0) {
+      if (randomCount < 1 || randomCount > 50) {
+        say("Failed: --random makes 1 to 50 tracks");
+        return 2;
+      }
+      if (!models.isEmpty() || workflowId != null) {
+        say("Failed: --random makes its own runs: leave out --compare_models and --workflow");
+        return 2;
+      }
+      // The styles to draw from: --styles (PyJav passes Pulsekit's style list), else the --genre given.
+      for (String st : (styleList == null ? "" : styleList).split("[|;,\n]")) if (st.trim().length() > 0 && !styles.contains(st.trim())) styles.add(st.trim());
+      if (styles.isEmpty() && genre != null && genre.trim().length() > 0) styles.add(genre.trim());
+      if (styles.isEmpty()) {
+        say("Failed: --random needs styles to draw from: --styles \"Rock|Funk|Metal\" (PyJav gives Pulsekit's list)");
+        return 2;
+      }
+    }
     String key = SogniApi.findKey(keyFile);
     if (key == null) {
       say("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
@@ -250,7 +353,12 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
-    String input = SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
+    if (randomCount > 0) {
+      return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, randomModels, durationGiven ? duration : -1, bpmGiven ? bpm : -1,
+          keyGiven ? keyscale : null, timesigGiven ? timesig : -1, lyrics, confirm, maxCost, deleteFromSogni);
+    }
+    if (!models.isEmpty()) return compare(api, models, out, genre, prompt, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni, testing);
+    String input = musicInput(prompt, duration, bpm, keyscale, timesig, model, lyrics);
     if (workflowId != null) say("Fetching the result of workflow " + workflowId);
     else say("Music: " + prompt);
     say("Model " + model + ", " + SogniApi.number(duration) + " s"
@@ -308,9 +416,196 @@ public final class SogniMusic {
     return 0;
   }
 
+  /**
+   * The request for one model. Music 3 has no tempo, key or time-signature controls, so they go
+   * into its prompt, and it makes at most 300 s.
+   */
+  static String musicInput(String prompt, double duration, double bpm, String keyscale, int timesig, String model, String lyrics) {
+    if (!"music3".equals(model)) return SogniApi.musicInput("Pulsekit music", prompt, duration, bpm, keyscale, timesig, model, lyrics);
+    // Tempo, key and meter lead the prompt, where Music 3 heeds them most ("120 BPM, C major, 4/4. Solo drum kit...").
+    List<String> lead = new ArrayList<String>();
+    if (bpm > 0) lead.add(SogniApi.number(bpm) + " BPM");
+    if (keyscale != null) lead.add(keyscale);
+    if (timesig > 0) lead.add(timesig == 6 ? "6/8" : timesig + "/4");
+    String p = lead.isEmpty() ? prompt : String.join(", ", lead) + ". " + prompt;
+    // Its length is a ceiling: an instrumental without sections ends early (25 s of 120), so it gets a section skeleton.
+    String sections = lyrics != null && lyrics.trim().length() > 0 ? lyrics : music3Sections(duration);
+    return SogniApi.musicInput("Pulsekit music", p, Math.min(duration, 300), 0, null, 0, model, sections);
+  }
+
+  /** Music 3's section tags for an instrumental of about `duration` seconds, one per line: enough of them to fill it. */
+  static String music3Sections(double duration) {
+    List<String> s = new ArrayList<String>();
+    s.add("[Intro]");
+    // About 20 s a section.
+    int middle = Math.max(3, (int) Math.round(Math.min(duration, 300) / 20.0) - 2);
+    String[] cycle = {"[Verse]", "[Chorus]", "[Verse]", "[Chorus]", "[Bridge]", "[Chorus]"};
+    for (int i = 0; i < middle; i++) s.add(cycle[i % cycle.length]);
+    s.add("[Outro]");
+    return String.join("\n", s);
+  }
+
+  /**
+   * --compare_models: the same request made by each model listed, all started at once, each track
+   * saved with its model in its name (sogni-Rock-6f1262f1-turbo.mp3). PyJav then measures them and
+   * ranks them ("Compared: <model> <file>" lines name them).
+   */
+  static int compare(SogniApi api, List<String> models, String out, String genre, String prompt, double duration, double bpm, String keyscale,
+      int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni, boolean testing) throws Exception {
+    say("Music: " + prompt);
+    say("Comparing " + models.size() + " models (each is a run of its own, paid for): " + String.join(", ", models));
+    if (testing) say("Note: --test checks one track; with --compare_models each track is measured and ranked instead (--compare_to_file_sets makes their drum MIDI)");
+    if (models.contains("music3") && duration > 300) say("Note: music3 makes at most 300 s, so its track is shorter");
+    List<String[]> jobs = new ArrayList<String[]>();
+    for (String m : models) jobs.add(new String[] {m, m, prompt, genre});
+    return runAll(api, jobs, out, true, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+  }
+
+  /**
+   * --random N: N tracks, each in a style drawn from `styles` (no style twice until all are used),
+   * all started at once, each named for its style (sogni-Funk-6f1262f1.mp3). PyJav measures them
+   * as it does a comparison ("Compared: <style> <file>"), and --compare_to_file_sets and --zip work the same.
+   */
+  static int random(SogniApi api, int count, List<String> styles, long seed, String userPrompt, boolean drumsOnly, String instruments, List<String> models,
+      double duration, double bpm, String keyscale, int timesig, String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
+    java.util.Random r = new java.util.Random(seed);
+    List<String> bag = new ArrayList<String>();
+    List<String[]> jobs = new ArrayList<String[]>();
+    List<String> drawn = new ArrayList<String>();
+    if (bpm < 0) drawn.add("tempo");
+    if (keyscale == null) drawn.add("key");
+    if (timesig < 0) drawn.add("time signature");
+    if (duration < 0) drawn.add("length");
+    for (int i = 0; i < count; i++) {
+      if (bag.isEmpty()) bag.addAll(styles);
+      String style = bag.remove(r.nextInt(bag.size()));
+      String p = musicPrompt(userPrompt, style, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
+      // The settings left out, drawn for the track (the same for each model, so they compare).
+      double b = bpm >= 0 ? bpm : styleBpm(style, r);
+      String k = keyscale != null ? keyscale : randomKey(r);
+      int t = timesig >= 0 ? timesig : styleTimesig(style, r);
+      double d = duration >= 0 ? duration : 30 + r.nextInt(61);
+      for (String m : models) {
+        String label = promptName(style).substring(6) + (models.size() > 1 ? "-" + m : "");
+        jobs.add(new String[] {label, m, p, style, String.valueOf(b), k == null ? "" : k, String.valueOf(t), String.valueOf(d), models.size() > 1 ? m : ""});
+      }
+    }
+    say("Random styles: " + count + " tracks" + (models.size() > 1 ? ", each made with " + String.join(" and ", models) : " with " + models.get(0)) + " ("
+        + jobs.size() + (jobs.size() == 1 ? " run" : " runs") + ", each paid for), seed " + seed + (drawn.isEmpty() ? "" : "; drawn for each track: " + String.join(", ", drawn)));
+    for (String[] j : jobs) {
+      if (models.size() > 1 && !j[8].equals(models.get(0))) continue;
+      say("Style " + j[3] + ": " + settingsLine(Double.parseDouble(j[4]), Double.parseDouble(j[7]), Integer.parseInt(j[6]), j[5].isEmpty() ? null : j[5]).trim()
+          + " \u00b7 " + j[2]);
+    }
+    return runAll(api, jobs, null, false, duration, bpm, keyscale, timesig, lyrics, confirm, maxCost, deleteFromSogni);
+  }
+
+  /** A tempo that suits a style's name (drum and bass fast, a ballad slow...), else one between 85 and 135. */
+  static double styleBpm(String style, java.util.Random r) {
+    String s = style.toLowerCase(java.util.Locale.ROOT);
+    int[][] ranges = {{170, 176}, {138, 142}, {136, 150}, {160, 190}, {120, 130}, {125, 135}, {84, 96}, {60, 76}, {68, 80}, {95, 105}, {100, 116}, {130, 150},
+        {150, 180}, {110, 125}, {90, 100}};
+    String[][] words = {{"dnb", "drum and bass", "drum & bass", "jungle", "neurofunk", "liquid", "darkstep", "atmospheric dnb"}, {"dubstep", "riddim"},
+        {"trance", "hardstyle"}, {"punk", "hardcore", "speed metal", "thrash", "breakcore", "gabber"}, {"house", "garage", "disco", "amapiano"},
+        {"techno", "electro", "complextro"}, {"hip-hop", "hip hop", "boom bap", "rap", "lo-fi", "lofi"}, {"ballad", "ambient", "chillout", "downtempo"},
+        {"reggae", "dub", "trip-hop", "trip hop", "chopped"}, {"funk", "soul", "r&b", "neo soul", "afrobeat"}, {"rock", "pop", "indie", "country", "blues"},
+        {"trap", "drill", "footwork"}, {"metal", "deathcore", "djent", "doom"}, {"latin", "salsa", "reggaeton", "dembow", "cumbia", "bachata", "baile"},
+        {"jazz", "swing", "bossa"}};
+    for (int i = 0; i < words.length; i++) {
+      for (String w : words[i]) if (s.contains(w)) return ranges[i][0] + r.nextInt(ranges[i][1] - ranges[i][0] + 1);
+    }
+    return 85 + r.nextInt(51);
+  }
+
+  static final String[] KEYS = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"};
+
+  /** Any of the 24 keys ("F# minor"). */
+  static String randomKey(java.util.Random r) {
+    return KEYS[r.nextInt(KEYS.length)] + (r.nextBoolean() ? " major" : " minor");
+  }
+
+  /** The beats a bar a style's name says (a 6/8, a waltz), else mostly 4: 4 (8 in 10), 3 or 6. */
+  static int styleTimesig(String style, java.util.Random r) {
+    String s = style.toLowerCase(java.util.Locale.ROOT);
+    if (s.contains("6/8")) return 6;
+    if (s.contains("3/4") || s.contains("waltz")) return 3;
+    int n = r.nextInt(10);
+    return n < 8 ? 4 : n == 8 ? 3 : 6;
+  }
+
+  /**
+   * Several runs at once, `jobs` as {label, model, prompt, genre}: all started, then each waited for
+   * and downloaded. `oneName`: every track takes the first run's name and its label
+   * (sogni-Rock-6f1262f1-turbo.mp3); else each is named for its own genre and run.
+   */
+  static int runAll(SogniApi api, List<String[]> jobs, String out, boolean oneName, double duration, double bpm, String keyscale, int timesig,
+      String lyrics, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
+    if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
+    List<String> ids = new ArrayList<String>();
+    for (String[] j : jobs) {
+      try {
+        // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
+        String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
+            Integer.parseInt(j[6]), j[1], lyrics), confirm, maxCost) : api.start(musicInput(j[2], duration, bpm, keyscale, timesig, j[1], lyrics), confirm, maxCost);
+        say((oneName ? "Model " : "Style ") + j[0] + ": workflow " + id);
+        ids.add(id);
+      } catch (Exception ex) {
+        say((oneName ? "Model " : "Style ") + j[0] + " did not start: " + ex.getMessage());
+        ids.add(null);
+      }
+    }
+    List<String> made = new ArrayList<String>();
+    // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
+    String first = null;
+    for (String id : ids) if (first == null && id != null) first = id;
+    String shared = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], first == null ? "" : first);
+    for (int i = 0; i < jobs.size(); i++) {
+      String label = jobs.get(i)[0], id = ids.get(i);
+      String what = (oneName ? "Model " : "Style ") + label;
+      if (id == null) continue;
+      try {
+        Map<String, Object> wf = api.waitFor(id, 15 * 60 * 1000L, new SogniApi.Log() {
+          public void line(String s) {
+            say(s);
+          }
+        });
+        List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
+        if (audio.isEmpty()) {
+          say(what + " made no audio: " + why(api, id, wf));
+          continue;
+        }
+        String url = SogniApi.str(audio.get(0).get("url"));
+        String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
+        String base = oneName ? shared + "-" + label : trackName(jobs.get(i)[3], id) + (jobs.get(i).length > 8 && jobs.get(i)[8].length() > 0 ? "-" + jobs.get(i)[8] : "");
+        File file = inWork(base + ext);
+        for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
+        byte[] data = api.download(url);
+        FileOutputStream fos = new FileOutputStream(file);
+        try {
+          fos.write(data);
+        } finally {
+          fos.close();
+        }
+        say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+        say("Compared: " + label + " " + file.getName());
+        made.add(file.getName());
+        if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
+      } catch (Exception ex) {
+        say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
+      }
+    }
+    if (made.isEmpty()) {
+      say("Failed: no track was made");
+      return 1;
+    }
+    resultFile = made.get(0);
+    say("Succeeded: " + String.join(", ", made));
+    return 0;
+  }
+
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--drums_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**
@@ -497,7 +792,8 @@ public final class SogniMusic {
       if (g.length() > 0) sb.append(", ").append(g).append(" drum pattern");
       if (style.length() > 0) sb.append(", ").append(style);
       else if (g.length() == 0) sb.append(", tight groove");
-      sb.append(". Kick, snare, hi-hat and cymbals only: no bass, no guitar, no keys, no synths, no melody, no chords, no vocals. Dry, clear drum recording.");
+      // Only drum words: a music model hears "no synths" as "synths" (Sogni has no negative prompt).
+      sb.append(". Acoustic drum kit alone: kick drum, snare drum, hi-hat, toms, crash and ride cymbals. Percussion only, unaccompanied drummer, dry studio drum recording, instrumental.");
       return sb.toString();
     }
     if (g.length() > 0) style = style.length() > 0 ? g + ", " + style : g;

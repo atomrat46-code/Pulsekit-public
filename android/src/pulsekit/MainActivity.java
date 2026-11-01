@@ -166,6 +166,9 @@ public class MainActivity extends UiKit {
 
     LinearLayout songCards;
 
+    /** The imported songs' names, above the part list (which scrolls to follow the playing part). */
+    LinearLayout songNames;
+
     LinearLayout knobsRow;
 
     LinearLayout toolsRow;
@@ -288,6 +291,8 @@ public class MainActivity extends UiKit {
         AppSettings.load(this.getFilesDir());
         // File > Logs: in files/logs, written while General settings > Logging on is ticked; this start once.
         Logs.setDir(new java.io.File(this.getFilesDir(), "logs"));
+        // General settings > Storage: temporary files older than the days set deleted, once a start.
+        if (!logStarted) StorageScreen.startup(this);
         // File > Sound devices: the output and the drum MIDI output picked.
         SoundOut.init(this);
         if (!logStarted) SoundOut.openDrumMidi(this);
@@ -799,6 +804,21 @@ public class MainActivity extends UiKit {
     }
 
     protected void onActivityResult(int n, int n2, Intent intent) {
+        if (n == ClapHost.IMPORT_CLAP || n == ClapHost.RENDER_MIDI || n == Lv2Host.IMPORT_LV2 || n == Lv2Host.PROCESS_WAV) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) PluginBrowser.picked(this, n, intent.getData());
+            else {
+                PluginBrowser.pendingClap = null;
+                PluginBrowser.pendingLv2 = null;
+            }
+            return;
+        }
+        if (n == PluginBrowser.PICK_KIT_FOLDER) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) PluginBrowser.folderPicked(this, intent.getData());
+            else PluginBrowser.pendingFolder = null;
+            return;
+        }
         if (n == 25) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) {
@@ -861,6 +881,11 @@ public class MainActivity extends UiKit {
         if (n == DbSettings.PASSWORD_FILE || n == DbSettings.SAVE_ZIP || n == DbSettings.OPEN_ZIP || n == DbSettings.KEY_FILE) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) DbSettings.picked(this, n, intent.getData());
+            return;
+        }
+        if (n == BackupScreen.OPEN_BACKUP) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) BackupScreen.picked(this, intent.getData());
             return;
         }
         if (n == ZipFlow.PICK_FOLDER) {
@@ -1239,6 +1264,11 @@ public class MainActivity extends UiKit {
         sound.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         sound.setTextColor(FG);
         sound.setTag("file-sound-devices");
+        // What uninstalling would delete, kept in a zip, and back from one (AppBackup).
+        android.widget.TextView backup = this.text(AppBackup.BACKUP + " / restore", 14, true);
+        backup.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        backup.setTextColor(FG);
+        backup.setTag("file-backup");
         // Playlists (.pls): the Editor and Viewer tabs.
         android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
         playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1259,12 +1289,19 @@ public class MainActivity extends UiKit {
         menu.addView(downloads);
         menu.addView(logs);
         menu.addView(sound);
+        menu.addView(backup);
         menu.addView(playlists);
         menu.addView(general);
         menu.addView(dbSettings);
         menu.addView(midi);
         menu.addView(compare);
         menu.addView(help);
+        // Exit: the editors' unsaved edits asked about first (ExitCheck).
+        android.widget.TextView exit = this.text(ExitCheck.EXIT, 14, true);
+        exit.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        exit.setTextColor(FG);
+        exit.setTag("file-exit");
+        menu.addView(exit);
         menu.measure(0, 0);
         android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
         pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
@@ -1310,6 +1347,10 @@ public class MainActivity extends UiKit {
             pop.dismiss();
             SoundDevicesScreen.show(this);
         });
+        backup.setOnClickListener(v -> {
+            pop.dismiss();
+            BackupScreen.show(this);
+        });
         playlists.setOnClickListener(v -> {
             pop.dismiss();
             PlaylistScreen.show(this, null);
@@ -1317,6 +1358,10 @@ public class MainActivity extends UiKit {
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
+        exit.setOnClickListener(v -> {
+            pop.dismiss();
+            ExitScreen.show(this);
+        });
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 

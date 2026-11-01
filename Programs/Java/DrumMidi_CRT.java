@@ -327,6 +327,8 @@ public class DrumMidi_CRT{
     static final String DEFAULT_LOG = "DrumMidi_CRT_log.txt";
     /** The --log file, or null; and its lines so far. */
     static String logPath;
+    /** The folder a relative --log is written in: the input's (or --dir's). */
+    static File logDir;
     static final StringBuilder logText = new StringBuilder();
 
     /**
@@ -355,6 +357,8 @@ public class DrumMidi_CRT{
         if (logPath != null) {
             try {
                 File f = new File(logPath);
+                // A bare name (--log results.txt) goes beside the input: the phone's current folder is read-only.
+                if (!f.isAbsolute() && logDir != null) f = new File(logDir, logPath);
                 File parent = f.getAbsoluteFile().getParentFile();
                 if (parent != null && !parent.isDirectory()) parent.mkdirs();
                 FileOutputStream fos = new FileOutputStream(f);
@@ -468,6 +472,12 @@ public class DrumMidi_CRT{
             rest.add(a);
         }
         args = rest.toArray(new String[0]);
+        for (String a : rest) {
+            if (a.startsWith("--")) continue;
+            File in = new File(a).getAbsoluteFile();
+            logDir = in.isDirectory() ? in : in.getParentFile();
+            break;
+        }
         // --dir: every WAV in the folder, each to <wav>-dm.mid beside it, with the same switches.
         int dirAt = rest.indexOf("--dir");
         if (dirAt >= 0) {

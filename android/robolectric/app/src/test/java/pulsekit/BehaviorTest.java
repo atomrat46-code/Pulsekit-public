@@ -1205,7 +1205,12 @@ public class BehaviorTest {
     idle();
     View strip = root().findViewWithTag("song-strip");
     out.append("song list scrolls sideways: ").append(strip instanceof android.widget.HorizontalScrollView).append('\n');
+    // The names stay in view while the part list scrolls to follow the playing part (not inside that list).
+    boolean inList = false;
+    for (android.view.ViewParent p = strip == null ? null : strip.getParent(); p != null; p = p.getParent()) if (p instanceof android.widget.ScrollView) inList = true;
+    out.append("song names above the part list: ").append(strip != null && !inList).append('\n');
     write("s39_make_song_names_after_file_set", out.toString());
+    if (strip == null || inList) throw new AssertionError(out.toString());
   }
 
   /** File set menu > Compare hits: results shown, kept under the file set, and still there after a restart. */
@@ -10196,14 +10201,25 @@ public class BehaviorTest {
     idle();
     View importedScroll = root.findViewWithTag("imported-scroll");
     int screenH = app.getResources().getDisplayMetrics().heightPixels;
-    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.IMPORTED_SHARE));
+    int cap = Math.max(app.dp(72), (int) (screenH * StyleLibrary.importedShare()));
     boolean importedCapped = importedScroll.getHeight() > 0 && importedScroll.getHeight() <= cap && app.importedHost.getHeight() > importedScroll.getHeight()
-        && app.gridScroll.getHeight() >= 4 * app.dp(36);
+        // (The test's screen is a short one: a phone's keeps more rows.)
+        && app.gridScroll.getHeight() >= 2 * app.dp(36);
     out.append("Imported with 15 sets: ").append(importedScroll.getHeight()).append(" px of ").append(app.importedHost.getHeight()).append(" (cap ").append(cap)
         .append(", screen ").append(screenH).append(") | grid ").append(app.gridScroll.getHeight()).append(" px\n");
+    // More: the list taller (the grid smaller); Less: back.
+    int before = importedScroll.getHeight();
+    root.findViewWithTag("imported-more").performClick();
+    idle();
+    int taller = importedScroll.getHeight();
+    String moreText = String.valueOf(((TextView) root.findViewWithTag("imported-more")).getText());
+    root.findViewWithTag("imported-more").performClick();
+    idle();
+    boolean moreOk = taller > before && "Less".equals(moreText) && importedScroll.getHeight() == before && !StyleLibrary.importedTall;
+    out.append("More: ").append(before).append(" -> ").append(taller).append(" px, then Less: ").append(importedScroll.getHeight()).append('\n');
     app.importedHost.removeViews(1, 15);
     boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
-    drumOk &= importedCapped && noBarAtStart;
+    drumOk &= importedCapped && noBarAtStart && moreOk;
     // Sogni boxes: prompts, library files and Downloads of the programs left out are not shown.
     File dir = app.getFilesDir();
     AppSettings.load(dir);
@@ -10539,6 +10555,8 @@ public class BehaviorTest {
     idle();
     lv = LogsScreen.last.getWindow().getDecorView();
     String state = String.valueOf(((TextView) lv.findViewWithTag("logs-state")).getText());
+    // Each type's chip says how many entries it has.
+    String chip = String.valueOf(((TextView) lv.findViewWithTag("logs-type:" + Logs.RUNS)).getText());
     View line = runs.isEmpty() ? null : lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName());
     if (line != null) line.performClick();
     idle();
@@ -10549,22 +10567,30 @@ public class BehaviorTest {
     idle();
     android.content.ClipboardManager clips = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
     String copied = clips.getPrimaryClip() == null ? "" : String.valueOf(clips.getPrimaryClip().getItemAt(0).getText());
+    // Close shuts the entry and keeps it; Delete (above the text) deletes it.
     if (line != null) line.performClick();
     idle();
+    String closeText = LogsScreen.entry == null ? "" : String.valueOf(LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).getText());
     if (LogsScreen.entry != null) LogsScreen.entry.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean closed = LogsScreen.entry != null && !LogsScreen.entry.isShowing() && Logs.entries(Logs.RUNS).size() == 1;
+    if (line != null) line.performClick();
+    idle();
+    if (LogsScreen.entry != null) LogsScreen.entry.getWindow().getDecorView().findViewWithTag("logs-delete").performClick();
     idle();
     int after = Logs.entries(Logs.RUNS).size();
     LogsScreen.last.dismiss();
     AppSettings.setLogging(false);
     out.append("screen: ").append(state).append(" | entry: ").append(text.split("\n")[0]).append(", selectable ").append(selectable)
-        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n');
+        .append(" | copied the entry: ").append(copied.equals(text)).append(" | after Delete: ").append(after).append('\n')
+        .append("chip: ").append(chip).append(" | ").append(closeText).append(" keeps it: ").append(closed).append('\n');
     write("s173_logs", out.toString());
     // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
     String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
     boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
         && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
         && text.contains("Output:\n" + second.log)
-        && selectable && copied.equals(text) && after == 0;
+        && selectable && copied.equals(text) && after == 0 && chip.equals(Logs.RUNS + " (1)") && closeText.equals("Close") && closed;
     if (!ok) throw new AssertionError(out.toString() + "\n" + text);
   }
 
@@ -10899,6 +10925,927 @@ public class BehaviorTest {
     boolean menuOk = made.contains(MediaDir.SOGNI_JOB) && !plainHas && shown.contains("aaaa1111-bbbb") && shown.contains("wf_job1");
     write("s180_sogni_job_ids", out.toString());
     if (!readOk || !keptOk || !menuOk) throw new AssertionError(out.toString());
+  }
+
+  @Test
+  public void s181_sogni_music_compare_models() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Drum hits alone, and the same hits over a held bass note and its fifth (what a "drums only" track with a synth sounds like).
+    int sr = 22050;
+    float[] drums = new float[sr * 30], mixed = new float[sr * 30];
+    java.util.Random r = new java.util.Random(1);
+    for (int beat = 0; beat < 60; beat++) {
+      int at = beat * sr / 2;
+      for (int i = 0; i < 3000 && at + i < drums.length; i++) {
+        double t = i / (double) sr;
+        drums[at + i] += beat % 2 == 0 ? (float) (0.8 * Math.exp(-t * 30) * Math.sin(2 * Math.PI * 60 * t)) : (float) (0.5 * Math.exp(-t * 40) * (r.nextFloat() * 2 - 1));
+      }
+    }
+    for (int i = 0; i < mixed.length; i++) mixed[i] = drums[i] + (float) (0.3 * Math.sin(2 * Math.PI * 65.4 * i / sr) + 0.15 * Math.sin(2 * Math.PI * 196 * i / sr));
+    final byte[] clean = AudioIo.encodeWav(AudioIo.floatsToShorts(drums), sr), synth = AudioIo.encodeWav(AudioIo.floatsToShorts(mixed), sr);
+    String log = "Compared: sft sogni-Rock-1-sft.wav\nCompared: turbo sogni-Rock-1-turbo.wav\nSucceeded: sogni-Rock-1-sft.wav, sogni-Rock-1-turbo.wav\n";
+    String report = MusicCompare.of(java.util.Arrays.asList("--drums_only", "--bpm", "120", "--duration", "30", MusicCompare.FLAG, "turbo,sft"), log,
+        name -> AudioIo.parseWav(name.endsWith("turbo.wav") ? clean : synth));
+    out.append(report.replace('\u00b7', '|')).append('\n');
+    String rankingName = MusicCompare.reportName(log);
+    out.append("ranking file: ").append(rankingName).append('\n');
+    boolean ranked = rankingName.equals("sogni-Rock-1-ranking.txt") && report != null && report.contains("1. turbo") && report.contains("2. sft") && report.contains("120 BPM (as asked)") && report.contains("Best: turbo");
+    // SogniMusic's Params list the option.
+    ProgramParams.Param compare = null;
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) if (p.token.equals(MusicCompare.FLAG)) compare = p;
+    out.append("Params: ").append(compare == null ? "-" : compare.label + " " + (compare.choices == null ? "" : java.util.Arrays.toString(compare.choices))).append('\n');
+    // --compare_to_file_sets: the run's number follows the file sets there are; DrumMidi runs once a track, its MIDI named for its file set.
+    String run = MusicCompare.runName(java.util.Arrays.asList("Rock", "SogniMusic run 2 turbo", "SogniMusic run 7 sft"));
+    MusicCompare.Chain c = MusicCompare.startChain(java.util.Arrays.asList("--drums_only", "--bpm", "120"), java.util.Arrays.asList("SogniMusic run 2 turbo"),
+        java.util.Arrays.asList(new String[] {"turbo", "/x/a.wav"}, new String[] {"sft", "/x/b.wav"}), "");
+    java.util.List<String> first = c.next();
+    boolean stepNow = MusicCompare.chainStep("DrumMidi_CRT.jar");
+    java.util.List<String> second = c.next();
+    java.util.List<String> end = c.next();
+    out.append("run: ").append(run).append(" | chain ").append(c.run).append(": ").append(first).append(" then ").append(second).append(" then ").append(end)
+        .append(" | made ").append(c.made).append(" | chain over ").append(MusicCompare.chain() == null).append('\n');
+    boolean chainOk = run.equals("SogniMusic run 8") && c.run.equals("SogniMusic run 3") && first.get(1).equals("SogniMusic run 3 turbo.mid") && first.contains("120")
+        && second.get(1).equals("SogniMusic run 3 sft.mid") && end == null && stepNow && c.made.equals(java.util.Arrays.asList("SogniMusic run 3 turbo", "SogniMusic run 3 sft"))
+        && MusicCompare.chain() == null && Engine.importSource("SogniMusic run 3 music3.mid").equals("SogniMusic run 3 music3");
+    // --zip: split into parts of at most 25 MB (sending often stops at 30 MB), each a zip of its own.
+    RunZip z = RunZip.start(log);
+    z.add("a.wav", new byte[12 * 1024 * 1024]);
+    z.add("b.wav", new byte[12 * 1024 * 1024]);
+    z.add("c.wav", new byte[12 * 1024 * 1024]);
+    z.addLog("SogniMusic.java", "", "Succeeded");
+    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+    StringBuilder sizes = new StringBuilder();
+    for (int i = 0; i < parts.size(); i++) {
+      sizes.append(i == 0 ? "" : ", ").append(z.partName(i, parts.size())).append(": ");
+      for (ZipPack.Source src : parts.get(i)) sizes.append(src.path).append(' ');
+    }
+    RunZip.finish();
+    out.append("zip parts: ").append(sizes).append('\n');
+    boolean split = parts.size() == 2 && parts.get(0).size() == 2 && parts.get(1).size() == 2 && z.partName(1, 2).equals("sogni-Rock-1-part2of2.zip")
+        && z.partName(0, 1).equals("sogni-Rock-1.zip");
+    write("s181_sogni_music_compare_models", out.toString());
+    if (!ranked || compare == null || !chainOk || !split) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * SogniMusic: its Params' folder row (Use, Browse, Clear) has room between them; --random,
+   * --styles and --seed are labelled; PyJav gives --random Pulsekit's style list.
+   */
+  @Test
+  public void s182_sogni_music_random_and_spacing() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    // Every row's label, as the phone shows them (the random-style rows among them).
+    StringBuilder rows = new StringBuilder();
+    java.util.List<View> stack = new java.util.ArrayList<View>();
+    stack.add(dv);
+    while (!stack.isEmpty()) {
+      View v = stack.remove(0);
+      if (v instanceof TextView && !(v instanceof android.widget.EditText) && String.valueOf(((TextView) v).getText()).contains("--")) rows.append(((TextView) v).getText()).append(" / ");
+      if (v instanceof android.view.ViewGroup) for (int k = 0; k < ((android.view.ViewGroup) v).getChildCount(); k++) stack.add(((android.view.ViewGroup) v).getChildAt(k));
+    }
+    out.append("rows: ").append(rows).append('\n');
+    boolean shown = rows.toString().contains("--random") && rows.toString().contains("--styles") && rows.toString().contains("--seed");
+    android.widget.Button browse = (android.widget.Button) dv.findViewWithTag("params-dir:--batchdir");
+    android.widget.Button clear = (android.widget.Button) dv.findViewWithTag("params-clear:--batchdir");
+    int gapBrowse = browse == null ? -1 : ((android.widget.LinearLayout.LayoutParams) browse.getLayoutParams()).leftMargin;
+    int gapClear = clear == null ? -1 : ((android.widget.LinearLayout.LayoutParams) clear.getLayoutParams()).leftMargin;
+    d.dismiss();
+    out.append("batch folder row gaps: Browse ").append(gapBrowse).append(", Clear ").append(gapClear).append('\n');
+    java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+    for (ProgramParams.Param p : ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"))) {
+      if (p.token.equals("--random") || p.token.equals("--styles") || p.token.equals("--seed") || p.token.equals("--zip") || p.token.equals("--duration")) labels.put(p.token, p.label);
+    }
+    out.append("labels: ").append(labels).append('\n');
+    // --random without --styles: Pulsekit's style list; with --styles: the ones given.
+    java.util.List<String> argv = JavaRun.argvFor(app.programMenus.bundledSource("SogniMusic.java"), 120, "rock", 4, 0, "--random 3 --drums_only");
+    int at = argv.indexOf("--styles");
+    String styles = at < 0 ? "" : argv.get(at + 1);
+    java.util.List<String> own = JavaRun.argvFor(app.programMenus.bundledSource("SogniMusic.java"), 120, "rock", 4, 0, "--random 3 --styles Funk|Metal");
+    out.append("styles passed: ").append(styles.split("\\|").length).append(" (first ").append(styles.split("\\|")[0]).append(") | own kept: ")
+        .append(own.get(own.indexOf("--styles") + 1)).append(", once: ").append(own.indexOf("--styles") == own.lastIndexOf("--styles")).append('\n');
+    // A list in --model is a comparison, as --compare_models is.
+    boolean listed = MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo,sft")) && MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "all"))
+        && !MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--model", "turbo"));
+    out.append("--model list compared: ").append(listed).append('\n');
+    // A --random run's file sets: no Make a song question; a comparison's still asks.
+    java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+    wavs.add(new String[] {"Funk", "/x/a.wav"});
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--random", "2"), new java.util.ArrayList<String>(), wavs, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietRandom = pulsekit.MusicCompare.quietSongs();
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--compare_models", "all"), new java.util.ArrayList<String>(), wavs, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietCompare = pulsekit.MusicCompare.quietSongs();
+    pulsekit.MusicCompare.chain().next();
+    out.append("Make a song asked: random run ").append(!quietRandom).append(", comparison ").append(!quietCompare).append('\n');
+    // The file set's whole name (it was cut at 28 signs: "SogniMusic run 1 Melodic Tec").
+    String setName = Engine.stemNameFromMidi("SogniMusic run 1 Melodic-Techno-sft.mid");
+    // --zip_delete: the files the zip holds deleted, what was made in memory not on disk anyway.
+    File zipped = new File(app.getCacheDir(), "sogni-Funk-1.mp3");
+    Files.write(zipped.toPath(), new byte[2048]);
+    RunZip rz = RunZip.start("Compared: Funk sogni-Funk-1.mp3\n", java.util.Arrays.asList("--random", "1", "--zip_delete"));
+    rz.add(zipped.getName(), zipped);
+    rz.add("results.txt", "x".getBytes(StandardCharsets.UTF_8));
+    String deleted = rz.deleteZipped();
+    RunZip.finish();
+    out.append("file set name: ").append(setName).append(" | zip_delete: ").append(rz.deleteAfter).append(", ").append(deleted).append(", gone ").append(!zipped.exists()).append('\n');
+    write("s182_sogni_music_random_and_spacing", out.toString());
+    boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
+        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare
+        && setName.equals("SogniMusic run 1 Melodic Techno sft") && rz.deleteAfter && deleted.startsWith("Deleted the 1 zipped file") && !zipped.exists()
+        && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
+        && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * File > Back up Pulsekit / restore: what uninstalling deletes (settings, patterns and file sets,
+   * playlists, Sogni history, the prompt library) into a zip with a password, the API key and the
+   * DB's own files never in it, then all of it back after it was gone.
+   */
+  @Test
+  public void s183_backup_and_restore() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File root = app.getFilesDir();
+    File prefs = BackupScreen.prefsDir(app);
+    prefs.mkdirs();
+    Files.write(new File(root, "learned.json").toPath(), "{\"patterns\":[\"kept groove\"]}".getBytes(StandardCharsets.UTF_8));
+    new File(root, "playlists").mkdirs();
+    Files.write(new File(root, "playlists/drums.pls").toPath(), "[playlist]\nFile1=a.wav\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "favourite-categories.txt").toPath(), "Rock\n".getBytes(StandardCharsets.UTF_8));
+    new File(root, "sogni").mkdirs();
+    Files.write(new File(root, "sogni/sogni_workflows.txt").toPath(), "wf_1\t1\tcompleted\tx\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(root, "sogni/sogni_credentials").toPath(), "SOGNI_API_KEY=secret\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(prefs, "pulsekit.xml").toPath(), "<map><string name=\"style\">funk</string></map>".getBytes(StandardCharsets.UTF_8));
+    PromptVault vault = PromptVault.open(root);
+    long cat = vault.categories().get(0).id;
+    long kept = vault.addPrompt(cat, "Kept prompt");
+    vault.addVersion(kept, "Kept prompt", "", "funk groove", "", "", null, "", null, "", null, "ai", "");
+    String before = vault.summary();
+    java.util.Set<String> all = new java.util.LinkedHashSet<String>(java.util.Arrays.asList(AppBackup.PARTS));
+    File zip = new File(app.getCacheDir(), "test-backup.zip");
+    String said = AppBackup.backup(root, prefs, all, "pass1234".toCharArray(), zip, app.getCacheDir(), "test");
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (ZipPack.Entry e : ZipPack.list(zip)) names.add(e.name);
+    boolean noSecrets = names.stream().noneMatch(n -> n.contains("credentials") || PromptVault.isDbFile(n.substring(n.lastIndexOf('/') + 1)));
+    java.util.Set<String> inside = AppBackup.partsIn(zip);
+    out.append("backup: ").append(said.replaceAll("\\([^)]*KB\\)|\\([^)]*MB\\)|\\([^)]* bytes\\)", "(<size>)")).append('\n');
+    out.append("parts in it: ").append(inside).append(" | password needed: ").append(AppBackup.needsPassword(zip)).append(" | no API key or DB file in it: ").append(noSecrets).append('\n');
+    // Uninstalled: the files gone.
+    new File(root, "learned.json").delete();
+    new File(root, "playlists/drums.pls").delete();
+    new File(root, "favourite-categories.txt").delete();
+    new File(root, "sogni/sogni_workflows.txt").delete();
+    new File(prefs, "pulsekit.xml").delete();
+    for (File f : root.listFiles()) if (PromptVault.isDbFile(f.getName())) f.delete();
+    PromptVault.forget();
+    String wrong;
+    try {
+      AppBackup.restore(zip, "nope".toCharArray(), all, root, prefs, app.getCacheDir());
+      wrong = "restored";
+    } catch (ZipPack.WrongPassword ex) {
+      wrong = "refused";
+    }
+    String back = AppBackup.restore(zip, "pass1234".toCharArray(), all, root, prefs, app.getCacheDir());
+    PromptVault.forget();
+    String after = PromptVault.open(root).summary();
+    boolean filesBack = new String(Files.readAllBytes(new File(root, "learned.json").toPath()), StandardCharsets.UTF_8).contains("kept groove")
+        && new File(root, "playlists/drums.pls").isFile() && new File(root, "favourite-categories.txt").isFile()
+        && new File(root, "sogni/sogni_workflows.txt").isFile() && new File(prefs, "pulsekit.xml").isFile();
+    out.append("wrong password: ").append(wrong).append(" | restore: ").append(back).append(" | files back: ").append(filesBack)
+        .append(" | prompt library before ").append(before).append(", after ").append(after).append('\n');
+    // The backup itself picked in Database settings > Import db zip: its prompt library comes in, and what came of it is a dialog.
+    File again = new File(app.getCacheDir(), "in/pulsekit-backup-20261030-1500.zip");
+    again.getParentFile().mkdirs();
+    Files.copy(zip.toPath(), again.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    DbSettings.opened(app, again, again.getName());
+    idle();
+    ((android.widget.EditText) DbSettings.lastAsk.getWindow().getDecorView().findViewWithTag("db-password")).setText("pass1234");
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && (DbSettings.lastAsk == null || !DbSettings.lastAsk.isShowing() || !org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle().toString().equals(DbSlots.AS_TITLE)); i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    DbSettings.lastSaid = null;
+    DbSettings.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 400 && DbSettings.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    String fromBackup = DbSettings.lastSaid;
+    // Its progress was shown while it ran: the last step, and that window closed.
+    String lastStep = WorkProgressDialog.last == null ? "" : WorkProgressDialog.last.progress.stepText();
+    boolean progressShown = lastStep.startsWith("Step 2 of 2: Encrypting the DB into place") && !WorkProgressDialog.last.dialog.isShowing();
+    out.append("progress: ").append(lastStep).append(" | closed when done: ").append(progressShown).append('\n');
+    boolean toldInDialog = DbSettings.lastAsk.isShowing() && DbSlots.IMPORT.equals(String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getTitle()))
+        && String.valueOf(org.robolectric.Shadows.shadowOf(DbSettings.lastAsk).getMessage()).equals(fromBackup);
+    DbSettings.lastAsk.dismiss();
+    out.append("Import db zip of the backup: ").append(fromBackup).append(" | shown in a dialog: ").append(toldInDialog).append('\n');
+    // The menu item opens the dialog with its parts ticked as set.
+    BackupScreen.show(app);
+    idle();
+    View bv = BackupScreen.last.getWindow().getDecorView();
+    StringBuilder ticks = new StringBuilder();
+    for (String p : AppBackup.PARTS) ticks.append(p).append(((android.widget.CheckBox) bv.findViewWithTag("backup-part:" + p)).isChecked() ? "+ " : "- ");
+    BackupScreen.last.dismiss();
+    out.append("dialog: ").append(ticks.toString().trim()).append('\n');
+    write("s183_backup_and_restore", out.toString());
+    boolean ok = noSecrets && inside.containsAll(java.util.Arrays.asList(AppBackup.SETTINGS, AppBackup.SETS, AppBackup.PLAYLISTS, AppBackup.SOGNI, AppBackup.DB))
+        && AppBackup.needsPassword(zip) && "refused".equals(wrong) && filesBack && after.equals(before)
+        && fromBackup != null && fromBackup.startsWith("Imported the DB as backup") && toldInDialog && progressShown && ticks.toString().startsWith("settings+ sets+ playlists+ sogni+ db+ logs-");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A few thoughts: a definitions file (App:, Prompt:, Loras:, ---- between them) fills SogniPedit's
+   * Params rows; a song's long-press Save song / Save song as writes its .sng and .mid; File > Exit
+   * lists the code editor's unsaved edit and asks.
+   */
+  @Test
+  public void s184_param_defs_save_song_exit() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String defs = "App: SogniPedit\nPrompt: a portrait in soft window light,\n  film grain\nLoras: skin-detail:0.8\n----\nPrompt: the second one\nNote: kept in the prompt\nLoras: film-look:0.5\n----\nApp: SogniVideo\nPrompt: a video one\n";
+    java.util.Set<String> tokens = new java.util.HashSet<String>(java.util.Arrays.asList("--prompt", "--loras", "--skin_detail"));
+    java.util.List<ParamDefs.Def> all = ParamDefs.parse(defs, tokens);
+    java.util.List<ParamDefs.Def> mine = ParamDefs.forProgram(all, "SogniPedit.java");
+    out.append("definitions: ").append(all.size()).append(", for SogniPedit ").append(mine.size()).append(" | apps ").append(ParamDefs.apps(all)).append('\n');
+    out.append("second: ").append(mine.get(1).fields).append('\n');
+    call("show", "py");
+    idle();
+    pickFromMenu("Java ▾", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText promptField = null, lorasField = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) promptField = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) lorasField = PyJavParams.shownFields[i];
+    }
+    File f = new File(app.getCacheDir(), "pedit-defs.txt");
+    Files.write(f.toPath(), defs.getBytes(StandardCharsets.UTF_8));
+    PyJavParams.promptFrom(app, promptField, f);
+    idle();
+    AlertDialog choice = PyJavParams.lastDefs;
+    int choices = choice == null ? 0 : choice.getListView().getAdapter().getCount();
+    org.robolectric.Shadows.shadowOf(choice).clickOnItem(0);
+    idle();
+    out.append("choice of ").append(choices).append(" | prompt: ").append(promptField.getText().toString().replace("\n", "\\n"))
+        .append(" | loras: ").append(lorasField.getText()).append('\n');
+    boolean filled = choices == 2 && promptField.getText().toString().startsWith("a portrait in soft window light,") && "skin-detail:0.8".equals(lorasField.getText().toString());
+    d.dismiss();
+    idle();
+    // Save song / Save song as from the song's long-press menu.
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 121, Engine.styleCells(Engine.styles().get("rock")), 4));
+    call("ingest", Engine.encodeSongMidi(parts), "Kept Song.mid", null);
+    idle();
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    call("show", "song");
+    idle();
+    @SuppressWarnings("unchecked")
+    List<Engine.ImportedSong> songs = (List<Engine.ImportedSong>) get("importedSongs");
+    String name = songs.get(0).name;
+    root().findViewWithTag("song-chip:" + name).performLongClick();
+    idle();
+    AlertDialog menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean listed = itemIndex(menu, SongFiles.SAVE) >= 0 && itemIndex(menu, SongFiles.SAVE_AS) >= 0;
+    SongEditor.lastSaved = null;
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, SongFiles.SAVE));
+    for (int i = 0; i < 100 && SongEditor.lastSaved == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String saved = SongEditor.lastSaved;
+    out.append("menu has Save song, Save song as: ").append(listed).append(" | saved: ").append(saved != null && saved.contains(".sng") && saved.contains(".mid")).append('\n');
+    root().findViewWithTag("song-chip:" + name).performLongClick();
+    idle();
+    menu = (AlertDialog) ShadowDialog.getLatestDialog();
+    org.robolectric.Shadows.shadowOf(menu).clickOnItem(itemIndex(menu, SongFiles.SAVE_AS));
+    idle();
+    ((android.widget.EditText) SongEditor.lastSaveAs.getWindow().getDecorView().findViewWithTag("save-song-as-name")).setText("Renamed Song");
+    SongEditor.lastSaved = null;
+    SongEditor.lastSaveAs.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100 && SongEditor.lastSaved == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    String savedAs = SongEditor.lastSaved;
+    out.append("save as: renamed ").append(songs.get(0).name).append(" | ").append(savedAs != null && savedAs.contains("Renamed Song.sng") && savedAs.contains("Renamed Song.mid")).append('\n');
+    // File > Exit: a typed edit in the code editor is listed; nothing listed once it is saved.
+    call("show", "py");
+    idle();
+    android.widget.EditText editor = (android.widget.EditText) get("pyEditor");
+    editor.requestFocus();
+    editor.append("\n// an edit\n");
+    idle();
+    ExitScreen.keepRunning = true;
+    ExitScreen.exited = false;
+    java.util.List<String> open = ExitScreen.unsaved(app);
+    ExitScreen.show(app);
+    idle();
+    String asked = ExitScreen.last == null ? "" : String.valueOf(org.robolectric.Shadows.shadowOf(ExitScreen.last).getMessage());
+    ExitScreen.last.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("unsaved: ").append(open).append(" | asked: ").append(asked.contains("Do you want to save the changes?")).append(" | exit without saving: ").append(ExitScreen.exited).append('\n');
+    write("s184_param_defs_save_song_exit", out.toString());
+    boolean ok = all.size() == 3 && mine.size() == 2 && "SogniPedit, SogniVideo".equals(ParamDefs.apps(all)) && mine.get(1).fields.get("--prompt").contains("Note: kept in the prompt")
+        && filled && listed && saved != null && saved.contains(".mid") && "Renamed Song".equals(songs.get(0).name) && savedAs != null && savedAs.contains("Renamed Song.sng")
+        && open.size() == 1 && open.get(0).startsWith("Code editor: SogniPedit") && ExitScreen.exited;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * General settings > Storage: the folders' sizes; temporary files older than the days set deleted
+   * when Pulsekit starts (newer ones kept); Clear temporary files deletes them all; the prompt library
+   * and settings never touched; the input folder never in a backup.
+   */
+  @Test
+  public void s185_storage_and_temporary_files() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File in = new File(app.getCacheDir(), "pyjav-in");
+    in.mkdirs();
+    File old = new File(in, "old-video.mp4");
+    File fresh = new File(in, "fresh-video.mp4");
+    Files.write(old.toPath(), new byte[300000]);
+    Files.write(fresh.toPath(), new byte[200000]);
+    old.setLastModified(System.currentTimeMillis() - 20 * 86400000L);
+    File kept = new File(app.getFilesDir(), "learned.json");
+    Files.write(kept.toPath(), "{}".getBytes(StandardCharsets.UTF_8));
+    String auto = Storage.clearOld(StorageScreen.places(app), AppSettings.tempDays());
+    out.append("days set at first: ").append(AppSettings.tempDays()).append(" | at the start: ").append(auto).append(" | old gone ").append(!old.exists())
+        .append(", fresh kept ").append(fresh.isFile()).append('\n');
+    GeneralSettings.show(app);
+    for (int i = 0; i < 200 && StorageScreen.lastSizes == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    idle();
+    View gv = GeneralSettings.last.getWindow().getDecorView();
+    String sizes = String.valueOf(((TextView) gv.findViewWithTag("storage-sizes")).getText());
+    out.append("sizes:\n").append(sizes.replaceAll("[0-9.]+ (KB|MB|bytes|GB)", "<size>")).append('\n');
+    boolean listed = sizes.contains("Program inputs and outputs: ") && sizes.contains("(temporary)") && sizes.contains("Prompt library (all DBs): ") && sizes.contains("All: ");
+    StorageScreen.lastSaid = null;
+    gv.findViewWithTag("storage-clear").performClick();
+    idle();
+    StorageScreen.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && StorageScreen.lastSaid == null; i++) {
+      Thread.sleep(25);
+      idle();
+    }
+    GeneralSettings.last.dismiss();
+    out.append("clear: ").append(StorageScreen.lastSaid).append(" | fresh gone ").append(!fresh.exists()).append(", settings kept ").append(kept.isFile()).append('\n');
+    boolean notBacked = AppBackup.partOf("pyjav-in/x.mp4") == null && AppBackup.partOf("thumbs/a.bin") == null;
+    out.append("input folder in a backup: ").append(!notBacked).append('\n');
+    write("s185_storage_and_temporary_files", out.toString());
+    boolean ok = AppSettings.tempDays() == 14 && auto != null && auto.startsWith("Deleted 1 temporary file older than 14 days") && !old.exists() && listed
+        && StorageScreen.lastSaid != null && StorageScreen.lastSaid.startsWith("Deleted ") && !fresh.exists() && kept.isFile() && notBacked;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sound devices: Playback volume and Recording level sliders kept in the settings, the volume on
+   * Pulsekit's players; an input's Test asks for the microphone first, then shows the level of
+   * what it hears (a tone here, at the recording level), records, stops, plays and saves a WAV.
+   */
+  @Test
+  public void s186_input_test_and_levels() throws Exception {
+    StringBuilder out = new StringBuilder();
+    double[] quiet = InputLevel.levels(new short[100], 100);
+    short[] loud = new short[100];
+    java.util.Arrays.fill(loud, (short) 16384);
+    InputLevel.gain(loud, 100, 300);
+    out.append("silence: ").append(InputLevel.text(quiet)).append(" | half scale x3: ").append(InputLevel.text(InputLevel.levels(loud, 100))).append('\n');
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    android.widget.SeekBar vol = (android.widget.SeekBar) sv.findViewWithTag("sound-play-volume");
+    android.widget.SeekBar rec = (android.widget.SeekBar) sv.findViewWithTag("sound-record-level");
+    vol.setProgress(40);
+    rec.setProgress(200);
+    out.append("sliders: ").append(((TextView) sv.findViewWithTag("sound-play-volume-label")).getText()).append(", ")
+        .append(((TextView) sv.findViewWithTag("sound-record-level-label")).getText()).append(" | kept ").append(AppSettings.playVolume()).append("/").append(AppSettings.recordLevel()).append('\n');
+    android.media.AudioTrack track = new android.media.AudioTrack(3, 22050, 4, 2, 4096, 1);
+    SoundOut.prefer(track);
+    vol.setProgress(70);
+    SoundDevicesScreen.last.dismiss();
+    SoundDevices.Device mic = new SoundDevices.Device(SoundDevices.IN, "Test microphone", "built-in microphone", "");
+    // No microphone permission yet: asked for.
+    org.robolectric.Shadows.shadowOf(app.getApplication()).denyPermissions(android.Manifest.permission.RECORD_AUDIO);
+    InputTestScreen.show(app, mic);
+    idle();
+    String asked = InputTestScreen.lastSaid;
+    org.robolectric.Shadows.shadowOf(app.getApplication()).grantPermissions(android.Manifest.permission.RECORD_AUDIO);
+    // The input hears a tone at a quarter of full scale.
+    org.robolectric.shadows.ShadowAudioRecord.setSource(new org.robolectric.shadows.ShadowAudioRecord.AudioRecordSource() {
+      int phase;
+
+      @Override
+      public int readInShortArray(short[] buf, int off, int n, boolean blocking) {
+        for (int i = 0; i < n; i++) buf[off + i] = (short) (8192 * Math.sin(2 * Math.PI * 440 * (phase++) / 44100.0));
+        try {
+          Thread.sleep(n * 1000L / 44100);
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+        }
+        return n;
+      }
+    });
+    InputTestScreen.show(app, mic);
+    idle();
+    View iv = InputTestScreen.last.getWindow().getDecorView();
+    iv.findViewWithTag("input-record").performClick();
+    for (int i = 0; i < 100 && InputTestScreen.recordedSamples < 22050; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    iv.findViewWithTag("input-stop").performClick();
+    idle();
+    String level = InputTestScreen.lastSaid;
+    int samples = InputTestScreen.recordedSamples;
+    String state = String.valueOf(((TextView) iv.findViewWithTag("input-state")).getText());
+    InputTestScreen.lastSaid = "";
+    iv.findViewWithTag("input-save").performClick();
+    for (int i = 0; i < 100 && !InputTestScreen.lastSaid.startsWith("Saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String saved = InputTestScreen.lastSaid;
+    boolean buttons = iv.findViewWithTag("input-play") != null && iv.findViewWithTag("input-meter") != null;
+    InputTestScreen.last.dismiss();
+    idle();
+    Thread.sleep(300);
+    idle();
+    org.robolectric.shadows.ShadowAudioRecord.clearSource();
+    out.append("without permission: ").append(asked).append('\n');
+    out.append("heard: ").append(level.replaceAll("-?[0-9]+\\.[0-9] dBFS", "<db>")).append(" | recorded at least 0.5 s: ").append(samples >= 22050)
+        .append(" | ").append(state.replaceAll("[0-9]+\\.[0-9] s", "<s>")).append(" | saved: ").append(saved.contains(".wav")).append('\n');
+    write("s186_input_test_and_levels", out.toString());
+    AppSettings.setPlayVolume(100);
+    AppSettings.setRecordLevel(100);
+    boolean ok = InputLevel.text(quiet).endsWith("no signal") && InputLevel.text(InputLevel.levels(loud, 100)).contains("clipping")
+        && AppSettings.playVolume() == 100 && InputTestScreen.ASK_MIC.equals(asked) && level.contains(": signal") && samples >= 22050
+        && state.startsWith("Recorded ") && saved.startsWith("Saved") && saved.contains(".wav") && buttons;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Plugins > Folders (Kit folders): each kit type's folders in a list; Add folder… takes a folder
+   * from Android's folder picker (as its path), Change… edits the one shown or browses another in
+   * its place, Delete removes it; Save keeps the lists.
+   */
+  @Test
+  public void s187_kit_folders_list() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String paths = FolderPaths.fromDocId("primary:Music/sfz") + " | " + FolderPaths.fromDocId("1A2B-3C4D:kits/") + " | " + FolderPaths.fromDocId("primary:")
+        + " | " + FolderPaths.fromDocId("raw:/storage/emulated/0/Download/kits");
+    out.append("picked as paths: ").append(paths).append('\n');
+    final boolean[] saved = new boolean[1];
+    PluginBrowser.answer = null;
+    PluginBrowser.folders(app, () -> saved[0] = true);
+    idle();
+    View fv = PluginBrowser.lastFolders.getWindow().getDecorView();
+    android.widget.Spinner sf2 = (android.widget.Spinner) fv.findViewWithTag("kit-folders:" + PluginLibrary.SF2);
+    int before = sf2.getAdapter().getCount();
+    // Delete them all, then Add folder… from the picker.
+    for (int i = 0; i < 10 && !FolderPaths.NONE.equals(sf2.getAdapter().getItem(0)); i++) {
+      fv.findViewWithTag("kit-folder-delete:" + PluginLibrary.SF2).performClick();
+      idle();
+    }
+    String emptied = String.valueOf(sf2.getAdapter().getItem(0));
+    fv.findViewWithTag("kit-folder-add:" + PluginLibrary.SF2).performClick();
+    idle();
+    PluginBrowser.folderPicked(app, android.provider.DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Music/sf2"));
+    idle();
+    String added = String.valueOf(sf2.getSelectedItem());
+    // Change…: Browse… puts another folder in the field, OK takes it.
+    fv.findViewWithTag("kit-folder-change:" + PluginLibrary.SF2).performClick();
+    idle();
+    View cv = PluginBrowser.lastChange.getWindow().getDecorView();
+    String inField = String.valueOf(((android.widget.EditText) cv.findViewWithTag("kit-folder-path")).getText());
+    cv.findViewWithTag("kit-folder-browse").performClick();
+    idle();
+    PluginBrowser.folderPicked(app, android.provider.DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Download/My kits"));
+    idle();
+    PluginBrowser.lastChange.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String changed = String.valueOf(sf2.getSelectedItem());
+    PluginBrowser.lastFolders.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    java.util.List<String> kept = PluginLibrary.folders(PluginLibrary.SF2, true, PluginBrowser.home());
+    out.append("SF2 folders at first: ").append(before).append(" | after Delete: ").append(emptied).append(" | Add folder: ").append(added)
+        .append(" | Change shows ").append(inField).append(", browsed: ").append(changed).append(" | saved ").append(saved[0]).append(": ").append(kept).append('\n');
+    write("s187_kit_folders_list", out.toString());
+    PluginLibrary.setFolders(PluginLibrary.SF2, null);
+    boolean ok = paths.equals("/storage/emulated/0/Music/sfz | /storage/1A2B-3C4D/kits | /storage/emulated/0 | /storage/emulated/0/Download/kits")
+        && before > 0 && FolderPaths.NONE.equals(emptied) && "/storage/emulated/0/Music/sf2".equals(added) && "/storage/emulated/0/Music/sf2".equals(inField)
+        && "/storage/emulated/0/Download/My kits".equals(changed) && saved[0] && kept.equals(java.util.Collections.singletonList("/storage/emulated/0/Download/My kits"));
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * CLAP on the phone: Import .clap takes a plugin built for Android (arm64) into Pulsekit's own
+   * folder, read-only, and refuses a Linux or Windows one; the Plugin Browser lists it under CLAP;
+   * its page lists its plugins and Test plays the test tune through it into a WAV (the host in
+   * its own process stood in for here).
+   */
+  @Test
+  public void s188_clap_on_the_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File in = new File(app.getCacheDir(), "in");
+    in.mkdirs();
+    byte[] arm = new byte[64];
+    arm[0] = 0x7F;
+    arm[1] = 'E';
+    arm[2] = 'L';
+    arm[3] = 'F';
+    arm[18] = (byte) 183;
+    byte[] x86 = arm.clone();
+    x86[18] = 62;
+    byte[] pe = new byte[64];
+    pe[0] = 'M';
+    pe[1] = 'Z';
+    String[] said = new String[3];
+    byte[][] files = {x86, pe, arm};
+    String[] names = {"Vitsel-linux.clap", "Vitsel-windows.clap", "Vitsel.clap"};
+    File imported = null;
+    for (int i = 0; i < 3; i++) {
+      File f = new File(in, names[i]);
+      Files.write(f.toPath(), files[i]);
+      try {
+        imported = ClapHost.importClap(app, android.net.Uri.fromFile(f), names[i]);
+        said[i] = "imported";
+      } catch (Exception ex) {
+        said[i] = ex.getMessage();
+      }
+    }
+    out.append("Linux build: ").append(said[0]).append("\nWindows build: ").append(said[1]).append("\nAndroid build: ").append(said[2])
+        .append(" | read-only ").append(imported != null && !Files.getPosixFilePermissions(imported.toPath()).contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE)).append(" | in ").append(imported == null ? "" : imported.getParentFile().getName()).append('\n');
+    // The host stood in for: its list, and a render that writes a WAV of the tune's length.
+    final java.util.List<String> jobs = new java.util.ArrayList<String>();
+    ClapHost.direct = (what, job) -> {
+      android.os.Bundle b = new android.os.Bundle();
+      b.putBoolean("ok", true);
+      if (what == ClapService.LIST) {
+        jobs.add("list " + new File(job.getString("path")).getName());
+        b.putString("list", "dev.example.vitsel\tVitsel\tme\n");
+        return b;
+      }
+      jobs.add("render " + new File(job.getString("midi")).getName() + " at " + job.getInt("rate"));
+      try {
+        Files.write(new File(job.getString("wav")).toPath(), AudioIo.encodeWav(new short[44100], 44100));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      b.putString("info", "Vitsel played 14 MIDI events into 6.0 s (CLAP notes, peak 12%)");
+      return b;
+    };
+    PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-type:" + PluginLibrary.CLAP).performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    View item = bv.findViewWithTag("browser-item:Vitsel");
+    out.append("CLAP in the browser: ").append(count).append(" | Import .clap button ").append(bv.findViewWithTag("browser-import-clap") != null).append('\n');
+    item.performClick();
+    for (int i = 0; i < 100 && jobs.isEmpty(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    idle();
+    View pv = PluginBrowser.page.getWindow().getDecorView();
+    String positive = String.valueOf(PluginBrowser.page.getButton(DialogInterface.BUTTON_POSITIVE).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText()).contains("saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String info = String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText());
+    // The render played again, paused, stopped.
+    pv.findViewWithTag("clap-stop").performClick();
+    String stopped = PluginBrowser.lastSaid;
+    pv.findViewWithTag("clap-play").performClick();
+    String played = PluginBrowser.lastSaid;
+    pv.findViewWithTag("clap-stop").performClick();
+    out.append("Stop: ").append(stopped).append(" | Play: ").append(played).append('\n');
+    PluginBrowser.page.dismiss();
+    PluginBrowser.last.dismiss();
+    // Kit folders' CLAP folder: its Android plugin copied into Pulsekit's own folder, the Linux one not.
+    File shared = new File(app.getCacheDir(), "shared-clap/synths");
+    shared.mkdirs();
+    Files.write(new File(shared, "Other.clap").toPath(), arm);
+    Files.write(new File(shared, "Desk.clap").toPath(), x86);
+    PluginLibrary.setFolders(PluginLibrary.CLAP, java.util.Collections.singletonList(shared.getParent()));
+    PluginBrowser.rescan(app);
+    String synced = PluginBrowser.clapSynced;
+    StringBuilder listed = new StringBuilder();
+    java.util.List<String> clapNames = new java.util.ArrayList<String>();
+    for (File f : PluginBrowser.all) if (PluginLibrary.typeOf(f).name.equals(PluginLibrary.CLAP)) clapNames.add(f.getName());
+    java.util.Collections.sort(clapNames);
+    for (String n : clapNames) listed.append(n).append(' ');
+    PluginBrowser.rescan(app);
+    String again = PluginBrowser.clapSynced;
+    PluginLibrary.setFolders(PluginLibrary.CLAP, null);
+    out.append("CLAP folder: ").append(synced).append(" | listed ").append(listed.toString().trim()).append(" | again: \"").append(again).append("\"\n");
+    boolean folderOk = synced.equals("Copied 1 CLAP plugin from the CLAP folders; not for this phone: Desk.clap") && listed.toString().trim().equals("Other.clap Vitsel.clap")
+        && again.equals("") && "Stopped".equals(stopped) && "Playing the last render".equals(played);
+    ClapHost.direct = null;
+    if (PluginBrowser.player != null) PluginBrowser.player.release();
+    byte[] tune = ClapHost.testMelody();
+    out.append("page button: ").append(positive).append(" | jobs: ").append(jobs).append('\n')
+        .append("page: ").append(info.substring(info.indexOf("Plugins in it")).replace('\n', ' ')).append('\n')
+        .append("test tune: ").append(tune.length).append(" bytes, ").append(new String(tune, 0, 4, StandardCharsets.US_ASCII)).append('\n');
+    write("s188_clap_on_the_phone", out.toString());
+    Files.write(new File("build/snapshots/clap-test-tune.mid").toPath(), tune);
+    boolean ok = said[0].contains("built for a Linux computer (x86-64), not for an Android phone (arm64)") && said[1].contains("is not a plugin built for Android")
+        && "imported".equals(said[2]) && imported != null && !Files.getPosixFilePermissions(imported.toPath()).contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE) && imported.getParentFile().getName().equals("clap")
+        && count.startsWith("1 of ") && "Render MIDI…".equals(positive) && jobs.contains("list Vitsel.clap") && jobs.contains("render clap-test.mid at 44100")
+        && info.contains("Plugins in it:\ndev.example.vitsel  Vitsel  me") && info.contains("Vitsel played 14 MIDI events") && info.contains("saved ")
+        && new String(tune, 0, 4, StandardCharsets.US_ASCII).equals("MThd") && folderOk;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * LV2 on the phone: Import LV2 takes the bundles of an aap-lv2 APK (assets/lv2/<bundle>.lv2 and
+   * lib/arm64-v8a) into Pulsekit's own folder (a bundle built for a computer left out, with why),
+   * the libraries the plugins need into _libs; the .ttl read (an instrument, an effect, their
+   * ports); a bundle's page lists them, one picked; Test plays the tune through the instrument,
+   * a test beat through the effect (the host in its own process stood in for).
+   */
+  @Test
+  public void s189_lv2_on_the_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    byte[] arm = new byte[64];
+    arm[0] = 0x7F;
+    arm[1] = 'E';
+    arm[2] = 'L';
+    arm[3] = 'F';
+    arm[18] = (byte) 183;
+    byte[] x86 = arm.clone();
+    x86[18] = 62;
+    String manifest = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        + "<http://example.org/synth> a lv2:Plugin, lv2:InstrumentPlugin ; lv2:binary <Synth.so> ; rdfs:seeAlso <Synth.ttl> .\n"
+        + "<http://example.org/echo>\n\ta lv2:Plugin ;\n\tlv2:binary <Echo.so> ;\n\trdfs:seeAlso <Echo.ttl> .\n";
+    String synth = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix atom: <http://lv2plug.in/ns/ext/atom#> .\n@prefix doap: <http://usefulinc.com/ns/doap#> .\n"
+        + "@prefix urid: <http://lv2plug.in/ns/ext/urid#> .\n# a comment\n"
+        + "<http://example.org/synth> doap:name \"Test \\\"Synth\\\"\"@en ; lv2:requiredFeature urid:map ;\n"
+        + " lv2:port [ a lv2:InputPort , atom:AtomPort ; atom:bufferType atom:Sequence ; atom:supports <http://lv2plug.in/ns/ext/midi#MidiEvent> ; lv2:index 0 ; lv2:symbol \"midi\" ; lv2:name \"MIDI\" ] ,\n"
+        + "  [ a lv2:OutputPort , lv2:AudioPort ; lv2:index 1 ; lv2:symbol \"out\" ; lv2:name \"Out\" ] ,\n"
+        + "  [ a lv2:InputPort , lv2:ControlPort ; lv2:index 2 ; lv2:symbol \"cutoff\" ; lv2:name \"Cutoff\" ; lv2:default 0.75 ; lv2:minimum 0.0 ; lv2:maximum 1.0 ] .\n";
+    String echo = "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n@prefix doap: <http://usefulinc.com/ns/doap#> .\n"
+        + "<http://example.org/echo> doap:name \"\"\"Test Echo\"\"\" ;\n lv2:port [ a lv2:AudioPort, lv2:InputPort ; lv2:index 0 ; lv2:symbol \"in\" ] ,"
+        + " [ a lv2:AudioPort, lv2:OutputPort ; lv2:index 1 ; lv2:symbol \"out\" ] , [ a lv2:ControlPort, lv2:InputPort ; lv2:index 2 ; lv2:symbol \"time\" ; lv2:default 3e-1 ] .\n";
+    File apk = new File(app.getCacheDir(), "aap-test.apk");
+    try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(apk))) {
+      String[][] files = {{"assets/lv2/test.lv2/manifest.ttl", manifest}, {"assets/lv2/test.lv2/Synth.ttl", synth}, {"assets/lv2/test.lv2/Echo.ttl", echo},
+          {"assets/lv2/desk.lv2/manifest.ttl", "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n<http://example.org/desk> a lv2:Plugin ; lv2:binary <Desk.so> .\n"}};
+      for (String[] f : files) {
+        z.putNextEntry(new java.util.zip.ZipEntry(f[0]));
+        z.write(f[1].getBytes(StandardCharsets.UTF_8));
+      }
+      for (String lib : new String[] {"Synth.so", "Echo.so", "libc++_shared.so", "Desk.so"}) {
+        z.putNextEntry(new java.util.zip.ZipEntry("lib/arm64-v8a/" + lib));
+        z.write(lib.equals("Desk.so") ? x86 : arm);
+      }
+    }
+    String said = Lv2Host.importZip(app, apk, "aap-test.apk");
+    File root = Lv2Host.dir(app);
+    out.append("import: ").append(said).append('\n');
+    out.append("files: ").append(java.util.Arrays.toString(new File(root, "test.lv2").list() == null ? new String[0] : sorted(new File(root, "test.lv2").list())))
+        .append(" | _libs ").append(java.util.Arrays.toString(sorted(Lv2Host.libs(app).list()))).append(" | desk kept ").append(new File(root, "desk.lv2").exists()).append('\n');
+    java.util.List<Lv2Bundle.Plugin> ps = Lv2Bundle.read(new File(root, "test.lv2"));
+    StringBuilder read = new StringBuilder();
+    for (Lv2Bundle.Plugin p : ps) {
+      read.append(p.name).append(" (").append(p.role()).append(", ").append(p.binary.getName()).append(", kinds ").append(java.util.Arrays.toString(p.kinds()))
+          .append(", outs ").append(java.util.Arrays.toString(p.outs())).append(", values ").append(java.util.Arrays.toString(p.values())).append(") ");
+    }
+    out.append("read: ").append(read.toString().trim()).append('\n');
+    // The host stood in for.
+    final java.util.List<String> jobs = new java.util.ArrayList<String>();
+    ClapHost.direct = (what, job) -> {
+      jobs.add(what + " " + job.getString("id") + " midi=" + new File(job.getString("midi", "")).getName() + " wav=" + new File(job.getString("wavIn", "")).getName()
+          + " libdir=" + new File(job.getString("libdir")).getName());
+      try {
+        Files.write(new File(job.getString("wav")).toPath(), AudioIo.encodeWav(new short[4410], 44100));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      android.os.Bundle b = new android.os.Bundle();
+      b.putBoolean("ok", true);
+      b.putString("info", "played it into 1.0 s (peak 50%)");
+      return b;
+    };
+    PluginBrowser.show(app);
+    idle();
+    View bv = PluginBrowser.last.getWindow().getDecorView();
+    bv.findViewWithTag("browser-type:" + PluginLibrary.LV2).performClick();
+    idle();
+    bv = PluginBrowser.last.getWindow().getDecorView();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("browser-count")).getText());
+    boolean importButton = bv.findViewWithTag("browser-import-lv2") != null;
+    if (bv.findViewWithTag("browser-item:test") == null) throw new AssertionError(out + "browser: " + count + " | all " + PluginBrowser.all);
+    bv.findViewWithTag("browser-item:test").performClick();
+    idle();
+    View pv = PluginBrowser.page.getWindow().getDecorView();
+    String first = String.valueOf(((TextView) pv.findViewWithTag("lv2-plugin:Test \"Synth\"")).getText());
+    String positive = String.valueOf(PluginBrowser.page.getButton(DialogInterface.BUTTON_POSITIVE).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && !String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText()).contains("saved"); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean transport = pv.findViewWithTag("clap-play") != null && pv.findViewWithTag("clap-pause") != null && pv.findViewWithTag("clap-stop") != null;
+    pv.findViewWithTag("lv2-plugin:Test Echo").performClick();
+    String picked = String.valueOf(((TextView) pv.findViewWithTag("lv2-plugin:Test Echo")).getText());
+    PluginBrowser.page.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 200 && jobs.size() < 2; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    Thread.sleep(100);
+    idle();
+    String info = String.valueOf(((TextView) pv.findViewWithTag("browser-info")).getText());
+    PluginBrowser.page.dismiss();
+    PluginBrowser.last.dismiss();
+    ClapHost.direct = null;
+    if (PluginBrowser.player != null) PluginBrowser.player.release();
+    out.append("browser: ").append(count).append(" | Import LV2 ").append(importButton).append(" | page button ").append(positive).append(" | first row: ").append(first)
+        .append(" | after a tap: ").append(picked).append('\n').append("jobs: ").append(jobs).append('\n');
+    // Real aap-lv2 APKs, when given (PULSEKIT_AAP_APKS: paths with ':' between): imported, their bundles read.
+    String real = System.getenv("PULSEKIT_AAP_APKS");
+    if (real != null) {
+      for (String path : real.split(":")) {
+        out.append("real ").append(new File(path).getName()).append(": ").append(Lv2Host.importZip(app, new File(path), new File(path).getName())).append('\n');
+      }
+      for (String b : sorted(root.list())) {
+        if (!b.endsWith(".lv2") || b.equals("test.lv2")) continue;
+        int inst = 0, fx = 0;
+        for (Lv2Bundle.Plugin p : Lv2Bundle.read(new File(root, b))) {
+          if (p.takesMidi()) inst++;
+          else fx++;
+          if (!p.binary.isFile()) out.append("  missing library ").append(p.binary.getName()).append('\n');
+        }
+        out.append("  ").append(b).append(": ").append(inst).append(" instruments, ").append(fx).append(" others\n");
+      }
+      out.append("  _libs: ").append(java.util.Arrays.toString(sorted(Lv2Host.libs(app).list()))).append('\n');
+    }
+    write("s189_lv2_on_the_phone", out.toString());
+    boolean ok = said.startsWith("Imported 2 LV2 plugins (test); left out desk.lv2 (Desk.so is built for a computer (x86-64), not arm64)")
+        && new File(root, "test.lv2/Synth.so").isFile() && new File(Lv2Host.libs(app), "libc++_shared.so").isFile() && !new File(Lv2Host.libs(app), "Synth.so").exists()
+        && !new File(root, "desk.lv2").exists()
+        && read.toString().contains("Test \"Synth\" (instrument, Synth.so, kinds [2, 0, 1], outs [0, 1, 0], values [0.0, 0.0, 0.75])")
+        && read.toString().contains("Test Echo (effect, Echo.so, kinds [0, 0, 1], outs [0, 1, 0], values [0.0, 0.0, 0.3])")
+        && count.startsWith("1 of ") && importButton && "Render…".equals(positive) && first.startsWith("◉ Test \"Synth\"  · instrument")
+        && picked.startsWith("◉ Test Echo  · effect") && jobs.size() == 2
+        && jobs.get(0).equals("3 http://example.org/synth midi=lv2-test.mid wav= libdir=_libs") && jobs.get(1).equals("3 http://example.org/echo midi= wav=lv2-test-beat.wav libdir=_libs")
+        && info.contains("Test Echo played it into 1.0 s") && transport
+        && !new File(app.getCacheDir(), "lv2-test.mid").exists() && !new File(app.getCacheDir(), "lv2-test-beat.wav").exists();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params: Save (bottom left) keeps the prompt and LoRAs as the program's section in the
+   * prompt library (saved once: the same again is said so); Browse sections lists them, and a section
+   * picked over unsaved entries asks first; the sections are in the DB file after it is read again.
+   */
+  @Test
+  public void s191_sogni_sections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText prompt = null, loras = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) prompt = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) loras = PyJavParams.shownFields[i];
+    }
+    View dv = d.getWindow().getDecorView();
+    String saveText = String.valueOf(d.getButton(DialogInterface.BUTTON_NEUTRAL).getText());
+    boolean browseButton = dv.findViewWithTag("params-sections:--prompt") != null;
+    prompt.setText("a portrait in soft window light,\nfilm grain");
+    loras.setText("skin-detail:0.8");
+    d.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String first = PyJavParams.sectionSaid;
+    d.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String again = PyJavParams.sectionSaid;
+    boolean stillOpen = d.isShowing();
+    // Other entries, not saved: Browse sections, the section picked, Load without saving.
+    prompt.setText("something else");
+    loras.setText("");
+    dv.findViewWithTag("params-sections:--prompt").performClick();
+    idle();
+    if (PyJavParams.lastSections == null) throw new AssertionError("save: " + first + " | again: " + again + " | browse: " + PyJavParams.sectionSaid);
+    int listed = PyJavParams.lastSections.getListView().getAdapter().getCount();
+    String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(0));
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    idle();
+    String asked = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).getMessage());
+    PyJavParams.lastSections.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    String loaded = prompt.getText() + " | " + loras.getText();
+    d.dismiss();
+    PromptVault.forget();
+    java.util.List<PromptVault.SogniSection> kept = PromptVault.open(app.getFilesDir()).sogniSections("SogniPedit");
+    out.append("Save button: ").append(saveText).append(" | Browse sections: ").append(browseButton).append('\n')
+        .append("save: ").append(first.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append("\nagain: ").append(again.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"))
+        .append(" | Params still open: ").append(stillOpen).append('\n')
+        .append("listed ").append(listed).append(": ").append(row.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append("\nasked: ").append(asked).append("\nloaded: ").append(loaded)
+        .append("\nin the DB after reading it again: ").append(kept.size()).append(kept.isEmpty() ? "" : " " + kept.get(0).text.replace("\n", " / ")).append('\n');
+    write("s191_sogni_sections", out.toString());
+    boolean ok = "Save".equals(saveText) && browseButton && first.startsWith("Saved a SogniPedit section: a portrait in soft window light, film grain \u00b7 loras")
+        && again.startsWith("This section is saved already") && stillOpen && listed == 1 && asked.equals(SogniSections.ASK)
+        && loaded.equals("a portrait in soft window light, film grain | skin-detail:0.8") && kept.size() == 1
+        && kept.get(0).text.equals("Prompt: a portrait in soft window light, film grain\nLoras: skin-detail:0.8\n");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** SogniMusic --random with two models: the tracks' MIDIs make one file set a model ("SogniMusic run 1 sft"), not one a track. */
+  @Test
+  public void s192_random_run_file_set_per_model() throws Exception {
+    String[] styles = {"rock", "funk", "house"};
+    java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+    for (String st : styles) for (String m : new String[] {"turbo", "sft"}) wavs.add(new String[] {st + "-" + m, "/x/" + st + "-" + m + ".wav"});
+    java.util.List<String> before = Engine.fileSetSources(app.learned, app.learnedFills);
+    MusicCompare.Chain c = MusicCompare.startChain(java.util.Arrays.asList("--random", "3", "--model", "turbo,sft"), before, wavs, "");
+    try {
+    StringBuilder out = new StringBuilder();
+    java.util.List<String> said = new java.util.ArrayList<String>();
+    for (int i = 0; i < wavs.size(); i++) {
+      c.next();
+      String label = c.model();
+      // DrumMidi's MIDI for the track: its style's groove, then the next style's (a file set has one tempo, so the set's is one of theirs).
+      java.util.List<Engine.Part> parts = new java.util.ArrayList<Engine.Part>();
+      int bpm = 100 + 10 * i;
+      parts.add(Engine.groove("A", bpm, Engine.styleCells(Engine.styles().get(styles[i / 2])), 4));
+      parts.add(Engine.groove("B", bpm, Engine.styleCells(Engine.styles().get(styles[(i / 2 + 1) % 3])), 4));
+      said.add(String.valueOf(call("pkImportProgramMidi", Engine.encodeSongMidi(parts), c.setName(label) + ".mid")));
+    }
+    boolean noneYet = Engine.fileSetSources(app.learned, app.learnedFills).equals(before);
+    call("pkChainNext");
+    idle();
+    java.util.List<String> after = new java.util.ArrayList<String>(Engine.fileSetSources(app.learned, app.learnedFills));
+    after.removeAll(before);
+    java.util.Set<Integer> turboBpms = new java.util.TreeSet<Integer>();
+    for (Engine.Learned l : app.learned) if (c.setName("turbo").equals(Engine.sourceOf(l))) turboBpms.add(l.bpm);
+    out.append("said: ").append(said).append("\nnew file sets: ").append(after).append(" | made ").append(c.made).append(" | none before the end ").append(noneYet)
+        .append("\nturbo set tempos: ").append(turboBpms).append(" | chain over ").append(MusicCompare.chain() == null).append(" | quiet after ").append(MusicCompare.quietSongs()).append('\n');
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    boolean asked = d != null && d.isShowing() && "Make a song?".equals(String.valueOf(org.robolectric.Shadows.shadowOf(d).getTitle()));
+    out.append("Make a song asked: ").append(asked).append('\n');
+    write("s192_random_run_file_set_per_model", out.toString());
+    String run = c.run;
+    boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
+        && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
+        && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked;
+    if (!ok) throw new AssertionError(out.toString());
+    } finally {
+      // A failure must not leave the chain going: later tests' Make a song questions would be quiet.
+      MusicCompare.stopChain();
+    }
+  }
+
+  /** Sound devices: Own drum sounds puts the drums back on Pulsekit's own sounds (the MIDI output and its port cleared), the audio output kept. */
+  @Test
+  public void s190_own_drum_sounds() throws Exception {
+    AppSettings.setSoundOut("Speaker | built-in speaker");
+    AppSettings.setMidiOut("MDA | virtual MIDI");
+    AppSettings.setMidiOutPort(2);
+    String before = AppSettings.midiOut() + " port " + AppSettings.midiOutPort();
+    SoundDevicesScreen.show(app);
+    idle();
+    View sv = SoundDevicesScreen.last.getWindow().getDecorView();
+    sv.findViewWithTag("sound-midi-default").performClick();
+    idle();
+    String now = String.valueOf(((TextView) SoundDevicesScreen.last.getWindow().getDecorView().findViewWithTag("sound-now")).getText());
+    SoundDevicesScreen.last.dismiss();
+    String out = "before: " + before + " | after: \"" + AppSettings.midiOut() + "\" port " + AppSettings.midiOutPort() + ", audio " + AppSettings.soundOut() + "\n" + now + "\n";
+    write("s190_own_drum_sounds", out);
+    boolean ok = before.equals("MDA | virtual MIDI port 2") && AppSettings.midiOut().isEmpty() && AppSettings.midiOutPort() == 0
+        && AppSettings.soundOut().equals("Speaker | built-in speaker") && now.contains("Drum MIDI output: " + SoundDevices.OWN_SYNTH);
+    AppSettings.setSoundOut("");
+    if (!ok) throw new AssertionError(out);
+  }
+
+  private static String[] sorted(String[] a) {
+    if (a == null) return new String[0];
+    java.util.Arrays.sort(a);
+    return a;
   }
 
   /** A PNG with one more chunk before its IEND. */

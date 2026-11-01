@@ -6,6 +6,7 @@ import android.text.Html;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,7 +25,37 @@ final class StyleLibrary {
     }
 
     /** How much of the screen's height Imported may take before it scrolls inside. */
-    static final float IMPORTED_SHARE = 0.10f;
+    static final float IMPORTED_SHARE = 0.18f;
+    /** More (by the Imported heading): the list up to this share of the screen; Less back. Kept between starts. */
+    static final float IMPORTED_TALL = 0.45f;
+    static boolean importedTall;
+
+    static float importedShare() {
+        return importedTall ? IMPORTED_TALL : IMPORTED_SHARE;
+    }
+
+    /** The Imported lists' scroll boxes (patterns, fills): measured again when More or Less is tapped. */
+    final java.util.List<View> cappedScrolls = new java.util.ArrayList<View>();
+    final java.util.List<TextView> moreButtons = new java.util.ArrayList<TextView>();
+
+    /** The "Imported" heading with More / Less beside it. */
+    View importedHeader() {
+        LinearLayout row = app.row();
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView label = app.sectionLabel("Imported");
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView more = app.outline(importedTall ? "Less" : "More", false, null);
+        more.setTag("imported-more");
+        more.setOnClickListener(v -> {
+            importedTall = !importedTall;
+            app.getSharedPreferences("pulsekit", 0).edit().putBoolean("importedTall", importedTall).apply();
+            for (TextView b : this.moreButtons) b.setText(importedTall ? "Less" : "More");
+            for (View sc : this.cappedScrolls) sc.requestLayout();
+        });
+        this.moreButtons.add(more);
+        row.addView(more);
+        return row;
+    }
 
     /**
      * The imported file sets scroll inside at most IMPORTED_SHARE of the screen, so a long list
@@ -36,13 +67,14 @@ final class StyleLibrary {
             protected void onMeasure(int widthSpec, int heightSpec) {
                 // A tenth of the screen (at least one set's row and a half): with the header, the strips and LEN the grid
                 // still has room for several rows (at a third, a long list left it one row on a phone).
-                int cap = Math.max(app.dp(72), (int) (getResources().getDisplayMetrics().heightPixels * IMPORTED_SHARE));
+                int cap = Math.max(app.dp(72), (int) (getResources().getDisplayMetrics().heightPixels * importedShare()));
                 int size = View.MeasureSpec.getSize(heightSpec);
                 if (View.MeasureSpec.getMode(heightSpec) == View.MeasureSpec.UNSPECIFIED || size > cap) size = cap;
                 super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.AT_MOST));
             }
         };
         scroll.setTag("imported-scroll");
+        this.cappedScrolls.add(scroll);
         scroll.setFillViewport(false);
         scroll.addView(content);
         return scroll;
@@ -70,7 +102,8 @@ final class StyleLibrary {
         textView11.setTag((Object)"imported-empty");
         app.variatedPatternBar.addView((View)textView11);
         app.styleWrap.addView((View)app.chipStrip((View)app.variatedPatternBar));
-        app.styleWrap.addView((View)app.sectionLabel("Imported"));
+        importedTall = app.getSharedPreferences("pulsekit", 0).getBoolean("importedTall", false);
+        app.styleWrap.addView(this.importedHeader());
         app.importedHost = app.col();
         TextView emptyStyles = app.text("MIDI, song or plugin pack", 12, false);
         emptyStyles.setTextColor(MUTED);
@@ -100,7 +133,7 @@ final class StyleLibrary {
         textView12.setTag((Object)"imported-empty");
         app.variatedFillBar.addView((View)textView12);
         app.fillWrap.addView((View)app.chipStrip((View)app.variatedFillBar));
-        app.fillWrap.addView((View)app.sectionLabel("Imported"));
+        app.fillWrap.addView(this.importedHeader());
         app.importedFillHost = app.col();
         TextView emptyFills = app.text("Last bar of an imported MIDI", 12, false);
         emptyFills.setTextColor(MUTED);

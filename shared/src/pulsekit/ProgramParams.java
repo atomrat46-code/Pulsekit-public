@@ -121,6 +121,8 @@ public final class ProgramParams {
     boolean videoFrames = has(out, "--first") && has(out, "--last") && has(out, "--every");
     // MidiBatch: MIDI files from a folder or a list into a batch folder, copied or joined at random.
     boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
+    // SogniMusic: music on Sogni, compared between models or made in random styles.
+    boolean sogniMusic = has(out, "--compare_models") && has(out, "--random");
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -145,6 +147,7 @@ public final class ProgramParams {
       if (videoFrames) knownVideoFrames(p);
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
+      if (sogniMusic) knownSogniMusic(p);
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -339,6 +342,14 @@ public final class ProgramParams {
       p.label = "File (text, MIDI, picture, audio or video)";
     }
     if (p.flag && p.token.equals("--no_wav")) p.label = "No WAV copy (PyJav keeps every track also as a WAV)";
+    if (p.takesValue && p.token.equals("--compare_models")) {
+      p.label = "Compare models: the same request on each, ranked (each is a paid run)";
+      p.choices = new String[] {"turbo,sft", "turbo,music3", "sft,music3", "all"};
+      p.hint = "empty: the models Model lists (turbo,sft), or one";
+    }
+    if (p.flag && p.token.equals("--zip")) p.label = "Zip it all: tracks, WAVs, MIDI, results and logs into one zip in Download";
+    if (p.flag && p.token.equals("--zip_delete")) p.label = "Then delete the zipped files (the zip and Pulsekit's file sets stay)";
+    if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Compared tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.takesValue && p.token.equals("--batchdir")) {
       p.dir = true;
@@ -585,6 +596,29 @@ public final class ProgramParams {
     }
   }
 
+  private static void knownSogniMusic(Param p) {
+    if (p.takesValue && p.token.equals("--duration")) {
+      p.label = "Duration in seconds: 10 to 600";
+      p.hint = "empty: 30; with Random: drawn for each track, 30 to 90";
+    }
+    if (p.takesValue && p.token.equals("--bpm")) p.hint = "empty: Pulsekit's tempo; with Random: one that suits each track's style";
+    if (p.takesValue && p.token.equals("--keyscale")) p.hint = "e.g. C major, A minor (or C, Am); empty with Random: drawn for each track";
+    if (p.takesValue && p.token.equals("--timesig")) p.hint = "2, 3, 4 or 6; empty with Random: drawn for each track (mostly 4)";
+    if (p.takesValue && p.token.equals("--model")) p.hint = "turbo, sft or music3; a list (turbo,sft) compares them, or makes each Random track with each";
+    if (p.takesValue && p.token.equals("--random")) {
+      p.label = "Random styles: this many tracks, each a style from the list (each is a paid run)";
+      p.hint = "e.g. 5; empty: one track (--genre)";
+    }
+    if (p.takesValue && p.token.equals("--styles")) {
+      p.label = "Random styles from (| list)";
+      p.hint = "empty: every Pulsekit style; e.g. Rock|Funk|Metal";
+    }
+    if (p.takesValue && p.token.equals("--seed")) {
+      p.label = "Random seed (the same seed draws the same styles)";
+      p.hint = "empty: a new draw each run";
+    }
+  }
+
   private static void knownVstRender(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output WAV name";
@@ -606,6 +640,14 @@ public final class ProgramParams {
       p.label = "Carla project (.carxp): its LV2, VST or bridged plugins play it (no Windows needed on Linux)";
       p.hint = "set the kit up in Carla and save the project; the plugin above can stay empty";
       p.ext = "any";
+    } else if (p.token.equals("--clap")) {
+      p.label = "CLAP plugin (.clap): Carla's rack plays it (Carla 2.6 or newer)";
+      p.hint = "the plugin above can stay empty; Edit opens the rack with it";
+      p.ext = "any";
+      p.plugin = true;
+    } else if (p.token.equals("--clap_id")) {
+      p.label = "CLAP plugin id (a .clap with several plugins; --scan lists them)";
+      p.hint = "empty: the file's first plugin";
     } else if (p.token.equals("--drumgizmo")) {
       p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";
       p.hint = "free kits at drumgizmo.org; the plugin above stays empty";
@@ -1034,6 +1076,24 @@ public final class ProgramParams {
   }
 
   /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */
+  /** SogniMusic's --styles row: its list can be read from a text file (Select file, Browse DB). */
+  public static boolean stylesFromFile(Param p) {
+    return p != null && p.flag && p.takesValue && p.token.equals("--styles");
+  }
+
+  /** A text file's styles as --styles takes them: one a line, or with | ; or , between ("#" lines left out); "Funk|Hard Rock|Metal". */
+  public static String styleList(String text) {
+    java.util.List<String> out = new java.util.ArrayList<String>();
+    for (String line : (text == null ? "" : text).split("\n")) {
+      if (line.trim().startsWith("#")) continue;
+      for (String s : line.split("[|;,]")) {
+        String t = s.trim();
+        if (t.length() > 0 && !out.contains(t)) out.add(t);
+      }
+    }
+    return String.join("|", out);
+  }
+
   public static boolean promptFromFile(Param p) {
     return p != null && p.flag && p.takesValue && !p.isFile() && p.token.equals("--prompt");
   }

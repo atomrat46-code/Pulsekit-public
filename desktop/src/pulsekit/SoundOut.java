@@ -51,6 +51,56 @@ final class SoundOut {
         System.setProperty(CLIP_KEY, "#" + name);
     }
 
+    /** The lines Pulsekit plays through (kept while they live), so a new playback volume reaches them at once. */
+    private static final java.util.Map<Line, Boolean> LINES = new java.util.WeakHashMap<Line, Boolean>();
+    /** The drum synth, for its master volume. */
+    static volatile Synthesizer synth;
+
+    /** An opened line at Pulsekit's playback volume (its master gain), and kept for later changes. Returns it. */
+    static <T extends Line> T volume(T line) {
+        if (line == null) return null;
+        synchronized (LINES) {
+            LINES.put(line, Boolean.TRUE);
+        }
+        gain(line);
+        return line;
+    }
+
+    static void gain(Line line) {
+        try {
+            if (!line.isOpen() || !line.isControlSupported(javax.sound.sampled.FloatControl.Type.MASTER_GAIN)) return;
+            javax.sound.sampled.FloatControl c = (javax.sound.sampled.FloatControl) line.getControl(javax.sound.sampled.FloatControl.Type.MASTER_GAIN);
+            float v = InputLevel.volume(AppSettings.playVolume());
+            float db = v <= 0.0001f ? c.getMinimum() : (float) (20 * Math.log10(v));
+            c.setValue(Math.max(c.getMinimum(), Math.min(c.getMaximum(), db)));
+        } catch (Throwable ignored) {
+            // a closed line
+        }
+    }
+
+    /** The drum synth's master volume (a universal SysEx master volume, which Java's synth follows). */
+    static void synthVolume() {
+        Synthesizer s = synth;
+        if (s == null || !s.isOpen()) return;
+        try {
+            int v = Math.round(InputLevel.volume(AppSettings.playVolume()) * 16383);
+            byte[] msg = {(byte) 0xF0, 0x7F, 0x7F, 0x04, 0x01, (byte) (v & 0x7F), (byte) ((v >> 7) & 0x7F), (byte) 0xF7};
+            s.getReceiver().send(new javax.sound.midi.SysexMessage(msg, msg.length), -1);
+        } catch (Throwable ignored) {
+            // the synth without SysEx
+        }
+    }
+
+    /** Sound devices > Playback volume changed: every live line and the synth at the new volume. */
+    static void volumeChanged() {
+        java.util.List<Line> all;
+        synchronized (LINES) {
+            all = new ArrayList<Line>(LINES.keySet());
+        }
+        for (Line l : all) gain(l);
+        synthVolume();
+    }
+
     static Mixer.Info find(String name) {
         for (Mixer.Info mi : AudioSystem.getMixerInfo()) if (mi.getName().equals(name)) return mi;
         return null;

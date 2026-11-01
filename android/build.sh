@@ -60,10 +60,28 @@ javac -source 8 -target 8 -nowarn -encoding UTF-8 -Xlint:none \
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
 (cd "$OUT/dex" && zip -q -j ../unsigned.apk classes*.dex)
 
+# 3b. The plugin hosts (native/: clap_render.c, lv2_render.c, called through host_jni.c by ClapService), for arm64
+# phones, built with the NDK (ndk;29 in the SDK, or ANDROID_NDK_HOME). Without an NDK the APK is
+# built without it, and Plugins says the phone has no CLAP host.
+NDK="${ANDROID_NDK_HOME:-$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1)}"
+CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+if [ -n "$NDK" ] && [ -x "$CC" ]; then
+  mkdir -p "$OUT/native/lib/arm64-v8a"
+  "$CC" -shared -fPIC -O2 -Wall -Inative -Inative/clap -Inative/lv2 -Wl,-z,max-page-size=16384 \
+    -o "$OUT/native/lib/arm64-v8a/libpulsekitclap.so" native/clap_render.c native/lv2_render.c native/midi_wav.c native/host_jni.c -ldl -lm -llog
+  # Stored, not compressed: Android maps the library from the APK as it is.
+  (cd "$OUT/native" && zip -q -0 -r ../unsigned.apk lib)
+else
+  echo "WARNING: no Android NDK: Pulsekit.apk is built without its CLAP host (Plugins > CLAP cannot play)" >&2
+fi
+
 # 4. Align + sign (debug key is generated on first run)
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 KS="${KEYSTORE:-debug.keystore}"
 if [ ! -f "$KS" ]; then
+  # A new key: the phone takes this APK only after Pulsekit is uninstalled. Put the kept key
+  # (pulsekit-signing-key.keystore, SHA-256 7D:E9:57:70...) here as android/debug.keystore first.
+  echo "WARNING: no $KS: making a new signing key; an installed Pulsekit will not update to this APK (restore the kept key first)" >&2
   keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1

@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -17,6 +17,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   SFZ and SoundFonts natively on Linux, and Windows plugins bridged with yabridge, so
                   a Linux computer renders without Windows. Set the kit up in Carla (the plugin's own
                   window), save the project, and give it here; no --edit needed.
+  --clap          a CLAP plugin (.clap): Carla's Carla-Rack VST hosts it (Carla 2.6 or newer, free at
+                  kx.studio/carla), so no Carla project is needed. --plugin x.clap does the same.
+                  --edit opens the rack with the plugin in it: double-click the plugin for its own
+                  window, load a kit or patch, close the windows; it plays with them from then on.
+  --clap_id       which plugin of a .clap file that has several (its id; --scan lists them).
+                  Without it, the file's first plugin.
   --drumgizmo     a DrumGizmo kit (its drumkit .xml, free kits at drumgizmo.org): DrumGizmo's own
                   program plays the MIDI (Linux; no DawDreamer or plugin needed), its channels
                   (kick, snare, overheads...) mixed to stereo, the ...L and ...R ones to their side.
@@ -58,6 +64,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and the first three renders silent stop the plugin's run.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
                   beside each, or in --outdir (its subfolders kept). --recursive: subfolders too.
+                  SogniMusic's zips (--zip, made on the phone) in the folder (--recursive: in its
+                  subfolders too), or one given as --dir, are unpacked first: their MIDI files (the parts of a split zip together) go into
+                  <zip>-midi/ beside them and are rendered with the rest.
   --dir2          a second folder (fills here, longer patterns there): its MIDI files rendered in the
                   same run. In --outdir each folder's WAVs go under its own name (fills/..., patterns/...).
   --skip_existing with --dir: a MIDI whose WAV is already there (from a run that was stopped) is not
@@ -123,6 +132,7 @@ DAW once they are installed and activated on the computer.
 """
 import json
 import os
+import zipfile
 import re
 import struct
 import sys
@@ -166,6 +176,102 @@ def lv2_folders():
     return [d for d in dirs if os.path.isdir(d)]
 
 
+def clap_folders():
+    """The usual CLAP folders of this computer that exist (their plugins play through --clap)."""
+    home = os.path.expanduser("~")
+    if sys.platform.startswith("win"):
+        dirs = [os.path.join(os.environ.get("CommonProgramFiles", r"C:\Program Files\Common Files"), "CLAP"),
+                os.path.join(os.environ.get("LOCALAPPDATA", home), "Programs", "Common", "CLAP")]
+    elif sys.platform == "darwin":
+        dirs = ["/Library/Audio/Plug-Ins/CLAP", os.path.join(home, "Library/Audio/Plug-Ins/CLAP")]
+    else:
+        dirs = [os.path.join(home, ".clap"), "/usr/lib/clap", "/usr/local/lib/clap", "/usr/lib/x86_64-linux-gnu/clap"]
+    extra = os.environ.get("CLAP_PATH")
+    if extra:
+        dirs = extra.split(os.pathsep) + dirs
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def clap_binary(path):
+    """The library inside a .clap: the file itself, or on a Mac the bundle's Contents/MacOS program."""
+    if os.path.isdir(path):
+        inner = os.path.join(path, "Contents", "MacOS")
+        names = sorted(os.listdir(inner)) if os.path.isdir(inner) else []
+        if not names:
+            fail("%s is a folder without a program in Contents/MacOS" % os.path.basename(path))
+        return os.path.join(inner, names[0])
+    return path
+
+
+def clap_plugins(path):
+    """The plugins of a .clap file: [(id, name)], read from its clap_entry (the plugin factory's
+    descriptors). The library is loaded for that, as Carla loads it."""
+    import ctypes
+
+    class Version(ctypes.Structure):
+        _fields_ = [("major", ctypes.c_uint32), ("minor", ctypes.c_uint32), ("revision", ctypes.c_uint32)]
+
+    class Descriptor(ctypes.Structure):
+        _fields_ = [("clap_version", Version), ("id", ctypes.c_char_p), ("name", ctypes.c_char_p), ("vendor", ctypes.c_char_p),
+                    ("url", ctypes.c_char_p), ("manual_url", ctypes.c_char_p), ("support_url", ctypes.c_char_p),
+                    ("version", ctypes.c_char_p), ("description", ctypes.c_char_p), ("features", ctypes.c_void_p)]
+
+    class Factory(ctypes.Structure):
+        pass
+
+    Factory._fields_ = [("get_plugin_count", ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.POINTER(Factory))),
+                        ("get_plugin_descriptor", ctypes.CFUNCTYPE(ctypes.POINTER(Descriptor), ctypes.POINTER(Factory), ctypes.c_uint32)),
+                        ("create_plugin", ctypes.c_void_p)]
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("clap_version", Version), ("init", ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_char_p)),
+                    ("deinit", ctypes.CFUNCTYPE(None)), ("get_factory", ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_char_p))]
+
+    try:
+        lib = ctypes.CDLL(clap_binary(path))
+        entry = Entry.in_dll(lib, "clap_entry")
+    except (OSError, ValueError) as e:
+        fail("could not open %s as a CLAP plugin (%s). Is it a 64-bit CLAP for this computer?" % (os.path.basename(path), e))
+    if not entry.init(clap_binary(path).encode("utf-8")):
+        fail("%s did not start (its clap_entry init failed)" % os.path.basename(path))
+    try:
+        raw = entry.get_factory(b"clap.plugin-factory")
+        if not raw:
+            fail("%s has no plugin factory" % os.path.basename(path))
+        factory = ctypes.cast(raw, ctypes.POINTER(Factory))
+        out = []
+        for i in range(factory.contents.get_plugin_count(factory)):
+            d = factory.contents.get_plugin_descriptor(factory, i)
+            if d:
+                out.append(((d.contents.id or b"").decode("utf-8", "replace"), (d.contents.name or b"").decode("utf-8", "replace")))
+        return out
+    finally:
+        entry.deinit()
+
+
+def xml_text(t):
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def clap_carla_plugin(path, cid, name):
+    """A Carla project's <Plugin> for a CLAP plugin, as Carla writes it: its file and its id."""
+    return ("<Plugin>\n  <Info>\n   <Type>CLAP</Type>\n   <Name>%s</Name>\n   <Binary>%s</Binary>\n   <Identifier>%s</Identifier>\n  </Info>\n"
+            "  <Data>\n   <Active>Yes</Active>\n  </Data>\n </Plugin>") % (xml_text(name), xml_text(os.path.abspath(path)), xml_text(cid))
+
+
+def clap_pick(path, wanted):
+    """The (id, name) of the CLAP file's plugin to play: --clap_id's, else its first."""
+    plugins = clap_plugins(path)
+    if not plugins:
+        fail("%s has no plugins in it" % os.path.basename(path))
+    if wanted:
+        for cid, name in plugins:
+            if cid == wanted:
+                return cid, name
+        fail("%s has no plugin %s (it has %s)" % (os.path.basename(path), wanted, ", ".join(c for c, n in plugins)))
+    return plugins[0]
+
+
 def carla_rack():
     """Carla's Carla-Rack VST in the VST folders (also Carla's own folders); None when there is none."""
     dirs = vst_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
@@ -181,7 +287,6 @@ def carla_rack():
 def carla_state(proc, project):
     """Loads the Carla project's plugins into the Carla-Rack VST; returns the line saying which."""
     import re
-    import tempfile
     if not os.path.isfile(project):
         fail("no Carla project at %s" % project)
     text = open(project, "rb").read().decode("utf-8", "replace")
@@ -189,6 +294,29 @@ def carla_state(proc, project):
     if not plugins:
         fail("%s has no plugins (save the project in Carla with the plugin loaded)" % os.path.basename(project))
     names = [m.strip() for m in re.findall(r"<Name>(.*?)</Name>", "".join(plugins), re.S)]
+    rack_load(proc, plugins, "Carla loaded %%d of the %%d plugins in %s. Are they installed on this computer (and in Carla's folders)?" % os.path.basename(project))
+    return "Carla project: %s (%s)" % (os.path.basename(project), ", ".join(names))
+
+
+def clap_state(proc, path, wanted):
+    """Puts the CLAP plugin into the Carla-Rack VST; returns the line saying which."""
+    cid, name = clap_pick(path, wanted)
+    rack_load(proc, [clap_carla_plugin(path, cid, name)], "Carla did not load %s (%%d of %%d): it needs Carla 2.6 or newer for CLAP" % os.path.basename(path))
+    return "CLAP plugin: %s (%s) in Carla-Rack" % (name or os.path.basename(path), cid)
+
+
+def rack_plugins(proc):
+    """How many plugins the Carla-Rack VST has now."""
+    import tempfile
+    check = os.path.join(tempfile.mkdtemp(prefix="pulsekit-carla-"), "check.state")
+    proc.save_state(check)
+    return open(check, "rb").read().count(b"<Plugin>")
+
+
+def rack_load(proc, plugins, missing):
+    """The plugins (Carla project <Plugin> blocks) into the Carla-Rack VST's state; `missing` says
+    (with how many loaded, of how many) when Carla left some out."""
+    import tempfile
     work = tempfile.mkdtemp(prefix="pulsekit-carla-")
     empty = os.path.join(work, "empty.state")
     proc.save_state(empty)
@@ -204,12 +332,9 @@ def carla_state(proc, project):
         f.write(raw[:at - 4] + struct.pack(">I", len(xml)) + xml)
     proc.load_state(state)
     # What the rack has now: a plugin Carla could not find is left out.
-    check = os.path.join(work, "check.state")
-    proc.save_state(check)
-    loaded = open(check, "rb").read().count(b"<Plugin>")
+    loaded = rack_plugins(proc)
     if loaded < len(plugins):
-        fail("Carla loaded %d of the %d plugins in %s. Are they installed on this computer (and in Carla's folders)?" % (loaded, len(plugins), os.path.basename(project)))
-    return "Carla project: %s (%s)" % (os.path.basename(project), ", ".join(names))
+        fail(missing % (loaded, len(plugins)))
 
 
 def gizmo_map(kit, given):
@@ -386,6 +511,11 @@ def scan():
     for d in lv2_folders():
         bundles = sorted(n for n in os.listdir(d) if n.lower().endswith(".lv2"))
         print("%s (LV2, through --carla): %s" % (d, ", ".join(b[:-4] for b in bundles) or "none"))
+    for d in clap_folders():
+        print("%s (CLAP, through --clap):" % d)
+        for root, subdirs, files in os.walk(d):
+            for n in sorted(n for n in subdirs + files if n.lower().endswith(".clap")):
+                print("  " + os.path.relpath(os.path.join(root, n), d))
     found = 0
     for d in vst_folders():
         print(d)
@@ -993,6 +1123,65 @@ def collect(folder, recursive):
 AUDIO_ENDS = (".wav", ".wave", ".mp3", ".flac", ".ogg")
 
 
+def sogni_zip(path):
+    """Whether a zip is SogniMusic's (--zip): it holds the run's log, "SogniMusic log.txt" (in the first part)
+    or, in a later part of a split one, DrumMidi's MIDI of it ("SogniMusic run N <model>.mid")."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = [os.path.basename(n) for n in z.namelist()]
+    except (zipfile.BadZipFile, OSError):
+        return False
+    return "SogniMusic log.txt" in names or any(re.match(r"SogniMusic run \d+ .+\.midi?$", n) for n in names)
+
+
+def zip_base(path):
+    """A zip's name without ".zip" and a part number: sogni-Funk-d85a09ac-part1of2.zip -> sogni-Funk-d85a09ac."""
+    return re.sub(r"-part\d+of\d+$", "", stem(path))
+
+
+def unzip_midis(zips, into):
+    """The MIDI files of SogniMusic's zips (each part of a split one) written into `into`; their paths."""
+    os.makedirs(into, exist_ok=True)
+    out = []
+    for path in zips:
+        with zipfile.ZipFile(path) as z:
+            for n in z.namelist():
+                base = os.path.basename(n)
+                if not base.lower().endswith((".mid", ".midi")):
+                    continue
+                to = os.path.join(into, base)
+                with z.open(n) as src, open(to, "wb") as dst:
+                    dst.write(src.read())
+                if to not in out:
+                    out.append(to)
+    return sorted(out)
+
+
+def sogni_zips(folder, only=None, recursive=False):
+    """SogniMusic's zips in the folder (with --recursive, in its subfolders too; or only the one named
+    `only`, with its parts), unpacked: {"<base>-midi" folder beside them: its MIDI files}, the parts
+    of a split zip into one folder. Each is said, with how many MIDI files it gave."""
+    groups = {}
+    for root, dirs, names in os.walk(folder):
+        dirs.sort()
+        for n in sorted(names):
+            p = os.path.join(root, n)
+            if only and zip_base(p) != only:
+                continue
+            if n.lower().endswith(".zip") and sogni_zip(p):
+                groups.setdefault((root, zip_base(p)), []).append(p)
+        if not recursive:
+            break
+    out = {}
+    for (root, base), parts in sorted(groups.items()):
+        into = os.path.join(root, base + "-midi")
+        midis = unzip_midis(parts, into)
+        print("SogniMusic zip %s%s: %d MIDI file%s into %s" % (os.path.relpath(os.path.join(root, base), folder), " (%d parts)" % len(parts) if len(parts) > 1 else "",
+              len(midis), "" if len(midis) == 1 else "s", os.path.relpath(into, folder)))
+        out[into] = midis
+    return out
+
+
 # The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
 # alone, KIT_HITS times, half a second apart.
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
@@ -1101,8 +1290,22 @@ class Chain(object):
         self.plugin = opts["--plugin"]
         self.main = load_plugin(self.engine, "plugin", self.plugin)
         print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
+        clap = opts.get("--clap")
         if opts["--carla"]:
             print(carla_state(self.main, opts["--carla"]))
+        elif clap and "--edit" in switches:
+            # The rack with the plugin in it; its settings are saved under the CLAP's name.
+            print(clap_state(self.main, clap, opts.get("--clap_id")))
+            print("In the rack: double-click the plugin for its own window.")
+            edit(self.main, clap, opts["--state"], "Plugin")
+        elif clap:
+            saved = opts["--state"] or state_home(clap)
+            if os.path.isfile(saved):
+                print(apply_state(self.main, clap, opts["--state"], "Plugin"))
+                if rack_plugins(self.main) == 0:
+                    print(clap_state(self.main, clap, opts.get("--clap_id")))
+            else:
+                print(clap_state(self.main, clap, opts.get("--clap_id")))
         elif "--edit" in switches:
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
@@ -1368,7 +1571,7 @@ def main(argv):
         signal.signal(signal.SIGINT, ctrl_c)
     except (ImportError, ValueError):
         pass
-    opts = {"--plugin": None, "--carla": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
+    opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
             "--plugin2": None, "--plugin3": None, "--dir2": None, "--map2": None, "--map3": None,
@@ -1425,6 +1628,22 @@ def main(argv):
         return
     midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
     out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
+    # A CLAP plugin given as --plugin: it plays in Carla's rack as --clap does.
+    if opts["--plugin"] and opts["--plugin"].lower().rstrip("/\\").endswith(".clap"):
+        if opts["--clap"]:
+            fail("give the CLAP plugin once: --clap or --plugin")
+        opts["--clap"], opts["--plugin"] = opts["--plugin"], None
+    if opts["--clap_id"] and not opts["--clap"]:
+        fail("--clap_id picks a plugin of --clap's file: give --clap too")
+    if opts["--clap"]:
+        if opts["--carla"] or opts["--drumgizmo"]:
+            fail("--clap plays one CLAP plugin in Carla's rack: not with --carla or --drumgizmo")
+        if not os.path.exists(opts["--clap"]):
+            fail("no CLAP plugin at %s" % opts["--clap"])
+        if not opts["--plugin"]:
+            opts["--plugin"] = carla_rack()
+            if not opts["--plugin"]:
+                fail("--clap needs Carla's Carla-Rack VST (Carla 2.6 or newer, free at kx.studio/carla; or give the rack with --plugin)")
     if opts["--carla"]:
         if "--edit" in switches:
             fail("--carla plays a project set up in Carla: change the kit there and save the project again")
@@ -1440,11 +1659,18 @@ def main(argv):
     plugin = opts["--plugin"]
     if not plugin:
         fail("no plugin: give one with --plugin (--scan lists the installed ones)")
-    # The WAVs and the report are named after the Carla project or the kit, not the rack.
-    name = opts["--carla"] or plugin
+    # The WAVs and the report are named after the Carla project, the CLAP plugin or the kit, not the rack.
+    name = opts["--carla"] or opts["--clap"] or plugin
     if gizmo and stem(gizmo).lower() == "drumkit":
         name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
     folder = opts["--dir"]
+    # One of SogniMusic's zips as --dir: it (and its other parts) unpacked beside it, and its MIDI files rendered.
+    one_zip = None
+    if folder and folder.lower().endswith(".zip") and os.path.isfile(folder):
+        if not sogni_zip(folder):
+            fail("%s is not a SogniMusic zip (--zip makes one)" % folder)
+        one_zip = zip_base(folder)
+        folder = os.path.dirname(os.path.abspath(folder))
     # A playlist (.pls) for the folder: its MIDI files (PlayList --midi makes one).
     pls = bool(folder) and folder.lower().endswith(".pls") and os.path.isfile(folder)
     if folder:
@@ -1452,7 +1678,11 @@ def main(argv):
             fail("no folder %s" % folder)
         if opts["--wav"]:
             fail("--dir plays MIDI files; --wav is for one WAV")
-        batch = pls_midis(folder) if pls else collect(folder, "--recursive" in switches)
+        batch = pls_midis(folder) if pls else ([] if one_zip else collect(folder, "--recursive" in switches))
+        # SogniMusic's zips: their MIDI files (an <zip>-midi folder made earlier is replaced, not counted twice).
+        if not pls:
+            for into, midis in sogni_zips(folder, one_zip, "--recursive" in switches and not one_zip).items():
+                batch = [m for m in batch if not m.startswith(into + os.sep)] + midis
         if pls:
             folder = os.path.dirname(os.path.abspath(folder))
         roots = {m: folder for m in batch}

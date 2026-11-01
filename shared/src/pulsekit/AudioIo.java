@@ -844,7 +844,39 @@ public final class AudioIo {
   }
 
   public static Engine.FileSet fileSetFromMidi(Engine.MidiBars bars, String name, String origin) {
+    java.util.List<Engine.MidiBars> many = stagedTracks;
+    stagedTracks = null;  // used once, as the staged source MIDI is
+    if (many != null && !many.isEmpty()) return fileSetFromParts(partAnalysisFromMidis(many), name, origin);
     return fileSetFromParts(partAnalysisFromMidi(bars), name, origin);
+  }
+
+  /** Several tracks for the next MIDI file set (a --random run's, a model's tracks in one set): their parts one after another. */
+  static java.util.List<Engine.MidiBars> stagedTracks;
+
+  public static void stageTracks(java.util.List<Engine.MidiBars> tracks) {
+    stagedTracks = tracks;
+  }
+
+  /** Tracks' parts one after another (a bar that comes back in any of them is the same pattern). */
+  public static PartAnalysis partAnalysisFromMidis(java.util.List<Engine.MidiBars> tracks) {
+    PartAnalysis out = new PartAnalysis();
+    float t = 0;
+    for (Engine.MidiBars b : tracks) {
+      PartAnalysis a = partAnalysisFromMidi(b);
+      if (out.parts.isEmpty()) {
+        out.bpm = a.bpm;
+        out.styleId = a.styleId;
+      }
+      for (TrackPart p : a.parts) {
+        p.index = out.parts.size();
+        p.startSec += t;
+        p.endSec += t;
+        out.parts.add(p);
+      }
+      t += a.durationSec;
+    }
+    out.durationSec = t;
+    return out;
   }
 
   private static String midiPartName(String kind, int index, int total) {

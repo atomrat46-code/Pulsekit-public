@@ -212,6 +212,7 @@ final class PyJav {
         argsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, extraScroll.getPreferredSize().height + 6));
         north.add(argsRow);
         app.pyEditor = new JTextArea(PythonRun.defaultScript());
+        app.codeSave.watch(app.pyEditor);
         app.pyEditor.setFont(new Font(Font.MONOSPACED, 0, 12));
         app.pyEditor.setBackground(ELEV);
         app.pyEditor.setForeground(FG);
@@ -1015,8 +1016,29 @@ final class PyJav {
                         this.testNote("Saved " + w.getPath());
                     }
                 }
+                // SogniMusic --zip: what the run made (and its WAV) gathered for one zip, written when its last step is over.
+                if (result.code == 0 && RunZip.wanted(name, argv)) {
+                    RunZip z = RunZip.start(result.log, argv);
+                    this.zipAdd(z, name, "", result);
+                    if (musicWav != null) z.add(musicWav.getName(), musicWav);
+                    if (!MusicCompare.wanted(name, argv)) this.zipFinish();
+                }
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
+                // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
+                if (MusicCompare.chainStep(name)) {
+                    MusicCompare.Chain chain = MusicCompare.chain();
+                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
+                    if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
+                    else {
+                        MusicCompare.stopChain();
+                        this.importHeld(chain);
+                        this.testNote("File sets stopped: DrumMidi_CRT did not succeed");
+                        this.zipFinish();
+                    }
+                }
+                // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
+                if (result.code == 0 && MusicCompare.wanted(name, argv)) this.compareModels(argv, savedAudio, result.log);
                 if (!testing && !inBatch && made != null && savedAudio.containsKey(made)) this.offerAudio(savedAudio.get(made));
                 // VideoFrames --upscale: the first frame goes on to ImageUpscaler (its Params open) instead of being shown.
                 File frame = result.code == 0 && "VideoFrames.java".equals(name) && argv.contains("--upscale") ? this.firstFrame(savedPictures, argv, result.log) : null;
@@ -1137,6 +1159,132 @@ final class PyJav {
         }
     }
 
+    /** What Save or Browse sections said last; the tests' answers (a section's index to load; 0 save first, 1 load, 2 cancel). */
+    static volatile String sectionSaid = "";
+    static Integer pickSection;
+    static Integer askSave;
+
+    private void sectionSay(String text) {
+        sectionSaid = text;
+        app.setNow(text);
+    }
+
+    /** A row's value now (its text area, else its field). */
+    static java.util.Map<String, String> sectionFields(java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        String[] now = new String[ps.size()];
+        for (int i = 0; i < now.length; i++) now[i] = areas[i] != null ? areas[i].getText() : fields[i] != null ? fields[i].getText() : "";
+        return SogniSections.fields(ps, now);
+    }
+
+    /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
+    boolean saveSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.sectionSay("Nothing to save: the prompt and the other rows are empty");
+            return false;
+        }
+        try {
+            String text = SogniSections.text(now);
+            PromptVault.SogniSection same = PromptDb.vault().findSogniSection(program, text);
+            if (same != null) {
+                this.sectionSay("This section is saved already: " + SogniSections.label(same));
+                if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.SAVE, JOptionPane.PLAIN_MESSAGE);
+                return true;
+            }
+            PromptVault.SogniSection sec = PromptDb.vault().addSogniSection(program, text);
+            this.sectionSay("Saved a " + program + " section: " + SogniSections.label(sec));
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not save the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
+    void browseSections(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.List<PromptVault.SogniSection> all;
+        try {
+            all = PromptDb.vault().sogniSections(program);
+        } catch (Exception ex) {
+            this.sectionSay("Could not read the sections: " + ex.getMessage());
+            return;
+        }
+        if (all.isEmpty()) {
+            this.sectionSay("No " + program + " sections yet: Save keeps the entries as one");
+            if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.BROWSE, JOptionPane.PLAIN_MESSAGE);
+            return;
+        }
+        int chosen;
+        boolean delete = false;
+        if (pickSection != null) chosen = pickSection;
+        else {
+            javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
+            for (PromptVault.SogniSection sec : all) model.addElement(SogniSections.label(sec));
+            javax.swing.JList<String> list = new javax.swing.JList<String>(model);
+            list.setName("sections-list");
+            list.setSelectedIndex(0);
+            list.setVisibleRowCount(Math.min(12, all.size()));
+            Object[] options = {"Load", "Delete", "Cancel"};
+            int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
+                JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            chosen = list.getSelectedIndex();
+            if (ans == 1) delete = true;
+            else if (ans != 0) return;
+        }
+        if (chosen < 0 || chosen >= all.size()) return;
+        PromptVault.SogniSection sec = all.get(chosen);
+        if (delete) {
+            try {
+                PromptDb.vault().deleteSogniSection(sec.id);
+                this.sectionSay("Deleted: " + SogniSections.label(sec));
+            } catch (Exception ex) {
+                this.sectionSay("Could not delete it: " + ex.getMessage());
+            }
+            return;
+        }
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        boolean saved;
+        try {
+            saved = now.isEmpty() || PromptDb.vault().findSogniSection(program, SogniSections.text(now)) != null;
+        } catch (Exception ex) {
+            saved = false;
+        }
+        if (!saved) {
+            Object[] options = {SogniSections.SAVE_FIRST, SogniSections.DONT_SAVE, "Cancel"};
+            int ans = askSave != null ? askSave : JOptionPane.showOptionDialog(at, SogniSections.ASK, SogniSections.BROWSE, JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans == 0 && !this.saveSection(at, program, ps, fields, areas)) return;
+            if (ans != 0 && ans != 1) return;
+        }
+        java.util.Map<String, String> f = SogniSections.read(sec.text);
+        for (int i = 0; i < ps.size(); i++) {
+            if (!SogniSections.kept(ps.get(i))) continue;
+            String v = f.get(ps.get(i).token);
+            if (areas[i] != null) areas[i].setText(v == null ? "" : v);
+            else if (fields[i] != null) fields[i].setText(v == null ? "" : v);
+        }
+        this.sectionSay("Loaded: " + SogniSections.label(sec));
+    }
+
+    /** The Params shown last: their switches and text rows (a definitions file fills several). */
+    java.util.List<ProgramParams.Param> shownParams;
+    JTextField[] shownFields;
+    javax.swing.JTextArea[] shownAreas;
+    /** The tests: the definition picked when a file has several (null: ask). */
+    static Integer pickDef;
+
+    /** A text file's styles into SogniMusic's --styles row ("Funk|Hard Rock|Metal"). */
+    void stylesFrom(JTextField field, File file) {
+        try {
+            String list = ProgramParams.styleList(ProgramParams.promptText(java.nio.file.Files.readAllBytes(file.toPath())));
+            field.setText(list);
+            int n = list.isEmpty() ? 0 : list.split("\\|").length;
+            app.setNow(n + (n == 1 ? " style" : " styles") + " from " + file.getName());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
+        }
+    }
+
     /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
     void promptFrom(javax.swing.JTextArea area, File file) {
         try {
@@ -1145,11 +1293,57 @@ final class PyJav {
                 app.setNow(file.getName() + " has no text");
                 return;
             }
+            // A definitions file (App:, Prompt:, Loras:, ---- between them): its fields fill their rows.
+            if (ParamDefs.looksLike(text) && this.defsFrom(area, file.getName(), text)) return;
             area.setText(text);
             area.setCaretPosition(0);
         } catch (Exception ex) {
             app.setNow("Could not read " + file.getName());
         }
+    }
+
+    /** A definitions file for the Params shown: the one for this program fills its rows (several: a choice). False: no definitions. */
+    boolean defsFrom(javax.swing.JTextArea prompt, String fileName, String text) {
+        java.util.Set<String> tokens = new java.util.HashSet<String>();
+        if (this.shownParams != null) for (ProgramParams.Param p : this.shownParams) tokens.add(p.token);
+        java.util.List<ParamDefs.Def> all = ParamDefs.parse(text, tokens);
+        if (all.isEmpty()) return false;
+        String program = app.pyName;
+        java.util.List<ParamDefs.Def> mine = ParamDefs.forProgram(all, program);
+        if (mine.isEmpty()) {
+            app.setNow(fileName + " is for " + ParamDefs.apps(all) + ", not " + program);
+            return true;
+        }
+        ParamDefs.Def d = mine.get(0);
+        if (mine.size() > 1) {
+            String[] labels = new String[mine.size()];
+            for (int i = 0; i < labels.length; i++) labels[i] = mine.get(i).label();
+            int at = pickDef != null ? pickDef : java.util.Arrays.asList(labels).indexOf(JOptionPane.showInputDialog(app, fileName + ": " + mine.size() + " definitions",
+                "Definitions", JOptionPane.PLAIN_MESSAGE, null, labels, labels[0]));
+            if (at < 0) return true;
+            d = mine.get(at);
+        }
+        java.util.List<String> filled = new java.util.ArrayList<String>(), missing = new java.util.ArrayList<String>();
+        for (java.util.Map.Entry<String, String> e : d.fields.entrySet()) {
+            javax.swing.text.JTextComponent target = null;
+            if (this.shownParams != null) {
+                for (int i = 0; i < this.shownParams.size(); i++) {
+                    if (!this.shownParams.get(i).token.equals(e.getKey())) continue;
+                    if (this.shownAreas != null && i < this.shownAreas.length && this.shownAreas[i] != null) target = this.shownAreas[i];
+                    else if (this.shownFields != null && i < this.shownFields.length && this.shownFields[i] != null) target = this.shownFields[i];
+                }
+            }
+            if (target == null && e.getKey().equals("--prompt")) target = prompt;
+            if (target == null) {
+                missing.add(e.getKey());
+                continue;
+            }
+            target.setText(e.getValue());
+            target.setCaretPosition(0);
+            filled.add(e.getKey());
+        }
+        app.setNow("Filled " + String.join(", ", filled) + (missing.isEmpty() ? "" : "; " + program + " has no " + String.join(", ", missing)));
+        return true;
     }
 
     /** The first of the computer's usual VST3 and VST2 folders that exists (vst_render.py's plugin rows), else null. */
@@ -1235,7 +1429,8 @@ final class PyJav {
     boolean testStep(String name, java.util.List<String> argv, String verdict, PythonRun.FileOut madeMidi, File wav, String log) {
         Midi2WavTest t = Midi2WavTest.current();
         if (Midi2WavTest.musicSteps(name, argv, true)) {
-            if (!verdict.startsWith("Succeeded")) return false;
+            // A comparison is measured and ranked instead (MusicCompare): the one-track test does not apply.
+            if (!verdict.startsWith("Succeeded") || MusicCompare.wanted(name, argv)) return false;
             t = Midi2WavTest.startMusic(argv, wav != null && wav.getName().toLowerCase().endsWith(".wav") ? wav : null, this.loadParams("DrumMidi_CRT.jar"));
             if (t == null) {
                 this.testNote("Test stopped: no WAV was made of the track");
@@ -1342,6 +1537,140 @@ final class PyJav {
         // Another program ran in between: the test is over.
         Midi2WavTest.stop();
         return false;
+    }
+
+    /** SogniMusic --compare_models: each model's track (as saved) measured in the background, then the ranking under the log. */
+    void compareModels(final java.util.List<String> argv, final java.util.Map<String, File> saved, final String log) {
+        this.testNote("Measuring the models' tracks…");
+        final java.util.Map<String, File> files = new java.util.HashMap<String, File>(saved);
+        new Thread(() -> {
+            String report;
+            try {
+                report = MusicCompare.of(argv, log, name -> {
+                    File f = files.get(name);
+                    try {
+                        byte[] data = f == null ? null : Files.readAllBytes(f.toPath());
+                        return data == null ? null : "wav".equals(AudioIo.sniff(data)) ? AudioIo.parseWav(data) : Mp3Decode.parse(data);
+                    } catch (Exception ex) {
+                        return null;
+                    }
+                });
+            } catch (Throwable ex) {
+                report = "Could not compare the models' tracks: " + ex;
+            }
+            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            // Kept beside the tracks (Downloads): the log under the run is gone after the next run.
+            final File kept = report == null ? null : this.saveProgramFile(MusicCompare.reportName(log), report.getBytes(StandardCharsets.UTF_8));
+            // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
+            final java.util.List<String[]> wavs = new java.util.ArrayList<String[]>();
+            if (argv.contains(MusicCompare.TO_FILE_SETS)) {
+                for (String[] t : MusicCompare.tracks(log)) {
+                    File mp3 = files.get(t[1]);
+                    File wav = mp3 == null ? null : this.asWav(mp3);
+                    if (wav != null && wav.getName().toLowerCase().endsWith(".wav")) {
+                        wavs.add(new String[] {t[0], wav.getAbsolutePath()});
+                        if (RunZip.current() != null) RunZip.current().add(wav.getName(), wav);
+                    }
+                }
+            }
+            SwingUtilities.invokeLater(() -> {
+                for (String line : shown.split("\n")) this.testNote(line);
+                if (kept != null) this.testNote("Saved " + kept.getPath());
+                if (kept != null && RunZip.current() != null) RunZip.current().add(kept.getName(), kept);
+                if (!argv.contains(MusicCompare.TO_FILE_SETS)) {
+                    this.zipFinish();
+                    return;
+                }
+                MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"));
+                if (c == null) {
+                    this.testNote("No WAVs for DrumMidi: no file sets made");
+                    this.zipFinish();
+                } else {
+                    c.report = shown;
+                    this.testNote("File sets: DrumMidi_CRT on each track, into " + c.run + " <model>");
+                    this.chainNext();
+                }
+            });
+        }, "pulsekit-compare-models").start();
+    }
+
+    /** --zip: a run's files and its log into the zip being gathered (`about`: what the run made, for its log's name). */
+    void zipAdd(RunZip z, String program, String about, PythonRun.Result result) {
+        if (z == null || result == null) return;
+        for (PythonRun.FileOut f : result.files) z.add(f.name, f.bytes);
+        z.addLog(program, about, result.log);
+    }
+
+    /** --zip: the files gathered written into one zip in the program files folder (Downloads), off the screen's thread. */
+    void zipFinish() {
+        final RunZip z = RunZip.finish();
+        if (z == null) return;
+        this.testNote("Zipping " + z.size() + " files into " + z.name + "…");
+        new Thread(() -> {
+            StringBuilder text = new StringBuilder();
+            try {
+                File tmp = File.createTempFile("run-zip", ".zip");
+                try {
+                    // Parts of at most 25 MB each (sending often stops at 30 MB), each a zip of its own.
+                    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+                    for (int i = 0; i < parts.size(); i++) {
+                        ZipPack.write(tmp, parts.get(i), null);
+                        String name = z.partName(i, parts.size());
+                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()));
+                        text.append(text.length() == 0 ? "" : "\n").append(saved == null ? "Could not save " + name
+                            : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + saved.getPath());
+                    }
+                } finally {
+                    tmp.delete();
+                }
+                // --zip_delete: only when every part is saved.
+                if (z.deleteAfter && !text.toString().contains("Could not save")) text.append("\n").append(z.deleteZipped());
+            } catch (Throwable ex) {
+                text.append(text.length() == 0 ? "" : "\n").append("Could not zip the run's files: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            }
+            final String shown = text.toString();
+            SwingUtilities.invokeLater(() -> {
+                for (String line : shown.split("\n")) this.testNote(line);
+            });
+        }, "pulsekit-run-zip").start();
+    }
+
+    /** The comparison's next DrumMidi_CRT run (its MIDI named for the file set it makes), or the chain's end. */
+    void chainNext() {
+        MusicCompare.Chain c = MusicCompare.chain();
+        if (c == null) return;
+        final java.util.List<String> drumArgs = c.next();
+        if (drumArgs == null) {
+            this.importHeld(c);
+            this.testNote("File sets made: " + (c.made.isEmpty() ? "none" : String.join(", ", c.made)));
+            for (String line : c.report.split("\n")) if (line.length() > 0) this.testNote(line);
+            this.zipFinish();
+            return;
+        }
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
+        SwingUtilities.invokeLater(() -> {
+            app.pyInputPath = null;
+            app.programMenus.selectListedProgram("Java", "DrumMidi_CRT.jar");
+            this.forcedArgs = drumArgs;
+            this.runPython();
+        });
+    }
+
+    /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
+    void importHeld(MusicCompare.Chain c) {
+        if (c == null) return;
+        MusicCompare.heldImport = true;
+        try {
+            for (Object[] h : c.heldSets()) {
+                @SuppressWarnings("unchecked") java.util.List<Engine.MidiBars> tracks = (java.util.List<Engine.MidiBars>) h[2];
+                AudioIo.stageTracks(tracks);
+                String r = app.importLibrary.applyProgramMidi((byte[]) h[1], (String) h[0]);
+                AudioIo.stageTracks(null);
+                this.testNote(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+        } finally {
+            MusicCompare.heldImport = false;
+        }
     }
 
     private void testNote(String line) {
@@ -1674,6 +2003,7 @@ final class PyJav {
                     if (clip == null) {
                         clip = javax.sound.sampled.AudioSystem.getClip();
                         clip.open(new javax.sound.sampled.AudioFormat(22050f, 16, 1, true, false), pcmBytes, 0, pcmBytes.length);
+                        SoundOut.volume(clip);
                     }
                     clip.setFramePosition(0);
                     clip.start();
@@ -2318,6 +2648,10 @@ final class PyJav {
         final JTextField[] fields = new JTextField[ps.size()];
         // A prompt or system text: a wrapping area of a few lines that scrolls.
         final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
+        // A definitions file (ParamDefs) fills several rows: the Params' rows kept for it.
+        this.shownParams = ps;
+        this.shownFields = fields;
+        this.shownAreas = areas;
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
@@ -2580,6 +2914,13 @@ final class PyJav {
                     picks.add(db);
                     picks.add(prompts);
                     picks.add(recent);
+                    if (SogniSections.shown(program)) {
+                        // Browse sections: the program's saved Params (Save at the bottom), one picked into the rows.
+                        JButton sections = new JButton(SogniSections.BROWSE);
+                        sections.setName("params-sections:" + p.token);
+                        sections.addActionListener(e -> this.browseSections(sections, SogniSections.app(program), ps, fields, areas));
+                        picks.add(sections);
+                    }
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;
@@ -2592,6 +2933,32 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (ProgramParams.stylesFromFile(p)) {
+                // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                JButton select = new JButton("Select file");
+                select.setName("params-styles-file:" + p.token);
+                select.addActionListener(e -> {
+                    JFileChooser chooser = new JFileChooser();
+                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md"));
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                    this.stylesFrom(field, chooser.getSelectedFile());
+                });
+                JButton db = new JButton("Browse DB");
+                db.setName("params-styles-db:" + p.token);
+                db.setEnabled(!PromptDb.allFiles(PromptDb.TEXTS).isEmpty());
+                db.addActionListener(e -> {
+                    DbFilter.current = "T";
+                    app.promptDb.browse(PromptDb.TEXTS, (picked, file) -> this.stylesFrom(field, file));
+                });
+                picks.add(select);
+                picks.add(db);
+                row.add(field, BorderLayout.CENTER);
+                row.add(picks, BorderLayout.SOUTH);
+                form.add(row);
+                continue;
+            }
             if (p.choices != null && p.choices.length > 0) {
                 // A list to pick from (SogniMusic's --genre: Pulsekit's style database); typing still works.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -2690,6 +3057,15 @@ final class PyJav {
         formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
             Math.min(formSize.height, Math.max(PARAMS_MIN_FORM, room))));
         box.add(formScroll, BorderLayout.CENTER);
+        if (SogniSections.shown(program)) {
+            // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
+            JButton saveSection = new JButton(SogniSections.SAVE);
+            saveSection.setName("params-save-section");
+            saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
+            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+            south.add(saveSection);
+            box.add(south, BorderLayout.SOUTH);
+        }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;

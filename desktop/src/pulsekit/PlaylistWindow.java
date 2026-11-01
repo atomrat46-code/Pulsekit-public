@@ -79,6 +79,7 @@ final class PlaylistWindow {
 
     /** The playlist kept by `p.name` saved; the status line on failure. */
     static void save(Pulsekit app, Playlist p) {
+        edited.add(p.name);
         try {
             Playlist.save(PromptDb.dir(), p);
         } catch (Exception ex) {
@@ -216,10 +217,14 @@ final class PlaylistWindow {
         if (savePls(app, p, to)) Playlist.setSavedAt(PromptDb.dir(), p.name, to.getAbsolutePath());
     }
 
+    /** Playlists changed since they were last written to their .pls (File > Exit asks), by name. */
+    static final java.util.Set<String> edited = new java.util.LinkedHashSet<String>();
+
     static boolean savePls(Pulsekit app, Playlist p, File to) {
         try {
             Files.write(to.toPath(), p.toPls().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             app.setNow("Saved " + to.getPath());
+            edited.remove(p.name);
             return true;
         } catch (Exception ex) {
             app.setNow("Could not save " + to.getName() + ": " + ex.getMessage());

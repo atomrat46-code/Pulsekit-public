@@ -75,6 +75,7 @@ public final class PyJavParams {
       }
     }
     final EditText[] fields = new EditText[ps.size()];
+    shownFields = fields;
     // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
     final android.widget.CheckBox[] checks = new android.widget.CheckBox[ps.size()];
     int pad = dp(activity, 12);
@@ -182,6 +183,7 @@ public final class PyJavParams {
           row.addView(clear);
         }
         useBox(activity, p, i, row, chosen, uses, off);
+        spaced(activity, row);
         box.addView(row);
         box.addView(nameLine(activity, chosen));
         continue;
@@ -326,6 +328,29 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (ProgramParams.stylesFromFile(p)) {
+        // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button select = new android.widget.Button(activity);
+        select.setText("Select file");
+        select.setTag("params-styles-file:" + p.token);
+        select.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(select);
+        android.widget.Button db = new android.widget.Button(activity);
+        db.setText("Browse DB");
+        db.setTag("params-styles-db:" + p.token);
+        db.setEnabled(!RefBrowser.allFiles(activity, RefBrowser.TEXTS).isEmpty());
+        db.setOnClickListener(v -> {
+          DbFilter.current = "T";
+          RefBrowser.browse(activity, RefBrowser.TEXTS, (picked, file) -> promptFrom(activity, target, file));
+        });
+        row.addView(db);
+        box.addView(spaced(activity, row));
+        continue;
+      }
       if (ProgramParams.promptFromFile(p)) {
         // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
         box.addView(field);
@@ -374,7 +399,20 @@ public final class PyJavParams {
             target.setSelection(0);
           }).setNegativeButton("Cancel", null).show();
         });
-        box.addView(recent);
+        if (SogniSections.shown(name)) {
+          // Browse sections: the program's saved Params (Save at the bottom), one picked into the rows.
+          LinearLayout more = new LinearLayout(activity);
+          more.setOrientation(LinearLayout.HORIZONTAL);
+          more.addView(recent);
+          android.widget.Button sections = new android.widget.Button(activity);
+          sections.setText(SogniSections.BROWSE);
+          sections.setTag("params-sections:" + p.token);
+          sections.setOnClickListener(v -> browseSections(activity, SogniSections.app(name), ps, fields));
+          more.addView(sections);
+          box.addView(spaced(activity, more));
+        } else {
+          box.addView(recent);
+        }
         continue;
       }
       if (p.choices != null && p.choices.length > 0) {
@@ -455,11 +493,14 @@ public final class PyJavParams {
         }
       }
     };
-    shown = new AlertDialog.Builder(activity)
+    AlertDialog.Builder built = new AlertDialog.Builder(activity)
         .setTitle("Parameters · " + name)
         .setView(scroll)
         .setNegativeButton("Cancel", null)
-        .setPositiveButton("OK", save)
+        .setPositiveButton("OK", save);
+    // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
+    if (SogniSections.shown(name)) built.setNeutralButton(SogniSections.SAVE, null);
+    shown = built
         // Back (or a tap outside) closes it as OK does, what was picked kept; Cancel leaves it all as it was.
         .setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
           @Override
@@ -468,6 +509,113 @@ public final class PyJavParams {
           }
         })
         .show();
+    android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+  }
+
+  /** What Save or Browse sections said last, and the list shown last, for the tests. */
+  static volatile String sectionSaid = "";
+  static AlertDialog lastSections;
+
+  /** The section rows' values now. */
+  static java.util.Map<String, String> sectionFields(List<ProgramParams.Param> ps, EditText[] fields) {
+    String[] now = new String[ps.size()];
+    for (int i = 0; i < now.length; i++) now[i] = fields[i] == null || fields[i].getText() == null ? "" : fields[i].getText().toString();
+    return SogniSections.fields(ps, now);
+  }
+
+  static void sectionSay(Activity activity, String text) {
+    sectionSaid = text;
+    android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_LONG).show();
+  }
+
+  /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
+  static boolean saveSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
+      return false;
+    }
+    try {
+      PromptVault vault = PromptVault.open(activity.getFilesDir());
+      String text = SogniSections.text(now);
+      PromptVault.SogniSection same = vault.findSogniSection(program, text);
+      if (same != null) {
+        sectionSay(activity, "This section is saved already: " + SogniSections.label(same));
+        return true;
+      }
+      PromptVault.SogniSection sec = vault.addSogniSection(program, text);
+      sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(sec));
+      return true;
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not save the section: " + ex.getMessage());
+      return false;
+    }
+  }
+
+  /** Browse sections: the program's saved sections; one picked fills the rows (the entries now saved first, when asked). */
+  static void browseSections(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields) {
+    final List<PromptVault.SogniSection> all;
+    try {
+      all = PromptVault.open(activity.getFilesDir()).sogniSections(program);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not read the sections: " + ex.getMessage());
+      return;
+    }
+    if (all.isEmpty()) {
+      sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
+      return;
+    }
+    String[] rows = new String[all.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(all.get(i));
+    lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
+        .setItems(rows, (d, w) -> pickSection(activity, program, ps, fields, all.get(w)))
+        .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
+        .setNegativeButton("Cancel", null).show();
+  }
+
+  static void pickSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    boolean saved;
+    try {
+      saved = now.isEmpty() || PromptVault.open(activity.getFilesDir()).findSogniSection(program, SogniSections.text(now)) != null;
+    } catch (Exception ex) {
+      saved = false;
+    }
+    if (saved) {
+      loadSection(activity, ps, fields, sec);
+      return;
+    }
+    lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE).setMessage(SogniSections.ASK)
+        .setPositiveButton(SogniSections.SAVE_FIRST, (d, w) -> {
+          if (saveSection(activity, program, ps, fields)) loadSection(activity, ps, fields, sec);
+        })
+        .setNeutralButton(SogniSections.DONT_SAVE, (d, w) -> loadSection(activity, ps, fields, sec))
+        .setNegativeButton("Cancel", null).show();
+  }
+
+  /** The section's entries into the rows; the kept rows it does not set emptied. */
+  static void loadSection(Activity activity, List<ProgramParams.Param> ps, EditText[] fields, PromptVault.SogniSection sec) {
+    java.util.Map<String, String> f = SogniSections.read(sec.text);
+    for (int i = 0; i < ps.size() && i < fields.length; i++) {
+      if (fields[i] == null || !SogniSections.kept(ps.get(i))) continue;
+      String v = f.get(ps.get(i).token);
+      fields[i].setText(v == null ? "" : v);
+    }
+    sectionSay(activity, "Loaded: " + SogniSections.label(sec));
+  }
+
+  static void deleteSections(final Activity activity, final String program, final List<PromptVault.SogniSection> all) {
+    String[] rows = new String[all.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(all.get(i));
+    lastSections = new AlertDialog.Builder(activity).setTitle("Delete a " + program + " section").setItems(rows, (d, w) -> {
+      try {
+        PromptVault.open(activity.getFilesDir()).deleteSogniSection(all.get(w).id);
+        sectionSay(activity, "Deleted: " + rows[w]);
+      } catch (Exception ex) {
+        sectionSay(activity, "Could not delete it: " + ex.getMessage());
+      }
+    }).setNegativeButton("Cancel", null).show();
   }
 
   /**
@@ -661,11 +809,68 @@ public final class PyJavParams {
         android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
         return;
       }
+      // SogniMusic's --styles: the file's styles as its list ("Funk|Hard Rock|Metal").
+      if ("params-field:--styles".equals(field.getTag())) {
+        String list = ProgramParams.styleList(text);
+        field.setText(list);
+        int n = list.isEmpty() ? 0 : list.split("\\|").length;
+        android.widget.Toast.makeText(activity, n + (n == 1 ? " style" : " styles") + " from " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
+        return;
+      }
+      // A definitions file (App:, Prompt:, Loras:, ---- between them): its fields fill their rows.
+      if (ParamDefs.looksLike(text) && defsFrom(activity, field, file.getName(), text)) return;
       field.setText(text);
       field.setSelection(0);
     } catch (Exception ex) {
       android.widget.Toast.makeText(activity, "Could not read " + file.getName(), android.widget.Toast.LENGTH_LONG).show();
     }
+  }
+
+  /**
+   * A definitions file for the Params shown: the one for this program fills its rows (several: a
+   * choice first). False when it holds no definitions (the text goes into the prompt as it is).
+   */
+  static boolean defsFrom(final Activity activity, final EditText prompt, String fileName, String text) {
+    final List<ProgramParams.Param> ps = shownParams;
+    java.util.Set<String> tokens = new java.util.HashSet<String>();
+    if (ps != null) for (ProgramParams.Param p : ps) tokens.add(p.token);
+    List<ParamDefs.Def> all = ParamDefs.parse(text, tokens);
+    if (all.isEmpty()) return false;
+    final List<ParamDefs.Def> mine = ParamDefs.forProgram(all, shownFor);
+    if (mine.isEmpty()) {
+      android.widget.Toast.makeText(activity, fileName + " is for " + ParamDefs.apps(all) + ", not " + shownFor, android.widget.Toast.LENGTH_LONG).show();
+      return true;
+    }
+    if (mine.size() == 1) {
+      fillDef(activity, prompt, mine.get(0));
+      return true;
+    }
+    String[] labels = new String[mine.size()];
+    for (int i = 0; i < labels.length; i++) labels[i] = mine.get(i).label();
+    lastDefs = new AlertDialog.Builder(activity).setTitle(fileName + ": " + mine.size() + " definitions")
+        .setItems(labels, (d, w) -> fillDef(activity, prompt, mine.get(w)))
+        .setNegativeButton("Cancel", null).show();
+    return true;
+  }
+
+  /** A definition's fields into the Params' rows (the prompt into its field); those the program has not are said. */
+  static void fillDef(Activity activity, EditText prompt, ParamDefs.Def d) {
+    List<String> filled = new java.util.ArrayList<String>(), missing = new java.util.ArrayList<String>();
+    for (java.util.Map.Entry<String, String> e : d.fields.entrySet()) {
+      EditText target = null;
+      if (shownParams != null && shownFields != null) {
+        for (int i = 0; i < shownParams.size() && i < shownFields.length; i++) if (shownParams.get(i).token.equals(e.getKey())) target = shownFields[i];
+      }
+      if (target == null && e.getKey().equals("--prompt")) target = prompt;
+      if (target == null) {
+        missing.add(e.getKey());
+        continue;
+      }
+      target.setText(e.getValue());
+      filled.add(e.getKey());
+    }
+    android.widget.Toast.makeText(activity, "Filled " + String.join(", ", filled) + (missing.isEmpty() ? "" : "; " + shownFor + " has no " + String.join(", ", missing)),
+        android.widget.Toast.LENGTH_LONG).show();
   }
 
   /** The picker's file, copied into PyJav's input folder, for the waiting file row (or prompt field). */
@@ -686,6 +891,10 @@ public final class PyJavParams {
 
   /** The Params shown (their rows, values and file rows' labels): a video picked for a picture row fills its frames in. */
   static List<ProgramParams.Param> shownParams;
+  /** The text fields of the Params shown last (a definitions file fills several: ParamDefs). */
+  static EditText[] shownFields;
+  /** The choice of definitions shown last, for the tests. */
+  static AlertDialog lastDefs;
   static String[] shownValues;
   static TextView[] shownLabels;
 
@@ -790,15 +999,19 @@ public final class PyJavParams {
     return ProgramParams.merge(ProgramParams.parse(programText), extra, saved);
   }
 
-  /** A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...). */
+  /**
+   * A row of buttons with a gap between them (they sat edge to edge: Select file, Browse DB...; a
+   * folder's Use, Browse and Clear read as one word, "UseBrowseClear").
+   */
   static LinearLayout spaced(Activity activity, LinearLayout row) {
+    row.setPadding(row.getPaddingLeft(), Math.max(row.getPaddingTop(), dp(activity, 4)), row.getPaddingRight(), row.getPaddingBottom());
     for (int i = 1; i < row.getChildCount(); i++) {
       android.view.View c = row.getChildAt(i);
       if (!(c instanceof android.widget.Button)) continue;
       android.view.ViewGroup.LayoutParams lp = c.getLayoutParams();
       LinearLayout.LayoutParams m = lp instanceof LinearLayout.LayoutParams ? (LinearLayout.LayoutParams) lp
           : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-      m.leftMargin = dp(activity, 8);
+      m.leftMargin = dp(activity, row.getChildAt(i - 1) instanceof android.widget.CheckBox ? 16 : 8);
       c.setLayoutParams(m);
     }
     return row;

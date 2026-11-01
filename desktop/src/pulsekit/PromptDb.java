@@ -1152,6 +1152,7 @@ final class PromptDb {
         try {
             final javax.sound.sampled.Clip c = clips.call();
             c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
+            SoundOut.volume(c);
             c.addLineListener(ev -> {
                 if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) SwingUtilities.invokeLater(() -> {
                     // ❚❚ stops the line too: the sound is kept for ▶.
@@ -2447,6 +2448,7 @@ final class PromptDb {
         try {
             c = javax.sound.sampled.AudioSystem.getClip();
             c.open(new javax.sound.sampled.AudioFormat(sr, 16, 1, true, false), raw, 0, raw.length);
+            SoundOut.volume(c);
         } catch (Exception ex) {
             app.setNow("No audio output for " + name);
             return;
