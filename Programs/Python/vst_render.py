@@ -99,6 +99,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   so it is given here. It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
                   the zip) and in the report. --kit_name2, --kit_name3: --plugin2's and --plugin3's.
+                  Left blank: "default kit" (the plugin's own; Anarchy and Riot have one), or
+                  "saved kit" when a kit saved with --edit (or --state) is used.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
                   deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
@@ -1727,10 +1729,15 @@ def main(argv):
                 return (names[r] + os.sep if two else "") + os.path.relpath(path, r)
         return path
     test = "--test" in switches
-    # The plugin's name in the output files, with the kit loaded in it (--kit_name).
-    tag = kit_tag(name, opts["--kit_name"])
-    if opts["--kit_name"]:
+    # The plugin's name in the output files, with the kit loaded in it (--kit_name). Left blank, a
+    # plugin's kit is named for what it plays: the kit saved for it (--edit, --state), else its default.
+    if not (opts["--kit_name"] or "").strip() and (opts["--plugin"] or opts["--clap"]) and not opts["--carla"] and not opts["--drumgizmo"]:
+        plug = opts["--plugin"] or opts["--clap"]
+        opts["--kit_name"] = "saved kit" if opts["--state"] or os.path.isfile(state_home(plug)) else "default kit"
+        print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
+    elif opts["--kit_name"]:
         print("Kit: %s (--kit_name)" % opts["--kit_name"])
+    tag = kit_tag(name, opts["--kit_name"])
     if test:
         if opts["--wav"]:
             fail("--test checks a MIDI's render; --wav has no MIDI to check against")

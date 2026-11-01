@@ -7450,9 +7450,10 @@ public final class DesktopBehavior {
       if (q.token.equals("--plugin2") || q.token.equals("--dir2") || q.token.equals("--bpm_from_name")) labels += q.token + (q.plugin ? " (plugin)" : q.dir ? " (folder)" : "") + ", ";
     this.out.append(said).append("\nParams: ").append(labels).append('\n');
     boolean ok = said.contains("== Plugin 1 of 2: a.vst3") && said.contains("== Plugin 2 of 2: b.vst3") && said.contains("Plugins: a.vst3 done, b.vst3 done")
-        && said.contains("fills/100 rock/Fill 1-a.wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a.wav: 1.6 s at 80 BPM (name)")
-        && said.contains("patterns/120 Own Tempo-b.wav: 1.4 s at its own 90 BPM (its name says 120)")
-        && said.contains("made fills/100 rock/Fill 1-a.wav fills/100 rock/Fill 1-b.wav patterns/120 Own Tempo-a.wav patterns/120 Own Tempo-b.wav patterns/80bpm Groove-a.wav patterns/80bpm Groove-b.wav")
+        && said.contains("fills/100 rock/Fill 1-a (default kit).wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a (default kit).wav: 1.6 s at 80 BPM (name)")
+        && said.contains("patterns/120 Own Tempo-b (default kit).wav: 1.4 s at its own 90 BPM (its name says 120)")
+        && said.contains("made fills/100 rock/Fill 1-a (default kit).wav fills/100 rock/Fill 1-b (default kit).wav patterns/120 Own Tempo-a (default kit).wav patterns/120 Own Tempo-b (default kit).wav patterns/80bpm Groove-a (default kit).wav patterns/80bpm Groove-b (default kit).wav")
+        && said.contains("Kit: default kit (no --kit_name given)")
         && labels.contains("--plugin2 (plugin)") && labels.contains("--dir2 (folder)") && labels.contains("--bpm_from_name");
     if (!ok) throw new AssertionError(this.out.toString());
   }
