@@ -8719,7 +8719,9 @@ public final class DesktopBehavior {
         todo.add((java.awt.Component) get("importedBar"));
         while (!todo.isEmpty()) {
           java.awt.Component c = todo.poll();
-          if ("trackmidi".equals(c.getName()) && c.isVisible()) {
+          boolean shownNow = true;  // the row and all its parents (a closed set hides its panel, not its rows)
+          for (java.awt.Component up = c; up != null; up = up.getParent()) if (!up.isVisible()) shownNow = false;
+          if ("trackmidi".equals(c.getName()) && shownNow) {
             rowsSeen[0]++;
             for (java.awt.Component k : ((java.awt.Container) c).getComponents()) if ("midiclock".equals(k.getName())) clockSeen[0] = ((javax.swing.JLabel) k).getText();
           }
