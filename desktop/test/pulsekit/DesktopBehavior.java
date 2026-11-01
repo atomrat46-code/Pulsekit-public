@@ -8728,11 +8728,22 @@ public final class DesktopBehavior {
       });
       int trackRows = rowsSeen[0];
       String trackClock = clockSeen[0];
+      // Make song from one MIDI file (its row's right click): a song named for the file, of the set.
+      final String[] songMade = {""};
+      edt(() -> {
+        Pulsekit app = (Pulsekit) frame;
+        if (app.fileSets.makeTrackSong("SogniMusic run 1 turbo", "SogniMusic run 1 turbo", 0, false)) {
+          Engine.ImportedSong so = app.songEditor.importedSong();
+          songMade[0] = so == null ? "" : so.name + " " + so.parts.size() + " " + so.fileSet;
+        }
+      });
+      out.append("song from a MIDI file: ").append(songMade[0]).append('\n');
       out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
       boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
           && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
           && text.contains("(2 tracks)") && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
-          && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
+          && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00")
+          && songMade[0].matches("(Funk|Metal)-turbo [1-9]\\d* SogniMusic run 1 turbo") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

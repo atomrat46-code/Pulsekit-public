@@ -339,6 +339,19 @@ final class FileSets {
         label.setTextColor(MUTED);
         label.setTag("trackmidi-name");
         line.addView(label, app.flex(1));
+        // A long press: what can be done with this MIDI file (Make song).
+        android.view.View.OnLongClickListener menu = v -> {
+            new android.app.AlertDialog.Builder(app)
+                .setTitle((java.lang.CharSequence) tr.name)
+                .setItems(new java.lang.CharSequence[] {"Make song"}, (d, which) -> {
+                    if (which == 0) this.makeTrackSong(src, src, index, true);
+                })
+                .setNegativeButton((java.lang.CharSequence) "Cancel", null)
+                .show();
+            return true;
+        };
+        label.setOnLongClickListener(menu);
+        line.setOnLongClickListener(menu);
         line.addView(this.midiClock(key, tr.midi));
         android.widget.TextView play = app.outline("Play", false, v -> this.playTrackMidi(key, tr));
         play.setTag("trackmidi-play");
@@ -842,6 +855,24 @@ final class FileSets {
      */
     public void makeFileSetSong(final java.lang.String key, final java.lang.String label) {
         java.lang.String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        // A set made of several MIDI files: a song from each, after asking.
+        final java.util.List<pulsekit.Engine.FileSetTrack> tracks = pulsekit.Engine.fileSetTracks(src);
+        if (!tracks.isEmpty()) {
+            final java.lang.String from = src;
+            int n = tracks.size();
+            new android.app.AlertDialog.Builder(app)
+                .setTitle((java.lang.CharSequence) ("Make " + n + (n == 1 ? " song?" : " songs?")))
+                .setMessage((java.lang.CharSequence) ("Are you sure you want to make " + n + (n == 1 ? " song from the MIDI file" : " songs from the " + n + " MIDI files")
+                    + " this file set contains? Each goes under Imported, named for its MIDI file."))
+                .setPositiveButton((java.lang.CharSequence) ("Make " + n), (d, w) -> {
+                    int made = 0;
+                    for (int i = 0; i < tracks.size(); i++) if (this.makeTrackSong(from, label, i, false)) made++;
+                    app.setNow("Made " + made + (made == 1 ? " song" : " songs") + " \u00b7 " + from);
+                })
+                .setNegativeButton((java.lang.CharSequence) "Cancel", null)
+                .show();
+            return;
+        }
         java.util.List<pulsekit.Engine.ImportedSong> have = pulsekit.Engine.songsOfFileSet(src, label, app.importedSongs);
         if (have.isEmpty()) {
             this.makeFileSetSongNow(key, label);
@@ -879,6 +910,37 @@ final class FileSets {
             return null;
         }
         return song;
+    }
+
+    /** Make song for one MIDI file of a set made of several: its parts as a song named for it; false when it cannot be. */
+    boolean makeTrackSong(java.lang.String src, java.lang.String label, int index, boolean say) {
+        java.util.List<pulsekit.Engine.FileSetTrack> tracks = pulsekit.Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return false;
+        pulsekit.Engine.FileSetTrack tr = tracks.get(index);
+        pulsekit.Engine.FileSet set = pulsekit.Engine.collectFset(src, label, app.learned, app.learnedFills, app.fillernPairs);
+        if (set == null) {
+            app.setNow("That file set is empty");
+            return false;
+        }
+        this.ensureFsetInfoMap();
+        java.util.List stored = (java.util.List) app.fsetInfoMap.get(src);
+        if (stored != null && !stored.isEmpty()) {
+            set.parts.clear();
+            set.parts.addAll(stored);
+        }
+        java.util.List<pulsekit.Engine.Part> song = pulsekit.Engine.trackSong(set, tr);
+        if (song.isEmpty()) {
+            app.setNow("Could not make a song from " + tr.name);
+            return false;
+        }
+        app.songEditor.addImportedArrangement(tr.songName(), song);
+        pulsekit.Engine.ImportedSong made = app.songEditor.importedSong();
+        if (made != null) {
+            made.fileSet = src;
+            app.persistence.persistLearned();
+        }
+        if (say) app.setNow("Made song \u00b7 " + tr.songName());
+        return true;
     }
 
     /** Replace: the song's parts are rebuilt from the file set; its name stays. */

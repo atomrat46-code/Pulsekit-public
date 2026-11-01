@@ -2039,7 +2039,7 @@ public final class Engine {
   public static final int MAX_LEARNED = 256;
   public static final int MAX_VARIATED = 8;
   public static final int MAX_SONG = 256;
-  public static final int MAX_IMPORTED_SONGS = 8;
+  public static final int MAX_IMPORTED_SONGS = 200;
   public static final int MAX_MIDI_BARS = 256;
   public static final double[] TRACK_WEIGHT = {4, 3, 4, 1.2, 0.8, 2, 1, 0.8, 1.2, 0.7, 0.7, 0.7};
 
@@ -2902,6 +2902,45 @@ public final class Engine {
     public byte[] midi;
     public final List<String> patterns = new ArrayList<String>();
     public final List<String> fills = new ArrayList<String>();
+    /** Its parts in the set's parts (the song order): from firstPart, partCount of them. */
+    public int firstPart;
+    public int partCount;
+
+    /** Its name without .mid, for its song ("Melodic-Techno-sft"). */
+    public String songName() {
+      return name.replaceAll("(?i)\\.midi?$", "");
+    }
+  }
+
+  /** The song of one MIDI file of a set made of several: the set's parts that came from it, as Make song makes a song. */
+  public static List<Part> trackSong(FileSet set, FileSetTrack tr) {
+    if (set == null || tr == null || tr.partCount <= 0 || tr.firstPart < 0 || tr.firstPart + tr.partCount > set.parts.size()) return new ArrayList<Part>();
+    FileSet one = new FileSet();
+    one.name = set.name;
+    one.origin = set.origin;
+    one.patterns.addAll(set.patterns);
+    one.fills.addAll(set.fills);
+    one.fillerns.addAll(set.fillerns);
+    float t0 = set.parts.get(tr.firstPart).startSec;
+    for (int i = tr.firstPart; i < tr.firstPart + tr.partCount; i++) {
+      FileSetPart p = set.parts.get(i);
+      FileSetPart c = new FileSetPart();
+      c.name = p.name;
+      c.kind = p.kind;
+      c.bpm = p.bpm;
+      c.tsNum = p.tsNum;
+      c.tsDen = p.tsDen;
+      c.styleLabel = p.styleLabel;
+      c.bars = p.bars;
+      c.startSec = p.startSec - t0;
+      c.endSec = p.endSec - t0;
+      c.hits = p.hits;
+      c.swing = p.swing;
+      c.density = p.density;
+      one.parts.add(c);
+    }
+    one.durationSec = one.parts.get(one.parts.size() - 1).endSec;
+    return songFromFileSet(one);
   }
 
   /** The MIDI files a file set was made of (empty for a set from one file). */
@@ -3253,6 +3292,10 @@ public final class Engine {
             tr.midi = tf.isFile() ? Files.readAllBytes(tf.toPath()) : null;
             for (String n : f[2].split("\\|")) if (!n.isEmpty()) tr.patterns.add(n);
             for (String n : f[3].split("\\|")) if (!n.isEmpty()) tr.fills.add(n);
+            if (f.length >= 6 && f[4].matches("\\d+") && f[5].matches("\\d+")) {
+              tr.firstPart = Integer.parseInt(f[4]);
+              tr.partCount = Integer.parseInt(f[5]);
+            }
             tracks.add(tr);
           }
           rememberFileSetTracks(source, tracks);
@@ -3306,7 +3349,7 @@ public final class Engine {
             String file = "track" + t + ".mid";
             if (tr.midi != null) Files.write(new File(kid, file).toPath(), tr.midi);
             list.append(file).append('\t').append(tr.name.replace("\t", " ").replace("\n", " ")).append('\t').append(String.join("|", tr.patterns))
-                .append('\t').append(String.join("|", tr.fills)).append('\n');
+                .append('\t').append(String.join("|", tr.fills)).append('\t').append(tr.firstPart).append('\t').append(tr.partCount).append('\n');
           }
           Files.write(new File(kid, "tracks.txt").toPath(), list.toString().getBytes(StandardCharsets.UTF_8));
         }

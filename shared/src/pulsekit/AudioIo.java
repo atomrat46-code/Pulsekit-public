@@ -864,6 +864,8 @@ public final class AudioIo {
       Engine.FileSetTrack tr = new Engine.FileSetTrack();
       tr.name = names != null && t < names.size() ? names.get(t) : "Track " + (t + 1) + ".mid";
       tr.midi = midis != null && t < midis.size() ? midis.get(t) : null;
+      tr.firstPart = at;
+      tr.partCount = Math.max(0, Math.min(counts.get(t), set.parts.size() - at));
       for (int k = 0; k < counts.get(t) && at < set.parts.size(); k++, at++) {
         String n = set.parts.get(at).name;
         if (n == null) continue;

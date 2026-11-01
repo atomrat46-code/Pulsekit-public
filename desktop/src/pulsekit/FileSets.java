@@ -190,6 +190,22 @@ final class FileSets {
      */
     void makeFileSetSong(String key, String label) {
         String src = key != null && key.startsWith("f:") ? key.substring(2) : "";
+        // A set made of several MIDI files: a song from each, after asking.
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (!tracks.isEmpty()) {
+            int n = tracks.size();
+            Object[] options = {"Make " + n, "Cancel"};
+            int ans = javax.swing.JOptionPane.showOptionDialog(app,
+                "Are you sure you want to make " + n + (n == 1 ? " song from the MIDI file" : " songs from the " + n + " MIDI files")
+                    + " this file set contains?\nEach goes under Imported, named for its MIDI file.",
+                "Make " + n + (n == 1 ? " song?" : " songs?"), javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans != 0) return;
+            int made = 0;
+            for (int i = 0; i < n; i++) if (this.makeTrackSong(src, label, i, false)) made++;
+            app.setNow("Made " + made + (made == 1 ? " song" : " songs") + " \u00b7 " + src);
+            return;
+        }
         java.util.List<Engine.ImportedSong> have = Engine.songsOfFileSet(src, label, app.importedSongs);
         if (have.isEmpty()) {
             this.makeFileSetSongNow(key, label);
@@ -205,6 +221,36 @@ final class FileSets {
         if (ans == 0) this.replaceFileSetSong(first, key, label);
         else if (ans == 1) this.makeFileSetSongNow(key, label);
         else if (ans == 2) this.openSong(first);
+    }
+
+    /** Make song for one MIDI file of a set made of several: its parts as a song named for it; false when it cannot be. */
+    boolean makeTrackSong(String src, String label, int index, boolean say) {
+        java.util.List<Engine.FileSetTrack> tracks = Engine.fileSetTracks(src);
+        if (index < 0 || index >= tracks.size()) return false;
+        Engine.FileSetTrack tr = tracks.get(index);
+        Engine.FileSet set = Engine.collectFset(src, label, app.learned, app.learnedFills, app.fillernPairs);
+        if (set == null) {
+            app.setNow("That file set is empty");
+            return false;
+        }
+        java.util.List<Engine.FileSetPart> stored = app.fileSetParts.get(src);
+        if (stored != null && !stored.isEmpty()) {
+            set.parts.clear();
+            set.parts.addAll(stored);
+        }
+        java.util.List<Engine.Part> song = Engine.trackSong(set, tr);
+        if (song.isEmpty()) {
+            app.setNow("Could not make a song from " + tr.name);
+            return false;
+        }
+        app.songEditor.addImportedSong(tr.songName(), song);
+        Engine.ImportedSong made = app.songEditor.importedSong();
+        if (made != null) {
+            made.fileSet = src;
+            app.persistence.persistLearned();
+        }
+        if (say) app.setNow("Made song \u00b7 " + tr.songName());
+        return true;
     }
 
     /** The song built from the file set, as Make song makes it; null (with a message) when it cannot be. */
@@ -479,6 +525,17 @@ final class FileSets {
         JLabel label = new JLabel(tr.name);
         label.setName("trackmidi-name");
         label.setForeground(MUTED);
+        label.setToolTipText("Right click: Make song");
+        // A right click: what can be done with this MIDI file (Make song).
+        GroupMenus.onRightClick(label, () -> {
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            javax.swing.JMenuItem make = new javax.swing.JMenuItem("Make song");
+            make.setName("trackmidi-make-song");
+            make.addActionListener(e -> this.makeTrackSong(src, src, index, true));
+            m.add(make);
+            MenuCancel.add(m);
+            m.show(label, 0, label.getHeight());
+        });
         row.add(label);
         row.add(this.midiClock(key, tr.midi));
         JButton play = app.outline("Play", false);

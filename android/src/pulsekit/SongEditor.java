@@ -323,7 +323,7 @@ final class SongEditor {
         importedSong.name = Engine.uniqueImportedName(string, app.importedSongs);
         importedSong.parts.addAll(list);
         app.importedSongs.add(0, importedSong);
-        while (app.importedSongs.size() > 8) {
+        while (app.importedSongs.size() > Engine.MAX_IMPORTED_SONGS) {
             app.importedSongs.remove(app.importedSongs.size() - 1);
         }
         app.importedSongId = importedSong.id;
