@@ -7503,6 +7503,45 @@ public final class DesktopBehavior {
     if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * The Media browser's folder zips: Send folder contents to zip ("<folder>.zip" there, the folder's
+   * files with a password made and shown); Import files from zip (its password, then into a folder
+   * named for the zip, added to when it is there).
+   */
+  void s184_media_folder_zip() throws Exception {
+    File media = new File(System.getProperty("user.home"), "zip-media/Trip");
+    new File(media, "inner").mkdirs();
+    Files.write(new File(media, "a.txt").toPath(), "alpha".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "b.txt").toPath(), "beta".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "inner/c.txt").toPath(), "gamma".getBytes(StandardCharsets.UTF_8));
+    MediaBrowser mb = new MediaBrowser((Pulsekit) frame);
+    final String[] pw = new String[1];
+    final File zip = new File(media, "Trip.zip");
+    MediaBrowser.zipAnswer = q -> {
+      if (q.startsWith("shown ")) pw[0] = q.substring(6);
+      if (q.equals("zip file")) return zip.getAbsolutePath();
+      if (q.equals("password")) return pw[0];
+      if (q.equals("where")) return FolderZip.newFolder("Trip", false);
+      return null;
+    };
+    try {
+      final String[] said = new String[2];
+      edt(() -> said[0] = mb.folderToZip(null, media));
+      java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
+      StringBuilder names = new StringBuilder();
+      for (ZipPack.Entry e : ZipPack.files(es)) names.append(e.name).append(' ');
+      this.out.append("send: ").append(said[0]).append(" | files ").append(names.toString().trim()).append(", encrypted ").append(ZipPack.encrypted(es))
+          .append(", password ").append(pw[0] == null ? "none" : pw[0].length() + " chars").append('\n');
+      if (!names.toString().trim().equals("a.txt b.txt") || !ZipPack.encrypted(es) || pw[0] == null || pw[0].length() != 19) throw new AssertionError(this.out.toString());
+      edt(() -> said[1] = mb.importZip(null, media));
+      File a = new File(media, "Trip/a.txt");
+      this.out.append("import: ").append(said[1]).append(" | a.txt ").append(a.isFile() ? new String(Files.readAllBytes(a.toPath()), StandardCharsets.UTF_8) : "none").append('\n');
+      if (!a.isFile() || !new File(media, "Trip/b.txt").isFile() || !said[1].startsWith("Imported 2 files from Trip.zip into Trip")) throw new AssertionError(this.out.toString());
+    } finally {
+      MediaBrowser.zipAnswer = null;
+    }
+  }
+
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
   private static byte[] midiFile(byte[] track) throws java.io.IOException {
     java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();

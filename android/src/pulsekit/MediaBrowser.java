@@ -875,6 +875,8 @@ final class MediaBrowser {
     static final int IMPORT_FILES = 81;
     static final int IMPORT_FOLDER = 82;
     static final int COPY_FOLDER = 83;
+    /** Import files from zip…: the zip picked. */
+    static final int IMPORT_ZIP = 85;
     /** The browser an import goes into (the folder it shows). */
     static MediaBrowser importInto;
 
@@ -882,11 +884,11 @@ final class MediaBrowser {
     void pickImport(int code) {
         importInto = this;
         Intent intent;
-        if (code == IMPORT_FILES) {
+        if (code == IMPORT_FILES || code == IMPORT_ZIP) {
             intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
-            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            if (code == IMPORT_FILES) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         } else {
             intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         }
@@ -1008,6 +1010,218 @@ final class MediaBrowser {
 
     /** What the last import said (for the tests). */
     static volatile String lastImport;
+
+    /** The password Send folder contents to zip made last, and the folder zips' question shown last (for the tests). */
+    static volatile String lastZipPassword;
+    static AlertDialog lastZipAsk;
+
+    /** This folder's name, for its zip. */
+    String folderName() {
+        String l = this.label();
+        int slash = Math.max(l.lastIndexOf('/'), l.lastIndexOf(':'));
+        return slash >= 0 && slash < l.length() - 1 ? l.substring(slash + 1) : l;
+    }
+
+    /** Send folder contents to zip: this folder's files (not its folders) into "<folder>.zip" here, with a password made and shown once. */
+    void folderToZip() {
+        final String zipName = FolderZip.zipFor(this.folderName());
+        final String pw = FolderZip.password();
+        this.app.setNow("Zipping the files of " + this.label() + "\u2026");
+        new Thread(() -> {
+            String text;
+            boolean ok = false;
+            File tmp = new File(this.app.getCacheDir(), "media-folder.zip");
+            try {
+                // Every file here (whatever the type letters show), not its folders.
+                List<ZipPack.Source> sources = new ArrayList<ZipPack.Source>();
+                if (this.tree != null) {
+                    List<ZipPack.Source> all = new ArrayList<ZipPack.Source>();
+                    this.treeSources(this.here(), "", all, 16);
+                    for (ZipPack.Source src : all) if (!src.path.equals("/" + zipName)) sources.add(new ZipPack.Source(src.path.substring(1), src::open, 0));
+                } else if (!this.here().startsWith(MEDIA) && !this.here().startsWith(DL)) {
+                    sources.addAll(FolderZip.files(new File(this.here()), zipName));
+                } else {
+                    for (MediaDir.Entry e : this.allEntries) {
+                        if (e.folder || e.dbId != 0 || e.name.startsWith(".") || e.name.equals(zipName)) continue;
+                        final Uri u = this.uri(e);
+                        sources.add(new ZipPack.Source(e.name, () -> this.app.getContentResolver().openInputStream(u), 0));
+                    }
+                }
+                if (sources.isEmpty()) throw new java.io.IOException(this.label() + " has no files to zip");
+                ZipPack.write(tmp, sources, pw.toCharArray());
+                int[] done = new int[2];
+                this.importOne(Uri.fromFile(tmp), zipName, this.here(), done);
+                ok = done[0] == 1;
+                text = ok ? FolderZip.sent(zipName, sources.size(), this.label()) : "Could not put " + zipName + " in " + this.label();
+            } catch (Throwable ex) {
+                text = "Could not zip " + this.label() + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            } finally {
+                tmp.delete();
+            }
+            final String shown = text;
+            final boolean made = ok;
+            this.app.runOnUiThread(() -> {
+                this.app.setNow(shown);
+                lastImport = shown;
+                if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
+                if (!made) {
+                    ZipFlow.said(this.app, shown);
+                    return;
+                }
+                lastZipPassword = pw;
+                this.showPassword(zipName, pw, shown);
+            });
+        }, "pulsekit-folder-zip").start();
+    }
+
+    /** The password made for a zip, to copy: Pulsekit does not keep it. */
+    void showPassword(String zipName, final String pw, String said) {
+        LinearLayout col = this.app.col();
+        col.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        col.addView(this.app.text(said + ".", 13, false));
+        TextView field = this.app.text(pw, 20, true);
+        field.setTextIsSelectable(true);
+        field.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        field.setTag("media-zip-password");
+        field.setPadding(0, this.app.dp(10), 0, this.app.dp(10));
+        col.addView(field);
+        col.addView(this.app.text(FolderZip.KEEP, 13, false));
+        lastZipAsk = new AlertDialog.Builder(this.app).setTitle("Password for " + zipName).setView(col)
+            .setPositiveButton("Copy password", (d, w) -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) this.app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("Zip password", pw));
+                this.app.setNow("The password is copied");
+            })
+            .setNegativeButton("Close", null).show();
+    }
+
+    /** Import files from zip…: the zip picked, copied into the temp folder, then its password and where its files go. */
+    static void zipPicked(final MainActivity app, final Uri uri) {
+        final MediaBrowser to = importInto;
+        importInto = null;
+        if (to == null) return;
+        final String name = DbImport.displayName(app, uri);
+        app.setNow("Reading " + name + "\u2026");
+        new Thread(() -> {
+            String failed = null;
+            File tmp = new File(app.getCacheDir(), "media-zip-in.zip");
+            List<ZipPack.Entry> list = null;
+            try {
+                InputStream in = app.getContentResolver().openInputStream(uri);
+                if (in == null) throw new java.io.IOException("no data");
+                try {
+                    java.nio.file.Files.copy(in, tmp.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    in.close();
+                }
+                list = ZipPack.list(tmp);
+            } catch (Throwable ex) {
+                failed = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            }
+            final String why = failed;
+            final List<ZipPack.Entry> got = list;
+            app.runOnUiThread(() -> {
+                if (why != null) {
+                    ZipFlow.said(app, "Could not read " + name + " (is it a zip?): " + why);
+                    return;
+                }
+                to.zipOpened(tmp, name, got);
+            });
+        }, "pulsekit-folder-zip-read").start();
+    }
+
+    /** The zip read: its password asked when it has one, then where its files go. */
+    void zipOpened(final File zip, final String name, final List<ZipPack.Entry> entries) {
+        if (!ZipPack.encrypted(entries)) {
+            this.zipWhere(zip, name, entries, null);
+            return;
+        }
+        LinearLayout col = this.app.col();
+        col.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        col.addView(this.app.text(ZipPack.ASK_PASSWORD, 13, false));
+        final android.widget.EditText pw = ZipFlow.passwordField(this.app, "Password", "media-zip-open-password");
+        col.addView(pw);
+        lastZipAsk = new AlertDialog.Builder(this.app).setTitle(name).setView(col)
+            .setPositiveButton("Open", (d, w) -> {
+                char[] typed = pw.getText().toString().trim().toCharArray();
+                if (!ZipPack.passwordOk(zip, entries, typed)) {
+                    ZipFlow.said(this.app, ZipPack.WRONG_PASSWORD + " " + name);
+                    this.zipOpened(zip, name, entries);
+                    return;
+                }
+                this.zipWhere(zip, name, entries, typed);
+            })
+            .setNegativeButton("Cancel", (d, w) -> this.app.setNow("Not imported: " + name)).show();
+    }
+
+    /** Into this folder, or into a folder named for the zip here (made, or added to). */
+    void zipWhere(final File zip, final String name, final List<ZipPack.Entry> entries, final char[] password) {
+        final String folder = FolderZip.folderFor(name);
+        boolean there = false;
+        for (MediaDir.Entry e : this.allEntries) if (e.folder && e.name.equals(folder)) there = true;
+        final String[] where = {FolderZip.HERE, FolderZip.newFolder(folder, there)};
+        lastZipAsk = new AlertDialog.Builder(this.app).setTitle(FolderZip.WHERE_TITLE + " \u00b7 " + ZipImport.extractQuestion(name, entries).split("\n")[0])
+            .setItems(where, (d, w) -> this.zipExtract(zip, name, entries, password, w == 1 ? folder : null))
+            .setNegativeButton("Cancel", (d, w) -> this.app.setNow("Not imported: " + name)).show();
+    }
+
+    /** The zip's files written here (or into `folder` here), its folders kept, off the main thread. */
+    void zipExtract(final File zip, final String name, final List<ZipPack.Entry> entries, final char[] password, final String folder) {
+        this.app.setNow("Extracting " + name + "\u2026");
+        new Thread(() -> {
+            String text;
+            int[] done = new int[2];
+            String into = this.here();
+            String whereName = this.label();
+            try {
+                if (folder != null) {
+                    into = this.folderFound(into, folder);
+                    if (into == null) throw new java.io.IOException("could not make the folder " + folder);
+                    whereName = folder;
+                }
+                java.util.Map<String, String> made = new java.util.HashMap<String, String>();
+                File part = new File(this.app.getCacheDir(), "media-zip-part");
+                for (ZipPack.Entry e : ZipPack.files(entries)) {
+                    String[] parts = ZipPack.safePath(e.name).split("/");
+                    String parent = into;
+                    String key = "";
+                    for (int k = 0; k < parts.length - 1 && parent != null; k++) {
+                        key = key + "/" + parts[k];
+                        String known = made.get(key);
+                        if (known == null) {
+                            known = this.folderFound(parent, parts[k]);
+                            if (known != null) made.put(key, known);
+                        }
+                        parent = known;
+                    }
+                    if (parent == null) {
+                        done[1]++;
+                        continue;
+                    }
+                    ZipPack.extract(zip, e, password, part);
+                    this.importOne(Uri.fromFile(part), parts[parts.length - 1], parent, done);
+                    part.delete();
+                }
+                text = FolderZip.imported(name, done, whereName);
+            } catch (Throwable ex) {
+                text = "Could not import " + name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            } finally {
+                zip.delete();
+            }
+            final String shown = text;
+            this.app.runOnUiThread(() -> {
+                ZipFlow.said(this.app, shown);
+                lastImport = shown;
+                if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
+            });
+        }, "pulsekit-folder-zip-extract").start();
+    }
+
+    /** The folder `name` in folder `in`: the one there, or made; its id, or null. */
+    String folderFound(String in, String name) {
+        if (this.tree == null) return this.folderIn(in, name);
+        return ZipFlow.folderIn(this.app, this.tree, in, name);
+    }
 
     /** A folder's files (and with `deep`, its folders, each made here) copied into `into`. */
     private void importTree(Uri tree, String doc, String into, boolean deep, int[] done, int depth) throws Exception {
@@ -1642,6 +1856,19 @@ final class MediaBrowser {
                 ilp.rightMargin = this.app.dp(6);
                 tools.addView(b, ilp);
             }
+        }
+        // Send folder contents to zip (a password made for it), Import files from zip….
+        if (this.changeable()) {
+            if (tools.getChildCount() > 0) this.body.addView(tools);
+            tools = this.app.row();
+            TextView toZip = this.app.pill(FolderZip.SEND, false, v -> this.folderToZip());
+            toZip.setTag("media-folder-zip");
+            LinearLayout.LayoutParams zlp = new LinearLayout.LayoutParams(-2, -2);
+            zlp.rightMargin = this.app.dp(6);
+            tools.addView(toZip, zlp);
+            TextView fromZip = this.app.pill(FolderZip.IMPORT, false, v -> this.pickImport(IMPORT_ZIP));
+            fromZip.setTag("media-import-zip");
+            tools.addView(fromZip);
         }
         if (tools.getChildCount() > 0) this.body.addView(tools);
         tools = this.app.row();
