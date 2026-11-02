@@ -25,6 +25,70 @@ public final class MusicExpect {
   public double duration;
   public String timesig = "";
 
+  /**
+   * SogniMusic's instrument sessions: the switch, the session's tag (in a track's label and file
+   * name: "Funk-drums_bass-sft") and its instruments. Without --multi_session one is picked; with
+   * it each ticked one is a track of its own.
+   */
+  public static final String MULTI = "--multi_session";
+  public static final String[][] SESSIONS = {
+    {"--drums_only", "drums", "drums"},
+    {"--drums_bass", "drums_bass", "drums, bass"},
+    {"--drums_guitar", "drums_guitar", "drums, guitar"},
+    {"--drums_bass_guitar", "drums_bass_guitar", "drums, bass, guitar"},
+  };
+
+  /** The sessions asked for (their tags), in SESSIONS' order. */
+  public static List<String> sessions(List<String> argv) {
+    List<String> out = new ArrayList<String>();
+    if (argv != null) for (String[] s : SESSIONS) if (argv.contains(s[0])) out.add(s[1]);
+    return out;
+  }
+
+  /** Several sessions, each a track of its own (--multi_session with two or more ticked). */
+  public static boolean multiSession(List<String> argv) {
+    return argv != null && argv.contains(MULTI) && sessions(argv).size() > 1;
+  }
+
+  /** The session a track's label names ("Funk-drums_bass-sft" is drums_bass), or null. */
+  public static String sessionOf(String label) {
+    if (label == null) return null;
+    String best = null;
+    for (String[] s : SESSIONS) {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("(^|.*-)" + s[1] + "(-(turbo|sft|music3))?$").matcher(label);
+      if (m.matches() && (best == null || s[1].length() > best.length())) best = s[1];
+    }
+    return best;
+  }
+
+  /** A track's label without its session ("Funk-drums_bass-sft" is "Funk-sft"; "drums_bass" alone is ""). */
+  public static String withoutSession(String label) {
+    String s = sessionOf(label);
+    if (s == null) return label;
+    String out = label.replaceFirst("(^|-)" + s + "(?=(-(turbo|sft|music3))?$)", "");
+    return out.startsWith("-") ? out.substring(1) : out;
+  }
+
+  /** What a track of a session was asked for: this run's, with the session's instruments. */
+  public MusicExpect forTrack(String label) {
+    String s = sessionOf(label);
+    if (s == null) return this;
+    MusicExpect e = new MusicExpect();
+    e.prompt = prompt;
+    e.genre = genre;
+    e.lyrics = false;
+    e.bpm = bpm;
+    e.duration = duration;
+    e.timesig = timesig;
+    e.listed = true;
+    for (String[] x : SESSIONS) {
+      if (!x[1].equals(s)) continue;
+      for (String i : x[2].split(", ")) e.instruments.add(i);
+    }
+    e.drumsOnly = e.instruments.size() == 1;
+    return e;
+  }
+
   /** Words that name an instrument in a prompt, and the instrument they stand for. */
   private static final String[][] WORDS = {
     {"drum", "drums"}, {"kick", "drums"}, {"snare", "drums"}, {"hi-hat", "drums"}, {"hihat", "drums"}, {"percussion", "percussion"},
@@ -52,7 +116,22 @@ public final class MusicExpect {
         else if (a.equals("--timesig")) e.timesig = v.trim();
       }
     }
-    if (e.drumsOnly) {
+    List<String> sessions = sessions(argv);
+    if (!e.drumsOnly && !sessions.isEmpty()) {
+      // A session (or several: each track has its own, forTrack): their instruments together.
+      for (String[] x : SESSIONS) {
+        if (!sessions.contains(x[1])) continue;
+        for (String i : x[2].split(", ")) if (!e.instruments.contains(i)) e.instruments.add(i);
+      }
+      e.listed = true;
+    } else if (e.drumsOnly && sessions.size() > 1) {
+      for (String[] x : SESSIONS) {
+        if (!sessions.contains(x[1])) continue;
+        for (String i : x[2].split(", ")) if (!e.instruments.contains(i)) e.instruments.add(i);
+      }
+      e.listed = true;
+      e.drumsOnly = false;
+    } else if (e.drumsOnly) {
       e.instruments.add("drums");
       e.listed = true;
     } else if (instr != null && instr.trim().length() > 0) {

@@ -493,6 +493,17 @@ public final class PyJavParams {
         }
       }
     };
+    // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
+    for (int i = 0; i < checks.length; i++) {
+      if (checks[i] == null || ps.get(i).clears == null) continue;
+      final int at = i;
+      checks[i].setOnCheckedChangeListener((b, on) -> {
+        if (!on) return;
+        boolean[] now = new boolean[checks.length];
+        for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null && checks[k].isChecked();
+        for (int k : ProgramParams.toClear(ps, at, now)) checks[k].setChecked(false);
+      });
+    }
     AlertDialog.Builder built = new AlertDialog.Builder(activity)
         .setTitle("Parameters · " + name)
         .setView(scroll)

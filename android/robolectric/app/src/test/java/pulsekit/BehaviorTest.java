@@ -11925,6 +11925,56 @@ public class BehaviorTest {
     if (!boxOk || !shownOk || !savedOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * SogniMusic's instrument sessions: in Params, ticking one unticks the others unless
+   * Multi-instrument session is ticked; each session's track is known by its label (its own
+   * instruments for DrumMidi and the ranking, a file set of its own, the style's tempo).
+   */
+  @Test
+  public void s195_sogni_music_sessions() throws Exception {
+    StringBuilder out = new StringBuilder();
+    out.append("labels: ").append(MusicExpect.sessionOf("Funk-drums_bass-sft")).append(' ').append(MusicExpect.withoutSession("Funk-drums_bass-sft"))
+        .append(' ').append(MusicExpect.sessionOf("drums")).append(' ').append(MusicExpect.sessionOf("Melodic-Techno-sft")).append(' ')
+        .append(MusicExpect.sessionOf("Rock-drums_bass_guitar")).append('\n');
+    boolean labelsOk = "drums_bass".equals(MusicExpect.sessionOf("Funk-drums_bass-sft")) && "Funk-sft".equals(MusicExpect.withoutSession("Funk-drums_bass-sft"))
+        && "drums".equals(MusicExpect.sessionOf("drums")) && MusicExpect.sessionOf("Melodic-Techno-sft") == null
+        && "drums_bass_guitar".equals(MusicExpect.sessionOf("Rock-drums_bass_guitar"));
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass", "--genre", "Funk", "--random", "2");
+    MusicExpect e = MusicExpect.of(argv);
+    MusicExpect drums = e.forTrack("Funk-drums-sft"), duo = e.forTrack("Funk-drums_bass-sft");
+    out.append("expect: ").append(e.instruments).append(" drumsOnly ").append(e.drumsOnly).append(" | drums track ").append(drums.instruments).append(' ').append(drums.drumsOnly)
+        .append(" | duo ").append(duo.instruments).append(' ').append(duo.drumsOnly).append(" | multi ").append(MusicExpect.multiSession(argv))
+        .append(" wanted ").append(MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass"))).append('\n');
+    boolean expectOk = e.instruments.toString().equals("[drums, bass]") && !e.drumsOnly && drums.drumsOnly && duo.instruments.toString().equals("[drums, bass]") && !duo.drumsOnly
+        && MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass"))
+        && !MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--drums_bass"));
+    MusicCompare.Chain c = new MusicCompare.Chain("SogniMusic run 9", e, "");
+    c.random = true;
+    c.single = "sft";
+    out.append("group: ").append(c.group("Funk-drums_bass-sft")).append(" | ").append(c.group("Funk-sft")).append('\n');
+    boolean groupOk = c.group("Funk-drums_bass-sft").equals("sft drums_bass") && c.group("Funk-sft").equals("sft");
+    // Params: the session boxes.
+    String src = ((ProgramMenus) get("programMenus")).bundledSource("SogniMusic.java");
+    PyJavParams.open(app, "SogniMusic.java", "", src);
+    idle();
+    View pv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    java.util.function.Function<String, android.widget.CheckBox> box = t -> (android.widget.CheckBox) pv.findViewWithTag("params-check:" + t);
+    out.append("rows: ").append(box.apply("--drums_bass").getText()).append(" | ").append(box.apply("--multi_session").getText()).append('\n');
+    box.apply("--drums_bass").performClick();
+    box.apply("--drums_guitar").performClick();
+    out.append("one at a time: bass ").append(box.apply("--drums_bass").isChecked()).append(", guitar ").append(box.apply("--drums_guitar").isChecked());
+    boolean oneOk = !box.apply("--drums_bass").isChecked() && box.apply("--drums_guitar").isChecked();
+    box.apply("--multi_session").performClick();
+    box.apply("--drums_only").performClick();
+    box.apply("--drums_bass").performClick();
+    out.append(" | multi: drums ").append(box.apply("--drums_only").isChecked()).append(", bass ").append(box.apply("--drums_bass").isChecked())
+        .append(", guitar ").append(box.apply("--drums_guitar").isChecked()).append('\n');
+    boolean multiOk = box.apply("--drums_only").isChecked() && box.apply("--drums_bass").isChecked() && box.apply("--drums_guitar").isChecked();
+    ShadowDialog.getLatestDialog().dismiss();
+    write("s195_sogni_music_sessions", out.toString());
+    if (!labelsOk || !expectOk || !groupOk || !oneOk || !multiOk) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
     String[] styles = {"rock", "funk", "house"};

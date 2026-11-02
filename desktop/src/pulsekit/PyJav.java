@@ -3103,6 +3103,17 @@ final class PyJav {
             south.add(saveSection);
             box.add(south, BorderLayout.SOUTH);
         }
+        // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
+        for (int i = 0; i < checks.length; i++) {
+            if (checks[i] == null || ps.get(i).clears == null) continue;
+            final int at = i;
+            checks[i].addActionListener(e -> {
+                if (!checks[at].isSelected()) return;
+                boolean[] now = new boolean[checks.length];
+                for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null && checks[k].isSelected();
+                for (int k : ProgramParams.toClear(ps, at, now)) checks[k].setSelected(false);
+            });
+        }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;

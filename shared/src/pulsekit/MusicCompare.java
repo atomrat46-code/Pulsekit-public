@@ -84,7 +84,10 @@ public final class MusicCompare {
     /** A --random track's model, from its label ("Melodic-Techno-sft" is sft), else the run's one model. */
     public String group(String label) {
       java.util.regex.Matcher m = java.util.regex.Pattern.compile(".*-(turbo|sft|music3)").matcher(label == null ? "" : label);
-      return m.matches() ? m.group(1) : single;
+      String model = m.matches() ? m.group(1) : single;
+      // An instrument session's tracks (--multi_session) go into a file set of their own.
+      String session = MusicExpect.sessionOf(label);
+      return session == null ? model : model + " " + session;
     }
 
     /** The file set a track goes into: its own, or in a --random run its model's ("SogniMusic run 4 sft"). */
@@ -101,7 +104,8 @@ public final class MusicCompare {
         return null;
       }
       String[] t = tracks.get(at);
-      List<String> args = expect.drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+      // A session's track: DrumMidi set for its instruments (drums alone, or with bass or guitar).
+      List<String> args = expect.forTrack(t[0]).drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
       // A --random track: DrumMidi's grid at the tempo asked for its style (each track draws its own).
       Double asked = askedBpm();
       if (asked != null) {
@@ -118,7 +122,7 @@ public final class MusicCompare {
     /** The tempo asked for the track now in DrumMidi (a --random run's), or null. */
     public synchronized Double askedBpm() {
       if (!random || at < 0 || at >= tracks.size()) return null;
-      String label = tracks.get(at)[0];
+      String label = MusicExpect.withoutSession(tracks.get(at)[0]);
       String g = group(label);
       String style = label.endsWith("-" + g) ? label.substring(0, label.length() - g.length() - 1) : label;
       return tempos.get(styleKey(style));
@@ -284,7 +288,7 @@ public final class MusicCompare {
 
   /** A SogniMusic run that compared models, or made random styles' tracks. */
   public static boolean wanted(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(RANDOM) || modelList(argv));
+    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(RANDOM) || modelList(argv) || MusicExpect.multiSession(argv));
   }
 
   /** --model with a list (turbo,sft or all) and no --compare_models: SogniMusic compares them. */
@@ -332,7 +336,7 @@ public final class MusicCompare {
       }
     }
     boolean random = argv != null && argv.contains(RANDOM);
-    return takes.size() < (random ? 1 : 2) ? null : report(MusicExpect.of(argv), takes, random ? "Random styles" : "Model comparison");
+    return takes.size() < (random ? 1 : 2) ? null : report(MusicExpect.of(argv), takes, random ? "Random styles" : MusicExpect.multiSession(argv) ? "Instrument sessions" : "Model comparison");
   }
 
   /** Measures a track. */
@@ -464,12 +468,17 @@ public final class MusicCompare {
       }
       double tempo = e.bpm > 0 ? (tempoMatches(t.bpm, e.bpm) ? 1 : 0) : 1;
       double length = e.duration > 0 ? Math.max(0, 1 - Math.abs(t.seconds - e.duration) / e.duration) : 1;
-      t.score = e.drumsOnly ? 0.6 * t.drums + 0.25 * tempo + 0.15 * length : 0.6 * tempo + 0.4 * length;
+      // A session's track is scored for its own instruments (drums alone: the most drums).
+      t.score = e.forTrack(t.model).drumsOnly ? 0.6 * t.drums + 0.25 * tempo + 0.15 * length : 0.6 * tempo + 0.4 * length;
     }
     List<Take> ranked = new ArrayList<Take>(takes);
     ranked.sort((a, b) -> Double.compare(b.score, a.score));
     List<String> asked = new ArrayList<String>();
     if (e.drumsOnly) asked.add("drums only");
+    // Instrument sessions (--multi_session): each track's label names its own.
+    boolean sessions = false;
+    for (Take t : takes) if (MusicExpect.sessionOf(t.model) != null) sessions = true;
+    if (sessions && !e.drumsOnly) asked.add("instrument sessions");
     if (e.bpm > 0) asked.add(MusicExpect.SogniTime.num(e.bpm) + " BPM");
     if (e.duration > 0) asked.add(MusicExpect.SogniTime.num(e.duration) + " s");
     StringBuilder sb = new StringBuilder(title + (asked.isEmpty() ? "" : " (asked: " + MusicExpect.join(asked) + ")") + ":\n");

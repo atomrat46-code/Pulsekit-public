@@ -148,7 +148,8 @@ public final class Midi2WavTest {
    */
   public static String drumsWarning(String program, List<String> argv) {
     if (!musicWanted(program, argv)) return null;
-    if (argv.contains("--drums_only")) return null;
+    // Every instrument session has drums.
+    if (!MusicExpect.sessions(argv).isEmpty()) return null;
     int i = argv.indexOf("--instruments");
     if (i >= 0 && i + 1 < argv.size() && argv.get(i + 1).toLowerCase(java.util.Locale.ROOT).matches("(?s).*(drum|kit|percussion).*")) return null;
     return "SogniMusic's test makes drum MIDI from the track and checks it, but this run does not ask for drums.\n"
