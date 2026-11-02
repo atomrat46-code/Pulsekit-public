@@ -8760,8 +8760,9 @@ public final class DesktopBehavior {
     }
   }
   /**
-   * Crop in the Preview window: Save crop cuts the box from the picture at its full size into
-   * <name>-crop.png in its folder (the Media browser's); held, then ImageUpscaler with it.
+   * Crop image in the Preview window (the picture's right click or long press): the frame; its menu
+   * then has Save as… (the crop at its full size, under the name given, in the picture's folder),
+   * Upscale (ImageUpscaler with it) and Cancel crop.
    */
   void s182_preview_crop() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -8773,21 +8774,37 @@ public final class DesktopBehavior {
     final byte[] bytes = png.toByteArray();
     Files.write(new File(folder, "a.png").toPath(), bytes);
     PromptDb db = (PromptDb) get("promptDb");
-    final CropBox box = new CropBox();
-    edt(() -> db.saveCrop("a.png", bytes, box, folder, false, null));
-    File made = new File(folder, "a-crop.png");
+    final CropBox[] box = new CropBox[1];
+    final JLabel label = new JLabel();
+    final float[] zoomed = new float[1];
+    // The picture's menu: Crop image starts the frame (at 100%).
+    edt(() -> db.cropItem(CropBox.CROP, "a.png", bytes, box, folder, null, label, f -> zoomed[0] = f));
+    out.append("Crop image: frame ").append(box[0] != null).append(", zoom ").append(zoomed[0]).append('\n');
+    if (box[0] == null || zoomed[0] != 1f) throw new AssertionError(out.toString());
+    // Save as…: the name asked (given here), saved in the picture's folder.
+    PromptDb.cropNameAnswer = n -> "mine";
+    try {
+      edt(() -> db.cropItem(CropBox.SAVE, "a.png", bytes, box, folder, null, label, f -> {}));
+    } finally {
+      PromptDb.cropNameAnswer = null;
+    }
+    File made = new File(folder, "mine.png");
     java.awt.image.BufferedImage back = made.isFile() ? javax.imageio.ImageIO.read(made) : null;
-    out.append("Save crop: ").append(back == null ? "none" : made.getName() + " " + back.getWidth() + " x " + back.getHeight()).append(" | ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    out.append("Save as: ").append(back == null ? "none" : made.getName() + " " + back.getWidth() + " x " + back.getHeight()).append(" | ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
     if (back == null || back.getWidth() != 32 || back.getHeight() != 24) throw new AssertionError(out.toString());
-    // Held: saved again (a-crop (1).png), then ImageUpscaler with it.
-    edt(() -> db.saveCrop("a.png", bytes, box, folder, true, null));
+    // Upscale: ImageUpscaler with the crop (not saved beside the picture).
+    edt(() -> db.cropItem(CropBox.UPSCALE, "a.png", bytes, box, folder, null, label, f -> {}));
     Thread.sleep(300);
-    out.append("held: ").append(db.lastCrop == null ? "none" : db.lastCrop.getName()).append(", program ").append(get("pyName")).append('\n');
-    if (db.lastCrop == null || !db.lastCrop.getName().equals("a-crop (1).png") || !"ImageUpscaler.java".equals(String.valueOf(get("pyName")))) throw new AssertionError(out.toString());
+    out.append("Upscale: ").append(db.lastCrop == null ? "none" : db.lastCrop.getName()).append(", program ").append(get("pyName"))
+        .append(", beside the picture ").append(new File(folder, "a-crop.png").isFile()).append('\n');
+    if (db.lastCrop == null || !"ImageUpscaler.java".equals(String.valueOf(get("pyName"))) || new File(folder, "a-crop.png").isFile()) throw new AssertionError(out.toString());
+    edt(() -> db.cropItem(CropBox.CANCEL, "a.png", bytes, box, folder, null, label, f -> {}));
+    if (box[0] != null) throw new AssertionError(out.toString());
     edt(() -> {
       for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing()) w.dispose();
     });
   }
+
 
   /**
    * SogniMusic --random 6 --model turbo,sft: 12 runs on a fake Sogni that turns away an 11th active

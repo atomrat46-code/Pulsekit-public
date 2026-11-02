@@ -1,23 +1,31 @@
 package pulsekit;
 
 /**
- * Crop in the picture viewers (the Media browser's on the phone, the Preview window on the
- * desktop): a box over the picture, its corners dragged to size it and its inside dragged to move
- * it. Kept as fractions of the picture (0..1), so it holds at any zoom and is cut from the picture
- * at its full size. Save crop writes <name>-crop.png beside the picture; held, it also opens
- * ImageUpscaler with the crop.
+ * Crop image (a picture's long press, in the picture viewers: the Media browser's and the Prompts
+ * page's on the phone, the Preview window on the desktop): a coloured frame over the picture, its
+ * borders and corners dragged to size it and its inside dragged to move it; while it is dragged
+ * only the part kept shows. Kept as fractions of the picture (0..1), so it holds at any zoom and is
+ * cut from the picture at its full size. A long press then has Save as… (<name>-crop.png) and
+ * Upscale (ImageUpscaler with the crop).
  */
 public final class CropBox {
-  public static final String CROP = "Crop";
-  public static final String SAVE = "Save crop";
-  public static final String HINT = "Drag the corners, or the box to move it. Save crop saves it; hold it to upscale it too.";
+  public static final String CROP = "Crop image";
+  public static final String SAVE = "Save as\u2026";
+  public static final String UPSCALE = "Upscale";
+  public static final String CANCEL = "Cancel crop";
+  public static final String HINT = "Drag the frame's borders or corners (or inside it, to move it). A long press saves or upscales the crop.";
+  /** The frame's colour (ARGB). */
+  public static final int COLOR = 0xFFFFA726;
   /** The smallest box, as a fraction of the picture's side. */
   static final double MIN = 0.05;
 
   /** Left, top, right, bottom: fractions of the picture's width and height. */
   public double left = 0.1, top = 0.1, right = 0.9, bottom = 0.9;
 
-  /** What a press holds: a corner (0 top left, 1 top right, 2 bottom right, 3 bottom left), 4 the box, -1 nothing. */
+  /**
+   * What a press holds: a corner (0 top left, 1 top right, 2 bottom right, 3 bottom left), 4 the box,
+   * a border (5 left, 6 top, 7 right, 8 bottom), -1 nothing.
+   */
   public int held = -1;
   private double lastX, lastY;
 
@@ -34,6 +42,19 @@ public final class CropBox {
       if (d <= near) {
         near = d;
         best = i;
+      }
+    }
+    // A border: the nearest one within reach, along its length.
+    if (best < 0) {
+      double[] d = {Math.abs(x - left), Math.abs(y - top), Math.abs(x - right), Math.abs(y - bottom)};
+      boolean alongY = y >= top - reach && y <= bottom + reach, alongX = x >= left - reach && x <= right + reach;
+      double near2 = reach;
+      for (int i = 0; i < 4; i++) {
+        boolean along = i % 2 == 0 ? alongY : alongX;
+        if (along && d[i] <= near2) {
+          near2 = d[i];
+          best = 5 + i;
+        }
       }
     }
     if (best < 0 && x >= left && x <= right && y >= top && y <= bottom) best = 4;
@@ -56,10 +77,10 @@ public final class CropBox {
       top += dy;
       bottom += dy;
     } else if (held >= 0) {
-      if (held == 0 || held == 3) left = Math.min(x, right - MIN);
-      if (held == 1 || held == 2) right = Math.max(x, left + MIN);
-      if (held == 0 || held == 1) top = Math.min(y, bottom - MIN);
-      if (held == 2 || held == 3) bottom = Math.max(y, top + MIN);
+      if (held == 0 || held == 3 || held == 5) left = Math.min(x, right - MIN);
+      if (held == 1 || held == 2 || held == 7) right = Math.max(x, left + MIN);
+      if (held == 0 || held == 1 || held == 6) top = Math.min(y, bottom - MIN);
+      if (held == 2 || held == 3 || held == 8) bottom = Math.max(y, top + MIN);
     }
     lastX = x;
     lastY = y;

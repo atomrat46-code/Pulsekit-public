@@ -11870,9 +11870,9 @@ public class BehaviorTest {
   }
 
   /**
-   * Crop in the Media browser's picture viewer: Crop shows the box, Save crop cuts it from the
-   * picture at its full size into <name>-crop.png in the folder. CropBox: a corner dragged sizes
-   * the box, the inside moves it, kept in the picture.
+   * Crop image in the Media browser's picture viewer: the picture's long press has it; the frame's
+   * long press has Save as… (the crop at its full size, under the name asked, in the folder) and
+   * Upscale. CropBox: a corner or border dragged sizes the box, the inside moves it, kept in the picture.
    */
   @Test
   public void s194_media_picture_crop() throws Exception {
@@ -11885,7 +11885,11 @@ public class BehaviorTest {
     c.drag(0.6, 0.5);
     c.drag(1.5, 0.5);
     out.append("box: ").append(String.format(java.util.Locale.ROOT, "%.2f %.2f %.2f %.2f, held %d", c.left, c.top, c.right, c.bottom, held)).append(", name ").append(CropBox.name("dir/beach.jpg")).append('\n');
-    boolean boxOk = Math.abs(c.left - 0.4) < 1e-9 && Math.abs(c.right - 1.0) < 1e-9 && Math.abs(c.top - 0.2) < 1e-9 && held == 4 && CropBox.name("dir/beach.jpg").equals("beach-crop.png");
+    CropBox edge = new CropBox();
+    int border = edge.press(0.5, 0.905, 0.03);
+    edge.drag(0.5, 0.7);
+    out.append("bottom border: held ").append(border).append(", bottom ").append(String.format(java.util.Locale.ROOT, "%.2f", edge.bottom)).append('\n');
+    boolean boxOk = border == 8 && Math.abs(edge.bottom - 0.7) < 1e-9 && Math.abs(c.left - 0.4) < 1e-9 && Math.abs(c.right - 1.0) < 1e-9 && Math.abs(c.top - 0.2) < 1e-9 && held == 4 && CropBox.name("dir/beach.jpg").equals("beach-crop.png");
     File media = new File(app.getCacheDir(), "crop-pics");
     media.mkdirs();
     android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
@@ -11902,13 +11906,31 @@ public class BehaviorTest {
       Thread.sleep(20);
       idle();
     }
-    TextView crop = (TextView) vv.findViewWithTag("media-full-crop");
-    crop.performClick();
+    // A long press on the picture: its menu, Crop image.
+    long t0 = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent downEv = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0);
+    full.dispatchTouchEvent(downEv);
+    ShadowLooper.idleMainLooper(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+    android.view.MotionEvent upEv = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 10, 10, 0);
+    full.dispatchTouchEvent(upEv);
     idle();
-    out.append("Crop: button ").append(crop.getText()).append(", box ").append(vv.findViewWithTag("media-full-crop-box").getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
-    boolean shownOk = CropBox.SAVE.equals(crop.getText().toString()) && vv.findViewWithTag("media-full-crop-box").getVisibility() == View.VISIBLE;
-    MediaBrowser.lastCrop = null;
-    crop.performClick();
+    AlertDialog menu = MediaBrowser.lastPictureMenu;
+    out.append("long press: ").append(menu == null ? "no menu" : listItems(menu)).append('\n');
+    boolean menuOk = menu != null && menu.isShowing() && listItems(menu).contains(CropBox.CROP);
+    if (menu != null) org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    CropLayer layer = (CropLayer) vv.findViewWithTag("media-full-crop-box");
+    out.append("Crop image: frame ").append(layer.getVisibility() == View.VISIBLE && layer.cropping() ? "shown" : "hidden").append('\n');
+    boolean shownOk = layer.getVisibility() == View.VISIBLE && layer.cropping();
+    // The frame's long press: Save as…, Upscale, Cancel crop; Save as… asks the name.
+    layer.menu();
+    idle();
+    out.append("frame menu: ").append(listItems(CropLayer.lastMenu)).append('\n');
+    shownOk = shownOk && listItems(CropLayer.lastMenu).contains(CropBox.SAVE) && listItems(CropLayer.lastMenu).contains(CropBox.UPSCALE);
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    idle();
+    out.append("name: ").append(((android.widget.EditText) CropLayer.lastAsk.getWindow().getDecorView().findViewWithTag("crop-name")).getText()).append('\n');
+    CropLayer.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     File made = new File(media, "a-crop.png");
     for (int i = 0; i < 200 && !made.isFile(); i++) {
       Thread.sleep(20);
@@ -11922,7 +11944,7 @@ public class BehaviorTest {
     viewer.dismiss();
     b.dialog.dismiss();
     write("s194_media_picture_crop", out.toString());
-    if (!boxOk || !shownOk || !savedOk) throw new AssertionError(out.toString());
+    if (!boxOk || !menuOk || !shownOk || !savedOk) throw new AssertionError(out.toString());
   }
 
   /**

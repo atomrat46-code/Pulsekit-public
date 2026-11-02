@@ -2616,58 +2616,39 @@ final class MediaBrowser {
         bar.setBackgroundColor(0x88000000);
         bar.setPadding(this.app.dp(6), this.app.dp(4), this.app.dp(6), this.app.dp(4));
         final int side = Math.max(this.app.getResources().getDisplayMetrics().widthPixels, this.app.getResources().getDisplayMetrics().heightPixels);
-        // Crop: a box over the picture (CropBox), its corners dragged; Save crop saves it, held it also upscales.
-        final CropBox[] box = new CropBox[1];
-        final View overlay = new View(this.app) {
-            final android.graphics.Paint dim = new android.graphics.Paint();
-            final android.graphics.Paint line = new android.graphics.Paint();
-
-            @Override
-            protected void onDraw(android.graphics.Canvas c) {
-                float[] r = drawnRect(image);
-                if (box[0] == null || r == null) return;
-                float l = r[0] + (float) box[0].left * r[2], t = r[1] + (float) box[0].top * r[3];
-                float rr = r[0] + (float) box[0].right * r[2], b = r[1] + (float) box[0].bottom * r[3];
-                dim.setColor(0x99000000);
-                c.drawRect(r[0], r[1], r[0] + r[2], t, dim);
-                c.drawRect(r[0], b, r[0] + r[2], r[1] + r[3], dim);
-                c.drawRect(r[0], t, l, b, dim);
-                c.drawRect(rr, t, r[0] + r[2], b, dim);
-                line.setColor(0xFFFFFFFF);
-                line.setStyle(android.graphics.Paint.Style.STROKE);
-                line.setStrokeWidth(app.dp(2));
-                c.drawRect(l, t, rr, b, line);
-                line.setStyle(android.graphics.Paint.Style.FILL);
-                float h = app.dp(9);
-                for (float[] k : new float[][] {{l, t}, {rr, t}, {rr, b}, {l, b}}) c.drawRect(k[0] - h, k[1] - h, k[0] + h, k[1] + h, line);
+        // Crop image (the picture's long press): a frame over it (CropLayer); its long press saves or upscales the crop.
+        final CropLayer crop = new CropLayer(this.app, image, first.name, new CropLayer.Actions() {
+            public Bitmap cut(CropBox box) throws Exception {
+                return MediaBrowser.this.cut(MediaBrowser.this.uri(pictures.get(at[0])), box);
             }
 
-            @Override
-            public boolean onTouchEvent(MotionEvent ev) {
-                float[] r = drawnRect(image);
-                if (box[0] == null || r == null) return true;
-                double x = (ev.getX() - r[0]) / r[2], y = (ev.getY() - r[1]) / r[3];
-                if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) box[0].press(x, y, app.dp(28) / Math.min(r[2], r[3]));
-                else if (ev.getActionMasked() == MotionEvent.ACTION_MOVE) box[0].drag(x, y);
-                else if (ev.getActionMasked() == MotionEvent.ACTION_UP || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) box[0].release();
-                this.invalidate();
-                return true;
+            public String save(String name, byte[] png) throws Exception {
+                String[] where = new String[] {MediaBrowser.this.tree == null ? "" : MediaBrowser.this.tree.toString(), here()};
+                String said = "Saved the crop as " + saveInto(MediaBrowser.this.app, where, null, name, "image/png", png);
+                lastCrop = name;
+                // The folder lists it (behind the picture).
+                MediaBrowser.this.main.post(() -> {
+                    if (MediaBrowser.this.dialog != null && MediaBrowser.this.dialog.isShowing()) MediaBrowser.this.load(here());
+                });
+                return said;
             }
-        };
-        overlay.setTag("media-full-crop-box");
-        overlay.setVisibility(View.GONE);
-        frame.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
-        final TextView[] cropBtn = new TextView[1];
-        final TextView[] noCrop = new TextView[1];
-        final Runnable cropOff = () -> {
-            box[0] = null;
-            overlay.setVisibility(View.GONE);
-            if (cropBtn[0] != null) cropBtn[0].setText(CropBox.CROP);
-            if (noCrop[0] != null) noCrop[0].setVisibility(View.GONE);
-        };
+
+            public void upscale(String name, byte[] png) throws Exception {
+                File dir = new File(MediaBrowser.this.app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                File in = new File(dir, name);
+                java.nio.file.Files.write(in.toPath(), png);
+                ORIGIN.put(in.getAbsolutePath(), new String[] {MediaBrowser.this.tree == null ? "" : MediaBrowser.this.tree.toString(), here()});
+                MediaBrowser.this.upscaleFile(in, d);
+            }
+        });
+        crop.setTag("media-full-crop-box");
+        frame.addView(crop, new FrameLayout.LayoutParams(-1, -1));
+        final Runnable cropOff = crop::stop;
         final Runnable show = () -> {
             cropOff.run();
             MediaDir.Entry e = pictures.get(at[0]);
+            crop.name = e.name;
             lastOpened = "picture:" + e.name;
             title.setText(e.name + "  (" + (at[0] + 1) + " of " + pictures.size() + ")");
             image.setScaleX(1f);
@@ -2705,38 +2686,8 @@ final class MediaBrowser {
         next.setTag("media-full-next");
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
         close.setTag("media-full-close");
-        cropBtn[0] = this.app.pill(CropBox.CROP, false, v -> {
-            if (box[0] == null) {
-                if (image.getDrawable() == null) return;
-                image.setScaleX(1f);
-                image.setScaleY(1f);
-                image.setTranslationX(0f);
-                image.setTranslationY(0f);
-                box[0] = new CropBox();
-                overlay.setVisibility(View.VISIBLE);
-                overlay.invalidate();
-                cropBtn[0].setText(CropBox.SAVE);
-                noCrop[0].setVisibility(View.VISIBLE);
-                this.app.setNow(CropBox.HINT);
-            } else {
-                this.saveCrop(pictures.get(at[0]), box[0], false, d);
-            }
-        });
-        cropBtn[0].setTag("media-full-crop");
-        // Save crop held: saved, then ImageUpscaler with it (Return opens this browser again).
-        cropBtn[0].setOnLongClickListener(v -> {
-            if (box[0] == null) return false;
-            this.saveCrop(pictures.get(at[0]), box[0], true, d);
-            return true;
-        });
-        noCrop[0] = this.app.pill("\u2715", false, v -> cropOff.run());
-        noCrop[0].setTag("media-full-crop-off");
-        noCrop[0].setContentDescription("No crop");
-        noCrop[0].setVisibility(View.GONE);
         bar.addView(prev);
         bar.addView(next);
-        bar.addView(cropBtn[0]);
-        bar.addView(noCrop[0]);
         bar.addView(new View(this.app), new LinearLayout.LayoutParams(0, 1, 1f));
         bar.addView(close);
         frame.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
@@ -2766,7 +2717,22 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[2];
+        // A long press: the picture's menu (Crop image).
+        final android.view.GestureDetector press = new android.view.GestureDetector(this.app, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public void onLongPress(MotionEvent ev) {
+                if (pinch.isInProgress() || crop.cropping()) return;
+                MediaBrowser.this.pictureMenu(pictures.get(at[0]), () -> {
+                    image.setScaleX(1f);
+                    image.setScaleY(1f);
+                    image.setTranslationX(0f);
+                    image.setTranslationY(0f);
+                    crop.start();
+                });
+            }
+        });
         image.setOnTouchListener((v, ev) -> {
+            press.onTouchEvent(ev);
             pinch.onTouchEvent(ev);
             if (ev.getPointerCount() == 1 && image.getScaleX() > 1f) {
                 if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
@@ -2787,6 +2753,16 @@ final class MediaBrowser {
         show.run();
     }
 
+    /** The picture viewer's menu shown last (for the tests). */
+    static AlertDialog lastPictureMenu;
+
+    /** A picture's long press in the viewer: Crop image. */
+    void pictureMenu(MediaDir.Entry e, Runnable cropImage) {
+        lastPictureMenu = new AlertDialog.Builder(this.app).setTitle(e.name)
+            .setItems(new String[] {CropBox.CROP}, (dlg, w) -> cropImage.run())
+            .setNegativeButton("Cancel", null).show();
+    }
+
     /** Where an ImageView draws its picture (FIT_CENTER, unzoomed): x, y, width, height; null before it has one. */
     static float[] drawnRect(ImageView image) {
         android.graphics.drawable.Drawable dr = image.getDrawable();
@@ -2798,56 +2774,6 @@ final class MediaBrowser {
 
     /** The last crop saved (its name), for the tests. */
     static String lastCrop;
-
-    /**
-     * Save crop: the box cut from the picture at its full size, saved as <name>-crop.png in its
-     * folder; with `upscale` (held), then ImageUpscaler with it.
-     */
-    void saveCrop(final MediaDir.Entry e, final CropBox box, final boolean upscale, final Dialog viewer) {
-        final Uri u = this.uri(e);
-        final String[] where = new String[] {this.tree == null ? "" : this.tree.toString(), here()};
-        final String name = CropBox.name(e.name);
-        final double l = box.left, t = box.top, r = box.right, b = box.bottom;
-        this.app.setNow("Cropping " + e.name + "\u2026");
-        READER.execute(() -> {
-            String said;
-            byte[] png = null;
-            try {
-                CropBox at = new CropBox();
-                at.left = l;
-                at.top = t;
-                at.right = r;
-                at.bottom = b;
-                Bitmap cut = this.cut(u, at);
-                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                cut.compress(Bitmap.CompressFormat.PNG, 100, bos);
-                png = bos.toByteArray();
-                said = "Saved the crop (" + cut.getWidth() + " x " + cut.getHeight() + ") as " + saveInto(this.app, where, null, name, "image/png", png);
-                lastCrop = name;
-            } catch (Throwable ex) {
-                said = "Could not crop " + e.name + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
-            }
-            final String shown = said;
-            final byte[] made = png;
-            this.main.post(() -> {
-                this.app.setNow(shown);
-                android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
-                // The folder lists the crop (behind the picture).
-                if (made != null && !upscale && this.dialog != null && this.dialog.isShowing()) this.load(here());
-                if (!upscale || made == null) return;
-                try {
-                    File dir = new File(this.app.getCacheDir(), "pyjav-in");
-                    if (!dir.isDirectory()) dir.mkdirs();
-                    File in = new File(dir, name);
-                    java.nio.file.Files.write(in.toPath(), made);
-                    ORIGIN.put(in.getAbsolutePath(), where);
-                    this.upscaleFile(in, viewer);
-                } catch (Exception ex) {
-                    this.app.setNow("Could not hand the crop to ImageUpscaler: " + ex.getMessage());
-                }
-            });
-        });
-    }
 
     /** The box cut from the picture at its full size (at most 8192 pixels a side, halved until it fits). */
     Bitmap cut(Uri u, CropBox box) throws Exception {
