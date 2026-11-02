@@ -865,6 +865,8 @@ public class DrumMidi_CRT{
         if (writeToms) tomClicks(hits);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
+        // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
+        if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
@@ -1834,10 +1836,106 @@ public class DrumMidi_CRT{
      */
     static final double KIT_SILENT = 0.01;
 
+    /**
+     * The kit profile's cymbals (the test beat's closed hat, open hat, ride and crash, each alone):
+     * the 2.5-16 kHz spectrum at the hit, CYM_BANDS log-spaced bands in log level with their mean
+     * taken off, and how fast it fades (the band's level 70-90 ms after the hit over its level at the
+     * hit, in log). A cymbal found takes the nearest learned kind, when it is clearly nearer
+     * (CYM_MARGIN) than the kind it was written as: how this kit's hats, ride and crash sound, not
+     * the fixed ringing rules, tells them apart.
+     */
+    static final int CYM_BANDS = 12, CYM_N = 1024;
+    static final double CYM_LO = 2500, CYM_HI = 16000;
+    /** A fade's weight against the spectrum's likeness (-1..1) in telling cymbals apart. */
+    static final double CYM_DECAY_WEIGHT = 0.3;
+    /** How much nearer another learned cymbal must be for a hit to change to it. */
+    static final double CYM_MARGIN = 0.08;
+    /** Another hit this near (a cymbal, a kick, a snare, a tom): the sound is not the cymbal alone, and it is not changed. */
+    static final double CYM_ALONE = 0.04;
+    /** A test beat cymbal under this share of the loudest one is not played by the kit. */
+    static final double CYM_SILENT = 0.01;
+    static final int[] CYM_NOTES = {CLOSED_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE};
+
+    static boolean isCymbalNote(int n) {
+        for (int c : CYM_NOTES) if (c == n) return true;
+        return false;
+    }
+
+    static String cymName(int n) {
+        return n == CLOSED_HAT ? "closed hat" : n == OPEN_HAT ? "open hat" : n == RIDE_NOTE ? "ride" : n == CRASH_NOTE ? "crash" : String.valueOf(n);
+    }
+
+    /** One CYM_N window's band magnitudes (CYM_BANDS of them, log-spaced in CYM_LO..CYM_HI) at `start`; null past the end. */
+    static double[] cymWindow(double[] x, double sr, int start) {
+        if (start < 0 || start + CYM_N > x.length) return null;
+        double[] re = new double[CYM_N], im = new double[CYM_N];
+        for (int n = 0; n < CYM_N; n++) re[n] = x[start + n] * (0.5 - 0.5 * Math.cos(2 * Math.PI * n / (CYM_N - 1)));
+        fft(re, im);
+        double hi = Math.min(CYM_HI, sr / 2 * 0.95);
+        double[] band = new double[CYM_BANDS];
+        int[] count = new int[CYM_BANDS];
+        for (int b = 1; b < CYM_N / 2; b++) {
+            double hz = b * sr / CYM_N;
+            if (hz < CYM_LO || hz >= hi) continue;
+            int k = (int) Math.floor(CYM_BANDS * Math.log(hz / CYM_LO) / Math.log(hi / CYM_LO));
+            k = Math.max(0, Math.min(CYM_BANDS - 1, k));
+            band[k] += Math.sqrt(re[b] * re[b] + im[b] * im[b]);
+            count[k]++;
+        }
+        for (int k = 0; k < CYM_BANDS; k++) band[k] = count[k] > 0 ? band[k] / count[k] : 0;
+        return band;
+    }
+
+    /**
+     * A cymbal hit's look at `time`: CYM_BANDS spectrum values (log, mean off, unit length), its fade
+     * (index CYM_BANDS) and its level (index CYM_BANDS + 1); null where the audio ends or is silent.
+     */
+    static double[] cymFeature(double[] x, double sr, double time) {
+        int at = (int) Math.round(time * sr);
+        double[][] w = {cymWindow(x, sr, at), cymWindow(x, sr, at + CYM_N / 4), cymWindow(x, sr, at + (int) (0.07 * sr)), cymWindow(x, sr, at + (int) (0.09 * sr))};
+        for (double[] v : w) if (v == null) return null;
+        // What rang already just before the hit (a crash's wash, an open hat): taken off, so the look
+        // is the hit's own rise and fade, not the cymbals before it.
+        double[] before = cymWindow(x, sr, at - CYM_N - (int) (0.005 * sr));
+        double[] out = new double[CYM_BANDS + 2];
+        double e1 = 0, e2 = 0, mean = 0;
+        for (int k = 0; k < CYM_BANDS; k++) {
+            double pre = before == null ? 0 : before[k];
+            double now = (w[0][k] + w[1][k]) / 2;
+            double v = Math.max(now - pre, 0.05 * now);
+            e1 += v;
+            e2 += Math.max((w[2][k] + w[3][k]) / 2 - pre, 0.02 * now);
+            out[k] = Math.log(v + 1e-12);
+            mean += out[k] / CYM_BANDS;
+        }
+        if (e1 <= 0) return null;
+        double norm = 0;
+        for (int k = 0; k < CYM_BANDS; k++) {
+            out[k] -= mean;
+            norm += out[k] * out[k];
+        }
+        norm = Math.sqrt(norm);
+        if (norm <= 0) return null;
+        for (int k = 0; k < CYM_BANDS; k++) out[k] /= norm;
+        out[CYM_BANDS] = Math.log((e2 + 1e-12) / e1);
+        out[CYM_BANDS + 1] = e1;
+        return out;
+    }
+
+    /** How near a cymbal hit's look is to a learned one: the spectra's likeness less the fades' difference. */
+    static double cymNear(double[] a, double[] b) {
+        double s = 0;
+        for (int k = 0; k < CYM_BANDS; k++) s += a[k] * b[k];
+        return s - CYM_DECAY_WEIGHT * Math.abs(a[CYM_BANDS] - b[CYM_BANDS]);
+    }
+
     static final class KitProfile {
         final String name;
         final List<Integer> notes = new ArrayList<Integer>();
         final List<double[]> spectra = new ArrayList<double[]>();
+        /** The learned cymbals (lines "c<note> ..."): their notes and looks (cymFeature, without the level). */
+        final List<Integer> cymNotes = new ArrayList<Integer>();
+        final List<double[]> cymLooks = new ArrayList<double[]>();
 
         KitProfile(String name) {
             this.name = name;
@@ -1920,10 +2018,34 @@ public class DrumMidi_CRT{
             java.util.Map<Integer, String> unread = new java.util.LinkedHashMap<Integer, String>();
             double renderSec = audio.samples.length / (double) audio.sampleRate;
             double late = 0;
+            // The cymbals (closed hat, open hat, ride, crash) learned alongside.
+            java.util.Map<Integer, double[]> cymSum = new java.util.TreeMap<Integer, double[]>();
+            java.util.Map<Integer, Integer> cymCount = new java.util.HashMap<Integer, Integer>();
+            java.util.Set<Integer> cymUnread = new java.util.LinkedHashSet<Integer>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
                 int note = Integer.parseInt(w[1]);
+                if (isCymbalNote(note)) {
+                    // A cymbal alone: its look where its sound starts.
+                    double cat = Double.parseDouble(w[0]);
+                    double con = onset(audio.samples, audio.sampleRate, cat);
+                    double[] f = con < 0 ? null : cymFeature(audio.samples, audio.sampleRate, con);
+                    Integer ck = Integer.valueOf(note);
+                    if (f == null) {
+                        if (!cymSum.containsKey(ck)) cymUnread.add(ck);
+                        continue;
+                    }
+                    cymUnread.remove(ck);
+                    if (!cymSum.containsKey(ck)) {
+                        cymSum.put(ck, new double[CYM_BANDS + 2]);
+                        cymCount.put(ck, Integer.valueOf(0));
+                    }
+                    double[] cs = cymSum.get(ck);
+                    for (int k = 0; k < CYM_BANDS + 2; k++) cs[k] += f[k];
+                    cymCount.put(ck, Integer.valueOf(cymCount.get(ck).intValue() + 1));
+                    continue;
+                }
                 if (note != KICK_NOTE && !isTomNote(note)) continue;
                 double at = Double.parseDouble(w[0]);
                 // The hit as the plugin plays it: where its sound starts, up to 0.45 s after the note
@@ -1971,19 +2093,50 @@ public class DrumMidi_CRT{
                 sb.append('\n');
                 kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
             }
+            // The cymbals: "c<note>", its spectrum and its fade.
+            double loudest = 0;
+            for (java.util.Map.Entry<Integer, double[]> e : cymSum.entrySet()) loudest = Math.max(loudest, e.getValue()[CYM_BANDS + 1] / cymCount.get(e.getKey()).intValue());
+            List<String> cymKept = new ArrayList<String>(), cymLeft = new ArrayList<String>();
+            if (!cymSum.isEmpty()) sb.append("# cymbals: c<note>, its ").append(CYM_BANDS).append(" band spectrum ").append(num(CYM_LO)).append("-").append(num(CYM_HI))
+                .append(" Hz, then how fast it fades (log level 70-90 ms after the hit over at it)\n");
+            for (java.util.Map.Entry<Integer, double[]> e : cymSum.entrySet()) {
+                double[] cs = e.getValue();
+                int c = cymCount.get(e.getKey()).intValue();
+                if (cs[CYM_BANDS + 1] / c < CYM_SILENT * loudest) {
+                    cymLeft.add(e.getKey() + " " + cymName(e.getKey().intValue()));
+                    continue;
+                }
+                double norm = 0;
+                for (int k = 0; k < CYM_BANDS; k++) norm += cs[k] * cs[k];
+                norm = Math.sqrt(norm);
+                sb.append('c').append(e.getKey());
+                for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", cs[k] / norm));
+                sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", cs[CYM_BANDS] / c)).append('\n');
+                cymKept.add(e.getKey() + " " + cymName(e.getKey().intValue()) + (c > 1 ? " (" + c + " hits)" : ""));
+            }
+            for (Integer n : cymUnread) if (!cymSum.containsKey(n)) cymLeft.add(n + " " + cymName(n.intValue()));
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
             List<String> none = new ArrayList<String>();
             for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
             finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left))
                 + (none.isEmpty() ? "" : "; nothing to read: " + String.join(", ", none))
                 + (late > 0.03 ? "; hits up to " + Math.round(late * 1000) + " ms after their notes" : "")
-                + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?"));
+                + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?")
+                + (cymKept.isEmpty() ? "" : "; cymbals " + String.join(", ", cymKept))
+                + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft)));
         }
 
         static KitProfile read(File f) throws Exception {
             KitProfile k = new KitProfile(f.getName());
             for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
+                if (w.length > CYM_BANDS + 1 && w[0].startsWith("c")) {
+                    double[] c = new double[CYM_BANDS + 1];
+                    for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
+                    k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
+                    k.cymLooks.add(c);
+                    continue;
+                }
                 if (w.length < KIT_BANDS + 1 || w[0].startsWith("#")) continue;
                 double[] v = new double[KIT_BANDS + 1];
                 for (int i = 0; i < KIT_BANDS; i++) v[i] = Double.parseDouble(w[i + 1]);
@@ -2018,6 +2171,50 @@ public class DrumMidi_CRT{
                 }
             }
             note("Kit " + name + ": " + moved + " kick" + (moved == 1 ? "" : "s") + " and toms told apart again");
+        }
+
+        /**
+         * Each cymbal found (closed hat, open hat, ride, crash) becomes the learned cymbal its sound is
+         * nearest, when that is clearly nearer (CYM_MARGIN) than the kind it was written as; a hit with
+         * another cymbal at it (two cymbals at once) is left as it is. Needs two cymbals learned.
+         */
+        void sortCymbals(List<Hit> hits, double[] x, double sr) {
+            if (cymNotes.size() < 2) return;
+            java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
+            // Every other hit's time: a kick's, snare's or tom's sound under a cymbal makes it look darker
+            // and longer (a crash, an open hat), so only cymbals heard alone are told apart again.
+            List<Double> cymTimes = new ArrayList<Double>();
+            for (Hit h : hits) cymTimes.add(Double.valueOf(h.time));
+            Collections.sort(cymTimes);
+            for (int i = 0; i < hits.size(); i++) {
+                Hit h = hits.get(i);
+                if (!isCymbalNote(h.note)) continue;
+                int k = Collections.binarySearch(cymTimes, Double.valueOf(h.time));
+                if (k < 0) k = -k - 1;
+                // Itself is one of the times; any other within CYM_ALONE (at the very same time too) is another drum.
+                int near = 0;
+                for (int j = Math.max(0, k - 4); j < Math.min(cymTimes.size(), k + 5); j++) if (Math.abs(cymTimes.get(j).doubleValue() - h.time) < CYM_ALONE) near++;
+                if (near > 1) continue;
+                double[] f = cymFeature(x, sr, h.time);
+                if (f == null) continue;
+                int best = -1;
+                double top = -9, mine = -9;
+                for (int j = 0; j < cymNotes.size(); j++) {
+                    double v = cymNear(f, cymLooks.get(j));
+                    if (v > top) {
+                        top = v;
+                        best = cymNotes.get(j).intValue();
+                    }
+                    if (cymNotes.get(j).intValue() == h.note) mine = v;
+                }
+                if (best < 0 || best == h.note || (mine > -9 && top - mine < CYM_MARGIN)) continue;
+                hits.set(i, new Hit(h.time, best, h.strength));
+                String key = cymName(h.note) + " to " + cymName(best);
+                moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
+            }
+            StringBuilder said = new StringBuilder();
+            for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());
+            note("Kit " + name + ": cymbals by their learned sound: " + (said.length() == 0 ? "none changed" : said));
         }
     }
 

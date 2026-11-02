@@ -7546,6 +7546,65 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * DrumMidi's kit profile learns the test beat's cymbals too (closed hat, open hat, ride, crash,
+   * each alone): "c<note>" lines with their 2.5-16 kHz spectrum and fade, a closed hat's fading far
+   * faster than an open hat's; the tick-off says which. (Stand-in sounds: shaped noise and tones.)
+   */
+  void s185_drummidi_cymbal_kit() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymbal-kit");
+    dir.mkdirs();
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    int sr = 44100;
+    double[] x = new double[sr * 26];
+    java.util.Random r = new java.util.Random(3);
+    StringBuilder times = new StringBuilder();
+    for (int k = 0; k < 3; k++) {
+      double t = 2.0 + 0.5 * k, tt = 3.5 + 0.5 * k;
+      for (int i = 0; i < sr * 0.3; i++) {
+        x[(int) (t * sr) + i] += 0.8 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * 60 * i / sr);
+        x[(int) (tt * sr) + i] += 0.6 * Math.exp(-i / (0.1 * sr)) * Math.sin(2 * Math.PI * 120 * i / sr);
+      }
+      times.append(String.format(java.util.Locale.ROOT, "%.4f 36\n%.4f 43\n", t, tt));
+    }
+    int[] notes = {42, 46, 51, 49};
+    for (int c = 0; c < 4; c++) {
+      for (int k = 0; k < 3; k++) {
+        double t = 13.0 + 1.0 * (c * 3 + k);
+        double prev = 0;
+        for (int i = 0; i < sr * 0.9; i++) {
+          double s = i / (double) sr, w = r.nextDouble() * 2 - 1, v;
+          if (c == 0) v = (w - prev) * Math.exp(-s / 0.02) * 0.5;
+          else if (c == 1) v = (w - prev) * Math.exp(-s / 0.35) * 0.4;
+          else if (c == 2) v = (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+          else v = (0.5 * w + 0.3 * prev) * Math.exp(-s / 0.9) * 0.5;
+          prev = w;
+          x[(int) (t * sr) + i] += v;
+        }
+        times.append(String.format(java.util.Locale.ROOT, "%.4f %d\n", t, notes[c]));
+      }
+    }
+    short[] pcm = new short[x.length];
+    for (int i = 0; i < x.length; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, Math.round(x[i] * 20000)));
+    File wav = new File(dir, "check.wav"), txt = new File(dir, "times.txt"), kit = new File(dir, "kit.kit");
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, sr));
+    Files.write(txt.toPath(), times.toString().getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> cmd = java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), "--learn-kit", wav.getAbsolutePath(), txt.getAbsolutePath(), kit.getAbsolutePath());
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String text = kit.isFile() ? new String(Files.readAllBytes(kit.toPath()), StandardCharsets.UTF_8) : "";
+    double closedFade = 0, openFade = 0;
+    for (String line : text.split("\n")) {
+      String[] w = line.trim().split("\\s+");
+      if (w[0].equals("c42")) closedFade = Double.parseDouble(w[w.length - 1]);
+      if (w[0].equals("c46")) openFade = Double.parseDouble(w[w.length - 1]);
+    }
+    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append("\nfades: closed ").append(closedFade).append(", open ").append(openFade).append('\n');
+    boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)") && text.contains("\nc42 ") && text.contains("\nc51 ")
+        && closedFade < -2 && openFade > -1;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
   private static byte[] midiFile(byte[] track) throws java.io.IOException {
     java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();

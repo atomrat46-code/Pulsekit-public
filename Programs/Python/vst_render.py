@@ -1316,20 +1316,24 @@ def sogni_zips(folder, only=None, recursive=False):
 
 
 # The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
-# alone, KIT_HITS times, half a second apart.
+# alone, KIT_HITS times, half a second apart; then the cymbals (closed hat, open hat, ride, crash)
+# alone, KIT_HITS times, a second apart (they ring longer).
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
+KIT_CYMBALS = (42, 46, 51, 49)
 KIT_HITS = 3
 
 
 def kit_times():
-    """The kick and toms of the test beat, alone: (seconds, note), at its 120 BPM."""
-    return [(2.0 + 0.5 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
+    """The kick, toms and cymbals of the test beat, alone: (seconds, note), at its 120 BPM."""
+    drums = [(2.0 + 0.5 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
+    start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
+    return drums + [(start + 1.0 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_CYMBALS) for k in range(KIT_HITS)]
 
 
 def check_midi(folder):
     """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
-    beats, closed hats (42) on the eighths, on the drum channel; then the kick and each tom alone
-    (kit_times); returns its path."""
+    beats, closed hats (42) on the eighths, on the drum channel; then the kick, each tom and each
+    cymbal alone (kit_times); returns its path."""
     events = []
     for k in range(8):
         tick = k * 240
@@ -1384,7 +1388,7 @@ def learn_kit(java, jar, audio, rate, bits, nmap, out):
     with open(times, "w") as f:
         for t, n in kit_times():
             m = nmap.get(n, n)
-            if m is not None and (m == 36 or m in TOMS):
+            if m is not None and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
                 f.write("%.4f %d\n" % (t, m))
     try:
         r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", "--learn-kit", wav, times, os.path.abspath(out)],
