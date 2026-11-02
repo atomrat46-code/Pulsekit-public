@@ -7546,6 +7546,125 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * DrumMidi's kit profile learns the test beat's cymbals too (closed hat, open hat, ride, crash,
+   * each alone): "c<note>" lines with their 2.5-16 kHz spectrum and fade, a closed hat's fading far
+   * faster than an open hat's; the tick-off says which. (Stand-in sounds: shaped noise and tones.)
+   */
+  /**
+   * vst_render --compare_kits: the profiles the test compares (none, the reference, the other kits' vst-kit-*.kit,
+   * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
+   */
+  void s186_vst_render_compare_kits() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "compare-kits");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File kits = new File(dir, "kits");
+    kits.mkdirs();
+    Files.write(new File(kits, "vst-kit-Riot_Drums.kit").toPath(), "36 0.1\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(kits, "vst-kit-New_Kit.kit").toPath(), "36 0.1\n".getBytes(StandardCharsets.UTF_8));
+    // A kick (60 Hz) and a tom (120 Hz), each struck 3 times: DrumMidi on it with the reference profile.
+    int sr = 44100;
+    short[] pcm = new short[sr * 4];
+    for (int k = 0; k < 6; k++) {
+      int at = (int) ((0.3 + 0.6 * k) * sr);
+      double hz = k % 2 == 0 ? 60 : 120;
+      for (int i = 0; i < sr * 0.3 && at + i < pcm.length; i++) pcm[at + i] += (short) (20000 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * hz * i / sr));
+    }
+    File wav = new File(dir, "drums.wav");
+    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+    java.nio.ByteBuffer h = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    h.put("RIFF".getBytes()).putInt(36 + pcm.length * 2).put("WAVEfmt ".getBytes()).putInt(16).putShort((short) 1).putShort((short) 1).putInt(sr).putInt(sr * 2)
+        .putShort((short) 2).putShort((short) 16).put("data".getBytes()).putInt(pcm.length * 2);
+    b.write(h.array());
+    java.nio.ByteBuffer d = java.nio.ByteBuffer.allocate(pcm.length * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    for (short v : pcm) d.putShort(v);
+    b.write(d.array());
+    Files.write(wav.toPath(), b.toByteArray());
+    String check = "import importlib.util, sys, os\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "own = os.path.join(sys.argv[2], 'vst-kit-New_Kit.kit')\n"
+        + "c = vr.compare_profiles(sys.argv[2], own)\n"
+        + "print('labels', [l for l, _ in c])\n"
+        + "print('without own', [l for l, _ in vr.compare_profiles(sys.argv[2], None)])\n"
+        + "ref = c[1][1]\n"
+        + "said = []\n"
+        + "found = vr.drum_midi('java', sys.argv[3], sys.argv[4], os.path.join(os.path.dirname(sys.argv[4]), 'drums-dm.mid'), ['--kit', ref], said)\n"
+        + "print('reference', 'notes' if not isinstance(found, str) else found, '|', [l for l in said if 'profile' in l.lower() or 'kit' in l.lower()][-1:])\n"
+        + "cym = [[0] * 5 for _ in vr.CYMBAL_KINDS]; cym[0][0] = 3; cym[0][2] = 1\n"
+        + "print('\\n'.join(vr.compare_text(('own', {'Kick': [4, 4, 4], 'Toms': [2, 1, 1], 'Snare': [1, 1, 1]}, cym), [('no profile', {'Kick': [4, 2, 2]}, cym)])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), kits.getAbsolutePath(), jar.getAbsolutePath(), wav.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--compare_kits")) label = q.label;
+    this.out.append(said).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("labels ['no profile', \"reference (DrumGizmo kits' average)\", 'Riot_Drums']")
+        && said.contains("without own ['reference (DrumGizmo kits' average)', 'New_Kit', 'Riot_Drums']".replace("['reference (DrumGizmo kits' average)'", "[\"reference (DrumGizmo kits' average)\""))
+        && said.contains("reference notes") && said.contains("Kit profiles compared")
+        && said.contains("  own: Kick 4/4 P100 R100  Toms 1/2 P100 R 50 | right: Closed HH 75%, Open HH -, Ride -, Crash -")
+        && said.contains("  no profile: Kick 2/4 P100 R 50 | right: Closed HH 75%")
+        && label.startsWith("Compare kit profiles in the test");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  void s185_drummidi_cymbal_kit() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymbal-kit");
+    dir.mkdirs();
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    int sr = 44100;
+    double[] x = new double[sr * 26];
+    java.util.Random r = new java.util.Random(3);
+    StringBuilder times = new StringBuilder();
+    for (int k = 0; k < 3; k++) {
+      double t = 2.0 + 0.5 * k, tt = 3.5 + 0.5 * k;
+      for (int i = 0; i < sr * 0.3; i++) {
+        x[(int) (t * sr) + i] += 0.8 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * 60 * i / sr);
+        x[(int) (tt * sr) + i] += 0.6 * Math.exp(-i / (0.1 * sr)) * Math.sin(2 * Math.PI * 120 * i / sr);
+      }
+      times.append(String.format(java.util.Locale.ROOT, "%.4f 36\n%.4f 43\n", t, tt));
+    }
+    int[] notes = {42, 46, 51, 49};
+    for (int c = 0; c < 4; c++) {
+      for (int k = 0; k < 3; k++) {
+        double t = 13.0 + 1.0 * (c * 3 + k);
+        double prev = 0;
+        for (int i = 0; i < sr * 0.9; i++) {
+          double s = i / (double) sr, w = r.nextDouble() * 2 - 1, v;
+          if (c == 0) v = (w - prev) * Math.exp(-s / 0.02) * 0.5;
+          else if (c == 1) v = (w - prev) * Math.exp(-s / 0.35) * 0.4;
+          else if (c == 2) v = (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+          else v = (0.5 * w + 0.3 * prev) * Math.exp(-s / 0.9) * 0.5;
+          prev = w;
+          x[(int) (t * sr) + i] += v;
+        }
+        times.append(String.format(java.util.Locale.ROOT, "%.4f %d\n", t, notes[c]));
+      }
+    }
+    short[] pcm = new short[x.length];
+    for (int i = 0; i < x.length; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, Math.round(x[i] * 20000)));
+    File wav = new File(dir, "check.wav"), txt = new File(dir, "times.txt"), kit = new File(dir, "kit.kit");
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, sr));
+    Files.write(txt.toPath(), times.toString().getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> cmd = java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), "--learn-kit", wav.getAbsolutePath(), txt.getAbsolutePath(), kit.getAbsolutePath());
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String text = kit.isFile() ? new String(Files.readAllBytes(kit.toPath()), StandardCharsets.UTF_8) : "";
+    double closedFade = 0, openFade = 0;
+    for (String line : text.split("\n")) {
+      String[] w = line.trim().split("\\s+");
+      if (w[0].equals("c42")) closedFade = Double.parseDouble(w[w.length - 1]);
+      if (w[0].equals("c46")) openFade = Double.parseDouble(w[w.length - 1]);
+    }
+    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append("\nfades: closed ").append(closedFade).append(", open ").append(openFade).append('\n');
+    boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)") && text.contains("\nc42 ") && text.contains("\nc51 ")
+        && closedFade < -2 && openFade > -1;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
   private static byte[] midiFile(byte[] track) throws java.io.IOException {
     java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();
@@ -7569,9 +7688,12 @@ public final class DesktopBehavior {
         + "for p in ('/vst/Anarchy Drums.vst3', '/vst/Artillery2.vst3', '/vst/Other.vst3'):\n"
         + "    notes, part = vr.map_for(m, p)\n"
         + "    print('%s: %s %s' % (p.split('/')[-1], sorted(notes.items(), key=lambda x: x[0]), part))\n"
-        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--map2': '45=46', '--map3': None}\n"
-        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map', 'M', '--map2', '45=46', '--state', 's.fxp', '--test'], opts):\n"
-        + "    print('run %s: %s' % (plug, ' '.join(args)))\n";
+        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--plugin4': 'd.vst3', '--map2': '45=46', '--map3': None, '--map4': '57=49', '--kit_name4': 'Artillery'}\n"
+        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--plugin4', 'd.vst3', '--map', 'M', '--map2', '45=46', '--map4', '57=49', '--kit_name4', 'Artillery', '--state', 's.fxp', '--test'], opts):\n"
+        + "    print('run %s: %s' % (plug, ' '.join(args)))\n"
+        + "lead = {'--plugin': None, '--carla': None, '--drumgizmo': None, '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--plugin4': 'd.vst3', '--map': None, '--map2': None, '--map3': '41=none', '--map4': None, '--kit_name4': 'Artillery', '--dir': 'f', '--dir2': None}\n"
+        + "moved = vr.lead_first(['--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map3', '41=none', '--plugin4', 'd.vst3', '--kit_name4', 'Artillery', '--dir', 'f'], lead)\n"
+        + "print('lead', ' '.join(moved[0]), '|', moved[1])\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), maps.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 60, null).trim();
@@ -7579,12 +7701,18 @@ public final class DesktopBehavior {
     bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map2", "45=46"));
     String refused = PythonRun.runFor(bad, 60, null).trim();
     String label = "";
-    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--map2")) label = q.label;
+    String label4 = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (q.token.equals("--map2")) label = q.label;
+      if (q.token.equals("--plugin4")) label4 = q.label;
+    }
     this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
         && said.contains("Other.vst3: [(35, None)] ")
         && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
-        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin");
+        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && said.contains("run d.vst3: --plugin d.vst3 --test --map 57=49 --kit_name Artillery")
+        && said.contains("lead --dir f --plugin b.vst3 --plugin2 c.vst3 --map2 41=none --plugin3 d.vst3 --kit_name3 Artillery | No --plugin: b.vst3 leads, c.vst3, d.vst3 after it")
+        && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

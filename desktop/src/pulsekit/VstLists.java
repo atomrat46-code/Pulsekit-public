@@ -92,12 +92,12 @@ final class VstLists {
         return kept(KITS_KEY).toArray(new String[0]);
     }
 
-    /** The kit names in the run's arguments (--kit_name, --kit_name2, --kit_name3), kept for the list. */
+    /** The kit names in the run's arguments (--kit_name, --kit_name2 to --kit_name4), kept for the list. */
     static void rememberKits(String args) {
         List<String> words = JavaRun.split(args == null ? "" : args);
         for (int i = 0; i + 1 < words.size(); i++) {
             String w = words.get(i);
-            if (w.equals("--kit_name") || w.equals("--kit_name2") || w.equals("--kit_name3")) remember(KITS_KEY, words.get(i + 1));
+            if (w.equals("--kit_name") || w.equals("--kit_name2") || w.equals("--kit_name3") || w.equals("--kit_name4")) remember(KITS_KEY, words.get(i + 1));
         }
     }
 

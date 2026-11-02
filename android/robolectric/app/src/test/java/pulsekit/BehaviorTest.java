@@ -12048,6 +12048,26 @@ public class BehaviorTest {
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /** vst_render --compare_kits: a Params switch on Android too (its label), and the reference kit profile in the bundled vst_render; a fourth plugin row (--plugin4, its map and kit name). */
+  @Test
+  public void s198_vst_render_compare_kits() throws Exception {
+    String src = app.programMenus.bundledSource("vst_render.py");
+    String label = "";
+    boolean onOff = false;
+    String fourth = "";
+    for (ProgramParams.Param q : ProgramParams.parse(src)) {
+      if (q.token.equals("--compare_kits")) {
+        label = q.label;
+        onOff = !q.takesValue;
+      }
+      if (q.token.equals("--plugin4") && q.plugin) fourth += q.label + "; ";
+      if (q.token.equals("--map4") || q.token.equals("--kit_name4")) fourth += q.label + "; ";
+    }
+    String out = "label: " + label + " | switch " + onOff + " | fourth: " + fourth + " | reference " + src.contains("REFERENCE_KIT = \"\"\"# Pulsekit's reference kit profile");
+    if (!(label.startsWith("Compare kit profiles in the test") && onOff && out.endsWith("reference true") && fourth.startsWith("Fourth plugin: the whole run again")
+        && fourth.contains("Test: the fourth plugin's own notes map") && fourth.contains("Kit loaded in the fourth plugin"))) throw new AssertionError(out);
+  }
+
   @Test
   public void s197_media_folder_zip() throws Exception {
     StringBuilder out = new StringBuilder();

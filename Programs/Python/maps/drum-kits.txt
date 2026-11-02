@@ -33,3 +33,12 @@
 37=none
 50=none
 58=none
+
+[Northern Artillery Drums]
+# Its Midinotes pages (C2 = 36): kick 36; snare 38 top, 39 rimshot, 40 ring, 37 and 34 side
+# sticks; toms 48 47 45 43 41 (TOM1 C3 to TOM5 F2). Hihat 1: 42 and 33 closed, 46 and 32 open,
+# 44 pedal, 31 top, 30 bell; hihat 2: 29 and 28 closed, 27 and 26 open. Ride 1: 51 top, 53 bell,
+# 54 side, 62 choke; ride 2: 59 top, 60 bell, 63 side, 64 choke. Crash 1: 49, 50 its choke; crash
+# 2: 57, 58 its choke; chinas 52 and 61; splashes 55 and 56. 50 only stops crash 1 (at the
+# test's 50s DrumMidi heard no tom): nothing to count.
+50=none
