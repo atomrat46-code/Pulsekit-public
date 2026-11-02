@@ -704,7 +704,7 @@ def midi_notes(path):
 
 # Drum families for --test, as Pulsekit's CompareHits groups them (hats, rides and crashes also together).
 FAMILIES = (("Kick", (35, 36)), ("Snare", (37, 38, 39, 40)), ("Hats", (42, 44, 46)),
-            ("Ride", (51, 53, 59)), ("Crash", (49, 52, 55, 57)), ("Toms", (41, 43, 45, 47, 48, 50)),
+            ("Closed HH", (42, 44)), ("Open HH", (46,)), ("Ride", (51, 53, 59)), ("Crash", (49, 52, 55, 57)), ("Toms", (41, 43, 45, 47, 48, 50)),
             ("Cymbals", (42, 44, 46, 49, 51, 52, 53, 55, 57, 59)))
 TOLERANCE = 0.03
 TOMS = (41, 43, 45, 47, 48, 50)
@@ -761,6 +761,80 @@ class KeptLog:
 
 KEPT_SHOWN = 5
 KEPT_EVERY = 100
+
+
+# The cymbal breakdown: each played cymbal hit, and what DrumMidi wrote there (within TOLERANCE, after
+# the shift): the same kind, another one (a swap), or nothing (missed); and DrumMidi's cymbals where
+# none was played (extra).
+CYMBAL_KINDS = (("Closed HH", (42, 44)), ("Open HH", (46,)), ("Ride", (51, 53, 59)), ("Crash", (49, 52, 55, 57)))
+
+
+def cymbal_kind(note):
+    for k, (name, notes) in enumerate(CYMBAL_KINDS):
+        if note in notes:
+            return k
+    return None
+
+
+def cymbal_breakdown(played, found, end, shift):
+    """A table: table[played kind][found kind, or len(CYMBAL_KINDS) for missed], and the extra hits of each
+    found kind. The same kind is matched first, then the nearest other cymbal (each found hit used once)."""
+    import bisect
+    n = len(CYMBAL_KINDS)
+    table = [[0] * (n + 1) for _ in range(n)]
+    p = sorted((t, cymbal_kind(x)) for t, x in played if t < end and cymbal_kind(x) is not None)
+    f = sorted((t + shift, cymbal_kind(x)) for t, x in found if cymbal_kind(x) is not None)
+    times = [t for t, k in f]
+    used = [False] * len(f)
+    got = [None] * len(p)
+    for same in (True, False):
+        for i, (t, k) in enumerate(p):
+            if got[i] is not None:
+                continue
+            j = bisect.bisect_left(times, t - TOLERANCE)
+            best = None
+            while j < len(f) and times[j] <= t + TOLERANCE:
+                if not used[j] and (f[j][1] == k) == same and (best is None or abs(times[j] - t) < abs(times[best] - t)):
+                    best = j
+                j += 1
+            if best is not None:
+                used[best] = True
+                got[i] = f[best][1]
+    for i, (t, k) in enumerate(p):
+        table[k][n if got[i] is None else got[i]] += 1
+    extra = [0] * n
+    for j, (t, k) in enumerate(f):
+        if not used[j]:
+            extra[k] += 1
+    return table, extra
+
+
+def swaps_line(table):
+    """The swaps of a render, in short: "ride as closed HH 33, crash as ride 1" (the biggest first), or ""."""
+    names = [k[0] for k in CYMBAL_KINDS]
+    out = []
+    for a in range(len(names)):
+        for b in range(len(names)):
+            if a != b and table[a][b]:
+                out.append((table[a][b], "%s as %s %d" % (names[a], names[b], table[a][b])))
+    out.sort(key=lambda x: -x[0])
+    return ", ".join(s for _, s in out)
+
+
+def breakdown_text(table, extra):
+    """The All section's table: rows played, columns what DrumMidi wrote."""
+    names = [k[0] for k in CYMBAL_KINDS]
+    head = ["Played \\ DrumMidi wrote"] + names + ["missed", "right"]
+    rows = [head]
+    for a, name in enumerate(names):
+        total = sum(table[a])
+        rows.append([name] + [str(v) for v in table[a]] + ["%d%%" % round(100.0 * table[a][a] / total) if total else "-"])
+    rows.append(["Not played (extra)"] + [str(v) for v in extra] + ["", ""])
+    width = [max(len(r[c]) for r in rows) for c in range(len(head))]
+    lines = ["Cymbal breakdown (each played cymbal hit, and what DrumMidi wrote there; right: the same kind):"]
+    for r in rows:
+        lines.append("  " + r[0].ljust(width[0]) + "  " + "  ".join(r[c].rjust(width[c]) for c in range(1, len(head))))
+    return lines
 
 
 def score_line(rows):
@@ -2117,6 +2191,8 @@ def main(argv):
                   "Kit profile (the test beat's kick and toms): " + kit_said,
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
+        cymbals = [[0] * (len(CYMBAL_KINDS) + 1) for _ in CYMBAL_KINDS]
+        cymbal_extra = [0] * len(CYMBAL_KINDS)
         tested = 0
         kept_dm = KeptLog("DrumMidi MIDI files", len(batch_done))
         print("Testing %d render%s with DrumMidi_CRT" % (len(batch_done), "" if len(batch_done) == 1 else "s"))
@@ -2154,7 +2230,13 @@ def main(argv):
                 v[0] += t
                 v[1] += f
                 v[2] += ok
-            report.append("%s (shift %+d ms): %s" % (name, round(shift * 1000), score_line(rows)))
+            table, extra = cymbal_breakdown(played, found, length + 0.05, shift)
+            for a in range(len(table)):
+                for b in range(len(table[a])):
+                    cymbals[a][b] += table[a][b]
+                cymbal_extra[a] += extra[a]
+            swaps = swaps_line(table)
+            report.append("%s (shift %+d ms): %s%s" % (name, round(shift * 1000), score_line(rows), "\n    swapped: " + swaps if swaps else ""))
             if said is not None:
                 # Each file's line as it is done (Output would else stay silent through the whole test,
                 # and PyJav takes a run silent for 600 s as hung), with what DrumMidi wrote.
@@ -2167,6 +2249,9 @@ def main(argv):
         if total:
             report.append("")
             report.append("All: " + score_line([(fam, total[fam][0], total[fam][1], total[fam][2]) for fam, notes in FAMILIES if fam in total]))
+            if any(sum(r) for r in cymbals) or any(cymbal_extra):
+                report.append("")
+                report.extend(breakdown_text(cymbals, cymbal_extra))
         text = "\n".join(report)
         print("")
         print(text)

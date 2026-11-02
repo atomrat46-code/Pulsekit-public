@@ -7342,6 +7342,9 @@ public final class DesktopBehavior {
         + "print('mapped', vr.mapped(played, m))\n"
         + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
         + "print('score', vr.score_line(rows))\n"
+        + "t, e = vr.cymbal_breakdown([(0.0, 42), (0.5, 51), (1.0, 51), (1.5, 46)], [(0.0, 42), (0.5, 42), (1.0, 51), (2.5, 49)], 3.0, 0.0)\n"
+        + "print('swaps', vr.swaps_line(t), '| extra', e)\n"
+        + "print('\\n'.join(vr.breakdown_text(t, e)))\n"
         + "print('default', [(p, vr.default_map(p)[1]) for p in ('Riot Drums.vst3', 'Anarchy Drums.vst3', 'Ugritone Drums.vst3', 'Other Kit.vst3')])\n"
         + "for bad in ('45', '45=x', '200=46'):\n"
         + "    try: vr.note_map(bad); print('kept', bad)\n"
@@ -7361,7 +7364,8 @@ public final class DesktopBehavior {
     this.out.append(said).append("\nwithout --test: ").append(refused).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("pairs [(41, None), (45, 46)]") && said.contains("file [(41, None), (45, 46), (57, 49)]")
         && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
-        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
+        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Closed HH 0/0 P  0 R  0  Open HH 1/1 P100 R100  Toms 1/1 P100 R100")
+        && said.contains("swaps Ride as Closed HH 1 | extra [0, 0, 0, 1]") && said.contains("Cymbal breakdown") && said.contains("Open HH  ")
         && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
         && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays")
         && said.contains("default [('Riot Drums.vst3', 'Riot Drums'), ('Anarchy Drums.vst3', 'Anarchy Drums'), ('Ugritone Drums.vst3', 'Ugritone Drums'), ('Other Kit.vst3', None)]");
