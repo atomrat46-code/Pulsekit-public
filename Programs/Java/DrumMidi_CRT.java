@@ -190,7 +190,13 @@ public class DrumMidi_CRT{
     /** A kick read at a higher pitch is still a kick under FLOOR_TOM_HZ: some kicks have no one clear pitch and read 50-85 Hz. */
     static final double FLOOR_TOM_HZ = 86;
     static final double OPEN_HAT_TAIL = 0.45, OPEN_HAT_LATE = 0.33;
-    static final double OPEN_TOP = 0.3, OPEN_MID = 0.2, OPEN_SWELL = 1.0, OPEN_BAND = 0.3;
+    /**
+     * openRing's ring after a closed hat: OPEN_TOP and OPEN_BAND were 0.3, and real kits' closed hats
+     * (KVLT, Anarchy: a room keeps them ringing) were turned open by the hundred; at 0.45 KVLT's
+     * closed hats taken for open fell 538 -> 409, Anarchy's 346 -> 264, five DrumGizmo kits' 478 -> 368,
+     * and every open hat these found stayed found.
+     */
+    static final double OPEN_TOP = 0.45, OPEN_MID = 0.2, OPEN_SWELL = 1.0, OPEN_BAND = 0.45;
     /** At a kick or snare, a hat raises the hat band's level by HAT_OVER_DRUM (0.13 and more); the drum's own leak raises it about 0.06. */
     static final double HAT_OVER_DRUM = 0.1;
     /**
