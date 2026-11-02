@@ -11997,6 +11997,52 @@ public class BehaviorTest {
     if (!labelsOk || !expectOk || !groupOk || !oneOk || !multiOk) throw new AssertionError(out.toString());
   }
 
+  /**
+   * A picture picked from the phone's storage into the temp folder, which the phone emptied: it is
+   * read again from where it was picked (Preview, Run). C on a video, then No to Process as a
+   * reference: Picture ready offers the frame.
+   */
+  @Test
+  public void s196_refetch_input_and_frame_ready() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    InputOrigins.UriReader was = InputOrigins.uriReader;
+    File temp = new File(app.getCacheDir(), "pyjav-in");
+    temp.mkdirs();
+    File pic = new File(temp, "ref2.png");
+    try {
+      InputOrigins.uriReader = uri -> ("from " + uri).getBytes(StandardCharsets.UTF_8);
+      Files.write(pic.toPath(), "x".getBytes(StandardCharsets.UTF_8));
+      InputOrigins.recordUri(app.getFilesDir(), pic.getAbsolutePath(), "content://pics/ref2.png");
+      pic.delete();
+      java.util.List<String> argv = java.util.Arrays.asList("--ref2", pic.getAbsolutePath());
+      boolean gone = InputOrigins.anyGone(app.getFilesDir(), argv, app.getCacheDir());
+      java.util.List<String> missing = InputOrigins.missing(app.getFilesDir(), argv, app.getCacheDir(), null);
+      String back = pic.isFile() ? new String(Files.readAllBytes(pic.toPath()), StandardCharsets.UTF_8) : "none";
+      out.append("emptied: noticed ").append(gone).append(", still missing ").append(missing).append(", read again: ").append(back).append('\n');
+      if (!gone || !missing.isEmpty() || !back.equals("from content://pics/ref2.png")) throw new AssertionError(out.toString());
+    } finally {
+      InputOrigins.uriReader = was;
+    }
+    File media = new File(app.getCacheDir(), "clips-ready");
+    media.mkdirs();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PictureOffer.last = null;
+    b.askProcessRef("walk-0m02s000.png", png.toByteArray(), null);
+    idle();
+    MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean ready = PictureOffer.last != null && PictureOffer.last.isShowing();
+    out.append("No: ").append(ready ? org.robolectric.Shadows.shadowOf(PictureOffer.last).getTitle() : "nothing").append('\n');
+    if (PictureOffer.last != null) PictureOffer.last.dismiss();
+    b.dialog.dismiss();
+    write("s196_refetch_input_and_frame_ready", out.toString());
+    if (!ready) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
     String[] styles = {"rock", "funk", "house"};

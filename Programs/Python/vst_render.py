@@ -1242,6 +1242,19 @@ def check_midi(folder):
     return path
 
 
+def kit_missing(said):
+    """The kick and toms DrumMidi --learn-kit heard nothing (or next to nothing) of: how many (99 when it
+    learned no tom, or failed)."""
+    if not said.startswith("Wrote ") or "no tom played" in said:
+        return 99
+    n = 0
+    for part in said.split(";"):
+        part = part.strip()
+        if part.startswith("silent in this kit:") or part.startswith("nothing to read:"):
+            n += len(re.findall(r"\b\d+ \(", part))
+    return n
+
+
 def learn_kit(java, jar, audio, rate, bits, nmap, out):
     """DrumMidi --learn-kit on the test beat's render: the kit's kick and toms as the plugin plays them
     (--map: a note played as another drum, or not at all, is not learned), into `out`. Returns
@@ -1885,6 +1898,23 @@ def main(argv):
             fail("the test beat did not play (%s)" % e)
         check_audio, check_note = finish(np, check_audio, volume)
         if check_note and check_note.startswith("the render is silent"):
+            # A sampler still loading its kit (KVLT takes long to load a preset) is silent at first:
+            # the test beat again every 5 s, for up to 30 s, before it counts as silent.
+            import time
+            waited = 0
+            while check_note and check_note.startswith("the render is silent") and waited < 30 and not STOP["asked"]:
+                if waited == 0:
+                    print("Plugin check: silent at first (the kit still loading?): trying again every 5 s, for up to 30 s")
+                time.sleep(5)
+                waited += 5
+                try:
+                    check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)
+                except ValueError:
+                    break
+                check_audio, check_note = finish(np, check_audio, volume)
+            if waited and not (check_note and check_note.startswith("the render is silent")):
+                print("Plugin check: it plays after %d s" % waited)
+        if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
         peak = float(np.max(np.abs(check_audio)))
@@ -1896,13 +1926,17 @@ def main(argv):
                 os.makedirs(where)
             kit_file = os.path.join(where, "vst-kit-%s.kit" % tag)
             said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
-            if "no tom played" in said:
+            if kit_missing(said):
                 # A sampler still loading its kit (KVLT takes long to load a preset) plays the first
-                # renders without some drums: the test beat again every 5 s, for up to 30 s, and the kit
-                # learned from the first with toms.
+                # renders without some drums: the test beat again every 5 s, for up to 30 s, until every
+                # tom the map plays is heard; the kit is learned from the render with the most of them.
                 import time
+                import shutil
                 waited = 0
-                while "no tom played" in said and waited < 30 and not STOP["asked"]:
+                first = kit_missing(said)
+                best = first
+                trial = kit_file + ".try"
+                while best and waited < 30 and not STOP["asked"]:
                     time.sleep(5)
                     waited += 5
                     try:
@@ -1910,11 +1944,16 @@ def main(argv):
                     except ValueError:
                         break
                     again, _ = finish(np, again, volume)
-                    said = learn_kit(opts["--java"], opts["--drummidi"], again, rate, bits, nmap, kit_file)
-                    if "no tom played" not in said:
+                    said2 = learn_kit(opts["--java"], opts["--drummidi"], again, rate, bits, nmap, trial)
+                    if said2.startswith("Wrote ") and kit_missing(said2) < best:
+                        best = kit_missing(said2)
+                        shutil.move(trial, kit_file)
+                        said = said2.replace(os.path.basename(trial), os.path.basename(kit_file))
                         check_audio = again
-                print("Kit: no tom in the first test beat (the kit still loading?); %s after %d s"
-                      % ("toms heard" if "no tom played" not in said else "still none", waited))
+                if os.path.isfile(trial):
+                    os.remove(trial)
+                print("Kit: %d of the kick and toms silent in the first test beat (the kit still loading?); %s after %d s"
+                      % (first, "all heard" if not best else "%d still silent" % best, waited))
             if said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])

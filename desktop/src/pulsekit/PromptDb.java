@@ -1821,6 +1821,9 @@ final class PromptDb {
     /** The tests' answer to C's Process as a Sogni reference question ("Yes", "No"; null asks). */
     static java.util.function.Function<String, String> processAnswer;
 
+    /** The frame Picture ready was offered for last (No to Process as a reference), for the tests. */
+    File lastFrameOffer;
+
     /** The video's folder in the Media browser again (Return in PyJav), when it was opened from there; else null. */
     Runnable browserBack(File video) {
         if (app.mediaBrowser == null || app.mediaBrowser.last == null || !app.mediaBrowser.last.isShowing()) return null;
@@ -1918,6 +1921,11 @@ final class PromptDb {
                     java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
                     if (w != null) w.dispose();
                     SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
+                } else if (processAnswer == null) {
+                    // Not as a reference: Picture ready, with the frame's items (favourites, group...).
+                    SwingUtilities.invokeLater(() -> app.pyJav.offerPictures(java.util.Collections.singletonList(shot)));
+                } else {
+                    this.lastFrameOffer = shot;
                 }
             }
         });

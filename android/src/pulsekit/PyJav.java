@@ -2510,6 +2510,13 @@ final class PyJav {
                 int n;
                 while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
             } finally { fos.close(); in.close(); }
+            // Read again from there when the phone empties the temp folder (InputOrigins); the address stays readable.
+            try {
+                app.getContentResolver().takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                // only for this session
+            }
+            pulsekit.InputOrigins.recordUri(app.getFilesDir(), out.getAbsolutePath(), uri.toString());
             return out.getAbsolutePath();
         }
     }

@@ -287,6 +287,19 @@ public class MainActivity extends UiKit {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
+        // A program's input file the phone emptied from the temp folder: read again from where it was picked.
+        InputOrigins.uriReader = uri -> {
+            java.io.InputStream in = this.getContentResolver().openInputStream(android.net.Uri.parse(uri));
+            if (in == null) throw new java.io.IOException("could not open " + uri);
+            try {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[65536];
+                for (int n; (n = in.read(buf)) > 0; ) bos.write(buf, 0, n);
+                return bos.toByteArray();
+            } finally {
+                in.close();
+            }
+        };
         // General settings' Sogni tools and file types.
         AppSettings.load(this.getFilesDir());
         // File > Logs: in files/logs, written while General settings > Logging on is ticked; this start once.

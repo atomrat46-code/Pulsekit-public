@@ -543,6 +543,8 @@ final class MediaBrowser {
             }
             final File got = out;
             if (got != null) ORIGIN.put(got.getAbsolutePath(), new String[] {this.tree == null ? "" : this.tree.toString(), here()});
+            // Read again from the folder when the phone empties the temp folder (InputOrigins).
+            if (got != null) InputOrigins.recordUri(this.app.getFilesDir(), got.getAbsolutePath(), this.uri(e).toString());
             this.main.post(() -> {
                 if (got == null) {
                     this.app.setNow("Could not read " + e.name);
@@ -2571,6 +2573,7 @@ final class MediaBrowser {
             if (!dir.isDirectory()) dir.mkdirs();
             got = new File(dir, e.name.replace('/', '_'));
             java.nio.file.Files.write(got.toPath(), bytes);
+            InputOrigins.record(this.app.getFilesDir(), got.getAbsolutePath(), e.dbId, PromptVault.PROMPT_FILE);
         } catch (Exception ex) {
             this.app.setNow("Could not read " + e.name);
             return;
@@ -3322,7 +3325,12 @@ final class MediaBrowser {
         lastProcessAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF)
             .setMessage(name + " needs no upscaling. Process it as a reference of a Sogni program (the program and prompt, then Reference file 1 or 2)?")
             .setPositiveButton("Yes", (d, w) -> ProcessRefDialog.open(this.app, name, png, this, player))
-            .setNegativeButton("No", null).show();
+            // Not as a reference: Picture ready, with the frame's items (favourites, group, tags, playlist...).
+            .setNegativeButton("No", (d, w) -> {
+                java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+                files.add(new JavaRun.FileOut(name, png));
+                PictureOffer.offer(this.app, new JavaRun.Result("Succeeded: " + name, files, 0));
+            }).show();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */
