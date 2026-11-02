@@ -1848,8 +1848,13 @@ public class DrumMidi_CRT{
     static final double CYM_LO = 2500, CYM_HI = 16000;
     /** A fade's weight against the spectrum's likeness (-1..1) in telling cymbals apart. */
     static final double CYM_DECAY_WEIGHT = 0.3;
-    /** How much nearer another learned cymbal must be for a hit to change to it. */
-    static final double CYM_MARGIN = 0.08;
+    /**
+     * How much nearer another learned cymbal must be for a hit to change to it (0.08 moved too many
+     * of Anarchy's closed hats to its ride), and how near it must be at least.
+     */
+    static final double CYM_MARGIN = 0.25, CYM_LEAST = 0.5;
+    /** Two learned cymbals this alike (cymNear) are not told apart in this kit: neither changes to the other. */
+    static final double CYM_ALIKE = 0.4;
     /** Another hit this near (a cymbal, a kick, a snare, a tom): the sound is not the cymbal alone, and it is not changed. */
     static final double CYM_ALONE = 0.04;
     /** A test beat cymbal under this share of the loudest one is not played by the kit. */
@@ -2103,7 +2108,8 @@ public class DrumMidi_CRT{
                 double[] cs = e.getValue();
                 int c = cymCount.get(e.getKey()).intValue();
                 if (cs[CYM_BANDS + 1] / c < CYM_SILENT * loudest) {
-                    cymLeft.add(e.getKey() + " " + cymName(e.getKey().intValue()));
+                    cymLeft.add(e.getKey() + " " + cymName(e.getKey().intValue()) + " (" + String.format(java.util.Locale.ROOT, "%.1f", 100 * cs[CYM_BANDS + 1] / c / loudest)
+                        + "% of the loudest cymbal)");
                     continue;
                 }
                 double norm = 0;
@@ -2114,7 +2120,7 @@ public class DrumMidi_CRT{
                 sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", cs[CYM_BANDS] / c)).append('\n');
                 cymKept.add(e.getKey() + " " + cymName(e.getKey().intValue()) + (c > 1 ? " (" + c + " hits)" : ""));
             }
-            for (Integer n : cymUnread) if (!cymSum.containsKey(n)) cymLeft.add(n + " " + cymName(n.intValue()));
+            for (Integer n : cymUnread) if (!cymSum.containsKey(n)) cymLeft.add(n + " " + cymName(n.intValue()) + " (no sound at its hits)");
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
             List<String> none = new ArrayList<String>();
             for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
@@ -2178,6 +2184,12 @@ public class DrumMidi_CRT{
          * nearest, when that is clearly nearer (CYM_MARGIN) than the kind it was written as; a hit with
          * another cymbal at it (two cymbals at once) is left as it is. Needs two cymbals learned.
          */
+        /** A learned cymbal's look (null when not learned). */
+        double[] look(int note) {
+            int j = cymNotes.indexOf(Integer.valueOf(note));
+            return j < 0 ? null : cymLooks.get(j);
+        }
+
         void sortCymbals(List<Hit> hits, double[] x, double sr) {
             if (cymNotes.size() < 2) return;
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
@@ -2207,7 +2219,10 @@ public class DrumMidi_CRT{
                     }
                     if (cymNotes.get(j).intValue() == h.note) mine = v;
                 }
-                if (best < 0 || best == h.note || (mine > -9 && top - mine < CYM_MARGIN)) continue;
+                // A kind the profile has not learned is left as it is (KVLT's ride was not heard: its rides
+                // went to its closed hat); so is one too like the nearest in this kit, or not near enough.
+                if (best < 0 || best == h.note || mine <= -9 || top < CYM_LEAST || top - mine < CYM_MARGIN) continue;
+                if (cymNear(look(h.note), look(best)) > CYM_ALIKE) continue;
                 hits.set(i, new Hit(h.time, best, h.strength));
                 String key = cymName(h.note) + " to " + cymName(best);
                 moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
