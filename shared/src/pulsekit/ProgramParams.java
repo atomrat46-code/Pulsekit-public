@@ -768,7 +768,7 @@ public final class ProgramParams {
       p.label = "Compare kit profiles in the test: DrumMidi again with none, Pulsekit's reference and each earlier kit's vst-kit-*.kit (slower)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT, Artillery), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
     } else if (p.token.equals("--no-map")) {
       p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
     } else if (p.token.equals("--map2") || p.token.equals("--map3") || p.token.equals("--map4")) {

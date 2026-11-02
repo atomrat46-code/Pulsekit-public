@@ -101,7 +101,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
                   maps folder beside this script.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
-                  (Anarchy, Riot, Ugritone/KVLT) is tested with that section.
+                  (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
                   so it is given here. It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
@@ -967,7 +967,7 @@ def map_key(name):
 
 def default_map(plugin):
     """The map --test uses when none is given: Pulsekit's drum-kits.txt, when it has a section for
-    the plugin (Anarchy, Riot, Ugritone/KVLT). (file, section), or (None, None)."""
+    the plugin (Anarchy, Riot, Ugritone/KVLT, Northern Artillery). (file, section), or (None, None)."""
     known = map_file("drum-kits.txt")
     if not os.path.isfile(known):
         return None, None
@@ -1953,7 +1953,7 @@ def main(argv):
     map_part = None
     if test and not (opts["--map"] or "").strip() and "--no-map" not in switches and (opts["--plugin"] or opts["--clap"]):
         # No --map given: the map Pulsekit keeps (drum-kits.txt) when it has a section for this plugin
-        # (Anarchy, Riot, Ugritone/KVLT): what the plugin really plays for the MIDI's notes.
+        # (Anarchy, Riot, Ugritone/KVLT, Northern Artillery): what the plugin really plays for the MIDI's notes.
         known, part = default_map(name)
         if known:
             opts["--map"] = known

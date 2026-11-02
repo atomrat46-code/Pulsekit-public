@@ -33,3 +33,9 @@
 37=none
 50=none
 58=none
+
+[Northern Artillery Drums]
+# Its Midinotes pages: kick 36 (C2), snare 38 top, 39 rimshot, 40 ring, 37 and 34 side sticks,
+# toms 48 47 45 43 41 (TOM1 C3 to TOM5 F2). No tom on 50: at the test's 50s DrumMidi heard no tom
+# (nothing, or a cymbal), so nothing to count there.
+50=none
