@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -83,6 +83,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   alone, as --map says the plugin plays them) are learned by DrumMidi (--learn-kit)
                   into vst-kit-<plugin>.kit (in --outdir, else here), and DrumMidi tells the kicks
                   and toms it finds apart by them (--kit).
+  --compare_kits  with --test: DrumMidi on each render again with other kit profiles, and the report
+                  compares them: no profile, Pulsekit's reference profile (kick and toms: the average
+                  of five free DrumGizmo kits'), and each kit profile earlier tests left beside this
+                  one's (vst-kit-*.kit). Whether another kit's profile, or the reference, serves this
+                  kit as well as its own. DrumMidi runs once more a render for each.
   --map notes     with --test: what the plugin really plays for the MIDI's notes, so the report
                   compares DrumMidi with that: 45=46,41=none,57=49 (a note to another, or none: the
                   plugin plays nothing there, or nothing the test should count). Or a text file of
@@ -834,6 +839,52 @@ def breakdown_text(table, extra):
     lines = ["Cymbal breakdown (each played cymbal hit, and what DrumMidi wrote there; right: the same kind):"]
     for r in rows:
         lines.append("  " + r[0].ljust(width[0]) + "  " + "  ".join(r[c].rjust(width[c]) for c in range(1, len(head))))
+    return lines
+
+
+# Pulsekit's reference kit profile (--compare_kits): kick and toms only, the average of five free
+# DrumGizmo kits' learned profiles (ShittyKit, DRSKit, MuldjordKit, Aasimonster, CrocellKit).
+REFERENCE_KIT = """# Pulsekit's reference kit profile: kick and toms, the average of five DrumGizmo kits'
+36 0.2629 0.2734 0.2243 0.2393 0.2670 0.2118 0.2164 0.1115 0.0367 -0.0592 -0.1872 -0.2207 -0.2641 -0.3366 -0.3690 -0.4067
+41 -0.4676 -0.0997 0.2021 0.4411 0.1960 0.0735 0.1065 0.2476 0.3217 0.1251 -0.0439 -0.1146 -0.2979 -0.1217 -0.1832 -0.3849
+43 -0.5554 -0.2069 0.0093 0.2548 0.4733 0.1408 0.1691 0.2388 0.2390 0.0896 0.0483 -0.0890 -0.1670 -0.2001 -0.1442 -0.3004
+45 -0.5633 -0.2476 -0.1553 -0.0776 0.2045 0.5062 0.3079 0.1779 0.0657 0.1890 0.0950 0.0589 -0.0301 -0.0998 -0.2872 -0.1444
+47 -0.4886 -0.3354 -0.2247 -0.0109 0.1911 0.3224 0.3797 0.3002 0.1196 0.1549 0.1860 0.0611 -0.0168 -0.1478 -0.2913 -0.1995
+48 -0.4335 -0.3512 -0.3638 -0.2315 -0.0514 0.2008 0.3829 0.3809 0.2542 0.1604 0.1530 0.0640 0.0973 0.0097 -0.0922 -0.1796
+50 -0.1679 -0.1581 -0.2536 -0.3812 -0.1512 -0.1480 -0.2023 -0.0477 0.2199 -0.1344 -0.1770 0.2045 0.3892 0.3994 0.3864 0.2221
+"""
+
+
+def compare_profiles(where, own):
+    """--compare_kits: the profiles DrumMidi runs with besides the test's own (`own`, or None): no profile
+    (when the test has one), the reference (REFERENCE_KIT, written into a temporary file), and each other
+    kit profile in `where` (vst-kit-<plugin>.kit from earlier tests). [(label, path or None)]."""
+    import glob
+    import tempfile
+    out = [("no profile", None)] if own else []
+    ref = os.path.join(tempfile.mkdtemp(prefix="vst-ref-"), "reference.kit")
+    with open(ref, "w") as f:
+        f.write(REFERENCE_KIT)
+    out.append(("reference (DrumGizmo kits' average)", ref))
+    for f in sorted(glob.glob(os.path.join(where, "vst-kit-*.kit"))):
+        if own and os.path.abspath(f) == os.path.abspath(own):
+            continue
+        out.append((os.path.basename(f)[len("vst-kit-"):-len(".kit")], f))
+    return out
+
+
+def compare_text(own, rows):
+    """The report's comparison: a line for each profile (the test's own first, `own`: its label and
+    (total, cymbals)), the families DrumMidi tells apart by a profile (kick, toms) and how often each
+    cymbal kind was written right. rows: [(label, total, cymbals)], total and cymbals as the test adds them."""
+    lines = ["Kit profiles compared (--compare_kits; kick and toms are what a profile sorts, its cymbal lines the cymbals):"]
+    for label, total, cym in [own] + list(rows):
+        part = score_line([(f, total[f][0], total[f][1], total[f][2]) for f in ("Kick", "Toms") if f in total])
+        right = []
+        for a, (kind, _) in enumerate(CYMBAL_KINDS):
+            n = sum(cym[a])
+            right.append("%s %s" % (kind, "%d%%" % round(100.0 * cym[a][a] / n) if n else "-"))
+        lines.append("  %s: %s | right: %s" % (label, part, ", ".join(right)))
     return lines
 
 
@@ -1739,7 +1790,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -2199,6 +2250,14 @@ def main(argv):
         cymbal_extra = [0] * len(CYMBAL_KINDS)
         tested = 0
         kept_dm = KeptLog("DrumMidi MIDI files", len(batch_done))
+        # --compare_kits: DrumMidi again on each render with the other profiles (their MIDI files in a temporary folder).
+        compare = []
+        if "--compare_kits" in switches and opts["--drummidi"]:
+            import tempfile
+            compare = compare_profiles(os.path.dirname(kit_file) if kit_file else (opts["--outdir"] or "."), kit_file)
+            compare_dir = tempfile.mkdtemp(prefix="vst-compare-")
+            print("Comparing kit profiles: " + ", ".join(label for label, _ in compare))
+        compared = [(label, {}, [[0] * (len(CYMBAL_KINDS) + 1) for _ in CYMBAL_KINDS]) for label, _ in compare]
         print("Testing %d render%s with DrumMidi_CRT" % (len(batch_done), "" if len(batch_done) == 1 else "s"))
         for m, o in stoppable(batch_done, "the test", "the report has the WAVs tested"):
             tested += 1
@@ -2241,6 +2300,28 @@ def main(argv):
                 cymbal_extra[a] += extra[a]
             swaps = swaps_line(table)
             report.append("%s (shift %+d ms): %s%s" % (name, round(shift * 1000), score_line(rows), "\n    swapped: " + swaps if swaps else ""))
+            base = (["--no-toms"] if no_toms else []) + (["--snare-leak"] if "--snare-leak" in switches else [])
+            for k, ((label, prof), (_, ctot, ccym)) in enumerate(zip(compare, compared)):
+                if STOP["asked"]:
+                    break
+                other = drum_midi(opts["--java"], opts["--drummidi"], o, os.path.join(compare_dir, "%d-%s.mid" % (k, os.path.splitext(name)[0])),
+                                  base + (["--kit", prof] if prof else []))
+                if isinstance(other, str):
+                    continue
+                crows, cshift = score(played, other, length + 0.05)
+                for fam, t, f, ok in crows:
+                    if no_toms and fam == "Toms":
+                        continue
+                    v = ctot.setdefault(fam, [0, 0, 0])
+                    v[0] += t
+                    v[1] += f
+                    v[2] += ok
+                ctable, _ = cymbal_breakdown(played, other, length + 0.05, cshift)
+                for a in range(len(ctable)):
+                    for b in range(len(ctable[a])):
+                        ccym[a][b] += ctable[a][b]
+            if compare:
+                print("Compared %d of %d: %s with %d other kit profile%s" % (tested, len(batch_done), name, len(compare), "" if len(compare) == 1 else "s"))
             if said is not None:
                 # Each file's line as it is done (Output would else stay silent through the whole test,
                 # and PyJav takes a run silent for 600 s as hung), with what DrumMidi wrote.
@@ -2256,6 +2337,10 @@ def main(argv):
             if any(sum(r) for r in cymbals) or any(cymbal_extra):
                 report.append("")
                 report.extend(breakdown_text(cymbals, cymbal_extra))
+            if compare:
+                own = ("this kit's own (%s)" % os.path.basename(kit_file) if kit_file else "no profile (the test's)", total, cymbals)
+                report.append("")
+                report.extend(compare_text(own, compared))
         text = "\n".join(report)
         print("")
         print(text)

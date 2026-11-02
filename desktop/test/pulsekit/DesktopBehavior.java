@@ -7551,6 +7551,66 @@ public final class DesktopBehavior {
    * each alone): "c<note>" lines with their 2.5-16 kHz spectrum and fade, a closed hat's fading far
    * faster than an open hat's; the tick-off says which. (Stand-in sounds: shaped noise and tones.)
    */
+  /**
+   * vst_render --compare_kits: the profiles the test compares (none, the reference, the other kits' vst-kit-*.kit,
+   * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
+   */
+  void s186_vst_render_compare_kits() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "compare-kits");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File kits = new File(dir, "kits");
+    kits.mkdirs();
+    Files.write(new File(kits, "vst-kit-Riot_Drums.kit").toPath(), "36 0.1\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(kits, "vst-kit-New_Kit.kit").toPath(), "36 0.1\n".getBytes(StandardCharsets.UTF_8));
+    // A kick (60 Hz) and a tom (120 Hz), each struck 3 times: DrumMidi on it with the reference profile.
+    int sr = 44100;
+    short[] pcm = new short[sr * 4];
+    for (int k = 0; k < 6; k++) {
+      int at = (int) ((0.3 + 0.6 * k) * sr);
+      double hz = k % 2 == 0 ? 60 : 120;
+      for (int i = 0; i < sr * 0.3 && at + i < pcm.length; i++) pcm[at + i] += (short) (20000 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * hz * i / sr));
+    }
+    File wav = new File(dir, "drums.wav");
+    java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+    java.nio.ByteBuffer h = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    h.put("RIFF".getBytes()).putInt(36 + pcm.length * 2).put("WAVEfmt ".getBytes()).putInt(16).putShort((short) 1).putShort((short) 1).putInt(sr).putInt(sr * 2)
+        .putShort((short) 2).putShort((short) 16).put("data".getBytes()).putInt(pcm.length * 2);
+    b.write(h.array());
+    java.nio.ByteBuffer d = java.nio.ByteBuffer.allocate(pcm.length * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    for (short v : pcm) d.putShort(v);
+    b.write(d.array());
+    Files.write(wav.toPath(), b.toByteArray());
+    String check = "import importlib.util, sys, os\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "own = os.path.join(sys.argv[2], 'vst-kit-New_Kit.kit')\n"
+        + "c = vr.compare_profiles(sys.argv[2], own)\n"
+        + "print('labels', [l for l, _ in c])\n"
+        + "print('without own', [l for l, _ in vr.compare_profiles(sys.argv[2], None)])\n"
+        + "ref = c[1][1]\n"
+        + "said = []\n"
+        + "found = vr.drum_midi('java', sys.argv[3], sys.argv[4], os.path.join(os.path.dirname(sys.argv[4]), 'drums-dm.mid'), ['--kit', ref], said)\n"
+        + "print('reference', 'notes' if not isinstance(found, str) else found, '|', [l for l in said if 'profile' in l.lower() or 'kit' in l.lower()][-1:])\n"
+        + "cym = [[0] * 5 for _ in vr.CYMBAL_KINDS]; cym[0][0] = 3; cym[0][2] = 1\n"
+        + "print('\\n'.join(vr.compare_text(('own', {'Kick': [4, 4, 4], 'Toms': [2, 1, 1], 'Snare': [1, 1, 1]}, cym), [('no profile', {'Kick': [4, 2, 2]}, cym)])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), kits.getAbsolutePath(), jar.getAbsolutePath(), wav.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--compare_kits")) label = q.label;
+    this.out.append(said).append("\nParams: ").append(label).append('\n');
+    boolean ok = said.contains("labels ['no profile', \"reference (DrumGizmo kits' average)\", 'Riot_Drums']")
+        && said.contains("without own ['reference (DrumGizmo kits' average)', 'New_Kit', 'Riot_Drums']".replace("['reference (DrumGizmo kits' average)'", "[\"reference (DrumGizmo kits' average)\""))
+        && said.contains("reference notes") && said.contains("Kit profiles compared")
+        && said.contains("  own: Kick 4/4 P100 R100  Toms 1/2 P100 R 50 | right: Closed HH 75%, Open HH -, Ride -, Crash -")
+        && said.contains("  no profile: Kick 2/4 P100 R 50 | right: Closed HH 75%")
+        && label.startsWith("Compare kit profiles in the test");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   void s185_drummidi_cymbal_kit() throws Exception {
     File dir = new File(System.getProperty("user.home"), "cymbal-kit");
     dir.mkdirs();

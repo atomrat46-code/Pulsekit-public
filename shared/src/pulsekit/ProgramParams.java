@@ -758,6 +758,8 @@ public final class ProgramParams {
       p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
+    } else if (p.token.equals("--compare_kits")) {
+      p.label = "Compare kit profiles in the test: DrumMidi again with none, Pulsekit's reference and each earlier kit's vst-kit-*.kit (slower)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
       p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
