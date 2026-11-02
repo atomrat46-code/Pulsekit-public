@@ -48,6 +48,21 @@ public final class MediaTags {
     }
   }
 
+  /**
+   * The tags of a media-tags.txt (an imported DB's) added to those kept in `folder`: its tags made so
+   * far, and a file's category and tags where this app has none for it.
+   */
+  public static synchronized void merge(File folder, String text) {
+    dir = null;
+    load(folder);
+    for (String line : text.split("\n")) {
+      String[] p = line.replace("\r", "").split("\t", -1);
+      if (p.length >= 2 && p[0].equals("T")) addKnownTag(p[1]);
+      else if (p.length >= 4 && p[0].equals("F") && !FILES.containsKey(p[1])) FILES.put(p[1], new String[] {p[2], p[3]});
+    }
+    save();
+  }
+
   /** Forgets what was read (the tests start again with another folder). */
   public static synchronized void reset() {
     dir = null;

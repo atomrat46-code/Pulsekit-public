@@ -1775,9 +1775,10 @@ final class PromptDb {
             PromptDb.this.captureFrame(name, video, player);
             final File shot = PromptDb.this.lastCapture;
             if (shot == null) return;
+            final Runnable back = browserBack(video);
             java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
             if (w != null) w.dispose();
-            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
         });
         m.add(process);
         // The video among the favourites, or in a group.
@@ -1819,6 +1820,13 @@ final class PromptDb {
     /** C: the frame shown (paused) saved as a PNG in the SC folder beside the video (made when it is not there). */
     /** The tests' answer to C's Process as a Sogni reference question ("Yes", "No"; null asks). */
     static java.util.function.Function<String, String> processAnswer;
+
+    /** The video's folder in the Media browser again (Return in PyJav), when it was opened from there; else null. */
+    Runnable browserBack(File video) {
+        if (app.mediaBrowser == null || app.mediaBrowser.last == null || !app.mediaBrowser.last.isShowing()) return null;
+        final File folder = video.getAbsoluteFile().getParentFile();
+        return () -> app.mediaBrowser.open(folder);
+    }
 
     void captureFrame(String name, File video, VlcPlayer player) {
         java.awt.image.BufferedImage img = player.screen.frame;
@@ -1906,9 +1914,10 @@ final class PromptDb {
                     : javax.swing.JOptionPane.showConfirmDialog(capture, shot.getName() + " needs no upscaling. Process it as a reference of a Sogni program\n"
                         + "(the program and prompt, then Reference file 1 or 2)?", MediaDir.PROCESS_REF, javax.swing.JOptionPane.YES_NO_OPTION);
                 if (ans == javax.swing.JOptionPane.YES_OPTION) {
+                    final Runnable back = browserBack(video);
                     java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
                     if (w != null) w.dispose();
-                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot));
+                    SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
                 }
             }
         });
@@ -2268,6 +2277,9 @@ final class PromptDb {
         // A picture opens at the zoom the last one had.
         if (kind == 2) loadPromptVideo();
         final float[] zoom = new float[] {kind == 2 ? (float) PromptVideo.imageZoom : 1f};
+        final CropBox[] cropBox = new CropBox[1];
+        // The picture's folder (opened from the Media browser): Save crop saves there.
+        final File folder = this.previewFolder;
         final javax.swing.JComponent view;
         final Runnable apply;
         if (kind == 1) {
@@ -2298,7 +2310,56 @@ final class PromptDb {
             }
             final java.awt.image.BufferedImage picture = img;
             final double fit = Math.min(1.0, Math.min(760.0 / img.getWidth(), 520.0 / img.getHeight()));
-            JLabel label = new JLabel();
+            // Crop: a box over the picture (CropBox), drawn on it, its corners dragged with the mouse.
+            final JLabel label = new JLabel() {
+                @Override
+                protected void paintComponent(java.awt.Graphics g) {
+                    super.paintComponent(g);
+                    CropBox b = cropBox[0];
+                    java.awt.Rectangle r = iconRect(this);
+                    if (b == null || r == null) return;
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    int l = r.x + (int) Math.round(b.left * r.width), t = r.y + (int) Math.round(b.top * r.height);
+                    int rr = r.x + (int) Math.round(b.right * r.width), bb = r.y + (int) Math.round(b.bottom * r.height);
+                    g2.setColor(new java.awt.Color(0, 0, 0, 150));
+                    g2.fillRect(r.x, r.y, r.width, t - r.y);
+                    g2.fillRect(r.x, bb, r.width, r.y + r.height - bb);
+                    g2.fillRect(r.x, t, l - r.x, bb - t);
+                    g2.fillRect(rr, t, r.x + r.width - rr, bb - t);
+                    g2.setColor(java.awt.Color.WHITE);
+                    g2.setStroke(new java.awt.BasicStroke(2f));
+                    g2.drawRect(l, t, rr - l, bb - t);
+                    for (int[] k : new int[][] {{l, t}, {rr, t}, {rr, bb}, {l, bb}}) g2.fillRect(k[0] - 6, k[1] - 6, 12, 12);
+                    g2.dispose();
+                }
+            };
+            java.awt.event.MouseAdapter cropMouse = new java.awt.event.MouseAdapter() {
+                double[] at(java.awt.event.MouseEvent e) {
+                    java.awt.Rectangle r = iconRect(label);
+                    return r == null ? null : new double[] {(e.getX() - r.x) / (double) r.width, (e.getY() - r.y) / (double) r.height, 14.0 / Math.min(r.width, r.height)};
+                }
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    double[] a = cropBox[0] == null ? null : at(e);
+                    if (a != null) cropBox[0].press(a[0], a[1], a[2]);
+                }
+
+                @Override
+                public void mouseDragged(java.awt.event.MouseEvent e) {
+                    double[] a = cropBox[0] == null ? null : at(e);
+                    if (a == null) return;
+                    cropBox[0].drag(a[0], a[1]);
+                    label.repaint();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    if (cropBox[0] != null) cropBox[0].release();
+                }
+            };
+            label.addMouseListener(cropMouse);
+            label.addMouseMotionListener(cropMouse);
             label.setName("preview-image");
             view = label;
             apply = () -> {
@@ -2371,6 +2432,59 @@ final class PromptDb {
         }
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        if (kind == 2) {
+            // Crop, then Save crop (held: then ImageUpscaler with it); the cross leaves it.
+            final JButton crop = new JButton(CropBox.CROP);
+            crop.setName("preview-crop");
+            final JButton noCrop = new JButton("\u2715");
+            noCrop.setName("preview-crop-off");
+            noCrop.setToolTipText("No crop");
+            noCrop.setVisible(false);
+            final boolean[] heldDone = new boolean[1];
+            final javax.swing.Timer[] hold = new javax.swing.Timer[1];
+            crop.addActionListener(e -> {
+                if (heldDone[0]) {
+                    heldDone[0] = false;
+                    return;
+                }
+                if (cropBox[0] == null) {
+                    set.accept(1f);
+                    cropBox[0] = new CropBox();
+                    crop.setText(CropBox.SAVE);
+                    crop.setToolTipText(CropBox.HINT);
+                    noCrop.setVisible(true);
+                    app.setNow(CropBox.HINT);
+                    view.repaint();
+                } else {
+                    this.saveCrop(name, bytes, cropBox[0], folder, false, dialog);
+                }
+            });
+            crop.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (cropBox[0] == null || !SwingUtilities.isLeftMouseButton(e)) return;
+                    hold[0] = new javax.swing.Timer(600, ev -> {
+                        heldDone[0] = true;
+                        PromptDb.this.saveCrop(name, bytes, cropBox[0], folder, true, dialog);
+                    });
+                    hold[0].setRepeats(false);
+                    hold[0].start();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    if (hold[0] != null) hold[0].stop();
+                }
+            });
+            noCrop.addActionListener(e -> {
+                cropBox[0] = null;
+                crop.setText(CropBox.CROP);
+                noCrop.setVisible(false);
+                view.repaint();
+            });
+            top.add(crop);
+            top.add(noCrop);
+        }
         body.add(top, BorderLayout.NORTH);
         JScrollPane scroll = new JScrollPane(view);
         scroll.setPreferredSize(new Dimension(800, 560));
@@ -2385,6 +2499,65 @@ final class PromptDb {
         dialog.setLocationRelativeTo(app);
         this.lastPreview = dialog;
         dialog.setVisible(true);
+    }
+
+    /** The folder of the picture the Preview window shows next (the Media browser sets it): Save crop saves there. */
+    File previewFolder;
+    /** The last crop saved (where), for the tests. */
+    File lastCrop;
+
+    /** Where a JLabel draws its icon (centred): null without one. */
+    static java.awt.Rectangle iconRect(JLabel label) {
+        javax.swing.Icon icon = label.getIcon();
+        if (icon == null || icon.getIconWidth() <= 0) return null;
+        return new java.awt.Rectangle((label.getWidth() - icon.getIconWidth()) / 2, (label.getHeight() - icon.getIconHeight()) / 2, icon.getIconWidth(), icon.getIconHeight());
+    }
+
+    /**
+     * Save crop: the box cut from the picture at its full size into <name>-crop.png in `folder` (the
+     * Media browser's), or into the prompt library as a reference file; with `upscale` (held), then
+     * ImageUpscaler with it, Return opening the Media browser again.
+     */
+    void saveCrop(String name, byte[] bytes, CropBox box, File folder, boolean upscale, JDialog viewer) {
+        String crop = CropBox.name(name);
+        File saved;
+        try {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            int[] p = box.pixels(img.getWidth(), img.getHeight());
+            java.awt.image.BufferedImage cut = new java.awt.image.BufferedImage(p[2], p[3], java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g = cut.createGraphics();
+            g.drawImage(img.getSubimage(p[0], p[1], p[2], p[3]), 0, 0, null);
+            g.dispose();
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(cut, "png", png);
+            if (folder != null && folder.isDirectory()) {
+                saved = new File(folder, crop);
+                for (int i = 1; saved.exists(); i++) saved = new File(folder, crop.replace(".png", " (" + i + ").png"));
+                Files.write(saved.toPath(), png.toByteArray());
+                app.setNow("Saved the crop (" + p[2] + " x " + p[3] + ") as " + saved.getPath());
+            } else {
+                vault().addLibraryFile(crop, png.toByteArray(), "Cropped", 1);
+                File in = new File(dir(), "pyjav-in");
+                in.mkdirs();
+                saved = new File(in, crop);
+                Files.write(saved.toPath(), png.toByteArray());
+                app.setNow("Saved the crop (" + p[2] + " x " + p[3] + ") in the DB as a reference file: " + crop);
+            }
+            this.lastCrop = saved;
+        } catch (Exception ex) {
+            app.setNow("Could not crop " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return;
+        }
+        boolean browsing = folder != null && app.mediaBrowser != null && app.mediaBrowser.last != null && app.mediaBrowser.last.isShowing();
+        if (!upscale) return;
+        final Runnable back = browsing ? () -> app.mediaBrowser.open(folder) : null;
+        if (viewer != null) viewer.dispose();
+        if (app.mediaBrowser != null && app.mediaBrowser.last != null) app.mediaBrowser.last.dispose();
+        app.showView("py");
+        app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+        app.pyJav.setInputFile(saved);
+        if (back != null) app.pyJav.setReturn(back);
+        SwingUtilities.invokeLater(() -> app.pyJav.openParams());
     }
 
     /** A sound (WAV, MP3) or a MIDI with the kit's sounds: Play / Stop and Close. Other sound files open in the system player. */

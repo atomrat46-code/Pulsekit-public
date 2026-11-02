@@ -56,6 +56,30 @@ public final class FileGroups {
     if (!GROUPS.containsKey(shown)) shown = "";
   }
 
+  /**
+   * The groups of a file-groups.txt (an imported DB's) added to those kept in `folder`: a group not
+   * here comes in whole, one here gets the files it lacks.
+   */
+  public static synchronized void merge(File folder, String text) {
+    dir = null;
+    load(folder);
+    List<String> at = null;
+    for (String line : text.split("\n")) {
+      String[] p = line.replace("\r", "").split("\t", 2);
+      if (p.length < 2) continue;
+      if (p[0].equals("G")) {
+        at = GROUPS.get(p[1]);
+        if (at == null) {
+          at = new ArrayList<String>();
+          GROUPS.put(p[1], at);
+        }
+      } else if (p[0].equals("F") && at != null && !at.contains(p[1])) {
+        at.add(p[1]);
+      }
+    }
+    save();
+  }
+
   /** Forgets what was read (the tests start again with another folder). */
   public static synchronized void reset() {
     dir = null;

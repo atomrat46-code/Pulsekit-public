@@ -1004,7 +1004,8 @@ final class MediaBrowser {
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(items[i]);
             item.setName("media-menu:" + (slot >= 0 ? String.valueOf(slot) : items[i]));
             if (MediaDir.PROCESS_REF.equals(items[i])) {
-                item.addActionListener(e -> ProcessRefDialog.open(app, f));
+                final File backRoot = this.shownRoot, backDir = this.shown;
+                item.addActionListener(e -> ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir)));
                 menu.add(item);
                 continue;
             }
@@ -1502,7 +1503,13 @@ final class MediaBrowser {
                 app.promptDb.videoFile(entry.name, f, MediaDir.loopVideos, true);
                 return;
             }
-            app.promptDb.preview(entry.name, Files.readAllBytes(f.toPath()));
+            // A picture's folder: its Crop saves there.
+            app.promptDb.previewFolder = f.getAbsoluteFile().getParentFile();
+            try {
+                app.promptDb.preview(entry.name, Files.readAllBytes(f.toPath()));
+            } finally {
+                app.promptDb.previewFolder = null;
+            }
         } catch (Exception ex) {
             app.setNow("Could not open " + entry.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
         }

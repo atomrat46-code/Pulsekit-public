@@ -337,7 +337,7 @@ public final class JavaRun {
   public static long maxFileBytes(String name) {
     String low = name == null ? "" : name.toLowerCase();
     // Audio, pictures and video a program made (SogniMusic's track, SogniChat's tool results).
-    if (low.matches(".*\\.(mp3|wav|wave|flac|m4a|ogg|aac|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) return 50000000L;
+    if (low.matches(".*\\.(mp3|wav|wave|flac|m4a|ogg|aac|png|jpe?g|webp|gif|mp4|webm|mov|glb|zip)$")) return 50000000L;
     return 3000000L;
   }
 

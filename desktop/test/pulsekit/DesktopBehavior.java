@@ -8760,6 +8760,36 @@ public final class DesktopBehavior {
     }
   }
   /**
+   * Crop in the Preview window: Save crop cuts the box from the picture at its full size into
+   * <name>-crop.png in its folder (the Media browser's); held, then ImageUpscaler with it.
+   */
+  void s182_preview_crop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File folder = new File(home, "crop-pics");
+    folder.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    final byte[] bytes = png.toByteArray();
+    Files.write(new File(folder, "a.png").toPath(), bytes);
+    PromptDb db = (PromptDb) get("promptDb");
+    final CropBox box = new CropBox();
+    edt(() -> db.saveCrop("a.png", bytes, box, folder, false, null));
+    File made = new File(folder, "a-crop.png");
+    java.awt.image.BufferedImage back = made.isFile() ? javax.imageio.ImageIO.read(made) : null;
+    out.append("Save crop: ").append(back == null ? "none" : made.getName() + " " + back.getWidth() + " x " + back.getHeight()).append(" | ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    if (back == null || back.getWidth() != 32 || back.getHeight() != 24) throw new AssertionError(out.toString());
+    // Held: saved again (a-crop (1).png), then ImageUpscaler with it.
+    edt(() -> db.saveCrop("a.png", bytes, box, folder, true, null));
+    Thread.sleep(300);
+    out.append("held: ").append(db.lastCrop == null ? "none" : db.lastCrop.getName()).append(", program ").append(get("pyName")).append('\n');
+    if (db.lastCrop == null || !db.lastCrop.getName().equals("a-crop (1).png") || !"ImageUpscaler.java".equals(String.valueOf(get("pyName")))) throw new AssertionError(out.toString());
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing()) w.dispose();
+    });
+  }
+
+  /**
    * SogniMusic --random 6 --model turbo,sft: 12 runs on a fake Sogni that turns away an 11th active
    * workflow (409, as Sogni does): at most 10 go on at once, each next one starts when one is over,
    * and all 12 tracks are made.
@@ -9942,7 +9972,7 @@ public final class DesktopBehavior {
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     edt(() -> log.setText(""));
-    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3 --zip"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
@@ -9961,6 +9991,19 @@ public final class DesktopBehavior {
     int grooves = 0;
     for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;
     if (grooves != 3 || list.contains("\thouse\t")) throw new AssertionError(out.toString());
+    // --zip: the grooves and batch.txt in gen3.zip beside them (taken away again: CompareHits reads the folder).
+    File zipped = new File(dir, "gen3.zip");
+    int inZip = 0;
+    if (zipped.isFile()) {
+      try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zipped)) {
+        inZip = zf.size();
+      }
+    }
+    out.append("gen3.zip: ").append(inZip).append(" files\n");
+    if (inZip != 4) throw new AssertionError(out.toString());
+    zipped.delete();
+    names = dir.list();
+    java.util.Arrays.sort(names);
     // vst_render.py --dir --test leaves <groove>-<plugin>-dm.mid beside each render.
     for (String n : names) {
       if (n.endsWith(".mid")) Files.copy(new File(dir, n).toPath(), new File(dir, n.replace(".mid", "-Kit-dm.mid")).toPath());

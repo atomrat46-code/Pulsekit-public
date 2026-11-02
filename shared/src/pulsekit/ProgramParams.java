@@ -593,6 +593,11 @@ public final class ProgramParams {
     } else if (p.token.equals("--styles")) {
       p.label = "Batch styles (comma list)";
       p.hint = "empty: every style; e.g. rock,funk,metal";
+    } else if (p.token.equals("--zip")) {
+      p.label = "Batch: the MIDI files and batch.txt in a zip too";
+    } else if (p.token.equals("--zip_mb")) {
+      p.label = "Batch: zips of at most this many MB each";
+      p.hint = "empty: one zip; e.g. 1 makes part1of3, part2of3...";
     }
   }
 

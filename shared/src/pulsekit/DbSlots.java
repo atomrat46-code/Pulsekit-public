@@ -138,6 +138,11 @@ public final class DbSlots {
       String name = active(dir);
       String info = "name=" + name + "\nmade=" + System.currentTimeMillis() + "\ncontents=" + copy.summary() + "\n";
       Files.write(new File(inside, INFO).toPath(), info.getBytes(StandardCharsets.UTF_8));
+      // The groups and tags of files (kept beside the DB, gone with an uninstall): they go with it.
+      for (String x : EXTRAS) {
+        File f = new File(dir, x);
+        if (f.isFile()) Files.copy(f.toPath(), new File(inside, x).toPath());
+      }
       WorkProgress.at("Zipping with the password", bytesIn(inside));
       ZipPack.write(zip, ZipPack.folder(inside), password);
       return "Sent the DB " + name + " (" + copy.summary() + ", " + Playlist.sizeText(zip.length()) + ") to " + zip.getName() + ", with a password";
@@ -175,6 +180,25 @@ public final class DbSlots {
     public String name = "";
     /** It is encrypted with another computer's key (asked for, then made unencrypted). */
     public boolean needsKey;
+    /** The groups and tags of files that came with it (EXTRAS: name, its text), merged in when it is placed. */
+    public java.util.Map<String, byte[]> extras = new java.util.LinkedHashMap<String, byte[]>();
+  }
+
+  /** Kept beside the DB and sent with it: the groups (Add to group) and the tags of files (Tags…). */
+  static final String[] EXTRAS = {FileGroups.FILE, MediaTags.FILE};
+
+  static boolean extra(String name) {
+    for (String x : EXTRAS) if (x.equals(name)) return true;
+    return false;
+  }
+
+  /** The groups and tags that came with an imported DB, added to this app's (what it has stays). */
+  static void mergeExtras(File dir, Unpacked u) {
+    if (u.extras.isEmpty()) return;
+    byte[] g = u.extras.get(FileGroups.FILE);
+    if (g != null) FileGroups.merge(dir, new String(g, StandardCharsets.UTF_8));
+    byte[] t = u.extras.get(MediaTags.FILE);
+    if (t != null) MediaTags.merge(dir, new String(t, StandardCharsets.UTF_8));
   }
 
   /** The DB files of the zip (wherever in it) into `tmp`/db-import; throws when it holds no Pulsekit DB. */
@@ -191,6 +215,13 @@ public final class DbSlots {
     if (bytes > 0) WorkProgress.at("Unpacking the DB", bytes);
     for (ZipPack.Entry e : ZipPack.files(entries)) {
       String n = e.fileName();
+      if (extra(n)) {
+        File x = new File(tmp, "db-import-" + n);
+        ZipPack.extract(zip, e, password, x);
+        u.extras.put(n, Files.readAllBytes(x.toPath()));
+        x.delete();
+        continue;
+      }
       if (!PromptVault.isDbFile(n) && !INFO.equals(n)) continue;
       ZipPack.extract(zip, e, password, new File(work, n));
     }
@@ -213,6 +244,8 @@ public final class DbSlots {
           ZipPack.extract(zip, e, password, inner);
           Unpacked in = unpack(inner, zipName, password, tmp);
           if (in.name.equals(u.name)) in.name = u.name.replaceFirst("^pulsekit-", "");
+          // A backup's groups and tags are beside its DB zip (its settings).
+          for (java.util.Map.Entry<String, byte[]> x : u.extras.entrySet()) if (!in.extras.containsKey(x.getKey())) in.extras.put(x.getKey(), x.getValue());
           return in;
         } finally {
           inner.delete();
@@ -272,6 +305,7 @@ public final class DbSlots {
     File home = new File(new File(dir, FOLDER), n);
     move(u.folder, home);
     if (encrypt) encryptAt(dir, n);
+    mergeExtras(dir, u);
     return n;
   }
 
@@ -308,6 +342,7 @@ public final class DbSlots {
     use(dir, MAIN);
     if (encrypt) PromptVault.setEncrypted(dir, true);
     PromptVault.forget();
+    mergeExtras(dir, u);
     return kept;
   }
 

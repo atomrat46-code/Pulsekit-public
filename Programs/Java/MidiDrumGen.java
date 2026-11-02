@@ -29,6 +29,8 @@ import java.util.*;
  * gen-001-funk-104bpm.mid..., with batch.txt listing each file's settings. --seed N makes the same
  * batch again (default: from the clock, printed). vst_render.py --dir <folder> --test renders and
  * scores them; CompareHits --batch <folder> then sums its results per style.
+ * --zip: the batch's MIDI files and batch.txt also in a zip beside them (<folder>.zip); --zip_mb N
+ * (--zip implied) in zips of at most N MB each, <folder>-part1of3.zip and so on.
  *
  * --towav: PyJav then plays the MIDI into a WAV with Midi2Wav (Pulsekit's kit).
  * --test: PyJav then runs Midi2Wav's test on it: the WAV, DrumMidi_CRT on the WAV, and CompareHits
@@ -40,7 +42,7 @@ public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
             + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] [--vst] "
-            + "[--count N] [--outdir <folder>] [--seed N] [--styles rock,funk,...]";
+            + "[--count N] [--outdir <folder>] [--seed N] [--styles rock,funk,...] [--zip] [--zip_mb N]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
@@ -939,6 +941,8 @@ public class MidiDrumGen {
         String output = "drum_track_full_db.mid";
         int count = 0;
         String outdir = null;
+        boolean zip = false;
+        double zipMb = 0;
         Long seed = null;
         String styles = null;
         boolean styleGiven = false, tempoGiven = false, swingGiven = false, intensityGiven = false, hatsGiven = false, humanizeGiven = false;
@@ -965,6 +969,8 @@ public class MidiDrumGen {
                 case "--outdir": outdir = args[++i]; break;
                 case "--seed": seed = Long.parseLong(args[++i].trim()); break;
                 case "--styles": styles = args[++i]; break;
+                case "--zip": zip = true; break;
+                case "--zip_mb": zipMb = Double.parseDouble(args[++i].trim()); zip = true; break;
                 case "--any-tempo": anyTempo = true; break;
                 case "--saveprompt": savePrompt = true; break;
                 // PyJav's, after the run (Midi2Wav, its test): nothing for the program to do.
@@ -994,7 +1000,7 @@ public class MidiDrumGen {
             batch(count, outdir, seed, styles, styleGiven ? style : null, tempoGiven ? tempo : null, bars, swingGiven ? swing : null,
                     intensityGiven ? intensity : null, hatsGiven ? hats : null, humanizeGiven ? Integer.valueOf(humanize) : null,
                     fillsGiven ? Boolean.valueOf(fills) : null, crashesGiven ? Boolean.valueOf(crashes) : null,
-                    halfTimeGiven ? Boolean.valueOf(halfTime) : null, anyTempo, tsGiven ? new int[] {tsNum, tsDen} : null);
+                    halfTimeGiven ? Boolean.valueOf(halfTime) : null, anyTempo, tsGiven ? new int[] {tsNum, tsDen} : null, zip, zipMb);
             return;
         }
         generate(style, tempo, bars, swing, intensity, hats, humanize, fills, crashes, halfTime, anyTempo, savePrompt, tsNum, tsDen, tsGiven, output, true);
@@ -1027,6 +1033,12 @@ public class MidiDrumGen {
 
     static void batch(int count, String outdir, Long seedGiven, String styles, String style, Integer tempo, Integer bars, Double swing,
             Integer intensity, String hats, Integer humanize, Boolean fills, Boolean crashes, Boolean halfTime, boolean anyTempo, int[] ts) {
+        batch(count, outdir, seedGiven, styles, style, tempo, bars, swing, intensity, hats, humanize, fills, crashes, halfTime, anyTempo, ts, false, 0);
+    }
+
+    static void batch(int count, String outdir, Long seedGiven, String styles, String style, Integer tempo, Integer bars, Double swing,
+            Integer intensity, String hats, Integer humanize, Boolean fills, Boolean crashes, Boolean halfTime, boolean anyTempo, int[] ts,
+            boolean zip, double zipMb) {
         if (count > 1000) {
             System.out.println("Failed: --count is at most 1000");
             return;
@@ -1092,6 +1104,7 @@ public class MidiDrumGen {
         if (header == null) list.append(join(mine)).append('\n');
         else System.out.println("Adding to " + listFile.getName() + " (" + rows + " files listed there already)");
         int made = 0;
+        List<File> written = new ArrayList<File>();
         for (int i = rows + 1; i <= rows + count; i++) {
             String id = pool.get(rnd.nextInt(pool.size()));
             DefaultArgs d = DEFAULTS.get(id);
@@ -1129,6 +1142,7 @@ public class MidiDrumGen {
                 continue;
             }
             made++;
+            written.add(new File(dir, name));
             String row = String.format(Locale.US, "%s\t%s\t%s\t%d\t%d/%d\t%d\t%.2f\t%d\t%s\t%d\t%s\t%s\t%s", name, id, resolveStyle(id), fTempo, tsNum, tsDen,
                     fBars, fSwing, fIntensity, fHats.equals("auto") ? d.hats : fHats, fHumanize, fFills ? "on" : "off", fCrashes ? "on" : "off", fHalf ? "on" : "off");
             list.append(header == null ? row : reorder(row.split("\t", -1), mine, header)).append('\n');
@@ -1144,8 +1158,55 @@ public class MidiDrumGen {
         } catch (java.io.IOException ex) {
             System.out.println("Could not write " + listFile.getName());
         }
+        if (zip && !written.isEmpty()) {
+            written.add(listFile);
+            zipBatch(written, dir, prefix + new File(folderName).getName(), zipMb);
+        }
         System.out.println("Next: vst_render.py --dir \"" + dir.getPath() + "\" --plugin <plugin> --test, then CompareHits --batch \"" + dir.getPath() + "\"");
         System.out.println(made == count ? "Succeeded: " + made + " grooves" : "Failed: " + made + " of " + count + " grooves written");
+    }
+
+    /**
+     * --zip: the files into `<base>.zip` in `dir`; with `mb` over 0, into zips of at most that many MB
+     * each (`<base>-part1of3.zip`...), a file never split (one larger than that is a zip alone).
+     */
+    static List<File> zipBatch(List<File> files, File dir, String base, double mb) {
+        long limit = mb > 0 ? (long) (mb * 1024 * 1024) : Long.MAX_VALUE;
+        List<List<File>> parts = new ArrayList<List<File>>();
+        List<File> now = new ArrayList<File>();
+        long size = 0;
+        for (File f : files) {
+            if (!f.isFile()) continue;
+            if (!now.isEmpty() && size + f.length() > limit) {
+                parts.add(now);
+                now = new ArrayList<File>();
+                size = 0;
+            }
+            now.add(f);
+            size += f.length();
+        }
+        if (!now.isEmpty()) parts.add(now);
+        List<File> zips = new ArrayList<File>();
+        for (int k = 0; k < parts.size(); k++) {
+            File z = new File(dir, base + (parts.size() > 1 ? "-part" + (k + 1) + "of" + parts.size() : "") + ".zip");
+            try {
+                java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(z));
+                try {
+                    for (File f : parts.get(k)) {
+                        zos.putNextEntry(new java.util.zip.ZipEntry(f.getName()));
+                        zos.write(java.nio.file.Files.readAllBytes(f.toPath()));
+                        zos.closeEntry();
+                    }
+                } finally {
+                    zos.close();
+                }
+                zips.add(z);
+                System.out.println(String.format(Locale.US, "Wrote %s: %d file%s, %.1f KB", z.getName(), parts.get(k).size(), parts.get(k).size() == 1 ? "" : "s", z.length() / 1024.0));
+            } catch (java.io.IOException ex) {
+                System.out.println("Could not write " + z.getName() + " (" + ex.getMessage() + ")");
+            }
+        }
+        return zips;
     }
 
     /**

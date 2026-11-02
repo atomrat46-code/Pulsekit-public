@@ -9808,6 +9808,11 @@ public class BehaviorTest {
     GeneralSettings.last.dismiss();
     out.append("Database settings: parts ").append(parts).append(", not in General settings ").append(movedOut).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
     boolean dialogOk = parts && movedOut && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)") && sizes.contains("All DBs: ");
+    // The groups and tags of files go with the DB (an uninstall deletes them with the app's folder).
+    Files.write(new File(dir, "file-groups.txt").toPath(), "G\tTrip\nF\tdb:3:42\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "media-tags.txt").toPath(), "T\tbeach\nF\tbeach.png|5\tWalks\tbeach\n".getBytes(StandardCharsets.UTF_8));
+    FileGroups.reset();
+    MediaTags.reset();
     // Send db to zip: a short password is refused; then into a file.
     dv.findViewWithTag("db-send-zip").performClick();
     idle();
@@ -9830,6 +9835,13 @@ public class BehaviorTest {
     java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
     out.append("short password: ").append(shortSaid).append(" | ").append(sent).append(" | encrypted ").append(ZipPack.encrypted(es)).append('\n');
     boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(es);
+    boolean extrasSent = false;
+    for (ZipPack.Entry e : es) if (e.fileName().equals("file-groups.txt")) extrasSent = true;
+    // As after an uninstall: no groups or tags, until the DB comes back.
+    new File(dir, "file-groups.txt").delete();
+    new File(dir, "media-tags.txt").delete();
+    FileGroups.reset();
+    MediaTags.reset();
     // Import db zip: the DB in use is not empty, so: as a new secondary DB (first).
     File copy = new File(app.getCacheDir(), "in/pulsekit-db-Main.zip");
     copy.getParentFile().mkdirs();
@@ -9851,6 +9863,11 @@ public class BehaviorTest {
     }
     String asSecondary = DbSettings.lastSaid;
     String names = DbSlots.names(dir).toString();
+    File gf = new File(dir, "file-groups.txt"), tf = new File(dir, "media-tags.txt");
+    String groupsBack = gf.isFile() ? new String(Files.readAllBytes(gf.toPath()), StandardCharsets.UTF_8) : "";
+    String tagsBack = tf.isFile() ? new String(Files.readAllBytes(tf.toPath()), StandardCharsets.UTF_8) : "";
+    out.append("groups and tags with the DB: sent ").append(extrasSent).append(" | back ").append(groupsBack.replace('\n', ' ')).append(" | ").append(tagsBack.replace('\n', ' ')).append('\n');
+    boolean extrasOk = extrasSent && groupsBack.contains("G\tTrip\nF\tdb:3:42") && tagsBack.contains("T\tbeach") && tagsBack.contains("F\tbeach.png|5\tWalks\tbeach");
     DbSettings.use(app, "Pulse");
     idle();
     String inUse = DbSlots.active(dir) + ": " + PromptVault.open(dir).summary() + ", encrypted " + PromptVault.encrypted(dir);
@@ -9922,7 +9939,7 @@ public class BehaviorTest {
     boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && PromptVault.openAt(DbSlots.homeOf(dir, "Laptop")).summary().startsWith("1 prompt");
     if (DbSettings.last != null) DbSettings.last.dismiss();
     write("s163_db_settings_export_import", out.toString());
-    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
+    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !extrasOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
   }
 
   /**
@@ -11794,6 +11811,120 @@ public class BehaviorTest {
   }
 
   /** SogniMusic --random with two models: the tracks' MIDIs make one file set a model ("SogniMusic run 1 sft"), not one a track. */
+  /**
+   * C on a video, then Process as a reference: Open closes the video and the Media browser, the
+   * program's Params opens with the picture, and Return opens the browser again. The browser keeps
+   * where its page was scrolled to.
+   */
+  @Test
+  public void s193_media_process_ref_to_front() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "clips-ref");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniVideo.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", pedit, null);
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    b.askProcessRef("walk-0m01s000.png", png.toByteArray(), v.dialog);
+    idle();
+    MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    ProcessRefDialog r = ProcessRefDialog.last;
+    r.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    View ret = app.pyPane.findViewWithTag("pyjav-return");
+    android.app.Dialog top = ShadowDialog.getLatestDialog();
+    String topTitle = top == null ? "" : String.valueOf(org.robolectric.Shadows.shadowOf(top).getTitle());
+    out.append("Open: video ").append(v.dialog.isShowing() ? "open" : "closed").append(", browser ").append(b.dialog.isShowing() ? "open" : "closed")
+        .append(", program ").append(app.pyName).append(", on top ").append(topTitle).append(" (showing ").append(top != null && top.isShowing()).append(")")
+        .append(", Return ").append(ret != null && ret.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    boolean frontOk = !v.dialog.isShowing() && !b.dialog.isShowing() && "SogniVideo.java".equals(app.pyName) && top != null && top.isShowing()
+        && topTitle.contains("SogniVideo") && ret != null && ret.getVisibility() == View.VISIBLE;
+    if (top != null) top.dismiss();
+    idle();
+    ret.performClick();
+    idle();
+    boolean backOk = MediaBrowser.last != null && MediaBrowser.last.dialog.isShowing() && MediaBrowser.last.folderKey().equals(b.folderKey());
+    out.append("Return: browser ").append(backOk ? "open on the same folder" : "not open").append('\n');
+    // Scrolled in the page, closed: the place is kept.
+    MediaBrowser again = MediaBrowser.last;
+    again.scroll.scrollTo(0, 0);
+    MediaDir.place(again.scrollKey(), 0);
+    again.loading = false;
+    java.lang.reflect.Field sy = View.class.getDeclaredField("mScrollY");
+    sy.setAccessible(true);
+    sy.setInt(again.scroll, 123);
+    again.dialog.dismiss();
+    idle();
+    int kept = MediaDir.place(again.scrollKey());
+    out.append("scrolled to 123 and closed: kept ").append(kept).append('\n');
+    write("s193_media_process_ref_to_front", out.toString());
+    if (!frontOk || !backOk || kept != 123) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Crop in the Media browser's picture viewer: Crop shows the box, Save crop cuts it from the
+   * picture at its full size into <name>-crop.png in the folder. CropBox: a corner dragged sizes
+   * the box, the inside moves it, kept in the picture.
+   */
+  @Test
+  public void s194_media_picture_crop() throws Exception {
+    StringBuilder out = new StringBuilder();
+    CropBox c = new CropBox();
+    c.press(0.1, 0.1, 0.05);
+    c.drag(0.3, 0.2);
+    c.release();
+    int held = c.press(0.5, 0.5, 0.05);
+    c.drag(0.6, 0.5);
+    c.drag(1.5, 0.5);
+    out.append("box: ").append(String.format(java.util.Locale.ROOT, "%.2f %.2f %.2f %.2f, held %d", c.left, c.top, c.right, c.bottom, held)).append(", name ").append(CropBox.name("dir/beach.jpg")).append('\n');
+    boolean boxOk = Math.abs(c.left - 0.4) < 1e-9 && Math.abs(c.right - 1.0) < 1e-9 && Math.abs(c.top - 0.2) < 1e-9 && held == 4 && CropBox.name("dir/beach.jpg").equals("beach-crop.png");
+    File media = new File(app.getCacheDir(), "crop-pics");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(new File(media, "a.png"));
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:a.png").performClick();
+    android.app.Dialog viewer = ShadowDialog.getLatestDialog();
+    View vv = viewer.getWindow().getDecorView();
+    android.widget.ImageView full = (android.widget.ImageView) vv.findViewWithTag("media-full");
+    for (int i = 0; i < 100 && full.getDrawable() == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    TextView crop = (TextView) vv.findViewWithTag("media-full-crop");
+    crop.performClick();
+    idle();
+    out.append("Crop: button ").append(crop.getText()).append(", box ").append(vv.findViewWithTag("media-full-crop-box").getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    boolean shownOk = CropBox.SAVE.equals(crop.getText().toString()) && vv.findViewWithTag("media-full-crop-box").getVisibility() == View.VISIBLE;
+    MediaBrowser.lastCrop = null;
+    crop.performClick();
+    File made = new File(media, "a-crop.png");
+    for (int i = 0; i < 200 && !made.isFile(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    if (made.isFile()) android.graphics.BitmapFactory.decodeFile(made.getAbsolutePath(), o);
+    out.append("Save crop: ").append(made.isFile() ? made.getName() + " " + o.outWidth + " x " + o.outHeight : "none").append(" | ").append(((TextView) get("now")).getText()).append('\n');
+    boolean savedOk = made.isFile() && o.outWidth == 32 && o.outHeight == 24;
+    viewer.dismiss();
+    b.dialog.dismiss();
+    write("s194_media_picture_crop", out.toString());
+    if (!boxOk || !shownOk || !savedOk) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
     String[] styles = {"rock", "funk", "house"};
