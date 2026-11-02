@@ -2817,6 +2817,8 @@ final class PyJav {
                         JButton editSettings = new JButton("Edit settings");
                         editSettings.setName("params-plugin-edit:" + p.token);
                         editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
+                        // Stop timer: pressed when the kit has loaded (its load time is how long a test waits for it).
+                        final JButton stopTimer = PluginsList.stopTimerButton("params-plugin-timer:" + p.token);
                         editSettings.addActionListener(e -> {
                             if (values[index].length() == 0 || !new File(values[index]).exists()) {
                                 app.setNow("Choose a plugin first (" + p.token + ")");
@@ -2824,13 +2826,17 @@ final class PyJav {
                             }
                             File plug = new File(values[index]);
                             editSettings.setEnabled(false);
+                            stopTimer.setEnabled(true);
+                            stopTimer.setText("Stop timer");
                             app.setNow(PluginsList.testing(plug, true));
                             PluginsList.test(this, plug, true, log -> {
                                 editSettings.setEnabled(true);
+                                stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
                             });
                         });
                         picks.add(editSettings);
+                        picks.add(stopTimer);
                     }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);

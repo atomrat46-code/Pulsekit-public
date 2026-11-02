@@ -7464,6 +7464,45 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's kit load timer: Edit settings times the plugin's window from opening to Stop timer
+   * (PULSEKIT_TIMER_FILE), else to its closing; a test waits at most that long for the kit (at least
+   * 5 s), 30 s without one. Stop timer sits beside Edit settings.
+   */
+  void s183_vst_kit_load_timer() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "timer-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types, threading, time\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "timer = os.path.join(d, 'timer'); os.environ['PULSEKIT_TIMER_FILE'] = timer\n"
+        + "class P:\n"
+        + "    def open_editor(self): time.sleep(2.5)\n"
+        + "    def save_state(self, path): open(path, 'w').write('s')\n"
+        + "    def get_patch(self): return []\n"
+        + "threading.Timer(1.2, lambda: open(timer, 'w').close()).start()\n"
+        + "state = os.path.join(d, 'kvlt.state')\n"
+        + "vr.edit(P(), os.path.join(d, 'k.vst3'), state, 'Plugin')\n"
+        + "print('kept %.1f' % float(open(state + '.load').read()))\n"
+        + "print('limit %.0f, none %.0f' % (vr.load_limit('x', state), vr.load_limit('x', os.path.join(d, 'none.state'))))\n"
+        + "open(state + '.load', 'w').write('42.0')\n"
+        + "print('long %.0f' % vr.load_limit('x', state))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said).append('\n');
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("kept ([0-9.]+)").matcher(said);
+    double kept = m.find() ? Double.parseDouble(m.group(1)) : -1;
+    boolean ok = kept >= 1.0 && kept < 2.2 && said.contains("Timer stopped") && said.contains("Kit load time") && said.contains("(Stop timer)")
+        && said.contains("limit 5, none 30") && said.contains("long 42");
+    javax.swing.JButton b = PluginsList.stopTimerButton("t");
+    this.out.append("button: ").append(b.getText()).append(", enabled ").append(b.isEnabled()).append('\n');
+    if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
+  }
+
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
   private static byte[] midiFile(byte[] track) throws java.io.IOException {
     java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();

@@ -1095,12 +1095,35 @@ def edit(proc, plugin, given, label):
     path = given or state_home(plugin)
     if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
         path = os.path.splitext(path)[0] + ".state"
-    print("%s: its window is open. Load a kit or patch, then close the window." % label)
+    print("%s: its window is open. Load a kit or patch; press Stop timer in Pulsekit when the kit has loaded "
+          "(a test waits at most that long for it), then close the window." % label)
     sys.stdout.flush()
+    # The kit's load time: from the window opening to Stop timer (Pulsekit's PULSEKIT_TIMER_FILE), or
+    # to the window closing. A test waits at most this long for a slow sampler (KVLT) to have its kit.
+    import threading
+    import time
+    started = time.time()
+    timer = {"stopped": None, "open": True}
+    timer_file = os.environ.get("PULSEKIT_TIMER_FILE")
+
+    def watch():
+        while timer["open"] and timer_file:
+            if os.path.exists(timer_file):
+                timer["stopped"] = time.time()
+                print("Timer stopped: %.1f s" % (timer["stopped"] - started))
+                sys.stdout.flush()
+                return
+            time.sleep(0.2)
+
+    if timer_file:
+        threading.Thread(target=watch, daemon=True).start()
     try:
         proc.open_editor()
     except Exception as e:
         fail("the plugin's window could not open (%s). --edit works on Windows and Mac." % e)
+    finally:
+        timer["open"] = False
+    took = (timer["stopped"] or time.time()) - started
     folder = os.path.dirname(path)
     if folder and not os.path.isdir(folder):
         os.makedirs(folder)
@@ -1109,7 +1132,26 @@ def edit(proc, plugin, given, label):
     with open(path + ".params.json", "w") as f:
         json.dump([[int(i), float(v)] for i, v in proc.get_patch()], f)
     print("Wrote %s settings: %s" % (label, path))
+    with open(path + ".load", "w") as f:
+        f.write("%.1f\n" % took)
+    print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if timer["stopped"] else "until the window closed"))
     return path
+
+
+# Without a kit load time (Edit settings' timer), a test waits at most this long for a slow kit.
+LOAD_WAIT = 30.0
+
+
+def load_limit(plugin, given):
+    """How long a test waits for the plugin's kit: the load time Edit settings measured (at least 5 s), else LOAD_WAIT."""
+    path = given or state_home(plugin)
+    if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
+        path = os.path.splitext(path)[0] + ".state"
+    try:
+        with open(path + ".load") as f:
+            return max(5.0, float(f.read().strip()))
+    except (OSError, ValueError):
+        return LOAD_WAIT
 
 
 def load_plugin(engine, name, path):
@@ -1340,6 +1382,8 @@ class Chain(object):
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
+        # How long a test waits for a slow kit (the load time Edit settings measured).
+        self.load_limit = load_limit(clap or self.plugin, opts["--state"])
         self.fx = None
         effect = opts["--effect"]
         if effect:
@@ -1899,21 +1943,24 @@ def main(argv):
         check_audio, check_note = finish(np, check_audio, volume)
         if check_note and check_note.startswith("the render is silent"):
             # A sampler still loading its kit (KVLT takes long to load a preset) is silent at first:
-            # the test beat again every 5 s, for up to 30 s, before it counts as silent.
+            # the test beat again every 5 s, for up to the kit's load time (Edit settings' timer; else
+            # 30 s), before it counts as silent.
             import time
+            limit = getattr(chain, "load_limit", LOAD_WAIT)
             waited = 0
-            while check_note and check_note.startswith("the render is silent") and waited < 30 and not STOP["asked"]:
+            while check_note and check_note.startswith("the render is silent") and waited < limit and not STOP["asked"]:
                 if waited == 0:
-                    print("Plugin check: silent at first (the kit still loading?): trying again every 5 s, for up to 30 s")
-                time.sleep(5)
-                waited += 5
+                    print("Plugin check: silent at first (the kit still loading?): trying again every 5 s, for up to %.0f s" % limit)
+                step = min(5.0, limit - waited)
+                time.sleep(step)
+                waited += step
                 try:
                     check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)
                 except ValueError:
                     break
                 check_audio, check_note = finish(np, check_audio, volume)
             if waited and not (check_note and check_note.startswith("the render is silent")):
-                print("Plugin check: it plays after %d s" % waited)
+                print("Plugin check: it plays after %.0f s" % waited)
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
@@ -1936,9 +1983,11 @@ def main(argv):
                 first = kit_missing(said)
                 best = first
                 trial = kit_file + ".try"
-                while best and waited < 30 and not STOP["asked"]:
-                    time.sleep(5)
-                    waited += 5
+                limit = getattr(chain, "load_limit", LOAD_WAIT)
+                while best and waited < limit and not STOP["asked"]:
+                    step = min(5.0, limit - waited)
+                    time.sleep(step)
+                    waited += step
                     try:
                         again, _, _ = chain.render(np, midi=beat, tail=1.0)
                     except ValueError:
@@ -1952,8 +2001,9 @@ def main(argv):
                         check_audio = again
                 if os.path.isfile(trial):
                     os.remove(trial)
-                print("Kit: %d of the kick and toms silent in the first test beat (the kit still loading?); %s after %d s"
-                      % (first, "all heard" if not best else "%d still silent" % best, waited))
+                print("Kit: %d of the kick and toms silent in the first test beat (the kit still loading?); %s after %.0f s (waited at most %.0f s%s)"
+                      % (first, "all heard" if not best else "%d still silent" % best, waited, limit,
+                         ", the kit's load time" if limit != LOAD_WAIT else "; Edit settings' Stop timer sets it"))
             if said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])

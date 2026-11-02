@@ -279,13 +279,17 @@ final class PluginsList {
             list.repaint();
         };
         final JButton[] busy = {use, fav, test, edit};
+        final JButton stopTimer = stopTimerButton("plugins-timer");
         final java.util.function.Consumer<Boolean> run = editFirst -> {
             File f = list.getSelectedValue();
             if (f == null) return;
             for (JButton b : busy) b.setEnabled(false);
+            stopTimer.setEnabled(editFirst);
+            stopTimer.setText("Stop timer");
             about.setText(testing(f, editFirst));
             test(pj, f, editFirst, log -> {
                 for (JButton b : busy) b.setEnabled(true);
+                stopTimer.setEnabled(false);
                 about.setText(summary(log) + "\n\n" + info(f));
             });
         };
@@ -336,7 +340,7 @@ final class PluginsList {
         JScrollPane listScroll = new JScrollPane(list);
         listScroll.setPreferredSize(new Dimension(460, 260));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        for (JButton b : new JButton[] {use, fav, test, edit, close}) buttons.add(b);
+        for (JButton b : new JButton[] {use, fav, test, edit, stopTimer, close}) buttons.add(b);
         JPanel south = new JPanel(new BorderLayout(0, 6));
         south.add(new JScrollPane(about), BorderLayout.CENTER);
         south.add(buttons, BorderLayout.SOUTH);
@@ -351,6 +355,25 @@ final class PluginsList {
         d.setLocationRelativeTo(owner);
         d.setVisible(true);
         return chosen[0];
+    }
+
+    /**
+     * Stop timer, beside Edit settings: pressed when the plugin's kit has loaded in its window. vst_render
+     * keeps the time from the window opening (else until it closes): a test waits at most that long
+     * for a slow kit (KVLT). Enabled while Edit settings runs.
+     */
+    static JButton stopTimerButton(String name) {
+        final JButton b = new JButton("Stop timer");
+        b.setName(name);
+        b.setEnabled(false);
+        b.setToolTipText("Press when the kit has loaded in the plugin's window: a test then waits at most that long for it");
+        b.addActionListener(e -> {
+            if (PythonRun.stopTimer()) {
+                b.setEnabled(false);
+                b.setText("Timer stopped");
+            }
+        });
+        return b;
     }
 
     /** What the info says while a test or Edit runs. */
@@ -397,7 +420,7 @@ final class PluginsList {
         for (String l : log.split("\n")) {
             String t = l.trim();
             if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
-                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Script timed out")) b.append(t).append('\n');
+                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
         }
         return b.length() == 0 ? log.trim() : b.toString().trim();
     }
