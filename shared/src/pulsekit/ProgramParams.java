@@ -84,6 +84,12 @@ public final class ProgramParams {
     }
   }
 
+  /** vst_render's --plugin2 to --plugin4 (and their --map, --kit_name): "Second", "Third", "Fourth". */
+  static String ordinal(String token) {
+    char n = token.charAt(token.length() - 1);
+    return n == '2' ? "Second" : n == '3' ? "Third" : "Fourth";
+  }
+
   private static final Pattern FILE_EXT = Pattern.compile("(?i)\\.(wav|wave|mp3|midi?|txt|mp4|sf2)\\b");
 
   /** The parameters in `text` (a program's source or readable strings), in the order the program lists them. */
@@ -671,8 +677,8 @@ public final class ProgramParams {
       p.label = "Plugin (VST2 .dll / VST3 .vst3)";
       p.ext = "any";
       p.plugin = true;
-    } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3")) {
-      p.label = (p.token.equals("--plugin2") ? "Second" : "Third") + " plugin: the whole run again with it (its own WAVs, report and zip)";
+    } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3") || p.token.equals("--plugin4")) {
+      p.label = ordinal(p.token) + " plugin: the whole run again with it (its own WAVs, report and zip)";
       p.hint = "empty: only the plugin above; plays with its last Edit settings";
       p.ext = "any";
       p.plugin = true;
@@ -765,14 +771,14 @@ public final class ProgramParams {
       p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
     } else if (p.token.equals("--no-map")) {
       p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
-    } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
-      p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
+    } else if (p.token.equals("--map2") || p.token.equals("--map3") || p.token.equals("--map4")) {
+      p.label = "Test: the " + ordinal(p.token).toLowerCase(java.util.Locale.ROOT) + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";
     } else if (p.token.equals("--kit_name")) {
       p.label = "Kit loaded in the plugin (KVLT: Finnish Metal 2000): in the files' names and the report";
       p.hint = "empty: the plugin's name only";
-    } else if (p.token.equals("--kit_name2") || p.token.equals("--kit_name3")) {
-      p.label = "Kit loaded in the " + (p.token.equals("--kit_name2") ? "second" : "third") + " plugin";
+    } else if (p.token.equals("--kit_name2") || p.token.equals("--kit_name3") || p.token.equals("--kit_name4")) {
+      p.label = "Kit loaded in the " + ordinal(p.token).toLowerCase(java.util.Locale.ROOT) + " plugin";
       p.hint = "empty: its name only";
     } else if (p.token.equals("--mp3")) {
       p.label = "MP3s instead of WAVs (after the test): the WAVs are made MP3s at this bitrate and deleted";

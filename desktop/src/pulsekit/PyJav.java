@@ -2606,7 +2606,7 @@ final class PyJav {
         final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(this.programText());
         // vst_render: its map files and the kit names given before, to pick from.
         for (ProgramParams.Param p : ps) {
-            if (p.token.equals("--map") || p.token.equals("--map2") || p.token.equals("--map3")) {
+            if (p.token.equals("--map") || p.token.equals("--map2") || p.token.equals("--map3") || p.token.equals("--map4")) {
                 String[][] maps = VstLists.mapChoices();
                 if (maps[0].length > 0) {
                     p.choices = maps[0];

@@ -7688,9 +7688,12 @@ public final class DesktopBehavior {
         + "for p in ('/vst/Anarchy Drums.vst3', '/vst/Artillery2.vst3', '/vst/Other.vst3'):\n"
         + "    notes, part = vr.map_for(m, p)\n"
         + "    print('%s: %s %s' % (p.split('/')[-1], sorted(notes.items(), key=lambda x: x[0]), part))\n"
-        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--map2': '45=46', '--map3': None}\n"
-        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map', 'M', '--map2', '45=46', '--state', 's.fxp', '--test'], opts):\n"
-        + "    print('run %s: %s' % (plug, ' '.join(args)))\n";
+        + "opts = {'--plugin': 'a.vst3', '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--plugin4': 'd.vst3', '--map2': '45=46', '--map3': None, '--map4': '57=49', '--kit_name4': 'Artillery'}\n"
+        + "for plug, args in vr.plugin_runs(['--plugin', 'a.vst3', '--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--plugin4', 'd.vst3', '--map', 'M', '--map2', '45=46', '--map4', '57=49', '--kit_name4', 'Artillery', '--state', 's.fxp', '--test'], opts):\n"
+        + "    print('run %s: %s' % (plug, ' '.join(args)))\n"
+        + "lead = {'--plugin': None, '--carla': None, '--drumgizmo': None, '--plugin2': 'b.vst3', '--plugin3': 'c.vst3', '--plugin4': 'd.vst3', '--map': None, '--map2': None, '--map3': '41=none', '--map4': None, '--kit_name4': 'Artillery', '--dir': 'f', '--dir2': None}\n"
+        + "moved = vr.lead_first(['--plugin2', 'b.vst3', '--plugin3', 'c.vst3', '--map3', '41=none', '--plugin4', 'd.vst3', '--kit_name4', 'Artillery', '--dir', 'f'], lead)\n"
+        + "print('lead', ' '.join(moved[0]), '|', moved[1])\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), maps.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 60, null).trim();
@@ -7698,12 +7701,18 @@ public final class DesktopBehavior {
     bad.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map2", "45=46"));
     String refused = PythonRun.runFor(bad, 60, null).trim();
     String label = "";
-    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--map2")) label = q.label;
+    String label4 = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (q.token.equals("--map2")) label = q.label;
+      if (q.token.equals("--plugin4")) label4 = q.label;
+    }
     this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
         && said.contains("Other.vst3: [(35, None)] ")
         && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
-        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin");
+        && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && said.contains("run d.vst3: --plugin d.vst3 --test --map 57=49 --kit_name Artillery")
+        && said.contains("lead --dir f --plugin b.vst3 --plugin2 c.vst3 --map2 41=none --plugin3 d.vst3 --kit_name3 Artillery | No --plugin: b.vst3 leads, c.vst3, d.vst3 after it")
+        && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

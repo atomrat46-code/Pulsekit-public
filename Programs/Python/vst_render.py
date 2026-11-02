@@ -1,13 +1,13 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
   --plugin        the instrument: a VST2 (.dll, .so, .vst) or VST3 (.vst3) plugin. With --wav, an
                   effect (an amp, a reverb) that the WAV is played through instead.
-  --plugin2, --plugin3
+  --plugin2, --plugin3, --plugin4
                   more instruments: the whole run (renders, test, MP3s, zip) again with each, after
                   --plugin's: <midi>-<plugin2>.wav and its own report. Each plays with the settings
                   last saved for it with --edit (--state is --plugin's). A plugin that fails is
@@ -59,7 +59,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and each tom alone) through the
                   plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
                   plugin play with these settings? Every run does that check first, and a plugin that
-                  is silent for it is skipped (with --plugin2/--plugin3 the next one goes on): load
+                  is silent for it is skipped (with --plugin2 to --plugin4 the next one goes on): load
                   a kit with --edit. In a run, a silent render is left out (no test, no MP3 of it),
                   and the first three renders silent stop the plugin's run.
   --dir           renders every MIDI file in the folder or .pls playlist (the plugin loads once): <midi>-<plugin>.wav
@@ -95,9 +95,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   changed; the report says which map it used. A file can have a section per plugin:
                   [Anarchy Drums] on a line, then its pairs; the section named in the plugin's file
                   name is used (lines before any section are for every plugin), so one file serves
-                  --plugin, --plugin2 and --plugin3. maps/drum-kits.txt (next to this script) has
+                  --plugin and --plugin2 to --plugin4. maps/drum-kits.txt (next to this script) has
                   the kits tested so far (Anarchy Drums).
-  --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
+  --map2 to --map4  --plugin2's to --plugin4's own --map (pairs or a file); without one, --map is theirs too.
                   A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
                   maps folder beside this script.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
@@ -105,7 +105,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
                   so it is given here. It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
-                  the zip) and in the report. --kit_name2, --kit_name3: --plugin2's and --plugin3's.
+                  the zip) and in the report. --kit_name2 to --kit_name4: --plugin2's to --plugin4's.
                   Left blank: "default kit" (the plugin's own; Anarchy and Riot have one), or
                   "saved kit" when a kit saved with --edit (or --state) is used.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
@@ -1024,17 +1024,22 @@ def map_for(text, plugin=None):
     return out, section
 
 
+# The plugins played after --plugin, each with its own map and kit name.
+MORE_PLUGINS = (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3"), ("--plugin4", "--map4", "--kit_name4"))
+MORE_SWITCHES = tuple(w for row in MORE_PLUGINS for w in row)
+
+
 def plugin_runs(argv, opts):
-    """--plugin2/--plugin3: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
-    --state only for the first, and --map2/--map3 as that plugin's --map (else --map for all)."""
-    plugins = [(opts["--plugin"], None, None)] + [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
+    """--plugin2 to --plugin4: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
+    --state only for the first, and --map2 to --map4 as that plugin's --map (else --map for all)."""
+    plugins = [(opts["--plugin"], None, None)] + [(opts[k], opts[m], opts.get(n)) for k, m, n in MORE_PLUGINS if opts[k]]
     runs = []
     for k, (plug, own_map, own_kit) in enumerate(plugins):
         one = []
         j = 0
         while j < len(argv):
             a = argv[j]
-            if a in ("--plugin2", "--plugin3", "--map2", "--map3", "--kit_name2", "--kit_name3") or (a == "--state" and k > 0) or (a == "--map" and own_map) \
+            if a in MORE_SWITCHES or (a == "--state" and k > 0) or (a == "--map" and own_map) \
                     or (a == "--kit_name" and k > 0):
                 j += 2
                 continue
@@ -1053,17 +1058,17 @@ def plugin_runs(argv, opts):
 
 
 def lead_first(argv, opts):
-    """No --plugin but a --plugin2 or --plugin3 (Params' first row unticked): the first given leads
-    (as --plugin, its own map as --map) and the next is --plugin2; without --dir, --dir2 is --dir.
+    """No --plugin but one of --plugin2 to --plugin4 (Params' first row unticked): the first given leads
+    (as --plugin, its own map as --map) and the others follow as --plugin2, --plugin3; without --dir, --dir2 is --dir.
     Returns the arguments so, with a line saying it, or None when nothing moves."""
     said = []
     out = list(argv)
-    if not opts["--plugin"] and not opts["--carla"] and not opts["--drumgizmo"] and (opts["--plugin2"] or opts["--plugin3"]):
-        given = [(opts[k], opts[m], opts.get(n)) for k, m, n in (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", "--kit_name3")) if opts[k]]
+    if not opts["--plugin"] and not opts["--carla"] and not opts["--drumgizmo"] and any(opts[k] for k, _, _ in MORE_PLUGINS):
+        given = [(opts[k], opts[m], opts.get(n)) for k, m, n in MORE_PLUGINS if opts[k]]
         rest = []
         j = 0
         while j < len(out):
-            if out[j] in ("--plugin2", "--plugin3", "--map2", "--map3", "--map", "--kit_name", "--kit_name2", "--kit_name3"):
+            if out[j] in MORE_SWITCHES + ("--map", "--kit_name"):
                 j += 2
                 continue
             rest.append(out[j])
@@ -1071,11 +1076,10 @@ def lead_first(argv, opts):
         common = opts["--map"]
         lead, lead_map, lead_kit = given[0]
         rest += ["--plugin", lead] + (["--map", lead_map or common] if lead_map or common else []) + (["--kit_name", lead_kit] if lead_kit else [])
-        if len(given) > 1:
-            second, second_map, second_kit = given[1]
-            rest += ["--plugin2", second] + (["--map2", second_map or common] if second_map or common else []) + (["--kit_name2", second_kit] if second_kit else [])
+        for (k, m, n), (plug, own_map, own_kit) in zip(MORE_PLUGINS, given[1:]):
+            rest += [k, plug] + ([m, own_map or common] if own_map or common else []) + ([n, own_kit] if own_kit else [])
         said.append("No --plugin: %s leads%s" % (os.path.basename(os.path.normpath(lead)),
-                                                  ", %s after it" % os.path.basename(os.path.normpath(given[1][0])) if len(given) > 1 else ""))
+                                                  ", %s after it" % ", ".join(os.path.basename(os.path.normpath(g[0])) for g in given[1:]) if len(given) > 1 else ""))
         out = rest
     if not opts["--dir"] and opts["--dir2"]:
         out = ["--dir" if a == "--dir2" else a for a in out]
@@ -1777,8 +1781,8 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--dir2": None, "--map2": None, "--map3": None,
-            "--kit_name": None, "--kit_name2": None, "--kit_name3": None}
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None,
+            "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
     switches = set()
     files = []
     i = 0
@@ -1804,15 +1808,15 @@ def main(argv):
     if moved:
         print(moved[1])
         return main(moved[0])
-    for k, m in (("--plugin2", "--map2"), ("--plugin3", "--map3"), ("--plugin2", "--kit_name2"), ("--plugin3", "--kit_name3")):
+    for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
         if opts[m] and not opts[k]:
             fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
-    more = [opts[k] for k in ("--plugin2", "--plugin3") if opts[k]]
+    more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
     if more:
         if not opts["--plugin"]:
-            fail("--plugin2 and --plugin3 add plugins to --plugin: give --plugin too")
+            fail("--plugin2 to --plugin4 add plugins to --plugin: give --plugin too")
         if opts["--carla"] or opts["--drumgizmo"]:
-            fail("--plugin2 and --plugin3 are VST plugins played after --plugin; not with --carla or --drumgizmo")
+            fail("--plugin2 to --plugin4 are VST plugins played after --plugin; not with --carla or --drumgizmo")
         if "--edit" in switches:
             fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
         runs = plugin_runs(argv, opts)
