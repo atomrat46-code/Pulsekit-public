@@ -2291,6 +2291,20 @@ public final class PromptSheet {
     }
   }
 
+  /** Upscale of a crop: ImageUpscaler with it (as `name`) as its input; Return comes back to the Prompts page. */
+  static void upscaleBytes(Activity activity, String name, byte[] bytes) throws Exception {
+    MainActivity host = (MainActivity) activity;
+    File dir = new File(activity.getCacheDir(), "pyjav-in");
+    if (!dir.isDirectory()) dir.mkdirs();
+    File in = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+    java.nio.file.Files.write(in.toPath(), bytes);
+    host.openKitView("py");
+    host.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    host.pyJav.pkUseInputPath(in.getAbsolutePath());
+    host.pyJav.pkSetReturn("Return to Prompts", () -> host.openKitView("prompts"));
+    host.pyJav.pkOpenParams();
+  }
+
   private static void upscaleStored(Activity activity, long versionId, int which, String name) {
     try {
       MainActivity host = (MainActivity) activity;
@@ -2672,6 +2686,7 @@ public final class PromptSheet {
     previewBody = null;
     previewImage = null;
     previewBox = null;
+    previewCrop = null;
     previewPan = null;
     if (kind == 1) {
       TextView body = label(activity, previewText(previewBytes), 14, "#ECEBE6", false);
@@ -2697,12 +2712,38 @@ public final class PromptSheet {
         box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
         box.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -1));
         previewBox = box;
+        // Crop image (the picture's long press): a frame over it; its long press saves or upscales the crop.
+        final String cropOf = previewName;
+        final byte[] cropBytes = previewBytes;
+        final int gallery = focusWhich == 3 ? 3 : 1;
+        final CropLayer crop = CropLayer.over(activity, box, image, cropOf, new CropLayer.Actions() {
+          public Bitmap cut(CropBox at) throws Exception {
+            return CropLayer.cutBytes(cropBytes, at);
+          }
+
+          public String save(String name, byte[] png) throws Exception {
+            vault.addLibraryFile(name, png, "Cropped", gallery);
+            return "Saved " + name + " in " + (gallery == 3 ? "Result files" : "Ref files");
+          }
+
+          public void upscale(String name, byte[] png) throws Exception {
+            upscaleBytes(activity, name, png);
+          }
+        });
+        previewCrop = crop;
         android.widget.HorizontalScrollView pan = scroller(activity, box);
         previewPan = pan;
         final int panX = keepPanX;
         keepPanX = -1;
         if (panX >= 0) pan.post(() -> pan.scrollTo(panX, 0));
-        attachPinch(activity, box);
+        attachPinch(activity, box, () -> {
+          if (previewCrop == null || previewCrop.cropping()) return;
+          lastPictureMenu = new AlertDialog.Builder(activity).setTitle(cropOf)
+              .setItems(new String[] {CropBox.CROP}, (dlg, w) -> {
+                setZoom(activity, 1f);
+                previewCrop.start();
+              }).setNegativeButton("Cancel", null).show();
+        });
         if (previewBack == 3) {
           // From the Ref files / Result files gallery: small arrows at the picture's left and right
           // edges show the previous and next picture (they stay put while it is zoomed or panned).
@@ -2951,11 +2992,23 @@ public final class PromptSheet {
     }
   }
 
-  private static void attachPinch(Activity activity, View target) {
+  /** The picture's long press menu shown last (Crop image), for the tests. */
+  static AlertDialog lastPictureMenu;
+  /** The picture preview's crop frame. */
+  static CropLayer previewCrop;
+
+  /** Two fingers zoom the picture; a long press (`held`) opens its menu. */
+  private static void attachPinch(Activity activity, View target, Runnable held) {
     ScaleGestureDetector pinch = new ScaleGestureDetector(activity, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
       public boolean onScale(ScaleGestureDetector detector) {
         setZoom(activity, previewZoom * detector.getScaleFactor());
         return true;
+      }
+    });
+    android.view.GestureDetector press = new android.view.GestureDetector(activity, new android.view.GestureDetector.SimpleOnGestureListener() {
+      @Override
+      public void onLongPress(android.view.MotionEvent e) {
+        if (!pinch.isInProgress() && held != null) held.run();
       }
     });
     View.OnTouchListener touch = (v, event) -> {
@@ -2963,8 +3016,10 @@ public final class PromptSheet {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
       }
+      press.onTouchEvent(event);
       pinch.onTouchEvent(event);
-      return event.getPointerCount() > 1;
+      // The press is followed (for the long press); the page still scrolls (it takes the moves).
+      return event.getPointerCount() > 1 || event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN;
     };
     target.setOnTouchListener(touch);
   }

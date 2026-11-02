@@ -34,9 +34,17 @@ final class ProcessRefDialog {
     List<PyJavRecent.Item> runs;
     /** The dialog shown last (for the tests). */
     static ProcessRefDialog last;
+    /** Opened from the Media browser: Return in PyJav opens it again there (null: no Return). */
+    Runnable back;
 
     static void open(Pulsekit app, File picture) {
+        open(app, picture, null);
+    }
+
+    /** As above, from the Media browser: `back` opens it again (Return in PyJav). */
+    static void open(Pulsekit app, File picture, Runnable back) {
         ProcessRefDialog d = new ProcessRefDialog(app, picture);
+        d.back = back;
         if (d.programs.isEmpty()) {
             JOptionPane.showMessageDialog(app, "No program that takes pictures has been run yet. Run SogniPedit or SogniVideo once (PyJav), and it is listed here.",
                 "Process as a reference", JOptionPane.INFORMATION_MESSAGE);
@@ -134,9 +142,14 @@ final class ProcessRefDialog {
         String saved = ProcessAsRef.savedWithPicture(this.app.pyJav.loadParams(name), s.get(slot - 1), this.picture.getAbsolutePath());
         if (saved != null) this.app.pyJav.saveParams(name, saved);
         this.dialog.dispose();
+        // The Media browser closes, so the program and its Params are on top.
+        if (this.app.mediaBrowser != null && this.app.mediaBrowser.last != null && this.app.mediaBrowser.last.isShowing()) this.app.mediaBrowser.last.dispose();
         this.app.showView("py");
         this.app.pyJav.loadRecent(item != null ? item : PyJavRecent.tapped(this.recent, name));
         if (this.app.pyJav.pyExtra != null) this.app.pyJav.pyExtra.setText(extra);
+        if (this.back != null) this.app.pyJav.setReturn(this.back);
         this.app.setNow(name + " · " + this.picture.getName() + " as Reference file " + slot + ": Run starts it");
+        // Its Params, with the picture in its slot.
+        javax.swing.SwingUtilities.invokeLater(() -> this.app.pyJav.openParams());
     }
 }

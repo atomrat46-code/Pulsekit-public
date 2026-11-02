@@ -9808,6 +9808,11 @@ public class BehaviorTest {
     GeneralSettings.last.dismiss();
     out.append("Database settings: parts ").append(parts).append(", not in General settings ").append(movedOut).append(" | ").append(sizes.replace('\n', ' ')).append('\n');
     boolean dialogOk = parts && movedOut && sizes.startsWith("Main: ") && sizes.contains("(in use, encrypted)") && sizes.contains("All DBs: ");
+    // The groups and tags of files go with the DB (an uninstall deletes them with the app's folder).
+    Files.write(new File(dir, "file-groups.txt").toPath(), "G\tTrip\nF\tdb:3:42\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "media-tags.txt").toPath(), "T\tbeach\nF\tbeach.png|5\tWalks\tbeach\n".getBytes(StandardCharsets.UTF_8));
+    FileGroups.reset();
+    MediaTags.reset();
     // Send db to zip: a short password is refused; then into a file.
     dv.findViewWithTag("db-send-zip").performClick();
     idle();
@@ -9830,6 +9835,13 @@ public class BehaviorTest {
     java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
     out.append("short password: ").append(shortSaid).append(" | ").append(sent).append(" | encrypted ").append(ZipPack.encrypted(es)).append('\n');
     boolean sendOk = DbSlots.SHORT_PASSWORD.equals(shortSaid) && sent != null && sent.startsWith("Sent the DB Main (" + before) && ZipPack.encrypted(es);
+    boolean extrasSent = false;
+    for (ZipPack.Entry e : es) if (e.fileName().equals("file-groups.txt")) extrasSent = true;
+    // As after an uninstall: no groups or tags, until the DB comes back.
+    new File(dir, "file-groups.txt").delete();
+    new File(dir, "media-tags.txt").delete();
+    FileGroups.reset();
+    MediaTags.reset();
     // Import db zip: the DB in use is not empty, so: as a new secondary DB (first).
     File copy = new File(app.getCacheDir(), "in/pulsekit-db-Main.zip");
     copy.getParentFile().mkdirs();
@@ -9851,6 +9863,11 @@ public class BehaviorTest {
     }
     String asSecondary = DbSettings.lastSaid;
     String names = DbSlots.names(dir).toString();
+    File gf = new File(dir, "file-groups.txt"), tf = new File(dir, "media-tags.txt");
+    String groupsBack = gf.isFile() ? new String(Files.readAllBytes(gf.toPath()), StandardCharsets.UTF_8) : "";
+    String tagsBack = tf.isFile() ? new String(Files.readAllBytes(tf.toPath()), StandardCharsets.UTF_8) : "";
+    out.append("groups and tags with the DB: sent ").append(extrasSent).append(" | back ").append(groupsBack.replace('\n', ' ')).append(" | ").append(tagsBack.replace('\n', ' ')).append('\n');
+    boolean extrasOk = extrasSent && groupsBack.contains("G\tTrip\nF\tdb:3:42") && tagsBack.contains("T\tbeach") && tagsBack.contains("F\tbeach.png|5\tWalks\tbeach");
     DbSettings.use(app, "Pulse");
     idle();
     String inUse = DbSlots.active(dir) + ": " + PromptVault.open(dir).summary() + ", encrypted " + PromptVault.encrypted(dir);
@@ -9922,7 +9939,7 @@ public class BehaviorTest {
     boolean keyOk = keyed != null && keyed.startsWith("Imported the DB as Laptop") && PromptVault.openAt(DbSlots.homeOf(dir, "Laptop")).summary().startsWith("1 prompt");
     if (DbSettings.last != null) DbSettings.last.dismiss();
     write("s163_db_settings_export_import", out.toString());
-    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
+    if (!newsOk || !dialogOk || !sendOk || !secondaryOk || !extrasOk || !mainOk || !keyOk) throw new AssertionError(out.toString());
   }
 
   /**
@@ -11794,6 +11811,238 @@ public class BehaviorTest {
   }
 
   /** SogniMusic --random with two models: the tracks' MIDIs make one file set a model ("SogniMusic run 1 sft"), not one a track. */
+  /**
+   * C on a video, then Process as a reference: Open closes the video and the Media browser, the
+   * program's Params opens with the picture, and Return opens the browser again. The browser keeps
+   * where its page was scrolled to.
+   */
+  @Test
+  public void s193_media_process_ref_to_front() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "clips-ref");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniVideo.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniVideo.java", "--prompt \"the walk goes on\"", pedit, null);
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    b.askProcessRef("walk-0m01s000.png", png.toByteArray(), v.dialog);
+    idle();
+    MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    ProcessRefDialog r = ProcessRefDialog.last;
+    r.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    View ret = app.pyPane.findViewWithTag("pyjav-return");
+    android.app.Dialog top = ShadowDialog.getLatestDialog();
+    String topTitle = top == null ? "" : String.valueOf(org.robolectric.Shadows.shadowOf(top).getTitle());
+    out.append("Open: video ").append(v.dialog.isShowing() ? "open" : "closed").append(", browser ").append(b.dialog.isShowing() ? "open" : "closed")
+        .append(", program ").append(app.pyName).append(", on top ").append(topTitle).append(" (showing ").append(top != null && top.isShowing()).append(")")
+        .append(", Return ").append(ret != null && ret.getVisibility() == View.VISIBLE ? "shown" : "hidden").append('\n');
+    boolean frontOk = !v.dialog.isShowing() && !b.dialog.isShowing() && "SogniVideo.java".equals(app.pyName) && top != null && top.isShowing()
+        && topTitle.contains("SogniVideo") && ret != null && ret.getVisibility() == View.VISIBLE;
+    if (top != null) top.dismiss();
+    idle();
+    ret.performClick();
+    idle();
+    boolean backOk = MediaBrowser.last != null && MediaBrowser.last.dialog.isShowing() && MediaBrowser.last.folderKey().equals(b.folderKey());
+    out.append("Return: browser ").append(backOk ? "open on the same folder" : "not open").append('\n');
+    // Scrolled in the page, closed: the place is kept.
+    MediaBrowser again = MediaBrowser.last;
+    again.scroll.scrollTo(0, 0);
+    MediaDir.place(again.scrollKey(), 0);
+    again.loading = false;
+    java.lang.reflect.Field sy = View.class.getDeclaredField("mScrollY");
+    sy.setAccessible(true);
+    sy.setInt(again.scroll, 123);
+    again.dialog.dismiss();
+    idle();
+    int kept = MediaDir.place(again.scrollKey());
+    out.append("scrolled to 123 and closed: kept ").append(kept).append('\n');
+    write("s193_media_process_ref_to_front", out.toString());
+    if (!frontOk || !backOk || kept != 123) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Crop image in the Media browser's picture viewer: the picture's long press has it; the frame's
+   * long press has Save as… (the crop at its full size, under the name asked, in the folder) and
+   * Upscale. CropBox: a corner or border dragged sizes the box, the inside moves it, kept in the picture.
+   */
+  @Test
+  public void s194_media_picture_crop() throws Exception {
+    StringBuilder out = new StringBuilder();
+    CropBox c = new CropBox();
+    c.press(0.1, 0.1, 0.05);
+    c.drag(0.3, 0.2);
+    c.release();
+    int held = c.press(0.5, 0.5, 0.05);
+    c.drag(0.6, 0.5);
+    c.drag(1.5, 0.5);
+    out.append("box: ").append(String.format(java.util.Locale.ROOT, "%.2f %.2f %.2f %.2f, held %d", c.left, c.top, c.right, c.bottom, held)).append(", name ").append(CropBox.name("dir/beach.jpg")).append('\n');
+    CropBox edge = new CropBox();
+    int border = edge.press(0.5, 0.905, 0.03);
+    edge.drag(0.5, 0.7);
+    out.append("bottom border: held ").append(border).append(", bottom ").append(String.format(java.util.Locale.ROOT, "%.2f", edge.bottom)).append('\n');
+    boolean boxOk = border == 8 && Math.abs(edge.bottom - 0.7) < 1e-9 && Math.abs(c.left - 0.4) < 1e-9 && Math.abs(c.right - 1.0) < 1e-9 && Math.abs(c.top - 0.2) < 1e-9 && held == 4 && CropBox.name("dir/beach.jpg").equals("beach-crop.png");
+    File media = new File(app.getCacheDir(), "crop-pics");
+    media.mkdirs();
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(new File(media, "a.png"));
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:a.png").performClick();
+    android.app.Dialog viewer = ShadowDialog.getLatestDialog();
+    View vv = viewer.getWindow().getDecorView();
+    android.widget.ImageView full = (android.widget.ImageView) vv.findViewWithTag("media-full");
+    for (int i = 0; i < 100 && full.getDrawable() == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    // A long press on the picture: its menu, Crop image.
+    long t0 = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent downEv = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0);
+    full.dispatchTouchEvent(downEv);
+    ShadowLooper.idleMainLooper(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+    android.view.MotionEvent upEv = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 10, 10, 0);
+    full.dispatchTouchEvent(upEv);
+    idle();
+    AlertDialog menu = MediaBrowser.lastPictureMenu;
+    out.append("long press: ").append(menu == null ? "no menu" : listItems(menu)).append('\n');
+    boolean menuOk = menu != null && menu.isShowing() && listItems(menu).contains(CropBox.CROP);
+    if (menu != null) org.robolectric.Shadows.shadowOf(menu).clickOnItem(0);
+    idle();
+    CropLayer layer = (CropLayer) vv.findViewWithTag("media-full-crop-box");
+    out.append("Crop image: frame ").append(layer.getVisibility() == View.VISIBLE && layer.cropping() ? "shown" : "hidden").append('\n');
+    boolean shownOk = layer.getVisibility() == View.VISIBLE && layer.cropping();
+    // The frame's long press: Save as…, Upscale, Cancel crop; Save as… asks the name.
+    layer.menu();
+    idle();
+    out.append("frame menu: ").append(listItems(CropLayer.lastMenu)).append('\n');
+    shownOk = shownOk && listItems(CropLayer.lastMenu).contains(CropBox.SAVE) && listItems(CropLayer.lastMenu).contains(CropBox.UPSCALE);
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    idle();
+    out.append("name: ").append(((android.widget.EditText) CropLayer.lastAsk.getWindow().getDecorView().findViewWithTag("crop-name")).getText()).append('\n');
+    CropLayer.lastAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    File made = new File(media, "a-crop.png");
+    for (int i = 0; i < 200 && !made.isFile(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    if (made.isFile()) android.graphics.BitmapFactory.decodeFile(made.getAbsolutePath(), o);
+    out.append("Save crop: ").append(made.isFile() ? made.getName() + " " + o.outWidth + " x " + o.outHeight : "none").append(" | ").append(((TextView) get("now")).getText()).append('\n');
+    boolean savedOk = made.isFile() && o.outWidth == 32 && o.outHeight == 24;
+    viewer.dismiss();
+    b.dialog.dismiss();
+    write("s194_media_picture_crop", out.toString());
+    if (!boxOk || !menuOk || !shownOk || !savedOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * SogniMusic's instrument sessions: in Params, ticking one unticks the others unless
+   * Multi-instrument session is ticked; each session's track is known by its label (its own
+   * instruments for DrumMidi and the ranking, a file set of its own, the style's tempo).
+   */
+  @Test
+  public void s195_sogni_music_sessions() throws Exception {
+    StringBuilder out = new StringBuilder();
+    out.append("labels: ").append(MusicExpect.sessionOf("Funk-drums_bass-sft")).append(' ').append(MusicExpect.withoutSession("Funk-drums_bass-sft"))
+        .append(' ').append(MusicExpect.sessionOf("drums")).append(' ').append(MusicExpect.sessionOf("Melodic-Techno-sft")).append(' ')
+        .append(MusicExpect.sessionOf("Rock-drums_bass_guitar")).append('\n');
+    boolean labelsOk = "drums_bass".equals(MusicExpect.sessionOf("Funk-drums_bass-sft")) && "Funk-sft".equals(MusicExpect.withoutSession("Funk-drums_bass-sft"))
+        && "drums".equals(MusicExpect.sessionOf("drums")) && MusicExpect.sessionOf("Melodic-Techno-sft") == null
+        && "drums_bass_guitar".equals(MusicExpect.sessionOf("Rock-drums_bass_guitar"));
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass", "--genre", "Funk", "--random", "2");
+    MusicExpect e = MusicExpect.of(argv);
+    MusicExpect drums = e.forTrack("Funk-drums-sft"), duo = e.forTrack("Funk-drums_bass-sft");
+    out.append("expect: ").append(e.instruments).append(" drumsOnly ").append(e.drumsOnly).append(" | drums track ").append(drums.instruments).append(' ').append(drums.drumsOnly)
+        .append(" | duo ").append(duo.instruments).append(' ').append(duo.drumsOnly).append(" | multi ").append(MusicExpect.multiSession(argv))
+        .append(" wanted ").append(MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass"))).append('\n');
+    boolean expectOk = e.instruments.toString().equals("[drums, bass]") && !e.drumsOnly && drums.drumsOnly && duo.instruments.toString().equals("[drums, bass]") && !duo.drumsOnly
+        && MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_bass"))
+        && !MusicCompare.wanted("SogniMusic.java", java.util.Arrays.asList("--drums_bass"));
+    MusicCompare.Chain c = new MusicCompare.Chain("SogniMusic run 9", e, "");
+    c.random = true;
+    c.single = "sft";
+    out.append("group: ").append(c.group("Funk-drums_bass-sft")).append(" | ").append(c.group("Funk-sft")).append('\n');
+    boolean groupOk = c.group("Funk-drums_bass-sft").equals("sft drums_bass") && c.group("Funk-sft").equals("sft");
+    // Params: the session boxes.
+    String src = ((ProgramMenus) get("programMenus")).bundledSource("SogniMusic.java");
+    PyJavParams.open(app, "SogniMusic.java", "", src);
+    idle();
+    View pv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    java.util.function.Function<String, android.widget.CheckBox> box = t -> (android.widget.CheckBox) pv.findViewWithTag("params-check:" + t);
+    out.append("rows: ").append(box.apply("--drums_bass").getText()).append(" | ").append(box.apply("--multi_session").getText()).append('\n');
+    box.apply("--drums_bass").performClick();
+    box.apply("--drums_guitar").performClick();
+    out.append("one at a time: bass ").append(box.apply("--drums_bass").isChecked()).append(", guitar ").append(box.apply("--drums_guitar").isChecked());
+    boolean oneOk = !box.apply("--drums_bass").isChecked() && box.apply("--drums_guitar").isChecked();
+    box.apply("--multi_session").performClick();
+    box.apply("--drums_only").performClick();
+    box.apply("--drums_bass").performClick();
+    out.append(" | multi: drums ").append(box.apply("--drums_only").isChecked()).append(", bass ").append(box.apply("--drums_bass").isChecked())
+        .append(", guitar ").append(box.apply("--drums_guitar").isChecked()).append('\n');
+    boolean multiOk = box.apply("--drums_only").isChecked() && box.apply("--drums_bass").isChecked() && box.apply("--drums_guitar").isChecked();
+    ShadowDialog.getLatestDialog().dismiss();
+    write("s195_sogni_music_sessions", out.toString());
+    if (!labelsOk || !expectOk || !groupOk || !oneOk || !multiOk) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A picture picked from the phone's storage into the temp folder, which the phone emptied: it is
+   * read again from where it was picked (Preview, Run). C on a video, then No to Process as a
+   * reference: Picture ready offers the frame.
+   */
+  @Test
+  public void s196_refetch_input_and_frame_ready() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    InputOrigins.UriReader was = InputOrigins.uriReader;
+    File temp = new File(app.getCacheDir(), "pyjav-in");
+    temp.mkdirs();
+    File pic = new File(temp, "ref2.png");
+    try {
+      InputOrigins.uriReader = uri -> ("from " + uri).getBytes(StandardCharsets.UTF_8);
+      Files.write(pic.toPath(), "x".getBytes(StandardCharsets.UTF_8));
+      InputOrigins.recordUri(app.getFilesDir(), pic.getAbsolutePath(), "content://pics/ref2.png");
+      pic.delete();
+      java.util.List<String> argv = java.util.Arrays.asList("--ref2", pic.getAbsolutePath());
+      boolean gone = InputOrigins.anyGone(app.getFilesDir(), argv, app.getCacheDir());
+      java.util.List<String> missing = InputOrigins.missing(app.getFilesDir(), argv, app.getCacheDir(), null);
+      String back = pic.isFile() ? new String(Files.readAllBytes(pic.toPath()), StandardCharsets.UTF_8) : "none";
+      out.append("emptied: noticed ").append(gone).append(", still missing ").append(missing).append(", read again: ").append(back).append('\n');
+      if (!gone || !missing.isEmpty() || !back.equals("from content://pics/ref2.png")) throw new AssertionError(out.toString());
+    } finally {
+      InputOrigins.uriReader = was;
+    }
+    File media = new File(app.getCacheDir(), "clips-ready");
+    media.mkdirs();
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PictureOffer.last = null;
+    b.askProcessRef("walk-0m02s000.png", png.toByteArray(), null);
+    idle();
+    MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean ready = PictureOffer.last != null && PictureOffer.last.isShowing();
+    out.append("No: ").append(ready ? org.robolectric.Shadows.shadowOf(PictureOffer.last).getTitle() : "nothing").append('\n');
+    if (PictureOffer.last != null) PictureOffer.last.dismiss();
+    b.dialog.dismiss();
+    write("s196_refetch_input_and_frame_ready", out.toString());
+    if (!ready) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
     String[] styles = {"rock", "funk", "house"};
@@ -11870,6 +12119,41 @@ public class BehaviorTest {
         chipsAfterFirst.addAll(names);
       }
     }
+    String turboHead = "";
+    for (int i = 0; i < host.getChildCount(); i++) {
+      View v = host.getChildAt(i);
+      if ("pack".equals(v.getTag()) && String.valueOf(((TextView) v).getText()).contains(run + " turbo")) turboHead = String.valueOf(((TextView) v).getText());
+    }
+    out.append("turbo caption: ").append(turboHead).append('\n');
+    // Downloads: a run's caption says how many files it has and opens or closes them; a big older run starts closed.
+    SogniDownloads.Run big = new SogniDownloads.Run();
+    big.id = 9101;
+    big.program = "SogniMusic.java";
+    big.started = 1000;
+    big.state = SogniDownloads.FINISHED;
+    for (int k = 0; k < 7; k++) {
+      SogniDownloads.Item it = new SogniDownloads.Item();
+      it.name = "sogni-" + k + ".mp3";
+      big.items.add(it);
+    }
+    SogniDownloads.Run newer = new SogniDownloads.Run();
+    newer.id = 9102;
+    newer.program = "SogniMusic.java";
+    newer.started = 2000;
+    newer.state = SogniDownloads.FINISHED;
+    for (int k = 0; k < 7; k++) {
+      SogniDownloads.Item it = new SogniDownloads.Item();
+      it.name = "sogni-new-" + k + ".mp3";
+      newer.items.add(it);
+    }
+    java.util.List<SogniDownloads.Run> both = java.util.Arrays.asList(newer, big);
+    boolean bigOpen = SogniDownloads.isOpen(big, both), newerOpen = SogniDownloads.isOpen(newer, both);
+    String bigCaption = SogniDownloads.caption(big, true, both);
+    SogniDownloads.toggle(big, both);
+    boolean bigOpened = SogniDownloads.isOpen(big, both);
+    SogniDownloads.OPEN.remove(big.id);
+    out.append("downloads: older big run open ").append(bigOpen).append(", newest open ").append(newerOpen).append(", caption \"").append(bigCaption)
+        .append("\", toggled open ").append(bigOpened).append('\n');
     out.append("rows: ").append(rows).append(" clocks ").append(clocks).append(" | first file's chips ").append(chipsAfterFirst).append(" | joined MIDI rows ").append(joinedRows).append('\n');
     // Kept over a restart (fset-audio): the files, their names and patterns, and the joined MIDI's name.
     File dir = new File(app.getCacheDir(), "fset-audio-s192");
@@ -11905,14 +12189,28 @@ public class BehaviorTest {
     for (Engine.ImportedSong so : app.importedSongs) songNames.add(so.name);
     out.append("one song: ").append(one).append(" ").append(rockSong == null ? "-" : rockSong.name + " (" + rockSong.parts.size() + " parts, set " + rockSong.fileSet + ")")
         .append(" | asked \"").append(askTitle).append("\" | songs ").append(songNames).append('\n');
+    // A --random run's DrumMidi runs at the tempo asked for each track's style (SogniMusic's "Style ...: Tempo: N BPM." lines).
+    java.util.List<String[]> tw = new java.util.ArrayList<String[]>();
+    tw.add(new String[] {"Ballad-6-8-turbo", "/x/b.wav"});
+    tw.add(new String[] {"Boom-Bap-sft", "/x/c.wav"});
+    MusicCompare.Chain tc = MusicCompare.startChain(java.util.Arrays.asList("--random", "2", "--model", "turbo,sft"), new java.util.ArrayList<String>(), tw, "--bpm 120 --sens 1.2",
+        "Random styles: 2 tracks\nStyle Ballad 6/8: Tempo: 61 BPM. Duration: 10 s. Time signature: 6/8. Key: C# major. \u00b7 drums\nStyle Boom Bap: Tempo: 84 BPM. Duration: 10 s. \u00b7 drums\n");
+    java.util.List<String> tFirst = tc.next();
+    Double tAsked = tc.askedBpm();
+    java.util.List<String> tSecond = tc.next();
+    MusicCompare.stopChain();
+    out.append("asked tempos: ").append(tFirst).append(" (").append(tAsked).append(") then ").append(tSecond).append('\n');
+    boolean tempoOk = tFirst.get(tFirst.indexOf("--bpm") + 1).equals("61") && tFirst.indexOf("--bpm") == tFirst.lastIndexOf("--bpm") && tFirst.contains("--sens")
+        && tAsked != null && tAsked.doubleValue() == 61 && tSecond.get(tSecond.indexOf("--bpm") + 1).equals("84");
     write("s192_random_run_file_set_per_model", out.toString());
     boolean ok = noneYet && after.size() == 2 && after.contains(run + " turbo") && after.contains(run + " sft") && c.made.equals(java.util.Arrays.asList(run + " turbo", run + " sft"))
         && said.get(0).equals("Succeeded: kept for " + run + " turbo") && said.get(1).equals("Succeeded: kept for " + run + " sft")
         && turboBpms.size() == 1 && MusicCompare.chain() == null && !MusicCompare.quietSongs() && !asked
-        && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
+        && tempoOk && tracks.size() == 3 && tracks.get(0).name.equals("rock-turbo.mid") && covered.equals(turboNames) && tracks.get(0).patterns.size() == 2
         && rows.equals(java.util.Arrays.asList("rock-turbo.mid", "funk-turbo.mid", "house-turbo.mid")) && clocks.size() == 3 && clocks.get(0).matches("00:00 / 00:(0[1-9]|[1-5]\\d)")
         && chipsAfterFirst.size() == 2 && turboNames.containsAll(chipsAfterFirst) && joinedRows == 0 && kept
-        && fillernRows == 3 && fillernAdds == 3 && fillRows == 3
+        && fillernRows == 3 && fillernAdds == 3 && fillRows == 3 && turboHead.endsWith("\u00b7 3 MIDI")
+        && !bigOpen && newerOpen && bigCaption.startsWith("\u25b8 SogniMusic \u00b7 Finished") && bigCaption.endsWith("\u00b7 7 files") && bigOpened
         && done != null && doneText.startsWith("Succeeded: 6 tracks into 2 file sets") && doneText.contains(c.run + " turbo (3 MIDI files)") && doneText.contains("rock-turbo.mid")
         && one && rockSong != null && rockSong.name.equals("rock-turbo") && !rockSong.parts.isEmpty() && (run + " turbo").equals(rockSong.fileSet)
         && askTitle.equals("Make 3 songs?") && app.importedSongs.size() == songsBefore + 4

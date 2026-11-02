@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Where a program's input file in Pulsekit's temp folder came from: a prompt library file picked
- * with Params' Browse DB (input-origins.txt). The phone may empty the temp folder whenever it
+ * Where a program's input file in Pulsekit's temp folder came from (input-origins.txt): a prompt
+ * library file picked with Params' Browse DB or the Media browser, or a file picked from the
+ * phone's storage (Choose file, the Media browser's Choose file), read again by its address. The phone may empty the temp folder whenever it
  * likes, and Params kept the path: Preview said "The picture could not be read" and SogniPedit
  * "no picture". A file that is gone is written again from the library before Preview and Run.
  */
@@ -35,6 +36,33 @@ public final class InputOrigins {
     return out;
   }
 
+  /** Reads a file by its address (content://) again: set by the Android app. */
+  public interface UriReader {
+    byte[] read(String uri) throws Exception;
+  }
+
+  public static volatile UriReader uriReader;
+
+  /** A file picked from the phone's storage (its content:// address) was copied into `path`. */
+  public static synchronized void recordUri(File dir, String path, String uri) {
+    put(dir, path, "uri:" + uri);
+  }
+
+  private static synchronized void put(File dir, String path, String origin) {
+    if (dir == null || path == null || origin == null) return;
+    Map<String, String> all = read(dir);
+    all.remove(path);
+    all.put(path, origin);
+    while (all.size() > MAX) all.remove(all.keySet().iterator().next());
+    StringBuilder sb = new StringBuilder();
+    for (Map.Entry<String, String> e : all.entrySet()) sb.append(e.getKey()).append('\t').append(e.getValue()).append('\n');
+    try {
+      Files.write(new File(dir, FILE).toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // only this file is not known again
+    }
+  }
+
   /** Browse DB picked a library file into `path`. */
   public static synchronized void record(File dir, String path, long versionId, int which) {
     if (dir == null || path == null) return;
@@ -57,10 +85,19 @@ public final class InputOrigins {
     File f = new File(path);
     if (f.isFile() && f.length() > 0) return true;
     String origin = read(dir).get(path);
-    if (origin == null || vault == null) return false;
+    if (origin == null) return false;
     try {
-      String[] p = origin.split(":");
-      byte[] bytes = vault.fileBytes(Long.parseLong(p[0]), Integer.parseInt(p[1]));
+      byte[] bytes;
+      if (origin.startsWith("uri:")) {
+        // Picked from the phone's storage: read from there again.
+        UriReader r = uriReader;
+        if (r == null) return false;
+        bytes = r.read(origin.substring(4));
+      } else {
+        if (vault == null) return false;
+        String[] p = origin.split(":");
+        bytes = vault.fileBytes(Long.parseLong(p[0]), Integer.parseInt(p[1]));
+      }
       if (bytes == null || bytes.length == 0) return false;
       if (f.getParentFile() != null) f.getParentFile().mkdirs();
       Files.write(f.toPath(), bytes);

@@ -854,7 +854,7 @@ final class PyJav {
     /** --compare_to_file_sets: the compared tracks made WAVs one by one (`i` on), then the DrumMidi chain starts. */
     void pkCompareWavs(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final java.util.List<String[]> tracks, final int i, final java.util.List<String[]> wavs) {
         if (i >= tracks.size()) {
-            pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"));
+            pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"), result == null ? null : result.log);
             if (c == null) {
                 this.pkAddLogLine("No WAVs for DrumMidi: no file sets made");
                 this.pkZipFinish();
@@ -909,7 +909,9 @@ final class PyJav {
             });
             return;
         }
-        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model()));
+        Double asked = c.askedBpm();
+        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model())
+            + (asked == null ? "" : " at the tempo asked, " + (asked.doubleValue() == Math.rint(asked.doubleValue()) ? Long.toString(asked.longValue()) : asked.toString()) + " BPM"));
         app.handler.post(() -> {
             this.pkPyInputPath = null;
             app.programMenus.selectProgram("Java", "DrumMidi_CRT.jar");
@@ -2508,6 +2510,13 @@ final class PyJav {
                 int n;
                 while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
             } finally { fos.close(); in.close(); }
+            // Read again from there when the phone empties the temp folder (InputOrigins); the address stays readable.
+            try {
+                app.getContentResolver().takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                // only for this session
+            }
+            pulsekit.InputOrigins.recordUri(app.getFilesDir(), out.getAbsolutePath(), uri.toString());
             return out.getAbsolutePath();
         }
     }

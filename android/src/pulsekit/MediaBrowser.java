@@ -396,6 +396,16 @@ final class MediaBrowser {
         host.pyJav.pkOpenParams();
     }
 
+    /** What opens this browser again where it is now (Return in PyJav). */
+    Runnable returner() {
+        final Uri tree = this.tree;
+        final String base = this.base;
+        final String root = this.root;
+        final List<String> at = new ArrayList<String>(this.path);
+        final MainActivity host = this.app;
+        return () -> reopen(host, tree, base, root, at);
+    }
+
     /** The Media browser again on the folders `at` (the first the folder picked), as Return from ImageUpscaler opens it. */
     static MediaBrowser reopen(MainActivity app, Uri tree, String base, String root, List<String> at) {
         MediaBrowser b = at.size() > 0 && DOWNLOADS.equals(at.get(0)) ? new MediaBrowser(app, null, DOWNLOADS) : make(app, base, false);
@@ -533,6 +543,8 @@ final class MediaBrowser {
             }
             final File got = out;
             if (got != null) ORIGIN.put(got.getAbsolutePath(), new String[] {this.tree == null ? "" : this.tree.toString(), here()});
+            // Read again from the folder when the phone empties the temp folder (InputOrigins).
+            if (got != null) InputOrigins.recordUri(this.app.getFilesDir(), got.getAbsolutePath(), this.uri(e).toString());
             this.main.post(() -> {
                 if (got == null) {
                     this.app.setNow("Could not read " + e.name);
@@ -599,6 +611,17 @@ final class MediaBrowser {
     }
 
     /** The folder shown, as its default playlist knows it: the path, or the granted folder and the document id. */
+    /** Where in the page this folder was scrolled to, kept with its page (MediaDir.place). */
+    String scrollKey() {
+        return this.folderKey() + "\u0001y";
+    }
+
+    void rememberScroll() {
+        if (this.scroll == null || this.loading) return;
+        MediaDir.place(this.scrollKey(), this.scroll.getScrollY());
+        save(this.app);
+    }
+
     String folderKey() {
         return this.tree == null ? here() : this.tree.toString() + "|" + here();
     }
@@ -1218,6 +1241,7 @@ final class MediaBrowser {
             .setPositiveButton("Close", null)
             .create();
         this.dialog.setOnDismissListener(d -> {
+            this.rememberScroll();
             this.token++;
             if (last == this) last = null;
         });
@@ -1271,6 +1295,11 @@ final class MediaBrowser {
                 }
                 if (got == null) this.app.setNow("Could not read " + this.label() + ": pick it again with Browse");
                 this.paint();
+                // Where in the page it was left (kept on leaving it for a folder in it, and on closing).
+                final int y = MediaDir.place(this.scrollKey());
+                if (y > 0) this.main.post(() -> {
+                    if (this.scroll != null) this.scroll.scrollTo(0, y);
+                });
             });
         }, "pulsekit-media-list").start();
     }
@@ -1434,6 +1463,7 @@ final class MediaBrowser {
     void openFolder(MediaDir.Entry e) {
         // Back (Up) comes to this folder's card again: its page, scrolled to and outlined.
         CAME_FROM.put(this.folderKey(), e.id);
+        this.rememberScroll();
         this.path.add(e.id);
         this.load(e.id);
     }
@@ -1533,6 +1563,7 @@ final class MediaBrowser {
         this.page = Math.max(0, Math.min(pages - 1, p));
         // Remembered: this folder's page, for the next time it opens.
         MediaDir.place(this.folderKey(), this.page);
+        MediaDir.place(this.scrollKey(), 0);
         save(this.app);
         this.paint();
     }
@@ -1903,7 +1934,7 @@ final class MediaBrowser {
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
-                else if (MediaDir.PROCESS_REF.equals(items[which])) this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file));
+                else if (MediaDir.PROCESS_REF.equals(items[which])) this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file, this, null));
                 else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
@@ -2542,6 +2573,7 @@ final class MediaBrowser {
             if (!dir.isDirectory()) dir.mkdirs();
             got = new File(dir, e.name.replace('/', '_'));
             java.nio.file.Files.write(got.toPath(), bytes);
+            InputOrigins.record(this.app.getFilesDir(), got.getAbsolutePath(), e.dbId, PromptVault.PROMPT_FILE);
         } catch (Exception ex) {
             this.app.setNow("Could not read " + e.name);
             return;
@@ -2587,8 +2619,39 @@ final class MediaBrowser {
         bar.setBackgroundColor(0x88000000);
         bar.setPadding(this.app.dp(6), this.app.dp(4), this.app.dp(6), this.app.dp(4));
         final int side = Math.max(this.app.getResources().getDisplayMetrics().widthPixels, this.app.getResources().getDisplayMetrics().heightPixels);
+        // Crop image (the picture's long press): a frame over it (CropLayer); its long press saves or upscales the crop.
+        final CropLayer crop = new CropLayer(this.app, image, first.name, new CropLayer.Actions() {
+            public Bitmap cut(CropBox box) throws Exception {
+                return MediaBrowser.this.cut(MediaBrowser.this.uri(pictures.get(at[0])), box);
+            }
+
+            public String save(String name, byte[] png) throws Exception {
+                String[] where = new String[] {MediaBrowser.this.tree == null ? "" : MediaBrowser.this.tree.toString(), here()};
+                String said = "Saved the crop as " + saveInto(MediaBrowser.this.app, where, null, name, "image/png", png);
+                lastCrop = name;
+                // The folder lists it (behind the picture).
+                MediaBrowser.this.main.post(() -> {
+                    if (MediaBrowser.this.dialog != null && MediaBrowser.this.dialog.isShowing()) MediaBrowser.this.load(here());
+                });
+                return said;
+            }
+
+            public void upscale(String name, byte[] png) throws Exception {
+                File dir = new File(MediaBrowser.this.app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                File in = new File(dir, name);
+                java.nio.file.Files.write(in.toPath(), png);
+                ORIGIN.put(in.getAbsolutePath(), new String[] {MediaBrowser.this.tree == null ? "" : MediaBrowser.this.tree.toString(), here()});
+                MediaBrowser.this.upscaleFile(in, d);
+            }
+        });
+        crop.setTag("media-full-crop-box");
+        frame.addView(crop, new FrameLayout.LayoutParams(-1, -1));
+        final Runnable cropOff = crop::stop;
         final Runnable show = () -> {
+            cropOff.run();
             MediaDir.Entry e = pictures.get(at[0]);
+            crop.name = e.name;
             lastOpened = "picture:" + e.name;
             title.setText(e.name + "  (" + (at[0] + 1) + " of " + pictures.size() + ")");
             image.setScaleX(1f);
@@ -2657,7 +2720,22 @@ final class MediaBrowser {
             }
         });
         final float[] down = new float[2];
+        // A long press: the picture's menu (Crop image).
+        final android.view.GestureDetector press = new android.view.GestureDetector(this.app, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public void onLongPress(MotionEvent ev) {
+                if (pinch.isInProgress() || crop.cropping()) return;
+                MediaBrowser.this.pictureMenu(pictures.get(at[0]), () -> {
+                    image.setScaleX(1f);
+                    image.setScaleY(1f);
+                    image.setTranslationX(0f);
+                    image.setTranslationY(0f);
+                    crop.start();
+                });
+            }
+        });
         image.setOnTouchListener((v, ev) -> {
+            press.onTouchEvent(ev);
             pinch.onTouchEvent(ev);
             if (ev.getPointerCount() == 1 && image.getScaleX() > 1f) {
                 if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
@@ -2676,6 +2754,54 @@ final class MediaBrowser {
         d.setContentView(frame);
         d.show();
         show.run();
+    }
+
+    /** The picture viewer's menu shown last (for the tests). */
+    static AlertDialog lastPictureMenu;
+
+    /** A picture's long press in the viewer: Crop image. */
+    void pictureMenu(MediaDir.Entry e, Runnable cropImage) {
+        lastPictureMenu = new AlertDialog.Builder(this.app).setTitle(e.name)
+            .setItems(new String[] {CropBox.CROP}, (dlg, w) -> cropImage.run())
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Where an ImageView draws its picture (FIT_CENTER, unzoomed): x, y, width, height; null before it has one. */
+    static float[] drawnRect(ImageView image) {
+        android.graphics.drawable.Drawable dr = image.getDrawable();
+        if (dr == null || dr.getIntrinsicWidth() <= 0 || dr.getIntrinsicHeight() <= 0 || image.getWidth() <= 0 || image.getHeight() <= 0) return null;
+        float s = Math.min(image.getWidth() / (float) dr.getIntrinsicWidth(), image.getHeight() / (float) dr.getIntrinsicHeight());
+        float w = dr.getIntrinsicWidth() * s, h = dr.getIntrinsicHeight() * s;
+        return new float[] {(image.getWidth() - w) / 2f, (image.getHeight() - h) / 2f, w, h};
+    }
+
+    /** The last crop saved (its name), for the tests. */
+    static String lastCrop;
+
+    /** The box cut from the picture at its full size (at most 8192 pixels a side, halved until it fits). */
+    Bitmap cut(Uri u, CropBox box) throws Exception {
+        try {
+            InputStream in = this.app.getContentResolver().openInputStream(u);
+            try {
+                @SuppressWarnings("deprecation")
+                android.graphics.BitmapRegionDecoder dec = android.graphics.BitmapRegionDecoder.newInstance(in, false);
+                int[] p = box.pixels(dec.getWidth(), dec.getHeight());
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inSampleSize = 1;
+                while (Math.max(p[2], p[3]) / o.inSampleSize > 8192) o.inSampleSize *= 2;
+                Bitmap got = dec.decodeRegion(new android.graphics.Rect(p[0], p[1], p[0] + p[2], p[1] + p[3]), o);
+                dec.recycle();
+                if (got != null) return got;
+            } finally {
+                if (in != null) in.close();
+            }
+        } catch (Throwable ex) {
+            // A picture the region reader takes not: read whole below.
+        }
+        Bitmap whole = this.decode(u, 8192);
+        if (whole == null) throw new java.io.IOException("the picture could not be read");
+        int[] p = box.pixels(whole.getWidth(), whole.getHeight());
+        return Bitmap.createBitmap(whole, p[0], p[1], p[2], p[3]);
     }
 
     /** The video player's state: the last one's, for the tests too. */
@@ -3186,7 +3312,7 @@ final class MediaBrowser {
                 this.app.setNow(shown);
                 android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
                 // A frame that needs no upscaling: asked whether it goes on as a Sogni reference.
-                if (!upscale && saved[0] != null && MediaDir.processRef(this.app.getFilesDir(), savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0]);
+                if (!upscale && saved[0] != null && MediaDir.processRef(this.app.getFilesDir(), savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0], p.dialog);
             });
         }, "pulsekit-capture").start();
     }
@@ -3195,11 +3321,16 @@ final class MediaBrowser {
     static AlertDialog lastProcessAsk;
 
     /** C's frame needs no upscaling: Process it as a Sogni reference? Yes opens the program and prompt list. */
-    void askProcessRef(final String name, final byte[] png) {
+    void askProcessRef(final String name, final byte[] png, final android.app.Dialog player) {
         lastProcessAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF)
             .setMessage(name + " needs no upscaling. Process it as a reference of a Sogni program (the program and prompt, then Reference file 1 or 2)?")
-            .setPositiveButton("Yes", (d, w) -> ProcessRefDialog.open(this.app, name, png))
-            .setNegativeButton("No", null).show();
+            .setPositiveButton("Yes", (d, w) -> ProcessRefDialog.open(this.app, name, png, this, player))
+            // Not as a reference: Picture ready, with the frame's items (favourites, group, tags, playlist...).
+            .setNegativeButton("No", (d, w) -> {
+                java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+                files.add(new JavaRun.FileOut(name, png));
+                PictureOffer.offer(this.app, new JavaRun.Result("Succeeded: " + name, files, 0));
+            }).show();
     }
 
     /** A sound (a MIDI too, with the phone's own instruments): Play / Pause, Stop and a position bar. */

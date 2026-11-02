@@ -56,6 +56,12 @@ public final class ProgramParams {
     /** An on/off switch that starts ticked in Params until the program's Params are saved (SogniVideo's --saveprompt and --no_filter). */
     public boolean defaultOn;
     /**
+     * Switches this one unticks when it is ticked (SogniMusic's instrument sessions: one at a time),
+     * unless `clearsUnless` is ticked (--multi_session: several at once).
+     */
+    public String[] clears;
+    public String clearsUnless;
+    /**
      * SogniVideo's --join: a file row behind a "Join with this video" checkbox (its buttons work
      * only when it is ticked); PyJav unticks it after every run (drop).
      */
@@ -593,10 +599,44 @@ public final class ProgramParams {
     } else if (p.token.equals("--styles")) {
       p.label = "Batch styles (comma list)";
       p.hint = "empty: every style; e.g. rock,funk,metal";
+    } else if (p.token.equals("--zip")) {
+      p.label = "Batch: the MIDI files and batch.txt in a zip too";
+    } else if (p.token.equals("--zip_mb")) {
+      p.label = "Batch: zips of at most this many MB each";
+      p.hint = "empty: one zip; e.g. 1 makes part1of3, part2of3...";
     }
   }
 
+  /**
+   * Switch `ticked` was just ticked: the rows to untick (its `clears`), none when its `clearsUnless`
+   * is ticked (`on`: each row's tick now).
+   */
+  public static List<Integer> toClear(List<Param> ps, int ticked, boolean[] on) {
+    List<Integer> out = new ArrayList<Integer>();
+    Param p = ps.get(ticked);
+    if (p.clears == null) return out;
+    for (int i = 0; i < ps.size(); i++) if (p.clearsUnless != null && ps.get(i).token.equals(p.clearsUnless) && on[i]) return out;
+    for (int i = 0; i < ps.size(); i++) {
+      if (i == ticked || !on[i]) continue;
+      for (String c : p.clears) if (c.equals(ps.get(i).token)) out.add(i);
+    }
+    return out;
+  }
+
   private static void knownSogniMusic(Param p) {
+    // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
+    String[][] sessions = MusicExpect.SESSIONS;
+    for (int i = 0; i < sessions.length; i++) {
+      if (!p.flag || p.takesValue || !p.token.equals(sessions[i][0])) continue;
+      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only"}[i] + " (instrument session)";
+      List<String> others = new ArrayList<String>();
+      for (String[] o : sessions) if (!o[0].equals(p.token)) others.add(o[0]);
+      p.clears = others.toArray(new String[0]);
+      p.clearsUnless = MusicExpect.MULTI;
+    }
+    if (p.flag && !p.takesValue && p.token.equals(MusicExpect.MULTI)) {
+      p.label = "Multi-instrument session: each ticked session below is a track of its own (each a paid run)";
+    }
     if (p.takesValue && p.token.equals("--duration")) {
       p.label = "Duration in seconds: 10 to 600";
       p.hint = "empty: 30; with Random: drawn for each track, 30 to 90";
@@ -720,7 +760,9 @@ public final class ProgramParams {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
-      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: as the MIDI has them";
+      p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+    } else if (p.token.equals("--no-map")) {
+      p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
     } else if (p.token.equals("--map2") || p.token.equals("--map3")) {
       p.label = "Test: the " + (p.token.equals("--map2") ? "second" : "third") + " plugin's own notes map";
       p.hint = "empty: the map above is its map too";

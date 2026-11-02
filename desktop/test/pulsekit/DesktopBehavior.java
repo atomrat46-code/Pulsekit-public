@@ -7342,9 +7342,14 @@ public final class DesktopBehavior {
         + "print('mapped', vr.mapped(played, m))\n"
         + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
         + "print('score', vr.score_line(rows))\n"
+        + "print('default', [(p, vr.default_map(p)[1]) for p in ('Riot Drums.vst3', 'Anarchy Drums.vst3', 'Ugritone Drums.vst3', 'Other Kit.vst3')])\n"
         + "for bad in ('45', '45=x', '200=46'):\n"
         + "    try: vr.note_map(bad); print('kept', bad)\n"
         + "    except ValueError as e: print('refused', e)\n";
+    // Pulsekit's drum-kits.txt where vst_render looks for a map's bare name (the maps folder beside it): with --map empty, --test uses its section for the plugin.
+    File maps = new File(dir, "maps");
+    maps.mkdirs();
+    Files.write(new File(maps, "drum-kits.txt").toPath(), ProgramFiles.read("Python", "maps/drum-kits.txt"));
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), file.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 60, null).trim();
@@ -7358,7 +7363,8 @@ public final class DesktopBehavior {
         && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
         && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
         && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
-        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays");
+        && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays")
+        && said.contains("default [('Riot Drums.vst3', 'Riot Drums'), ('Anarchy Drums.vst3', 'Anarchy Drums'), ('Ugritone Drums.vst3', 'Ugritone Drums'), ('Other Kit.vst3', None)]");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -7450,11 +7456,51 @@ public final class DesktopBehavior {
       if (q.token.equals("--plugin2") || q.token.equals("--dir2") || q.token.equals("--bpm_from_name")) labels += q.token + (q.plugin ? " (plugin)" : q.dir ? " (folder)" : "") + ", ";
     this.out.append(said).append("\nParams: ").append(labels).append('\n');
     boolean ok = said.contains("== Plugin 1 of 2: a.vst3") && said.contains("== Plugin 2 of 2: b.vst3") && said.contains("Plugins: a.vst3 done, b.vst3 done")
-        && said.contains("fills/100 rock/Fill 1-a.wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a.wav: 1.6 s at 80 BPM (name)")
-        && said.contains("patterns/120 Own Tempo-b.wav: 1.4 s at its own 90 BPM (its name says 120)")
-        && said.contains("made fills/100 rock/Fill 1-a.wav fills/100 rock/Fill 1-b.wav patterns/120 Own Tempo-a.wav patterns/120 Own Tempo-b.wav patterns/80bpm Groove-a.wav patterns/80bpm Groove-b.wav")
+        && said.contains("fills/100 rock/Fill 1-a (default kit).wav: 1.3 s at 100 BPM (name)") && said.contains("patterns/80bpm Groove-a (default kit).wav: 1.6 s at 80 BPM (name)")
+        && said.contains("patterns/120 Own Tempo-b (default kit).wav: 1.4 s at its own 90 BPM (its name says 120)")
+        && said.contains("made fills/100 rock/Fill 1-a (default kit).wav fills/100 rock/Fill 1-b (default kit).wav patterns/120 Own Tempo-a (default kit).wav patterns/120 Own Tempo-b (default kit).wav patterns/80bpm Groove-a (default kit).wav patterns/80bpm Groove-b (default kit).wav")
+        && said.contains("Kit: default kit (no --kit_name given)")
         && labels.contains("--plugin2 (plugin)") && labels.contains("--dir2 (folder)") && labels.contains("--bpm_from_name");
     if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * vst_render's kit load timer: Edit settings times the plugin's window from opening to Stop timer
+   * (PULSEKIT_TIMER_FILE), else to its closing; a test waits at most that long for the kit (at least
+   * 5 s), 30 s without one. Stop timer sits beside Edit settings.
+   */
+  void s183_vst_kit_load_timer() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "timer-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types, threading, time\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "timer = os.path.join(d, 'timer'); os.environ['PULSEKIT_TIMER_FILE'] = timer\n"
+        + "class P:\n"
+        + "    def open_editor(self): time.sleep(2.5)\n"
+        + "    def save_state(self, path): open(path, 'w').write('s')\n"
+        + "    def get_patch(self): return []\n"
+        + "threading.Timer(1.2, lambda: open(timer, 'w').close()).start()\n"
+        + "state = os.path.join(d, 'kvlt.state')\n"
+        + "vr.edit(P(), os.path.join(d, 'k.vst3'), state, 'Plugin')\n"
+        + "print('kept %.1f' % float(open(state + '.load').read()))\n"
+        + "print('limit %.0f, none %.0f' % (vr.load_limit('x', state), vr.load_limit('x', os.path.join(d, 'none.state'))))\n"
+        + "open(state + '.load', 'w').write('42.0')\n"
+        + "print('long %.0f' % vr.load_limit('x', state))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said).append('\n');
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("kept ([0-9.]+)").matcher(said);
+    double kept = m.find() ? Double.parseDouble(m.group(1)) : -1;
+    boolean ok = kept >= 1.0 && kept < 2.2 && said.contains("Timer stopped") && said.contains("Kit load time") && said.contains("(Stop timer)")
+        && said.contains("limit 5, none 30") && said.contains("long 42");
+    javax.swing.JButton b = PluginsList.stopTimerButton("t");
+    this.out.append("button: ").append(b.getText()).append(", enabled ").append(b.isEnabled()).append('\n');
+    if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
   }
 
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
@@ -8753,6 +8799,53 @@ public final class DesktopBehavior {
     }
   }
   /**
+   * Crop image in the Preview window (the picture's right click or long press): the frame; its menu
+   * then has Save as… (the crop at its full size, under the name given, in the picture's folder),
+   * Upscale (ImageUpscaler with it) and Cancel crop.
+   */
+  void s182_preview_crop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File folder = new File(home, "crop-pics");
+    folder.mkdirs();
+    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(img, "png", png);
+    final byte[] bytes = png.toByteArray();
+    Files.write(new File(folder, "a.png").toPath(), bytes);
+    PromptDb db = (PromptDb) get("promptDb");
+    final CropBox[] box = new CropBox[1];
+    final JLabel label = new JLabel();
+    final float[] zoomed = new float[1];
+    // The picture's menu: Crop image starts the frame (at 100%).
+    edt(() -> db.cropItem(CropBox.CROP, "a.png", bytes, box, folder, null, label, f -> zoomed[0] = f));
+    out.append("Crop image: frame ").append(box[0] != null).append(", zoom ").append(zoomed[0]).append('\n');
+    if (box[0] == null || zoomed[0] != 1f) throw new AssertionError(out.toString());
+    // Save as…: the name asked (given here), saved in the picture's folder.
+    PromptDb.cropNameAnswer = n -> "mine";
+    try {
+      edt(() -> db.cropItem(CropBox.SAVE, "a.png", bytes, box, folder, null, label, f -> {}));
+    } finally {
+      PromptDb.cropNameAnswer = null;
+    }
+    File made = new File(folder, "mine.png");
+    java.awt.image.BufferedImage back = made.isFile() ? javax.imageio.ImageIO.read(made) : null;
+    out.append("Save as: ").append(back == null ? "none" : made.getName() + " " + back.getWidth() + " x " + back.getHeight()).append(" | ").append(((JLabel) get("nowPlaying")).getText()).append('\n');
+    if (back == null || back.getWidth() != 32 || back.getHeight() != 24) throw new AssertionError(out.toString());
+    // Upscale: ImageUpscaler with the crop (not saved beside the picture).
+    edt(() -> db.cropItem(CropBox.UPSCALE, "a.png", bytes, box, folder, null, label, f -> {}));
+    Thread.sleep(300);
+    out.append("Upscale: ").append(db.lastCrop == null ? "none" : db.lastCrop.getName()).append(", program ").append(get("pyName"))
+        .append(", beside the picture ").append(new File(folder, "a-crop.png").isFile()).append('\n');
+    if (db.lastCrop == null || !"ImageUpscaler.java".equals(String.valueOf(get("pyName"))) || new File(folder, "a-crop.png").isFile()) throw new AssertionError(out.toString());
+    edt(() -> db.cropItem(CropBox.CANCEL, "a.png", bytes, box, folder, null, label, f -> {}));
+    if (box[0] != null) throw new AssertionError(out.toString());
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing()) w.dispose();
+    });
+  }
+
+
+  /**
    * SogniMusic --random 6 --model turbo,sft: 12 runs on a fake Sogni that turns away an 11th active
    * workflow (409, as Sogni does): at most 10 go on at once, each next one starts when one is over,
    * and all 12 tracks are made.
@@ -9935,7 +10028,7 @@ public final class DesktopBehavior {
     call("selectListedProgram", "Java", "MidiDrumGen.java");
     javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
     edt(() -> log.setText(""));
-    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3"));
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--count 3 --seed 5 --styles rock,funk --outdir gen3 --zip"));
     edt(() -> call("runPython"));
     for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Succeeded") && !String.valueOf(log.getText()).contains("Failed"); i++) Thread.sleep(50);
     Thread.sleep(300);
@@ -9954,6 +10047,19 @@ public final class DesktopBehavior {
     int grooves = 0;
     for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;
     if (grooves != 3 || list.contains("\thouse\t")) throw new AssertionError(out.toString());
+    // --zip: the grooves and batch.txt in gen3.zip beside them (taken away again: CompareHits reads the folder).
+    File zipped = new File(dir, "gen3.zip");
+    int inZip = 0;
+    if (zipped.isFile()) {
+      try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zipped)) {
+        inZip = zf.size();
+      }
+    }
+    out.append("gen3.zip: ").append(inZip).append(" files\n");
+    if (inZip != 4) throw new AssertionError(out.toString());
+    zipped.delete();
+    names = dir.list();
+    java.util.Arrays.sort(names);
     // vst_render.py --dir --test leaves <groove>-<plugin>-dm.mid beside each render.
     for (String n : names) {
       if (n.endsWith(".mid")) Files.copy(new File(dir, n).toPath(), new File(dir, n.replace(".mid", "-Kit-dm.mid")).toPath());

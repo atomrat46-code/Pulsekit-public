@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -95,10 +95,14 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --map2, --map3  --plugin2's and --plugin3's own --map (pairs or a file); without one, --map is theirs too.
                   A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
                   maps folder beside this script.
+  --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
+                  (Anarchy, Riot, Ugritone/KVLT) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
                   so it is given here. It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
                   the zip) and in the report. --kit_name2, --kit_name3: --plugin2's and --plugin3's.
+                  Left blank: "default kit" (the plugin's own; Anarchy and Riot have one), or
+                  "saved kit" when a kit saved with --edit (or --state) is used.
   --mp3 KBPS      then turns each WAV into an MP3 at KBPS (128, 192, 256, 320...) with Pulsekit's
                   Wav2Mp3 (in its DrumMidi_CRT.jar: --drummidi and --java, which Pulsekit gives) and
                   deletes the WAV: a 20 s WAV of 3.5 MB is about 0.5 MB at 192. With --test the WAVs
@@ -836,6 +840,19 @@ def map_key(name):
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def default_map(plugin):
+    """The map --test uses when none is given: Pulsekit's drum-kits.txt, when it has a section for
+    the plugin (Anarchy, Riot, Ugritone/KVLT). (file, section), or (None, None)."""
+    known = map_file("drum-kits.txt")
+    if not os.path.isfile(known):
+        return None, None
+    try:
+        found, part = map_for(known, plugin)
+    except (ValueError, OSError):
+        return None, None
+    return (known, part) if part else (None, None)
+
+
 def map_for(text, plugin=None):
     """--map's notes for the plugin, and which part of the map they came from.
 
@@ -1078,12 +1095,35 @@ def edit(proc, plugin, given, label):
     path = given or state_home(plugin)
     if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
         path = os.path.splitext(path)[0] + ".state"
-    print("%s: its window is open. Load a kit or patch, then close the window." % label)
+    print("%s: its window is open. Load a kit or patch; press Stop timer in Pulsekit when the kit has loaded "
+          "(a test waits at most that long for it), then close the window." % label)
     sys.stdout.flush()
+    # The kit's load time: from the window opening to Stop timer (Pulsekit's PULSEKIT_TIMER_FILE), or
+    # to the window closing. A test waits at most this long for a slow sampler (KVLT) to have its kit.
+    import threading
+    import time
+    started = time.time()
+    timer = {"stopped": None, "open": True}
+    timer_file = os.environ.get("PULSEKIT_TIMER_FILE")
+
+    def watch():
+        while timer["open"] and timer_file:
+            if os.path.exists(timer_file):
+                timer["stopped"] = time.time()
+                print("Timer stopped: %.1f s" % (timer["stopped"] - started))
+                sys.stdout.flush()
+                return
+            time.sleep(0.2)
+
+    if timer_file:
+        threading.Thread(target=watch, daemon=True).start()
     try:
         proc.open_editor()
     except Exception as e:
         fail("the plugin's window could not open (%s). --edit works on Windows and Mac." % e)
+    finally:
+        timer["open"] = False
+    took = (timer["stopped"] or time.time()) - started
     folder = os.path.dirname(path)
     if folder and not os.path.isdir(folder):
         os.makedirs(folder)
@@ -1092,7 +1132,26 @@ def edit(proc, plugin, given, label):
     with open(path + ".params.json", "w") as f:
         json.dump([[int(i), float(v)] for i, v in proc.get_patch()], f)
     print("Wrote %s settings: %s" % (label, path))
+    with open(path + ".load", "w") as f:
+        f.write("%.1f\n" % took)
+    print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if timer["stopped"] else "until the window closed"))
     return path
+
+
+# Without a kit load time (Edit settings' timer), a test waits at most this long for a slow kit.
+LOAD_WAIT = 30.0
+
+
+def load_limit(plugin, given):
+    """How long a test waits for the plugin's kit: the load time Edit settings measured (at least 5 s), else LOAD_WAIT."""
+    path = given or state_home(plugin)
+    if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
+        path = os.path.splitext(path)[0] + ".state"
+    try:
+        with open(path + ".load") as f:
+            return max(5.0, float(f.read().strip()))
+    except (OSError, ValueError):
+        return LOAD_WAIT
 
 
 def load_plugin(engine, name, path):
@@ -1225,6 +1284,19 @@ def check_midi(folder):
     return path
 
 
+def kit_missing(said):
+    """The kick and toms DrumMidi --learn-kit heard nothing (or next to nothing) of: how many (99 when it
+    learned no tom, or failed)."""
+    if not said.startswith("Wrote ") or "no tom played" in said:
+        return 99
+    n = 0
+    for part in said.split(";"):
+        part = part.strip()
+        if part.startswith("silent in this kit:") or part.startswith("nothing to read:"):
+            n += len(re.findall(r"\b\d+ \(", part))
+    return n
+
+
 def learn_kit(java, jar, audio, rate, bits, nmap, out):
     """DrumMidi --learn-kit on the test beat's render: the kit's kick and toms as the plugin plays them
     (--map: a note played as another drum, or not at all, is not learned), into `out`. Returns
@@ -1310,6 +1382,8 @@ class Chain(object):
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
+        # How long a test waits for a slow kit (the load time Edit settings measured).
+        self.load_limit = load_limit(clap or self.plugin, opts["--state"])
         self.fx = None
         effect = opts["--effect"]
         if effect:
@@ -1587,7 +1661,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--no-kit", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -1727,10 +1801,15 @@ def main(argv):
                 return (names[r] + os.sep if two else "") + os.path.relpath(path, r)
         return path
     test = "--test" in switches
-    # The plugin's name in the output files, with the kit loaded in it (--kit_name).
-    tag = kit_tag(name, opts["--kit_name"])
-    if opts["--kit_name"]:
+    # The plugin's name in the output files, with the kit loaded in it (--kit_name). Left blank, a
+    # plugin's kit is named for what it plays: the kit saved for it (--edit, --state), else its default.
+    if not (opts["--kit_name"] or "").strip() and (opts["--plugin"] or opts["--clap"]) and not opts["--carla"] and not opts["--drumgizmo"]:
+        plug = opts["--plugin"] or opts["--clap"]
+        opts["--kit_name"] = "saved kit" if opts["--state"] or os.path.isfile(state_home(plug)) else "default kit"
+        print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
+    elif opts["--kit_name"]:
         print("Kit: %s (--kit_name)" % opts["--kit_name"])
+    tag = kit_tag(name, opts["--kit_name"])
     if test:
         if opts["--wav"]:
             fail("--test checks a MIDI's render; --wav has no MIDI to check against")
@@ -1739,6 +1818,13 @@ def main(argv):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     nmap = {}
     map_part = None
+    if test and not (opts["--map"] or "").strip() and "--no-map" not in switches and (opts["--plugin"] or opts["--clap"]):
+        # No --map given: the map Pulsekit keeps (drum-kits.txt) when it has a section for this plugin
+        # (Anarchy, Riot, Ugritone/KVLT): what the plugin really plays for the MIDI's notes.
+        known, part = default_map(name)
+        if known:
+            opts["--map"] = known
+            print("Map: drum-kits.txt, section [%s] (no --map given; --no-map leaves it out)" % part)
     if opts["--map"]:
         if not test:
             fail("--map is for --test: what the plugin plays for the MIDI's notes")
@@ -1846,6 +1932,7 @@ def main(argv):
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
     kit_file = None
+    kit_said = "not learned (--no-kit, or no test beat)"
     if not opts["--wav"]:
         # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
@@ -1854,6 +1941,26 @@ def main(argv):
         except ValueError as e:
             fail("the test beat did not play (%s)" % e)
         check_audio, check_note = finish(np, check_audio, volume)
+        if check_note and check_note.startswith("the render is silent"):
+            # A sampler still loading its kit (KVLT takes long to load a preset) is silent at first:
+            # the test beat again every 5 s, for up to the kit's load time (Edit settings' timer; else
+            # 30 s), before it counts as silent.
+            import time
+            limit = getattr(chain, "load_limit", LOAD_WAIT)
+            waited = 0
+            while check_note and check_note.startswith("the render is silent") and waited < limit and not STOP["asked"]:
+                if waited == 0:
+                    print("Plugin check: silent at first (the kit still loading?): trying again every 5 s, for up to %.0f s" % limit)
+                step = min(5.0, limit - waited)
+                time.sleep(step)
+                waited += step
+                try:
+                    check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)
+                except ValueError:
+                    break
+                check_audio, check_note = finish(np, check_audio, volume)
+            if waited and not (check_note and check_note.startswith("the render is silent")):
+                print("Plugin check: it plays after %.0f s" % waited)
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
@@ -1866,10 +1973,43 @@ def main(argv):
                 os.makedirs(where)
             kit_file = os.path.join(where, "vst-kit-%s.kit" % tag)
             said = learn_kit(opts["--java"], opts["--drummidi"], check_audio, rate, bits, nmap, kit_file)
+            if kit_missing(said):
+                # A sampler still loading its kit (KVLT takes long to load a preset) plays the first
+                # renders without some drums: the test beat again every 5 s, for up to 30 s, until every
+                # tom the map plays is heard; the kit is learned from the render with the most of them.
+                import time
+                import shutil
+                waited = 0
+                first = kit_missing(said)
+                best = first
+                trial = kit_file + ".try"
+                limit = getattr(chain, "load_limit", LOAD_WAIT)
+                while best and waited < limit and not STOP["asked"]:
+                    step = min(5.0, limit - waited)
+                    time.sleep(step)
+                    waited += step
+                    try:
+                        again, _, _ = chain.render(np, midi=beat, tail=1.0)
+                    except ValueError:
+                        break
+                    again, _ = finish(np, again, volume)
+                    said2 = learn_kit(opts["--java"], opts["--drummidi"], again, rate, bits, nmap, trial)
+                    if said2.startswith("Wrote ") and kit_missing(said2) < best:
+                        best = kit_missing(said2)
+                        shutil.move(trial, kit_file)
+                        said = said2.replace(os.path.basename(trial), os.path.basename(kit_file))
+                        check_audio = again
+                if os.path.isfile(trial):
+                    os.remove(trial)
+                print("Kit: %d of the kick and toms silent in the first test beat (the kit still loading?); %s after %.0f s (waited at most %.0f s%s)"
+                      % (first, "all heard" if not best else "%d still silent" % best, waited, limit,
+                         ", the kit's load time" if limit != LOAD_WAIT else "; Edit settings' Stop timer sets it"))
             if said.startswith("Wrote "):
+                kit_said = said[6:]
                 print("Kit: " + said[6:])
             else:
                 kit_file = None
+                kit_said = "not learned (%s); the test went on without it" % said
                 print("Kit: not learned (%s); the test goes on without it" % said)
         if "--check" in switches:
             where = opts["--outdir"] or "."
@@ -1974,6 +2114,7 @@ def main(argv):
                   "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
                                       ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
+                  "Kit profile (the test beat's kick and toms): " + kit_said,
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         tested = 0

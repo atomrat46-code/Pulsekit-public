@@ -30,6 +30,9 @@ final class ProcessRefDialog {
     AlertDialog dialog;
     /** The dialog shown last (for the tests). */
     static ProcessRefDialog last;
+    /** Opened from the Media browser (C on a video, or a file's menu): it and its player close on Open, and Return opens it again. */
+    MediaBrowser from;
+    android.app.Dialog player;
 
     @SuppressWarnings("unchecked")
     private ProcessRefDialog(MainActivity app, File picture) {
@@ -47,6 +50,11 @@ final class ProcessRefDialog {
 
     /** Picture ready's button: the picture (written to a file when it is not one yet). */
     static void open(MainActivity app, String name, byte[] bytes) {
+        open(app, name, bytes, null, null);
+    }
+
+    /** As above, from the Media browser `from` (and its video `player`, or null). */
+    static void open(MainActivity app, String name, byte[] bytes, MediaBrowser from, android.app.Dialog player) {
         File dir = new File(app.getFilesDir(), "process-ref");
         dir.mkdirs();
         File f = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_"));
@@ -56,11 +64,17 @@ final class ProcessRefDialog {
             app.setNow("Could not keep " + name + " for the next program");
             return;
         }
-        open(app, f);
+        open(app, f, from, player);
     }
 
     static void open(MainActivity app, File picture) {
+        open(app, picture, null, null);
+    }
+
+    static void open(MainActivity app, File picture, MediaBrowser from, android.app.Dialog player) {
         ProcessRefDialog d = new ProcessRefDialog(app, picture);
+        d.from = from;
+        d.player = player;
         if (d.programs.isEmpty()) {
             new AlertDialog.Builder(app).setTitle("Process as a reference")
                 .setMessage("No program that takes pictures has been run yet. Run SogniPedit or SogniVideo once (PyJav), and it is listed here.")
@@ -163,9 +177,16 @@ final class ProcessRefDialog {
         PyJav pj = this.app.pyJav;
         pj.pkPyRecentItems = this.recent;
         int index = item == null ? this.recent.indexOf(PyJavRecent.tapped(this.recent, this.program)) : this.recent.indexOf(item);
+        // From the Media browser: it (and its video) closes, so the program and its Params are on top.
+        Runnable back = this.from == null ? null : this.from.returner();
+        if (this.player != null && this.player.isShowing()) this.player.dismiss();
+        if (this.from != null && this.from.dialog != null) this.from.dialog.dismiss();
         this.app.show("py");
         if (index >= 0) pj.pkApplyRecent(index + 1);
         if (pj.pkPyArgs != null) pj.pkPyArgs.setText(extra);
+        if (back != null) pj.pkSetReturn(back);
         this.app.setNow(this.program + " · " + this.picture.getName() + " as Reference file " + this.slot + ": Run starts it");
+        // Its Params, with the picture in its slot.
+        pj.pkOpenParams();
     }
 }

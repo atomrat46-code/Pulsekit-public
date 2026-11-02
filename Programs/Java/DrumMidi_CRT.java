@@ -1827,8 +1827,12 @@ public class DrumMidi_CRT{
     static {
         for (int n = 0; n < KIT_N; n++) KIT_WINDOW[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (KIT_N - 1));
     }
-    /** A tom in the test beat under KIT_SILENT of the kick's level is not played by this kit. */
-    static final double KIT_SILENT = 0.05;
+    /**
+     * A tom in the test beat under KIT_SILENT of the kick's level (40-800 Hz) is not played by this kit.
+     * 1%: a metal kit's kick is loud below 800 Hz, so toms that ring can stay under 5% of it (KVLT's
+     * were all left out at 5%); a note a kit does not play is far quieter (only the other mics' bleed).
+     */
+    static final double KIT_SILENT = 0.01;
 
     static final class KitProfile {
         final String name;
@@ -1889,6 +1893,17 @@ public class DrumMidi_CRT{
             return out;
         }
 
+        /** Where the hit of a note at `time` starts: the first sample within 0.45 s of it (from 20 ms
+         * before) at a third of that stretch's peak, less 5 ms; -1 where it is silent or past the end. */
+        static double onset(double[] x, double sr, double time) {
+            int a = Math.max(0, (int) Math.round((time - 0.02) * sr)), b = Math.min(x.length, (int) Math.round((time + 0.45) * sr));
+            double peak = 0;
+            for (int i = a; i < b; i++) peak = Math.max(peak, Math.abs(x[i]));
+            if (peak <= 0) return -1;
+            for (int i = a; i < b; i++) if (Math.abs(x[i]) >= peak / 3) return Math.max(time - 0.02, i / sr - 0.005);
+            return time;
+        }
+
         static double like(double[] a, double[] b) {
             double s = 0;
             for (int k = 0; k < KIT_BANDS; k++) s += a[k] * b[k];
@@ -1901,13 +1916,27 @@ public class DrumMidi_CRT{
             List<Integer> order = new ArrayList<Integer>();
             java.util.Map<Integer, double[]> sum = new java.util.HashMap<Integer, double[]>();
             java.util.Map<Integer, Integer> count = new java.util.HashMap<Integer, Integer>();
+            // Notes with no sound to read at their hits: past the render's end, or digital silence there.
+            java.util.Map<Integer, String> unread = new java.util.LinkedHashMap<Integer, String>();
+            double renderSec = audio.samples.length / (double) audio.sampleRate;
+            double late = 0;
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
                 int note = Integer.parseInt(w[1]);
                 if (note != KICK_NOTE && !isTomNote(note)) continue;
-                double[] v = spectrum(audio.samples, audio.sampleRate, Double.parseDouble(w[0]));
-                if (v == null) continue;
+                double at = Double.parseDouble(w[0]);
+                // The hit as the plugin plays it: where its sound starts, up to 0.45 s after the note
+                // (a plugin may play some drums late), not the note's own time.
+                double onset = onset(audio.samples, audio.sampleRate, at);
+                if (onset - at > late) late = onset - at;
+                double[] v = onset < 0 ? null : spectrum(audio.samples, audio.sampleRate, onset);
+                if (v == null) {
+                    if (!sum.containsKey(Integer.valueOf(note)) && !unread.containsKey(Integer.valueOf(note)))
+                        unread.put(Integer.valueOf(note), at + 0.2 > renderSec ? "after the render's end (" + num(renderSec) + " s)" : "no sound at " + num(at) + " s");
+                    continue;
+                }
+                unread.remove(Integer.valueOf(note));
                 Integer key = Integer.valueOf(note);
                 if (!sum.containsKey(key)) {
                     sum.put(key, new double[KIT_BANDS + 1]);
@@ -1931,7 +1960,7 @@ public class DrumMidi_CRT{
                 double[] s = sum.get(n);
                 int c = count.get(n).intValue();
                 if (n.intValue() != KICK_NOTE && s[KIT_BANDS] / c < KIT_SILENT * kickLevel) {
-                    left.add(String.valueOf(n));
+                    left.add(n + " (" + String.format(java.util.Locale.ROOT, "%.1f", 100 * s[KIT_BANDS] / c / kickLevel) + "% of the kick)");
                     continue;
                 }
                 double norm = 0;
@@ -1943,7 +1972,12 @@ public class DrumMidi_CRT{
                 kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
             }
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
-            finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left)));
+            List<String> none = new ArrayList<String>();
+            for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
+            finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left))
+                + (none.isEmpty() ? "" : "; nothing to read: " + String.join(", ", none))
+                + (late > 0.03 ? "; hits up to " + Math.round(late * 1000) + " ms after their notes" : "")
+                + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?"));
         }
 
         static KitProfile read(File f) throws Exception {

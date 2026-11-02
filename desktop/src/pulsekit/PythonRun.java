@@ -47,6 +47,20 @@ public final class PythonRun {
   /** The script running now, and the file that asks it to stop (its PULSEKIT_STOP_FILE). */
   static volatile Process current;
   static volatile File stopFile;
+  /** The file that stops the kit load timer of vst_render's Edit settings (its PULSEKIT_TIMER_FILE). */
+  static volatile File timerFile;
+
+  /** Stop timer (Edit settings): the plugin's kit has loaded; true when a run was told. */
+  static boolean stopTimer() {
+    Process p = current;
+    File f = timerFile;
+    if (p == null || !p.isAlive() || f == null) return false;
+    try {
+      return f.exists() || f.createNewFile();
+    } catch (Exception ex) {
+      return false;
+    }
+  }
 
   /**
    * Stop script: the first press asks the script to stop (vst_render.py ends after the file in
@@ -304,6 +318,10 @@ public final class PythonRun {
       pb.environment().put("PYTHONUNBUFFERED", "1");
       File stopAsk = dir.resolve("pulsekit-stop").toFile();
       pb.environment().put("PULSEKIT_STOP_FILE", stopAsk.getAbsolutePath());
+      File timerAsk = dir.resolve("pulsekit-timer").toFile();
+      timerAsk.delete();
+      pb.environment().put("PULSEKIT_TIMER_FILE", timerAsk.getAbsolutePath());
+      timerFile = timerAsk;
       Process proc = pb.start();
       stopFile = stopAsk;
       current = proc;
