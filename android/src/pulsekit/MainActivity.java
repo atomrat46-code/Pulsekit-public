@@ -886,6 +886,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) PyJavParams.dirPicked(this, intent.getData());
             return;
         }
+        if (n == MediaBrowser.IMPORT_ZIP) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) MediaBrowser.zipPicked(this, intent.getData());
+            return;
+        }
         if (n == MediaBrowser.IMPORT_FILES || n == MediaBrowser.IMPORT_FOLDER || n == MediaBrowser.COPY_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null) MediaBrowser.imported(this, n, intent);

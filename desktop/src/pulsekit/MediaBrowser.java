@@ -273,6 +273,29 @@ final class MediaBrowser {
                 });
                 loopRow.add(b, 0);
             }
+            // Send folder contents to zip (a password made for it), Import files from zip….
+            JButton toZip = new JButton(FolderZip.SEND);
+            toZip.setName("media-folder-zip");
+            toZip.addActionListener(e -> {
+                String said = this.folderToZip(dialog, dir);
+                if (said == null) return;
+                app.setNow(said);
+                lastImport = said;
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            JButton fromZip = new JButton(FolderZip.IMPORT);
+            fromZip.setName("media-import-zip");
+            fromZip.addActionListener(e -> {
+                String said = this.importZip(dialog, dir);
+                if (said == null) return;
+                app.setNow(said);
+                lastImport = said;
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            loopRow.add(fromZip, 0);
+            loopRow.add(toZip, 0);
         }
         // The favourite folders, and the folders with a playlist: each opens here.
         if (this.chooser == null) {
@@ -832,6 +855,102 @@ final class MediaBrowser {
     /** Save pls: the folder's playlist as the named .pls with the playlists (replacing one of that name); the status line. */
     /** What the last import said (for the tests). */
     static String lastImport;
+
+    /**
+     * The folder zips' questions answered (for the tests): the question ("zip file", "password",
+     * "where", or "shown <password>") to the answer; null: asked.
+     */
+    static java.util.function.Function<String, String> zipAnswer;
+
+    /** Send folder contents to zip: the folder's files into "<folder>.zip" there, with a password made and shown once; what it did. */
+    String folderToZip(JDialog dialog, File dir) {
+        String name = FolderZip.zipFor(dir.getName());
+        File out = new File(dir, name);
+        for (int n = 1; out.exists(); n++) out = new File(dir, name.replaceAll("\\.zip$", "") + " (" + n + ").zip");
+        List<ZipPack.Source> sources = FolderZip.files(dir, out.getName());
+        if (sources.isEmpty()) return dir.getName() + " has no files to zip";
+        String pw = FolderZip.password();
+        try {
+            ZipPack.write(out, sources, pw.toCharArray());
+        } catch (Exception ex) {
+            out.delete();
+            return "Could not zip " + dir.getName() + ": " + ex.getMessage();
+        }
+        String said = FolderZip.sent(out.getName(), sources.size(), dir.getName());
+        if (zipAnswer != null) {
+            zipAnswer.apply("shown " + pw);
+        } else {
+            // The password, to copy: Pulsekit does not keep it.
+            javax.swing.JTextField field = new javax.swing.JTextField(pw, 22);
+            field.setEditable(false);
+            field.setName("media-zip-password");
+            field.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.BOLD, 15));
+            JPanel box = new JPanel(new BorderLayout(0, 6));
+            box.add(new JLabel(said + "."), BorderLayout.NORTH);
+            box.add(field, BorderLayout.CENTER);
+            box.add(new JLabel(FolderZip.KEEP), BorderLayout.SOUTH);
+            Object[] options = {"Copy password", "Close"};
+            int ans = javax.swing.JOptionPane.showOptionDialog(dialog, box, "Password for " + out.getName(), javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (ans == 0) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(pw), null);
+        }
+        return said;
+    }
+
+    /** Import files from zip: a zip picked, its password, then into this folder or a folder named for the zip; what it did, or null. */
+    String importZip(JDialog dialog, File dir) {
+        File zip;
+        if (zipAnswer != null) {
+            String a = zipAnswer.apply("zip file");
+            if (a == null) return null;
+            zip = new File(a);
+        } else {
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            chooser.setDialogTitle(FolderZip.IMPORT);
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Zip files", "zip"));
+            if (chooser.showOpenDialog(dialog) != javax.swing.JFileChooser.APPROVE_OPTION) return null;
+            zip = chooser.getSelectedFile();
+        }
+        if (zip == null || !zip.isFile()) return null;
+        List<ZipPack.Entry> entries;
+        try {
+            entries = ZipPack.list(zip);
+        } catch (Exception ex) {
+            return "Could not read " + zip.getName() + ": " + ex.getMessage();
+        }
+        char[] pw = null;
+        while (ZipPack.encrypted(entries)) {
+            String typed;
+            if (zipAnswer != null) typed = zipAnswer.apply("password");
+            else {
+                javax.swing.JPasswordField field = new javax.swing.JPasswordField(22);
+                int ans = javax.swing.JOptionPane.showConfirmDialog(dialog, new Object[] {ZipPack.ASK_PASSWORD, field}, zip.getName(), javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                    javax.swing.JOptionPane.PLAIN_MESSAGE);
+                typed = ans == javax.swing.JOptionPane.OK_OPTION ? new String(field.getPassword()) : null;
+            }
+            if (typed == null) return "Not imported: " + zip.getName();
+            if (ZipPack.passwordOk(zip, entries, typed.toCharArray())) {
+                pw = typed.toCharArray();
+                break;
+            }
+            app.setNow(ZipPack.WRONG_PASSWORD + " " + zip.getName());
+            if (zipAnswer != null) return ZipPack.WRONG_PASSWORD + " " + zip.getName();
+        }
+        String folder = FolderZip.folderFor(zip.getName());
+        File sub = new File(dir, folder);
+        String[] where = {FolderZip.HERE, FolderZip.newFolder(folder, sub.isDirectory())};
+        String picked = zipAnswer != null ? zipAnswer.apply("where")
+            : (String) javax.swing.JOptionPane.showInputDialog(dialog, ZipImport.extractQuestion(zip.getName(), entries), FolderZip.WHERE_TITLE,
+                javax.swing.JOptionPane.QUESTION_MESSAGE, null, where, where[0]);
+        if (picked == null) return "Not imported: " + zip.getName();
+        File into = picked.equals(FolderZip.HERE) ? dir : sub;
+        try {
+            int[] done = FolderZip.extractInto(zip, entries, pw, into);
+            return FolderZip.imported(zip.getName(), done, into.getName());
+        } catch (Exception ex) {
+            return "Could not import " + zip.getName() + ": " + ex.getMessage();
+        }
+    }
 
     /** Files (Import file…), a folder's files (Import folder…) or a whole folder (Copy folder from…) copied into `dir`; what it did, or null. */
     String importHere(JDialog dialog, File dir, String what) {

@@ -12043,6 +12043,71 @@ public class BehaviorTest {
     if (!ready) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The Media browser's folder zips: Send folder contents to zip puts the folder's files (not its
+   * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
+   * zip asks that password, then puts the files into a folder named for the zip.
+   */
+  @Test
+  public void s197_media_folder_zip() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "Trip");
+    new File(media, "inner").mkdirs();
+    Files.write(new File(media, "a.txt").toPath(), "alpha".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "b.txt").toPath(), "beta".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "inner/c.txt").toPath(), "gamma".getBytes(StandardCharsets.UTF_8));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastZipPassword = null;
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-folder-zip").performClick();
+    File zip = new File(media, "Trip.zip");
+    for (int i = 0; i < 200 && MediaBrowser.lastZipPassword == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String pw = MediaBrowser.lastZipPassword;
+    java.util.List<ZipPack.Entry> es = zip.isFile() ? ZipPack.list(zip) : new java.util.ArrayList<ZipPack.Entry>();
+    StringBuilder names = new StringBuilder();
+    for (ZipPack.Entry e : ZipPack.files(es)) names.append(e.name).append(' ');
+    out.append("zip: ").append(zip.isFile()).append(", encrypted ").append(ZipPack.encrypted(es)).append(", files ").append(names.toString().trim())
+        .append(", password ").append(pw == null ? "none" : pw.length() + " chars").append(", shown ")
+        .append(MediaBrowser.lastZipAsk != null && MediaBrowser.lastZipAsk.isShowing()).append('\n');
+    boolean sendOk = zip.isFile() && ZipPack.encrypted(es) && names.toString().trim().equals("a.txt b.txt") && pw != null && pw.length() == 19
+        && MediaBrowser.lastZipAsk != null && MediaBrowser.lastZipAsk.isShowing();
+    if (MediaBrowser.lastZipAsk != null) MediaBrowser.lastZipAsk.dismiss();
+    if (!sendOk) throw new AssertionError(out.toString() + " | said " + MediaBrowser.lastImport + " | zipflow " + ZipFlow.lastSaid + " | now " + ((TextView) get("now")).getText() + " | entries " + b.allEntries.size() + " | " + java.util.Arrays.toString(media.list()));
+    // Import files from zip: its password, then into a new folder named for it.
+    File copy = new File(app.getCacheDir(), "picked-Trip.zip");
+    Files.copy(zip.toPath(), copy.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    MediaBrowser.importInto = b;
+    MediaBrowser.lastImport = null;
+    MediaBrowser.zipPicked(app, android.net.Uri.fromFile(copy));
+    for (int i = 0; i < 200 && (MediaBrowser.lastZipAsk == null || !MediaBrowser.lastZipAsk.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    ((android.widget.EditText) MediaBrowser.lastZipAsk.getWindow().getDecorView().findViewWithTag("media-zip-open-password")).setText(pw);
+    MediaBrowser.lastZipAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    String where = listItems(MediaBrowser.lastZipAsk);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastZipAsk).clickOnItem(1);
+    for (int i = 0; i < 200 && MediaBrowser.lastImport == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    File into = new File(media, "picked-Trip");
+    String a = new File(into, "a.txt").isFile() ? new String(Files.readAllBytes(new File(into, "a.txt").toPath()), StandardCharsets.UTF_8) : "none";
+    out.append("import: where ").append(where).append(" | ").append(MediaBrowser.lastImport).append(" | a.txt: ").append(a).append('\n');
+    boolean importOk = where.contains(FolderZip.HERE) && where.contains("picked-Trip") && a.equals("alpha") && new File(into, "b.txt").isFile();
+    b.dialog.dismiss();
+    write("s197_media_folder_zip", out.toString());
+    if (!sendOk || !importOk) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s192_random_run_file_set_per_model() throws Exception {
     String[] styles = {"rock", "funk", "house"};

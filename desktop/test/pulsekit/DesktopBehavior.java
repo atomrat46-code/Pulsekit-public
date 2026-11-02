@@ -7342,6 +7342,9 @@ public final class DesktopBehavior {
         + "print('mapped', vr.mapped(played, m))\n"
         + "rows, shift = vr.score(vr.mapped(played, m), [(0.0, 36), (0.5, 46), (1.0, 42), (1.5, 43)], 2.0)\n"
         + "print('score', vr.score_line(rows))\n"
+        + "t, e = vr.cymbal_breakdown([(0.0, 42), (0.5, 51), (1.0, 51), (1.5, 46)], [(0.0, 42), (0.5, 42), (1.0, 51), (2.5, 49)], 3.0, 0.0)\n"
+        + "print('swaps', vr.swaps_line(t), '| extra', e)\n"
+        + "print('\\n'.join(vr.breakdown_text(t, e)))\n"
         + "print('default', [(p, vr.default_map(p)[1]) for p in ('Riot Drums.vst3', 'Anarchy Drums.vst3', 'Ugritone Drums.vst3', 'Other Kit.vst3')])\n"
         + "for bad in ('45', '45=x', '200=46'):\n"
         + "    try: vr.note_map(bad); print('kept', bad)\n"
@@ -7361,7 +7364,8 @@ public final class DesktopBehavior {
     this.out.append(said).append("\nwithout --test: ").append(refused).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("pairs [(41, None), (45, 46)]") && said.contains("file [(41, None), (45, 46), (57, 49)]")
         && said.contains("mapped [(0.0, 36), (0.5, 46), (1.5, 43)]")
-        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Toms 1/1 P100 R100")
+        && said.contains("score Kick 1/1 P100 R100  Hats 1/1 P 50 R100  Closed HH 0/0 P  0 R  0  Open HH 1/1 P100 R100  Toms 1/1 P100 R100")
+        && said.contains("swaps Ride as Closed HH 1 | extra [0, 0, 0, 1]") && said.contains("Cymbal breakdown") && said.contains("Open HH  ")
         && said.contains("refused 45 is not note=note") && said.contains("refused 45=x is not note=note") && said.contains("refused 200=46: MIDI notes are 0 to 127")
         && refused.contains("--map is for --test") && label.startsWith("Test: notes the plugin plays")
         && said.contains("default [('Riot Drums.vst3', 'Riot Drums'), ('Anarchy Drums.vst3', 'Anarchy Drums'), ('Ugritone Drums.vst3', 'Ugritone Drums'), ('Other Kit.vst3', None)]");
@@ -7501,6 +7505,45 @@ public final class DesktopBehavior {
     javax.swing.JButton b = PluginsList.stopTimerButton("t");
     this.out.append("button: ").append(b.getText()).append(", enabled ").append(b.isEnabled()).append('\n');
     if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * The Media browser's folder zips: Send folder contents to zip ("<folder>.zip" there, the folder's
+   * files with a password made and shown); Import files from zip (its password, then into a folder
+   * named for the zip, added to when it is there).
+   */
+  void s184_media_folder_zip() throws Exception {
+    File media = new File(System.getProperty("user.home"), "zip-media/Trip");
+    new File(media, "inner").mkdirs();
+    Files.write(new File(media, "a.txt").toPath(), "alpha".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "b.txt").toPath(), "beta".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "inner/c.txt").toPath(), "gamma".getBytes(StandardCharsets.UTF_8));
+    MediaBrowser mb = new MediaBrowser((Pulsekit) frame);
+    final String[] pw = new String[1];
+    final File zip = new File(media, "Trip.zip");
+    MediaBrowser.zipAnswer = q -> {
+      if (q.startsWith("shown ")) pw[0] = q.substring(6);
+      if (q.equals("zip file")) return zip.getAbsolutePath();
+      if (q.equals("password")) return pw[0];
+      if (q.equals("where")) return FolderZip.newFolder("Trip", false);
+      return null;
+    };
+    try {
+      final String[] said = new String[2];
+      edt(() -> said[0] = mb.folderToZip(null, media));
+      java.util.List<ZipPack.Entry> es = ZipPack.list(zip);
+      StringBuilder names = new StringBuilder();
+      for (ZipPack.Entry e : ZipPack.files(es)) names.append(e.name).append(' ');
+      this.out.append("send: ").append(said[0]).append(" | files ").append(names.toString().trim()).append(", encrypted ").append(ZipPack.encrypted(es))
+          .append(", password ").append(pw[0] == null ? "none" : pw[0].length() + " chars").append('\n');
+      if (!names.toString().trim().equals("a.txt b.txt") || !ZipPack.encrypted(es) || pw[0] == null || pw[0].length() != 19) throw new AssertionError(this.out.toString());
+      edt(() -> said[1] = mb.importZip(null, media));
+      File a = new File(media, "Trip/a.txt");
+      this.out.append("import: ").append(said[1]).append(" | a.txt ").append(a.isFile() ? new String(Files.readAllBytes(a.toPath()), StandardCharsets.UTF_8) : "none").append('\n');
+      if (!a.isFile() || !new File(media, "Trip/b.txt").isFile() || !said[1].startsWith("Imported 2 files from Trip.zip into Trip")) throw new AssertionError(this.out.toString());
+    } finally {
+      MediaBrowser.zipAnswer = null;
+    }
   }
 
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
