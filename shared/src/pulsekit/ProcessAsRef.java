@@ -67,6 +67,25 @@ public final class ProcessAsRef {
   }
 
   /** The run's arguments with the picture in the slot's row (its old picture there replaced). */
+  /**
+   * A past run's arguments for Process as a reference, with its on/off switches the program's saved
+   * Params do not have taken out: a switch unticked since that run (SogniPedit's --saveprompt) stays
+   * off, as Params last had it. `saved` null (Params never saved): the run's arguments as they are.
+   */
+  public static String withoutOffSwitches(String extra, String saved, List<ProgramParams.Param> ps) {
+    if (saved == null || extra == null || ps == null) return extra;
+    List<String> kept = JavaRun.split(saved);
+    java.util.Set<String> onOff = new java.util.HashSet<String>();
+    for (ProgramParams.Param p : ps) if (p.flag && !p.takesValue) onOff.add(p.token);
+    List<String> args = JavaRun.split(extra);
+    StringBuilder sb = new StringBuilder();
+    for (String a : args) {
+      if (onOff.contains(a) && !kept.contains(a)) continue;
+      sb.append(sb.length() == 0 ? "" : " ").append(JavaRun.quoteArg(a));
+    }
+    return sb.toString();
+  }
+
   public static String withPicture(String extra, String token, String path) {
     List<String> args = JavaRun.split(extra == null ? "" : extra);
     boolean put = false;

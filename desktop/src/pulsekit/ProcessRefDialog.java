@@ -133,7 +133,9 @@ final class ProcessRefDialog {
         PyJavRecent.Item item = this.runs == null || this.runs.isEmpty() || i < 0 ? null : this.runs.get(i);
         List<String> s = ProcessAsRef.slots(this.source(name));
         int slot = this.ref2.isSelected() && s.size() > 1 ? 2 : 1;
-        String extra = ProcessAsRef.withPicture(item == null ? "" : item.extra, s.get(slot - 1), this.picture.getAbsolutePath());
+        // The run's on/off switches the saved Params no longer have stay off (--saveprompt unticked since).
+        String runArgs = ProcessAsRef.withoutOffSwitches(item == null ? "" : item.extra, this.app.pyJav.loadParams(name), ProgramParams.parse(this.source(name)));
+        String extra = ProcessAsRef.withPicture(runArgs, s.get(slot - 1), this.picture.getAbsolutePath());
         this.choice.program = name;
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = slot;

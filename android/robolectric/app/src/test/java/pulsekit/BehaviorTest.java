@@ -46,6 +46,8 @@ public class BehaviorTest {
   public void boot() {
     // The Params dialog an earlier scenario left open belongs to its torn-down window: not closed from here.
     PyJavParams.shown = null;
+    // The Prompts page starts on its Prompts & Categories tab.
+    PromptsTabs.tab = PromptsTabs.PROMPTS;
     // A long press opens a file's menu (a drag never ends here).
     MediaBrowser.drags = false;
     // File-set state is static; start each scenario without what an earlier one imported.
@@ -8225,11 +8227,24 @@ public class BehaviorTest {
   }
 
   private static TextView findText(View v, String text) {
+    TextView found = findTextIn(v, text);
+    // Ref files and Result files are on the Prompts page's Result & Reference entries tab: switched to it.
+    if (found == null && ("Ref files".equals(text) || "Result files".equals(text)) && v != null) {
+      View tab = v.findViewWithTag("prompts-tab:" + PromptsTabs.ENTRIES);
+      if (tab != null) {
+        tab.performClick();
+        found = findTextIn(v, text);
+      }
+    }
+    return found;
+  }
+
+  private static TextView findTextIn(View v, String text) {
     if (v instanceof TextView && text.equals(((TextView) v).getText().toString())) return (TextView) v;
     if (v instanceof ViewGroup) {
       ViewGroup g = (ViewGroup) v;
       for (int i = 0; i < g.getChildCount(); i++) {
-        TextView t = findText(g.getChildAt(i), text);
+        TextView t = findTextIn(g.getChildAt(i), text);
         if (t != null) return t;
       }
     }
@@ -12048,6 +12063,54 @@ public class BehaviorTest {
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /**
+   * 03112026_3: Save into disk's request code its own (not LV2 import's); Picture ready's Reference,
+   * Result, Save to file row under the name, above the picture; Process as a reference leaves an
+   * unticked --saveprompt off; the Prompts page's tabs (Ref / Result files on one, the rest on the other).
+   */
+  @Test
+  public void s202_ready_row_switches_prompt_tabs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    boolean codes = ReadySave.SAVE_DISK != Lv2Host.IMPORT_LV2;
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 40, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<JavaRun.FileOut>();
+    made.add(new JavaRun.FileOut("pic.png", png.toByteArray()));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: pic.png", made, 0);
+    PictureOffer.offer(app, r);
+    idle();
+    View pv = PictureOffer.last.getWindow().getDecorView();
+    View row = pv.findViewWithTag("ready-saves:pic.png"), picture = pv.findViewWithTag("picture-offer:pic.png");
+    ViewGroup parent = row == null ? null : (ViewGroup) row.getParent();
+    boolean above = row != null && picture != null && parent == picture.getParent() && parent.indexOfChild(row) < parent.indexOfChild(picture);
+    String labels = "";
+    for (String item : MediaDir.READY_SAVES) {
+      TextView b = (TextView) pv.findViewWithTag("ready-save:" + item + ":pic.png");
+      labels += (b == null ? "-" : b.getText()) + ";";
+    }
+    PictureOffer.last.dismiss();
+    idle();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    String kept = ProcessAsRef.withoutOffSwitches("--prompt \"a b\" --saveprompt --unlimited", "--prompt x --unlimited", ps);
+    String never = ProcessAsRef.withoutOffSwitches("--prompt x --saveprompt", null, ps);
+    out.append("codes ").append(codes).append(" | row above the picture ").append(above).append(" (").append(labels).append(") | run args: ").append(kept).append(" | never saved: ").append(never).append('\n');
+    // The Prompts page's tabs.
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    boolean onPrompts = pane.findViewWithTag("prompts-prompt-files") != null && findTextIn(pane, "Ref files") == null;
+    pane.findViewWithTag("prompts-tab:" + PromptsTabs.ENTRIES).performClick();
+    idle();
+    boolean onEntries = findTextIn(pane, "Ref files") != null && findTextIn(pane, "Result files") != null && pane.findViewWithTag("prompts-prompt-files") == null
+        && pane.findViewWithTag("prompts-import") == null;
+    PromptsTabs.tab = PromptsTabs.PROMPTS;
+    out.append("tabs: prompts tab ").append(onPrompts).append(", entries tab ").append(onEntries).append('\n');
+    write("s202_ready_row_switches_prompt_tabs", out.toString());
+    boolean ok = codes && above && labels.equals("Reference;Result;Save to file;") && kept.equals("--prompt \"a b\" --unlimited") && never.contains("--saveprompt") && onPrompts && onEntries;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /**
    * 03112026_2: the ready screens' saves (Save as a Reference file, Save as a Result file, Save into
    * disk… where the last file was saved) and Downloads' Move downloaded media files to (Images
