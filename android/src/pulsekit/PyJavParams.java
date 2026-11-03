@@ -9,6 +9,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -108,9 +110,12 @@ public final class PyJavParams {
       for (EditText f : fields) if (f != null) f.setText("");
       for (android.widget.CheckBox c : checks) if (c != null) c.setChecked(false);
     });
+    // Where each row's views start in the page (vst_render's rows then go onto its tabs).
+    final int[] rowStarts = new int[ps.size()];
     for (int i = 0; i < ps.size(); i++) {
       final ProgramParams.Param p = ps.get(i);
       final int index = i;
+      rowStarts[i] = box.getChildCount();
       if (p.flag && !p.takesValue) {
         android.widget.CheckBox check = new android.widget.CheckBox(activity);
         check.setText(p.label + "  " + p.token);
@@ -426,6 +431,25 @@ public final class PyJavParams {
         final EditText target = field;
         choose.setOnClickListener(v -> SearchList.show(activity, p.label, p.choices, -1, -1, null, at -> target.setText(p.choiceValue(at))));
         row.addView(choose);
+        // Clear: shown while something is chosen or typed (SogniMusic's --workflow back to a new run).
+        final android.widget.Button clearChoice = new android.widget.Button(activity);
+        clearChoice.setText("Clear");
+        clearChoice.setTag("params-clear:" + p.token);
+        clearChoice.setOnClickListener(v -> target.setText(""));
+        clearChoice.setVisibility(field.getText().length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+        field.addTextChangedListener(new android.text.TextWatcher() {
+          @Override
+          public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+          @Override
+          public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+          @Override
+          public void afterTextChanged(android.text.Editable s) {
+            clearChoice.setVisibility(s.length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+          }
+        });
+        row.addView(clearChoice);
         box.addView(row);
         if (p.modelNote) {
           // SogniChat: image analyze mode (a DeepSeek vision model) or tools mode, as the model is picked.
@@ -452,6 +476,7 @@ public final class PyJavParams {
       }
       box.addView(field);
     }
+    onTabs(activity, box, rowStarts, ps, values, uses);
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
@@ -907,6 +932,123 @@ public final class PyJavParams {
   /** The choice of definitions shown last, for the tests. */
   static AlertDialog lastDefs;
   static String[] shownValues;
+  /** The tab the Params page showed last (vst_render's), opened again next time. */
+  static String paramsTab;
+
+  /**
+   * vst_render's rows on tabs (Input, Output, Plugins, Settings): a strip of tab buttons above the
+   * rows, each row shown only on its tab; the Plugins tab ends with the favourite, recently used and
+   * folder lists. Nothing changes for a program without tabs.
+   */
+  static void onTabs(final Activity activity, final LinearLayout box, int[] rowStarts, final List<ProgramParams.Param> ps, final String[] values,
+      final android.widget.CheckBox[] uses) {
+    final List<String> names = ProgramParams.tabs(ps);
+    if (names.isEmpty()) return;
+    final int total = box.getChildCount();
+    final java.util.Map<android.view.View, String> on = new java.util.LinkedHashMap<android.view.View, String>();
+    String last = names.get(names.size() - 1);
+    for (int i = 0; i < ps.size(); i++) {
+      int end = i + 1 < ps.size() ? rowStarts[i + 1] : total;
+      for (int k = rowStarts[i]; k < end; k++) on.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+    }
+    android.view.View picks = pluginPicks(activity, ps, values, uses);
+    box.addView(picks);
+    on.put(picks, ProgramParams.PLUGINS);
+    final LinearLayout strip = new LinearLayout(activity);
+    strip.setOrientation(LinearLayout.HORIZONTAL);
+    strip.setTag("params-tabs");
+    final List<android.widget.Button> buttons = new ArrayList<android.widget.Button>();
+    final java.util.function.Consumer<String> show = t -> {
+      paramsTab = t;
+      for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) ? android.view.View.VISIBLE : android.view.View.GONE);
+      for (android.widget.Button b : buttons) b.setAlpha(("params-tab:" + t).equals(b.getTag()) ? 1f : 0.55f);
+    };
+    for (final String t : names) {
+      android.widget.Button b = new android.widget.Button(activity);
+      b.setText(t);
+      b.setTag("params-tab:" + t);
+      b.setOnClickListener(v -> show.accept(t));
+      buttons.add(b);
+      strip.addView(b, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    }
+    box.addView(strip, rowStarts.length > 0 ? rowStarts[0] : box.getChildCount());
+    show.accept(paramsTab != null && names.contains(paramsTab) ? paramsTab : names.get(0));
+  }
+
+  /** The Plugins tab's lists: Favourites, Recently used (vst_render's runs) and Plugin folders; a plugin tapped: Use as plugin 1 to 4. */
+  static android.view.View pluginPicks(final Activity activity, final List<ProgramParams.Param> ps, final String[] values, final android.widget.CheckBox[] uses) {
+    PluginLibrary.load(activity.getFilesDir());
+    LinearLayout col = new LinearLayout(activity);
+    col.setOrientation(LinearLayout.VERTICAL);
+    col.setTag("params-plugin-picks");
+    col.setPadding(0, dp(activity, 10), 0, 0);
+    List<String> fav = new ArrayList<String>();
+    for (String f : PluginLibrary.favouritePaths()) {
+      PluginLibrary.Type t = PluginLibrary.typeOf(new File(f));
+      if (t != null && (PluginLibrary.VST3.equals(t.name) || PluginLibrary.VST2.equals(t.name))) fav.add(f);
+    }
+    pickList(activity, col, "Favourites", "params-favourites", fav, "No favourite plugins yet", ps, values, uses);
+    pickList(activity, col, "Recently used", "params-recent", PluginLibrary.recent(), "None yet: the plugins of vst_render's runs", ps, values, uses);
+    TextView head = new TextView(activity);
+    head.setText("Plugin folders");
+    head.setTextSize(14);
+    head.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
+    col.addView(head);
+    List<String> folders = new ArrayList<String>();
+    String home = System.getProperty("user.home", "");
+    for (String type : new String[] {PluginLibrary.VST3, PluginLibrary.VST2})
+      for (String f : PluginLibrary.folders(type, true, home)) if (!folders.contains(f)) folders.add(f);
+    TextView list = new TextView(activity);
+    list.setTag("params-plugin-folders");
+    list.setTextSize(12);
+    list.setText(folders.isEmpty() ? "None on the phone: VST plugins play on the desktop (its Params' Folders\u2026 sets them)" : String.join("\n", folders));
+    col.addView(list);
+    return col;
+  }
+
+  static AlertDialog useMenu;
+
+  private static void pickList(final Activity activity, LinearLayout col, String title, String tag, List<String> paths, String empty,
+      final List<ProgramParams.Param> ps, final String[] values, final android.widget.CheckBox[] uses) {
+    TextView head = new TextView(activity);
+    head.setText(title);
+    head.setTextSize(14);
+    head.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
+    col.addView(head);
+    if (paths.isEmpty()) {
+      TextView none = new TextView(activity);
+      none.setTag(tag + "-empty");
+      none.setTextSize(12);
+      none.setText(empty);
+      col.addView(none);
+      return;
+    }
+    for (final String path : paths) {
+      TextView line = new TextView(activity);
+      line.setTag(tag + ":" + new File(path).getName());
+      line.setText(new File(path).getName());
+      line.setPadding(0, dp(activity, 6), 0, dp(activity, 6));
+      line.setOnClickListener(v -> {
+        final List<String> rows = ProgramParams.pluginRows(ps);
+        String[] items = new String[rows.size()];
+        for (int i = 0; i < items.length; i++) items[i] = ProgramParams.useAs(rows.get(i));
+        useMenu = new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setItems(items, (d, which) -> usePlugin(ps, values, uses, rows.get(which), path))
+            .setNegativeButton("Cancel", null).show();
+      });
+      col.addView(line);
+    }
+  }
+
+  /** A plugin put on a row (and its Use ticked). */
+  static void usePlugin(List<ProgramParams.Param> ps, String[] values, android.widget.CheckBox[] uses, String token, String path) {
+    for (int i = 0; i < ps.size(); i++) {
+      if (!ps.get(i).token.equals(token)) continue;
+      values[i] = path;
+      if (shownLabels != null && shownLabels[i] != null) shownLabels[i].setText(fileLabel(path));
+      if (uses[i] != null) uses[i].setChecked(true);
+    }
+  }
+
   static TextView[] shownLabels;
 
   /**

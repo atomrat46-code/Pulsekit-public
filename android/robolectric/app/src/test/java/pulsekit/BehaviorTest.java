@@ -44,6 +44,8 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // The Params dialog an earlier scenario left open belongs to its torn-down window: not closed from here.
+    PyJavParams.shown = null;
     // A long press opens a file's menu (a drag never ends here).
     MediaBrowser.drags = false;
     // File-set state is static; start each scenario without what an earlier one imported.
@@ -12048,6 +12050,106 @@ public class BehaviorTest {
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /**
+   * 03112026: a list field's Clear (shown while it has something: SogniMusic's --workflow); Logs' long
+   * presses (an entry: Open, Delete; a type: Clear all its logs, asked first); vst_render's Params on
+   * tabs (Input, Output, Plugins, Settings), the Plugins tab's Recently used putting a plugin on a row;
+   * a Sogni list written whole (SafeWrite: no .tmp left).
+   */
+  @Test
+  public void s199_clear_logs_tabs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Clear beside Choose.
+    File sogni = new File(app.getFilesDir(), "sogni");
+    SogniHistory.init(sogni);
+    SogniHistory.started("wf-123", "SogniMusic.java", 1000L);
+    String music = ((ProgramMenus) get("programMenus")).bundledSource("SogniMusic.java");
+    PyJavParams.store(app, "SogniMusic.java", "");
+    PyJavParams.open(app, "SogniMusic.java", "", music);
+    idle();
+    View pv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    android.widget.EditText wf = (android.widget.EditText) pv.findViewWithTag("params-field:--workflow");
+    View clear = pv.findViewWithTag("params-clear:--workflow");
+    boolean hiddenEmpty = clear != null && clear.getVisibility() == View.GONE;
+    wf.setText("wf-123");
+    boolean shownFull = clear.getVisibility() == View.VISIBLE;
+    clear.performClick();
+    boolean cleared = wf.getText().length() == 0 && clear.getVisibility() == View.GONE;
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean noTmp = !new File(sogni, "sogni_workflows.txt.tmp").exists() && new File(sogni, "sogni_workflows.txt").isFile();
+    out.append("clear: hidden when empty ").append(hiddenEmpty).append(", shown ").append(shownFull).append(", cleared ").append(cleared).append(" | written whole ").append(noTmp).append('\n');
+    // Logs: a long press on an entry, then on a type.
+    AppSettings.setLogging(true);
+    Logs.write(Logs.RUNS, "one", "first");
+    Logs.write(Logs.RUNS, "two", "second");
+    Logs.write(Logs.ERRORS, "three", "third");
+    LogsScreen.type = Logs.RUNS;
+    LogsScreen.show(app);
+    idle();
+    View lv = LogsScreen.last.getWindow().getDecorView();
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    int before = runs.size();
+    lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName()).performLongClick();
+    idle();
+    String menu = String.valueOf(LogsScreen.menu.getListView().getAdapter().getItem(0)) + "," + LogsScreen.menu.getListView().getAdapter().getItem(1);
+    org.robolectric.Shadows.shadowOf(LogsScreen.menu.getListView()).performItemClick(1);
+    idle();
+    int afterDelete = Logs.entries(Logs.RUNS).size();
+    lv = LogsScreen.last.getWindow().getDecorView();
+    lv.findViewWithTag("logs-type:" + Logs.RUNS).performLongClick();
+    idle();
+    String asked = String.valueOf(org.robolectric.Shadows.shadowOf(LogsScreen.menu).getMessage());
+    LogsScreen.menu.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    int runsLeft = Logs.entries(Logs.RUNS).size(), errorsLeft = Logs.entries(Logs.ERRORS).size();
+    LogsScreen.last.dismiss();
+    AppSettings.setLogging(false);
+    out.append("logs menu: ").append(menu).append(" | after Delete ").append(afterDelete).append(" | asked: ").append(asked).append(" | left ").append(runsLeft).append(" runs, ").append(errorsLeft).append(" errors\n");
+    // vst_render's tabs and Recently used.
+    PluginLibrary.reset();
+    PluginLibrary.load(app.getFilesDir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3", "--plugin2", "/vst/Artillery.vst3"));
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin3 = -1;
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--plugin3")) plugin3 = i;
+    PyJavParams.paramsTab = null;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View vv = PyJavParams.shown.getWindow().getDecorView();
+    String tabs = "";
+    for (String t : ProgramParams.VST_TABS) tabs += (vv.findViewWithTag("params-tab:" + t) != null ? t : "-") + " ";
+    View plugRow = vv.findViewWithTag("params-chosen:--plugin");
+    boolean pluginHidden = plugRow != null && plugRow.getVisibility() == View.GONE;
+    vv.findViewWithTag("params-tab:" + ProgramParams.PLUGINS).performClick();
+    boolean pluginShown = plugRow.getVisibility() == View.VISIBLE && vv.findViewWithTag("params-plugin-picks").getVisibility() == View.VISIBLE;
+    View recent = vv.findViewWithTag("params-recent:Artillery.vst3");
+    recent.performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.useMenu.getListView()).performItemClick(2);
+    idle();
+    String third = PyJavParams.shownValues[plugin3];
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    PyJavParams.paramsTab = null;
+    out.append("tabs: ").append(tabs).append("| plugin row hidden on Input ").append(pluginHidden).append(", shown on Plugins ").append(pluginShown)
+        .append(" | recent ").append(PluginLibrary.recent()).append(" | plugin 3: ").append(third).append('\n');
+    // Nothing left open for the tests after (a dialog kept across tests cannot be closed in the next one).
+    for (AlertDialog dl : new AlertDialog[] {PyJavParams.shown, PyJavParams.useMenu, LogsScreen.menu, LogsScreen.last, LogsScreen.entry}) if (dl != null && dl.isShowing()) dl.dismiss();
+    idle();
+    PyJavParams.shown = null;
+    PyJavParams.useMenu = null;
+    LogsScreen.menu = null;
+    LogsScreen.last = null;
+    LogsScreen.entry = null;
+    write("s199_clear_logs_tabs", out.toString());
+    boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** vst_render --compare_kits: a Params switch on Android too (its label), and the reference kit profile in the bundled vst_render; a fourth plugin row (--plugin4, its map and kit name). */
   @Test
   public void s198_vst_render_compare_kits() throws Exception {

@@ -488,8 +488,7 @@ public final class SogniDownloads {
       }
     }
     try {
-      if (!file.getParentFile().isDirectory()) file.getParentFile().mkdirs();
-      java.nio.file.Files.write(file.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      SafeWrite.write(file, sb.toString().getBytes(StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // kept in memory
     }

@@ -78,6 +78,8 @@ public final class ProgramParams {
     public boolean plugin;
     /** A folder or list row (--dir, --list) that also takes a playlist (.pls): the row has Playlist, which picks one of Pulsekit's. */
     public boolean pls;
+    /** The Params page's tab the row is on (vst_render's Input, Output, Plugins, Settings); null: no tabs. */
+    public String tab;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -148,7 +150,10 @@ public final class ProgramParams {
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
       if (midi2hydro) knownMidi2Hydro(p);
-      if (vstRender) knownVstRender(p);
+      if (vstRender) {
+        knownVstRender(p);
+        p.tab = vstTab(p);
+      }
       if (splitWav || cutWav || wav2mp3) knownWavFolder(p);
       if (wav2mp3) knownWav2Mp3(p);
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
@@ -663,6 +668,42 @@ public final class ProgramParams {
       p.label = "Random seed (the same seed draws the same styles)";
       p.hint = "empty: a new draw each run";
     }
+  }
+
+  /** vst_render's Params tabs: what it plays, what it writes, the plugins, and the test's settings. */
+  public static final String INPUT = "Input", OUTPUT = "Output", PLUGINS = "Plugins", SETTINGS = "Settings";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS};
+
+  static String vstTab(Param p) {
+    String t = p.token;
+    if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
+    if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
+        || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
+    if (t.startsWith("--plugin") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+        || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
+    return SETTINGS;
+  }
+
+  /** The tabs the rows are on, in order (none: the page has no tabs). */
+  public static List<String> tabs(List<Param> ps) {
+    List<String> out = new ArrayList<String>();
+    for (String t : VST_TABS) for (Param p : ps) if (t.equals(p.tab) && !out.contains(t)) out.add(t);
+    for (Param p : ps) if (p.tab != null && !out.contains(p.tab)) out.add(p.tab);
+    return out;
+  }
+
+  /** The plugin rows' tokens (--plugin to --plugin4) in order: where a favourite or recent plugin can go. */
+  public static List<String> pluginRows(List<Param> ps) {
+    List<String> out = new ArrayList<String>();
+    for (Param p : ps) if (p.plugin && p.token.matches("--plugin\\d?")) out.add(p.token);
+    return out;
+  }
+
+  /** "Use as plugin 2" for --plugin2 (--plugin: "Use as plugin 1"). */
+  public static String useAs(String token) {
+    String n = token.substring("--plugin".length());
+    return "Use as plugin " + (n.length() == 0 ? "1" : n);
   }
 
   private static void knownVstRender(Param p) {

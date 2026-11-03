@@ -7555,6 +7555,120 @@ public final class DesktopBehavior {
    * vst_render --compare_kits: the profiles the test compares (none, the reference, the other kits' vst-kit-*.kit,
    * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
    */
+  /**
+   * 03112026: vst_render's Params on tabs (Input, Output, Plugins, Settings); the Plugins tab's Recently
+   * used puts a plugin on a row; a list field's Clear (--map) shown while it has something; Logs' right
+   * clicks (an entry: Open, Delete; a type: Clear all its logs); a Sogni list written whole (SafeWrite).
+   */
+  void s187_params_tabs_logs_menus() throws Exception {
+    PluginLibrary.reset();
+    PluginLibrary.load(PromptDb.dir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3", "--plugin2", "/vst/Artillery.vst3"));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    final javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane) component(d, "params-tabs");
+    String titles = "";
+    for (int i = 0; tabs != null && i < tabs.getTabCount(); i++) titles += tabs.getTitleAt(i) + " ";
+    boolean pluginOnTab = component(component(d, "params-tab:Plugins"), "params-file:--plugin") != null && component(component(d, "params-tab:Input"), "params-file:--plugin") == null;
+    // --map's Clear: shown once the field has something.
+    final javax.swing.JTextField map = (javax.swing.JTextField) component(d, "params-field:--map");
+    final javax.swing.JButton mapClear = (javax.swing.JButton) component(d, "params-clear:--map");
+    final boolean[] clearSeen = new boolean[3];
+    edt(() -> {
+      clearSeen[0] = mapClear != null && !mapClear.isVisible();
+      map.setText("45=46");
+      clearSeen[1] = mapClear.isVisible();
+      mapClear.doClick();
+      clearSeen[2] = map.getText().isEmpty() && !mapClear.isVisible();
+    });
+    // Recently used: Use as plugin 3.
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<String> recent = (javax.swing.JList<String>) component(d, "params-recent");
+    final String[] recentShown = new String[1];
+    edt(() -> {
+      tabs.setSelectedIndex(2);
+      recentShown[0] = recent.getModel().getSize() + ": " + recent.getModel().getElementAt(0);
+    });
+    idle();
+    PyJav.lastUseMenu = null;
+    edt(() -> {
+      java.awt.Rectangle cell = recent.getCellBounds(1, 1);
+      recent.dispatchEvent(new java.awt.event.MouseEvent(recent, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, cell.x + 4, cell.y + 4, 1, false));
+    });
+    idle();
+    final String[] items = new String[1];
+    edt(() -> {
+      javax.swing.JPopupMenu m = PyJav.lastUseMenu;
+      items[0] = "";
+      for (int i = 0; m != null && i < m.getComponentCount(); i++) if (m.getComponent(i) instanceof javax.swing.JMenuItem) items[0] += ((javax.swing.JMenuItem) m.getComponent(i)).getText() + ";";
+      if (m != null) {
+        ((javax.swing.JMenuItem) m.getComponent(2)).doClick();
+        m.setVisible(false);
+      }
+    });
+    idle();
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py"));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
+        .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
+    boolean tabsOk = titles.equals("Input Output Plugins Settings ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
+    // Logs: an entry's Delete, then the type's Clear all.
+    AppSettings.setLogging(true);
+    Logs.write(Logs.RUNS, "one", "first");
+    Logs.write(Logs.RUNS, "two", "second");
+    Logs.write(Logs.ERRORS, "three", "third");
+    LogsScreen.askDelete = false;
+    final int before = Logs.entries(Logs.RUNS).size();
+    final String[] logs = new String[2];
+    edt(() -> {
+      javax.swing.DefaultListModel<Logs.Entry> model = new javax.swing.DefaultListModel<Logs.Entry>();
+      for (Logs.Entry e : Logs.entries(Logs.RUNS)) model.addElement(e);
+      javax.swing.JList<Logs.Entry> list = new javax.swing.JList<Logs.Entry>(model);
+      list.setSelectedIndex(0);
+      javax.swing.JPopupMenu em = LogsScreen.entryMenu((Pulsekit) frame, null, list, () -> {});
+      logs[0] = ((javax.swing.JMenuItem) em.getComponent(0)).getText() + "," + ((javax.swing.JMenuItem) em.getComponent(1)).getText();
+      ((javax.swing.JMenuItem) em.getComponent(1)).doClick();
+      LogsScreen.type = Logs.RUNS;
+      javax.swing.JPopupMenu tm = LogsScreen.typeMenu((Pulsekit) frame, null, () -> {});
+      logs[1] = ((javax.swing.JMenuItem) tm.getComponent(0)).getText();
+      ((javax.swing.JMenuItem) tm.getComponent(0)).doClick();
+    });
+    int runsLeft = Logs.entries(Logs.RUNS).size(), errorsLeft = Logs.entries(Logs.ERRORS).size();
+    LogsScreen.askDelete = true;
+    LogsScreen.type = Logs.ALL;
+    AppSettings.setLogging(false);
+    // A Sogni list written whole: no .tmp left.
+    File sogni = new File(System.getProperty("user.home"), "safe-write");
+    SogniHistory.init(sogni);
+    SogniHistory.started("wf-9", "SogniMusic.java", 1000L);
+    boolean whole = new File(sogni, "sogni_workflows.txt").isFile() && !new File(sogni, "sogni_workflows.txt.tmp").exists() && SogniHistory.entries().size() == 1;
+    SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+    this.out.append("logs: ").append(logs[0]).append(" | ").append(logs[1]).append(" | runs ").append(before).append(" -> ").append(runsLeft).append(", errors left ").append(errorsLeft)
+        .append(" | written whole ").append(whole).append('\n');
+    boolean logsOk = "Open,Delete".equals(logs[0]) && "Clear all Program runs logs".equals(logs[1]) && before >= 2 && runsLeft == 0 && errorsLeft >= 1 && whole;
+    if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
+  }
+
   void s186_vst_render_compare_kits() throws Exception {
     File dir = new File(System.getProperty("user.home"), "compare-kits");
     dir.mkdirs();

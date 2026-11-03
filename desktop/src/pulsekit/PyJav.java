@@ -677,6 +677,7 @@ final class PyJav {
         final String extra = ProgramParams.merge(runParams, field, savedNow);
         if ("vst_render.py".equals(name)) {
             VstLists.rememberKits(extra);
+            VstLists.rememberPlugins(extra);
             // Pulsekit's map files where vst_render finds them (~/.pulsekit/maps): --test uses drum-kits.txt when --map is empty.
             VstLists.unpackMaps();
         }
@@ -2673,9 +2674,12 @@ final class PyJav {
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
+        // Where each row's label and field start in the form (vst_render's rows then go onto its tabs).
+        final int[] rowStarts = new int[ps.size()];
         for (int i = 0; i < ps.size(); i++) {
             final ProgramParams.Param p = ps.get(i);
             final int index = i;
+            rowStarts[i] = form.getComponentCount();
             form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
             if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
@@ -3028,9 +3032,13 @@ final class PyJav {
                     JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
                     buttons.add(choose);
                     buttons.add(browse);
+                    buttons.add(choiceClear(p, field));
                     row.add(buttons, BorderLayout.EAST);
                 } else {
-                    row.add(choose, BorderLayout.EAST);
+                    JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                    buttons.add(choose);
+                    buttons.add(choiceClear(p, field));
+                    row.add(buttons, BorderLayout.EAST);
                 }
                 form.add(row);
                 if (p.modelNote) {
@@ -3089,12 +3097,14 @@ final class PyJav {
         box.add(top, BorderLayout.NORTH);
         // A long form (vst_render's) scrolls: the dialog stays within the screen, its buttons on it.
         // (and as wide: long labels make it wider than a small screen).
-        javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(form, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        // vst_render's rows on tabs (Input, Output, Plugins, Settings): one page is not all of it at once.
+        java.awt.Component formView = this.onTabs(form, rowStarts, ps, values, fileLabels, uses);
+        javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(formView, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         formScroll.setName("params-scroll");
         formScroll.setBorder(null);
         formScroll.getVerticalScrollBar().setUnitIncrement(16);
         formScroll.getHorizontalScrollBar().setUnitIncrement(16);
-        java.awt.Dimension formSize = form.getPreferredSize();
+        java.awt.Dimension formSize = formView.getPreferredSize();
         java.awt.Rectangle screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         int room = screen.height - top.getPreferredSize().height - PARAMS_FRAME;
         formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
@@ -3333,6 +3343,171 @@ final class PyJav {
             if (b.isShowing()) m.show(b, 0, b.getHeight());
         });
         return b;
+    }
+
+    /** The tab the Params page showed last (vst_render's), opened again next time. */
+    static String paramsTab;
+
+    /**
+     * The form's rows moved onto their tabs (ProgramParams.tabs), the Plugins tab with the favourite,
+     * recently used and folder lists under its rows; the form itself when the rows have no tabs.
+     */
+    java.awt.Component onTabs(JPanel form, int[] rowStarts, final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
+        List<String> names = ProgramParams.tabs(ps);
+        if (names.isEmpty()) return form;
+        java.awt.Component[] all = form.getComponents();
+        java.util.LinkedHashMap<String, JPanel> pages = new java.util.LinkedHashMap<String, JPanel>();
+        for (String t : names) pages.put(t, new JPanel(new GridLayout(0, 2, 8, 6)));
+        String last = names.get(names.size() - 1);
+        for (int i = 0; i < ps.size(); i++) {
+            int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
+            JPanel page = pages.get(ps.get(i).tab != null ? ps.get(i).tab : last);
+            for (int k = rowStarts[i]; k < end; k++) page.add(all[k]);
+        }
+        final javax.swing.JTabbedPane tabs = new javax.swing.JTabbedPane();
+        tabs.setName("params-tabs");
+        for (java.util.Map.Entry<String, JPanel> e : pages.entrySet()) {
+            JPanel holder = new JPanel(new BorderLayout(0, 10));
+            holder.add(e.getValue(), BorderLayout.NORTH);
+            if (ProgramParams.PLUGINS.equals(e.getKey())) holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+            holder.setName("params-tab:" + e.getKey());
+            tabs.addTab(e.getKey(), holder);
+        }
+        int at = paramsTab == null ? -1 : names.indexOf(paramsTab);
+        if (at >= 0) tabs.setSelectedIndex(at);
+        tabs.addChangeListener(e -> paramsTab = tabs.getTitleAt(tabs.getSelectedIndex()));
+        return tabs;
+    }
+
+    /** A plugin's file name for a list: "Riot Drums.vst3". */
+    static String plugName(String path) {
+        return new File(path).getName();
+    }
+
+    /**
+     * The Plugins tab's lists: Favourites (the Plugins list's and Plugin Browser's), Recently used (vst_render's
+     * runs) and Plugin folders (where VST3 and VST2 plugins are looked for; Folders… changes them). A plugin
+     * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
+     */
+    JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
+        PluginLibrary.load(PromptDb.dir());
+        final String home = System.getProperty("user.home", ".");
+        final javax.swing.DefaultListModel<String> favModel = new javax.swing.DefaultListModel<String>(), recentModel = new javax.swing.DefaultListModel<String>(),
+            folderModel = new javax.swing.DefaultListModel<String>();
+        final Runnable fill = () -> {
+            favModel.clear();
+            for (String f : PluginLibrary.favouritePaths()) {
+                PluginLibrary.Type t = PluginLibrary.typeOf(new File(f));
+                if (t != null && (PluginLibrary.VST3.equals(t.name) || PluginLibrary.VST2.equals(t.name))) favModel.addElement(f);
+            }
+            recentModel.clear();
+            for (String f : PluginLibrary.recent()) recentModel.addElement(f);
+            folderModel.clear();
+            for (String type : new String[] {PluginLibrary.VST3, PluginLibrary.VST2})
+                for (String f : PluginLibrary.folders(type, false, home)) if (!folderModel.contains(f)) folderModel.addElement(f);
+        };
+        fill.run();
+        JPanel out = new JPanel(new GridLayout(1, 3, 8, 0));
+        out.setName("params-plugin-picks");
+        out.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
+        out.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
+        JPanel folders = new JPanel(new BorderLayout(0, 4));
+        folders.add(new JLabel("Plugin folders"), BorderLayout.NORTH);
+        javax.swing.JList<String> folderList = new javax.swing.JList<String>(folderModel);
+        folderList.setName("params-plugin-folders");
+        folderList.setVisibleRowCount(6);
+        folders.add(new JScrollPane(folderList), BorderLayout.CENTER);
+        JButton change = new JButton("Folders\u2026");
+        change.setName("params-plugin-folders-change");
+        change.setToolTipText("Where VST3 and VST2 plugins are looked for (the Plugin Browser's folders)");
+        change.addActionListener(e -> {
+            if (PluginBrowser.foldersDialog(SwingUtilities.getWindowAncestor(change))) fill.run();
+        });
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        south.add(change);
+        folders.add(south, BorderLayout.SOUTH);
+        out.add(folders);
+        return out;
+    }
+
+    /** One of the Plugins tab's plugin lists: a click shows Use as plugin 1 to 4. */
+    JPanel pickList(String title, String name, javax.swing.DefaultListModel<String> model, final List<ProgramParams.Param> ps, final String[] values,
+        final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, String empty) {
+        JPanel box = new JPanel(new BorderLayout(0, 4));
+        box.add(new JLabel(title), BorderLayout.NORTH);
+        final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
+        list.setName(name);
+        list.setVisibleRowCount(6);
+        list.setToolTipText(empty);
+        list.setCellRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> l, Object v, int i, boolean sel, boolean focus) {
+                java.awt.Component c = super.getListCellRendererComponent(l, plugName(String.valueOf(v)), i, sel, focus);
+                ((javax.swing.JComponent) c).setToolTipText(String.valueOf(v));
+                return c;
+            }
+        });
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent ev) {
+                int at = list.locationToIndex(ev.getPoint());
+                if (at < 0) return;
+                list.setSelectedIndex(at);
+                useMenu(ps, values, fileLabels, uses, list.getModel().getElementAt(at)).show(list, ev.getX(), ev.getY());
+            }
+        });
+        box.add(new JScrollPane(list), BorderLayout.CENTER);
+        return box;
+    }
+
+    /** The menu a listed plugin shows: Use as plugin 1 to 4 (the page's plugin rows). */
+    javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("params-use-menu");
+        for (final String token : ProgramParams.pluginRows(ps)) {
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+            item.setName("params-use-as:" + token);
+            item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            m.add(item);
+        }
+        MenuCancel.add(m);
+        lastUseMenu = m;
+        return m;
+    }
+
+    /** The Use as plugin menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastUseMenu;
+
+    /** A plugin put on a row (and its Use ticked). */
+    void usePlugin(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path) {
+        for (int i = 0; i < ps.size(); i++) {
+            if (!ps.get(i).token.equals(token)) continue;
+            values[i] = path;
+            if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+            if (uses[i] != null) uses[i].setSelected(true);
+            app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
+        }
+    }
+
+    /** Clear beside a list's Choose: shown while something is chosen or typed (SogniMusic's --workflow back to a new run). */
+    private JButton choiceClear(ProgramParams.Param p, final javax.swing.text.JTextComponent field) {
+        final JButton clear = new JButton("Clear");
+        clear.setName("params-clear:" + p.token);
+        clear.addActionListener(e -> field.setText(""));
+        clear.setVisible(field.getText().trim().length() > 0);
+        field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void now() {
+                boolean show = field.getText().trim().length() > 0;
+                if (clear.isVisible() != show) {
+                    clear.setVisible(show);
+                    clear.getParent().revalidate();
+                }
+            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { now(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { now(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { now(); }
+        });
+        return clear;
     }
 
     private JButton clearButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {

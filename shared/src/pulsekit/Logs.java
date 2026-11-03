@@ -164,6 +164,26 @@ public final class Logs {
   }
 
   /** Deletes the entries (Delete); how many went. */
+  /** An entry's long-press menu (File > Logs). */
+  public static final String OPEN = "Open";
+  public static final String DELETE = "Delete";
+  public static final String[] ENTRY_MENU = {OPEN, DELETE};
+
+  /** A type tab's long press: "Clear all Program runs logs" (All logs: "Clear all logs"). */
+  public static String clearAll(String type) {
+    return ALL.equals(type) ? "Clear all logs" : "Clear all " + type + " logs";
+  }
+
+  /** Its confirmation: "Delete all 12 Program runs log entries?" */
+  public static String clearAllAsk(String type, int n) {
+    return "Delete all " + n + (ALL.equals(type) ? "" : " " + type) + " log " + (n == 1 ? "entry" : "entries") + "?";
+  }
+
+  /** What deleting said: "Deleted 12 log entries". */
+  public static String deleted(int n) {
+    return "Deleted " + n + " log " + (n == 1 ? "entry" : "entries");
+  }
+
   public static int delete(List<Entry> entries) {
     int n = 0;
     for (Entry e : entries) if (e.file.delete()) n++;
