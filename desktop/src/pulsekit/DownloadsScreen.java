@@ -747,6 +747,8 @@ final class DownloadsScreen {
      */
     static String moveToDefaults(File dir) {
         if (!moving.compareAndSet(false, true)) return "Moving already";
+        moveStatus = "";
+        moveProgress = 0;
         try {
             DownloadMove.load();
             java.util.List<File> files = new java.util.ArrayList<File>();

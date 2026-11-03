@@ -849,6 +849,9 @@ final class MediaBrowser {
     static final String FILE_MENU = "File";
     static final String IMPORT_FILE_ITEM = "Import file\u2026", IMPORT_FOLDER_ITEM = "Import folder\u2026", COPY_FOLDER_ITEM = "Copy folder from\u2026";
 
+    /** Move defined media types' window shown last (for the tests). */
+    static JDialog lastMoveWindow;
+
     /** The File menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastFileMenu;
 
@@ -885,10 +888,42 @@ final class MediaBrowser {
             }
         }
         app.setNow("Moving the defined media types\u2026");
+        // What is moving: the file, how many of how many, and a bar (Hide: it goes on).
+        final JDialog progress = new JDialog(dialog, DownloadMove.DEFAULTS, false);
+        progress.setName("media-move-window");
+        JPanel box = new JPanel(new java.awt.BorderLayout(0, 8));
+        box.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        final JLabel status = new JLabel("Looking for files\u2026");
+        status.setName("media-move-status");
+        final javax.swing.JProgressBar bar = new javax.swing.JProgressBar(0, 1000);
+        bar.setName("media-move-progress");
+        bar.setPreferredSize(new java.awt.Dimension(420, bar.getPreferredSize().height));
+        final JButton hide = new JButton("Hide");
+        hide.setName("media-move-hide");
+        hide.addActionListener(e -> progress.dispose());
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        south.add(hide);
+        box.add(status, java.awt.BorderLayout.NORTH);
+        box.add(bar, java.awt.BorderLayout.CENTER);
+        box.add(south, java.awt.BorderLayout.SOUTH);
+        progress.setContentPane(box);
+        progress.pack();
+        progress.setLocationRelativeTo(dialog);
+        progress.setVisible(true);
+        lastMoveWindow = progress;
+        final javax.swing.Timer watch = new javax.swing.Timer(200, e -> {
+            if (DownloadsScreen.moveStatus.length() > 0) status.setText(DownloadsScreen.moveStatus);
+            bar.setValue(DownloadsScreen.moveProgress);
+        });
+        watch.start();
         new Thread(() -> {
             final String said = DownloadsScreen.moveToDefaults(dir);
             lastSaid = said;
             SwingUtilities.invokeLater(() -> {
+                watch.stop();
+                status.setText(said);
+                bar.setValue(1000);
+                hide.setText("Close");
                 app.setNow(said);
                 gone.set(true);
                 this.fill(dialog, root, dir);

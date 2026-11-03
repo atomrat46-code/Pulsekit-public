@@ -100,8 +100,20 @@ public final class DownloadMove {
 
   /** The folder a file of this name goes to (its kind ticked, a folder picked), or "". */
   public static synchronized String defaultFor(String name) {
-    String k = SogniDownloads.kindOf(name);
+    String k = kindOf(name);
     return isTicked(k) ? folderOf(k) : "";
+  }
+
+  /**
+   * "picture", "video" or "audio" as the Media browser counts them (MIDI is music, so are WAVE and
+   * HEIC / 3GP pictures and videos), else as the Downloads list does.
+   */
+  public static String kindOf(String name) {
+    int k = MediaDir.kind(name);
+    if (k == MediaDir.PICTURE) return "picture";
+    if (k == MediaDir.VIDEO) return "video";
+    if (k == MediaDir.SOUND) return "audio";
+    return SogniDownloads.kindOf(name);
   }
 
   /** Whether any kind is ticked with its folder (else Move defined media types asks for them). */

@@ -2429,15 +2429,38 @@ final class MediaBrowser {
         final boolean inDownload = DOWNLOADS.equals(this.path.get(0));
         final boolean keeper = !RunKeeper.foreground;
         if (keeper) RunKeeper.start(app, "Move downloads");
+        // What is moving: the file, how many of how many, the MB done, and a bar (Hide: it goes on).
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(12), this.app.dp(20), 0);
+        final TextView status = this.app.text(files.isEmpty() ? "Looking for files\u2026" : "Moving " + files.size() + (files.size() == 1 ? " file" : " files") + "\u2026", 14, false);
+        status.setTag("media-move-status");
+        box.addView(status);
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this.app, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setTag("media-move-progress");
+        bar.setMax(1000);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = this.app.dp(8);
+        box.addView(bar, blp);
+        lastMoveProgress = new AlertDialog.Builder(this.app).setTitle(DownloadMove.DEFAULTS).setView(box).setPositiveButton("Hide", null).show();
+        final int count = files.size();
         new Thread(() -> {
             int moved = 0, failed = 0;
             String problem = null;
             try {
                 for (int i = 0; i < files.size(); i++) {
                     MediaDir.Entry e = files.get(i);
-                    final String head = "Moving " + (i + 1) + " of " + files.size() + ": " + e.name;
-                    this.main.post(() -> app.setNow(head));
-                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload);
+                    final String head = "Moving " + (i + 1) + " of " + count + ": " + e.name;
+                    final int index = i;
+                    final long size = e.size;
+                    this.main.post(() -> {
+                        status.setText(head);
+                        bar.setProgress(index * 1000 / count);
+                    });
+                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload, done -> this.main.post(() -> {
+                        // At each MB: how far into this file.
+                        status.setText(head + " \u00b7 " + DownloadMove.mb(done) + (size > 0 ? " of " + DownloadMove.mb(size) : ""));
+                        bar.setProgress((int) ((index + (size > 0 ? Math.min(1.0, done / (double) size) : 0.5)) * 1000 / count));
+                    }));
                     if (why == null) moved++;
                     else {
                         failed++;
@@ -2452,13 +2475,24 @@ final class MediaBrowser {
             lastDefaultsSaid = said;
             this.main.post(() -> {
                 app.setNow(said);
+                status.setText(said);
+                bar.setProgress(1000);
+                if (lastMoveProgress != null && lastMoveProgress.isShowing()) lastMoveProgress.getButton(AlertDialog.BUTTON_POSITIVE).setText("Close");
                 if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
             });
         }).start();
     }
 
     /** One file into its kind's folder and out of the folder shown; null when moved, else why not. */
-    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload) {
+    /** How far a file's move is: the bytes written so far (said at each MB). */
+    interface Progress {
+        void at(long done);
+    }
+
+    /** Move defined media types' window: the status and the bar (for the tests). */
+    static AlertDialog lastMoveProgress;
+
+    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload, final Progress progress) {
         try {
             String to = DownloadMove.defaultFor(e.name);
             String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
@@ -2474,8 +2508,16 @@ final class MediaBrowser {
             try {
                 at = saveInto(app, origin, null, e.name, ArtJava.mimeOf(e.name), out -> {
                     byte[] buf = new byte[65536];
+                    long done = 0, said = 0;
                     int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        if (progress != null && done - said >= (1 << 20)) {
+                            said = done;
+                            progress.at(done);
+                        }
+                    }
                 });
             } finally {
                 in.close();

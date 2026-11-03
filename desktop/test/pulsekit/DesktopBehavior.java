@@ -7708,6 +7708,9 @@ public final class DesktopBehavior {
     Files.write(new File(media, "shot.png").toPath(), new byte[] {1, 2});
     Files.write(new File(media, "clip.mp4").toPath(), new byte[] {3, 4});
     Files.write(new File(media, "notes.txt").toPath(), new byte[] {5});
+    Files.write(new File(media, "beat.mid").toPath(), new byte[] {'M', 'T', 'h', 'd'});
+    final File music = new File(home, "music");
+    music.mkdirs();
     final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
     answers.add("(keep)");
     SwingUtilities.invokeLater(() -> mb.open(media));
@@ -7725,15 +7728,18 @@ public final class DesktopBehavior {
       for (Component c : MediaBrowser.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
     });
     // No folder picked: the question, its Browse… buttons picking the folders, then Move.
-    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : null;
+    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : "audio".equals(k) ? music : null;
     final boolean[] asked = new boolean[1];
     inspectNext = d -> {
       asked[0] = component(d, "downloads-move-browse:video") != null;
       ((javax.swing.AbstractButton) component(d, "downloads-move-browse:video")).doClick();
       ((javax.swing.AbstractButton) component(d, "downloads-move-browse:picture")).doClick();
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:audio")).doClick();
     };
     synchronized (answers) {
       answers.add("Move");
+      // The move's window stays open to be read.
+      answers.add("(keep)");
     }
     MediaBrowser.lastSaid = null;
     final javax.swing.JMenuItem[] move = new javax.swing.JMenuItem[1];
@@ -7743,16 +7749,27 @@ public final class DesktopBehavior {
     idle();
     String said = MediaBrowser.lastSaid;
     DownloadsScreen.folderFor = null;
-    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    // Its window: the result in the status line, the bar full.
+    final String[] window = new String[2];
+    edt(() -> {
+      JDialog w = MediaBrowser.lastMoveWindow;
+      if (w == null) return;
+      window[0] = ((JLabel) component(w, "media-move-status")).getText();
+      window[1] = String.valueOf(((javax.swing.JProgressBar) component(w, "media-move-progress")).getValue());
+      w.dispose();
+    });
+    boolean windowOk = said != null && said.equals(window[0]) && "1000".equals(window[1]);
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && new File(music, "beat.mid").isFile() && !new File(media, "beat.mid").exists()
+        && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
     // In the pictures' folder: nothing to move.
     String inPlace = DownloadsScreen.moveToDefaults(pics);
     edt(() -> mb.last.dispose());
     this.out.append("settings ").append(settingsOk).append(" | file menu: ").append(items).append("asked ").append(asked[0]).append(" | ").append(said).append(", moved ").append(moved)
-        .append(" | in its folder: ").append(inPlace).append('\n');
+        .append(" | window ").append(windowOk).append(" | in its folder: ").append(inPlace).append('\n');
     DownloadMove.ticked.clear();
     DownloadMove.folder.clear();
     DownloadMove.save();
-    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 2 files".equals(said) && moved
+    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 3 files".equals(said) && moved && windowOk
         && inPlace.startsWith("Nothing to move");
     if (!ok) throw new AssertionError(this.out.toString());
   }

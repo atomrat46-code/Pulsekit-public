@@ -12098,7 +12098,10 @@ public class BehaviorTest {
     Files.write(new File(media, "shot.png").toPath(), png);
     Files.write(new File(media, "clip.mp4").toPath(), png);
     Files.write(new File(media, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "beat.mid").toPath(), new byte[] {'M', 'T', 'h', 'd'});
     Files.write(new File(pics, "kept.png").toPath(), png);
+    File music = new File(app.getCacheDir(), "m6-music");
+    music.mkdirs();
     MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
     for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
       Thread.sleep(20);
@@ -12114,6 +12117,7 @@ public class BehaviorTest {
         && MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-browse:video") != null;
     DownloadsScreen.folderSet("video", vids.getAbsolutePath(), "m6-vids");
     DownloadsScreen.folderSet("picture", pics.getAbsolutePath(), "m6-pics");
+    DownloadsScreen.folderSet("audio", music.getAbsolutePath(), "m6-music");
     String shown = String.valueOf(((TextView) MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-folder:video")).getText());
     MediaBrowser.lastDefaultsSaid = null;
     MediaBrowser.lastFoldersAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
@@ -12122,7 +12126,16 @@ public class BehaviorTest {
       idle();
     }
     String said = MediaBrowser.lastDefaultsSaid;
-    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    idle();
+    // Its window: the result in the status line, the bar full, Close.
+    View mw = MediaBrowser.lastMoveProgress.getWindow().getDecorView();
+    String windowSays = String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText());
+    int barAt = ((android.widget.ProgressBar) mw.findViewWithTag("media-move-progress")).getProgress();
+    String closeText = String.valueOf(MediaBrowser.lastMoveProgress.getButton(android.content.DialogInterface.BUTTON_POSITIVE).getText());
+    MediaBrowser.lastMoveProgress.dismiss();
+    boolean windowOk = said != null && said.equals(windowSays) && barAt == 1000 && "Close".equals(closeText);
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && new File(music, "beat.mid").isFile() && !new File(media, "clip.mp4").exists()
+        && !new File(media, "beat.mid").exists() && new File(media, "notes.txt").isFile();
     b.dialog.dismiss();
     idle();
     // In the pictures' folder itself: nothing to move.
@@ -12141,13 +12154,13 @@ public class BehaviorTest {
     p.dialog.dismiss();
     idle();
     out.append("settings ").append(settings).append(" | file menu: ").append(items).append(" | asked ").append(asked).append(", shows ").append(shown)
-        .append(" | ").append(said).append(", moved ").append(moved).append(" | in its folder: ").append(inPlace).append('\n');
+        .append(" | ").append(said).append(", moved ").append(moved).append(" | window ").append(windowOk).append(" | in its folder: ").append(inPlace).append('\n');
     DownloadMove.ticked.clear();
     DownloadMove.folder.clear();
     DownloadMove.save();
     write("s205_settings_move_folders_and_file_menu", out.toString());
     boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
-        && "Moved 2 files".equals(said) && moved && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
+        && "Moved 3 files".equals(said) && moved && windowOk && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12224,7 +12237,7 @@ public class BehaviorTest {
     MediaDir.Entry e = new MediaDir.Entry();
     e.name = "clip.mp4";
     e.id = clip.getAbsolutePath();
-    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false);
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false, null);
     String clipNow = Playlist.load(pdir, "Moves").items.get(1).file;
     SogniDownloads.Item clipItem = null;
     for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
