@@ -516,7 +516,10 @@ final class MediaBrowser {
                 folder = found;
                 label = label + "/" + sub;
             }
-            Uri file = DocumentsContract.createDocument(app.getContentResolver(), folder, mime, name);
+            // A name taken there: the next free "name (n)" picked here (Android tries up to (31) of
+            // them, then gives up with "Failed to create unique file": Sogni names its results alike).
+            String picked = freeName(childNames(app, treeUri, DocumentsContract.getDocumentId(folder)), name);
+            Uri file = DocumentsContract.createDocument(app.getContentResolver(), folder, mime, picked);
             if (file == null) throw new java.io.IOException("could not write " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(file);
             try {
@@ -525,9 +528,39 @@ final class MediaBrowser {
                 os.close();
             }
             savedAddress.set(file.toString());
-            return label + "/" + name;
+            return label + "/" + picked;
         } catch (SecurityException ex) {
             throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
+        }
+    }
+
+    /** The names in a granted folder (empty when it cannot be read). */
+    static java.util.Set<String> childNames(MainActivity app, Uri treeUri, String docId) {
+        java.util.Set<String> names = new java.util.HashSet<String>();
+        Cursor c = null;
+        try {
+            c = app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId),
+                new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String n = c.getString(0);
+                if (n != null) names.add(n.toLowerCase(java.util.Locale.ROOT));
+            }
+        } catch (Exception ignored) {
+            // the provider picks
+        } finally {
+            if (c != null) c.close();
+        }
+        return names;
+    }
+
+    /** `name`, or the first "stem (n).ext" not among `taken` (lower case). */
+    static String freeName(java.util.Set<String> taken, String name) {
+        if (!taken.contains(name.toLowerCase(java.util.Locale.ROOT))) return name;
+        String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        String ext = name.substring(stem.length());
+        for (int n = 1; ; n++) {
+            String next = stem + " (" + n + ")" + ext;
+            if (!taken.contains(next.toLowerCase(java.util.Locale.ROOT))) return next;
         }
     }
 
@@ -2529,7 +2562,7 @@ final class MediaBrowser {
                 : DocumentsContract.isDocumentUri(app, src) ? DocumentsContract.deleteDocument(app.getContentResolver(), src) : app.getContentResolver().delete(src, null, null) > 0;
             if (!gone) return "copied " + e.name + " to " + at + ", but could not delete it from Download";
             SogniDownloads.Item item = SogniDownloads.inDownload(olds);
-            if (item != null) SogniDownloads.movedAway(item, item.name, now, at);
+            if (item != null) SogniDownloads.movedAway(item, at.lastIndexOf('/') >= 0 && at.lastIndexOf('/') < at.length() - 1 ? at.substring(at.lastIndexOf('/') + 1) : item.name, now, at);
             Playlist.repoint(app.getFilesDir(), olds, now);
             return null;
         } catch (Exception ex) {

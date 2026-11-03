@@ -912,7 +912,9 @@ final class DownloadsScreen {
         String address = MediaBrowser.savedAddress.get();
         if (address == null || address.length() == 0) address = label;
         MediaBrowser.savedAddress.remove();
-        SogniDownloads.movedAway(item, item.name, address, label);
+        // Its name there (a name taken got " (n)").
+        String name = label.lastIndexOf('/') >= 0 ? label.substring(label.lastIndexOf('/') + 1) : item.name;
+        SogniDownloads.movedAway(item, name.length() > 0 ? name : item.name, address, label);
         Playlist.repoint(app.getFilesDir(), olds, address);
     }
 

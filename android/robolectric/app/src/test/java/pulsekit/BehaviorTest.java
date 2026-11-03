@@ -12158,9 +12158,15 @@ public class BehaviorTest {
     DownloadMove.ticked.clear();
     DownloadMove.folder.clear();
     DownloadMove.save();
+    // A name taken 32 times over (Android's own "(n)" gives up there): the next free one.
+    java.util.Set<String> taken = new java.util.HashSet<String>();
+    taken.add("sogni-pedit.png");
+    for (int n = 1; n <= 40; n++) taken.add("sogni-pedit (" + n + ").png");
+    String free = MediaBrowser.freeName(taken, "sogni-pedit.png");
+    out.append("free name: ").append(free).append('\n');
     write("s205_settings_move_folders_and_file_menu", out.toString());
     boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
-        && "Moved 3 files".equals(said) && moved && windowOk && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
+        && "Moved 3 files".equals(said) && moved && windowOk && "sogni-pedit (41).png".equals(free) && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
     if (!ok) throw new AssertionError(out.toString());
   }
 
