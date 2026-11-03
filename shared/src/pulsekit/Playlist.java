@@ -326,17 +326,45 @@ public final class Playlist {
     } catch (Exception ex) {
       return "Could not add " + shown + " to " + n + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
     }
-    // The playlist used last for this kind of file, kept (Add to playlist… shows it first).
+    // The playlist used last for this kind of file, kept (Add to playlist… shows it first); the playlist
+    // editor opens on this list, with the file just added picked.
     String kind = type(shown);
     if (kind.length() == 0) kind = type(shortName(file));
-    if (kind.length() > 0) {
-      Settings st = settings(dir);
-      if (!n.equals(st.lastOf(kind))) {
-        st.setLastOf(kind, n);
-        saveSettings(dir, st);
+    Settings st = settings(dir);
+    if (kind.length() > 0) st.setLastOf(kind, n);
+    st.last = n;
+    st.addedTo = n;
+    st.added = p.items.size() - 1;
+    saveSettings(dir, st);
+    return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
+  }
+
+  /**
+   * A file moved (Downloads' Move now, Move to, the Media browser's Move to default locations): every
+   * playlist's entry for it (any of `olds`: its path or addresses before) now points at `now`. How many.
+   */
+  public static int repoint(File dir, java.util.Collection<String> olds, String now) {
+    if (now == null || now.length() == 0 || olds == null || olds.isEmpty()) return 0;
+    int n = 0;
+    for (String name : names(dir)) {
+      Playlist p = load(dir, name);
+      boolean changed = false;
+      for (Item it : p.items) {
+        if (olds.contains(it.file)) {
+          it.file = now;
+          changed = true;
+          n++;
+        }
+      }
+      if (changed) {
+        try {
+          save(dir, p);
+        } catch (Exception ignored) {
+          // that list keeps the old place
+        }
       }
     }
-    return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
+    return n;
   }
 
   /** Whether the file is in the named list already. */
@@ -533,6 +561,9 @@ public final class Playlist {
     public float zoomVideo = 1f;
     /** The playlist open last. */
     public String last = DEFAULT;
+    /** The item added last (Add to playlist…): its playlist and place, so the editor opens on it with it picked; -1 none. */
+    public String addedTo = "";
+    public int added = -1;
     /** The playlist each kind of file (IMAGE, VIDEO, AUDIO, MIDI) went into last. */
     public final Map<String, String> lastOf = new LinkedHashMap<String, String>();
 
@@ -587,6 +618,8 @@ public final class Playlist {
             videoZoomKept = true;
           }
           else if (k.equals("last")) s.last = clean(v).length() == 0 ? DEFAULT : clean(v);
+          else if (k.equals("addedTo")) s.addedTo = clean(v);
+          else if (k.equals("added")) s.added = Integer.parseInt(v);
           else if (k.startsWith("last.")) s.setLastOf(k.substring(5), v);
         } catch (NumberFormatException ignored) {
           // that one stays as it was
@@ -604,7 +637,7 @@ public final class Playlist {
 
   public static void saveSettings(File dir, Settings s) {
     String text = "repeat=" + s.repeat + "\nauto=" + s.auto + "\nautoplay=" + s.autoplay + "\nloop=" + s.loop + "\nseconds=" + s.seconds + "\nvolume=" + s.volume
-        + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nzoomVideo=" + s.zoomVideo + "\nlast=" + s.last + "\n";
+        + "\nmute=" + s.mute + "\nspeed=" + s.speed + "\nzoom=" + s.zoom + "\nzoomVideo=" + s.zoomVideo + "\nlast=" + s.last + "\naddedTo=" + s.addedTo + "\nadded=" + s.added + "\n";
     for (Map.Entry<String, String> e : s.lastOf.entrySet()) text += "last." + e.getKey() + "=" + e.getValue() + "\n";
     try {
       if (!dir.isDirectory()) dir.mkdirs();
@@ -612,6 +645,11 @@ public final class Playlist {
     } catch (Exception ignored) {
       // kept for this session
     }
+  }
+
+  /** The item the playlist editor shows picked for `list`: the one added to it last, or -1. */
+  public static int picked(Settings s, String list) {
+    return s != null && s.added >= 0 && clean(list).equals(s.addedTo) ? s.added : -1;
   }
 
   /** The item after `at` in the viewer (-1: none, the end with Repeat off). */

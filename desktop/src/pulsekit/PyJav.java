@@ -2328,7 +2328,9 @@ final class PyJav {
             : MediaDir.addToDb(PromptDb.dir(), f.getName(), bytes, MediaDir.SAVE_RESULT.equals(item));
         this.lastDbAdd = said;
         app.setNow(said);
-        if (said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, f.getName(), f.length());
+        // Its group asked for, unless it is in one already (Add to group on the ready screen).
+        FileGroups.load(PromptDb.dir());
+        if (said.contains(" is in the DB as a ") && FileGroups.groupsOf(GroupMenus.keys(f)).isEmpty()) GroupMenus.afterAdd(app, f.getName(), f.length());
     }
 
     /** WAV / MP3 ready's Add to DB: as a result or a reference file in the prompt library, then which group it goes in. */

@@ -4283,7 +4283,8 @@ public class BehaviorTest {
     java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
     org.robolectric.Shadows.shadowOf(menu).clickOnItem(rows.indexOf(FileGroups.ADD));
     idle();
-    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    // Trip by its name (the groups are in alphabetical order: Evening, Trip).
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(java.util.Arrays.asList(listItems(GroupDialogs.last).split(" \\| ")).indexOf("Trip"));
     idle();
     FileGroups.show("Trip");
     PromptVault.StoredFile beach = PromptVault.open(app.getFilesDir()).referenceFiles().get(0);
@@ -4300,7 +4301,7 @@ public class BehaviorTest {
     GroupDialogs.afterAdd(app, "sea.png", 10);
     idle();
     out.append("after Add to DB: ").append(org.robolectric.Shadows.shadowOf(GroupDialogs.last).getTitle()).append(": ").append(listItems(GroupDialogs.last)).append('\n');
-    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(2);
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(java.util.Arrays.asList(listItems(GroupDialogs.last).split(" \\| ")).indexOf("Evening"));
     idle();
     out.append("sea.png in Evening: ").append(FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10))).append('\n');
     boolean addOk = FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10));
@@ -8720,6 +8721,8 @@ public class BehaviorTest {
     boolean autoOk = before == 0 && whileHeld == 0 && afterAuto == 1;
     vw.findViewWithTag("viewer-zoom-in").performClick();
     vw.findViewWithTag("viewer-speed").performClick();
+    // Speed's menu: 1.25× picked.
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastSpeedMenu).getOnMenuItemClickListener().onMenuItemClick(PlaylistScreen.lastSpeedMenu.getMenu().findItem(3));
     vw.findViewWithTag("viewer-mute").performClick();
     PlaylistScreen.lastViewer.dismiss();
     Playlist.Settings kept = Playlist.settings(dir);
@@ -8878,6 +8881,8 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).getOnSeekBarChangeListener().onStopTrackingTouch((android.widget.SeekBar) w.findViewWithTag("playlist-volume"));
     ((android.widget.CheckBox) w.findViewWithTag("playlist-mute")).setChecked(true);
     w.findViewWithTag("playlist-speed").performClick();
+    // Speed's menu: 1.25× picked.
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastSpeedMenu).getOnMenuItemClickListener().onMenuItemClick(PlaylistScreen.lastSpeedMenu.getMenu().findItem(3));
     w.findViewWithTag("playlist-zoom-in").performClick();
     Playlist.Settings kept = Playlist.settings(dir);
     out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
@@ -9588,7 +9593,11 @@ public class BehaviorTest {
     b = MediaBrowser.open(app, media.getAbsolutePath());
     idle();
     bv = b.dialog.getWindow().getDecorView();
-    boolean buttons = bv.findViewWithTag("media-import-file") != null && bv.findViewWithTag("media-import-folder") != null && bv.findViewWithTag("media-copy-folder") != null;
+    bv.findViewWithTag("media-file-menu").performClick();
+    idle();
+    String fileItems = listItems(MediaBrowser.lastFileMenu);
+    MediaBrowser.lastFileMenu.dismiss();
+    boolean buttons = fileItems.contains("Import file\u2026") && fileItems.contains("Import folder\u2026") && fileItems.contains("Copy folder from\u2026");
     File outside = new File(app.getCacheDir(), "elsewhere");
     outside.mkdirs();
     File song = new File(outside, "song.wav");
@@ -12059,10 +12068,229 @@ public class BehaviorTest {
   }
 
   /**
+   * 03112026_6: Settings' Default move folders (Images, Videos, Music with Browse); the Media browser's
+   * File menu (the imports, the zips, Move defined media types); with no folder picked, Move defined
+   * media types asks for them, then moves the folder's files of those types (a file in its folder stays).
+   */
+  @Test
+  public void s205_settings_move_folders_and_file_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    GeneralSettings.show(app);
+    idle();
+    View sv = GeneralSettings.last.getWindow().getDecorView();
+    boolean settings = sv.findViewWithTag("settings-move-folders") != null && sv.findViewWithTag("downloads-move-browse:picture") != null
+        && sv.findViewWithTag("downloads-move-browse:video") != null && sv.findViewWithTag("downloads-move-browse:audio") != null;
+    // A folder picked (Browse's answer) shows in Settings, its type ticked.
+    File vids = new File(app.getCacheDir(), "m6-vids"), pics = new File(app.getCacheDir(), "m6-pics");
+    vids.mkdirs();
+    pics.mkdirs();
+    GeneralSettings.last.dismiss();
+    idle();
+    File media = new File(app.getCacheDir(), "m6-media");
+    media.mkdirs();
+    byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 5};
+    Files.write(new File(media, "shot.png").toPath(), png);
+    Files.write(new File(media, "clip.mp4").toPath(), png);
+    Files.write(new File(media, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(pics, "kept.png").toPath(), png);
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-file-menu").performClick();
+    idle();
+    String items = listItems(MediaBrowser.lastFileMenu);
+    // Move defined media types with no folder picked: the folders asked for.
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastFileMenu).clickOnItem(b.fileItems().indexOf(DownloadMove.DEFAULTS));
+    idle();
+    boolean asked = MediaBrowser.lastFoldersAsk != null && MediaBrowser.lastFoldersAsk.isShowing()
+        && MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-browse:video") != null;
+    DownloadsScreen.folderSet("video", vids.getAbsolutePath(), "m6-vids");
+    DownloadsScreen.folderSet("picture", pics.getAbsolutePath(), "m6-pics");
+    String shown = String.valueOf(((TextView) MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-folder:video")).getText());
+    MediaBrowser.lastDefaultsSaid = null;
+    MediaBrowser.lastFoldersAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && MediaBrowser.lastDefaultsSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String said = MediaBrowser.lastDefaultsSaid;
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    b.dialog.dismiss();
+    idle();
+    // In the pictures' folder itself: nothing to move.
+    MediaBrowser p = MediaBrowser.open(app, pics.getAbsolutePath());
+    for (int i = 0; i < 200 && (p.loading || p.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastDefaultsSaid = null;
+    p.fileItem(DownloadMove.DEFAULTS);
+    for (int i = 0; i < 200 && MediaBrowser.lastDefaultsSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String inPlace = MediaBrowser.lastDefaultsSaid;
+    p.dialog.dismiss();
+    idle();
+    out.append("settings ").append(settings).append(" | file menu: ").append(items).append(" | asked ").append(asked).append(", shows ").append(shown)
+        .append(" | ").append(said).append(", moved ").append(moved).append(" | in its folder: ").append(inPlace).append('\n');
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    write("s205_settings_move_folders_and_file_menu", out.toString());
+    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
+        && "Moved 2 files".equals(said) && moved && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 03112026_5: Move now moves the oldest downloads first; a playlist's entry for a moved file follows
+   * it; after Move now (by hand) Clear the list asks to take the moved runs off; a download's Clear and
+   * Clear all ask first when files were not moved; the Media browser's Move to default locations moves
+   * a Download file to its kind's folder, the Downloads list and the playlists following it.
+   */
+  @Test
+  public void s204_move_oldest_clear_and_defaults() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dl = new File(app.getCacheDir(), "m5-dl"), pics = new File(app.getCacheDir(), "m5-pics"), vids = new File(app.getCacheDir(), "m5-vids");
+    File list = new File(app.getCacheDir(), "m5-list");
+    dl.mkdirs();
+    pics.mkdirs();
+    vids.mkdirs();
+    list.mkdirs();
+    byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 5};
+    File newer = new File(dl, "newer.png"), older = new File(dl, "older.png"), clip = new File(dl, "clip.mp4"), tune = new File(dl, "tune.mp3");
+    for (File f : new File[] {newer, older, clip, tune}) Files.write(f.toPath(), png);
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: newer.png", "saved " + newer.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rn);
+    long ro = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(ro, "Succeeded: older.png", "saved " + older.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(ro);
+    long rc = SogniDownloads.started("SogniVideo.java", 7000L);
+    SogniDownloads.result(rc, "Succeeded: clip.mp4", "saved " + clip.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rc);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rt);
+    File pdir = app.getFilesDir();
+    Playlist.addTo(pdir, "Moves", older.getAbsolutePath(), "older.png");
+    Playlist.addTo(pdir, "Moves", clip.getAbsolutePath(), "clip.mp4");
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m5-pics");
+    StringBuilder order = new StringBuilder();
+    for (Object[] d : DownloadMove.due()) order.append(((SogniDownloads.Item) d[1]).name).append(' ');
+    String said = DownloadsScreen.moveDue(app);
+    String repointed = Playlist.load(pdir, "Moves").items.get(0).file;
+    out.append("order: ").append(order.toString().trim()).append(" | ").append(said).append(" | playlist: ").append(new File(repointed).getName()).append(" in ").append(new File(repointed).getParentFile().getName()).append('\n');
+    boolean orderOk = order.toString().trim().equals("older.png newer.png") && "Moved 2 files".equals(said) && repointed.equals(new File(pics, "older.png").getPath());
+    // Clear the list: asked after Move now, the two moved runs taken off (the video and the MP3 stay).
+    DownloadsScreen.askClear(app, null);
+    idle();
+    String asked = DownloadsScreen.lastClearAsk == null ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(DownloadsScreen.lastClearAsk).getMessage());
+    if (DownloadsScreen.lastClearAsk != null) DownloadsScreen.lastClearAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    out.append("clear ask: ").append(asked).append(" | runs left ").append(left).append('\n');
+    boolean clearOk = asked.equals(DownloadMove.clearAsk(2)) && left == 2;
+    // Clear all says the files not moved; a download's Clear asks when its file was not moved.
+    String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
+    SogniDownloads.Run tuneRun = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rt) tuneRun = r;
+    android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+    DownloadsScreen.menu(app, col, tuneRun, tuneRun.items.get(0));
+    idle();
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(1);
+    idle();
+    String one = DownloadsScreen.lastClearOne == null || !DownloadsScreen.lastClearOne.isShowing() ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(DownloadsScreen.lastClearOne).getMessage());
+    boolean stillListed = SogniDownloads.tab(SogniDownloads.FINISHED).size() == 2;
+    if (DownloadsScreen.lastClearOne != null) DownloadsScreen.lastClearOne.dismiss();
+    out.append("clear all: ").append(all.replace('\n', ' ')).append(" | clear one: ").append(one).append(" | still listed ").append(stillListed).append('\n');
+    boolean asksOk = all.contains("2 files have not been moved") && all.contains("Are you sure") && one.equals(DownloadMove.clearOneAsk("tune.mp3")) && stillListed;
+    // Move to default locations: the video (its kind ticked, a folder picked) out of Download.
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "m5-vids");
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "clip.mp4";
+    e.id = clip.getAbsolutePath();
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false);
+    String clipNow = Playlist.load(pdir, "Moves").items.get(1).file;
+    SogniDownloads.Item clipItem = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
+    boolean defaultsOk = why == null && new File(vids, "clip.mp4").isFile() && !clip.exists() && clipNow.equals(new File(vids, "clip.mp4").getPath())
+        && clipItem != null && clipItem.away && clipItem.where.equals(new File(vids, "clip.mp4").getPath()) && DownloadMove.anyDefault()
+        && DownloadMove.defaultFor("x.mp3").length() == 0;
+    out.append("defaults: ").append(why).append(" | playlist ").append(new File(clipNow).getParentFile().getName()).append(" | listed moved ").append(clipItem != null && clipItem.away).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s204_move_oldest_clear_and_defaults", out.toString());
+    if (!(orderOk && clearOk && asksOk && defaultsOk)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's folder zips: Send folder contents to zip puts the folder's files (not its
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /**
+   * Playlists: a file added to a new playlist (Picture ready's Add to playlist…) makes File > Playlist
+   * open that playlist with the file picked; Speed's menu lists the speeds, the one in use ticked, and
+   * the viewer's Speed says the speed picked.
+   */
+  @Test
+  public void s203_playlist_newest_and_speed_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    File a = new File(app.getCacheDir(), "first.png"), b = new File(app.getCacheDir(), "second.png");
+    Files.write(a.toPath(), new byte[] {1});
+    Files.write(b.toPath(), new byte[] {2});
+    Playlist.addTo(dir, "Default", a.getAbsolutePath(), "first.png");
+    Playlist.addTo(dir, "Beach trip", a.getAbsolutePath(), "first.png");
+    Playlist.addTo(dir, "Beach trip", b.getAbsolutePath(), "second.png");
+    Playlist.Settings st = Playlist.settings(dir);
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, null);
+    idle();
+    String title = String.valueOf(org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle());
+    int picked = PlaylistScreen.shownPicked;
+    out.append("opens ").append(title).append(", picked item ").append(picked).append(" (kept: ").append(st.last).append(", ").append(st.addedTo).append(" #").append(st.added).append(")\n");
+    PlaylistScreen.tab = 1;
+    PlaylistScreen.show(app, null);
+    idle();
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-speed").performClick();
+    android.widget.PopupMenu m = PlaylistScreen.lastSpeedMenu;
+    String items = "";
+    String ticked = "";
+    for (int i = 0; i < m.getMenu().size(); i++) {
+      items += m.getMenu().getItem(i).getTitle() + " ";
+      if (m.getMenu().getItem(i).isChecked()) ticked = String.valueOf(m.getMenu().getItem(i).getTitle());
+    }
+    org.robolectric.Shadows.shadowOf(m).getOnMenuItemClickListener().onMenuItemClick(m.getMenu().findItem(4));
+    float kept = Playlist.settings(dir).speed;
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    idle();
+    out.append("speed menu: ").append(items.trim()).append(" | ticked ").append(ticked).append(" | picked: ").append(Playlist.speedText(kept)).append('\n');
+    write("s203_playlist_newest_and_speed_menu", out.toString());
+    boolean ok = title.equals("Playlist \u00b7 Beach trip") && picked == 1 && m.getMenu().size() == Playlist.SPEEDS.length
+        && ticked.equals(Playlist.speedText(st.speed)) && Math.abs(kept - Playlist.SPEEDS[4]) < 0.01f;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /**
    * 03112026_3: Save into disk's request code its own (not LV2 import's); Picture ready's Reference,
    * Result, Save to file row under the name, above the picture; Process as a reference leaves an
@@ -12089,6 +12317,8 @@ public class BehaviorTest {
       TextView b = (TextView) pv.findViewWithTag("ready-save:" + item + ":pic.png");
       labels += (b == null ? "-" : b.getText()) + ";";
     }
+    boolean capped = picture instanceof android.widget.ImageView
+        && ((android.widget.ImageView) picture).getMaxHeight() == app.getResources().getDisplayMetrics().heightPixels * 45 / 100;
     PictureOffer.last.dismiss();
     idle();
     String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
@@ -12106,8 +12336,35 @@ public class BehaviorTest {
         && pane.findViewWithTag("prompts-import") == null;
     PromptsTabs.tab = PromptsTabs.PROMPTS;
     out.append("tabs: prompts tab ").append(onPrompts).append(", entries tab ").append(onEntries).append('\n');
+    // 03112026_4: groups in alphabetical order; Reference asks no group for a file in one already;
+    // Save to file still saves when Pulsekit was closed while the save dialog was open; a tall picture capped.
+    FileGroups.load(app.getFilesDir());
+    FileGroups.toggle("zebra", new String[] {"k:z"});
+    FileGroups.toggle("Apple", new String[] {"k:a"});
+    FileGroups.toggle("mango", new String[] {"k:m"});
+    java.util.List<String> names = FileGroups.names();
+    boolean alpha = names.indexOf("Apple") < names.indexOf("mango") && names.indexOf("mango") < names.indexOf("zebra");
+    byte[] shot = new byte[] {(byte) 0x89, 'P', 'N', 'G', 7, 7};
+    FileGroups.toggle("mango", PictureOffer.groupKeys(app, "grouped.png", shot.length));
+    GroupDialogs.last = null;
+    ReadySave.toDb(app, "grouped.png", shot, null, false);
+    idle();
+    boolean noAsk = ReadySave.lastSaid.contains("is in the DB as a reference") && (GroupDialogs.last == null || !GroupDialogs.last.isShowing());
+    File later = new File(app.getCacheDir(), "saved-after-restart.png");
+    ReadySave.toDisk(app, "after.png", shot, null);
+    org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    java.lang.reflect.Field pn = ReadySave.class.getDeclaredField("pendingName");
+    pn.setAccessible(true);
+    pn.set(null, null);
+    java.lang.reflect.Field pf = ReadySave.class.getDeclaredField("pendingFile");
+    pf.setAccessible(true);
+    pf.set(null, null);
+    ReadySave.write(app, android.net.Uri.fromFile(later));
+    boolean restart = later.isFile() && later.length() == shot.length && ReadySave.lastSaid.equals("Saved after.png");
+    out.append("groups ").append(names).append(" alphabetical ").append(alpha).append(" | no group question ").append(noAsk).append(" | saved after a restart ").append(restart).append('\n');
     write("s202_ready_row_switches_prompt_tabs", out.toString());
-    boolean ok = codes && above && labels.equals("Reference;Result;Save to file;") && kept.equals("--prompt \"a b\" --unlimited") && never.contains("--saveprompt") && onPrompts && onEntries;
+    out.append("picture capped ").append(capped).append('\n');
+    boolean ok = capped && alpha && noAsk && restart && codes && above && labels.equals("Reference;Result;Save to file;") && kept.equals("--prompt \"a b\" --unlimited") && never.contains("--saveprompt") && onPrompts && onEntries;
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12167,6 +12424,8 @@ public class BehaviorTest {
     DownloadMove.ticked.put("picture", true);
     DownloadMove.setFolder("picture", pics.getAbsolutePath(), "move-pics");
     String first = DownloadsScreen.moveDue(app);
+    String statusAfter = DownloadsScreen.moveStatus;
+    boolean notMoving = !DownloadsScreen.moving.get();
     String second = DownloadsScreen.moveDue(app);
     boolean movedOk = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
     // The settings and the moved mark kept: read again from their files.
@@ -12182,7 +12441,7 @@ public class BehaviorTest {
     SogniDownloads.init(app.getFilesDir());
     write("s201_ready_saves_and_download_move", out.toString());
     boolean ok = items && asRef.contains("song.mp3 is in the DB as a reference") && asResult.contains("pic.png is in the DB as a result") && disk
-        && first.equals("Moved 1 file") && second.startsWith("Nothing to move") && movedOk && kept;
+        && first.equals("Moved 1 file") && statusAfter.equals("Moved 1 file") && notMoving && second.startsWith("Nothing to move") && movedOk && kept;
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12380,7 +12639,7 @@ public class BehaviorTest {
       idle();
     }
     MediaBrowser.lastZipPassword = null;
-    b.dialog.getWindow().getDecorView().findViewWithTag("media-folder-zip").performClick();
+    b.fileItem(FolderZip.SEND);
     File zip = new File(media, "Trip.zip");
     for (int i = 0; i < 200 && MediaBrowser.lastZipPassword == null; i++) {
       Thread.sleep(20);

@@ -146,7 +146,7 @@ final class DownloadsScreen {
             clearAll.setName("downloads-clear-all");
             clearAll.addActionListener(e -> {
                 Object[] options = {"Clear all", "Cancel"};
-                if (JOptionPane.showOptionDialog(app, "Take every finished download off this list? The files stay where they are.", "Clear all",
+                if (JOptionPane.showOptionDialog(app, DownloadMove.clearAllAsk(SogniDownloads.notMoved()), "Clear all",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]) != 0) return;
                 app.setNow(SogniDownloads.clearFinished() + " off the list (the files stay)");
                 fill(app, body);
@@ -399,7 +399,13 @@ final class DownloadsScreen {
                 }
                 if (which == 7) app.setNow(favourite(r));
                 else if (which == 0) preview(app, item);
-                else if (which == 1) app.setNow(clear(r, item));
+                else if (which == 1) {
+                    // Not moved out of Download yet: asked first.
+                    Object[] options = {"Clear", "Cancel"};
+                    if (!item.away && JOptionPane.showOptionDialog(app, DownloadMove.clearOneAsk(item.name), "Clear",
+                        JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]) != 0) return;
+                    app.setNow(clear(r, item));
+                }
                 else if (which == 2) {
                     String next = JOptionPane.showInputDialog(app, "New name", item.name);
                     if (next != null) app.setNow(rename(item, next));
@@ -542,7 +548,11 @@ final class DownloadsScreen {
         } catch (Exception ex) {
             return "Could not " + (move ? "move " : "copy ") + item.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
         }
-        if (move) SogniDownloads.movedAway(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+        if (move) {
+            SogniDownloads.movedAway(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+            // The playlists' entries for it follow it.
+            Playlist.repoint(PromptDb.dir(), java.util.Collections.singleton(f.getAbsolutePath()), to.getAbsolutePath());
+        }
         return (move ? "Moved to " : "Copied to ") + to.getPath();
     }
 
@@ -570,6 +580,56 @@ final class DownloadsScreen {
         });
         panel.add(on);
         if (!DownloadMove.on) return panel;
+        folderRows(app, panel);
+        JPanel buttons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        buttons.setAlignmentX(0.0f);
+        final JButton now = new JButton(DownloadMove.MOVE_NOW);
+        now.setName("downloads-move-now");
+        now.setEnabled(!moving.get());
+        // What Move now is doing: the file and how many of them (while it moves), then its result.
+        final JLabel status = new JLabel(moveStatus);
+        status.setName("downloads-move-status");
+        final javax.swing.JProgressBar bar = new javax.swing.JProgressBar(0, 1000);
+        bar.setName("downloads-move-progress");
+        bar.setVisible(moving.get());
+        statusView = status;
+        barView = bar;
+        now.addActionListener(e -> {
+            if (moving.get()) return;
+            now.setEnabled(false);
+            new Thread(() -> {
+                final String said = moveNow();
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    app.setNow(said);
+                    fill(app, body);
+                    askClear(app, body);
+                });
+            }, "move-downloads").start();
+        });
+        buttons.add(now);
+        final javax.swing.JCheckBox auto = new javax.swing.JCheckBox(DownloadMove.AUTO, DownloadMove.auto);
+        auto.setName("downloads-move-auto");
+        auto.addActionListener(e -> {
+            DownloadMove.auto = auto.isSelected();
+            DownloadMove.save();
+        });
+        buttons.add(auto);
+        panel.add(buttons);
+        JPanel progress = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        progress.setAlignmentX(0.0f);
+        progress.add(status);
+        progress.add(bar);
+        panel.add(progress);
+        return panel;
+    }
+
+    /**
+     * Images, Videos and Music: each a box, its folder and Browse… (Downloads > Finished, Settings'
+     * Default move folders, the Media browser's question when none is picked).
+     */
+    static void folderRows(final java.awt.Component app, JPanel panel) {
+        SogniDownloads.init(PromptDb.dir());
+        DownloadMove.load();
         for (int i = 0; i < DownloadMove.KINDS.length; i++) {
             final String kind = DownloadMove.KINDS[i];
             JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
@@ -598,6 +658,10 @@ final class DownloadsScreen {
                 }
                 if (dir == null) return;
                 DownloadMove.setFolder(kind, dir.getAbsolutePath(), dir.getName());
+                // A folder picked: its type ticked.
+                DownloadMove.ticked.put(kind, true);
+                DownloadMove.save();
+                box.setSelected(true);
                 where.setText(DownloadMove.labelOf(kind));
                 where.setToolTipText(dir.getAbsolutePath());
             });
@@ -605,41 +669,128 @@ final class DownloadsScreen {
             row.add(browse);
             panel.add(row);
         }
-        JPanel buttons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
-        buttons.setAlignmentX(0.0f);
-        JButton now = new JButton(DownloadMove.MOVE_NOW);
-        now.setName("downloads-move-now");
-        now.addActionListener(e -> {
-            app.setNow(moveNow());
-            fill(app, body);
-        });
-        buttons.add(now);
-        final javax.swing.JCheckBox auto = new javax.swing.JCheckBox(DownloadMove.AUTO, DownloadMove.auto);
-        auto.setName("downloads-move-auto");
-        auto.addActionListener(e -> {
-            DownloadMove.auto = auto.isSelected();
-            DownloadMove.save();
-        });
-        buttons.add(auto);
-        panel.add(buttons);
-        return panel;
     }
 
-    /** The finished downloads of the ticked kinds moved out of Download into their folders. */
-    static synchronized String moveNow() {
-        DownloadMove.load();
-        int moved = 0, failed = 0;
-        String problem = null;
-        for (Object[] pair : DownloadMove.due()) {
-            SogniDownloads.Item item = (SogniDownloads.Item) pair[1];
-            String said = put((SogniDownloads.Run) pair[0], item, new File(DownloadMove.folderOf(item.kind())), true);
-            if (said.startsWith("Moved to ")) moved++;
-            else {
-                failed++;
-                if (problem == null) problem = said;
+    /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
+    static final java.util.concurrent.atomic.AtomicBoolean moving = new java.util.concurrent.atomic.AtomicBoolean();
+    static volatile String moveStatus = "";
+    static volatile int moveProgress;
+    private static JLabel statusView;
+    private static javax.swing.JProgressBar barView;
+
+    private static void showMove() {
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            if (statusView != null) statusView.setText(moveStatus);
+            if (barView != null) {
+                barView.setValue(moveProgress);
+                barView.setVisible(moving.get());
             }
+        });
+    }
+
+    /** The finished downloads of the ticked kinds moved out of Download into their folders, saying which file and how many. */
+    static String moveNow() {
+        if (!moving.compareAndSet(false, true)) return "Moving already";
+        String result = "";
+        lastMoved = 0;
+        try {
+            DownloadMove.load();
+            java.util.List<Object[]> due = DownloadMove.due();
+            int moved = 0, failed = 0;
+            String problem = null;
+            for (int i = 0; i < due.size(); i++) {
+                SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
+                moveStatus = "Moving " + (i + 1) + " of " + due.size() + ": " + item.name;
+                moveProgress = i * 1000 / due.size();
+                showMove();
+                String said = put((SogniDownloads.Run) due.get(i)[0], item, new File(DownloadMove.folderOf(item.kind())), true);
+                if (said.startsWith("Moved to ")) moved++;
+                else {
+                    failed++;
+                    if (problem == null) problem = said;
+                }
+            }
+            lastMoved = moved;
+            result = DownloadMove.said(moved, failed, problem);
+            return result;
+        } finally {
+            moving.set(false);
+            moveStatus = result;
+            moveProgress = 0;
+            showMove();
         }
-        return DownloadMove.said(moved, failed, problem);
+    }
+
+    /** How many files Move now moved last. */
+    static volatile int lastMoved;
+
+    /**
+     * Move now done by hand, something moved: the runs moved whole off the list? (Move automatically
+     * asks nothing.) What was answered, for the tests: true when cleared.
+     */
+    static boolean askClear(Pulsekit app, JPanel body) {
+        if (lastMoved == 0) return false;
+        int runs = SogniDownloads.movedRuns();
+        if (runs == 0) return false;
+        Object[] options = {"Clear", "Keep"};
+        if (JOptionPane.showOptionDialog(app, DownloadMove.clearAsk(runs), DownloadMove.CLEAR_TITLE,
+            JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]) != 0) return false;
+        app.setNow(SogniDownloads.clearMoved() + " off the list (the files stay)");
+        if (body != null) fill(app, body);
+        return true;
+    }
+
+    /**
+     * The Media browser's File > Move defined media types: the folder's pictures, videos and music whose
+     * type is ticked with a folder moved there, the oldest first; the Downloads list and the playlists
+     * follow them.
+     */
+    static String moveToDefaults(File dir) {
+        if (!moving.compareAndSet(false, true)) return "Moving already";
+        try {
+            DownloadMove.load();
+            java.util.List<File> files = new java.util.ArrayList<File>();
+            File[] all = dir.listFiles();
+            for (int i = 0; all != null && i < all.length; i++) {
+                File f = all[i];
+                String to = f.isFile() && !f.isHidden() ? DownloadMove.defaultFor(f.getName()) : "";
+                // A file in its type's folder already stays.
+                if (to.length() > 0 && !new File(to).getAbsoluteFile().equals(dir.getAbsoluteFile())) files.add(f);
+            }
+            java.util.Collections.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+            int moved = 0, failed = 0;
+            String problem = null;
+            for (int i = 0; i < files.size(); i++) {
+                File f = files.get(i);
+                moveStatus = "Moving " + (i + 1) + " of " + files.size() + ": " + f.getName();
+                moveProgress = i * 1000 / files.size();
+                showMove();
+                File folder = new File(DownloadMove.defaultFor(f.getName()));
+                String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+                String ext = f.getName().substring(stem.length());
+                File to = new File(folder, f.getName());
+                for (int n = 1; to.exists(); n++) to = new File(folder, stem + " (" + n + ")" + ext);
+                try {
+                    if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
+                    Files.move(f.toPath(), to.toPath());
+                } catch (Exception ex) {
+                    failed++;
+                    if (problem == null) problem = f.getName() + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+                    continue;
+                }
+                moved++;
+                java.util.Set<String> olds = java.util.Collections.singleton(f.getAbsolutePath());
+                SogniDownloads.Item item = SogniDownloads.inDownload(olds);
+                if (item != null) SogniDownloads.movedAway(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+                Playlist.repoint(PromptDb.dir(), olds, to.getAbsolutePath());
+            }
+            moveStatus = DownloadMove.defaultsSaid(moved, failed, problem);
+            return moveStatus;
+        } finally {
+            moving.set(false);
+            moveProgress = 0;
+            showMove();
+        }
     }
 
     /** A run finished: with Move automatically, its media go to their folders. */

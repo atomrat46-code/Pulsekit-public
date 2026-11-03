@@ -430,7 +430,24 @@ final class MediaBrowser {
      * (made when it is not there); a name taken gets " (1)". Returns where, for the log. Throws with
      * what to do when the folder cannot be written.
      */
-    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, byte[] data) throws Exception {
+    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, final byte[] data) throws Exception {
+        return saveInto(app, origin, sub, name, mime, out -> out.write(data));
+    }
+
+    /** What saveInto writes: the bytes, or a file streamed in (a large video is not held in memory). */
+    interface Body {
+        void write(java.io.OutputStream out) throws Exception;
+    }
+
+    /**
+     * Where saveInto wrote last on this thread, as the file can be opened again: its content:// address
+     * or its path (the label it returns is for people). Downloads' moves keep it, so Preview and the
+     * playlists still find a moved file.
+     */
+    static final ThreadLocal<String> savedAddress = new ThreadLocal<String>();
+
+    /** As above, with the file's content written by `data` (Downloads' Move: streamed from where it is). */
+    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, Body data) throws Exception {
         String tree = origin[0];
         String dir = origin[1];
         if (DOWNLOADS.equals(dir)) {
@@ -447,10 +464,11 @@ final class MediaBrowser {
             if (uri == null) throw new java.io.IOException("Download takes no more files named " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(uri);
             try {
-                os.write(data);
+                data.write(os);
             } finally {
                 os.close();
             }
+            savedAddress.set(uri.toString());
             return rel + "/" + name;
         }
         if (tree == null || tree.length() == 0) {
@@ -467,10 +485,11 @@ final class MediaBrowser {
             for (int n = 1; f.exists(); n++) f = new File(folder, stem + " (" + n + ")" + ext);
             java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
             try {
-                fos.write(data);
+                data.write(fos);
             } finally {
                 fos.close();
             }
+            savedAddress.set(f.getPath());
             return f.getPath();
         }
         Uri treeUri = Uri.parse(tree);
@@ -501,10 +520,11 @@ final class MediaBrowser {
             if (file == null) throw new java.io.IOException("could not write " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(file);
             try {
-                os.write(data);
+                data.write(os);
             } finally {
                 os.close();
             }
+            savedAddress.set(file.toString());
             return label + "/" + name;
         } catch (SecurityException ex) {
             throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
@@ -1843,32 +1863,14 @@ final class MediaBrowser {
             fav.setTag("media-favourite");
             tools.addView(fav);
         }
-        // Import file…, Import folder…, Copy folder from…: files from elsewhere copied into this folder.
-        if (this.changeable()) {
-            if (tools.getChildCount() > 0) this.body.addView(tools);
-            tools = this.app.row();
-            String[][] imports = {{"Import file\u2026", "media-import-file"}, {"Import folder\u2026", "media-import-folder"}, {"Copy folder from\u2026", "media-copy-folder"}};
-            for (int i = 0; i < imports.length; i++) {
-                final int code = IMPORT_FILES + i;
-                TextView b = this.app.pill(imports[i][0], false, v -> this.pickImport(code));
-                b.setTag(imports[i][1]);
-                LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-2, -2);
-                ilp.rightMargin = this.app.dp(6);
-                tools.addView(b, ilp);
-            }
-        }
-        // Send folder contents to zip (a password made for it), Import files from zip….
-        if (this.changeable()) {
-            if (tools.getChildCount() > 0) this.body.addView(tools);
-            tools = this.app.row();
-            TextView toZip = this.app.pill(FolderZip.SEND, false, v -> this.folderToZip());
-            toZip.setTag("media-folder-zip");
-            LinearLayout.LayoutParams zlp = new LinearLayout.LayoutParams(-2, -2);
-            zlp.rightMargin = this.app.dp(6);
-            tools.addView(toZip, zlp);
-            TextView fromZip = this.app.pill(FolderZip.IMPORT, false, v -> this.pickImport(IMPORT_ZIP));
-            fromZip.setTag("media-import-zip");
-            tools.addView(fromZip);
+        // File: Import file…, Import folder…, Import files from zip…, Send folder contents to zip, Copy
+        // folder from… (a folder that can be changed), and Move defined media types.
+        if (this.chooser == null) {
+            TextView file = this.app.pill(FILE_MENU + " \u25be", false, v -> this.fileMenu());
+            file.setTag("media-file-menu");
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-2, -2);
+            mlp.leftMargin = this.app.dp(6);
+            tools.addView(file, mlp);
         }
         if (tools.getChildCount() > 0) this.body.addView(tools);
         tools = this.app.row();
@@ -2333,6 +2335,164 @@ final class MediaBrowser {
             .setItems(MediaDir.FOLDER_MENU, (d, which) -> this.fileAction(e, MediaDir.FOLDER_MENU[which]))
             .setNegativeButton("Cancel", null)
             .show();
+    }
+
+    static final String FILE_MENU = "File";
+    static final String IMPORT_FILE_ITEM = "Import file\u2026", IMPORT_FOLDER_ITEM = "Import folder\u2026", COPY_FOLDER_ITEM = "Copy folder from\u2026";
+
+    /** The File menu shown last, and the folders question (for the tests). */
+    static AlertDialog lastFileMenu, lastFoldersAsk;
+
+    /** The File menu's items here. */
+    List<String> fileItems() {
+        List<String> items = new ArrayList<String>();
+        if (this.changeable()) {
+            items.add(IMPORT_FILE_ITEM);
+            items.add(IMPORT_FOLDER_ITEM);
+            items.add(FolderZip.IMPORT);
+            items.add(FolderZip.SEND);
+            items.add(COPY_FOLDER_ITEM);
+        }
+        items.add(DownloadMove.DEFAULTS);
+        return items;
+    }
+
+    void fileMenu() {
+        final List<String> items = this.fileItems();
+        lastFileMenu = new AlertDialog.Builder(this.app).setTitle(FILE_MENU).setItems(items.toArray(new String[0]), (d, which) -> this.fileItem(items.get(which)))
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    void fileItem(String item) {
+        if (IMPORT_FILE_ITEM.equals(item)) this.pickImport(IMPORT_FILES);
+        else if (IMPORT_FOLDER_ITEM.equals(item)) this.pickImport(IMPORT_FOLDER);
+        else if (COPY_FOLDER_ITEM.equals(item)) this.pickImport(COPY_FOLDER);
+        else if (FolderZip.IMPORT.equals(item)) this.pickImport(IMPORT_ZIP);
+        else if (FolderZip.SEND.equals(item)) this.folderToZip();
+        else if (DownloadMove.DEFAULTS.equals(item)) this.moveDefined();
+    }
+
+    /** Move defined media types: with no type ticked with a folder, the folders asked for first. */
+    void moveDefined() {
+        SogniDownloads.init(this.app.getFilesDir());
+        DownloadMove.load();
+        if (DownloadMove.anyDefault()) {
+            this.moveToDefaults();
+            return;
+        }
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        box.addView(this.app.text(DownloadMove.FOLDERS_ASK, 14, false));
+        DownloadsScreen.folderRows(this.app, box, null);
+        lastFoldersAsk = new AlertDialog.Builder(this.app).setTitle(DownloadMove.SETTINGS_TITLE).setView(box)
+            .setPositiveButton("Move", (d, w) -> {
+                if (DownloadMove.anyDefault()) this.moveToDefaults();
+                else this.app.setNow("Not moved: no type is ticked with a folder");
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Whether a kind's folder (a path, or a granted folder's address) is the folder shown. */
+    boolean isHere(String to) {
+        if (to.startsWith("content://")) {
+            return this.tree != null && this.tree.toString().equals(to) && here().equals(DocumentsContract.getTreeDocumentId(this.tree));
+        }
+        return this.tree == null && !DOWNLOADS.equals(this.path.get(0)) && new File(here()).getAbsoluteFile().equals(new File(to).getAbsoluteFile());
+    }
+
+    /** What Move to default locations said last (for the tests). */
+    static volatile String lastDefaultsSaid;
+
+    /**
+     * Move to default locations: Download's pictures, videos and music whose kind has a folder picked in
+     * Downloads > Finished moved there, the oldest first, each streamed (off the main thread, with
+     * Pulsekit's notification, as Move now). The Downloads list and the playlists follow them.
+     */
+    void moveToDefaults() {
+        final List<MediaDir.Entry> files = new ArrayList<MediaDir.Entry>();
+        for (MediaDir.Entry e : this.allEntries) {
+            String to = e.folder || e.dbId != 0 ? "" : DownloadMove.defaultFor(e.name);
+            if (to.length() > 0 && !this.isHere(to)) files.add(e);
+        }
+        java.util.Collections.sort(files, (a, b) -> Long.compare(a.date, b.date));
+        if (!DownloadsScreen.moving.compareAndSet(false, true)) {
+            this.app.setNow("Moving already");
+            return;
+        }
+        final java.util.Map<MediaDir.Entry, Uri> from = new java.util.HashMap<MediaDir.Entry, Uri>();
+        final java.util.Map<MediaDir.Entry, String> address = new java.util.HashMap<MediaDir.Entry, String>();
+        for (MediaDir.Entry e : files) {
+            from.put(e, this.uri(e));
+            address.put(e, this.playlistAddress(e));
+        }
+        final MainActivity app = this.app;
+        final boolean inDownload = DOWNLOADS.equals(this.path.get(0));
+        final boolean keeper = !RunKeeper.foreground;
+        if (keeper) RunKeeper.start(app, "Move downloads");
+        new Thread(() -> {
+            int moved = 0, failed = 0;
+            String problem = null;
+            try {
+                for (int i = 0; i < files.size(); i++) {
+                    MediaDir.Entry e = files.get(i);
+                    final String head = "Moving " + (i + 1) + " of " + files.size() + ": " + e.name;
+                    this.main.post(() -> app.setNow(head));
+                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload);
+                    if (why == null) moved++;
+                    else {
+                        failed++;
+                        if (problem == null) problem = why;
+                    }
+                }
+            } finally {
+                DownloadsScreen.moving.set(false);
+                if (keeper) RunKeeper.stop(app);
+            }
+            final String said = DownloadMove.defaultsSaid(moved, failed, problem);
+            lastDefaultsSaid = said;
+            this.main.post(() -> {
+                app.setNow(said);
+                if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
+            });
+        }).start();
+    }
+
+    /** One file into its kind's folder and out of the folder shown; null when moved, else why not. */
+    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload) {
+        try {
+            String to = DownloadMove.defaultFor(e.name);
+            String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+            // In Download, the ways the Downloads list knows it too.
+            java.util.Set<String> olds = inDownload ? DownloadsScreen.olds(app, "Download/" + e.name) : new java.util.HashSet<String>();
+            olds.add(e.id);
+            olds.add(address);
+            olds.add(src.toString());
+            boolean file = "file".equals(src.getScheme());
+            final java.io.InputStream in = file ? new java.io.FileInputStream(src.getPath()) : app.getContentResolver().openInputStream(src);
+            if (in == null) return e.name + " could not be read";
+            String at;
+            try {
+                at = saveInto(app, origin, null, e.name, ArtJava.mimeOf(e.name), out -> {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                });
+            } finally {
+                in.close();
+            }
+            String now = savedAddress.get();
+            savedAddress.remove();
+            if (now == null || now.length() == 0) now = at;
+            boolean gone = file ? new File(src.getPath()).delete()
+                : DocumentsContract.isDocumentUri(app, src) ? DocumentsContract.deleteDocument(app.getContentResolver(), src) : app.getContentResolver().delete(src, null, null) > 0;
+            if (!gone) return "copied " + e.name + " to " + at + ", but could not delete it from Download";
+            SogniDownloads.Item item = SogniDownloads.inDownload(olds);
+            if (item != null) SogniDownloads.movedAway(item, item.name, now, at);
+            Playlist.repoint(app.getFilesDir(), olds, now);
+            return null;
+        } catch (Exception ex) {
+            return e.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+        }
     }
 
     /** Download's files and folders (not moved or deleted from here): Rename only. */

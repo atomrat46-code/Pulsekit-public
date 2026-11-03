@@ -413,12 +413,19 @@ final class PlaylistWindow {
         list.setName("playlist-list");
         if (p.items.isEmpty()) list.add(new JLabel("No files yet: Add from DB or Add files below, or Add to playlist on a thumbnail."));
         final List<JLabel> thumbs = new ArrayList<JLabel>();
+        // The file added last (Add to playlist… from a ready screen, say): picked, and scrolled to.
+        final int addedLast = Playlist.picked(Playlist.settings(PromptDb.dir()), p.name);
         for (int i = 0; i < p.items.size(); i++) {
             final int at = i;
             final Playlist.Item it = p.items.get(i);
-            JPanel row = new JPanel(new BorderLayout(8, 0));
+            final JPanel row = new JPanel(new BorderLayout(8, 0));
             row.setName("playlist-item:" + i);
             row.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
+            if (i == addedLast) {
+                row.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(new Color(0xECEBE6), 2), BorderFactory.createEmptyBorder(1, 1, 1, 1)));
+                row.putClientProperty("playlist-picked", Boolean.TRUE);
+                javax.swing.SwingUtilities.invokeLater(() -> row.scrollRectToVisible(new java.awt.Rectangle(0, 0, row.getWidth(), row.getHeight())));
+            }
             JLabel thumb = new JLabel(kindMark(it), JLabel.CENTER);
             thumb.setPreferredSize(new Dimension(72, 54));
             thumb.setOpaque(true);

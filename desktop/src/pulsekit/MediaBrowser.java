@@ -256,46 +256,27 @@ final class MediaBrowser {
             }
         });
         loopRow.add(fav, 0);
-        // Import file…, Import folder…, Copy folder from…: files from elsewhere copied into this folder.
+        // File: Import file…, Import folder…, Import files from zip…, Send folder contents to zip, Copy
+        // folder from…, and Move defined media types.
         if (this.chooser == null) {
-            String[][] imports = {{"Copy folder from\u2026", "media-copy-folder"}, {"Import folder\u2026", "media-import-folder"}, {"Import file\u2026", "media-import-file"}};
-            for (String[] im : imports) {
-                JButton b = new JButton(im[0]);
-                b.setName(im[1]);
-                final String what = im[1];
-                b.addActionListener(e -> {
-                    String said = this.importHere(dialog, dir, what);
-                    if (said == null) return;
-                    app.setNow(said);
-                    lastImport = said;
-                    gone.set(true);
-                    this.fill(dialog, root, dir);
-                });
-                loopRow.add(b, 0);
-            }
-            // Send folder contents to zip (a password made for it), Import files from zip….
-            JButton toZip = new JButton(FolderZip.SEND);
-            toZip.setName("media-folder-zip");
-            toZip.addActionListener(e -> {
-                String said = this.folderToZip(dialog, dir);
-                if (said == null) return;
-                app.setNow(said);
-                lastImport = said;
-                gone.set(true);
-                this.fill(dialog, root, dir);
+            final JButton fileButton = new JButton(FILE_MENU + " \u25be");
+            fileButton.setName("media-file-menu");
+            fileButton.addActionListener(e -> {
+                javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+                String[][] items = {{IMPORT_FILE_ITEM, "media-import-file"}, {IMPORT_FOLDER_ITEM, "media-import-folder"}, {FolderZip.IMPORT, "media-import-zip"},
+                    {FolderZip.SEND, "media-folder-zip"}, {COPY_FOLDER_ITEM, "media-copy-folder"}, {DownloadMove.DEFAULTS, "media-move-defaults"}};
+                for (String[] it : items) {
+                    javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it[0]);
+                    mi.setName(it[1]);
+                    final String what = it[1];
+                    mi.addActionListener(a -> this.fileItem(dialog, root, dir, what, gone));
+                    m.add(mi);
+                }
+                MenuCancel.add(m);
+                lastFileMenu = m;
+                if (fileButton.isShowing()) m.show(fileButton, 0, fileButton.getHeight());
             });
-            JButton fromZip = new JButton(FolderZip.IMPORT);
-            fromZip.setName("media-import-zip");
-            fromZip.addActionListener(e -> {
-                String said = this.importZip(dialog, dir);
-                if (said == null) return;
-                app.setNow(said);
-                lastImport = said;
-                gone.set(true);
-                this.fill(dialog, root, dir);
-            });
-            loopRow.add(fromZip, 0);
-            loopRow.add(toZip, 0);
+            loopRow.add(fileButton, 0);
         }
         // The favourite folders, and the folders with a playlist: each opens here.
         if (this.chooser == null) {
@@ -865,6 +846,56 @@ final class MediaBrowser {
     static java.util.function.Function<String, String> zipAnswer;
 
     /** Send folder contents to zip: the folder's files into "<folder>.zip" there, with a password made and shown once; what it did. */
+    static final String FILE_MENU = "File";
+    static final String IMPORT_FILE_ITEM = "Import file\u2026", IMPORT_FOLDER_ITEM = "Import folder\u2026", COPY_FOLDER_ITEM = "Copy folder from\u2026";
+
+    /** The File menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastFileMenu;
+
+    /** A File menu item: its name ("media-import-file", ...). */
+    void fileItem(JDialog dialog, File root, File dir, String what, AtomicBoolean gone) {
+        if ("media-move-defaults".equals(what)) {
+            this.moveDefined(dialog, root, dir, gone);
+            return;
+        }
+        String said = "media-folder-zip".equals(what) ? this.folderToZip(dialog, dir) : "media-import-zip".equals(what) ? this.importZip(dialog, dir) : this.importHere(dialog, dir, what);
+        if (said == null) return;
+        app.setNow(said);
+        lastImport = said;
+        gone.set(true);
+        this.fill(dialog, root, dir);
+    }
+
+    /** Move defined media types: with no type ticked with a folder, the folders asked for first; then moved in the background. */
+    void moveDefined(final JDialog dialog, final File root, final File dir, final AtomicBoolean gone) {
+        SogniDownloads.init(PromptDb.dir());
+        DownloadMove.load();
+        if (!DownloadMove.anyDefault()) {
+            JPanel ask = new JPanel();
+            ask.setLayout(new javax.swing.BoxLayout(ask, javax.swing.BoxLayout.Y_AXIS));
+            JLabel text = new JLabel(DownloadMove.FOLDERS_ASK);
+            text.setAlignmentX(0.0f);
+            ask.add(text);
+            DownloadsScreen.folderRows(dialog, ask);
+            Object[] options = {"Move", "Cancel"};
+            if (javax.swing.JOptionPane.showOptionDialog(dialog, ask, DownloadMove.SETTINGS_TITLE, javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]) != 0) return;
+            if (!DownloadMove.anyDefault()) {
+                app.setNow("Not moved: no type is ticked with a folder");
+                return;
+            }
+        }
+        app.setNow("Moving the defined media types\u2026");
+        new Thread(() -> {
+            final String said = DownloadsScreen.moveToDefaults(dir);
+            lastSaid = said;
+            SwingUtilities.invokeLater(() -> {
+                app.setNow(said);
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+        }, "move-defaults").start();
+    }
+
     String folderToZip(JDialog dialog, File dir) {
         String name = FolderZip.zipFor(dir.getName());
         File out = new File(dir, name);

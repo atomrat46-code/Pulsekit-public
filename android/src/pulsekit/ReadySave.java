@@ -67,14 +67,40 @@ final class ReadySave {
         String said = data == null && MediaDir.tooBig(size) ? name + " is over the library's 128 MB, so it is not in the DB" : MediaDir.addToDb(app.getFilesDir(), name, data, result);
         lastSaid = said;
         app.setNow(said);
-        if (said.contains(" is in the DB as a ")) GroupDialogs.afterAdd(app, name, size);
+        // Its group asked for, unless it is in one already (Add to group on the ready screen's long press).
+        if (said.contains(" is in the DB as a ") && !grouped(app, name, size)) GroupDialogs.afterAdd(app, name, size);
     }
+
+    /** Whether a ready screen's file is in a group already (by its name and size, as Add to group keeps it). */
+    static boolean grouped(MainActivity app, String name, long size) {
+        FileGroups.load(app.getFilesDir());
+        return !FileGroups.groupsOf(PictureOffer.groupKeys(app, name, size)).isEmpty();
+    }
+
+    /** The waiting file and its name, kept in the settings too: Android may close Pulsekit while its save dialog is open. */
+    static final String WAITING = "waiting", WAITING_NAME = "waitingName";
 
     /** Android's save dialog for the file, opened where the last one was saved. */
     static void toDisk(MainActivity app, String name, byte[] bytes, File file) {
         pendingName = name;
-        pendingBytes = bytes;
+        pendingBytes = null;
         pendingFile = file;
+        // The bytes into a file of their own: the save still has them if Android closes Pulsekit meanwhile
+        // (the save dialog made the file, and it stayed empty).
+        if (bytes != null) {
+            try {
+                File dir = new File(app.getCacheDir(), "ready-save");
+                File[] old = dir.listFiles();
+                if (old != null) for (File f : old) f.delete();
+                dir.mkdirs();
+                File copy = new File(dir, name.replace('/', '_'));
+                java.nio.file.Files.write(copy.toPath(), bytes);
+                pendingFile = copy;
+            } catch (Exception ex) {
+                pendingBytes = bytes;
+            }
+        }
+        if (pendingFile != null) app.getSharedPreferences(PREFS, 0).edit().putString(WAITING, pendingFile.getAbsolutePath()).putString(WAITING_NAME, name).apply();
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType(type(name));
@@ -104,10 +130,20 @@ final class ReadySave {
         String name = pendingName;
         byte[] bytes = pendingBytes;
         File file = pendingFile;
+        android.content.SharedPreferences prefs = app.getSharedPreferences(PREFS, 0);
+        // Pulsekit closed and started again while the save dialog was open: the file kept for it.
+        if (name == null && prefs.getString(WAITING, null) != null) {
+            name = prefs.getString(WAITING_NAME, "file");
+            file = new File(prefs.getString(WAITING, ""));
+        }
         pendingName = null;
         pendingBytes = null;
         pendingFile = null;
-        if (name == null) return;
+        prefs.edit().remove(WAITING).remove(WAITING_NAME).apply();
+        if (name == null || bytes == null && (file == null || !file.isFile())) {
+            if (name != null) app.setNow("Could not save " + name + ": the file to save is gone");
+            return;
+        }
         String said;
         try {
             java.io.OutputStream out = app.getContentResolver().openOutputStream(uri);

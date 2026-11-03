@@ -87,6 +87,35 @@ public final class DownloadMove {
     return f == null ? "" : f;
   }
 
+  /** The Media browser's File menu item: the folder's files of the kinds ticked moved to their folders. */
+  public static final String DEFAULTS = "Move defined media types";
+
+  /** Settings' section (the same folders as Downloads > Finished). */
+  public static final String SETTINGS_TITLE = "Default move folders";
+  public static final String SETTINGS_NOTE = "Each type ticked, with a folder: Downloads' Move now and Move automatically, and the Media browser's "
+      + "File > Move defined media types, move its files there.";
+
+  /** The question when no type has a folder yet (the Media browser's Move defined media types). */
+  public static final String FOLDERS_ASK = "Tick the types to move and pick a folder for each, then Move.";
+
+  /** The folder a file of this name goes to (its kind ticked, a folder picked), or "". */
+  public static synchronized String defaultFor(String name) {
+    String k = SogniDownloads.kindOf(name);
+    return isTicked(k) ? folderOf(k) : "";
+  }
+
+  /** Whether any kind is ticked with its folder (else Move defined media types asks for them). */
+  public static synchronized boolean anyDefault() {
+    for (String k : KINDS) if (isTicked(k) && folderOf(k).length() > 0) return true;
+    return false;
+  }
+
+  /** What Move defined media types says when done. */
+  public static String defaultsSaid(int moved, int failed, String firstProblem) {
+    if (moved == 0 && failed == 0) return "Nothing to move: no file here is of a type ticked with a folder (or each is in its folder already)";
+    return said(moved, failed, firstProblem);
+  }
+
   /** The kind's folder as shown: its name, or "No folder". */
   public static synchronized String labelOf(String kind) {
     String l = label.get(kind);
@@ -99,10 +128,15 @@ public final class DownloadMove {
     save();
   }
 
-  /** The finished downloads to move now: of a ticked kind with a folder, still in Download. {run, item} pairs. */
+  /**
+   * The finished downloads to move now: of a ticked kind with a folder, still in Download. {run, item}
+   * pairs, the oldest run first (the folder gets them in the order they were made).
+   */
   public static synchronized List<Object[]> due() {
     List<Object[]> out = new ArrayList<Object[]>();
-    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) {
+    List<SogniDownloads.Run> runs = new ArrayList<SogniDownloads.Run>(SogniDownloads.tab(SogniDownloads.FINISHED));
+    java.util.Collections.sort(runs, (a, b) -> Long.compare(a.started, b.started));
+    for (SogniDownloads.Run r : runs) {
       for (SogniDownloads.Item item : r.items) {
         String k = item.kind();
         if (item.away || !isTicked(k) || folderOf(k).length() == 0 || item.where == null || item.where.length() == 0) continue;
@@ -122,6 +156,28 @@ public final class DownloadMove {
   public static String said(int moved, int failed, String firstProblem) {
     if (moved == 0 && failed == 0) return "Nothing to move: no finished downloads of the ticked kinds are left in Download (each kind needs a folder)";
     return "Moved " + moved + (moved == 1 ? " file" : " files") + (failed > 0 ? "; " + failed + " could not be moved" + (firstProblem != null ? " (" + firstProblem + ")" : "") : "");
+  }
+
+  /** Move now done (by hand): the moved downloads off the list? (Move automatically does not ask.) */
+  public static final String CLEAR_TITLE = "Clear the list";
+  public static String clearAsk(int runs) {
+    return "Moving is done. Take the " + runs + (runs == 1 ? " download" : " downloads") + " moved off the list? The files stay in their folders.";
+  }
+
+  /** Clear all's question, with the files not moved yet said. */
+  public static String clearAllAsk(int notMoved) {
+    return "Take every finished download off this list? The files stay where they are."
+        + (notMoved > 0 ? "\n\n" + notMoved + (notMoved == 1 ? " file has" : " files have") + " not been moved out of Download yet. Are you sure?" : "");
+  }
+
+  /** A download's Clear when it was not moved: asked first. */
+  public static String clearOneAsk(String name) {
+    return name + " has not been moved out of Download. Take it off the list anyway? The file stays.";
+  }
+
+  /** "12.3 MB" (Move now's progress). */
+  public static String mb(long bytes) {
+    return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1048576.0);
   }
 
   private static String clean(String s) {

@@ -79,6 +79,9 @@ final class PlaylistScreen {
     /** The window's list, filled again after each change. */
     private static LinearLayout shownCol;
 
+    /** The item shown picked last (the one added last), or -1 (for the tests). */
+    static int shownPicked = -1;
+
     /** The window shown again (after a change). */
     static void again(MainActivity app) {
         if (last == null || !last.isShowing() || shownCol == null) {
@@ -232,11 +235,21 @@ final class PlaylistScreen {
         }
         final List<ImageView> thumbs = new ArrayList<ImageView>();
         final List<TextView> infos = new ArrayList<TextView>();
+        // The file added last (Add to playlist… from a ready screen, say): picked, and scrolled to.
+        final int addedLast = Playlist.picked(Playlist.settings(app.getFilesDir()), p.name);
+        shownPicked = -1;
         for (int i = 0; i < p.items.size(); i++) {
             final int at = i;
             final Playlist.Item it = p.items.get(i);
-            LinearLayout row = app.row();
+            final LinearLayout row = app.row();
             row.setTag("playlist-item:" + i);
+            if (i == addedLast) {
+                row.setBackgroundColor(Color.parseColor("#2A2D31"));
+                shownPicked = i;
+                row.post(() -> {
+                    if (col.getParent() instanceof ScrollView) ((ScrollView) col.getParent()).scrollTo(0, Math.max(0, row.getTop() - app.dp(8)));
+                });
+            }
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(0, app.dp(4), 0, app.dp(4));
             ImageView thumb = new ImageView(app);
@@ -456,11 +469,12 @@ final class PlaylistScreen {
         });
         LinearLayout look = app.row();
         look.setGravity(Gravity.CENTER_VERTICAL);
-        speedPill.setOnClickListener(v -> {
-            speed[0] = nextSpeed(speed[0]);
+        // Speed: a menu of the speeds (the one in use ticked).
+        speedPill.setOnClickListener(v -> speedMenu(app, v, speed[0], picked -> {
+            speed[0] = picked;
             keep.run();
             paint.run();
-        });
+        }));
         look.addView(speedPill);
         col.addView(look);
         look = app.row();
@@ -509,6 +523,25 @@ final class PlaylistScreen {
         start.setTag("playlist-start");
         start.setEnabled(!p.items.isEmpty());
         col.addView(start);
+    }
+
+    /** The speed menu shown last (for the tests). */
+    static android.widget.PopupMenu lastSpeedMenu;
+
+    /** Speed's menu: ½× … 2×, the one in use ticked; `picked` gets the one tapped. */
+    static void speedMenu(MainActivity app, android.view.View on, float now, java.util.function.Consumer<Float> picked) {
+        android.widget.PopupMenu m = new android.widget.PopupMenu(app, on);
+        for (int i = 0; i < Playlist.SPEEDS.length; i++) {
+            android.view.MenuItem item = m.getMenu().add(0, i, i, Playlist.speedText(Playlist.SPEEDS[i]));
+            item.setCheckable(true);
+            item.setChecked(Math.abs(Playlist.SPEEDS[i] - now) < 0.01f);
+        }
+        m.setOnMenuItemClickListener(item -> {
+            picked.accept(Playlist.SPEEDS[item.getItemId()]);
+            return true;
+        });
+        lastSpeedMenu = m;
+        m.show();
     }
 
     /** The speed after `now` (½× … 2×, then ½× again). */
@@ -1280,14 +1313,13 @@ final class PlaylistScreen {
             }
         });
         // Speed: each tap the next one (½× … 2×, then ½× again).
-        speed.setOnClickListener(x -> {
-            int i = 0;
-            for (int k = 0; k < Playlist.SPEEDS.length; k++) if (Math.abs(Playlist.SPEEDS[k] - rate[0]) < 0.01f) i = k;
-            rate[0] = Playlist.SPEEDS[(i + 1) % Playlist.SPEEDS.length];
+        speed.setOnClickListener(x -> speedMenu(app, x, rate[0], picked -> {
+            rate[0] = picked;
+            // While it plays, the button says the speed in use.
             speed.setText("Speed " + Playlist.speedText(rate[0]));
             applySpeed.run();
             keep.run();
-        });
+        }));
         zoomOut.setOnClickListener(x -> {
             zoom[0] = (float) MediaDir.zoom(zoom[0], false);
             applyZoom.run();

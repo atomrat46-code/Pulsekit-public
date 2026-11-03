@@ -6368,7 +6368,7 @@ public final class DesktopBehavior {
     File song = new File(outside, "song.wav");
     Files.write(song.toPath(), AudioIo.encodeWav(new short[2205], 22050));
     chooseNext = song;
-    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-import-file")).doClick());
+    edt(() -> fileMenuItem(mb, "media-import-file").doClick());
     idle();
     out.append("Import file: ").append(MediaBrowser.lastImport).append(" | there ").append(new File(pulse, "song.wav").isFile()).append('\n');
     boolean importOk = new File(pulse, "song.wav").isFile() && MediaBrowser.lastImport != null && MediaBrowser.lastImport.startsWith("Copied 1 file");
@@ -7672,6 +7672,154 @@ public final class DesktopBehavior {
     if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * 03112026_6: Settings' Default move folders; the Media browser's File menu; with no folder picked,
+   * Move defined media types asks for them, then moves the folder's files of those types.
+   */
+  void s192_settings_move_folders_and_file_menu() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    SogniDownloads.init(PromptDb.dir());
+    DownloadMove.load();
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog settings = null;
+    for (int i = 0; i < 100 && settings == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) settings = (JDialog) w;
+    }
+    final JDialog gs = settings;
+    boolean settingsOk = gs != null && component(gs, "settings-move-folders") != null && component(gs, "downloads-move-browse:picture") != null
+        && component(gs, "downloads-move-browse:video") != null && component(gs, "downloads-move-browse:audio") != null;
+    // Its "(keep)" taken by the watcher before it closes (else the next dialog would keep it).
+    for (int i = 0; i < 100; i++) {
+      synchronized (answers) {
+        if (answers.isEmpty()) break;
+      }
+      Thread.sleep(50);
+    }
+    if (gs != null) edt(() -> gs.dispose());
+    idle();
+    File home = new File(System.getProperty("user.home"), "move6");
+    final File media = new File(home, "media"), pics = new File(home, "pics"), vids = new File(home, "vids");
+    for (File d : new File[] {media, pics, vids}) d.mkdirs();
+    Files.write(new File(media, "shot.png").toPath(), new byte[] {1, 2});
+    Files.write(new File(media, "clip.mp4").toPath(), new byte[] {3, 4});
+    Files.write(new File(media, "notes.txt").toPath(), new byte[] {5});
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    for (int i = 0; i < 100; i++) {
+      synchronized (answers) {
+        if (answers.isEmpty()) break;
+      }
+      Thread.sleep(50);
+    }
+    idle();
+    final StringBuilder items = new StringBuilder();
+    edt(() -> {
+      fileMenuItem(mb, "media-move-defaults");
+      for (Component c : MediaBrowser.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    });
+    // No folder picked: the question, its Browse… buttons picking the folders, then Move.
+    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : null;
+    final boolean[] asked = new boolean[1];
+    inspectNext = d -> {
+      asked[0] = component(d, "downloads-move-browse:video") != null;
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:video")).doClick();
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:picture")).doClick();
+    };
+    synchronized (answers) {
+      answers.add("Move");
+    }
+    MediaBrowser.lastSaid = null;
+    final javax.swing.JMenuItem[] move = new javax.swing.JMenuItem[1];
+    edt(() -> move[0] = fileMenuItem(mb, "media-move-defaults"));
+    SwingUtilities.invokeLater(() -> move[0].doClick());
+    for (int i = 0; i < 100 && (MediaBrowser.lastSaid == null || !MediaBrowser.lastSaid.startsWith("Moved")); i++) Thread.sleep(100);
+    idle();
+    String said = MediaBrowser.lastSaid;
+    DownloadsScreen.folderFor = null;
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    // In the pictures' folder: nothing to move.
+    String inPlace = DownloadsScreen.moveToDefaults(pics);
+    edt(() -> mb.last.dispose());
+    this.out.append("settings ").append(settingsOk).append(" | file menu: ").append(items).append("asked ").append(asked[0]).append(" | ").append(said).append(", moved ").append(moved)
+        .append(" | in its folder: ").append(inPlace).append('\n');
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 2 files".equals(said) && moved
+        && inPlace.startsWith("Nothing to move");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 03112026_5: Move now moves the oldest downloads first and a playlist's entry follows the file;
+   * Clear the list (asked after Move now) takes the moved runs off; Clear all says the files not
+   * moved; the Media browser's Move to default locations moves Download's video to its folder.
+   */
+  void s191_move_oldest_clear_and_defaults() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"), "move5");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), vids = new File(home, "vids"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, vids, list}) d.mkdirs();
+    File newer = new File(dl, "newer.png"), older = new File(dl, "older.png"), clip = new File(dl, "clip.mp4"), tune = new File(dl, "tune.mp3");
+    for (File f : new File[] {newer, older, clip, tune}) Files.write(f.toPath(), new byte[] {1, 2, 3});
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: newer.png", "saved " + newer.getAbsolutePath(), null);
+    SogniDownloads.done(rn);
+    long ro = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(ro, "Succeeded: older.png", "saved " + older.getAbsolutePath(), null);
+    SogniDownloads.done(ro);
+    long rc = SogniDownloads.started("SogniVideo.java", 7000L);
+    SogniDownloads.result(rc, "Succeeded: clip.mp4", "saved " + clip.getAbsolutePath(), null);
+    SogniDownloads.done(rc);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), null);
+    SogniDownloads.done(rt);
+    File pdir = PromptDb.dir();
+    Playlist.addTo(pdir, "Moves5", older.getAbsolutePath(), "older.png");
+    Playlist.addTo(pdir, "Moves5", clip.getAbsolutePath(), "clip.mp4");
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    StringBuilder order = new StringBuilder();
+    for (Object[] d : DownloadMove.due()) order.append(((SogniDownloads.Item) d[1]).name).append(' ');
+    String said = DownloadsScreen.moveNow();
+    String repointed = Playlist.load(pdir, "Moves5").items.get(0).file;
+    synchronized (answers) {
+      answers.add("Clear");
+    }
+    boolean cleared = DownloadsScreen.askClear(app, null);
+    idle();
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "vids");
+    String defaults = DownloadsScreen.moveToDefaults(dl);
+    String clipNow = Playlist.load(pdir, "Moves5").items.get(1).file;
+    SogniDownloads.Item clipItem = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
+    boolean defaultsOk = "Moved 1 file".equals(defaults) && new File(vids, "clip.mp4").isFile() && !clip.exists() && tune.isFile()
+        && clipNow.equals(new File(vids, "clip.mp4").getAbsolutePath()) && clipItem != null && clipItem.away;
+    this.out.append("order: ").append(order.toString().trim()).append(" | ").append(said).append(" | playlist in ").append(new File(repointed).getParentFile().getName())
+        .append(" | cleared ").append(cleared).append(", runs left ").append(left).append(" | clear all: ").append(all.replace('\n', ' '))
+        .append(" | defaults: ").append(defaults).append(", playlist in ").append(new File(clipNow).getParentFile().getName()).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    boolean ok = order.toString().trim().equals("older.png newer.png") && "Moved 2 files".equals(said) && repointed.equals(new File(pics, "older.png").getAbsolutePath())
+        && cleared && left == 2 && all.contains("2 files have not been moved") && all.contains("Are you sure") && defaultsOk;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** 03112026_3: the Prompts page's tabs: Ref / Result files on Result & Reference entries, Prompt files, Import and New prompt on Prompts & Categories. */
   void s190_prompts_page_tabs() throws Exception {
     PromptsTabs.tab = PromptsTabs.PROMPTS;
@@ -7722,7 +7870,9 @@ public final class DesktopBehavior {
     DownloadMove.on = true;
     DownloadMove.ticked.put("picture", true);
     DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
-    String first = DownloadsScreen.moveNow(), second = DownloadsScreen.moveNow();
+    String first = DownloadsScreen.moveNow();
+    String statusAfter = DownloadsScreen.moveStatus;
+    String second = DownloadsScreen.moveNow();
     boolean moved = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
     SogniDownloads.init(null);
     SogniDownloads.init(list);
@@ -7733,7 +7883,8 @@ public final class DesktopBehavior {
     DownloadMove.save();
     SogniDownloads.init(PromptDb.dir());
     this.out.append("move: ").append(first).append(" | again: ").append(second).append(" | files ").append(moved).append(" | kept ").append(kept).append('\n');
-    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && second.startsWith("Nothing to move") && moved && kept;
+    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && "Moved 1 file".equals(statusAfter) && !DownloadsScreen.moving.get()
+        && second.startsWith("Nothing to move") && moved && kept;
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -10767,6 +10918,15 @@ public final class DesktopBehavior {
       javax.swing.JScrollPane f = scrollIn(k);
       if (f != null) return f;
     }
+    return null;
+  }
+
+  /** The Media browser's File menu opened, and its item of that name. */
+  private static javax.swing.JMenuItem fileMenuItem(MediaBrowser mb, String name) {
+    ((javax.swing.AbstractButton) component(mb.last, "media-file-menu")).doClick();
+    javax.swing.JPopupMenu m = MediaBrowser.lastFileMenu;
+    m.setVisible(false);
+    for (Component c : m.getComponents()) if (name.equals(c.getName())) return (javax.swing.JMenuItem) c;
     return null;
   }
 
