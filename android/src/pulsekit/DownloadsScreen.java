@@ -663,33 +663,7 @@ final class DownloadsScreen {
         });
         panel.addView(on);
         if (!DownloadMove.on) return panel;
-        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
-            final String kind = DownloadMove.KINDS[i];
-            LinearLayout row = app.row();
-            CheckBox box = new CheckBox(app);
-            box.setText(DownloadMove.NAMES[i]);
-            box.setTag("downloads-move-kind:" + kind);
-            box.setChecked(DownloadMove.isTicked(kind));
-            box.setOnCheckedChangeListener((b, now) -> {
-                DownloadMove.ticked.put(kind, now);
-                DownloadMove.save();
-            });
-            row.addView(box);
-            TextView where = app.text(DownloadMove.labelOf(kind), 12, false);
-            where.setTag("downloads-move-folder:" + kind);
-            where.setPadding(app.dp(8), 0, app.dp(8), 0);
-            row.addView(where, new LinearLayout.LayoutParams(0, -2, 1f));
-            TextView browse = app.outline("Browse", false, v -> {
-                waitingKind = kind;
-                waitingItem = null;
-                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-                app.startActivityForResult(intent, PICK_FOLDER);
-            });
-            browse.setTag("downloads-move-browse:" + kind);
-            row.addView(browse);
-            panel.addView(row);
-        }
+        folderRows(app, panel, null);
         LinearLayout buttons = app.row();
         final TextView now = app.outline(DownloadMove.MOVE_NOW, false, null);
         now.setOnClickListener(v -> {
@@ -731,6 +705,64 @@ final class DownloadsScreen {
         barView = bar;
         now.setEnabled(!moving.get());
         return panel;
+    }
+
+    /** The folder names shown (Downloads, Settings, the Media browser's question): a folder picked shows in each. */
+    private static final java.util.Map<TextView, String> folderLabels = new java.util.WeakHashMap<TextView, String>();
+
+    /**
+     * Images, Videos and Music: each a box, its folder and Browse (Downloads > Finished, Settings'
+     * Default move folders, the Media browser's question when none is picked). `controls` (Settings'
+     * lock) gets the boxes and buttons when given.
+     */
+    static void folderRows(final MainActivity app, LinearLayout panel, java.util.List<android.view.View> controls) {
+        SogniDownloads.init(app.getFilesDir());
+        DownloadMove.load();
+        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
+            final String kind = DownloadMove.KINDS[i];
+            LinearLayout row = app.row();
+            CheckBox box = new CheckBox(app);
+            box.setText(DownloadMove.NAMES[i]);
+            box.setTag("downloads-move-kind:" + kind);
+            box.setChecked(DownloadMove.isTicked(kind));
+            box.setOnCheckedChangeListener((b, now) -> {
+                DownloadMove.ticked.put(kind, now);
+                DownloadMove.save();
+            });
+            row.addView(box);
+            TextView where = app.text(DownloadMove.labelOf(kind), 12, false);
+            where.setTag("downloads-move-folder:" + kind);
+            where.setPadding(app.dp(8), 0, app.dp(8), 0);
+            folderLabels.put(where, kind);
+            row.addView(where, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView browse = app.outline("Browse", false, v -> {
+                waitingKind = kind;
+                waitingItem = null;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                app.startActivityForResult(intent, PICK_FOLDER);
+            });
+            browse.setTag("downloads-move-browse:" + kind);
+            row.addView(browse);
+            panel.addView(row);
+            if (controls != null) {
+                controls.add(box);
+                controls.add(browse);
+            }
+        }
+    }
+
+    /** A kind's folder picked (Browse): kept, and shown wherever its name is. */
+    static void folderSet(String kind, String where, String shown) {
+        DownloadMove.setFolder(kind, where, shown);
+        DownloadMove.ticked.put(kind, true);
+        DownloadMove.save();
+        for (java.util.Map.Entry<TextView, String> e : new java.util.ArrayList<java.util.Map.Entry<TextView, String>>(folderLabels.entrySet())) {
+            if (!kind.equals(e.getValue())) continue;
+            e.getKey().setText(DownloadMove.labelOf(kind));
+            android.view.ViewParent row = e.getKey().getParent();
+            if (row instanceof LinearLayout && ((LinearLayout) row).getChildAt(0) instanceof CheckBox) ((CheckBox) ((LinearLayout) row).getChildAt(0)).setChecked(true);
+        }
     }
 
     /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
@@ -907,7 +939,7 @@ final class DownloadsScreen {
     static void folderPicked(MainActivity app, Uri tree) {
         if (waitingKind != null) {
             MediaBrowser.keep(app, tree);
-            DownloadMove.setFolder(waitingKind, tree.toString(), MediaDir.label(tree.toString()));
+            folderSet(waitingKind, tree.toString(), MediaDir.label(tree.toString()));
             waitingKind = null;
             if (last != null && last.isShowing()) show(app);
             return;

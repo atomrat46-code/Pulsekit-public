@@ -98,6 +98,16 @@ final class GeneralSettings {
         }
         more.add(note("A type unticked is not shown in the thumbnail screens (Browse DB, the Reference, Result and Prompt files, the\n"
             + "Media browser), its letter is not there either, and a playlist with files of that type shows the others only."));
+        // Default move folders: where each type's files go (Downloads' Move now and Move automatically, the
+        // Media browser's File > Move defined media types); here too, as Downloads opens only with downloads.
+        more.add(headline(DownloadMove.SETTINGS_TITLE));
+        JPanel moves = new JPanel();
+        moves.setLayout(new javax.swing.BoxLayout(moves, javax.swing.BoxLayout.Y_AXIS));
+        moves.setName("settings-move-folders");
+        moves.setAlignmentX(0.0f);
+        DownloadsScreen.folderRows(app, moves);
+        more.add(moves);
+        more.add(note(DownloadMove.SETTINGS_NOTE));
         // Tabs: the DB/Prompts tab shown or not.
         more.add(headline("Tabs"));
         final JCheckBox promptsTab = new JCheckBox(AppSettings.SHOW_PROMPTS_TAB, AppSettings.showPromptsTab());

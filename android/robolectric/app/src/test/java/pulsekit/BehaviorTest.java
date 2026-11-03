@@ -9593,7 +9593,11 @@ public class BehaviorTest {
     b = MediaBrowser.open(app, media.getAbsolutePath());
     idle();
     bv = b.dialog.getWindow().getDecorView();
-    boolean buttons = bv.findViewWithTag("media-import-file") != null && bv.findViewWithTag("media-import-folder") != null && bv.findViewWithTag("media-copy-folder") != null;
+    bv.findViewWithTag("media-file-menu").performClick();
+    idle();
+    String fileItems = listItems(MediaBrowser.lastFileMenu);
+    MediaBrowser.lastFileMenu.dismiss();
+    boolean buttons = fileItems.contains("Import file\u2026") && fileItems.contains("Import folder\u2026") && fileItems.contains("Copy folder from\u2026");
     File outside = new File(app.getCacheDir(), "elsewhere");
     outside.mkdirs();
     File song = new File(outside, "song.wav");
@@ -12064,6 +12068,90 @@ public class BehaviorTest {
   }
 
   /**
+   * 03112026_6: Settings' Default move folders (Images, Videos, Music with Browse); the Media browser's
+   * File menu (the imports, the zips, Move defined media types); with no folder picked, Move defined
+   * media types asks for them, then moves the folder's files of those types (a file in its folder stays).
+   */
+  @Test
+  public void s205_settings_move_folders_and_file_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    GeneralSettings.show(app);
+    idle();
+    View sv = GeneralSettings.last.getWindow().getDecorView();
+    boolean settings = sv.findViewWithTag("settings-move-folders") != null && sv.findViewWithTag("downloads-move-browse:picture") != null
+        && sv.findViewWithTag("downloads-move-browse:video") != null && sv.findViewWithTag("downloads-move-browse:audio") != null;
+    // A folder picked (Browse's answer) shows in Settings, its type ticked.
+    File vids = new File(app.getCacheDir(), "m6-vids"), pics = new File(app.getCacheDir(), "m6-pics");
+    vids.mkdirs();
+    pics.mkdirs();
+    GeneralSettings.last.dismiss();
+    idle();
+    File media = new File(app.getCacheDir(), "m6-media");
+    media.mkdirs();
+    byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 5};
+    Files.write(new File(media, "shot.png").toPath(), png);
+    Files.write(new File(media, "clip.mp4").toPath(), png);
+    Files.write(new File(media, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(pics, "kept.png").toPath(), png);
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-file-menu").performClick();
+    idle();
+    String items = listItems(MediaBrowser.lastFileMenu);
+    // Move defined media types with no folder picked: the folders asked for.
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastFileMenu).clickOnItem(b.fileItems().indexOf(DownloadMove.DEFAULTS));
+    idle();
+    boolean asked = MediaBrowser.lastFoldersAsk != null && MediaBrowser.lastFoldersAsk.isShowing()
+        && MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-browse:video") != null;
+    DownloadsScreen.folderSet("video", vids.getAbsolutePath(), "m6-vids");
+    DownloadsScreen.folderSet("picture", pics.getAbsolutePath(), "m6-pics");
+    String shown = String.valueOf(((TextView) MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-folder:video")).getText());
+    MediaBrowser.lastDefaultsSaid = null;
+    MediaBrowser.lastFoldersAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && MediaBrowser.lastDefaultsSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String said = MediaBrowser.lastDefaultsSaid;
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    b.dialog.dismiss();
+    idle();
+    // In the pictures' folder itself: nothing to move.
+    MediaBrowser p = MediaBrowser.open(app, pics.getAbsolutePath());
+    for (int i = 0; i < 200 && (p.loading || p.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastDefaultsSaid = null;
+    p.fileItem(DownloadMove.DEFAULTS);
+    for (int i = 0; i < 200 && MediaBrowser.lastDefaultsSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String inPlace = MediaBrowser.lastDefaultsSaid;
+    p.dialog.dismiss();
+    idle();
+    out.append("settings ").append(settings).append(" | file menu: ").append(items).append(" | asked ").append(asked).append(", shows ").append(shown)
+        .append(" | ").append(said).append(", moved ").append(moved).append(" | in its folder: ").append(inPlace).append('\n');
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    write("s205_settings_move_folders_and_file_menu", out.toString());
+    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
+        && "Moved 2 files".equals(said) && moved && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 03112026_5: Move now moves the oldest downloads first; a playlist's entry for a moved file follows
    * it; after Move now (by hand) Clear the list asks to take the moved runs off; a download's Clear and
    * Clear all ask first when files were not moved; the Media browser's Move to default locations moves
@@ -12136,7 +12224,7 @@ public class BehaviorTest {
     MediaDir.Entry e = new MediaDir.Entry();
     e.name = "clip.mp4";
     e.id = clip.getAbsolutePath();
-    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath());
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false);
     String clipNow = Playlist.load(pdir, "Moves").items.get(1).file;
     SogniDownloads.Item clipItem = null;
     for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
@@ -12551,7 +12639,7 @@ public class BehaviorTest {
       idle();
     }
     MediaBrowser.lastZipPassword = null;
-    b.dialog.getWindow().getDecorView().findViewWithTag("media-folder-zip").performClick();
+    b.fileItem(FolderZip.SEND);
     File zip = new File(media, "Trip.zip");
     for (int i = 0; i < 200 && MediaBrowser.lastZipPassword == null; i++) {
       Thread.sleep(20);

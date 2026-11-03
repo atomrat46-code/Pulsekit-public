@@ -87,25 +87,33 @@ public final class DownloadMove {
     return f == null ? "" : f;
   }
 
-  /** The Media browser's item on Download: its files moved to the folders picked here. */
-  public static final String DEFAULTS = "Move to default locations";
+  /** The Media browser's File menu item: the folder's files of the kinds ticked moved to their folders. */
+  public static final String DEFAULTS = "Move defined media types";
 
-  /** The folder a file of this name goes to (its kind ticked, a folder picked, the moving on), or "". */
+  /** Settings' section (the same folders as Downloads > Finished). */
+  public static final String SETTINGS_TITLE = "Default move folders";
+  public static final String SETTINGS_NOTE = "Each type ticked, with a folder: Downloads' Move now and Move automatically, and the Media browser's "
+      + "File > Move defined media types, move its files there.";
+
+  /** The question when no type has a folder yet (the Media browser's Move defined media types). */
+  public static final String FOLDERS_ASK = "Tick the types to move and pick a folder for each, then Move.";
+
+  /** The folder a file of this name goes to (its kind ticked, a folder picked), or "". */
   public static synchronized String defaultFor(String name) {
     String k = SogniDownloads.kindOf(name);
-    return on && isTicked(k) ? folderOf(k) : "";
+    return isTicked(k) ? folderOf(k) : "";
   }
 
-  /** Whether any kind has its folder (Move to default locations is offered). */
+  /** Whether any kind is ticked with its folder (else Move defined media types asks for them). */
   public static synchronized boolean anyDefault() {
-    if (!on) return false;
     for (String k : KINDS) if (isTicked(k) && folderOf(k).length() > 0) return true;
     return false;
   }
 
-  /** What Move to default locations says when done. */
+  /** What Move defined media types says when done. */
   public static String defaultsSaid(int moved, int failed, String firstProblem) {
-    return said(moved, failed, firstProblem) + (moved == 0 && failed == 0 ? " (no file here is of a kind with a folder)" : "");
+    if (moved == 0 && failed == 0) return "Nothing to move: no file here is of a type ticked with a folder (or each is in its folder already)";
+    return said(moved, failed, firstProblem);
   }
 
   /** The kind's folder as shown: its name, or "No folder". */

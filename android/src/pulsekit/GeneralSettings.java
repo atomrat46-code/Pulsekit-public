@@ -92,6 +92,16 @@ final class GeneralSettings {
             + "its letter is not there either, and a playlist with files of that type shows the others only.", 12, false);
         typesNote.setPadding(0, app.dp(4), 0, 0);
         col.addView(typesNote);
+        // Default move folders: where each type's files go (Downloads' Move now and Move automatically,
+        // the Media browser's File > Move defined media types); here too, as Downloads opens only with downloads.
+        col.addView(headline(app, DownloadMove.SETTINGS_TITLE));
+        LinearLayout moves = app.col();
+        moves.setTag("settings-move-folders");
+        DownloadsScreen.folderRows(app, moves, controls);
+        col.addView(moves);
+        TextView movesNote = app.text(DownloadMove.SETTINGS_NOTE, 12, false);
+        movesNote.setPadding(0, app.dp(4), 0, 0);
+        col.addView(movesNote);
         // Tabs: the DB/Prompts tab shown or not.
         col.addView(headline(app, "Tabs"));
         final CheckBox promptsTab = new CheckBox(app);

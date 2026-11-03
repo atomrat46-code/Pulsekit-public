@@ -6368,7 +6368,7 @@ public final class DesktopBehavior {
     File song = new File(outside, "song.wav");
     Files.write(song.toPath(), AudioIo.encodeWav(new short[2205], 22050));
     chooseNext = song;
-    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-import-file")).doClick());
+    edt(() -> fileMenuItem(mb, "media-import-file").doClick());
     idle();
     out.append("Import file: ").append(MediaBrowser.lastImport).append(" | there ").append(new File(pulse, "song.wav").isFile()).append('\n');
     boolean importOk = new File(pulse, "song.wav").isFile() && MediaBrowser.lastImport != null && MediaBrowser.lastImport.startsWith("Copied 1 file");
@@ -7670,6 +7670,91 @@ public final class DesktopBehavior {
         .append(" | written whole ").append(whole).append('\n');
     boolean logsOk = "Open,Delete".equals(logs[0]) && "Clear all Program runs logs".equals(logs[1]) && before >= 2 && runsLeft == 0 && errorsLeft >= 1 && whole;
     if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 03112026_6: Settings' Default move folders; the Media browser's File menu; with no folder picked,
+   * Move defined media types asks for them, then moves the folder's files of those types.
+   */
+  void s192_settings_move_folders_and_file_menu() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    SogniDownloads.init(PromptDb.dir());
+    DownloadMove.load();
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> GeneralSettings.show(app));
+    JDialog settings = null;
+    for (int i = 0; i < 100 && settings == null; i++) {
+      Thread.sleep(100);
+      for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && "General settings".equals(((JDialog) w).getTitle())) settings = (JDialog) w;
+    }
+    final JDialog gs = settings;
+    boolean settingsOk = gs != null && component(gs, "settings-move-folders") != null && component(gs, "downloads-move-browse:picture") != null
+        && component(gs, "downloads-move-browse:video") != null && component(gs, "downloads-move-browse:audio") != null;
+    // Its "(keep)" taken by the watcher before it closes (else the next dialog would keep it).
+    for (int i = 0; i < 100; i++) {
+      synchronized (answers) {
+        if (answers.isEmpty()) break;
+      }
+      Thread.sleep(50);
+    }
+    if (gs != null) edt(() -> gs.dispose());
+    idle();
+    File home = new File(System.getProperty("user.home"), "move6");
+    final File media = new File(home, "media"), pics = new File(home, "pics"), vids = new File(home, "vids");
+    for (File d : new File[] {media, pics, vids}) d.mkdirs();
+    Files.write(new File(media, "shot.png").toPath(), new byte[] {1, 2});
+    Files.write(new File(media, "clip.mp4").toPath(), new byte[] {3, 4});
+    Files.write(new File(media, "notes.txt").toPath(), new byte[] {5});
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(media));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    for (int i = 0; i < 100; i++) {
+      synchronized (answers) {
+        if (answers.isEmpty()) break;
+      }
+      Thread.sleep(50);
+    }
+    idle();
+    final StringBuilder items = new StringBuilder();
+    edt(() -> {
+      fileMenuItem(mb, "media-move-defaults");
+      for (Component c : MediaBrowser.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+    });
+    // No folder picked: the question, its Browse… buttons picking the folders, then Move.
+    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : null;
+    final boolean[] asked = new boolean[1];
+    inspectNext = d -> {
+      asked[0] = component(d, "downloads-move-browse:video") != null;
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:video")).doClick();
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:picture")).doClick();
+    };
+    synchronized (answers) {
+      answers.add("Move");
+    }
+    MediaBrowser.lastSaid = null;
+    final javax.swing.JMenuItem[] move = new javax.swing.JMenuItem[1];
+    edt(() -> move[0] = fileMenuItem(mb, "media-move-defaults"));
+    SwingUtilities.invokeLater(() -> move[0].doClick());
+    for (int i = 0; i < 100 && (MediaBrowser.lastSaid == null || !MediaBrowser.lastSaid.startsWith("Moved")); i++) Thread.sleep(100);
+    idle();
+    String said = MediaBrowser.lastSaid;
+    DownloadsScreen.folderFor = null;
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    // In the pictures' folder: nothing to move.
+    String inPlace = DownloadsScreen.moveToDefaults(pics);
+    edt(() -> mb.last.dispose());
+    this.out.append("settings ").append(settingsOk).append(" | file menu: ").append(items).append("asked ").append(asked[0]).append(" | ").append(said).append(", moved ").append(moved)
+        .append(" | in its folder: ").append(inPlace).append('\n');
+    DownloadMove.ticked.clear();
+    DownloadMove.folder.clear();
+    DownloadMove.save();
+    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 2 files".equals(said) && moved
+        && inPlace.startsWith("Nothing to move");
+    if (!ok) throw new AssertionError(this.out.toString());
   }
 
   /**
@@ -10833,6 +10918,15 @@ public final class DesktopBehavior {
       javax.swing.JScrollPane f = scrollIn(k);
       if (f != null) return f;
     }
+    return null;
+  }
+
+  /** The Media browser's File menu opened, and its item of that name. */
+  private static javax.swing.JMenuItem fileMenuItem(MediaBrowser mb, String name) {
+    ((javax.swing.AbstractButton) component(mb.last, "media-file-menu")).doClick();
+    javax.swing.JPopupMenu m = MediaBrowser.lastFileMenu;
+    m.setVisible(false);
+    for (Component c : m.getComponents()) if (name.equals(c.getName())) return (javax.swing.JMenuItem) c;
     return null;
   }
 

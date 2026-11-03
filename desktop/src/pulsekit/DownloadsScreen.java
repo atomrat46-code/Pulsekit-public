@@ -580,41 +580,7 @@ final class DownloadsScreen {
         });
         panel.add(on);
         if (!DownloadMove.on) return panel;
-        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
-            final String kind = DownloadMove.KINDS[i];
-            JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
-            row.setAlignmentX(0.0f);
-            final javax.swing.JCheckBox box = new javax.swing.JCheckBox(DownloadMove.NAMES[i], DownloadMove.isTicked(kind));
-            box.setName("downloads-move-kind:" + kind);
-            box.addActionListener(e -> {
-                DownloadMove.ticked.put(kind, box.isSelected());
-                DownloadMove.save();
-            });
-            row.add(box);
-            final JLabel where = new JLabel(DownloadMove.labelOf(kind));
-            where.setName("downloads-move-folder:" + kind);
-            where.setToolTipText(DownloadMove.folderOf(kind));
-            JButton browse = new JButton("Browse\u2026");
-            browse.setName("downloads-move-browse:" + kind);
-            browse.addActionListener(e -> {
-                File dir;
-                if (folderFor != null) dir = folderFor.apply(kind);
-                else {
-                    String now = DownloadMove.folderOf(kind);
-                    javax.swing.JFileChooser chooser = new javax.swing.JFileChooser(now.length() > 0 ? new File(now) : null);
-                    chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-                    chooser.setDialogTitle(DownloadMove.NAMES[java.util.Arrays.asList(DownloadMove.KINDS).indexOf(kind)] + " go to");
-                    dir = chooser.showOpenDialog(app) == javax.swing.JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
-                }
-                if (dir == null) return;
-                DownloadMove.setFolder(kind, dir.getAbsolutePath(), dir.getName());
-                where.setText(DownloadMove.labelOf(kind));
-                where.setToolTipText(dir.getAbsolutePath());
-            });
-            row.add(where);
-            row.add(browse);
-            panel.add(row);
-        }
+        folderRows(app, panel);
         JPanel buttons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         buttons.setAlignmentX(0.0f);
         final JButton now = new JButton(DownloadMove.MOVE_NOW);
@@ -655,6 +621,54 @@ final class DownloadsScreen {
         progress.add(bar);
         panel.add(progress);
         return panel;
+    }
+
+    /**
+     * Images, Videos and Music: each a box, its folder and Browse… (Downloads > Finished, Settings'
+     * Default move folders, the Media browser's question when none is picked).
+     */
+    static void folderRows(final java.awt.Component app, JPanel panel) {
+        SogniDownloads.init(PromptDb.dir());
+        DownloadMove.load();
+        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
+            final String kind = DownloadMove.KINDS[i];
+            JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            row.setAlignmentX(0.0f);
+            final javax.swing.JCheckBox box = new javax.swing.JCheckBox(DownloadMove.NAMES[i], DownloadMove.isTicked(kind));
+            box.setName("downloads-move-kind:" + kind);
+            box.addActionListener(e -> {
+                DownloadMove.ticked.put(kind, box.isSelected());
+                DownloadMove.save();
+            });
+            row.add(box);
+            final JLabel where = new JLabel(DownloadMove.labelOf(kind));
+            where.setName("downloads-move-folder:" + kind);
+            where.setToolTipText(DownloadMove.folderOf(kind));
+            JButton browse = new JButton("Browse\u2026");
+            browse.setName("downloads-move-browse:" + kind);
+            browse.addActionListener(e -> {
+                File dir;
+                if (folderFor != null) dir = folderFor.apply(kind);
+                else {
+                    String now = DownloadMove.folderOf(kind);
+                    javax.swing.JFileChooser chooser = new javax.swing.JFileChooser(now.length() > 0 ? new File(now) : null);
+                    chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setDialogTitle(DownloadMove.NAMES[java.util.Arrays.asList(DownloadMove.KINDS).indexOf(kind)] + " go to");
+                    dir = chooser.showOpenDialog(app) == javax.swing.JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+                }
+                if (dir == null) return;
+                DownloadMove.setFolder(kind, dir.getAbsolutePath(), dir.getName());
+                // A folder picked: its type ticked.
+                DownloadMove.ticked.put(kind, true);
+                DownloadMove.save();
+                box.setSelected(true);
+                where.setText(DownloadMove.labelOf(kind));
+                where.setToolTipText(dir.getAbsolutePath());
+            });
+            row.add(where);
+            row.add(browse);
+            panel.add(row);
+        }
     }
 
     /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
@@ -727,9 +741,9 @@ final class DownloadsScreen {
     }
 
     /**
-     * The Media browser's Move to default locations, in Download: its pictures, videos and music whose
-     * kind has a folder picked here moved there, the oldest first; the Downloads list and the
-     * playlists follow them.
+     * The Media browser's File > Move defined media types: the folder's pictures, videos and music whose
+     * type is ticked with a folder moved there, the oldest first; the Downloads list and the playlists
+     * follow them.
      */
     static String moveToDefaults(File dir) {
         if (!moving.compareAndSet(false, true)) return "Moving already";
@@ -737,7 +751,12 @@ final class DownloadsScreen {
             DownloadMove.load();
             java.util.List<File> files = new java.util.ArrayList<File>();
             File[] all = dir.listFiles();
-            if (all != null) for (File f : all) if (f.isFile() && !f.isHidden() && DownloadMove.defaultFor(f.getName()).length() > 0) files.add(f);
+            for (int i = 0; all != null && i < all.length; i++) {
+                File f = all[i];
+                String to = f.isFile() && !f.isHidden() ? DownloadMove.defaultFor(f.getName()) : "";
+                // A file in its type's folder already stays.
+                if (to.length() > 0 && !new File(to).getAbsoluteFile().equals(dir.getAbsoluteFile())) files.add(f);
+            }
             java.util.Collections.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
             int moved = 0, failed = 0;
             String problem = null;
