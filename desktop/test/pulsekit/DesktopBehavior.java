@@ -7672,6 +7672,69 @@ public final class DesktopBehavior {
     if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * 03112026_5: Move now moves the oldest downloads first and a playlist's entry follows the file;
+   * Clear the list (asked after Move now) takes the moved runs off; Clear all says the files not
+   * moved; the Media browser's Move to default locations moves Download's video to its folder.
+   */
+  void s191_move_oldest_clear_and_defaults() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"), "move5");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), vids = new File(home, "vids"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, vids, list}) d.mkdirs();
+    File newer = new File(dl, "newer.png"), older = new File(dl, "older.png"), clip = new File(dl, "clip.mp4"), tune = new File(dl, "tune.mp3");
+    for (File f : new File[] {newer, older, clip, tune}) Files.write(f.toPath(), new byte[] {1, 2, 3});
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: newer.png", "saved " + newer.getAbsolutePath(), null);
+    SogniDownloads.done(rn);
+    long ro = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(ro, "Succeeded: older.png", "saved " + older.getAbsolutePath(), null);
+    SogniDownloads.done(ro);
+    long rc = SogniDownloads.started("SogniVideo.java", 7000L);
+    SogniDownloads.result(rc, "Succeeded: clip.mp4", "saved " + clip.getAbsolutePath(), null);
+    SogniDownloads.done(rc);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), null);
+    SogniDownloads.done(rt);
+    File pdir = PromptDb.dir();
+    Playlist.addTo(pdir, "Moves5", older.getAbsolutePath(), "older.png");
+    Playlist.addTo(pdir, "Moves5", clip.getAbsolutePath(), "clip.mp4");
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    StringBuilder order = new StringBuilder();
+    for (Object[] d : DownloadMove.due()) order.append(((SogniDownloads.Item) d[1]).name).append(' ');
+    String said = DownloadsScreen.moveNow();
+    String repointed = Playlist.load(pdir, "Moves5").items.get(0).file;
+    synchronized (answers) {
+      answers.add("Clear");
+    }
+    boolean cleared = DownloadsScreen.askClear(app, null);
+    idle();
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "vids");
+    String defaults = DownloadsScreen.moveToDefaults(dl);
+    String clipNow = Playlist.load(pdir, "Moves5").items.get(1).file;
+    SogniDownloads.Item clipItem = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
+    boolean defaultsOk = "Moved 1 file".equals(defaults) && new File(vids, "clip.mp4").isFile() && !clip.exists() && tune.isFile()
+        && clipNow.equals(new File(vids, "clip.mp4").getAbsolutePath()) && clipItem != null && clipItem.away;
+    this.out.append("order: ").append(order.toString().trim()).append(" | ").append(said).append(" | playlist in ").append(new File(repointed).getParentFile().getName())
+        .append(" | cleared ").append(cleared).append(", runs left ").append(left).append(" | clear all: ").append(all.replace('\n', ' '))
+        .append(" | defaults: ").append(defaults).append(", playlist in ").append(new File(clipNow).getParentFile().getName()).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    boolean ok = order.toString().trim().equals("older.png newer.png") && "Moved 2 files".equals(said) && repointed.equals(new File(pics, "older.png").getAbsolutePath())
+        && cleared && left == 2 && all.contains("2 files have not been moved") && all.contains("Are you sure") && defaultsOk;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** 03112026_3: the Prompts page's tabs: Ref / Result files on Result & Reference entries, Prompt files, Import and New prompt on Prompts & Categories. */
   void s190_prompts_page_tabs() throws Exception {
     PromptsTabs.tab = PromptsTabs.PROMPTS;

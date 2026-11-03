@@ -12064,6 +12064,95 @@ public class BehaviorTest {
   }
 
   /**
+   * 03112026_5: Move now moves the oldest downloads first; a playlist's entry for a moved file follows
+   * it; after Move now (by hand) Clear the list asks to take the moved runs off; a download's Clear and
+   * Clear all ask first when files were not moved; the Media browser's Move to default locations moves
+   * a Download file to its kind's folder, the Downloads list and the playlists following it.
+   */
+  @Test
+  public void s204_move_oldest_clear_and_defaults() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dl = new File(app.getCacheDir(), "m5-dl"), pics = new File(app.getCacheDir(), "m5-pics"), vids = new File(app.getCacheDir(), "m5-vids");
+    File list = new File(app.getCacheDir(), "m5-list");
+    dl.mkdirs();
+    pics.mkdirs();
+    vids.mkdirs();
+    list.mkdirs();
+    byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 5};
+    File newer = new File(dl, "newer.png"), older = new File(dl, "older.png"), clip = new File(dl, "clip.mp4"), tune = new File(dl, "tune.mp3");
+    for (File f : new File[] {newer, older, clip, tune}) Files.write(f.toPath(), png);
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: newer.png", "saved " + newer.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rn);
+    long ro = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(ro, "Succeeded: older.png", "saved " + older.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(ro);
+    long rc = SogniDownloads.started("SogniVideo.java", 7000L);
+    SogniDownloads.result(rc, "Succeeded: clip.mp4", "saved " + clip.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rc);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rt);
+    File pdir = app.getFilesDir();
+    Playlist.addTo(pdir, "Moves", older.getAbsolutePath(), "older.png");
+    Playlist.addTo(pdir, "Moves", clip.getAbsolutePath(), "clip.mp4");
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m5-pics");
+    StringBuilder order = new StringBuilder();
+    for (Object[] d : DownloadMove.due()) order.append(((SogniDownloads.Item) d[1]).name).append(' ');
+    String said = DownloadsScreen.moveDue(app);
+    String repointed = Playlist.load(pdir, "Moves").items.get(0).file;
+    out.append("order: ").append(order.toString().trim()).append(" | ").append(said).append(" | playlist: ").append(new File(repointed).getName()).append(" in ").append(new File(repointed).getParentFile().getName()).append('\n');
+    boolean orderOk = order.toString().trim().equals("older.png newer.png") && "Moved 2 files".equals(said) && repointed.equals(new File(pics, "older.png").getPath());
+    // Clear the list: asked after Move now, the two moved runs taken off (the video and the MP3 stay).
+    DownloadsScreen.askClear(app, null);
+    idle();
+    String asked = DownloadsScreen.lastClearAsk == null ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(DownloadsScreen.lastClearAsk).getMessage());
+    if (DownloadsScreen.lastClearAsk != null) DownloadsScreen.lastClearAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    out.append("clear ask: ").append(asked).append(" | runs left ").append(left).append('\n');
+    boolean clearOk = asked.equals(DownloadMove.clearAsk(2)) && left == 2;
+    // Clear all says the files not moved; a download's Clear asks when its file was not moved.
+    String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
+    SogniDownloads.Run tuneRun = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rt) tuneRun = r;
+    android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+    DownloadsScreen.menu(app, col, tuneRun, tuneRun.items.get(0));
+    idle();
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(1);
+    idle();
+    String one = DownloadsScreen.lastClearOne == null || !DownloadsScreen.lastClearOne.isShowing() ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(DownloadsScreen.lastClearOne).getMessage());
+    boolean stillListed = SogniDownloads.tab(SogniDownloads.FINISHED).size() == 2;
+    if (DownloadsScreen.lastClearOne != null) DownloadsScreen.lastClearOne.dismiss();
+    out.append("clear all: ").append(all.replace('\n', ' ')).append(" | clear one: ").append(one).append(" | still listed ").append(stillListed).append('\n');
+    boolean asksOk = all.contains("2 files have not been moved") && all.contains("Are you sure") && one.equals(DownloadMove.clearOneAsk("tune.mp3")) && stillListed;
+    // Move to default locations: the video (its kind ticked, a folder picked) out of Download.
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "m5-vids");
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "clip.mp4";
+    e.id = clip.getAbsolutePath();
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath());
+    String clipNow = Playlist.load(pdir, "Moves").items.get(1).file;
+    SogniDownloads.Item clipItem = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);
+    boolean defaultsOk = why == null && new File(vids, "clip.mp4").isFile() && !clip.exists() && clipNow.equals(new File(vids, "clip.mp4").getPath())
+        && clipItem != null && clipItem.away && clipItem.where.equals(new File(vids, "clip.mp4").getPath()) && DownloadMove.anyDefault()
+        && DownloadMove.defaultFor("x.mp3").length() == 0;
+    out.append("defaults: ").append(why).append(" | playlist ").append(new File(clipNow).getParentFile().getName()).append(" | listed moved ").append(clipItem != null && clipItem.away).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s204_move_oldest_clear_and_defaults", out.toString());
+    if (!(orderOk && clearOk && asksOk && defaultsOk)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's folder zips: Send folder contents to zip puts the folder's files (not its
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.

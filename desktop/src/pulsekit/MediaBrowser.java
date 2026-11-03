@@ -297,6 +297,28 @@ final class MediaBrowser {
             loopRow.add(fromZip, 0);
             loopRow.add(toZip, 0);
         }
+        // Download, with folders picked for images, videos or music (Downloads > Finished): its files of
+        // those kinds moved there.
+        DownloadMove.load();
+        if (this.chooser == null && dir.equals(downloads()) && DownloadMove.anyDefault()) {
+            JButton defaults = new JButton(DownloadMove.DEFAULTS);
+            defaults.setName("media-move-defaults");
+            defaults.setEnabled(!DownloadsScreen.moving.get());
+            defaults.addActionListener(e -> {
+                defaults.setEnabled(false);
+                app.setNow("Moving to the default locations\u2026");
+                new Thread(() -> {
+                    final String said = DownloadsScreen.moveToDefaults(dir);
+                    lastSaid = said;
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        app.setNow(said);
+                        gone.set(true);
+                        this.fill(dialog, root, dir);
+                    });
+                }, "move-defaults").start();
+            });
+            loopRow.add(defaults, 0);
+        }
         // The favourite folders, and the folders with a playlist: each opens here.
         if (this.chooser == null) {
             JButton favs = new JButton(MediaDir.STAR + "Favourites \u25be");

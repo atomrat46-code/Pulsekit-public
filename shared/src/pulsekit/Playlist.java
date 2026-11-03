@@ -339,6 +339,34 @@ public final class Playlist {
     return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
   }
 
+  /**
+   * A file moved (Downloads' Move now, Move to, the Media browser's Move to default locations): every
+   * playlist's entry for it (any of `olds`: its path or addresses before) now points at `now`. How many.
+   */
+  public static int repoint(File dir, java.util.Collection<String> olds, String now) {
+    if (now == null || now.length() == 0 || olds == null || olds.isEmpty()) return 0;
+    int n = 0;
+    for (String name : names(dir)) {
+      Playlist p = load(dir, name);
+      boolean changed = false;
+      for (Item it : p.items) {
+        if (olds.contains(it.file)) {
+          it.file = now;
+          changed = true;
+          n++;
+        }
+      }
+      if (changed) {
+        try {
+          save(dir, p);
+        } catch (Exception ignored) {
+          // that list keeps the old place
+        }
+      }
+    }
+    return n;
+  }
+
   /** Whether the file is in the named list already. */
   public static boolean inList(File dir, String name, String file) {
     return load(dir, clean(name).length() == 0 ? DEFAULT : clean(name)).has(file);

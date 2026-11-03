@@ -439,6 +439,13 @@ final class MediaBrowser {
         void write(java.io.OutputStream out) throws Exception;
     }
 
+    /**
+     * Where saveInto wrote last on this thread, as the file can be opened again: its content:// address
+     * or its path (the label it returns is for people). Downloads' moves keep it, so Preview and the
+     * playlists still find a moved file.
+     */
+    static final ThreadLocal<String> savedAddress = new ThreadLocal<String>();
+
     /** As above, with the file's content written by `data` (Downloads' Move: streamed from where it is). */
     static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, Body data) throws Exception {
         String tree = origin[0];
@@ -461,6 +468,7 @@ final class MediaBrowser {
             } finally {
                 os.close();
             }
+            savedAddress.set(uri.toString());
             return rel + "/" + name;
         }
         if (tree == null || tree.length() == 0) {
@@ -481,6 +489,7 @@ final class MediaBrowser {
             } finally {
                 fos.close();
             }
+            savedAddress.set(f.getPath());
             return f.getPath();
         }
         Uri treeUri = Uri.parse(tree);
@@ -515,6 +524,7 @@ final class MediaBrowser {
             } finally {
                 os.close();
             }
+            savedAddress.set(file.toString());
             return label + "/" + name;
         } catch (SecurityException ex) {
             throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
@@ -1853,6 +1863,19 @@ final class MediaBrowser {
             fav.setTag("media-favourite");
             tools.addView(fav);
         }
+        // Download, with folders picked for images, videos or music (Downloads > Finished): its files of
+        // those kinds moved there.
+        if (this.renamable() && this.path.size() == 1) {
+            DownloadMove.load();
+            if (DownloadMove.anyDefault()) {
+                TextView defaults = this.app.pill(DownloadMove.DEFAULTS, false, v -> this.moveToDefaults());
+                defaults.setTag("media-move-defaults");
+                defaults.setEnabled(!DownloadsScreen.moving.get());
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+                dlp.leftMargin = this.app.dp(6);
+                tools.addView(defaults, dlp);
+            }
+        }
         // Import file…, Import folder…, Copy folder from…: files from elsewhere copied into this folder.
         if (this.changeable()) {
             if (tools.getChildCount() > 0) this.body.addView(tools);
@@ -2343,6 +2366,97 @@ final class MediaBrowser {
             .setItems(MediaDir.FOLDER_MENU, (d, which) -> this.fileAction(e, MediaDir.FOLDER_MENU[which]))
             .setNegativeButton("Cancel", null)
             .show();
+    }
+
+    /** What Move to default locations said last (for the tests). */
+    static volatile String lastDefaultsSaid;
+
+    /**
+     * Move to default locations: Download's pictures, videos and music whose kind has a folder picked in
+     * Downloads > Finished moved there, the oldest first, each streamed (off the main thread, with
+     * Pulsekit's notification, as Move now). The Downloads list and the playlists follow them.
+     */
+    void moveToDefaults() {
+        final List<MediaDir.Entry> files = new ArrayList<MediaDir.Entry>();
+        for (MediaDir.Entry e : this.allEntries) {
+            if (!e.folder && e.dbId == 0 && DownloadMove.defaultFor(e.name).length() > 0) files.add(e);
+        }
+        java.util.Collections.sort(files, (a, b) -> Long.compare(a.date, b.date));
+        if (!DownloadsScreen.moving.compareAndSet(false, true)) {
+            this.app.setNow("Moving already");
+            return;
+        }
+        final java.util.Map<MediaDir.Entry, Uri> from = new java.util.HashMap<MediaDir.Entry, Uri>();
+        final java.util.Map<MediaDir.Entry, String> address = new java.util.HashMap<MediaDir.Entry, String>();
+        for (MediaDir.Entry e : files) {
+            from.put(e, this.uri(e));
+            address.put(e, this.playlistAddress(e));
+        }
+        final MainActivity app = this.app;
+        final boolean keeper = !RunKeeper.foreground;
+        if (keeper) RunKeeper.start(app, "Move downloads");
+        new Thread(() -> {
+            int moved = 0, failed = 0;
+            String problem = null;
+            try {
+                for (int i = 0; i < files.size(); i++) {
+                    MediaDir.Entry e = files.get(i);
+                    final String head = "Moving " + (i + 1) + " of " + files.size() + ": " + e.name;
+                    this.main.post(() -> app.setNow(head));
+                    String why = moveToDefault(app, e, from.get(e), address.get(e));
+                    if (why == null) moved++;
+                    else {
+                        failed++;
+                        if (problem == null) problem = why;
+                    }
+                }
+            } finally {
+                DownloadsScreen.moving.set(false);
+                if (keeper) RunKeeper.stop(app);
+            }
+            final String said = DownloadMove.defaultsSaid(moved, failed, problem);
+            lastDefaultsSaid = said;
+            this.main.post(() -> {
+                app.setNow(said);
+                if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
+            });
+        }).start();
+    }
+
+    /** One Download file into its kind's folder and out of Download; null when moved, else why not. */
+    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address) {
+        try {
+            String to = DownloadMove.defaultFor(e.name);
+            String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+            java.util.Set<String> olds = DownloadsScreen.olds(app, "Download/" + e.name);
+            olds.add(e.id);
+            olds.add(address);
+            olds.add(src.toString());
+            boolean file = "file".equals(src.getScheme());
+            final java.io.InputStream in = file ? new java.io.FileInputStream(src.getPath()) : app.getContentResolver().openInputStream(src);
+            if (in == null) return e.name + " could not be read";
+            String at;
+            try {
+                at = saveInto(app, origin, null, e.name, ArtJava.mimeOf(e.name), out -> {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                });
+            } finally {
+                in.close();
+            }
+            String now = savedAddress.get();
+            savedAddress.remove();
+            if (now == null || now.length() == 0) now = at;
+            boolean gone = file ? new File(src.getPath()).delete() : app.getContentResolver().delete(src, null, null) > 0;
+            if (!gone) return "copied " + e.name + " to " + at + ", but could not delete it from Download";
+            SogniDownloads.Item item = SogniDownloads.inDownload(olds);
+            if (item != null) SogniDownloads.movedAway(item, item.name, now, at);
+            Playlist.repoint(app.getFilesDir(), olds, now);
+            return null;
+        } catch (Exception ex) {
+            return e.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+        }
     }
 
     /** Download's files and folders (not moved or deleted from here): Rename only. */

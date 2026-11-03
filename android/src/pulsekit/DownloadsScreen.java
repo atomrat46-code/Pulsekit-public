@@ -160,7 +160,7 @@ final class DownloadsScreen {
             sortScroll.setPadding(0, app.dp(8), 0, 0);
             col.addView(sortScroll);
             TextView clearAll = app.pill("Clear all", false, v -> lastClearAll = new AlertDialog.Builder(app).setTitle("Clear all")
-                .setMessage("Take every finished download off this list? The files stay where they are.")
+                .setMessage(DownloadMove.clearAllAsk(SogniDownloads.notMoved()))
                 .setPositiveButton("Clear all", (d, w) -> {
                     app.setNow(SogniDownloads.clearFinished() + " off the list (the files stay)");
                     fill(app, col);
@@ -342,18 +342,26 @@ final class DownloadsScreen {
 
     static final String[] MENU = {"Preview", "Clear", "Rename", "Delete", "Move to…", "Copy to…", "Create again", "Add to favourites"};
 
+    /** A download's Clear question (not moved yet), shown last (for the tests). */
+    static AlertDialog lastClearOne;
+
     /** Clear all's question, shown last (for the tests). */
     static AlertDialog lastClearAll;
 
-    private static void menu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r, final SogniDownloads.Item item) {
+    static void menu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r, final SogniDownloads.Item item) {
         lastMenu = new AlertDialog.Builder(app).setTitle(item.name).setItems(MENU, (d, which) -> {
             if (which == 6) createAgain(app, r);
             else if (which == 7) app.setNow(favourite(app, r));
             else if (which == 0) preview(app, item);
             else if (which == 1) {
-                SogniDownloads.clear(r.id, item);
-                app.setNow(item.name + " is off the list (the file stays)");
-                fill(app, col);
+                Runnable clear = () -> {
+                    SogniDownloads.clear(r.id, item);
+                    app.setNow(item.name + " is off the list (the file stays)");
+                    fill(app, col);
+                };
+                if (item.away) clear.run();
+                else lastClearOne = new AlertDialog.Builder(app).setTitle("Clear").setMessage(DownloadMove.clearOneAsk(item.name))
+                    .setPositiveButton("Clear", (d2, w2) -> clear.run()).setNegativeButton("Cancel", null).show();
             } else if (which == 2) rename(app, col, item);
             else if (which == 3) delete(app, col, r, item);
             else places(app, col, r, item, which == 4);
@@ -692,6 +700,7 @@ final class DownloadsScreen {
                 app.runOnUiThread(() -> {
                     app.setNow(said);
                     if (last != null && last.isShowing()) fill(app, col);
+                    askClear(app, col);
                 });
             }).start();
         });
@@ -758,6 +767,7 @@ final class DownloadsScreen {
         if (!moving.compareAndSet(false, true)) return "Moving already";
         boolean keeper = !RunKeeper.foreground;
         if (keeper) RunKeeper.start(app, "Move downloads");
+        lastMoved = 0;
         try {
             DownloadMove.load();
             java.util.List<Object[]> due = DownloadMove.due();
@@ -774,6 +784,7 @@ final class DownloadsScreen {
                     if (problem == null) problem = why;
                 }
             }
+            lastMoved = moved;
             lastMoveSaid = DownloadMove.said(moved, failed, problem);
             return lastMoveSaid;
         } finally {
@@ -784,6 +795,29 @@ final class DownloadsScreen {
             if (keeper) RunKeeper.stop(app);
         }
     }
+
+    /** Clear the list's question after Move now, shown last (for the tests). */
+    static AlertDialog lastClearAsk;
+
+    /**
+     * Move now done by hand, something moved: the runs moved whole off the list? (Move automatically
+     * asks nothing.)
+     */
+    static void askClear(final MainActivity app, final LinearLayout col) {
+        lastClearAsk = null;
+        if (lastMoved == 0) return;
+        int runs = SogniDownloads.movedRuns();
+        if (runs == 0) return;
+        lastClearAsk = new AlertDialog.Builder(app).setTitle(DownloadMove.CLEAR_TITLE).setMessage(DownloadMove.clearAsk(runs))
+            .setPositiveButton("Clear", (d, w) -> {
+                app.setNow(SogniDownloads.clearMoved() + " off the list (the files stay)");
+                if (last != null && last.isShowing()) fill(app, col);
+            })
+            .setNegativeButton("Keep", null).show();
+    }
+
+    /** How many files Move now moved last. */
+    static volatile int lastMoved;
 
     /** One file into the folder (streamed) and out of Download; null when moved, else why not. */
     static String moveOne(final MainActivity app, final SogniDownloads.Item item, String[] origin, final int index, final int count) {
@@ -818,12 +852,36 @@ final class DownloadsScreen {
             } finally {
                 in.close();
             }
+            java.util.Set<String> olds = olds(app, item.where);
             if (!remove(app, item.where)) return "copied " + item.name + " to " + at + ", but could not delete it from Download";
-            SogniDownloads.movedAway(item, item.name, at, at);
+            arrived(app, item, olds, at);
             return null;
         } catch (Exception ex) {
             return item.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
         }
+    }
+
+    /** The ways a file in Download was known (a playlist keeps one of them): its place, address and path. */
+    static java.util.Set<String> olds(MainActivity app, String where) {
+        java.util.Set<String> olds = new java.util.HashSet<String>();
+        if (where == null || where.length() == 0) return olds;
+        olds.add(where);
+        Uri uri = uriFor(app, where);
+        if (uri != null) olds.add(uri.toString());
+        if (!where.startsWith("content://")) olds.add(fileFor(where).getPath());
+        return olds;
+    }
+
+    /**
+     * A download moved: kept as where it is now (its address, so Preview still opens it, shown as the
+     * folder's label), and the playlists' entries for it pointed there.
+     */
+    static void arrived(MainActivity app, SogniDownloads.Item item, java.util.Set<String> olds, String label) {
+        String address = MediaBrowser.savedAddress.get();
+        if (address == null || address.length() == 0) address = label;
+        MediaBrowser.savedAddress.remove();
+        SogniDownloads.movedAway(item, item.name, address, label);
+        Playlist.repoint(app.getFilesDir(), olds, address);
     }
 
     /** A run finished: with Move automatically, its media go to their folders. */
@@ -868,11 +926,12 @@ final class DownloadsScreen {
         try {
             String at = MediaBrowser.saveInto(app, origin, null, item.name, ArtJava.mimeOf(item.name), data);
             if (move) {
+                java.util.Set<String> olds = olds(app, item.where);
                 if (!remove(app, item.where)) {
                     app.setNow("Copied to " + at + ", but could not delete " + item.name + " where it was");
                     return;
                 }
-                SogniDownloads.movedAway(item, item.name, at, at);
+                arrived(app, item, olds, at);
                 app.setNow("Moved to " + at);
             } else {
                 app.setNow("Copied to " + at);

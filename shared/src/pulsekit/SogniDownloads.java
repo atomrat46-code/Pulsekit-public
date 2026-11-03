@@ -377,6 +377,45 @@ public final class SogniDownloads {
     return n;
   }
 
+  /** The finished runs whose files were all moved out of Download, taken off the list; how many. */
+  public static synchronized int clearMoved() {
+    int n = 0;
+    for (int i = RUNS.size() - 1; i >= 0; i--) {
+      if (allMoved(RUNS.get(i))) {
+        RUNS.remove(i);
+        n++;
+      }
+    }
+    write();
+    return n;
+  }
+
+  /** How many finished runs have all their files moved out of Download (Clear the list asks about them). */
+  public static synchronized int movedRuns() {
+    int n = 0;
+    for (Run r : RUNS) if (allMoved(r)) n++;
+    return n;
+  }
+
+  private static boolean allMoved(Run r) {
+    if (!FINISHED.equals(r.state) || r.items.isEmpty()) return false;
+    for (Item it : r.items) if (!it.away) return false;
+    return true;
+  }
+
+  /** The download (still in Download) known by one of these places or addresses, or null. */
+  public static synchronized Item inDownload(java.util.Collection<String> olds) {
+    for (Run r : RUNS) for (Item it : r.items) if (!it.away && it.where != null && olds.contains(it.where)) return it;
+    return null;
+  }
+
+  /** The finished downloads' files not moved out of Download yet (Clear all says so). */
+  public static synchronized int notMoved() {
+    int n = 0;
+    for (Run r : RUNS) if (FINISHED.equals(r.state)) for (Item it : r.items) if (!it.away) n++;
+    return n;
+  }
+
   /** The arguments a run started with (Create again). */
   public static synchronized void args(long id, String line) {
     Run r = run(id);
