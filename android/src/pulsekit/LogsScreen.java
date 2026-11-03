@@ -10,7 +10,7 @@ import java.util.List;
  * File > Logs: the log entries (Logs) of the type picked (chips, each with its count), the newest
  * first. A tap opens the entry: its text can be selected and copied (a long press selects; Copy
  * takes the whole entry), saved (Export), deleted or closed; Export all saves every entry of the
- * list into one text file.
+ * list into one text file. A long press on an entry: Open or Delete; on a type: Clear all its logs (asked first).
  */
 final class LogsScreen {
     private LogsScreen() {}
@@ -44,6 +44,11 @@ final class LogsScreen {
                 fill(app, col);
             });
             chip.setTag("logs-type:" + t);
+            // A long press: Clear all of the type's logs, asked first.
+            chip.setOnLongClickListener(v -> {
+                clearAll(app, col, t);
+                return true;
+            });
             chips.addView(chip);
         }
         col.addView(app.chipStrip(chips));
@@ -69,8 +74,35 @@ final class LogsScreen {
             line.setTag("logs-entry:" + e.file.getName());
             line.setPadding(0, app.dp(8), 0, app.dp(8));
             line.setOnClickListener(v -> open(app, e, () -> fill(app, col)));
+            // A long press: Open or Delete.
+            line.setOnLongClickListener(v -> {
+                menu = new AlertDialog.Builder(app).setTitle(e.label()).setItems(Logs.ENTRY_MENU, (d, which) -> {
+                    if (which == 0) open(app, e, () -> fill(app, col));
+                    else {
+                        app.setNow(Logs.deleted(Logs.delete(java.util.Collections.singletonList(e))));
+                        fill(app, col);
+                    }
+                }).setNegativeButton("Cancel", null).show();
+                return true;
+            });
             col.addView(line);
         }
+    }
+
+    static AlertDialog menu;
+
+    /** A type tab's long press: every entry of the type deleted, once the confirmation says so. */
+    static void clearAll(final MainActivity app, final LinearLayout col, final String t) {
+        final List<Logs.Entry> all = Logs.entries(t);
+        if (all.isEmpty()) {
+            app.setNow("No " + (Logs.ALL.equals(t) ? "" : t + " ") + "log entries to clear");
+            return;
+        }
+        menu = new AlertDialog.Builder(app).setTitle(Logs.clearAll(t)).setMessage(Logs.clearAllAsk(t, all.size()))
+            .setPositiveButton("Delete", (d, w) -> {
+                app.setNow(Logs.deleted(Logs.delete(all)));
+                fill(app, col);
+            }).setNegativeButton("Cancel", null).show();
     }
 
     /** One entry: its text (selectable), Copy, Export, Close; Delete above the text. */

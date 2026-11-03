@@ -25,6 +25,31 @@ import java.util.List;
 final class RefBrowser {
     private RefBrowser() {}
 
+    /** Rename's dialog shown last, for the tests. */
+    static AlertDialog lastRename;
+
+    /** A DB file's new name (its ending kept when none is typed), asked first; the grid shown again. */
+    static void rename(final Activity activity, final PromptVault vault, final PromptVault.StoredFile file, final Runnable again) {
+        final android.widget.EditText field = new android.widget.EditText(activity);
+        field.setSingleLine(true);
+        field.setText(file.name);
+        field.setTag("ref-rename-field");
+        int dot = file.name.lastIndexOf('.');
+        field.setSelection(0, dot > 0 ? dot : file.name.length());
+        lastRename = new AlertDialog.Builder(activity).setTitle("Rename " + file.name).setView(field)
+            .setPositiveButton("Rename", (d, w) -> {
+                String said;
+                try {
+                    said = "Renamed " + file.name + " to " + vault.renameFile(file.versionId, file.which, MediaDir.keepEnding(file.name, field.getText().toString()));
+                } catch (Exception ex) {
+                    said = ex.getMessage() != null ? ex.getMessage() : "Could not rename " + file.name;
+                }
+                if (activity instanceof MainActivity) ((MainActivity) activity).setNow(said);
+                again.run();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
     /** The library's reference files and result files together: Browse DB is greyed when there are none. */
     static List<PromptVault.StoredFile> files(Activity activity) {
         return allFiles(activity, null);
@@ -349,7 +374,13 @@ final class RefBrowser {
                 final boolean fav = FileFavourites.is(file);
                 menu = new AlertDialog.Builder(activity)
                     .setTitle(shownName)
-                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT}, (d, w) -> {
+                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT,
+                        MediaDir.RENAME}, (d, w) -> {
+                        // Rename: the file's name in the DB (its prompt keeps it).
+                        if (w == 6) {
+                            rename(activity, vault, file, again);
+                            return;
+                        }
                         // Add to playlist (a list picked, or a new one), Add to default playlist.
                         if (w == 4 || w == 5) {
                             if (!(activity instanceof MainActivity)) return;

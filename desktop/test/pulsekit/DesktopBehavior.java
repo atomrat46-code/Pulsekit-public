@@ -7555,6 +7555,186 @@ public final class DesktopBehavior {
    * vst_render --compare_kits: the profiles the test compares (none, the reference, the other kits' vst-kit-*.kit,
    * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
    */
+  /**
+   * 03112026: vst_render's Params on tabs (Input, Output, Plugins, Settings); the Plugins tab's Recently
+   * used puts a plugin on a row; a list field's Clear (--map) shown while it has something; Logs' right
+   * clicks (an entry: Open, Delete; a type: Clear all its logs); a Sogni list written whole (SafeWrite).
+   */
+  void s187_params_tabs_logs_menus() throws Exception {
+    PluginLibrary.reset();
+    PluginLibrary.load(PromptDb.dir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3", "--plugin2", "/vst/Artillery.vst3"));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    final javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane) component(d, "params-tabs");
+    String titles = "";
+    for (int i = 0; tabs != null && i < tabs.getTabCount(); i++) titles += tabs.getTitleAt(i) + " ";
+    boolean pluginOnTab = component(component(d, "params-tab:Plugins"), "params-file:--plugin") != null && component(component(d, "params-tab:Input"), "params-file:--plugin") == null;
+    // --map's Clear: shown once the field has something.
+    final javax.swing.JTextField map = (javax.swing.JTextField) component(d, "params-field:--map");
+    final javax.swing.JButton mapClear = (javax.swing.JButton) component(d, "params-clear:--map");
+    final boolean[] clearSeen = new boolean[3];
+    edt(() -> {
+      clearSeen[0] = mapClear != null && !mapClear.isVisible();
+      map.setText("45=46");
+      clearSeen[1] = mapClear.isVisible();
+      mapClear.doClick();
+      clearSeen[2] = map.getText().isEmpty() && !mapClear.isVisible();
+    });
+    // Recently used: Use as plugin 3.
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<String> recent = (javax.swing.JList<String>) component(d, "params-recent");
+    final String[] recentShown = new String[1];
+    edt(() -> {
+      tabs.setSelectedIndex(2);
+      recentShown[0] = recent.getModel().getSize() + ": " + recent.getModel().getElementAt(0);
+    });
+    idle();
+    PyJav.lastUseMenu = null;
+    edt(() -> {
+      java.awt.Rectangle cell = recent.getCellBounds(1, 1);
+      recent.dispatchEvent(new java.awt.event.MouseEvent(recent, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, cell.x + 4, cell.y + 4, 1, false));
+    });
+    idle();
+    final String[] items = new String[1];
+    edt(() -> {
+      javax.swing.JPopupMenu m = PyJav.lastUseMenu;
+      items[0] = "";
+      for (int i = 0; m != null && i < m.getComponentCount(); i++) if (m.getComponent(i) instanceof javax.swing.JMenuItem) items[0] += ((javax.swing.JMenuItem) m.getComponent(i)).getText() + ";";
+      if (m != null) {
+        ((javax.swing.JMenuItem) m.getComponent(2)).doClick();
+        m.setVisible(false);
+      }
+    });
+    idle();
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py"));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
+        .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
+    boolean tabsOk = titles.equals("Input Output Plugins Settings ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
+    // Logs: an entry's Delete, then the type's Clear all.
+    AppSettings.setLogging(true);
+    Logs.write(Logs.RUNS, "one", "first");
+    Logs.write(Logs.RUNS, "two", "second");
+    Logs.write(Logs.ERRORS, "three", "third");
+    LogsScreen.askDelete = false;
+    final int before = Logs.entries(Logs.RUNS).size();
+    final String[] logs = new String[2];
+    edt(() -> {
+      javax.swing.DefaultListModel<Logs.Entry> model = new javax.swing.DefaultListModel<Logs.Entry>();
+      for (Logs.Entry e : Logs.entries(Logs.RUNS)) model.addElement(e);
+      javax.swing.JList<Logs.Entry> list = new javax.swing.JList<Logs.Entry>(model);
+      list.setSelectedIndex(0);
+      javax.swing.JPopupMenu em = LogsScreen.entryMenu((Pulsekit) frame, null, list, () -> {});
+      logs[0] = ((javax.swing.JMenuItem) em.getComponent(0)).getText() + "," + ((javax.swing.JMenuItem) em.getComponent(1)).getText();
+      ((javax.swing.JMenuItem) em.getComponent(1)).doClick();
+      LogsScreen.type = Logs.RUNS;
+      javax.swing.JPopupMenu tm = LogsScreen.typeMenu((Pulsekit) frame, null, () -> {});
+      logs[1] = ((javax.swing.JMenuItem) tm.getComponent(0)).getText();
+      ((javax.swing.JMenuItem) tm.getComponent(0)).doClick();
+    });
+    int runsLeft = Logs.entries(Logs.RUNS).size(), errorsLeft = Logs.entries(Logs.ERRORS).size();
+    LogsScreen.askDelete = true;
+    LogsScreen.type = Logs.ALL;
+    AppSettings.setLogging(false);
+    // A Sogni list written whole: no .tmp left.
+    File sogni = new File(System.getProperty("user.home"), "safe-write");
+    SogniHistory.init(sogni);
+    SogniHistory.started("wf-9", "SogniMusic.java", 1000L);
+    boolean whole = new File(sogni, "sogni_workflows.txt").isFile() && !new File(sogni, "sogni_workflows.txt.tmp").exists() && SogniHistory.entries().size() == 1;
+    SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
+    this.out.append("logs: ").append(logs[0]).append(" | ").append(logs[1]).append(" | runs ").append(before).append(" -> ").append(runsLeft).append(", errors left ").append(errorsLeft)
+        .append(" | written whole ").append(whole).append('\n');
+    boolean logsOk = "Open,Delete".equals(logs[0]) && "Clear all Program runs logs".equals(logs[1]) && before >= 2 && runsLeft == 0 && errorsLeft >= 1 && whole;
+    if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 03112026_2: the ready screens' saves (Save as a Reference file, Save as a Result file, Save into
+   * disk… opening in the folder saved into last) and Downloads' Move downloaded media files to.
+   */
+  void s189_ready_saves_and_download_move() throws Exception {
+    File home = new File(System.getProperty("user.home"), "ready-saves");
+    home.mkdirs();
+    File song = new File(home, "song.mp3");
+    Files.write(song.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0, 1, 2, 3});
+    call("saveReady", song, MediaDir.SAVE_REF);
+    String asRef = String.valueOf(call("lastDbAddText"));
+    File out = new File(home, "out");
+    out.mkdirs();
+    PyJav.saveAsFor = n -> new File(out, n);
+    call("saveReady", song, MediaDir.SAVE_DISK);
+    PyJav.saveAsFor = null;
+    String lastDir = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(PyJav.READY_SAVE_DIR, "");
+    boolean disk = new File(out, "song.mp3").isFile() && out.getAbsolutePath().equals(lastDir);
+    this.out.append("ready: ").append(asRef).append(" | disk ").append(disk).append('\n');
+    // Move downloaded media files to.
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    dl.mkdirs();
+    pics.mkdirs();
+    list.mkdirs();
+    Files.write(new File(dl, "sunset.png").toPath(), new byte[] {1, 2, 3});
+    Files.write(new File(dl, "tune.mp3").toPath(), new byte[] {4, 5});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: sunset.png", "saved " + new File(dl, "sunset.png").getAbsolutePath() + "\nsaved " + new File(dl, "tune.mp3").getAbsolutePath(), null);
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    String first = DownloadsScreen.moveNow(), second = DownloadsScreen.moveNow();
+    boolean moved = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
+    SogniDownloads.init(null);
+    SogniDownloads.init(list);
+    DownloadMove.load();
+    boolean kept = DownloadMove.on && DownloadMove.isTicked("picture") && DownloadMove.due().isEmpty() && SogniDownloads.tab(SogniDownloads.FINISHED).get(0).items.get(0).away;
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    this.out.append("move: ").append(first).append(" | again: ").append(second).append(" | files ").append(moved).append(" | kept ").append(kept).append('\n');
+    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && second.startsWith("Nothing to move") && moved && kept;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** 03112026 Rename: a library prompt file (★) in the Media browser, renamed in the DB (its ending kept). */
+  void s188_media_db_rename() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long id = vault.addPromptFile("sunset.prompt", "A sunset\n".getBytes(StandardCharsets.UTF_8), "Beach v1");
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "sunset.prompt";
+    e.id = MediaDir.DB_PROMPT + id;
+    e.dbId = id;
+    MediaBrowser.answer = q -> "dusk";
+    edt(() -> ((Pulsekit) frame).mediaBrowser.renameDb(e));
+    MediaBrowser.answer = null;
+    String now = "";
+    for (PromptVault.StoredFile f : PromptDb.vault().promptFiles()) if (f.versionId == id) now = f.name;
+    this.out.append("prompt file: ").append(now).append('\n');
+    if (!"dusk.prompt".equals(now)) throw new AssertionError(this.out.toString());
+  }
+
   void s186_vst_render_compare_kits() throws Exception {
     File dir = new File(System.getProperty("user.home"), "compare-kits");
     dir.mkdirs();
@@ -7990,7 +8170,7 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
-  /** WAV ready's Add to DB…: the render into the prompt library as a result file, then its group asked (No group). */
+  /** WAV ready's Save as a Result file: the render into the prompt library as a result file in one step, then its group asked (No group). */
   void s161_wav_ready_add_to_db() throws Exception {
     File home = new File(System.getProperty("user.home"));
     File wav = new File(home, "vst-check-Kars.wav");
@@ -7998,9 +8178,8 @@ public final class DesktopBehavior {
     for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
     Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
     final boolean[] listed = new boolean[1];
-    inspectNext = d -> listed[0] = find(d.getContentPane(), MediaDir.ADD_TO_DB) != null;
-    answers.add(MediaDir.ADD_TO_DB);
-    answers.add(MediaDir.DB_KINDS[0]);
+    inspectNext = d -> listed[0] = find(d.getContentPane(), MediaDir.SAVE_RESULT) != null && find(d.getContentPane(), MediaDir.ADD_TO_DB) == null;
+    answers.add(MediaDir.SAVE_RESULT);
     answers.add("OK");
     answers.add("Close");
     final PyJav pj = (PyJav) get("pyJav");
@@ -8009,7 +8188,7 @@ public final class DesktopBehavior {
     inspectNext = null;
     java.util.List<String> results = new java.util.ArrayList<String>();
     for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) results.add(f.name);
-    this.out.append("WAV ready lists Add to DB: ").append(listed[0]).append(" | said: ").append(pj.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    this.out.append("WAV ready lists Save as a Result file: ").append(listed[0]).append(" | said: ").append(pj.lastDbAdd).append(" | result files: ").append(results).append('\n');
     boolean ok = listed[0] && "vst-check-Kars.wav is in the DB as a result file".equals(pj.lastDbAdd) && results.contains("vst-check-Kars.wav");
     if (!ok) throw new AssertionError(this.out.toString());
   }

@@ -1985,6 +1985,12 @@ final class MediaBrowser {
                     return true;
                 });
                 this.dropTarget(card, e.id);
+            } else if (this.chooser == null && (e.dbId != 0 || e.folder && this.renamable() && e.id.startsWith("/"))) {
+                // A library prompt file (★) or a Download folder: Rename.
+                card.setOnLongClickListener(v -> {
+                    this.renameMenu(e);
+                    return true;
+                });
             }
             if (e.id.equals(this.focusId)) {
                 // The folder Up came from: outlined, and scrolled to.
@@ -2122,7 +2128,13 @@ final class MediaBrowser {
     /** A file's long-press menu (MediaDir.MENU). */
     void menu(final MediaDir.Entry e) {
         // A file already in the playlist: its third item takes it out.
-        final String[] menuItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        String[] baseItems = MediaDir.menu(MediaPlaylist.has(this.app.getFilesDir(), this.folderKey(), e.id), e.kind, this.changeable(), e.name, false);
+        // Download (not moved or deleted from here): Rename still.
+        if (this.renamable()) {
+            baseItems = java.util.Arrays.copyOf(baseItems, baseItems.length + 1);
+            baseItems[baseItems.length - 1] = MediaDir.RENAME;
+        }
+        final String[] menuItems = baseItems;
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
         boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
         String[] withPlaylist = playable ? MediaDir.withPlaylistItem(menuItems, Playlist.ADD) : menuItems;
@@ -2323,6 +2335,20 @@ final class MediaBrowser {
             .show();
     }
 
+    /** Download's files and folders (not moved or deleted from here): Rename only. */
+    boolean renamable() {
+        return this.chooser == null && !this.changeable() && DOWNLOADS.equals(this.path.get(0));
+    }
+
+    /** The menu Rename alone shows (a library prompt file, a Download folder). */
+    void renameMenu(final MediaDir.Entry e) {
+        lastMenu = new AlertDialog.Builder(this.app)
+            .setTitle(MediaDir.shownName(e))
+            .setItems(new String[] {MediaDir.RENAME}, (d, which) -> this.fileAction(e, MediaDir.RENAME))
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
     /** Whether files here can be renamed, moved and deleted: a folder by path or a granted one (not Download, not Choose file). */
     boolean changeable() {
         return this.chooser == null && !DOWNLOADS.equals(this.path.get(0));
@@ -2349,7 +2375,7 @@ final class MediaBrowser {
                     String typed = field.getText().toString();
                     String said = this.rename(e, typed);
                     // Its tags and category go with the new name.
-                    if (said.startsWith("Renamed") && !e.folder) MediaTags.renamed(MediaTags.key(e), MediaTags.key(MediaDir.keepEnding(e.name, typed), e.size));
+                    if (said.startsWith("Renamed") && !e.folder && e.dbId == 0) MediaTags.renamed(MediaTags.key(e), MediaTags.key(MediaDir.keepEnding(e.name, typed), e.size));
                     this.done(said);
                 })
                 .setNegativeButton("Cancel", null).show();
@@ -2410,6 +2436,14 @@ final class MediaBrowser {
         if (name == null) return "Not a name: " + typed;
         if (name.equals(e.name)) return "Not renamed";
         try {
+            // A library prompt file (★): its name in the DB.
+            if (e.dbId != 0) return "Renamed " + e.name + " to " + PromptVault.open(this.app.getFilesDir()).renameFile(e.dbId, PromptVault.PROMPT_FILE, name);
+            // A Download file Android lists (MediaStore): its display name (Pulsekit's own files; another app's are refused).
+            if (e.id.startsWith(MEDIA) || e.id.startsWith(DL)) {
+                android.content.ContentValues v = new android.content.ContentValues();
+                v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                return this.app.getContentResolver().update(this.uri(e), v, null, null) > 0 ? "Renamed " + e.name + " to " + name : "Could not rename " + e.name;
+            }
             if (this.tree == null) {
                 File f = new File(e.id);
                 File to = new File(f.getParentFile(), name);

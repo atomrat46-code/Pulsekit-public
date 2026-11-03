@@ -1,7 +1,6 @@
 package pulsekit;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -165,13 +164,7 @@ public final class SogniHistory {
     StringBuilder sb = new StringBuilder();
     for (String l : lines) sb.append(l).append('\n');
     try {
-      if (f.getParentFile() != null && !f.getParentFile().isDirectory()) f.getParentFile().mkdirs();
-      FileOutputStream out = new FileOutputStream(f);
-      try {
-        out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-      } finally {
-        out.close();
-      }
+      SafeWrite.write(f, sb.toString().getBytes(StandardCharsets.UTF_8));
     } catch (IOException ignored) {
       // the list stays as it was
     }
@@ -247,14 +240,7 @@ public final class SogniHistory {
       sb.append(e.id).append('\t').append(e.time).append('\t').append(clean(e.status)).append('\t').append(clean(e.prompt)).append('\n');
     }
     try {
-      File dir = file.getParentFile();
-      if (dir != null && !dir.isDirectory()) dir.mkdirs();
-      FileOutputStream out = new FileOutputStream(file);
-      try {
-        out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-      } finally {
-        out.close();
-      }
+      SafeWrite.write(file, sb.toString().getBytes(StandardCharsets.UTF_8));
     } catch (IOException ignored) {
       // the list stays as it was
     }

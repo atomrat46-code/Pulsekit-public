@@ -768,6 +768,14 @@ public final class MediaDir {
     return java.util.Arrays.asList(menu(listed, kind)).indexOf(item);
   }
 
+  /**
+   * The ready screens' saves (Picture, Video, MP3 and WAV ready): the file into the prompt library as
+   * a reference or a result file (with no --saveprompt, only the files wanted), or into a folder on
+   * disk (the folder saved into last offered first).
+   */
+  public static final String SAVE_REF = "Save as a Reference file", SAVE_RESULT = "Save as a Result file", SAVE_DISK = "Save into disk\u2026";
+  public static final String[] READY_SAVES = {SAVE_REF, SAVE_RESULT, SAVE_DISK};
+
   /** The ready screens' item (WAV, MP3 ready): the file into the prompt library, as a result or reference file. */
   public static final String ADD_TO_DB = "Add to DB\u2026";
   /** Its question: which of the library's files it is (a render is a result, most often). */

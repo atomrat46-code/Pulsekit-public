@@ -101,6 +101,8 @@ public final class CrashLog {
       }
       running.delete();
     }
+    // Why Android ended Pulsekit last time (Android 11 and later keep it), read once: a Java crash says it itself.
+    final String why = lastExit(app);
     if (!first.isEmpty() && !first.equals(shown)) {
       try {
         java.nio.file.Files.write(seen.toPath(), first.getBytes(StandardCharsets.UTF_8));
@@ -113,12 +115,70 @@ public final class CrashLog {
           .setPositiveButton("Save crash-log.txt", (d, w) -> SaveText.save(app, FILE, log))
           .setNegativeButton("Close", null).show();
     }
-    if (!run.isEmpty()) {
+    // Android's reason: into the note, crash-log.txt and Logs.
+    if (why != null) {
+      try {
+        File f = new File(dir, FILE);
+        String old = f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : "";
+        String all = why + "\n\n" + old;
+        java.nio.file.Files.write(f.toPath(), (all.length() > KEEP ? all.substring(0, KEEP) : all).getBytes(StandardCharsets.UTF_8));
+        java.nio.file.Files.write(seen.toPath(), why.split("\n")[0].getBytes(StandardCharsets.UTF_8));
+      } catch (Exception ignored) {
+        // shown only
+      }
+      Logs.write(Logs.ERRORS, "Android closed Pulsekit", why);
+    }
+    if (!run.isEmpty() || why != null) {
+      final String text = (run.isEmpty() ? "Android closed Pulsekit." : "Android closed Pulsekit while " + run + " ran (no crash was written).")
+          + (why != null ? "\n\n" + why : "") + (run.isEmpty() ? "" : "\n\nA Sogni run goes on on Sogni: File > Downloads has it, and Create again or the run's reconnect gets its result.");
       return new AlertDialog.Builder(app).setTitle("Pulsekit was closed")
-          .setMessage("Android closed Pulsekit while " + run + " ran (no crash was written). A Sogni run goes on on Sogni: "
-              + "File > Downloads has it, and Create again or the run's reconnect gets its result.")
-          .setPositiveButton("OK", null).show();
+          .setMessage(text)
+          .setPositiveButton("OK", null)
+          .setNeutralButton("Save crash-log.txt", (d, w) -> SaveText.save(app, FILE, text(app.getFilesDir())))
+          .show();
     }
     return null;
+  }
+
+  /** The last exit reason looked at (its time), so each is told once. */
+  static final String EXIT_SEEN = "exit-seen.txt";
+
+  /**
+   * Why Android ended Pulsekit's last process, when it was not Pulsekit closing itself or the user
+   * swiping it away: "Android's reason: low memory (...)", with what Android says of it, the memory
+   * Pulsekit used and how it was shown then; null when there is nothing new (or before Android 11).
+   */
+  static String lastExit(android.content.Context ctx) {
+    if (android.os.Build.VERSION.SDK_INT < 30) return null;
+    try {
+      android.app.ActivityManager am = (android.app.ActivityManager) ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+      java.util.List<android.app.ApplicationExitInfo> list = am.getHistoricalProcessExitReasons(ctx.getPackageName(), 0, 1);
+      if (list == null || list.isEmpty()) return null;
+      android.app.ApplicationExitInfo e = list.get(0);
+      File seen = new File(ctx.getFilesDir(), EXIT_SEEN);
+      String at = String.valueOf(e.getTimestamp());
+      if (seen.isFile() && new String(java.nio.file.Files.readAllBytes(seen.toPath()), StandardCharsets.UTF_8).trim().equals(at)) return null;
+      java.nio.file.Files.write(seen.toPath(), at.getBytes(StandardCharsets.UTF_8));
+      int r = e.getReason();
+      if (r == android.app.ApplicationExitInfo.REASON_EXIT_SELF || r == android.app.ApplicationExitInfo.REASON_USER_REQUESTED
+          || r == android.app.ApplicationExitInfo.REASON_USER_STOPPED || r == android.app.ApplicationExitInfo.REASON_PACKAGE_UPDATED) return null;
+      String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date(e.getTimestamp()));
+      return exitText(r, e.getDescription(), e.getPss() / 1024, e.getRss() / 1024, e.getImportance(), when, e.getStatus());
+    } catch (Throwable ex) {
+      return null;
+    }
+  }
+
+  /** The words for an exit (ApplicationExitInfo's reason and importance numbers). */
+  static String exitText(int reason, String description, long pssMb, long rssMb, int importance, String when, int status) {
+    String[] names = {"unknown", "exit by itself", "killed by a signal", "low memory (Android needed memory for other apps)", "a crash (Java)",
+        "a crash in native code", "not responding (ANR)", "an error starting", "a permission change", "using too much (CPU or memory)",
+        "the user asked", "the user stopped it", "a dependency died", "other", "frozen", "package changed", "package updated"};
+    String name = reason >= 0 && reason < names.length ? names[reason] : "reason " + reason;
+    String shown = importance <= 100 ? "on screen" : importance <= 125 ? "running a foreground service (the run's notification)" : importance <= 230 ? "visible or perceptible"
+        : importance <= 300 ? "a service" : "in the background, cached";
+    return "Android's reason (" + when + "): " + name + (reason == 2 ? " " + status : "")
+        + (description != null && description.length() > 0 ? "\nAndroid says: " + description : "")
+        + "\nPulsekit used " + pssMb + " MB (" + rssMb + " MB resident), " + shown + ".";
   }
 }

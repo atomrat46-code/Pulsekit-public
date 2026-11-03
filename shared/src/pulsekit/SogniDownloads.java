@@ -30,6 +30,8 @@ public final class SogniDownloads {
     public String where = "";
     /** Download/name, a folder's label: where it is, said for people. */
     public String shown = "";
+    /** Moved out of Download (Move to, Move downloaded media files to): not moved again. */
+    public boolean away;
 
     public String kind() {
       return kindOf(name);
@@ -409,6 +411,17 @@ public final class SogniDownloads {
     write();
   }
 
+  /** The item moved out of Download to `where` (Move to, Move downloaded media files to): not moved again. */
+  public static synchronized void movedAway(Item item, String name, String where, String shown) {
+    item.away = true;
+    moved(item, name, where, shown);
+  }
+
+  /** The folder the list is kept in (Move downloaded media files to keeps its settings beside it). */
+  public static synchronized File dir() {
+    return file == null ? null : file.getParentFile();
+  }
+
   /** The run's prompt sheet and library version are gone (deleted with a file). */
   public static synchronized void unlinked(Run r) {
     r.sheet = "";
@@ -488,8 +501,7 @@ public final class SogniDownloads {
       }
     }
     try {
-      if (!file.getParentFile().isDirectory()) file.getParentFile().mkdirs();
-      java.nio.file.Files.write(file.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      SafeWrite.write(file, sb.toString().getBytes(StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // kept in memory
     }
@@ -505,7 +517,7 @@ public final class SogniDownloads {
     for (int i = 0; i < r.items.size(); i++) {
       Item item = r.items.get(i);
       if (i > 0) sb.append(I);
-      sb.append(clean(item.name)).append('\t').append(clean(item.where)).append('\t').append(clean(item.shown));
+      sb.append(clean(item.name)).append('\t').append(clean(item.where)).append('\t').append(clean(item.shown)).append('\t').append(item.away ? "1" : "0");
     }
     // After the items (a list from before has none).
     sb.append(F).append(clean(r.args));
@@ -539,6 +551,7 @@ public final class SogniDownloads {
         item.name = p[0];
         item.where = p[1];
         item.shown = p[2];
+        item.away = p.length > 3 && "1".equals(p[3]);
         r.items.add(item);
       }
     }

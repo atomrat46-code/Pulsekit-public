@@ -677,6 +677,7 @@ final class PyJav {
         final String extra = ProgramParams.merge(runParams, field, savedNow);
         if ("vst_render.py".equals(name)) {
             VstLists.rememberKits(extra);
+            VstLists.rememberPlugins(extra);
             // Pulsekit's map files where vst_render finds them (~/.pulsekit/maps): --test uses drum-kits.txt when --map is empty.
             VstLists.unpackMaps();
         }
@@ -1003,6 +1004,8 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
+                    // Move downloaded media files to, automatically.
+                    DownloadsScreen.finished(app);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
@@ -1138,6 +1141,16 @@ final class PyJav {
             GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
             view.setAlignmentX(0.0f);
             col.add(view);
+            // Save as a Reference file, Save as a Result file, Save into disk….
+            JPanel saves = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            saves.setAlignmentX(0.0f);
+            for (final String item : MediaDir.READY_SAVES) {
+                JButton b = new JButton(item);
+                b.setName("ready-save:" + item + ":" + f.getName());
+                b.addActionListener(e -> this.saveReady(pic, item));
+                saves.add(b);
+            }
+            col.add(saves);
             col.add(javax.swing.Box.createVerticalStrut(8));
         }
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
@@ -2099,7 +2112,7 @@ final class PyJav {
         while (true) {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> videoItems = TagDialogs.withUseLast(java.util.Arrays.asList("Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, "Close"), ReadyRecent.VIDEO);
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
             Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
@@ -2112,6 +2125,7 @@ final class PyJav {
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, video.getName(), video.length(), ReadyRecent.VIDEO);
             else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, video, ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
+            else if (java.util.Arrays.asList(MediaDir.READY_SAVES).contains(it)) this.saveReady(video, it);
             else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
         }
@@ -2212,7 +2226,7 @@ final class PyJav {
         while (true) {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> items = TagDialogs.withUseLast(java.util.Arrays.asList("Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
-                FileGroups.ADD, MediaDir.ADD_TO_DB, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
+                FileGroups.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
             Object[] options = items.toArray();
             int ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
                 + (wav ? "Convert hits into MIDI runs DrumMidi_CRT on it, then shows the MIDI it made."
@@ -2221,7 +2235,7 @@ final class PyJav {
             it = ans < 0 ? "Close" : items.get(ans);
             if (ans == 2) GroupMenus.toggleFavourite(app, audio);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
-            else if (it.equals(MediaDir.ADD_TO_DB)) this.addAudioToDb(audio);
+            else if (java.util.Arrays.asList(MediaDir.READY_SAVES).contains(it)) this.saveReady(audio, it);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, name, audio.length(), null, kind);
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, audio.length(), kind);
             else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, audio, kind);
@@ -2264,6 +2278,55 @@ final class PyJav {
 
     /** The last Add to DB's line (for the tests). */
     String lastDbAdd;
+
+    String lastDbAddText() {
+        return this.lastDbAdd;
+    }
+
+    /** Where Save into disk… opens: the folder saved into last. */
+    static final String READY_SAVE_DIR = "readySaveDir";
+    /** The tests' answer for Save into disk… (the file to save as); null asks. */
+    static java.util.function.Function<String, File> saveAsFor;
+
+    /**
+     * The ready screens' saves (Picture, Video, MP3 and WAV ready): into the prompt library as a
+     * reference or result file (then which group it goes in), or into a folder on disk (the folder
+     * saved into last offered first).
+     */
+    void saveReady(File f, String item) {
+        if (MediaDir.SAVE_DISK.equals(item)) {
+            java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
+            File to;
+            if (saveAsFor != null) to = saveAsFor.apply(f.getName());
+            else {
+                String last = prefs.get(READY_SAVE_DIR, "");
+                JFileChooser chooser = new JFileChooser(last.length() > 0 && new File(last).isDirectory() ? new File(last) : null);
+                chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), f.getName()));
+                to = chooser.showSaveDialog(app) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+            }
+            if (to == null) return;
+            try {
+                Files.copy(f.toPath(), to.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                if (to.getAbsoluteFile().getParentFile() != null) prefs.put(READY_SAVE_DIR, to.getAbsoluteFile().getParentFile().getAbsolutePath());
+                this.lastDbAdd = "Saved " + to.getName() + " in " + to.getAbsoluteFile().getParent();
+            } catch (Exception ex) {
+                this.lastDbAdd = "Could not save " + f.getName() + ": " + ex.getMessage();
+            }
+            app.setNow(this.lastDbAdd);
+            return;
+        }
+        byte[] bytes = null;
+        try {
+            if (!MediaDir.tooBig(f.length())) bytes = Files.readAllBytes(f.toPath());
+        } catch (Exception ignored) {
+            // said below
+        }
+        String said = bytes == null && MediaDir.tooBig(f.length()) ? f.getName() + " is over the library's 128 MB, so it is not in the DB"
+            : MediaDir.addToDb(PromptDb.dir(), f.getName(), bytes, MediaDir.SAVE_RESULT.equals(item));
+        this.lastDbAdd = said;
+        app.setNow(said);
+        if (said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, f.getName(), f.length());
+    }
 
     /** WAV / MP3 ready's Add to DB: as a result or a reference file in the prompt library, then which group it goes in. */
     void addAudioToDb(File audio) {
@@ -2673,9 +2736,12 @@ final class PyJav {
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
+        // Where each row's label and field start in the form (vst_render's rows then go onto its tabs).
+        final int[] rowStarts = new int[ps.size()];
         for (int i = 0; i < ps.size(); i++) {
             final ProgramParams.Param p = ps.get(i);
             final int index = i;
+            rowStarts[i] = form.getComponentCount();
             form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
             if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
@@ -3028,9 +3094,13 @@ final class PyJav {
                     JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
                     buttons.add(choose);
                     buttons.add(browse);
+                    buttons.add(choiceClear(p, field));
                     row.add(buttons, BorderLayout.EAST);
                 } else {
-                    row.add(choose, BorderLayout.EAST);
+                    JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                    buttons.add(choose);
+                    buttons.add(choiceClear(p, field));
+                    row.add(buttons, BorderLayout.EAST);
                 }
                 form.add(row);
                 if (p.modelNote) {
@@ -3089,12 +3159,14 @@ final class PyJav {
         box.add(top, BorderLayout.NORTH);
         // A long form (vst_render's) scrolls: the dialog stays within the screen, its buttons on it.
         // (and as wide: long labels make it wider than a small screen).
-        javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(form, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        // vst_render's rows on tabs (Input, Output, Plugins, Settings): one page is not all of it at once.
+        java.awt.Component formView = this.onTabs(form, rowStarts, ps, values, fileLabels, uses);
+        javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(formView, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         formScroll.setName("params-scroll");
         formScroll.setBorder(null);
         formScroll.getVerticalScrollBar().setUnitIncrement(16);
         formScroll.getHorizontalScrollBar().setUnitIncrement(16);
-        java.awt.Dimension formSize = form.getPreferredSize();
+        java.awt.Dimension formSize = formView.getPreferredSize();
         java.awt.Rectangle screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         int room = screen.height - top.getPreferredSize().height - PARAMS_FRAME;
         formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
@@ -3333,6 +3405,171 @@ final class PyJav {
             if (b.isShowing()) m.show(b, 0, b.getHeight());
         });
         return b;
+    }
+
+    /** The tab the Params page showed last (vst_render's), opened again next time. */
+    static String paramsTab;
+
+    /**
+     * The form's rows moved onto their tabs (ProgramParams.tabs), the Plugins tab with the favourite,
+     * recently used and folder lists under its rows; the form itself when the rows have no tabs.
+     */
+    java.awt.Component onTabs(JPanel form, int[] rowStarts, final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
+        List<String> names = ProgramParams.tabs(ps);
+        if (names.isEmpty()) return form;
+        java.awt.Component[] all = form.getComponents();
+        java.util.LinkedHashMap<String, JPanel> pages = new java.util.LinkedHashMap<String, JPanel>();
+        for (String t : names) pages.put(t, new JPanel(new GridLayout(0, 2, 8, 6)));
+        String last = names.get(names.size() - 1);
+        for (int i = 0; i < ps.size(); i++) {
+            int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
+            JPanel page = pages.get(ps.get(i).tab != null ? ps.get(i).tab : last);
+            for (int k = rowStarts[i]; k < end; k++) page.add(all[k]);
+        }
+        final javax.swing.JTabbedPane tabs = new javax.swing.JTabbedPane();
+        tabs.setName("params-tabs");
+        for (java.util.Map.Entry<String, JPanel> e : pages.entrySet()) {
+            JPanel holder = new JPanel(new BorderLayout(0, 10));
+            holder.add(e.getValue(), BorderLayout.NORTH);
+            if (ProgramParams.PLUGINS.equals(e.getKey())) holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+            holder.setName("params-tab:" + e.getKey());
+            tabs.addTab(e.getKey(), holder);
+        }
+        int at = paramsTab == null ? -1 : names.indexOf(paramsTab);
+        if (at >= 0) tabs.setSelectedIndex(at);
+        tabs.addChangeListener(e -> paramsTab = tabs.getTitleAt(tabs.getSelectedIndex()));
+        return tabs;
+    }
+
+    /** A plugin's file name for a list: "Riot Drums.vst3". */
+    static String plugName(String path) {
+        return new File(path).getName();
+    }
+
+    /**
+     * The Plugins tab's lists: Favourites (the Plugins list's and Plugin Browser's), Recently used (vst_render's
+     * runs) and Plugin folders (where VST3 and VST2 plugins are looked for; Folders… changes them). A plugin
+     * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
+     */
+    JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
+        PluginLibrary.load(PromptDb.dir());
+        final String home = System.getProperty("user.home", ".");
+        final javax.swing.DefaultListModel<String> favModel = new javax.swing.DefaultListModel<String>(), recentModel = new javax.swing.DefaultListModel<String>(),
+            folderModel = new javax.swing.DefaultListModel<String>();
+        final Runnable fill = () -> {
+            favModel.clear();
+            for (String f : PluginLibrary.favouritePaths()) {
+                PluginLibrary.Type t = PluginLibrary.typeOf(new File(f));
+                if (t != null && (PluginLibrary.VST3.equals(t.name) || PluginLibrary.VST2.equals(t.name))) favModel.addElement(f);
+            }
+            recentModel.clear();
+            for (String f : PluginLibrary.recent()) recentModel.addElement(f);
+            folderModel.clear();
+            for (String type : new String[] {PluginLibrary.VST3, PluginLibrary.VST2})
+                for (String f : PluginLibrary.folders(type, false, home)) if (!folderModel.contains(f)) folderModel.addElement(f);
+        };
+        fill.run();
+        JPanel out = new JPanel(new GridLayout(1, 3, 8, 0));
+        out.setName("params-plugin-picks");
+        out.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
+        out.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
+        JPanel folders = new JPanel(new BorderLayout(0, 4));
+        folders.add(new JLabel("Plugin folders"), BorderLayout.NORTH);
+        javax.swing.JList<String> folderList = new javax.swing.JList<String>(folderModel);
+        folderList.setName("params-plugin-folders");
+        folderList.setVisibleRowCount(6);
+        folders.add(new JScrollPane(folderList), BorderLayout.CENTER);
+        JButton change = new JButton("Folders\u2026");
+        change.setName("params-plugin-folders-change");
+        change.setToolTipText("Where VST3 and VST2 plugins are looked for (the Plugin Browser's folders)");
+        change.addActionListener(e -> {
+            if (PluginBrowser.foldersDialog(SwingUtilities.getWindowAncestor(change))) fill.run();
+        });
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        south.add(change);
+        folders.add(south, BorderLayout.SOUTH);
+        out.add(folders);
+        return out;
+    }
+
+    /** One of the Plugins tab's plugin lists: a click shows Use as plugin 1 to 4. */
+    JPanel pickList(String title, String name, javax.swing.DefaultListModel<String> model, final List<ProgramParams.Param> ps, final String[] values,
+        final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, String empty) {
+        JPanel box = new JPanel(new BorderLayout(0, 4));
+        box.add(new JLabel(title), BorderLayout.NORTH);
+        final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
+        list.setName(name);
+        list.setVisibleRowCount(6);
+        list.setToolTipText(empty);
+        list.setCellRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> l, Object v, int i, boolean sel, boolean focus) {
+                java.awt.Component c = super.getListCellRendererComponent(l, plugName(String.valueOf(v)), i, sel, focus);
+                ((javax.swing.JComponent) c).setToolTipText(String.valueOf(v));
+                return c;
+            }
+        });
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent ev) {
+                int at = list.locationToIndex(ev.getPoint());
+                if (at < 0) return;
+                list.setSelectedIndex(at);
+                useMenu(ps, values, fileLabels, uses, list.getModel().getElementAt(at)).show(list, ev.getX(), ev.getY());
+            }
+        });
+        box.add(new JScrollPane(list), BorderLayout.CENTER);
+        return box;
+    }
+
+    /** The menu a listed plugin shows: Use as plugin 1 to 4 (the page's plugin rows). */
+    javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("params-use-menu");
+        for (final String token : ProgramParams.pluginRows(ps)) {
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+            item.setName("params-use-as:" + token);
+            item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            m.add(item);
+        }
+        MenuCancel.add(m);
+        lastUseMenu = m;
+        return m;
+    }
+
+    /** The Use as plugin menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastUseMenu;
+
+    /** A plugin put on a row (and its Use ticked). */
+    void usePlugin(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path) {
+        for (int i = 0; i < ps.size(); i++) {
+            if (!ps.get(i).token.equals(token)) continue;
+            values[i] = path;
+            if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+            if (uses[i] != null) uses[i].setSelected(true);
+            app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
+        }
+    }
+
+    /** Clear beside a list's Choose: shown while something is chosen or typed (SogniMusic's --workflow back to a new run). */
+    private JButton choiceClear(ProgramParams.Param p, final javax.swing.text.JTextComponent field) {
+        final JButton clear = new JButton("Clear");
+        clear.setName("params-clear:" + p.token);
+        clear.addActionListener(e -> field.setText(""));
+        clear.setVisible(field.getText().trim().length() > 0);
+        field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void now() {
+                boolean show = field.getText().trim().length() > 0;
+                if (clear.isVisible() != show) {
+                    clear.setVisible(show);
+                    clear.getParent().revalidate();
+                }
+            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { now(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { now(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { now(); }
+        });
+        return clear;
     }
 
     private JButton clearButton(ProgramParams.Param p, final String[] values, final int index, final JLabel chosen) {

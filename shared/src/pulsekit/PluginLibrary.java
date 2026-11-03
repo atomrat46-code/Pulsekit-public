@@ -473,6 +473,31 @@ public final class PluginLibrary {
     write(LIBRARY, sb.toString());
   }
 
+  // ------------------------------------------------------------ recently used (vst_render's runs)
+
+  static final String RECENT = "plugin-recent.txt";
+  /** How many recently used plugins are kept. */
+  public static final int RECENT_KEEP = 10;
+
+  /** The plugins vst_render's runs used, the newest first. */
+  public static synchronized List<String> recent() {
+    return dir == null ? new ArrayList<String>() : lines(new File(dir, RECENT));
+  }
+
+  /** A run's arguments' plugins (--plugin to --plugin4, --effect) put first among the recently used. */
+  public static synchronized void used(List<String> argv) {
+    List<String> now = new ArrayList<String>();
+    for (int i = 0; i + 1 < argv.size(); i++) {
+      String a = argv.get(i);
+      if ((a.matches("--plugin\\d?") || a.equals("--effect")) && argv.get(i + 1).trim().length() > 0 && !now.contains(argv.get(i + 1).trim())) now.add(argv.get(i + 1).trim());
+    }
+    if (now.isEmpty()) return;
+    List<String> out = new ArrayList<String>(now);
+    for (String p : recent()) if (!out.contains(p) && out.size() < RECENT_KEEP) out.add(p);
+    while (out.size() > RECENT_KEEP) out.remove(out.size() - 1);
+    write(RECENT, String.join("\n", out) + "\n");
+  }
+
   private static void write(String name, String text) {
     if (dir == null) return;
     try {

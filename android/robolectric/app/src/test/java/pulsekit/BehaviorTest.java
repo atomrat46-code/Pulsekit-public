@@ -44,6 +44,8 @@ public class BehaviorTest {
 
   @Before
   public void boot() {
+    // The Params dialog an earlier scenario left open belongs to its torn-down window: not closed from here.
+    PyJavParams.shown = null;
     // A long press opens a file's menu (a drag never ends here).
     MediaBrowser.drags = false;
     // File-set state is static; start each scenario without what an earlier one imported.
@@ -10482,7 +10484,7 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
-  /** WAV ready's Add to DB…: Result file puts the render in the prompt library's result files. */
+  /** WAV ready's Save as a Result file: the render in the prompt library's result files (in one step). */
   @Test
   public void s171_wav_ready_add_to_db() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -10492,21 +10494,19 @@ public class BehaviorTest {
     AudioOffer.offer(app, "vst-check-Kars.wav", wav);
     idle();
     View root = AudioOffer.last.getWindow().getDecorView();
-    View item = root.findViewWithTag("audio-item:" + MediaDir.ADD_TO_DB);
-    out.append("WAV ready lists Add to DB: ").append(item != null).append('\n');
+    View item = root.findViewWithTag("audio-item:" + MediaDir.SAVE_RESULT);
+    out.append("WAV ready lists Save as a Result file: ").append(item != null).append('\n');
     if (item != null) item.performClick();
     idle();
-    if (AudioOffer.lastDbAsk != null) AudioOffer.lastDbAsk.getListView().performItemClick(AudioOffer.lastDbAsk.getListView().getChildAt(0), 0, 0);
-    idle();
     android.app.Dialog group = ShadowDialog.getLatestDialog();
-    if (group != null && group != AudioOffer.lastDbAsk && group != AudioOffer.last) group.dismiss();
+    if (group != null && group != AudioOffer.last) group.dismiss();
     idle();
     java.util.List<String> results = new java.util.ArrayList<String>();
     for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).resultFiles()) results.add(f.name);
-    out.append("said: ").append(AudioOffer.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    out.append("said: ").append(ReadySave.lastSaid).append(" | result files: ").append(results).append('\n');
     AudioOffer.last.dismiss();
     write("s171_wav_ready_add_to_db", out.toString());
-    if (item == null || !"vst-check-Kars.wav is in the DB as a result file".equals(AudioOffer.lastDbAdd) || !results.contains("vst-check-Kars.wav")) throw new AssertionError(out.toString());
+    if (item == null || !"vst-check-Kars.wav is in the DB as a result file".equals(ReadySave.lastSaid) || !results.contains("vst-check-Kars.wav")) throw new AssertionError(out.toString());
   }
 
   /** vst_render's Params: a row's Use box unticked leaves its plugin out of the saved Params (kept beside them); opened again it is there, unticked. */
@@ -12048,6 +12048,240 @@ public class BehaviorTest {
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /**
+   * 03112026_2: the ready screens' saves (Save as a Reference file, Save as a Result file, Save into
+   * disk… where the last file was saved) and Downloads' Move downloaded media files to (Images
+   * ticked: a finished run's picture moved into its folder and marked moved, its MP3 left; Move now
+   * again moves nothing).
+   */
+  @Test
+  public void s201_ready_saves_and_download_move() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // MP3 ready: the three saves among its items.
+    byte[] mp3 = new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0, 1, 2, 3};
+    AudioOffer.offer(app, "song.mp3", mp3);
+    idle();
+    View av = AudioOffer.last.getWindow().getDecorView();
+    boolean items = av.findViewWithTag("audio-item:" + MediaDir.SAVE_REF) != null && av.findViewWithTag("audio-item:" + MediaDir.SAVE_RESULT) != null
+        && av.findViewWithTag("audio-item:" + MediaDir.SAVE_DISK) != null && av.findViewWithTag("audio-item:" + MediaDir.ADD_TO_DB) == null;
+    av.findViewWithTag("audio-item:" + MediaDir.SAVE_REF).performClick();
+    idle();
+    String asRef = ReadySave.lastSaid;
+    if (GroupDialogs.last != null && GroupDialogs.last.isShowing()) GroupDialogs.last.dismiss();
+    ReadySave.toDb(app, "pic.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 9}, null, true);
+    String asResult = ReadySave.lastSaid;
+    if (GroupDialogs.last != null && GroupDialogs.last.isShowing()) GroupDialogs.last.dismiss();
+    AudioOffer.last.dismiss();
+    idle();
+    // Save into disk: the save dialog asked for, then the place it returns written and kept.
+    File saved = new File(app.getCacheDir(), "saved-song.mp3");
+    ReadySave.toDisk(app, "song.mp3", mp3, null);
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    ReadySave.write(app, android.net.Uri.fromFile(saved));
+    String keptPlace = app.getSharedPreferences(ReadySave.PREFS, 0).getString(ReadySave.LAST, "");
+    ReadySave.toDisk(app, "song.mp3", mp3, null);
+    android.content.Intent again = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    ReadySave.write(app, android.net.Uri.fromFile(saved));
+    boolean disk = asked != null && android.content.Intent.ACTION_CREATE_DOCUMENT.equals(asked.getAction()) && "song.mp3".equals(asked.getStringExtra(android.content.Intent.EXTRA_TITLE))
+        && saved.isFile() && saved.length() == mp3.length && keptPlace.endsWith("saved-song.mp3") && again != null
+        && String.valueOf(again.getParcelableExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI)).endsWith("saved-song.mp3");
+    out.append("saves: items ").append(items).append(" | ref: ").append(asRef).append(" | result: ").append(asResult).append(" | disk ").append(disk).append('\n');
+    // Move downloaded media files to.
+    File dl = new File(app.getCacheDir(), "move-dl");
+    File pics = new File(app.getCacheDir(), "move-pics");
+    dl.mkdirs();
+    pics.mkdirs();
+    Files.write(new File(dl, "sunset.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G', 5});
+    Files.write(new File(dl, "tune.mp3").toPath(), mp3);
+    File list = new File(app.getCacheDir(), "move-list");
+    list.mkdirs();
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: sunset.png", "saved " + new File(dl, "sunset.png").getAbsolutePath() + "\nsaved " + new File(dl, "tune.mp3").getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "move-pics");
+    String first = DownloadsScreen.moveDue(app);
+    String second = DownloadsScreen.moveDue(app);
+    boolean movedOk = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
+    // The settings and the moved mark kept: read again from their files.
+    SogniDownloads.init(null);
+    SogniDownloads.init(list);
+    DownloadMove.load();
+    boolean kept = DownloadMove.on && DownloadMove.isTicked("picture") && !DownloadMove.isTicked("video") && pics.getAbsolutePath().equals(DownloadMove.folderOf("picture"))
+        && DownloadMove.due().isEmpty() && SogniDownloads.tab(SogniDownloads.FINISHED).get(0).items.get(0).away;
+    out.append("move: ").append(first).append(" | again: ").append(second).append(" | files ").append(movedOk).append(" | kept ").append(kept).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s201_ready_saves_and_download_move", out.toString());
+    boolean ok = items && asRef.contains("song.mp3 is in the DB as a reference") && asResult.contains("pic.png is in the DB as a result") && disk
+        && first.equals("Moved 1 file") && second.startsWith("Nothing to move") && movedOk && kept;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 03112026 Rename: a DB file in Reference files / Result files (Browse DB's long press), a library
+   * prompt file (★) in the Media browser, and a Download file by path: each renamed, its ending kept.
+   */
+  @Test
+  public void s200_rename_db_and_download() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    long p = vault.addPrompt(vault.addCategory("Rename test"), "Beach");
+    vault.addVersion(p, "Beach", "", "waves", "", "sea.png", png.toByteArray(), "", null, "shore.png", png.toByteArray(), "", "");
+    PromptVault.StoredFile ref = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("sea.png".equals(f.name)) ref = f;
+    final boolean[] again = new boolean[1];
+    RefBrowser.rename(app, vault, ref, () -> again[0] = true);
+    idle();
+    ((android.widget.EditText) RefBrowser.lastRename.getWindow().getDecorView().findViewWithTag("ref-rename-field")).setText("cliffs");
+    RefBrowser.lastRename.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String refNow = "";
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if (f.versionId == ref.versionId && f.which == ref.which) refNow = f.name;
+    out.append("reference file: ").append(refNow).append(", shown again ").append(again[0]).append('\n');
+    // A library prompt file in the Media browser.
+    long pf = vault.addPromptFile("sunset.prompt", "A sunset\n".getBytes(StandardCharsets.UTF_8), "Beach v1");
+    File media = new File(app.getCacheDir(), "rename-media");
+    media.mkdirs();
+    File disk = new File(media, "old.wav");
+    Files.write(disk.toPath(), new byte[] {1, 2, 3});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    MediaDir.Entry db = new MediaDir.Entry();
+    db.name = "sunset.prompt";
+    db.id = MediaDir.DB_PROMPT + pf;
+    db.dbId = pf;
+    String saidDb = b.rename(db, "dusk");
+    String dbNow = "";
+    for (PromptVault.StoredFile f : PromptVault.open(app.getFilesDir()).promptFiles()) if (f.versionId == pf) dbNow = f.name;
+    MediaDir.Entry file = new MediaDir.Entry();
+    file.name = "old.wav";
+    file.id = disk.getAbsolutePath();
+    String saidDisk = b.rename(file, "new");
+    out.append("prompt file: ").append(saidDb).append(" -> ").append(dbNow).append(" | disk: ").append(saidDisk).append(", there ").append(new File(media, "new.wav").isFile()).append('\n');
+    if (b.dialog != null) b.dialog.dismiss();
+    idle();
+    write("s200_rename_db_and_download", out.toString());
+    boolean ok = "cliffs.png".equals(refNow) && again[0] && "dusk.prompt".equals(dbNow) && saidDb.startsWith("Renamed sunset.prompt to dusk.prompt")
+        && saidDisk.equals("Renamed old.wav to new.wav") && new File(media, "new.wav").isFile();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 03112026: a list field's Clear (shown while it has something: SogniMusic's --workflow); Logs' long
+   * presses (an entry: Open, Delete; a type: Clear all its logs, asked first); vst_render's Params on
+   * tabs (Input, Output, Plugins, Settings), the Plugins tab's Recently used putting a plugin on a row;
+   * a Sogni list written whole (SafeWrite: no .tmp left).
+   */
+  @Test
+  public void s199_clear_logs_tabs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Clear beside Choose.
+    File sogni = new File(app.getFilesDir(), "sogni");
+    SogniHistory.init(sogni);
+    SogniHistory.started("wf-123", "SogniMusic.java", 1000L);
+    String music = ((ProgramMenus) get("programMenus")).bundledSource("SogniMusic.java");
+    PyJavParams.store(app, "SogniMusic.java", "");
+    PyJavParams.open(app, "SogniMusic.java", "", music);
+    idle();
+    View pv = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+    android.widget.EditText wf = (android.widget.EditText) pv.findViewWithTag("params-field:--workflow");
+    View clear = pv.findViewWithTag("params-clear:--workflow");
+    boolean hiddenEmpty = clear != null && clear.getVisibility() == View.GONE;
+    wf.setText("wf-123");
+    boolean shownFull = clear.getVisibility() == View.VISIBLE;
+    clear.performClick();
+    boolean cleared = wf.getText().length() == 0 && clear.getVisibility() == View.GONE;
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    boolean noTmp = !new File(sogni, "sogni_workflows.txt.tmp").exists() && new File(sogni, "sogni_workflows.txt").isFile();
+    out.append("clear: hidden when empty ").append(hiddenEmpty).append(", shown ").append(shownFull).append(", cleared ").append(cleared).append(" | written whole ").append(noTmp).append('\n');
+    // Logs: a long press on an entry, then on a type.
+    AppSettings.setLogging(true);
+    Logs.write(Logs.RUNS, "one", "first");
+    Logs.write(Logs.RUNS, "two", "second");
+    Logs.write(Logs.ERRORS, "three", "third");
+    LogsScreen.type = Logs.RUNS;
+    LogsScreen.show(app);
+    idle();
+    View lv = LogsScreen.last.getWindow().getDecorView();
+    java.util.List<Logs.Entry> runs = Logs.entries(Logs.RUNS);
+    int before = runs.size();
+    lv.findViewWithTag("logs-entry:" + runs.get(0).file.getName()).performLongClick();
+    idle();
+    String menu = String.valueOf(LogsScreen.menu.getListView().getAdapter().getItem(0)) + "," + LogsScreen.menu.getListView().getAdapter().getItem(1);
+    org.robolectric.Shadows.shadowOf(LogsScreen.menu.getListView()).performItemClick(1);
+    idle();
+    int afterDelete = Logs.entries(Logs.RUNS).size();
+    lv = LogsScreen.last.getWindow().getDecorView();
+    lv.findViewWithTag("logs-type:" + Logs.RUNS).performLongClick();
+    idle();
+    String asked = String.valueOf(org.robolectric.Shadows.shadowOf(LogsScreen.menu).getMessage());
+    LogsScreen.menu.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    int runsLeft = Logs.entries(Logs.RUNS).size(), errorsLeft = Logs.entries(Logs.ERRORS).size();
+    LogsScreen.last.dismiss();
+    AppSettings.setLogging(false);
+    out.append("logs menu: ").append(menu).append(" | after Delete ").append(afterDelete).append(" | asked: ").append(asked).append(" | left ").append(runsLeft).append(" runs, ").append(errorsLeft).append(" errors\n");
+    // vst_render's tabs and Recently used.
+    PluginLibrary.reset();
+    PluginLibrary.load(app.getFilesDir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3", "--plugin2", "/vst/Artillery.vst3"));
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    int plugin3 = -1;
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--plugin3")) plugin3 = i;
+    PyJavParams.paramsTab = null;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View vv = PyJavParams.shown.getWindow().getDecorView();
+    String tabs = "";
+    for (String t : ProgramParams.VST_TABS) tabs += (vv.findViewWithTag("params-tab:" + t) != null ? t : "-") + " ";
+    View plugRow = vv.findViewWithTag("params-chosen:--plugin");
+    boolean pluginHidden = plugRow != null && plugRow.getVisibility() == View.GONE;
+    vv.findViewWithTag("params-tab:" + ProgramParams.PLUGINS).performClick();
+    boolean pluginShown = plugRow.getVisibility() == View.VISIBLE && vv.findViewWithTag("params-plugin-picks").getVisibility() == View.VISIBLE;
+    View recent = vv.findViewWithTag("params-recent:Artillery.vst3");
+    recent.performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.useMenu.getListView()).performItemClick(2);
+    idle();
+    String third = PyJavParams.shownValues[plugin3];
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    PyJavParams.paramsTab = null;
+    out.append("tabs: ").append(tabs).append("| plugin row hidden on Input ").append(pluginHidden).append(", shown on Plugins ").append(pluginShown)
+        .append(" | recent ").append(PluginLibrary.recent()).append(" | plugin 3: ").append(third).append('\n');
+    // Why Android closed Pulsekit, in words; a download read whole with no second copy.
+    String exit = CrashLog.exitText(3, "low memory killer", 512, 640, 125, "2026-11-03 10:00:00", 0);
+    byte[] got = SogniApi.readCounting(new java.io.ByteArrayInputStream(new byte[300000]), 300000);
+    out.append("exit: ").append(exit.replace('\n', '|')).append(" | download ").append(got.length).append('\n');
+    boolean exitOk = exit.startsWith("Android's reason (2026-11-03 10:00:00): low memory") && exit.contains("Android says: low memory killer")
+        && exit.contains("Pulsekit used 512 MB (640 MB resident), running a foreground service") && got.length == 300000;
+    if (!exitOk) throw new AssertionError(out.toString());
+    // Nothing left open for the tests after (a dialog kept across tests cannot be closed in the next one).
+    for (AlertDialog dl : new AlertDialog[] {PyJavParams.shown, PyJavParams.useMenu, LogsScreen.menu, LogsScreen.last, LogsScreen.entry}) if (dl != null && dl.isShowing()) dl.dismiss();
+    idle();
+    PyJavParams.shown = null;
+    PyJavParams.useMenu = null;
+    LogsScreen.menu = null;
+    LogsScreen.last = null;
+    LogsScreen.entry = null;
+    write("s199_clear_logs_tabs", out.toString());
+    boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** vst_render --compare_kits: a Params switch on Android too (its label), and the reference kit profile in the bundled vst_render; a fourth plugin row (--plugin4, its map and kit name). */
   @Test
   public void s198_vst_render_compare_kits() throws Exception {

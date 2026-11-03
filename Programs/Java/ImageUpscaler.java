@@ -2214,7 +2214,9 @@ public class ImageUpscaler {
      */
     static byte[] readCounting(InputStream in, long total) throws IOException {
       try {
-        ByteArrayOutputStream out = new ByteArrayOutputStream(total > 0 && total < Integer.MAX_VALUE ? (int) total : 65536);
+        // Sized to the download when its size is known, and handed over as it is (no second copy: a
+        // video held twice ran the phone short of memory, and Android closed Pulsekit).
+        ExactBytes out = new ExactBytes(total > 0 && total < Integer.MAX_VALUE ? (int) total : 65536);
         byte[] buf = new byte[65536];
         long got = 0, said = 0;
         int n;
@@ -2232,9 +2234,20 @@ public class ImageUpscaler {
             System.out.println(String.format(java.util.Locale.ROOT, "Downloading: %.1f MB", got / 1048576.0));
           }
         }
-        return out.toByteArray();
+        return out.bytes();
       } finally {
         in.close();
+      }
+    }
+
+    /** A ByteArrayOutputStream whose bytes are its own array when it was filled exactly (no copy). */
+    static final class ExactBytes extends ByteArrayOutputStream {
+      ExactBytes(int size) {
+        super(size);
+      }
+
+      byte[] bytes() {
+        return this.count == this.buf.length ? this.buf : this.toByteArray();
       }
     }
 

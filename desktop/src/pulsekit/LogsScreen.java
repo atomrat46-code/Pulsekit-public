@@ -24,6 +24,7 @@ import javax.swing.ListSelectionModel;
  * File > Logs: the log entries (Logs) of the type picked, the newest first. A click shows the
  * entry; its text can be selected and copied (Copy: the selected part, or the whole entry), the
  * entries picked (Export) or all of the list (Export all) exported into one text file, or deleted.
+ * A right click on an entry: Open or Delete; on the type: Clear all its logs (asked first).
  */
 final class LogsScreen {
     private LogsScreen() {}
@@ -79,6 +80,46 @@ final class LogsScreen {
             text.setCaretPosition(0);
         });
         pick.addActionListener(e -> fill.run());
+        // A right click on an entry: Open or Delete; on the type: Clear all its logs (asked first).
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent ev) {
+                popup(ev);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent ev) {
+                popup(ev);
+            }
+
+            void popup(java.awt.event.MouseEvent ev) {
+                if (!ev.isPopupTrigger()) return;
+                int at = list.locationToIndex(ev.getPoint());
+                if (at < 0) return;
+                if (!list.isSelectedIndex(at)) list.setSelectedIndex(at);
+                entryMenu(app, dialog, list, fill).show(list, ev.getX(), ev.getY());
+            }
+        });
+        java.awt.event.MouseAdapter typeClick = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent ev) {
+                popup(ev);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent ev) {
+                popup(ev);
+            }
+
+            void popup(java.awt.event.MouseEvent ev) {
+                if (!ev.isPopupTrigger()) return;
+                java.awt.Point p = javax.swing.SwingUtilities.convertPoint(ev.getComponent(), ev.getPoint(), pick);
+                typeMenu(app, dialog, fill).show(pick, p.x, p.y);
+            }
+        };
+        // The box's own parts (its arrow) take the clicks too.
+        pick.addMouseListener(typeClick);
+        for (java.awt.Component c : pick.getComponents()) c.addMouseListener(typeClick);
         JButton refresh = new JButton("Refresh");
         refresh.setName("logs-refresh");
         refresh.addActionListener(e -> fill.run());
@@ -149,6 +190,56 @@ final class LogsScreen {
 
     /** Delete asks first (the tests do not). */
     static boolean askDelete = true;
+
+    /** An entry's right-click menu: Open (shows it), Delete (the entries picked). */
+    static javax.swing.JPopupMenu entryMenu(final Pulsekit app, final java.awt.Component parent, final JList<Logs.Entry> list, final Runnable fill) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("logs-entry-menu");
+        javax.swing.JMenuItem open = new javax.swing.JMenuItem(Logs.OPEN);
+        open.setName("logs-menu-open");
+        open.addActionListener(e -> {
+            int at = list.getSelectedIndex();
+            if (at >= 0) {
+                list.clearSelection();
+                list.setSelectedIndex(at);
+            }
+        });
+        javax.swing.JMenuItem delete = new javax.swing.JMenuItem(Logs.DELETE);
+        delete.setName("logs-menu-delete");
+        delete.addActionListener(e -> {
+            List<Logs.Entry> chosen = new ArrayList<Logs.Entry>(list.getSelectedValuesList());
+            if (chosen.isEmpty()) return;
+            if (askDelete && javax.swing.JOptionPane.showConfirmDialog(parent, "Delete " + chosen.size() + " log entries?", "Delete logs",
+                javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
+            app.setNow(Logs.deleted(Logs.delete(chosen)));
+            fill.run();
+        });
+        m.add(open);
+        m.add(delete);
+        return m;
+    }
+
+    /** The type's right-click menu: Clear all its logs, asked first. */
+    static javax.swing.JPopupMenu typeMenu(final Pulsekit app, final java.awt.Component parent, final Runnable fill) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("logs-type-menu");
+        final String t = type;
+        javax.swing.JMenuItem clear = new javax.swing.JMenuItem(Logs.clearAll(t));
+        clear.setName("logs-menu-clear-all");
+        clear.addActionListener(e -> {
+            List<Logs.Entry> all = Logs.entries(t);
+            if (all.isEmpty()) {
+                app.setNow("No " + (Logs.ALL.equals(t) ? "" : t + " ") + "log entries to clear");
+                return;
+            }
+            if (askDelete && javax.swing.JOptionPane.showConfirmDialog(parent, Logs.clearAllAsk(t, all.size()), Logs.clearAll(t),
+                javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
+            app.setNow(Logs.deleted(Logs.delete(all)));
+            fill.run();
+        });
+        m.add(clear);
+        return m;
+    }
 
     /** Where the tests export to (null: ask). */
     static java.util.function.Function<String, File> exportTo;

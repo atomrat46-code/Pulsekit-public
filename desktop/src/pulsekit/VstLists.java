@@ -101,6 +101,12 @@ final class VstLists {
         }
     }
 
+    /** The run's plugins (--plugin to --plugin4, --effect): first among the recently used (Params' Plugins tab). */
+    static void rememberPlugins(String args) {
+        PluginLibrary.load(PromptDb.dir());
+        PluginLibrary.used(JavaRun.split(args == null ? "" : args));
+    }
+
     static List<String> kept(String key) {
         String all = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(key, "");
         List<String> out = new ArrayList<String>();

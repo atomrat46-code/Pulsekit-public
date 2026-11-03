@@ -2197,7 +2197,11 @@ final class PyJav {
     void pkDone(String pending) {
         pulsekit.PendingOps.done(pending);
         Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
-        if (download != null) pulsekit.SogniDownloads.done(download.longValue());
+        if (download != null) {
+            pulsekit.SogniDownloads.done(download.longValue());
+            // Move downloaded media files to, automatically.
+            DownloadsScreen.finished(app);
+        }
     }
 
     /**
