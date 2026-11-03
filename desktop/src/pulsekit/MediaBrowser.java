@@ -470,6 +470,8 @@ final class MediaBrowser {
                     public void mouseReleased(java.awt.event.MouseEvent e) {
                         if (this.hold != null) this.hold.stop();
                         if (entry.dbId == 0 && e.isPopupTrigger()) MediaBrowser.this.menu(entry, f, card, e.getX(), e.getY());
+                        // A library prompt file (★): Rename (its name in the DB).
+                        else if (entry.dbId != 0 && e.isPopupTrigger() && MediaBrowser.this.chooser == null) MediaBrowser.this.dbMenu(entry, card, e.getX(), e.getY());
                     }
 
                     @Override
@@ -1415,6 +1417,36 @@ final class MediaBrowser {
         if (answer != null) return answer.apply(question);
         Object a = javax.swing.JOptionPane.showInputDialog(this.last, question, "Media browser", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, preset);
         return a == null ? null : a.toString();
+    }
+
+    /** A library prompt file's right-click menu: Rename. */
+    void dbMenu(final MediaDir.Entry entry, java.awt.Component on, int x, int y) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("media-db-menu");
+        javax.swing.JMenuItem rename = new javax.swing.JMenuItem(MediaDir.RENAME);
+        rename.setName("media-db-rename");
+        rename.addActionListener(e -> this.renameDb(entry));
+        m.add(rename);
+        MenuCancel.add(m);
+        lastDbMenu = m;
+        m.show(on, x, y);
+    }
+
+    /** The DB file menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastDbMenu;
+
+    /** A library prompt file's new name in the DB (its ending kept when none is typed), then the folder shown again. */
+    void renameDb(MediaDir.Entry entry) {
+        String typed = this.ask("New name for " + entry.name, entry.name);
+        if (typed == null) return;
+        String said;
+        try {
+            said = "Renamed " + entry.name + " to " + PromptDb.vault().renameFile(entry.dbId, PromptVault.PROMPT_FILE, MediaDir.keepEnding(entry.name, typed));
+        } catch (Exception ex) {
+            said = ex.getMessage() != null ? ex.getMessage() : "Could not rename " + entry.name;
+        }
+        this.app.setNow(said);
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
     /** Rename, Copy to folder, Move to folder or Delete a file (or a folder: Rename, Delete), then the folder shown again. */

@@ -170,6 +170,7 @@ final class DownloadsScreen {
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
             clp.topMargin = app.dp(6);
             col.addView(clearAll, clp);
+            col.addView(movePanel(app, col));
         }
         if (runs.isEmpty()) {
             TextView none = app.text(SogniDownloads.PROGRESS.equals(tab) ? "No run in progress" : SogniDownloads.PENDING.equals(tab) ? "Nothing pending" : "No finished downloads", 14, false);
@@ -631,6 +632,128 @@ final class DownloadsScreen {
         }).setNegativeButton("Cancel", null).show();
     }
 
+    /** A kind's Browse waiting for its folder (DownloadMove). */
+    static String waitingKind;
+
+    /**
+     * Move downloaded media files to: its box, then (ticked) Images, Videos and Music each with a box,
+     * its folder and Browse, Move now and Move automatically.
+     */
+    static android.view.View movePanel(final MainActivity app, final LinearLayout col) {
+        DownloadMove.load();
+        LinearLayout panel = app.col();
+        panel.setTag("downloads-move");
+        panel.setPadding(0, app.dp(8), 0, app.dp(4));
+        CheckBox on = new CheckBox(app);
+        on.setText(DownloadMove.TITLE);
+        on.setTag("downloads-move-on");
+        on.setChecked(DownloadMove.on);
+        on.setOnCheckedChangeListener((b, now) -> {
+            DownloadMove.on = now;
+            DownloadMove.save();
+            fill(app, col);
+        });
+        panel.addView(on);
+        if (!DownloadMove.on) return panel;
+        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
+            final String kind = DownloadMove.KINDS[i];
+            LinearLayout row = app.row();
+            CheckBox box = new CheckBox(app);
+            box.setText(DownloadMove.NAMES[i]);
+            box.setTag("downloads-move-kind:" + kind);
+            box.setChecked(DownloadMove.isTicked(kind));
+            box.setOnCheckedChangeListener((b, now) -> {
+                DownloadMove.ticked.put(kind, now);
+                DownloadMove.save();
+            });
+            row.addView(box);
+            TextView where = app.text(DownloadMove.labelOf(kind), 12, false);
+            where.setTag("downloads-move-folder:" + kind);
+            where.setPadding(app.dp(8), 0, app.dp(8), 0);
+            row.addView(where, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView browse = app.outline("Browse", false, v -> {
+                waitingKind = kind;
+                waitingItem = null;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                app.startActivityForResult(intent, PICK_FOLDER);
+            });
+            browse.setTag("downloads-move-browse:" + kind);
+            row.addView(browse);
+            panel.addView(row);
+        }
+        LinearLayout buttons = app.row();
+        TextView now = app.outline(DownloadMove.MOVE_NOW, false, v -> {
+            app.setNow("Moving\u2026");
+            new Thread(() -> {
+                final String said = moveDue(app);
+                app.runOnUiThread(() -> {
+                    app.setNow(said);
+                    fill(app, col);
+                });
+            }).start();
+        });
+        now.setTag("downloads-move-now");
+        buttons.addView(now);
+        CheckBox auto = new CheckBox(app);
+        auto.setText(DownloadMove.AUTO);
+        auto.setTag("downloads-move-auto");
+        auto.setChecked(DownloadMove.auto);
+        auto.setOnCheckedChangeListener((b, yes) -> {
+            DownloadMove.auto = yes;
+            DownloadMove.save();
+        });
+        buttons.addView(auto);
+        panel.addView(buttons);
+        return panel;
+    }
+
+    /** What Move now (or a finished run, with Move automatically) said last, for the tests. */
+    static volatile String lastMoveSaid;
+
+    /** The finished downloads of the ticked kinds moved out of Download into their folders (off the main thread). */
+    static synchronized String moveDue(MainActivity app) {
+        DownloadMove.load();
+        int moved = 0, failed = 0;
+        String problem = null;
+        for (Object[] pair : DownloadMove.due()) {
+            SogniDownloads.Item item = (SogniDownloads.Item) pair[1];
+            String to = DownloadMove.folderOf(item.kind());
+            String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+            String why = moveOne(app, item, origin);
+            if (why == null) moved++;
+            else {
+                failed++;
+                if (problem == null) problem = why;
+            }
+        }
+        lastMoveSaid = DownloadMove.said(moved, failed, problem);
+        return lastMoveSaid;
+    }
+
+    /** One file into the folder and out of Download; null when moved, else why not. */
+    static String moveOne(MainActivity app, SogniDownloads.Item item, String[] origin) {
+        byte[] data = bytes(app, item);
+        if (data == null) return item.name + " could not be read";
+        try {
+            String at = MediaBrowser.saveInto(app, origin, null, item.name, ArtJava.mimeOf(item.name), data);
+            if (!remove(app, item.where)) return "copied " + item.name + " to " + at + ", but could not delete it from Download";
+            SogniDownloads.movedAway(item, item.name, at, at);
+            return null;
+        } catch (Exception ex) {
+            return item.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+        }
+    }
+
+    /** A run finished: with Move automatically, its media go to their folders. */
+    static void finished(final MainActivity app) {
+        if (!DownloadMove.automatic()) return;
+        new Thread(() -> {
+            final String said = moveDue(app);
+            if (said.startsWith("Moved")) app.runOnUiThread(() -> app.setNow(said));
+        }).start();
+    }
+
     /** The folder for MediaBrowser.saveInto: a granted folder (and the folder under it), or a path. */
     static String[] origin(String root, List<String> under) {
         String last = under == null || under.isEmpty() ? null : under.get(under.size() - 1);
@@ -643,6 +766,13 @@ final class DownloadsScreen {
 
     /** The folder picked with Other…: the move or copy waiting goes there. */
     static void folderPicked(MainActivity app, Uri tree) {
+        if (waitingKind != null) {
+            MediaBrowser.keep(app, tree);
+            DownloadMove.setFolder(waitingKind, tree.toString(), MediaDir.label(tree.toString()));
+            waitingKind = null;
+            if (last != null && last.isShowing()) show(app);
+            return;
+        }
         if (waitingItem == null) return;
         MediaBrowser.keep(app, tree);
         put(app, waitingRun, waitingItem, new String[] {tree.toString(), DocumentsContract.getTreeDocumentId(tree)}, waitingMove);
@@ -661,7 +791,7 @@ final class DownloadsScreen {
                     app.setNow("Copied to " + at + ", but could not delete " + item.name + " where it was");
                     return;
                 }
-                SogniDownloads.moved(item, item.name, at, at);
+                SogniDownloads.movedAway(item, item.name, at, at);
                 app.setNow("Moved to " + at);
             } else {
                 app.setNow("Copied to " + at);

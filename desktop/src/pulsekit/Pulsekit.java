@@ -272,19 +272,7 @@ public final class Pulsekit extends UiKit {
         SoundPicture.mp3 = Mp3Decode::parse;
     }
 
-    /**
-     * Java on Windows draws through Direct3D, and Java 8's Direct3D drawing can bring the JVM down in
-     * the graphics driver when another app takes the screen (switching apps during a long Sogni run):
-     * Windows closes Pulsekit with no Java log, and drawing pictures again (Downloads) crashes it again.
-     * Windows' own drawing (GDI) is used instead, unless sun.java2d.d3d is given on the command line.
-     */
-    static void safeDrawing() {
-        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
-        if (os.startsWith("windows") && System.getProperty("sun.java2d.d3d") == null) System.setProperty("sun.java2d.d3d", "false");
-    }
-
     public static void main(String[] stringArray) {
-        safeDrawing();
         SwingUtilities.invokeLater(() -> {
             Looks.apply();
             new Pulsekit().setVisible(true);

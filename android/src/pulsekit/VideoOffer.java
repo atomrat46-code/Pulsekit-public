@@ -210,6 +210,7 @@ final class VideoOffer {
         TextView name = app.text(clip.name + ", " + (clip.bytes.length / 1024) + " KB" + others, 13, false);
         name.setPadding(0, 0, 0, app.dp(6));
         col.addView(name);
+        col.addView(ReadySave.row(app, clip.name, clip.bytes, null));
         p.view = new VideoView(app);
         p.view.setTag("video-offer:view");
         // Muted or not as the last Video ready was left.

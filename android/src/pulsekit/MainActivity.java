@@ -871,6 +871,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) TextEditorScreen.savedAs(this, intent.getData());
             return;
         }
+        if (n == ReadySave.SAVE_DISK) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) ReadySave.write(this, intent.getData());
+            return;
+        }
         if (n == SaveText.SAVE) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) SaveText.write(this, intent.getData());

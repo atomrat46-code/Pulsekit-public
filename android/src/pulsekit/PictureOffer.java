@@ -80,6 +80,7 @@ final class PictureOffer {
             });
             process.setTag("picture-ref:" + f.name);
             col.addView(process);
+            col.addView(ReadySave.row(app, pic.name, pic.bytes, null));
             shown++;
         }
         if (shown == 0) return false;

@@ -153,6 +153,7 @@ final class DownloadsScreen {
             });
             sorts.add(clearAll);
             body.add(sorts);
+            body.add(movePanel(app, body));
         }
         if (runs.isEmpty()) {
             JLabel none = new JLabel(SogniDownloads.PROGRESS.equals(tab) ? "No run in progress" : SogniDownloads.PENDING.equals(tab) ? "Nothing pending" : "No finished downloads");
@@ -541,8 +542,111 @@ final class DownloadsScreen {
         } catch (Exception ex) {
             return "Could not " + (move ? "move " : "copy ") + item.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
         }
-        if (move) SogniDownloads.moved(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+        if (move) SogniDownloads.movedAway(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
         return (move ? "Moved to " : "Copied to ") + to.getPath();
+    }
+
+    /** The tests' folder for a kind's Browse (null asks). */
+    static java.util.function.Function<String, File> folderFor;
+
+    /**
+     * Move downloaded media files to: its box, then (ticked) Images, Videos and Music each with a box,
+     * its folder and Browse…, Move now and Move automatically.
+     */
+    static JPanel movePanel(final Pulsekit app, final JPanel body) {
+        DownloadMove.load();
+        JPanel panel = new JPanel();
+        panel.setLayout(new javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS));
+        panel.setName("downloads-move");
+        panel.setAlignmentX(0.0f);
+        panel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
+        final javax.swing.JCheckBox on = new javax.swing.JCheckBox(DownloadMove.TITLE, DownloadMove.on);
+        on.setName("downloads-move-on");
+        on.setAlignmentX(0.0f);
+        on.addActionListener(e -> {
+            DownloadMove.on = on.isSelected();
+            DownloadMove.save();
+            fill(app, body);
+        });
+        panel.add(on);
+        if (!DownloadMove.on) return panel;
+        for (int i = 0; i < DownloadMove.KINDS.length; i++) {
+            final String kind = DownloadMove.KINDS[i];
+            JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            row.setAlignmentX(0.0f);
+            final javax.swing.JCheckBox box = new javax.swing.JCheckBox(DownloadMove.NAMES[i], DownloadMove.isTicked(kind));
+            box.setName("downloads-move-kind:" + kind);
+            box.addActionListener(e -> {
+                DownloadMove.ticked.put(kind, box.isSelected());
+                DownloadMove.save();
+            });
+            row.add(box);
+            final JLabel where = new JLabel(DownloadMove.labelOf(kind));
+            where.setName("downloads-move-folder:" + kind);
+            where.setToolTipText(DownloadMove.folderOf(kind));
+            JButton browse = new JButton("Browse\u2026");
+            browse.setName("downloads-move-browse:" + kind);
+            browse.addActionListener(e -> {
+                File dir;
+                if (folderFor != null) dir = folderFor.apply(kind);
+                else {
+                    String now = DownloadMove.folderOf(kind);
+                    javax.swing.JFileChooser chooser = new javax.swing.JFileChooser(now.length() > 0 ? new File(now) : null);
+                    chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setDialogTitle(DownloadMove.NAMES[java.util.Arrays.asList(DownloadMove.KINDS).indexOf(kind)] + " go to");
+                    dir = chooser.showOpenDialog(app) == javax.swing.JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+                }
+                if (dir == null) return;
+                DownloadMove.setFolder(kind, dir.getAbsolutePath(), dir.getName());
+                where.setText(DownloadMove.labelOf(kind));
+                where.setToolTipText(dir.getAbsolutePath());
+            });
+            row.add(where);
+            row.add(browse);
+            panel.add(row);
+        }
+        JPanel buttons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        buttons.setAlignmentX(0.0f);
+        JButton now = new JButton(DownloadMove.MOVE_NOW);
+        now.setName("downloads-move-now");
+        now.addActionListener(e -> {
+            app.setNow(moveNow());
+            fill(app, body);
+        });
+        buttons.add(now);
+        final javax.swing.JCheckBox auto = new javax.swing.JCheckBox(DownloadMove.AUTO, DownloadMove.auto);
+        auto.setName("downloads-move-auto");
+        auto.addActionListener(e -> {
+            DownloadMove.auto = auto.isSelected();
+            DownloadMove.save();
+        });
+        buttons.add(auto);
+        panel.add(buttons);
+        return panel;
+    }
+
+    /** The finished downloads of the ticked kinds moved out of Download into their folders. */
+    static synchronized String moveNow() {
+        DownloadMove.load();
+        int moved = 0, failed = 0;
+        String problem = null;
+        for (Object[] pair : DownloadMove.due()) {
+            SogniDownloads.Item item = (SogniDownloads.Item) pair[1];
+            String said = put((SogniDownloads.Run) pair[0], item, new File(DownloadMove.folderOf(item.kind())), true);
+            if (said.startsWith("Moved to ")) moved++;
+            else {
+                failed++;
+                if (problem == null) problem = said;
+            }
+        }
+        return DownloadMove.said(moved, failed, problem);
+    }
+
+    /** A run finished: with Move automatically, its media go to their folders. */
+    static void finished(Pulsekit app) {
+        if (!DownloadMove.automatic()) return;
+        String said = moveNow();
+        if (said.startsWith("Moved")) app.setNow(said);
     }
 
     private static String esc(String s) {

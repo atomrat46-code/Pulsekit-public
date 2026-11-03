@@ -7669,6 +7669,72 @@ public final class DesktopBehavior {
     if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * 03112026_2: the ready screens' saves (Save as a Reference file, Save as a Result file, Save into
+   * disk… opening in the folder saved into last) and Downloads' Move downloaded media files to.
+   */
+  void s189_ready_saves_and_download_move() throws Exception {
+    File home = new File(System.getProperty("user.home"), "ready-saves");
+    home.mkdirs();
+    File song = new File(home, "song.mp3");
+    Files.write(song.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0, 1, 2, 3});
+    call("saveReady", song, MediaDir.SAVE_REF);
+    String asRef = String.valueOf(call("lastDbAddText"));
+    File out = new File(home, "out");
+    out.mkdirs();
+    PyJav.saveAsFor = n -> new File(out, n);
+    call("saveReady", song, MediaDir.SAVE_DISK);
+    PyJav.saveAsFor = null;
+    String lastDir = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(PyJav.READY_SAVE_DIR, "");
+    boolean disk = new File(out, "song.mp3").isFile() && out.getAbsolutePath().equals(lastDir);
+    this.out.append("ready: ").append(asRef).append(" | disk ").append(disk).append('\n');
+    // Move downloaded media files to.
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    dl.mkdirs();
+    pics.mkdirs();
+    list.mkdirs();
+    Files.write(new File(dl, "sunset.png").toPath(), new byte[] {1, 2, 3});
+    Files.write(new File(dl, "tune.mp3").toPath(), new byte[] {4, 5});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: sunset.png", "saved " + new File(dl, "sunset.png").getAbsolutePath() + "\nsaved " + new File(dl, "tune.mp3").getAbsolutePath(), null);
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    String first = DownloadsScreen.moveNow(), second = DownloadsScreen.moveNow();
+    boolean moved = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
+    SogniDownloads.init(null);
+    SogniDownloads.init(list);
+    DownloadMove.load();
+    boolean kept = DownloadMove.on && DownloadMove.isTicked("picture") && DownloadMove.due().isEmpty() && SogniDownloads.tab(SogniDownloads.FINISHED).get(0).items.get(0).away;
+    DownloadMove.on = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    this.out.append("move: ").append(first).append(" | again: ").append(second).append(" | files ").append(moved).append(" | kept ").append(kept).append('\n');
+    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && second.startsWith("Nothing to move") && moved && kept;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** 03112026 Rename: a library prompt file (★) in the Media browser, renamed in the DB (its ending kept). */
+  void s188_media_db_rename() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    long id = vault.addPromptFile("sunset.prompt", "A sunset\n".getBytes(StandardCharsets.UTF_8), "Beach v1");
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "sunset.prompt";
+    e.id = MediaDir.DB_PROMPT + id;
+    e.dbId = id;
+    MediaBrowser.answer = q -> "dusk";
+    edt(() -> ((Pulsekit) frame).mediaBrowser.renameDb(e));
+    MediaBrowser.answer = null;
+    String now = "";
+    for (PromptVault.StoredFile f : PromptDb.vault().promptFiles()) if (f.versionId == id) now = f.name;
+    this.out.append("prompt file: ").append(now).append('\n');
+    if (!"dusk.prompt".equals(now)) throw new AssertionError(this.out.toString());
+  }
+
   void s186_vst_render_compare_kits() throws Exception {
     File dir = new File(System.getProperty("user.home"), "compare-kits");
     dir.mkdirs();
@@ -8104,7 +8170,7 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
-  /** WAV ready's Add to DB…: the render into the prompt library as a result file, then its group asked (No group). */
+  /** WAV ready's Save as a Result file: the render into the prompt library as a result file in one step, then its group asked (No group). */
   void s161_wav_ready_add_to_db() throws Exception {
     File home = new File(System.getProperty("user.home"));
     File wav = new File(home, "vst-check-Kars.wav");
@@ -8112,9 +8178,8 @@ public final class DesktopBehavior {
     for (int i = 0; i < tone.length; i++) tone[i] = (short) (6000 * Math.sin(i * 0.07));
     Files.write(wav.toPath(), AudioIo.encodeWav(tone, 22050));
     final boolean[] listed = new boolean[1];
-    inspectNext = d -> listed[0] = find(d.getContentPane(), MediaDir.ADD_TO_DB) != null;
-    answers.add(MediaDir.ADD_TO_DB);
-    answers.add(MediaDir.DB_KINDS[0]);
+    inspectNext = d -> listed[0] = find(d.getContentPane(), MediaDir.SAVE_RESULT) != null && find(d.getContentPane(), MediaDir.ADD_TO_DB) == null;
+    answers.add(MediaDir.SAVE_RESULT);
     answers.add("OK");
     answers.add("Close");
     final PyJav pj = (PyJav) get("pyJav");
@@ -8123,7 +8188,7 @@ public final class DesktopBehavior {
     inspectNext = null;
     java.util.List<String> results = new java.util.ArrayList<String>();
     for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) results.add(f.name);
-    this.out.append("WAV ready lists Add to DB: ").append(listed[0]).append(" | said: ").append(pj.lastDbAdd).append(" | result files: ").append(results).append('\n');
+    this.out.append("WAV ready lists Save as a Result file: ").append(listed[0]).append(" | said: ").append(pj.lastDbAdd).append(" | result files: ").append(results).append('\n');
     boolean ok = listed[0] && "vst-check-Kars.wav is in the DB as a result file".equals(pj.lastDbAdd) && results.contains("vst-check-Kars.wav");
     if (!ok) throw new AssertionError(this.out.toString());
   }

@@ -1004,6 +1004,8 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
+                    // Move downloaded media files to, automatically.
+                    DownloadsScreen.finished(app);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
@@ -1139,6 +1141,16 @@ final class PyJav {
             GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
             view.setAlignmentX(0.0f);
             col.add(view);
+            // Save as a Reference file, Save as a Result file, Save into disk….
+            JPanel saves = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            saves.setAlignmentX(0.0f);
+            for (final String item : MediaDir.READY_SAVES) {
+                JButton b = new JButton(item);
+                b.setName("ready-save:" + item + ":" + f.getName());
+                b.addActionListener(e -> this.saveReady(pic, item));
+                saves.add(b);
+            }
+            col.add(saves);
             col.add(javax.swing.Box.createVerticalStrut(8));
         }
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
@@ -2100,7 +2112,7 @@ final class PyJav {
         while (true) {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> videoItems = TagDialogs.withUseLast(java.util.Arrays.asList("Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, "Close"), ReadyRecent.VIDEO);
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
             Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
@@ -2113,6 +2125,7 @@ final class PyJav {
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, video.getName(), video.length(), ReadyRecent.VIDEO);
             else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, video, ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_CATEGORY)) TagDialogs.category(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
+            else if (java.util.Arrays.asList(MediaDir.READY_SAVES).contains(it)) this.saveReady(video, it);
             else if (it.equals(Playlist.ADD)) PlaylistWindow.askAdd(app, video.getAbsolutePath(), video.getName());
             else break;
         }
@@ -2213,7 +2226,7 @@ final class PyJav {
         while (true) {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> items = TagDialogs.withUseLast(java.util.Arrays.asList("Make drum MIDI", "Play", MarkFile.isFavourite(name, audio.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT,
-                FileGroups.ADD, MediaDir.ADD_TO_DB, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
+                FileGroups.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, wav ? HITS_TO_MIDI : TO_WAV, "Close"), kind);
             Object[] options = items.toArray();
             int ans = JOptionPane.showOptionDialog(app, name + " is saved in " + audio.getParent() + ".\n\n"
                 + (wav ? "Convert hits into MIDI runs DrumMidi_CRT on it, then shows the MIDI it made."
@@ -2222,7 +2235,7 @@ final class PyJav {
             it = ans < 0 ? "Close" : items.get(ans);
             if (ans == 2) GroupMenus.toggleFavourite(app, audio);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(audio), name, kind);
-            else if (it.equals(MediaDir.ADD_TO_DB)) this.addAudioToDb(audio);
+            else if (java.util.Arrays.asList(MediaDir.READY_SAVES).contains(it)) this.saveReady(audio, it);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, name, audio.length(), null, kind);
             else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, name, audio.length(), kind);
             else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, audio, kind);
@@ -2265,6 +2278,55 @@ final class PyJav {
 
     /** The last Add to DB's line (for the tests). */
     String lastDbAdd;
+
+    String lastDbAddText() {
+        return this.lastDbAdd;
+    }
+
+    /** Where Save into disk… opens: the folder saved into last. */
+    static final String READY_SAVE_DIR = "readySaveDir";
+    /** The tests' answer for Save into disk… (the file to save as); null asks. */
+    static java.util.function.Function<String, File> saveAsFor;
+
+    /**
+     * The ready screens' saves (Picture, Video, MP3 and WAV ready): into the prompt library as a
+     * reference or result file (then which group it goes in), or into a folder on disk (the folder
+     * saved into last offered first).
+     */
+    void saveReady(File f, String item) {
+        if (MediaDir.SAVE_DISK.equals(item)) {
+            java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
+            File to;
+            if (saveAsFor != null) to = saveAsFor.apply(f.getName());
+            else {
+                String last = prefs.get(READY_SAVE_DIR, "");
+                JFileChooser chooser = new JFileChooser(last.length() > 0 && new File(last).isDirectory() ? new File(last) : null);
+                chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), f.getName()));
+                to = chooser.showSaveDialog(app) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+            }
+            if (to == null) return;
+            try {
+                Files.copy(f.toPath(), to.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                if (to.getAbsoluteFile().getParentFile() != null) prefs.put(READY_SAVE_DIR, to.getAbsoluteFile().getParentFile().getAbsolutePath());
+                this.lastDbAdd = "Saved " + to.getName() + " in " + to.getAbsoluteFile().getParent();
+            } catch (Exception ex) {
+                this.lastDbAdd = "Could not save " + f.getName() + ": " + ex.getMessage();
+            }
+            app.setNow(this.lastDbAdd);
+            return;
+        }
+        byte[] bytes = null;
+        try {
+            if (!MediaDir.tooBig(f.length())) bytes = Files.readAllBytes(f.toPath());
+        } catch (Exception ignored) {
+            // said below
+        }
+        String said = bytes == null && MediaDir.tooBig(f.length()) ? f.getName() + " is over the library's 128 MB, so it is not in the DB"
+            : MediaDir.addToDb(PromptDb.dir(), f.getName(), bytes, MediaDir.SAVE_RESULT.equals(item));
+        this.lastDbAdd = said;
+        app.setNow(said);
+        if (said.contains(" is in the DB as a ")) GroupMenus.afterAdd(app, f.getName(), f.length());
+    }
 
     /** WAV / MP3 ready's Add to DB: as a result or a reference file in the prompt library, then which group it goes in. */
     void addAudioToDb(File audio) {

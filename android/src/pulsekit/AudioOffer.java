@@ -40,14 +40,14 @@ final class AudioOffer {
         final boolean isWav = !name.toLowerCase().endsWith(".mp3");
         final String kind = ReadyRecent.kind(name);
         final String[] items = TagDialogs.withUseLast(app, new String[] {PictureOffer.isFavourite(app, name, size) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-            MediaDir.ADD_TO_DB, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, isWav ? HITS_TO_MIDI : TO_WAV}, kind);
+            MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, isWav ? HITS_TO_MIDI : TO_WAV}, kind);
         for (int i = 0; i < items.length; i++) {
             final int which = i;
             final String it = items[i];
             android.widget.TextView item = app.pill(items[i], false, v -> {
                 if (which == 0) PictureOffer.toggleFavourite(app, shownName, size);
                 else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, shownName, size), shownName, null, kind);
-                else if (it.equals(MediaDir.ADD_TO_DB)) addToDb(app, shownName, new java.io.File(path));
+                else if (java.util.Arrays.asList(MediaDir.READY_SAVES).contains(it)) ReadySave.act(app, it, shownName, null, new java.io.File(path));
                 else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, shownName, size, null, kind);
                 else if (it.startsWith(ReadyRecent.USE_LAST)) TagDialogs.useLast(app, shownName, size, kind);
                 else if (it.equals(ReadyRecent.USE_ALL)) TagDialogs.useAll(app, shownName, size, kind, null, new java.io.File(path));
