@@ -8721,6 +8721,8 @@ public class BehaviorTest {
     boolean autoOk = before == 0 && whileHeld == 0 && afterAuto == 1;
     vw.findViewWithTag("viewer-zoom-in").performClick();
     vw.findViewWithTag("viewer-speed").performClick();
+    // Speed's menu: 1.25× picked.
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastSpeedMenu).getOnMenuItemClickListener().onMenuItemClick(PlaylistScreen.lastSpeedMenu.getMenu().findItem(3));
     vw.findViewWithTag("viewer-mute").performClick();
     PlaylistScreen.lastViewer.dismiss();
     Playlist.Settings kept = Playlist.settings(dir);
@@ -8879,6 +8881,8 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf((android.widget.SeekBar) w.findViewWithTag("playlist-volume")).getOnSeekBarChangeListener().onStopTrackingTouch((android.widget.SeekBar) w.findViewWithTag("playlist-volume"));
     ((android.widget.CheckBox) w.findViewWithTag("playlist-mute")).setChecked(true);
     w.findViewWithTag("playlist-speed").performClick();
+    // Speed's menu: 1.25× picked.
+    org.robolectric.Shadows.shadowOf(PlaylistScreen.lastSpeedMenu).getOnMenuItemClickListener().onMenuItemClick(PlaylistScreen.lastSpeedMenu.getMenu().findItem(3));
     w.findViewWithTag("playlist-zoom-in").performClick();
     Playlist.Settings kept = Playlist.settings(dir);
     out.append("kept: volume ").append(kept.volume).append(", mute ").append(kept.mute).append(", speed ").append(Playlist.speedText(kept.speed)).append(", zoom ").append(kept.zoom).append('\n');
@@ -12064,6 +12068,52 @@ public class BehaviorTest {
    * folders) into "<folder>.zip" there with a password Pulsekit makes and shows; Import files from
    * zip asks that password, then puts the files into a folder named for the zip.
    */
+  /**
+   * Playlists: a file added to a new playlist (Picture ready's Add to playlist…) makes File > Playlist
+   * open that playlist with the file picked; Speed's menu lists the speeds, the one in use ticked, and
+   * the viewer's Speed says the speed picked.
+   */
+  @Test
+  public void s203_playlist_newest_and_speed_menu() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = app.getFilesDir();
+    File a = new File(app.getCacheDir(), "first.png"), b = new File(app.getCacheDir(), "second.png");
+    Files.write(a.toPath(), new byte[] {1});
+    Files.write(b.toPath(), new byte[] {2});
+    Playlist.addTo(dir, "Default", a.getAbsolutePath(), "first.png");
+    Playlist.addTo(dir, "Beach trip", a.getAbsolutePath(), "first.png");
+    Playlist.addTo(dir, "Beach trip", b.getAbsolutePath(), "second.png");
+    Playlist.Settings st = Playlist.settings(dir);
+    PlaylistScreen.tab = 0;
+    PlaylistScreen.show(app, null);
+    idle();
+    String title = String.valueOf(org.robolectric.Shadows.shadowOf(PlaylistScreen.last).getTitle());
+    int picked = PlaylistScreen.shownPicked;
+    out.append("opens ").append(title).append(", picked item ").append(picked).append(" (kept: ").append(st.last).append(", ").append(st.addedTo).append(" #").append(st.added).append(")\n");
+    PlaylistScreen.tab = 1;
+    PlaylistScreen.show(app, null);
+    idle();
+    View w = PlaylistScreen.last.getWindow().getDecorView();
+    w.findViewWithTag("playlist-speed").performClick();
+    android.widget.PopupMenu m = PlaylistScreen.lastSpeedMenu;
+    String items = "";
+    String ticked = "";
+    for (int i = 0; i < m.getMenu().size(); i++) {
+      items += m.getMenu().getItem(i).getTitle() + " ";
+      if (m.getMenu().getItem(i).isChecked()) ticked = String.valueOf(m.getMenu().getItem(i).getTitle());
+    }
+    org.robolectric.Shadows.shadowOf(m).getOnMenuItemClickListener().onMenuItemClick(m.getMenu().findItem(4));
+    float kept = Playlist.settings(dir).speed;
+    PlaylistScreen.last.dismiss();
+    PlaylistScreen.tab = 0;
+    idle();
+    out.append("speed menu: ").append(items.trim()).append(" | ticked ").append(ticked).append(" | picked: ").append(Playlist.speedText(kept)).append('\n');
+    write("s203_playlist_newest_and_speed_menu", out.toString());
+    boolean ok = title.equals("Playlist \u00b7 Beach trip") && picked == 1 && m.getMenu().size() == Playlist.SPEEDS.length
+        && ticked.equals(Playlist.speedText(st.speed)) && Math.abs(kept - Playlist.SPEEDS[4]) < 0.01f;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /**
    * 03112026_3: Save into disk's request code its own (not LV2 import's); Picture ready's Reference,
    * Result, Save to file row under the name, above the picture; Process as a reference leaves an
