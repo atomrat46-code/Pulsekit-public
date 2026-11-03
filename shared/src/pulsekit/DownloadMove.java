@@ -124,6 +124,11 @@ public final class DownloadMove {
     return "Moved " + moved + (moved == 1 ? " file" : " files") + (failed > 0 ? "; " + failed + " could not be moved" + (firstProblem != null ? " (" + firstProblem + ")" : "") : "");
   }
 
+  /** "12.3 MB" (Move now's progress). */
+  public static String mb(long bytes) {
+    return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1048576.0);
+  }
+
   private static String clean(String s) {
     return s == null ? "" : s.replace('\t', ' ').replace('\n', ' ');
   }

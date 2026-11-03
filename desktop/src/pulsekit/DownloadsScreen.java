@@ -607,11 +607,27 @@ final class DownloadsScreen {
         }
         JPanel buttons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         buttons.setAlignmentX(0.0f);
-        JButton now = new JButton(DownloadMove.MOVE_NOW);
+        final JButton now = new JButton(DownloadMove.MOVE_NOW);
         now.setName("downloads-move-now");
+        now.setEnabled(!moving.get());
+        // What Move now is doing: the file and how many of them (while it moves), then its result.
+        final JLabel status = new JLabel(moveStatus);
+        status.setName("downloads-move-status");
+        final javax.swing.JProgressBar bar = new javax.swing.JProgressBar(0, 1000);
+        bar.setName("downloads-move-progress");
+        bar.setVisible(moving.get());
+        statusView = status;
+        barView = bar;
         now.addActionListener(e -> {
-            app.setNow(moveNow());
-            fill(app, body);
+            if (moving.get()) return;
+            now.setEnabled(false);
+            new Thread(() -> {
+                final String said = moveNow();
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    app.setNow(said);
+                    fill(app, body);
+                });
+            }, "move-downloads").start();
         });
         buttons.add(now);
         final javax.swing.JCheckBox auto = new javax.swing.JCheckBox(DownloadMove.AUTO, DownloadMove.auto);
@@ -622,24 +638,60 @@ final class DownloadsScreen {
         });
         buttons.add(auto);
         panel.add(buttons);
+        JPanel progress = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        progress.setAlignmentX(0.0f);
+        progress.add(status);
+        progress.add(bar);
+        panel.add(progress);
         return panel;
     }
 
-    /** The finished downloads of the ticked kinds moved out of Download into their folders. */
-    static synchronized String moveNow() {
-        DownloadMove.load();
-        int moved = 0, failed = 0;
-        String problem = null;
-        for (Object[] pair : DownloadMove.due()) {
-            SogniDownloads.Item item = (SogniDownloads.Item) pair[1];
-            String said = put((SogniDownloads.Run) pair[0], item, new File(DownloadMove.folderOf(item.kind())), true);
-            if (said.startsWith("Moved to ")) moved++;
-            else {
-                failed++;
-                if (problem == null) problem = said;
+    /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
+    static final java.util.concurrent.atomic.AtomicBoolean moving = new java.util.concurrent.atomic.AtomicBoolean();
+    static volatile String moveStatus = "";
+    static volatile int moveProgress;
+    private static JLabel statusView;
+    private static javax.swing.JProgressBar barView;
+
+    private static void showMove() {
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            if (statusView != null) statusView.setText(moveStatus);
+            if (barView != null) {
+                barView.setValue(moveProgress);
+                barView.setVisible(moving.get());
             }
+        });
+    }
+
+    /** The finished downloads of the ticked kinds moved out of Download into their folders, saying which file and how many. */
+    static String moveNow() {
+        if (!moving.compareAndSet(false, true)) return "Moving already";
+        String result = "";
+        try {
+            DownloadMove.load();
+            java.util.List<Object[]> due = DownloadMove.due();
+            int moved = 0, failed = 0;
+            String problem = null;
+            for (int i = 0; i < due.size(); i++) {
+                SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
+                moveStatus = "Moving " + (i + 1) + " of " + due.size() + ": " + item.name;
+                moveProgress = i * 1000 / due.size();
+                showMove();
+                String said = put((SogniDownloads.Run) due.get(i)[0], item, new File(DownloadMove.folderOf(item.kind())), true);
+                if (said.startsWith("Moved to ")) moved++;
+                else {
+                    failed++;
+                    if (problem == null) problem = said;
+                }
+            }
+            result = DownloadMove.said(moved, failed, problem);
+            return result;
+        } finally {
+            moving.set(false);
+            moveStatus = result;
+            moveProgress = 0;
+            showMove();
         }
-        return DownloadMove.said(moved, failed, problem);
     }
 
     /** A run finished: with Move automatically, its media go to their folders. */

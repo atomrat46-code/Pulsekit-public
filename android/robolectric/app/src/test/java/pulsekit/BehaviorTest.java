@@ -12247,6 +12247,8 @@ public class BehaviorTest {
     DownloadMove.ticked.put("picture", true);
     DownloadMove.setFolder("picture", pics.getAbsolutePath(), "move-pics");
     String first = DownloadsScreen.moveDue(app);
+    String statusAfter = DownloadsScreen.moveStatus;
+    boolean notMoving = !DownloadsScreen.moving.get();
     String second = DownloadsScreen.moveDue(app);
     boolean movedOk = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
     // The settings and the moved mark kept: read again from their files.
@@ -12262,7 +12264,7 @@ public class BehaviorTest {
     SogniDownloads.init(app.getFilesDir());
     write("s201_ready_saves_and_download_move", out.toString());
     boolean ok = items && asRef.contains("song.mp3 is in the DB as a reference") && asResult.contains("pic.png is in the DB as a result") && disk
-        && first.equals("Moved 1 file") && second.startsWith("Nothing to move") && movedOk && kept;
+        && first.equals("Moved 1 file") && statusAfter.equals("Moved 1 file") && notMoving && second.startsWith("Nothing to move") && movedOk && kept;
     if (!ok) throw new AssertionError(out.toString());
   }
 

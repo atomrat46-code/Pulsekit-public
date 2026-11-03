@@ -683,13 +683,15 @@ final class DownloadsScreen {
             panel.addView(row);
         }
         LinearLayout buttons = app.row();
-        TextView now = app.outline(DownloadMove.MOVE_NOW, false, v -> {
-            app.setNow("Moving\u2026");
+        final TextView now = app.outline(DownloadMove.MOVE_NOW, false, null);
+        now.setOnClickListener(v -> {
+            if (moving.get()) return;
+            now.setEnabled(false);
             new Thread(() -> {
                 final String said = moveDue(app);
                 app.runOnUiThread(() -> {
                     app.setNow(said);
-                    fill(app, col);
+                    if (last != null && last.isShowing()) fill(app, col);
                 });
             }).start();
         });
@@ -705,38 +707,117 @@ final class DownloadsScreen {
         });
         buttons.addView(auto);
         panel.addView(buttons);
+        // What Move now is doing: the file, how far, how many of them (shown while it moves, and its result after).
+        TextView status = app.text(moveStatus, 12, false);
+        status.setTag("downloads-move-status");
+        status.setVisibility(moveStatus.length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+        panel.addView(status);
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(app, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setTag("downloads-move-progress");
+        bar.setMax(1000);
+        bar.setProgress(moveProgress);
+        bar.setVisibility(moving.get() ? android.view.View.VISIBLE : android.view.View.GONE);
+        panel.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        statusView = status;
+        barView = bar;
+        now.setEnabled(!moving.get());
         return panel;
+    }
+
+    /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
+    static final java.util.concurrent.atomic.AtomicBoolean moving = new java.util.concurrent.atomic.AtomicBoolean();
+    static volatile String moveStatus = "";
+    static volatile int moveProgress;
+    private static TextView statusView;
+    private static android.widget.ProgressBar barView;
+
+    /** The status line and bar shown as they are now (on the main thread). */
+    private static void showMove(MainActivity app) {
+        app.runOnUiThread(() -> {
+            if (statusView != null) {
+                statusView.setText(moveStatus);
+                statusView.setVisibility(moveStatus.length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
+            if (barView != null) {
+                barView.setProgress(moveProgress);
+                barView.setVisibility(moving.get() ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
+        });
     }
 
     /** What Move now (or a finished run, with Move automatically) said last, for the tests. */
     static volatile String lastMoveSaid;
 
-    /** The finished downloads of the ticked kinds moved out of Download into their folders (off the main thread). */
-    static synchronized String moveDue(MainActivity app) {
-        DownloadMove.load();
-        int moved = 0, failed = 0;
-        String problem = null;
-        for (Object[] pair : DownloadMove.due()) {
-            SogniDownloads.Item item = (SogniDownloads.Item) pair[1];
-            String to = DownloadMove.folderOf(item.kind());
-            String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
-            String why = moveOne(app, item, origin);
-            if (why == null) moved++;
-            else {
-                failed++;
-                if (problem == null) problem = why;
+    /**
+     * The finished downloads of the ticked kinds moved out of Download into their folders (off the main
+     * thread): each streamed in pieces (a video is not held in memory: read whole, they ran the phone
+     * short of memory and Android took Pulsekit for not responding), saying which file and how far.
+     * Pulsekit's notification keeps it going when another app is opened.
+     */
+    static String moveDue(MainActivity app) {
+        if (!moving.compareAndSet(false, true)) return "Moving already";
+        boolean keeper = !RunKeeper.foreground;
+        if (keeper) RunKeeper.start(app, "Move downloads");
+        try {
+            DownloadMove.load();
+            java.util.List<Object[]> due = DownloadMove.due();
+            int moved = 0, failed = 0;
+            String problem = null;
+            for (int i = 0; i < due.size(); i++) {
+                SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
+                String to = DownloadMove.folderOf(item.kind());
+                String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+                String why = moveOne(app, item, origin, i, due.size());
+                if (why == null) moved++;
+                else {
+                    failed++;
+                    if (problem == null) problem = why;
+                }
             }
+            lastMoveSaid = DownloadMove.said(moved, failed, problem);
+            return lastMoveSaid;
+        } finally {
+            moving.set(false);
+            moveStatus = lastMoveSaid == null ? "" : lastMoveSaid;
+            moveProgress = 0;
+            showMove(app);
+            if (keeper) RunKeeper.stop(app);
         }
-        lastMoveSaid = DownloadMove.said(moved, failed, problem);
-        return lastMoveSaid;
     }
 
-    /** One file into the folder and out of Download; null when moved, else why not. */
-    static String moveOne(MainActivity app, SogniDownloads.Item item, String[] origin) {
-        byte[] data = bytes(app, item);
-        if (data == null) return item.name + " could not be read";
+    /** One file into the folder (streamed) and out of Download; null when moved, else why not. */
+    static String moveOne(final MainActivity app, final SogniDownloads.Item item, String[] origin, final int index, final int count) {
         try {
-            String at = MediaBrowser.saveInto(app, origin, null, item.name, ArtJava.mimeOf(item.name), data);
+            Uri uri = uriFor(app, item.where);
+            File file = uri == null ? fileFor(item.where) : null;
+            final long size = file != null ? file.length() : -1;
+            final InputStream in = uri != null ? app.getContentResolver().openInputStream(uri) : new java.io.FileInputStream(file);
+            if (in == null) return item.name + " could not be read";
+            final String head = "Moving " + (index + 1) + " of " + count + ": " + item.name;
+            moveStatus = head;
+            moveProgress = count == 0 ? 0 : index * 1000 / count;
+            showMove(app);
+            String at;
+            try {
+                at = MediaBrowser.saveInto(app, origin, null, item.name, ArtJava.mimeOf(item.name), out -> {
+                    byte[] buf = new byte[65536];
+                    long done = 0, said = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        // The bar and the line: at each MB.
+                        if (done - said >= (1 << 20)) {
+                            said = done;
+                            moveStatus = head + " \u00b7 " + DownloadMove.mb(done) + (size > 0 ? " of " + DownloadMove.mb(size) : "");
+                            moveProgress = (int) ((index + (size > 0 ? Math.min(1.0, done / (double) size) : 0.5)) * 1000 / count);
+                            showMove(app);
+                        }
+                    }
+                });
+            } finally {
+                in.close();
+            }
             if (!remove(app, item.where)) return "copied " + item.name + " to " + at + ", but could not delete it from Download";
             SogniDownloads.movedAway(item, item.name, at, at);
             return null;

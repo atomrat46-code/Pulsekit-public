@@ -430,7 +430,17 @@ final class MediaBrowser {
      * (made when it is not there); a name taken gets " (1)". Returns where, for the log. Throws with
      * what to do when the folder cannot be written.
      */
-    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, byte[] data) throws Exception {
+    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, final byte[] data) throws Exception {
+        return saveInto(app, origin, sub, name, mime, out -> out.write(data));
+    }
+
+    /** What saveInto writes: the bytes, or a file streamed in (a large video is not held in memory). */
+    interface Body {
+        void write(java.io.OutputStream out) throws Exception;
+    }
+
+    /** As above, with the file's content written by `data` (Downloads' Move: streamed from where it is). */
+    static String saveInto(MainActivity app, String[] origin, String sub, String name, String mime, Body data) throws Exception {
         String tree = origin[0];
         String dir = origin[1];
         if (DOWNLOADS.equals(dir)) {
@@ -447,7 +457,7 @@ final class MediaBrowser {
             if (uri == null) throw new java.io.IOException("Download takes no more files named " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(uri);
             try {
-                os.write(data);
+                data.write(os);
             } finally {
                 os.close();
             }
@@ -467,7 +477,7 @@ final class MediaBrowser {
             for (int n = 1; f.exists(); n++) f = new File(folder, stem + " (" + n + ")" + ext);
             java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
             try {
-                fos.write(data);
+                data.write(fos);
             } finally {
                 fos.close();
             }
@@ -501,7 +511,7 @@ final class MediaBrowser {
             if (file == null) throw new java.io.IOException("could not write " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(file);
             try {
-                os.write(data);
+                data.write(os);
             } finally {
                 os.close();
             }

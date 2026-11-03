@@ -7722,7 +7722,9 @@ public final class DesktopBehavior {
     DownloadMove.on = true;
     DownloadMove.ticked.put("picture", true);
     DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
-    String first = DownloadsScreen.moveNow(), second = DownloadsScreen.moveNow();
+    String first = DownloadsScreen.moveNow();
+    String statusAfter = DownloadsScreen.moveStatus;
+    String second = DownloadsScreen.moveNow();
     boolean moved = new File(pics, "sunset.png").isFile() && !new File(dl, "sunset.png").exists() && new File(dl, "tune.mp3").isFile();
     SogniDownloads.init(null);
     SogniDownloads.init(list);
@@ -7733,7 +7735,8 @@ public final class DesktopBehavior {
     DownloadMove.save();
     SogniDownloads.init(PromptDb.dir());
     this.out.append("move: ").append(first).append(" | again: ").append(second).append(" | files ").append(moved).append(" | kept ").append(kept).append('\n');
-    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && second.startsWith("Nothing to move") && moved && kept;
+    boolean ok = asRef.contains("song.mp3 is in the DB as a reference") && disk && "Moved 1 file".equals(first) && "Moved 1 file".equals(statusAfter) && !DownloadsScreen.moving.get()
+        && second.startsWith("Nothing to move") && moved && kept;
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
