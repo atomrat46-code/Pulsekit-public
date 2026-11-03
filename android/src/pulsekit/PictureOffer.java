@@ -47,6 +47,8 @@ final class PictureOffer {
                 ImageView image = new ImageView(app);
                 image.setImageBitmap(b);
                 image.setAdjustViewBounds(true);
+                // At most 45% of the screen high: Process as a reference shows under it without scrolling.
+                image.setMaxHeight(app.getResources().getDisplayMetrics().heightPixels * 45 / 100);
                 view = image;
             } else {
                 // Not shown: held, it still has the picture's items.

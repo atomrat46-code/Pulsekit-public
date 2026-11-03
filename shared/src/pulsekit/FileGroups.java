@@ -112,9 +112,11 @@ public final class FileGroups {
     return "file:" + (path == null ? "" : path);
   }
 
-  /** The groups, in the order they were made. */
+  /** The groups in alphabetical order (case aside): every list of them (Add to group, After Import / Add to DB, G) has this order. */
   public static synchronized List<String> names() {
-    return new ArrayList<String>(GROUPS.keySet());
+    List<String> out = new ArrayList<String>(GROUPS.keySet());
+    java.util.Collections.sort(out, String.CASE_INSENSITIVE_ORDER);
+    return out;
   }
 
   /** A group's name as a new group gets it: trimmed, one line; "" when there is none. */
@@ -230,7 +232,7 @@ public final class FileGroups {
   public static synchronized String[] afterAdd() {
     List<String> out = new ArrayList<String>();
     out.add(NONE);
-    out.addAll(GROUPS.keySet());
+    out.addAll(names());
     out.add(NEW);
     return out.toArray(new String[0]);
   }
@@ -274,7 +276,7 @@ public final class FileGroups {
   /** As menu(key), ✓ where the file is in by any of its keys. */
   public static synchronized String[] menu(String[] keys) {
     List<String> out = new ArrayList<String>();
-    for (String g : GROUPS.keySet()) out.add(in(g, keys) ? REMOVE + g : g);
+    for (String g : names()) out.add(in(g, keys) ? REMOVE + g : g);
     out.add(NEW);
     return out.toArray(new String[0]);
   }
@@ -287,7 +289,7 @@ public final class FileGroups {
   /** The Add to group list: each group (✓ when the file is in it), then New group…. */
   public static synchronized String[] menu(String key) {
     List<String> out = new ArrayList<String>();
-    for (Map.Entry<String, List<String>> g : GROUPS.entrySet()) out.add(g.getValue().contains(key) ? REMOVE + g.getKey() : g.getKey());
+    for (String g : names()) out.add(GROUPS.get(g).contains(key) ? REMOVE + g : g);
     out.add(NEW);
     return out.toArray(new String[0]);
   }

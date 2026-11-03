@@ -210,7 +210,7 @@ final class VideoOffer {
         TextView name = app.text(clip.name + ", " + (clip.bytes.length / 1024) + " KB" + others, 13, false);
         name.setPadding(0, 0, 0, app.dp(6));
         col.addView(name);
-        col.addView(ReadySave.row(app, clip.name, clip.bytes, null));
+        col.addView(ReadySave.row(app, clip.name, null, new java.io.File(path)));
         p.view = new VideoView(app);
         p.view.setTag("video-offer:view");
         // Muted or not as the last Video ready was left.
@@ -233,7 +233,8 @@ final class VideoOffer {
                 // The clip's own shape: as wide as the dialog, at most 60% of the screen high.
                 int w = mp.getVideoWidth(), h = mp.getVideoHeight();
                 if (w > 0 && h > 0) {
-                    int max = app.getResources().getDisplayMetrics().heightPixels * 6 / 10;
+                    // At most 45% of the screen high: Play, Mute and the volume slider show under it.
+                    int max = app.getResources().getDisplayMetrics().heightPixels * 45 / 100;
                     size.height = Math.min(max, width * h / w);
                     p.view.setLayoutParams(size);
                 }
@@ -304,9 +305,11 @@ final class VideoOffer {
         p.level.setMinWidth(app.dp(52));
         volumeRow.addView(p.level);
         col.addView(volumeRow);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.addView(col);
         AlertDialog dialog = new AlertDialog.Builder(app)
             .setTitle("Video ready")
-            .setView(col)
+            .setView(scroll)
             .setPositiveButton("Close", null)
             .create();
         dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {

@@ -4283,7 +4283,8 @@ public class BehaviorTest {
     java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
     org.robolectric.Shadows.shadowOf(menu).clickOnItem(rows.indexOf(FileGroups.ADD));
     idle();
-    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(0);
+    // Trip by its name (the groups are in alphabetical order: Evening, Trip).
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(java.util.Arrays.asList(listItems(GroupDialogs.last).split(" \\| ")).indexOf("Trip"));
     idle();
     FileGroups.show("Trip");
     PromptVault.StoredFile beach = PromptVault.open(app.getFilesDir()).referenceFiles().get(0);
@@ -4300,7 +4301,7 @@ public class BehaviorTest {
     GroupDialogs.afterAdd(app, "sea.png", 10);
     idle();
     out.append("after Add to DB: ").append(org.robolectric.Shadows.shadowOf(GroupDialogs.last).getTitle()).append(": ").append(listItems(GroupDialogs.last)).append('\n');
-    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(2);
+    org.robolectric.Shadows.shadowOf(GroupDialogs.last).clickOnItem(java.util.Arrays.asList(listItems(GroupDialogs.last).split(" \\| ")).indexOf("Evening"));
     idle();
     out.append("sea.png in Evening: ").append(FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10))).append('\n');
     boolean addOk = FileGroups.in("Evening", MarkFile.mediaKey("sea.png", 10));
@@ -12089,6 +12090,8 @@ public class BehaviorTest {
       TextView b = (TextView) pv.findViewWithTag("ready-save:" + item + ":pic.png");
       labels += (b == null ? "-" : b.getText()) + ";";
     }
+    boolean capped = picture instanceof android.widget.ImageView
+        && ((android.widget.ImageView) picture).getMaxHeight() == app.getResources().getDisplayMetrics().heightPixels * 45 / 100;
     PictureOffer.last.dismiss();
     idle();
     String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
@@ -12106,8 +12109,35 @@ public class BehaviorTest {
         && pane.findViewWithTag("prompts-import") == null;
     PromptsTabs.tab = PromptsTabs.PROMPTS;
     out.append("tabs: prompts tab ").append(onPrompts).append(", entries tab ").append(onEntries).append('\n');
+    // 03112026_4: groups in alphabetical order; Reference asks no group for a file in one already;
+    // Save to file still saves when Pulsekit was closed while the save dialog was open; a tall picture capped.
+    FileGroups.load(app.getFilesDir());
+    FileGroups.toggle("zebra", new String[] {"k:z"});
+    FileGroups.toggle("Apple", new String[] {"k:a"});
+    FileGroups.toggle("mango", new String[] {"k:m"});
+    java.util.List<String> names = FileGroups.names();
+    boolean alpha = names.indexOf("Apple") < names.indexOf("mango") && names.indexOf("mango") < names.indexOf("zebra");
+    byte[] shot = new byte[] {(byte) 0x89, 'P', 'N', 'G', 7, 7};
+    FileGroups.toggle("mango", PictureOffer.groupKeys(app, "grouped.png", shot.length));
+    GroupDialogs.last = null;
+    ReadySave.toDb(app, "grouped.png", shot, null, false);
+    idle();
+    boolean noAsk = ReadySave.lastSaid.contains("is in the DB as a reference") && (GroupDialogs.last == null || !GroupDialogs.last.isShowing());
+    File later = new File(app.getCacheDir(), "saved-after-restart.png");
+    ReadySave.toDisk(app, "after.png", shot, null);
+    org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    java.lang.reflect.Field pn = ReadySave.class.getDeclaredField("pendingName");
+    pn.setAccessible(true);
+    pn.set(null, null);
+    java.lang.reflect.Field pf = ReadySave.class.getDeclaredField("pendingFile");
+    pf.setAccessible(true);
+    pf.set(null, null);
+    ReadySave.write(app, android.net.Uri.fromFile(later));
+    boolean restart = later.isFile() && later.length() == shot.length && ReadySave.lastSaid.equals("Saved after.png");
+    out.append("groups ").append(names).append(" alphabetical ").append(alpha).append(" | no group question ").append(noAsk).append(" | saved after a restart ").append(restart).append('\n');
     write("s202_ready_row_switches_prompt_tabs", out.toString());
-    boolean ok = codes && above && labels.equals("Reference;Result;Save to file;") && kept.equals("--prompt \"a b\" --unlimited") && never.contains("--saveprompt") && onPrompts && onEntries;
+    out.append("picture capped ").append(capped).append('\n');
+    boolean ok = capped && alpha && noAsk && restart && codes && above && labels.equals("Reference;Result;Save to file;") && kept.equals("--prompt \"a b\" --unlimited") && never.contains("--saveprompt") && onPrompts && onEntries;
     if (!ok) throw new AssertionError(out.toString());
   }
 
