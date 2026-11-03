@@ -1216,8 +1216,11 @@ public final class DesktopBehavior {
     out.append("after restart: ").append(PromptDb.allFiles(null).size()).append(" files\n");
     // The galleries: one card per stored file; the other kind's count at the top.
     call("showView", "prompts");
+    // Ref files is on the Prompts page's Result & Reference entries tab.
+    edt(() -> ((javax.swing.JButton) component(frame, "prompts-tab:" + PromptsTabs.ENTRIES)).doClick());
     answers.add("Close");
     edt(() -> ((javax.swing.JButton) component(frame, "prompts-ref-files")).doClick());
+    PromptsTabs.tab = PromptsTabs.PROMPTS;
     JDialog gallery = (JDialog) get("lastGallery");
     out.append("gallery \"").append(gallery.getTitle()).append("\": ");
     for (String n : new String[] {"gallery-tab:0", "gallery-tab:1", "gallery-tab:2"}) {
@@ -7667,6 +7670,22 @@ public final class DesktopBehavior {
         .append(" | written whole ").append(whole).append('\n');
     boolean logsOk = "Open,Delete".equals(logs[0]) && "Clear all Program runs logs".equals(logs[1]) && before >= 2 && runsLeft == 0 && errorsLeft >= 1 && whole;
     if (!tabsOk || !logsOk) throw new AssertionError(this.out.toString());
+  }
+
+  /** 03112026_3: the Prompts page's tabs: Ref / Result files on Result & Reference entries, Prompt files, Import and New prompt on Prompts & Categories. */
+  void s190_prompts_page_tabs() throws Exception {
+    PromptsTabs.tab = PromptsTabs.PROMPTS;
+    call("showView", "prompts");
+    final boolean[] seen = new boolean[2];
+    edt(() -> seen[0] = component(frame, "prompts-prompt-files") != null && component(frame, "prompts-import") != null && component(frame, "prompts-new-prompt") != null
+        && component(frame, "prompts-ref-files") == null);
+    edt(() -> ((javax.swing.JButton) component(frame, "prompts-tab:" + PromptsTabs.ENTRIES)).doClick());
+    edt(() -> seen[1] = component(frame, "prompts-ref-files") != null && component(frame, "prompts-result-files") != null && component(frame, "prompts-prompt-files") == null
+        && component(frame, "prompts-new-prompt") == null);
+    edt(() -> ((javax.swing.JButton) component(frame, "prompts-tab:" + PromptsTabs.PROMPTS)).doClick());
+    this.out.append("prompts tab ").append(seen[0]).append(", entries tab ").append(seen[1]).append(" | Process as a reference: ")
+        .append(ProcessAsRef.withoutOffSwitches("--saveprompt --unlimited", "--unlimited", ProgramParams.parse(ProgramFiles.bundledSource("SogniPedit.java")))).append('\n');
+    if (!seen[0] || !seen[1]) throw new AssertionError(this.out.toString());
   }
 
   /**

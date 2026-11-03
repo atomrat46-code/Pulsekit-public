@@ -311,7 +311,7 @@ final class SavePromptDialog {
         scroll.addView(col);
         final boolean[] answered = new boolean[1];
         final AlertDialog dialog = new AlertDialog.Builder(app)
-            .setTitle("Save prompt")
+            .setTitle("Save info")
             .setView(scroll)
             .setPositiveButton("OK", null)
             .setNegativeButton("Cancel", (d, w) -> {

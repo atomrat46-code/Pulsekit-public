@@ -303,7 +303,7 @@ final class SavePromptDialog {
         JPanel shown = preview(media);
         if (shown != null) box.add(shown, BorderLayout.NORTH);
         Object[] options = {"OK", "Cancel"};
-        int ans = JOptionPane.showOptionDialog(app, box, "Save prompt", JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        int ans = JOptionPane.showOptionDialog(app, box, "Save info", JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         stopClip();
         if (ans != 0) return null;
         PromptSave.Choice c = new PromptSave.Choice();

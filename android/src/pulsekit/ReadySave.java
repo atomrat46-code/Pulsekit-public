@@ -15,7 +15,8 @@ import java.io.File;
 final class ReadySave {
     private ReadySave() {}
 
-    static final int SAVE_DISK = 97;
+    // Not 97: Lv2Host.IMPORT_LV2 has it, and Save into disk's answer went to the LV2 import ("Not imported...").
+    static final int SAVE_DISK = 102;
     static final String PREFS = "pulsekit-ready-save";
     /** The file saved into disk last: the save dialog opens beside it. */
     static final String LAST = "last";
@@ -27,18 +28,26 @@ final class ReadySave {
     /** What a save said last (for the tests). */
     static String lastSaid;
 
-    /** The three buttons, one under the other; `bytes` or `file` is the media (one of them). */
-    static LinearLayout row(final MainActivity app, final String name, final byte[] bytes, final File file) {
-        LinearLayout row = app.col();
+    /**
+     * The three as one short row (Reference, Result, Save to file) under the file's name: Picture and
+     * Video ready keep the picture and the player's controls in view. `bytes` or `file` is the media.
+     */
+    static android.view.View row(final MainActivity app, final String name, final byte[] bytes, final File file) {
+        LinearLayout row = app.row();
         row.setTag("ready-save:" + name);
-        for (final String item : MediaDir.READY_SAVES) {
-            TextView b = app.outline(item, false, v -> act(app, item, name, bytes, file));
+        for (int i = 0; i < MediaDir.READY_SAVES.length; i++) {
+            final String item = MediaDir.READY_SAVES[i];
+            TextView b = app.outline(MediaDir.READY_SAVES_SHORT[i], false, v -> act(app, item, name, bytes, file));
             b.setTag("ready-save:" + item + ":" + name);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.topMargin = app.dp(4);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = app.dp(6);
             row.addView(b, lp);
         }
-        return row;
+        android.widget.HorizontalScrollView strip = new android.widget.HorizontalScrollView(app);
+        strip.setTag("ready-saves:" + name);
+        strip.addView(row);
+        strip.setPadding(0, app.dp(2), 0, app.dp(6));
+        return strip;
     }
 
     static void act(MainActivity app, String item, String name, byte[] bytes, File file) {

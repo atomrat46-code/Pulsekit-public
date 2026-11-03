@@ -436,6 +436,28 @@ public final class PromptSheet {
 
   private static void buildList(Activity activity, LinearLayout col) {
     releasePreview();
+    // The page's tabs: Result & Reference entries, Prompts & Categories.
+    LinearLayout tabRow = new LinearLayout(activity);
+    tabRow.setOrientation(LinearLayout.HORIZONTAL);
+    tabRow.setTag("prompts-tabs");
+    for (final String t : PromptsTabs.TABS) {
+      boolean on = t.equals(PromptsTabs.tab);
+      TextView pill = button(activity, t, on ? "#ECEBE6" : "#1B1D1F", on ? "#0A0B0C" : "#ECEBE6");
+      pill.setTag("prompts-tab:" + t);
+      pill.setTextSize(13);
+      pill.setOnClickListener(v -> {
+        PromptsTabs.tab = t;
+        rebuild(activity);
+      });
+      LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+      tlp.rightMargin = dp(activity, 6);
+      tabRow.addView(pill, tlp);
+    }
+    col.addView(tabRow, buttonLp(activity));
+    if (!PromptsTabs.entries()) {
+      buildPrompts(activity, col);
+      return;
+    }
     TextView refs = button(activity, "Ref files", "#1B1D1F", "#ECEBE6");
     refs.setOnClickListener(v -> {
       refsOpen = true;
@@ -448,6 +470,10 @@ public final class PromptSheet {
       rebuild(activity);
     });
     col.addView(results, buttonLp(activity));
+  }
+
+  /** The Prompts & Categories tab: Prompt files, Import, the favourite prompts, the categories and the prompts, New prompt. */
+  private static void buildPrompts(Activity activity, LinearLayout col) {
     TextView promptFiles = button(activity, "Prompt files", "#1B1D1F", "#ECEBE6");
     promptFiles.setTag("prompts-prompt-files");
     promptFiles.setOnClickListener(v -> {
@@ -1769,7 +1795,7 @@ public final class PromptSheet {
     VersionFavourites.load(activity.getFilesDir());
     final List<PromptVault.Version> favs = VersionFavourites.inCategory(vault, id);
     AlertDialog.Builder b = new AlertDialog.Builder(activity).setTitle("\u2605 Favourites in " + name);
-    if (favs.isEmpty()) b.setMessage("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save prompt");
+    if (favs.isEmpty()) b.setMessage("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save info");
     else {
       CharSequence[] labels = new CharSequence[favs.size()];
       for (int i = 0; i < favs.size(); i++) labels[i] = VersionFavourites.label(vault, favs.get(i));

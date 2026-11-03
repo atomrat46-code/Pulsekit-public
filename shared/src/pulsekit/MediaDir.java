@@ -775,6 +775,8 @@ public final class MediaDir {
    */
   public static final String SAVE_REF = "Save as a Reference file", SAVE_RESULT = "Save as a Result file", SAVE_DISK = "Save into disk\u2026";
   public static final String[] READY_SAVES = {SAVE_REF, SAVE_RESULT, SAVE_DISK};
+  /** The same, as Picture and Video ready's short row under the file's name (the media's controls stay in view). */
+  public static final String[] READY_SAVES_SHORT = {"Reference", "Result", "Save to file"};
 
   /** The ready screens' item (WAV, MP3 ready): the file into the prompt library, as a result or reference file. */
   public static final String ADD_TO_DB = "Add to DB\u2026";

@@ -195,6 +195,22 @@ final class PromptsPage {
     boolean favouritesOpen;
 
     void buildList() {
+        // The page's tabs: Result & Reference entries, Prompts & Categories.
+        JPanel tabRow = this.row();
+        tabRow.setName("prompts-tabs");
+        for (final String t : PromptsTabs.TABS) {
+            boolean on = t.equals(PromptsTabs.tab);
+            JButton b = app.action(t, on ? FG : ELEV, on ? BG : FG);
+            b.setName("prompts-tab:" + t);
+            b.addActionListener(e -> {
+                PromptsTabs.tab = t;
+                this.rebuild();
+            });
+            tabRow.add(b);
+            tabRow.add(Box.createHorizontalStrut(8));
+        }
+        this.col.add(Box.createVerticalStrut(12));
+        this.col.add(tabRow);
         JPanel library = this.row();
         JButton refs = app.action("Ref files", ELEV, FG);
         refs.setName("prompts-ref-files");
@@ -210,10 +226,14 @@ final class PromptsPage {
         JButton imp = app.action("Import", ELEV, FG);
         imp.setName("prompts-import");
         imp.addActionListener(e -> this.importPrompts());
-        library.add(refs);
-        library.add(Box.createHorizontalStrut(8));
-        library.add(results);
-        library.add(Box.createHorizontalStrut(8));
+        if (PromptsTabs.entries()) {
+            library.add(refs);
+            library.add(Box.createHorizontalStrut(8));
+            library.add(results);
+            this.col.add(Box.createVerticalStrut(12));
+            this.col.add(library);
+            return;
+        }
         library.add(promptFiles);
         library.add(Box.createHorizontalStrut(8));
         library.add(imp);
@@ -489,7 +509,7 @@ final class PromptsPage {
         VersionFavourites.load(PromptDb.dir());
         java.util.List<PromptVault.Version> favs = VersionFavourites.inCategory(this.vault, id);
         if (favs.isEmpty()) {
-            app.setNow("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save prompt");
+            app.setNow("No favourite prompts in " + name + " yet: \u2606 on a prompt, or Add to favourites in Save info");
             return;
         }
         String[] labels = new String[favs.size()];

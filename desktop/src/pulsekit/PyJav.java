@@ -1125,6 +1125,19 @@ final class PyJav {
             JLabel name = new JLabel(f.getName() + (img == null ? (hidden ? " (not shown: Show images is off; a right click has its items)" : " (no preview)") : ""));
             name.setAlignmentX(0.0f);
             col.add(name);
+            // Reference, Result, Save to file: under the name, above the picture.
+            JPanel saves = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            saves.setAlignmentX(0.0f);
+            final File saveFrom = f;
+            for (int k = 0; k < MediaDir.READY_SAVES.length; k++) {
+                final String item = MediaDir.READY_SAVES[k];
+                JButton b = new JButton(MediaDir.READY_SAVES_SHORT[k]);
+                b.setName("ready-save:" + item + ":" + f.getName());
+                b.setToolTipText(item);
+                b.addActionListener(e -> this.saveReady(saveFrom, item));
+                saves.add(b);
+            }
+            col.add(saves);
             if (hidden) {
                 final File pic = f;
                 name.setName("picture-offer:" + f.getName());
@@ -1141,16 +1154,6 @@ final class PyJav {
             GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
             view.setAlignmentX(0.0f);
             col.add(view);
-            // Save as a Reference file, Save as a Result file, Save into disk….
-            JPanel saves = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            saves.setAlignmentX(0.0f);
-            for (final String item : MediaDir.READY_SAVES) {
-                JButton b = new JButton(item);
-                b.setName("ready-save:" + item + ":" + f.getName());
-                b.addActionListener(e -> this.saveReady(pic, item));
-                saves.add(b);
-            }
-            col.add(saves);
             col.add(javax.swing.Box.createVerticalStrut(8));
         }
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);

@@ -38,6 +38,8 @@ final class PictureOffer {
             TextView name = app.text(f.name + (b == null ? (AppSettings.shows("I") ? " (no preview)" : " (not shown: Show images is off)") : ""), 13, false);
             name.setPadding(0, app.dp(shown == 0 ? 0 : 12), 0, app.dp(4));
             col.addView(name);
+            // Reference, Result, Save to file: under the name, above the picture (in view without scrolling).
+            col.addView(ReadySave.row(app, f.name, f.bytes, null));
             boolean hidden = !AppSettings.shows("I");
             if (b == null && !hidden) continue;
             final android.view.View view;
@@ -80,7 +82,6 @@ final class PictureOffer {
             });
             process.setTag("picture-ref:" + f.name);
             col.addView(process);
-            col.addView(ReadySave.row(app, pic.name, pic.bytes, null));
             shown++;
         }
         if (shown == 0) return false;
